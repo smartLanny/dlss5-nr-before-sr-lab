@@ -10,7 +10,7 @@ const { createOperationElevation } = require('./src/product/operation-elevation'
 const { workerArguments, runOperationWorker } = require('./src/product/operation-worker');
 const startup = createStartupDiagnostics();
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
-const operationWorkerRequested = process.argv.some(value => typeof value === 'string' && value.startsWith('--operation-worker='));
+const operationWorkerRequested = process.argv.some(value => typeof value === 'string' && (value.startsWith('--operation-worker=') || value.startsWith('--hoyo-launch-worker=')));
 let createAppService, createSrModelService, createLaunchSettingsService, createLaunchCoordinator, installGuards, createFgComponents, classifyApi;
 
 let win = null;
@@ -24,6 +24,7 @@ let preparation = null;
 let environment = null;
 let operationPlans = null;
 let operationElevation = null;
+let hoyoLaunchPlans = null;
 let launchSessions = null;
 let runtimeVerification = null;
 let gameAssessment = null;
@@ -98,6 +99,11 @@ async function inspectLaunchMode(id) {
   const seed = typeof service.assessmentSeed === 'function' ? await service.assessmentSeed(id) : null;
   const game = seed || (await service.listGames()).find(row => row.id === id), exe = service.gameExecutable(id);
   if (!game) throw Object.assign(new Error('游戏已不在当前库中。'), { code: 'LAUNCH_TARGET' });
+  const layout = service.getLayout(id);
+  if (layout.loadingBackend === 'hoyoshade') return { selected: layout.launcher?.kind || 'hoyoplay',
+    effective: layout.launcher?.kind || 'hoyoplay', exe, loadingBackend: 'hoyoshade', steamAvailable: false,
+    launcher: layout.launcher, bindingId: layout.bindingId,
+    instruction: layout.launcher?.kind === 'starward' ? '通过已绑定的 Starward 启动。' : '助手就绪后，在 HoYoPlay 中点击启动。' };
   const chosen = seed?.scan?.chosen || service.gameScan(id).chosen || game.chosen || {};
   const verified = game.verifiedSteamAppId || chosen.verifiedSteamAppId;
   const steamRoot = game.steamRoot || chosen.steamRoot;
@@ -111,6 +117,7 @@ async function inspectLaunchMode(id) {
 async function setLaunchMode(id, mode) {
   if (!['auto', 'steam', 'exe'].includes(mode)) throw Object.assign(new Error('启动方式无效。'), { code: 'LAUNCH_MODE' });
   const current = await inspectLaunchMode(id);
+  if (current.loadingBackend === 'hoyoshade') throw Object.assign(new Error('米哈游模式的启动方式由客户端绑定决定，请在兼容设置中修改。'), { code: 'LAUNCH_HOYO_BOUND' });
   if (mode === 'steam' && !current.steamAvailable) throw Object.assign(new Error('当前游戏没有可验证的 Steam 安装身份。'), { code: 'LAUNCH_STEAM_UNVERIFIED' });
   const state = service.store.read(), key = path.resolve(service.gameDirectory(id)).toLowerCase();
   await service.store.write({ gameOverrides: { ...state.gameOverrides, [key]: { ...state.gameOverrides[key], launchMode: mode, launchExecutable: current.exe } } });
@@ -447,6 +454,10 @@ function registerIpc() {
     if (result.canceled || !result.filePaths[0]) return null;
     return service.prepareGameSelection(result.filePaths[0], result.filePaths[0]);
   });
+  call('pick-hoyo-launcher', async () => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openFile'], title: '选择 HoYoPlay 或 Starward 启动器', filters: [{ name: 'Windows 启动器', extensions: ['exe'] }] });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
   call('game-confirm', selection => launchCoordinator.confirmSelection(selection));
   call('pick-game-icon', async () => {
     const result = await dialog.showOpenDialog(win, {
@@ -510,7 +521,7 @@ function registerIpc() {
   ipcMain.on('window-close', () => win && win.close());
 }
 
-async function initializeServices({ worker = false } = {}) {
+async function initializeServices({ worker = false, hoyoWorker = false, workerControls = null } = {}) {
     ({ createAppService } = require('./src/product/app-service'));
     ({ createSrModelService } = require('./src/product/sr-model-service'));
     ({ createLaunchSettingsService } = require('./src/product/launch-settings-service'));
@@ -525,7 +536,11 @@ async function initializeServices({ worker = false } = {}) {
       documentsDir: app.getPath('documents'),
       resourcesPath: process.resourcesPath,
       appDir: __dirname,
-      version: app.getVersion()
+      version: app.getVersion(),
+      overrides: { getFeatureEvidence: (id, domain) => featureProbe.inspect(id, domain), getKnownComponents: async id => fgComponents ? [
+        ...await fgComponents.ownedModuleManifest(id).then(rows => rows.map(row => ({ ...row, owned: true, compatibility: 'compatible' }))),
+        ...(typeof fgComponents.catalog === 'function' ? fgComponents.catalog() : []).map(row => ({ sha256: row.sha256, role: 'mfgunlock', compatibility: 'compatible' }))
+      ] : [] }
     });
     startup.log('state-store-opened');
     const configRecovery = service.store.readRecoveryStatus?.();
@@ -541,11 +556,17 @@ async function initializeServices({ worker = false } = {}) {
       gameDirectory: id => service.gameDirectory(id),
       gameExecutable: id => service.gameExecutable(id)
     });
+    const featureProbe = require('./src/product/native-enhancement-probe').createNativeEnhancementProbe({
+      gameDirectory: id => service.gameDirectory(id), gameExecutable: id => service.gameExecutable(id),
+      gameMetadata: id => service.assessmentSeed(id), scan: id => service.gameScan(id),
+      resourcesPath: process.resourcesPath, appDir: __dirname
+    });
     launchSettings = createLaunchSettingsService({
       userData, resourcesPath: process.resourcesPath, appDir: __dirname,
       gameDirectory: id => service.gameDirectory(id),
       getLayout: id => service.getLayout(id), scan: id => service.gameScan(id),
       gameExecutable: id => service.gameExecutable(id), legacySrModel: srModel,
+      getFeatureEvidence: (id, domain) => featureProbe.inspect(id, domain),
       assertComponents: async (id, backend) => {
         const state = await fgComponents.inspect(id);
         if (backend === 'rtx40') throw Object.assign(new Error('旧补帧后端仅允许恢复。'), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
@@ -561,6 +582,7 @@ async function initializeServices({ worker = false } = {}) {
       resourcesPath: process.resourcesPath, appDir: __dirname,
       gameDirectory: id => service.gameDirectory(id), gameExecutable: id => service.gameExecutable(id),
       getLayout: id => service.getLayout(id),
+      getFeatureEvidence: (id, domain) => featureProbe.inspect(id, domain),
       scan: id => {
         const scan = service.gameScan(id);
         const capability = require('./src/product/game-enhancement-capabilities').inspectNativeEnhancementCapabilities(scan);
@@ -583,21 +605,50 @@ async function initializeServices({ worker = false } = {}) {
     environment = require('./src/product/game-environment').createGameEnvironment({ gameDirectory: id => service.gameDirectory(id),
       gameExecutable: id => service.gameExecutable(id), guards: installGuards });
     const processes = require('./src/product/game-processes').createGameProcesses();
-    runtimeVerification = require('./src/product/runtime-verification').createRuntimeVerification({ layout: id => service.getLayout(id), processes, modules: id => service.gameModuleManifest(id) });
+    const nativeRuntimeVerification = require('./src/product/runtime-verification').createRuntimeVerification({ layout: id => service.getLayout(id), processes, modules: id => service.gameModuleManifest(id) });
+    const legacyRuntimeVerification = require('./src/product/legacy-runtime-verification').createLegacyRuntimeVerification({ appDir: __dirname, resourcesPath: process.resourcesPath,
+      processes, context: id => service.legacyRuntimeContext(id) });
+    runtimeVerification = {
+      prepare: (id, session) => service.legacyRuntimeContext(id) ? legacyRuntimeVerification.prepare(id, session) : nativeRuntimeVerification.prepare(id, session),
+      assess: (id, session) => service.legacyRuntimeContext(id) ? legacyRuntimeVerification.assess(id, session) : nativeRuntimeVerification.assess(id, session),
+      matched: (id, session) => service.legacyRuntimeContext(id) ? legacyRuntimeVerification.matched(id, session) : null
+    };
     const broker = require('./src/product/game-launch-broker').createGameLaunchBroker({ resourcesPath: process.resourcesPath });
+    const isAdministrator = async () => (await elevation.context()).privilege === 'administrator';
+    const hoyoLauncher = require('./src/product/hoyo-launcher').createHoYoLauncher({ broker, isAdministrator });
     const loadingHelper = require('./src/product/loading-helper').createLoadingHelper({ appDir: __dirname, resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
-      getLayout: id => service.getLayout(id), inspectDeployment: id => service.inspectDeployment(id), additionalModules: id => fgComponents.ownedModuleManifest(id) });
-    launchSessions = require('./src/product/launch-session').createLaunchSessions({ userData, processes, broker, helper: loadingHelper,
-      game: async id => { const mode = await inspectLaunchMode(id), layout = service.getLayout(id); return { exe: mode.exe, launchMode: mode.effective, steamAppId: mode.steamAppId, steamRoot: mode.steamRoot,
+      isAdministrator,
+      getLayout: id => service.getLayout(id), inspectDeployment: id => service.inspectDeployment(id), additionalModules: async id => [
+        ...await fgComponents.ownedModuleManifest(id), ...await service.feederModuleManifest(id)] });
+    launchSessions = require('./src/product/launch-session').createLaunchSessions({ userData, processes, broker, helper: loadingHelper, hoyoTimeoutMs: 300000,
+      game: async id => { const mode = await inspectLaunchMode(id), layout = service.getLayout(id);
+        if (layout.loadingBackend === 'hoyoshade') return hoyoLauncher.resolve(layout);
+        return { exe: mode.exe, launchMode: mode.effective, steamAppId: mode.steamAppId, steamRoot: mode.steamRoot,
         ...(layout.loadingMode === 'helper' ? { helper: { gameId: id } } : {}) }; },
-      launchDirect: id => service.launch(id), beforeLaunch: (id, session) => runtimeVerification.prepare(id, session),
-      emit: session => { if (win && !win.isDestroyed()) win.webContents.send('launch-session-updated', session); } });
+      launchDirect: id => service.launch(id), launchHoYo: id => hoyoLauncher.launch(service.getLayout(id)),
+      beforeLaunch: async (id, session) => { await service.prepareRuntimeLaunch(id, session); return runtimeVerification.prepare(id, session); },
+      onGameMatched: async (id, session) => { await service.recordRuntimeLaunch(id, session); return runtimeVerification.matched(id, session); },
+      emit: async session => {
+        if (hoyoWorker && workerControls) await workerControls.publish({ session: { ...session, elevated: true }, checkedAt: new Date().toISOString() });
+        if (win && !win.isDestroyed()) win.webContents.send('launch-session-updated', session);
+      } });
+    const hoyoElevation = require('./src/product/hoyo-launch-elevation');
+    const ordinarySessions = launchSessions, localVerification = runtimeVerification;
+    hoyoLaunchPlans = hoyoElevation.createHoYoLaunchPlans({ userData, service, helper: loadingHelper, launcher: hoyoLauncher, guards: installGuards,
+      execute: hoyoWorker ? plan => hoyoElevation.runHoYoRuntime({ plan, sessions: ordinarySessions, verification: localVerification, processes, controls: workerControls }) : null });
+    if (!worker) {
+      launchSessions = hoyoElevation.createHoYoElevatedSessions({ userData, plans: hoyoLaunchPlans, normal: ordinarySessions,
+        getLayout: id => service.getLayout(id), processInfo: process, appPath: __dirname, packaged: app.isPackaged, runPowerShell,
+        log: startup.log, emit: session => { if (win && !win.isDestroyed()) win.webContents.send('launch-session-updated', session); } });
+      runtimeVerification = { ...localVerification, assess: async (id, session) => await launchSessions.assess(id, session) || localVerification.assess(id, session) };
+    }
     operationPlans = require('./src/product/operation-plan').createOperationPlans({ userData, service, settings: launchSettings,
       components: fgComponents, fgWorkflow, environment, preparation, guards: installGuards, applyEnhancement,
       restoreForUninstall: id => launchCoordinator.restoreForUninstall(id), setLaunchMode, inspectLaunchMode });
     verificationRecords = require('./src/product/game-verification-records').createGameVerificationRecords({ userData,
       gameExecutable: id => service.gameExecutable(id), layout: id => service.getLayout(id), coreIdentity: id => service.gameCoreIdentity(id), launchSession: id => launchSessions.inspect(id) });
     const componentAssessment = require('./src/product/component-assessment').createComponentAssessment({ layout: id => service.getLayout(id), allowExplicitExpectedPaths: true,
+      knownPayloads: () => service.knownComponentCatalog(),
       getExpectedModules: async id => [...await service.gameModuleManifest(id), ...await fgComponents.ownedModuleManifest(id)] });
     gameAssessment = require('./src/product/game-assessment').createGameAssessment({ service, settings: launchSettings, coordinator: launchCoordinator,
       environment, operations: operationPlans, launches: launchSessions, verification: runtimeVerification, launchMode: inspectLaunchMode,
@@ -612,8 +663,9 @@ async function startApplication() {
   if (worker) {
     await app.whenReady();
     const result = await runOperationWorker({ userData: app.getPath('userData'), args: worker, processInfo: process, appPath: __dirname,
-      runPowerShell, elevation, log: startup.log, initialize: async () => {
-        await initializeServices({ worker: true }); await service.boot(); return { plans: operationPlans };
+      runPowerShell, elevation, log: startup.log, initialize: async controls => {
+        await initializeServices({ worker: true, hoyoWorker: worker.hoyoRuntime === true, workerControls: controls }); await service.boot();
+        return { plans: worker.hoyoRuntime ? hoyoLaunchPlans : operationPlans };
       } });
     await launchSessions?.dispose(); service?.dispose?.(); app.exit(result.ok ? 0 : 1); return;
   }

@@ -53,6 +53,8 @@ test('prepare atomically publishes an EXE/package-bound external profile and mut
   assert.equal(path.dirname(path.dirname(prepared.basePath)), f.service.runtimeRoot);
   assert.equal(fs.existsSync(path.join(prepared.basePath, 'ReShade64.dll')), true);
   assert.equal(fs.existsSync(path.join(f.game, 'ReShade64.dll')), false);
+  assert.match(fs.readFileSync(path.join(prepared.basePath, 'ReShade.ini'), 'utf8'), /KeyOverlay=187,0,0,0/);
+  assert.equal(fs.readFileSync(path.join(f.packageRoot, 'ReShade.ini'), 'utf8'), f.contents['ReShade.ini'], 'the pinned source template stays unchanged');
 
   fs.writeFileSync(path.join(prepared.basePath, 'ReShade.ini'), '[INSTALL]\nBasePath=user-choice\n');
   const inspected = await f.service.inspect({ exe: f.exe, basePath: prepared.basePath });
@@ -62,6 +64,29 @@ test('prepare atomically publishes an EXE/package-bound external profile and mut
   const reused = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
   assert.equal(reused.reused, true);
   assert.match(fs.readFileSync(path.join(prepared.basePath, 'ReShade.ini'), 'utf8'), /user-choice/);
+});
+
+test('Vulkan first-install preview hashes the equals default and respects an explicit source key or existing user key', async t => {
+  for (const custom of [false, true]) {
+    const f = fixture(t);
+    if (custom) {
+      const text = f.contents['ReShade.ini'] + '[INPUT]\nKeyOverlay=120,1,0,1\n';
+      fs.writeFileSync(path.join(f.packageRoot, 'ReShade.ini'), text);
+      f.recipe.files.find(row => row.target === 'ReShade.ini').sha256 = hash(text);
+    }
+    const preview = await f.service.previewPrepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+    const proposed = preview.changes.find(row => row.name === 'ReShade.ini');
+    assert.equal(fs.existsSync(proposed.path), false);
+    const installed = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+    const ini = path.join(installed.basePath, 'ReShade.ini'), bytes = fs.readFileSync(ini);
+    assert.equal(hash(bytes), proposed.afterSha256);
+    assert.match(bytes.toString(), custom ? /KeyOverlay=120,1,0,1/ : /KeyOverlay=187,0,0,0/);
+    const personal = '[INPUT]\nKeyOverlay=36,0,1,0\n'; fs.writeFileSync(ini, personal);
+    const reused = await f.service.previewPrepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+    assert.equal(reused.changes.find(row => row.name === 'ReShade.ini').afterSha256, hash(personal));
+    await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+    assert.equal(fs.readFileSync(ini, 'utf8'), personal);
+  }
 });
 
 test('inspect rejects immutable drift and prepare does not overwrite the changed installed file', async t => {

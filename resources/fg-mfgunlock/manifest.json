@@ -1,47 +1,111 @@
 {
-  "version": 2,
+  "version": 3,
   "backend": "mfgunlock",
-  "id": "mfgunlock-0.6.1",
-  "releaseVersion": "0.6.1",
-  "license": "MIT",
-  "files": {
-    "addon": {
-      "file": "renodx-mfgunlock.addon64",
-      "sha256": "334a750accb892a8422b88f2891d91344f9dfeea9473bcd248f5e43a80d06b8c",
-      "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/0.6.1/renodx-mfgunlock.addon64"
-    },
-    "license": {
-      "file": "LICENSE",
-      "sha256": "4ce922ecb6aa4b60d24f63f6241f0436e960a00989d71c68e2eb81ecc3d718fd",
-      "url": "https://raw.githubusercontent.com/mavismmg/MFGAdaUnlock-RenoDx/a975e84712a6bfc84284f50c9621c349ee806734/LICENSE"
-    },
-    "readme": {
-      "file": "README.md",
-      "sha256": "2b8b6ded45233ce1454c7d8bd9fc39daf05d7f460dd006de389924f93005d1bc",
-      "url": "https://raw.githubusercontent.com/mavismmg/MFGAdaUnlock-RenoDx/a975e84712a6bfc84284f50c9621c349ee806734/README.md"
-    }
-  },
-  "sources": [
+  "defaultProvider": "mfgunlock-0.7-zh-CN",
+  "providers": [
     {
-      "repository": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx",
-      "release": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.6.1",
-      "tag": "0.6.1",
-      "commit": "a975e84712a6bfc84284f50c9621c349ee806734",
-      "publishedAt": "2026-09-04T20:48:46Z",
-      "sourceArchive": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/archive/refs/tags/0.6.1.zip",
-      "sourceArchiveSha256": "fcac60195f5a617350ae82f78519fc72ed60539888dcafbad5a0e1e8f59976d4",
-      "auditedAt": "2026-09-09T00:00:00Z",
-      "binaryExecuted": false
+      "id": "mfgunlock-0.7-zh-CN",
+      "releaseVersion": "0.7",
+      "label": "MFG Unlock 0.7 中文版",
+      "language": "zh-CN",
+      "directory": "",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx",
+        "tag": "0.7",
+        "commit": "ffe6169b5e98ad578fcf2c30614d06a567790fe1",
+        "origin": "source-build",
+        "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.7"
+      },
+      "files": {
+        "addon": {
+          "file": "renodx-mfgunlock.addon64",
+          "sha256": "2cd3a44e78429da4b07b2a50d694750e7b3dd34bf4ce007207f1635cf4a70d4e",
+          "buildScript": "scripts/build-fg-mfgunlock.ps1",
+          "sourceLock": "native/mfgunlock/source-lock.json"
+        },
+        "license": {
+          "file": "LICENSE",
+          "sha256": "4ce922ecb6aa4b60d24f63f6241f0436e960a00989d71c68e2eb81ecc3d718fd"
+        },
+        "readme": {
+          "file": "README.md",
+          "sha256": "59707735445f072c80f349eafcf73a51be5467699db2adde91cf806f757ecd2d"
+        }
+      }
+    },
+    {
+      "id": "mfgunlock-0.7",
+      "releaseVersion": "0.7",
+      "label": "MFG Unlock 0.7 官方原版",
+      "language": "en",
+      "directory": "versions/0.7",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx",
+        "tag": "0.7",
+        "commit": "ffe6169b5e98ad578fcf2c30614d06a567790fe1",
+        "origin": "official-release",
+        "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.7"
+      },
+      "files": {
+        "addon": {
+          "file": "renodx-mfgunlock.addon64",
+          "sha256": "6f42b545b122f4711a580dea6dda47b04a72d113bd76c371fa430ca377a7700f",
+          "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/0.7/renodx-mfgunlock.addon64"
+        },
+        "license": {
+          "file": "LICENSE",
+          "sha256": "4ce922ecb6aa4b60d24f63f6241f0436e960a00989d71c68e2eb81ecc3d718fd"
+        },
+        "readme": {
+          "file": "README.md",
+          "sha256": "59707735445f072c80f349eafcf73a51be5467699db2adde91cf806f757ecd2d"
+        }
+      }
+    },
+    {
+      "id": "mfgunlock-0.6.1",
+      "releaseVersion": "0.6.1",
+      "label": "MFG Unlock 0.6.1 回退版",
+      "language": "en",
+      "directory": "versions/0.6.1",
+      "license": "MIT",
+      "source": {
+        "repository": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx",
+        "tag": "0.6.1",
+        "commit": "a975e84712a6bfc84284f50c9621c349ee806734",
+        "origin": "official-release",
+        "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.6.1"
+      },
+      "files": {
+        "addon": {
+          "file": "renodx-mfgunlock.addon64",
+          "sha256": "334a750accb892a8422b88f2891d91344f9dfeea9473bcd248f5e43a80d06b8c",
+          "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/0.6.1/renodx-mfgunlock.addon64"
+        },
+        "license": {
+          "file": "LICENSE",
+          "sha256": "4ce922ecb6aa4b60d24f63f6241f0436e960a00989d71c68e2eb81ecc3d718fd"
+        },
+        "readme": {
+          "file": "README.md",
+          "sha256": "2b8b6ded45233ce1454c7d8bd9fc39daf05d7f460dd006de389924f93005d1bc"
+        }
+      }
     }
   ],
   "requirements": {
     "gpu": "RTX40",
     "architecture": "x64",
     "renderer": "dx12",
-    "vulkan": "experimental, not enabled by this backend",
     "loader": "existing ReShade with full add-on support",
-    "game": "existing Streamline DLSS Frame Generation",
+    "game": "verified native Streamline DLSS Frame Generation",
     "dlssgRuntime": "310.x or newer; no NVIDIA runtime is bundled or replaced"
   },
-  "configuration": { "file": "ReShade.ini", "section": "RenoDX.MFGUnlock", "owner": "launch-settings policy", "readAt": "process attach" }
+  "configuration": {
+    "file": "verified active ReShade.ini",
+    "section": "RenoDX.MFGUnlock",
+    "managerWritesRequire": "game fully closed"
+  }
 }

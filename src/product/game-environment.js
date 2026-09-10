@@ -7,6 +7,8 @@ const { promisify } = require('node:util');
 const execute = promisify(require('node:child_process').execFile);
 const { noLinks, inside, atomicJson } = require('./launch-safety');
 const { inspectComponentClues } = require('./component-assessment');
+const { snapshotAddonLoadingLayout, assertAddonSnapshot } = require('./addon-loading-layout');
+const { planAddonCompatibility } = require('./addon-compatibility');
 const PRODUCT = 'xiaofeng-environment-cleanup';
 const RECEIPT = '_DLSS5_Backup/xiaofeng-environment.json';
 const DIRECTORY = '_DLSS5_Backup/environment-cleanup';
@@ -127,6 +129,10 @@ function createGameEnvironment(options) {
     const t = target(id); await closed(t); await assertReady(id);
     if ((await record(t))?.state === 'isolated') fail('BACKUP_EXISTS', '上次环境清理仍保持隔离，可先撤销清理；现有备份不会被覆盖。');
     if (fs.existsSync(journal.pendingPath(t.game))) fail('OTHER_RECOVERY', '游戏仍有其他未完成操作，请先恢复。');
+    const snapshot = await snapshotAddonLoadingLayout({ exeDir: t.dir, gameId: id, architecture: 64, environment: options.environment || process.env });
+    const knownComponents = typeof options.knownComponents === 'function' ? await options.knownComponents(id) : options.knownComponents || [];
+    const compatibility = planAddonCompatibility(snapshot, { knownComponents });
+    if (compatibility.blockers.length) fail('LOAD_LAYOUT', '无法完整核对插件实际加载范围，请先恢复或修正配置。');
     const entries = await fsp.readdir(t.dir, { withFileTypes: true });
     const candidates = [];
     for (const entry of entries) {
@@ -134,22 +140,28 @@ function createGameEnvironment(options) {
       if (!graphicsFile(t, rel)) continue;
       const file = journal.safePath(t.game, rel), sha256 = await digest(file), bytes = (await fsp.stat(file)).size;
       const addon = /\.addon(?:32|64)?$/i.test(entry.name);
+      const decision = addon ? compatibility.decisions.find(row => key(row.path) === key(file)) : null;
       const clues = addon ? await inspectComponentClues(file) : null;
       const recognized = addon ? clues.classification === 'unknown' ? 'ReShade Add-on（来源未确认）' : clues.label : ['ReShade', 'OptiScaler', 'Ultimate ASI Loader', 'REFramework'].find(label => pe.versionMentions(file, label)) || null;
       const systemRuntime = !recognized && pe.versionMentions(file, 'Microsoft');
       const preserveAddon = addon && (!['core', 'native-carrier'].includes(clues.classification) || clues.evidence.some(row =>
         ['renodx-hdr', 'renodx-other', 'renodx-generic-nr', 'renodx-dlss5', 'mfgunlock', 'other-mod'].includes(row.classification)));
       candidates.push({ name: entry.name, rel, sha256, bytes, kind: recognized || (systemRuntime ? '游戏或系统运行组件' : '来源未确认的代理 DLL'),
-        selectable: !systemRuntime, selectedByDefault: Boolean(recognized) && !preserveAddon,
+        selectable: !systemRuntime && (!addon || decision?.moduleMayLoad === true),
+        selectedByDefault: addon ? decision?.action === 'isolate' : Boolean(recognized),
+        mandatory: addon && decision?.mandatory === true && decision.action === 'isolate',
+        ...(decision ? { compatibility: decision, loadState: decision.loadState } : {}),
         ...(clues ? { classification: clues.classification, source: clues.source, confidence: clues.confidence, evidence: clues.evidence } : {}),
-        note: preserveAddon ? 'HDR、其他模组或来源不明 Add-on 默认保留；需要清理时可明确选中，仍按原摘要备份和恢复。' : recognized ?
+        note: addon ? decision?.reason || '文件不在当前插件加载范围，保持原位。' : recognized ?
           addon && clues.confidence === 'hint' ? '仅名称提示可能属于旧核心；请核对后选择，清理时按原摘要备份。' : '可备份隔离，撤销清理时按原摘要恢复。' :
           systemRuntime ? '可能属于游戏本体，不列入清理。' : '可能是其他模组，也可能是游戏所需文件；不会自动选中。' });
     }
     if (candidates.length > 64) fail('TOO_MANY_FILES', '同目录插件过多，未自动扩大清理范围。');
-    const planId = crypto.randomUUID(), plan = { id, planId, exe: t.exe, exeHash: await digest(t.exe, 512 * 1024 * 1024), candidates, expires: Date.now() + 5 * 60 * 1000 };
+    const planId = crypto.randomUUID(), plan = { id, planId, exe: t.exe, exeHash: await digest(t.exe, 512 * 1024 * 1024), candidates, snapshot, expires: Date.now() + 5 * 60 * 1000 };
     plans.set(planId, plan);
-    return { planId, candidates, scope: (await inspect(id)).scope, requiresConfirmation: true };
+    return { planId, candidates, compatibility, scope: (await inspect(id)).scope, requiresConfirmation: true,
+      externalPlugins: compatibility.decisions.filter(row => key(path.dirname(row.path)) !== key(t.dir)).map(row => ({ ...row,
+        handledBy: 'deployment', note: '实际插件位于独立运行目录，请通过部署预览执行隔离与恢复。' })) };
   }
   async function validateWal(t, state) {
     const owner = state?.owner;
@@ -230,6 +242,8 @@ function createGameEnvironment(options) {
       if (await digest(t.exe, 512 * 1024 * 1024) !== plan.exeHash) fail('FILE_CHANGED', '游戏 EXE 在预览后改变，请重新检查。');
       const selected = names.map(name => plan.candidates.find(row => row.name === name && row.selectable));
       if (selected.some(row => !row) || selected.reduce((sum, row) => sum + row.bytes, 0) > 256 * 1024 * 1024) fail('SELECTION_INVALID', '所选清理范围无效或过大。');
+      if (plan.candidates.some(row => row.mandatory && !names.includes(row.name))) fail('CONFLICT_REQUIRED', '已确认冲突的插件必须一并备份隔离。');
+      await assertAddonSnapshot(plan.snapshot, { environment: options.environment || process.env });
       if ((await record(t))?.state === 'isolated') fail('BACKUP_EXISTS', '已有环境隔离备份，未覆盖。');
       const cleanupId = crypto.randomUUID(), next = { version: 1, product: PRODUCT, id: cleanupId, game: t.game, exe: t.exe, state: 'isolated', createdAt: new Date().toISOString(),
         files: selected.map((row, index) => ({ rel: row.rel, sha256: row.sha256, bytes: row.bytes, backup: `${DIRECTORY}/${cleanupId}/${index}.bin` })) };

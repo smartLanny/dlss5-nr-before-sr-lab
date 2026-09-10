@@ -6,10 +6,11 @@ const path = require('node:path');
 const { fixture, put, hashFile, INSTALLED_NAMES } = require('./helpers/operation-integration-fixture');
 const { createExternalRuntime, RECEIPT, PENDING } = require('../src/product/external-runtime');
 const { ADDON: MFG_ADDON } = require('../src/product/fg-mfgunlock-resources');
+const { enhancementEvidence } = require('./helpers/enhancement-evidence');
 const confirm = plan => ({ confirm: true, fingerprint: plan.fingerprint });
 
 for (const mode of ['clean', 'restore']) test(`OperationPlan direct external MFG ${mode} then reinstall retains owned history and deterministic preview paths`, async t => {
-  const f = await fixture(t, { family: 'RTX40' });
+  const f = await fixture(t, { family: 'RTX40', components: { getFeatureEvidence: async () => enhancementEvidence() } });
   const original = '[ADDON]\r\nAddonPath=.\\addon\r\n[GENERAL]\r\nEffectSearchPaths=.\\missing-shaders\\**\r\n';
   put(path.join(f.exeDir, 'ReShade.ini'), original);
   await f.apply({ api: 'dx12', version: 'fixture-core-1', deployment: 'external' });

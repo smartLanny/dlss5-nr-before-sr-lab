@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { readWindow, readFeederEvidence } = require('../src/product/feeder-runtime-evidence');
+const { readWindow, readFeederEvidence, readLegacyFeederEvidence } = require('../src/product/feeder-runtime-evidence');
 const { DIRECTORY } = require('../src/product/feeder-runtime');
 
 function fixture(t) {
@@ -53,4 +53,22 @@ test('log changes during the extra head read fail closed and hardlinks are not r
   assert.equal(result, null);
   const link = path.join(f.exeDir, 'linked.log'); fs.linkSync(f.file, link);
   assert.equal(await readWindow(f.file, 0), null);
+});
+
+test('0.15 native and host evidence require this game PID and a same-frame NR completion', async t => {
+  const f = fixture(t), layout = { addonDirectory: path.dirname(f.file) };
+  const marker = '[nr-feeder-session] pid=42 source=0151-external-v1\n';
+  f.write(marker + '[nr-feeder-completion] frame=120 epoch=2 nr_completed=1 output_recorded=1 provenance=Synthetic\n');
+  const native = await readLegacyFeederEvidence({ layout, lastLaunch: f.lastLaunch });
+  assert.equal(native.processed, true); assert.equal(native.runtimeVerified, false);
+  const client = path.join(layout.addonDirectory, 'dlss5-feed.log');
+  fs.writeFileSync(client, marker + '[nr-feeder-client-completion] frame=120 output_ready=1 nr_completed=0\n');
+  const read = () => readLegacyFeederEvidence({ layout, lastLaunch: f.lastLaunch, hostRequired: true });
+  assert.equal((await read()).processed, 'unknown');
+  fs.appendFileSync(client, '[nr-feeder-client-completion] frame=180 output_ready=1 nr_completed=1\n');
+  assert.equal((await read()).processed, true);
+  fs.appendFileSync(client, '[nr-feeder-client-retained] frame=181 host completion absent; no copy-home\n');
+  assert.equal((await read()).processed, false);
+  fs.appendFileSync(client, '[nr-feeder-session] pid=43 source=0151-external-v1\n');
+  assert.equal((await read()).processed, 'unknown');
 });

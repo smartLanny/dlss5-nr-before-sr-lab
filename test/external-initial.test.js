@@ -74,10 +74,14 @@ test('active custom directory and explicit DLL loads retain disabled HDR, sideca
   const f = fixture(t), addon = path.join(f.dir, 'addon'); fs.mkdirSync(addon);
   fs.writeFileSync(path.join(addon, 'hdr.addon64'), 'user HDR in searched directory');
   fs.writeFileSync(path.join(addon, 'hdr.ini'), 'UserBrightness=170');
-  fs.writeFileSync(path.join(addon, 'Explicit.dll'), 'explicit early user module');
+  fs.writeFileSync(path.join(addon, 'Explicit.dll'), 'RenoDX HDR explicit early user module');
   fs.appendFileSync(path.join(f.dir, 'ReShade.ini'), '[ADDON]\r\nLoadFromDllMain=.\\Explicit.dll\r\n');
   const before = fs.readFileSync(path.join(f.dir, 'ReShade.ini'));
-  const plan = await f.service.preview(f.game, f.request), result = await f.service.apply(plan.planId);
+  const first = await f.service.preview(f.game, f.request);
+  assert.equal(first.compatibility.isolate.some(row => row.name === 'Explicit.dll'), true);
+  const plan = await f.service.preview(f.game, { ...f.request, keepAddons: [{ path: path.join(addon, 'Explicit.dll'),
+    sha256: hash('RenoDX HDR explicit early user module'), configFingerprint: first.compatibility.configFingerprint }] });
+  const result = await f.service.apply(plan.planId);
   const active = result.layout.runtimeDir;
   assert.equal(fs.readFileSync(path.join(active, 'hdr.addon64'), 'utf8'), 'user HDR in searched directory');
   assert.equal(fs.readFileSync(path.join(active, 'hdr.ini'), 'utf8'), 'UserBrightness=170');
@@ -98,12 +102,37 @@ test('ambiguous or linked source layouts fail preview without creating any owner
   }
 });
 
+test('legacy Luma boolean early-load configuration migrates with a warning and restores exact original bytes', async t => {
+  const f = fixture(t), ini = path.join(f.dir, 'ReShade.ini');
+  fs.appendFileSync(ini, '[ADDON]\r\nLoadFromDllMain=0\r\n');
+  const before = fs.readFileSync(ini), plan = await f.service.preview(f.game, f.request);
+  assert.ok(plan.warnings.some(row => row.code === 'ADDON_LEGACY_BOOLEAN_LOAD'));
+  const installed = await f.service.apply(plan.planId);
+  assert.equal(addonValues(fs.readFileSync(installed.layout.activeConfigPath, 'utf8')).has('LoadFromDllMain'), false);
+  assert.equal((await f.service.inspect(f.game)).ready, true);
+  await f.service.remove(f.game, 'restore');
+  assert.deepEqual(fs.readFileSync(ini), before);
+});
+
 test('source changes after first external preview reject before a file WAL or profile exists', async t => {
   const f = fixture(t), plan = await f.service.preview(f.game, f.request);
   fs.appendFileSync(path.join(f.dir, 'ReShade.ini'), '; new external edit\n');
   await assert.rejects(f.service.apply(plan.planId), { code: 'DEPLOYMENT_PLAN_CHANGED' });
   assert.equal(fs.existsSync(f.pending), false); assert.equal(fs.existsSync(f.options.userData), false);
   assert.match(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), /new external edit/);
+});
+
+test('external source addons are isolated through their bound WAL and restored to original paths outside the game root', async t => {
+  const f = fixture(t), external = path.join(f.root, 'personal-external-addons'); fs.mkdirSync(external);
+  const userAddon = path.join(external, 'user.addon64'); fs.writeFileSync(userAddon, 'unverified external user addon');
+  const original = '[ADDON]\r\nAddonPath=' + external + '\r\n'; fs.writeFileSync(path.join(f.dir, 'ReShade.ini'), original);
+  const plan = await f.service.preview(f.game, f.request);
+  assert.equal(plan.changes.some(row => row.path === userAddon && row.role === 'source-addon' && row.afterSha256 === null), true);
+  await f.service.apply(plan.planId); assert.equal(fs.existsSync(userAddon), false);
+  const saved = JSON.parse(fs.readFileSync(f.receipt)); assert.equal(saved.isolatedAddons[0].path, userAddon);
+  await f.service.remove(f.game, 'restore');
+  assert.equal(fs.readFileSync(userAddon, 'utf8'), 'unverified external user addon');
+  assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), original);
 });
 
 test('first external interruption after publishing proxy recovers exact original config and leaves old unowned files', async t => {
@@ -136,7 +165,10 @@ test('direct standard layout converts to an owned ordinary install and its ordin
   const f = fixture(t), localIni = f.original.replace('AddonPath=.\\addon', 'AddonPath=.');
   fs.writeFileSync(path.join(f.dir, 'ReShade.ini'), localIni);
   fs.unlinkSync(path.join(f.dir, INSTALLED_NAMES.runtime));
-  const first = await f.service.preview(f.game, f.request); await f.service.apply(first.planId);
+  const initial = await f.service.preview(f.game, f.request);
+  const first = await f.service.preview(f.game, { ...f.request, addonKeep: initial.compatibility.isolate.map(row => ({
+    path: row.path, sha256: row.sha256, configFingerprint: initial.compatibility.configFingerprint })) });
+  await f.service.apply(first.planId);
   const external = f.service.getLayout(f.game);
   fs.writeFileSync(path.join(external.runtimeDir, INSTALLED_NAMES.config), '[NRBeforeSR]\nIntensity=1.7\n');
   const local = await f.service.preview(f.game, { mode: 'local' });
@@ -160,6 +192,47 @@ test('direct helper transition and later proxy transition keep the original unin
   await f.service.remove(f.game, 'restore');
   assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
   assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), false);
+});
+
+test('DX12 external proxy entry switches transactionally, auto preserves it and restore removes only the selected managed entry', async t => {
+  const f = fixture(t), first = await f.service.preview(f.game, { ...f.request, proxyEntry: 'd3d12' });
+  await f.service.apply(first.planId); assert.equal(fs.existsSync(path.join(f.dir, 'd3d12.dll')), true); assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), false);
+  const change = await f.service.preview(f.game, { mode: 'external', proxyEntry: 'dxgi' });
+  assert.equal(change.changes.filter(row => row.role === 'game-proxy').length, 2);
+  await f.service.apply(change.planId); assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), true); assert.equal(fs.existsSync(path.join(f.dir, 'd3d12.dll')), false);
+  const auto = await f.service.preview(f.game, { mode: 'external', proxyEntry: 'auto' }); assert.equal(auto.changes.some(row => row.role === 'game-proxy'), false);
+  await f.service.apply(auto.planId); await f.service.restore(f.game);
+  assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), false); assert.equal(fs.existsSync(path.join(f.dir, 'd3d12.dll')), false);
+  assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+});
+
+test('initial DX12 entry change archives the original verified loader and restores its exact old path and bytes', async t => {
+  const f = fixture(t), previous = 'old ReShade Searching for add-ons'; fs.writeFileSync(path.join(f.dir, 'dxgi.dll'), previous);
+  const first = await f.service.preview(f.game, { ...f.request, proxyEntry: 'd3d12' }); await f.service.apply(first.planId);
+  assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), false); assert.equal(fs.readFileSync(path.join(f.dir, 'd3d12.dll'), 'utf8'), 'ReShade Searching for add-ons');
+  await f.service.restore(f.game); assert.equal(fs.readFileSync(path.join(f.dir, 'dxgi.dll'), 'utf8'), previous);
+  assert.equal(fs.existsSync(path.join(f.dir, 'd3d12.dll')), false);
+});
+
+test('entry switch rejects an occupied destination and stale target changes before any owner writes', async t => {
+  const f = fixture(t), first = await f.service.preview(f.game, f.request); await f.service.apply(first.planId);
+  const alternate = path.join(f.dir, 'd3d12.dll'); fs.writeFileSync(alternate, 'unknown native library');
+  const receipt = fs.readFileSync(f.receipt); await assert.rejects(f.service.preview(f.game, { mode: 'external', proxyEntry: 'd3d12' }), { code: 'DEPLOYMENT_PROXY_CONFLICT' });
+  assert.deepEqual(fs.readFileSync(f.receipt), receipt); assert.equal(fs.readFileSync(alternate, 'utf8'), 'unknown native library');
+  fs.unlinkSync(alternate); const plan = await f.service.preview(f.game, { mode: 'external', proxyEntry: 'd3d12' });
+  fs.writeFileSync(alternate, 'late user file'); await assert.rejects(f.service.apply(plan.planId), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+  assert.equal(fs.readFileSync(alternate, 'utf8'), 'late user file'); assert.equal(fs.existsSync(f.pending), false);
+});
+
+test('interrupted external entry switch restores the original single live entry and receipt', async t => {
+  let switching = false;
+  const f = fixture(t, { afterWrite: ({ row }) => { if (switching && row.role === 'game-proxy') throw Object.assign(new Error('interrupted entry switch'), { preservePending: true }); } });
+  const first = await f.service.preview(f.game, f.request); await f.service.apply(first.planId); const receipt = fs.readFileSync(f.receipt);
+  const plan = await f.service.preview(f.game, { mode: 'external', proxyEntry: 'd3d12' }); switching = true;
+  await assert.rejects(f.service.apply(plan.planId), /interrupted entry switch/); assert.equal(fs.existsSync(f.pending), true);
+  const restarted = createExternalRuntime({ ...f.options, afterWrite: undefined }); await restarted.recover(f.game);
+  assert.deepEqual(fs.readFileSync(f.receipt), receipt); assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), true);
+  assert.equal(fs.existsSync(path.join(f.dir, 'd3d12.dll')), false); assert.equal(fs.existsSync(f.pending), false);
 });
 
 test('UTF-8 BOM survives a first external round trip and a changed root proxy is never blessed', async t => {

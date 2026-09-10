@@ -79,6 +79,28 @@ test('a UAC cancellation does not apply or retry and leaves no blocking reservat
   await assert.rejects(f.broker.apply('game', planId, { confirm: true, fingerprint }), { code: 'OPERATION_ELEVATION_START_FAILED' });
   assert.equal(f.state.applied, 0); assert.equal((await f.broker.inspect()).active, false);
 });
+
+test('a worker publishing its result between the response read and process exit keeps the real outcome', async t => {
+  for (const ok of [true, false]) {
+    const f = await fixture(t); let childReads = 0;
+    const broker = createOperationElevation({ ...f.brokerOptions, runPowerShell: async () => '102', inspectProcess: async pid => {
+      if (pid === 102 && ++childReads === 2) {
+        const lock = JSON.parse(await fs.readFile(locations(f.root).lock, 'utf8')), files = locations(f.root, lock.nonce);
+        const request = JSON.parse(await fs.readFile(files.request, 'utf8'));
+        const response = { version: 1, nonce: request.nonce, requestHash: lock.requestHash, planId, fingerprint,
+          parent: f.parent, child: f.child, target: request.target, targetVerified: true, ok,
+          ...(ok ? { result: { applied: true } } : { error: { code: 'LAUNCH_TARGET_TIMEOUT', message: 'launcher timeout' } }) };
+        await fs.mkdir(path.dirname(files.response), { recursive: true }); await fs.writeFile(files.response, JSON.stringify(response) + '\n');
+        f.state.alive.delete(102); return null;
+      }
+      return structuredClone(f.state.alive.get(pid) || null);
+    } });
+    if (ok) assert.equal((await broker.apply('game', planId, { confirm: true, fingerprint })).applied, true);
+    else await assert.rejects(broker.apply('game', planId, { confirm: true, fingerprint }), error =>
+      error.code === 'OPERATION_ELEVATION_WORKER_FAILED' && error.details.worker.error.code === 'LAUNCH_TARGET_TIMEOUT');
+    assert.equal((await broker.inspect()).active, false);
+  }
+});
 test('a PID without a response never becomes execution success and a live worker keeps the lock', async t => {
   const f = await fixture(t, { runPowerShell: async () => '102', timeoutMs: 5 });
   await assert.rejects(f.broker.apply('game', planId, { confirm: true, fingerprint }), { code: 'OPERATION_ELEVATION_TIMEOUT' });

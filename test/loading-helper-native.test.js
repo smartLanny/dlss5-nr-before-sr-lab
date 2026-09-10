@@ -30,24 +30,24 @@ function fixture(t) {
     assert.equal(path.dirname(dir), path.resolve(os.tmpdir())); fs.rmSync(dir, { recursive: true, force: true });
   });
   const game = (exe = target, args = []) => { const child = spawn(exe, args, { windowsHide: true, stdio: 'ignore' }); children.push(child); return child; };
-  function run(overrides = {}) {
+  function run(overrides = {}, extraArgs = []) {
     const args = { '--session': crypto.randomUUID(), '--target': target, '--target-sha': sha(target), '--loader': loader, '--loader-sha': sha(loader),
       '--config': config, '--config-sha': sha(config), '--timeout': '3000', ...overrides };
-    const events = [], waits = [], child = spawn(path.join(binaries, 'dlss5-load-helper.exe'), Object.entries(args).flat(), { windowsHide: true });
+    const events = [], waits = [], child = spawn(path.join(binaries, 'dlss5-load-helper.exe'), [...Object.entries(args).flat(), ...extraArgs], { windowsHide: true });
     children.push(child); let text = ''; const decoder = new StringDecoder('utf8');
     child.stdout.on('data', buffer => { text += decoder.write(buffer); const lines = text.split(/\r?\n/); text = lines.pop(); for (const line of lines) {
       const event = JSON.parse(line); const waiting = waits.shift(); if (waiting) waiting(event); else events.push(event);
     } });
     const next = () => events.length ? Promise.resolve(events.shift()) : new Promise(resolve => waits.push(resolve));
     const exited = new Promise(resolve => child.on('exit', code => resolve(code)));
-    return { child, args, next, exited };
+    return { child, args, next, exited, events };
   }
   return { target, loader, config, dir, game, run, cleanup: callback => cleanups.push(callback) };
 }
 test('native helper Ready is bound to identity and loads only its fixture module without ending game', { skip: !available }, async t => {
-  const f = fixture(t), original = fs.readFileSync(f.config), helper = f.run();
-  const ready = await helper.next(); assert.equal(ready.event, 'ready'); assert.equal(ready.targetExe, f.target); assert.equal(ready.configHash, sha(f.config));
-  const game = f.game(), attached = await helper.next(); assert.equal(attached.event, 'attached'); assert.equal(attached.gamePid, game.pid);
+  const f = fixture(t), original = fs.readFileSync(f.config), helper = f.run({ '--timeout': '300000' });
+  const ready = await helper.next(); assert.equal(ready.event, 'ready'); assert.equal(ready.targetExe, f.target); assert.equal(ready.configHash, sha(f.config)); assert.equal(ready.elevatedTarget, false);
+  const game = f.game(), attached = await helper.next(); assert.equal(attached.event, 'attached'); assert.equal(attached.gamePid, game.pid); assert.equal(attached.elevatedTarget, false);
   assert.equal(await helper.exited, 0); assert.equal(game.exitCode, null); assert.deepEqual(fs.readFileSync(f.config), original);
 });
 test('native helper refuses hash mismatch before Ready and leaves the file bytes unchanged', { skip: !available }, async t => {
@@ -59,16 +59,58 @@ test('native helper refuses an already running target and never terminates it', 
   const helper = f.run(), event = await helper.next(); assert.equal(event.event, 'failed'); assert.equal(event.error, 183);
   assert.equal(await helper.exited, 4); assert.equal(game.exitCode, null);
 });
+
+test('native helper rejects another ready manager for the exact target before either game is launched', { skip: !available }, async t => {
+  const f = fixture(t), first = f.run(); assert.equal((await first.next()).event, 'ready');
+  const second = f.run(), refused = await second.next(); assert.equal(refused.event, 'failed'); assert.equal(refused.error, 170);
+  assert.equal(await second.exited, 4);
+  const game = f.game(), result = await first.next(); assert.equal(result.event, 'attached'); assert.equal(result.gamePid, game.pid);
+  assert.equal(await first.exited, 0); assert.equal(game.exitCode, null);
+});
+
+for (const kind of ['same-sha', 'reshade-exports', 'ordinary-dxgi']) test(`native helper checks ${kind} module identity without terminating its target`, { skip: !available }, async t => {
+  const f = fixture(t), source = path.join(binaries, kind === 'reshade-exports' ? 'fixture-reshade.dll' : 'fixture-neutral.dll');
+  assert.equal(fs.existsSync(source), true);
+  const existing = path.join(path.dirname(f.target), kind === 'ordinary-dxgi' ? 'dxgi.dll' : path.basename(source)); fs.copyFileSync(source, existing);
+  if (kind !== 'ordinary-dxgi') fs.copyFileSync(path.join(binaries, kind === 'same-sha' ? 'fixture-preloaded-neutral.exe' : 'fixture-preloaded-reshade.exe'), f.target);
+  if (kind === 'same-sha') fs.copyFileSync(source, f.loader);
+  const helper = f.run(); assert.equal((await helper.next()).event, 'ready');
+  // Static imports make the conflicting module an image-load dependency,
+  // instead of racing an unrelated later LoadLibrary in the target's main.
+  const game = f.game(f.target, kind === 'ordinary-dxgi' ? ['4500', existing] : ['4500']), result = await helper.next();
+  assert.equal(result.gamePid, game.pid);
+  assert.equal(result.event, kind === 'ordinary-dxgi' ? 'attached' : 'failed');
+  if (kind !== 'ordinary-dxgi') assert.equal(result.error, 183);
+  assert.equal(await helper.exited, kind === 'ordinary-dxgi' ? 0 : 6); assert.equal(game.exitCode, null);
+  assert.equal(sha(existing), sha(source));
+});
 test('native helper ignores another EXE with the same filename and preserves its process', { skip: !available }, async t => {
   const f = fixture(t), otherDir = path.join(f.dir, 'other'); fs.mkdirSync(otherDir); const other = path.join(otherDir, path.basename(f.target)); fs.copyFileSync(f.target, other);
   const helper = f.run({ '--timeout': '1000' }); assert.equal((await helper.next()).event, 'ready');
   const game = f.game(other), failure = await helper.next(); assert.equal(failure.event, 'failed'); assert.equal(failure.error, 258);
   assert.equal(await helper.exited, 7); assert.equal(game.exitCode, null);
 });
-test('native helper rejects malformed session and timeout values before Ready', { skip: !available }, async t => {
+test('native helper rejects malformed session and out-of-range timeout values before Ready', { skip: !available }, async t => {
   const f = fixture(t);
-  for (const args of [{ '--timeout': '1000suffix' }, { '--session': '-'.repeat(36) }]) {
+  for (const args of [{ '--timeout': '1000suffix' }, { '--timeout': '999' }, { '--timeout': '300001' }, { '--session': '-'.repeat(36) }]) {
     const helper = f.run(args), event = await helper.next(); assert.equal(event.event, 'failed'); assert.equal(event.error, 87); assert.equal(await helper.exited, 2);
+  }
+});
+
+test('ordinary native helper refuses an explicit elevated target before Ready and binds the rejected mode', { skip: !available }, async t => {
+  const f = fixture(t), before = [f.target, f.loader, f.config].map(sha), helper = f.run({ '--elevated-target': '1' });
+  const failure = await helper.next();
+  assert.equal(failure.event, 'failed'); assert.equal(failure.elevatedTarget, true); assert.equal(failure.error, 87); assert.equal(failure.gamePid, 0);
+  assert.equal(await helper.exited, 2); assert.deepEqual([f.target, f.loader, f.config].map(sha), before);
+});
+
+test('native helper rejects malformed or ambiguous elevated options before any Ready event', { skip: !available }, async t => {
+  const f = fixture(t);
+  for (const value of ['0', 'true', '', '2', '1suffix']) {
+    const helper = f.run({ '--elevated-target': value }); assert.equal(await helper.exited, 2); assert.deepEqual(helper.events, []);
+  }
+  for (const args of [['--elevated-target'], ['--elevated-target', '1', '--elevated-target', '1'], ['--unknown-mode', '1']]) {
+    const helper = f.run({}, args); assert.equal(await helper.exited, 2); assert.deepEqual(helper.events, []);
   }
 });
 test('native helper detects configuration mutation after Ready and preserves the new target', { skip: !available }, async t => {
@@ -98,7 +140,9 @@ for (const [api, mutateAfterReady] of [['dx11', false], ['dx12', false], ['dx12'
   const layout = deployment.getLayout(game); assert.equal(layout.verified, true); assert.equal(layout.loadingMode, 'helper');
   const mfg = createFgComponents({ appDir: path.resolve(__dirname, '..'), gameDirectory: () => gameRoot, gameExecutable: () => f.target,
     getLayout: () => deployment.getLayout(game), assertGameClosed: async () => {}, antiCheatPresent: () => false,
-    detectHardware: async () => ({ series: ['RTX40'] }), scan: async () => ({ api, streamlineFg: true, reshadeAddon: true }),
+    detectHardware: async () => ({ series: ['RTX40'] }), scan: async () => ({ api, chosen: { path: f.target, bitness: 64, apiResolution: { api } }, streamlineFg: true, reshadeAddon: true }),
+    getFeatureEvidence: async () => ({ support: { status: 'supported', source: 'native-integration',
+      capabilities: { mfgUnlock: { available: api === 'dx12', multipliers: [2, 3, 4] } } } }),
     inspectFgRuntime: async () => ({ status: 'available', ready: true, fixture: true }) });
   const withMfgOwner = api === 'dx12' && !mutateAfterReady;
   if (withMfgOwner) { await mfg.prepare(game.id); assert.equal(layout.moduleManifest.some(row => row.name === MFG_ADDON), false); }

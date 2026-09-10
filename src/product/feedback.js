@@ -188,6 +188,8 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0', resolveFe
       '',
       '[当前诊断]',
       diagnostic ? `完整：${diagnostic.complete ? '是' : '否'}\n${(diagnostic.components || []).map(row => `${row.label}：${row.detail || (row.ok ? '完整' : '异常')}`).join('\n')}` : '诊断未生成。',
+      ...(diagnostic?.sourceNotice ? [`修复来源：${diagnostic.sourceNotice}`] : []),
+      ...(diagnostic?.availableUpdate ? [`可用更新：${diagnostic.availableUpdate.from} → ${diagnostic.availableUpdate.to}（与已装文件完整性分开）`] : []),
       '',
       '[最近管理器操作]',
       formatOperations(operations, includePaths),

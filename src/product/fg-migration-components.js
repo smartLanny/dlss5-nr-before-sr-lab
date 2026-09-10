@@ -4,7 +4,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const { noLinks, atomicJson } = require('./launch-safety');
-const { HASH, sha256, ADDON, SHA256 } = require('./fg-mfgunlock-resources');
+const { HASH, sha256, ADDON, knownProviderForHash } = require('./fg-mfgunlock-resources');
 const { jsonHash } = require('./fg-pending-recovery');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const RECEIPT = 'xiaofeng-fg-components.json';
@@ -40,8 +40,13 @@ function createMigrationStore({ journal, assertGameClosed, fileRecovery }) {
     if (!value.files.some(row => same(journal.safePath(t.game, row.rel), receiptFile(t)) && row.existed)) fail('SETTINGS_FG_MIGRATION_RECORD', 'FG 迁移缺少原收据快照。');
     if (value.prepared) {
       const p = value.prepared;
-      if (p.addonRel !== path.relative(t.game, path.join(t.dir, ADDON)) || ![null, SHA256].includes(p.addonBefore) ||
-          p.addonAfter !== SHA256 || !HASH.test(p.receiptAfter || '') || p.receiptBeforeText !== null || !UUID.test(p.undoToken || '')) fail('SETTINGS_FG_MIGRATION_RECORD', '新 FG 准备撤销记录无效。');
+      if (p.addonRel !== path.relative(t.game, path.join(t.dir, ADDON)) || !(p.addonBefore === null || knownProviderForHash(p.addonBefore)) ||
+          !knownProviderForHash(p.addonAfter) || !HASH.test(p.receiptAfter || '') || p.receiptBeforeText !== null || !UUID.test(p.undoToken || '')) fail('SETTINGS_FG_MIGRATION_RECORD', '新 FG 准备撤销记录无效。');
+      if (p.addonBefore !== null && p.addonBefore !== p.addonAfter) {
+        if (!/^_DLSS5_Backup\/\.fg-originals\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/addon\.bin$/.test(p.addonBeforeSnapshot || ''))
+          fail('SETTINGS_FG_MIGRATION_RECORD', '新 FG 版本切换缺少原组件快照。');
+        await noLinks(journal.safePath(t.game, p.addonBeforeSnapshot));
+      } else if (p.addonBeforeSnapshot) fail('SETTINGS_FG_MIGRATION_RECORD', '新 FG 撤销快照与原件状态不一致。');
     }
     return value;
   }
@@ -84,6 +89,8 @@ function createMigrationStore({ journal, assertGameClosed, fileRecovery }) {
   async function checkRollback(t, value) {
     if (value.state === 'removing') fail('errBackendRecovery', '旧组件事务尚未完成，请先恢复共享文件日志。');
     if (value.prepared && hashFile(journal.safePath(t.game, value.prepared.addonRel)) !== value.prepared.addonAfter) fail('SETTINGS_FG_EXTERNAL_CHANGE', '新 MFG Add-on 已发生外部变化，未回滚迁移。');
+    if (value.prepared?.addonBeforeSnapshot && hashFile(journal.safePath(t.game, value.prepared.addonBeforeSnapshot)) !== value.prepared.addonBefore)
+      fail('SETTINGS_FG_EXTERNAL_CHANGE', '新 MFG 撤销快照已发生变化，未回滚迁移。');
     for (const row of value.files) {
       const file = journal.safePath(t.game, row.rel); await noLinks(file);
       const expected = value.prepared && same(file, receiptFile(t)) ? value.prepared.receiptAfter : row.after;
@@ -103,7 +110,7 @@ function createMigrationStore({ journal, assertGameClosed, fileRecovery }) {
     const value = await read(t);
     if (!value || value.token !== token) fail('SETTINGS_FG_MIGRATION_TOKEN', 'FG 迁移凭据无效或已完成。');
     if (rollback) await checkRollback(t, value);
-    else if (value.state !== 'prepared' || hashFile(path.join(t.dir, ADDON)) !== SHA256 || hashFile(receiptFile(t)) !== value.prepared?.receiptAfter) fail('SETTINGS_FG_MIGRATION_PENDING', '新 MFG 组件尚未完整准备，迁移快照仍保留。');
+    else if (value.state !== 'prepared' || hashFile(path.join(t.dir, ADDON)) !== value.prepared?.addonAfter || hashFile(receiptFile(t)) !== value.prepared?.receiptAfter) fail('SETTINGS_FG_MIGRATION_PENDING', '新 MFG 组件尚未完整准备，迁移快照仍保留。');
     const result = await fileRecovery.transaction(t, rollback ? 'migration-rollback' : 'migration-commit', async () => {
       const fresh = await read(t);
       if (JSON.stringify(fresh) !== JSON.stringify(value)) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'FG 迁移记录已在操作前改变。');
@@ -112,6 +119,10 @@ function createMigrationStore({ journal, assertGameClosed, fileRecovery }) {
         await checkRollback(t, value);
         if (value.prepared?.addonBefore === null) {
           const addon = journal.safePath(t.game, value.prepared.addonRel); await noLinks(addon); await fileRecovery.capture(t, addon, null); await fsp.unlink(addon);
+        } else if (value.prepared?.addonBeforeSnapshot) {
+          const p = value.prepared, addon = journal.safePath(t.game, p.addonRel); await noLinks(addon); await fileRecovery.capture(t, addon, p.addonBefore);
+          await fsp.copyFile(journal.safePath(t.game, p.addonBeforeSnapshot), addon);
+          if (hashFile(addon) !== p.addonBefore) fail('SETTINGS_FG_WRITE', 'MFG 原组件恢复摘要不符。');
         }
         for (const row of [...value.files].reverse()) {
           const file = journal.safePath(t.game, row.rel); await noLinks(file); await fileRecovery.capture(t, file, row.existed ? row.before : null);

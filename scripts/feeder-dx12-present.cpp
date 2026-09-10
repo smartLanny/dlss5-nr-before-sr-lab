@@ -284,7 +284,7 @@ int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,LPWSTR,int) {
         if(elapsed<minFrameMs)Sleep(static_cast<DWORD>(minFrameMs-elapsed));
     }
     renderer.wait();
-    const bool feeder=GetModuleHandleW(L"dlss5-feed-dx12-sdr.addon64")!=nullptr;
+    const bool feeder=GetModuleHandleW(L"dlss5-feed-dx12-sdr.addon64")!=nullptr || GetModuleHandleW(L"dlss5-feed.addon64")!=nullptr;
     std::ofstream out("feeder-dx12-report.json",std::ios::binary|std::ios::trunc);need(bool(out),"fixture report");
     out<<"{\n  \"schema\":1,\"api\":\"dx12\",\"pid\":"<<GetCurrentProcessId()<<",\"frames\":"<<completed
        <<",\"requestedFrames\":"<<frames<<",\"drawCalls\":"<<renderer.draws<<",\"actualSrgbSwapchain\":true,\"feederLoaded\":"<<(feeder?"true":"false")

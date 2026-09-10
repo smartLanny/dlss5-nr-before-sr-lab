@@ -1,0 +1,315 @@
+{
+  "schema": 1,
+  "revision": "d3d9on12-provider-fix-r2",
+  "upstreamCommit": "3f624855276c4bde55145c712782477639b30e85",
+  "source": {
+    "scripts/feeder-beta3/nr_feeder_d3d9.cpp": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+    "scripts/feeder-beta3/nr_feeder_control.h": "065526266d538bfa79e72dcc2922b1b6f651627a4bee0763c4cc8220532decbf",
+    "scripts/feeder-beta3/nr_feeder_query.h": "eaaa774eac519f4253d08055481a337270dd3ee17dc794f51a0710b6f8fce12e",
+    "scripts/feeder-beta3/nr_feeder_ipc_client.h": "ce8290338f20a1e599464f7ea0b0c1e8a1cd8625c86be66ff1a4728d41c79377",
+    "scripts/feeder-beta3/nr_feeder_depth_copy.h": "01701c4089f8ffa575fdd22d87f1bfa5a86203a314be37f0310e0945696f26c8"
+  },
+  "compiler": "MSVC (Visual Studio 2022), /std:c++20 /O2 /MT /utf-8 /LD /Brepro; ReShade and ImGui headers from source-pinned Feeder stage",
+  "builder": {
+    "path": "scripts/feeder-d3d9on12-build-provider.ps1",
+    "sha256": "30239f014e4d145e0662feed34edefbd370e10f020f1122820f2a867ffee225d"
+  },
+  "assets": [
+    {
+      "architecture": "x86",
+      "bytes": 188928,
+      "sha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221"
+    },
+    {
+      "architecture": "x64",
+      "bytes": 233984,
+      "sha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731"
+    }
+  ],
+  "defender": {
+    "schema": 1,
+    "checkedAt": "2026-09-10T12:15:41.3679122Z",
+    "ok": true,
+    "engine": "1.1.26080.3",
+    "signatures": "1.459.142.0",
+    "signaturesUpdatedAt": "2026-09-10T12:30:59+08:00",
+    "antivirusEnabled": true,
+    "realTimeProtectionEnabled": true,
+    "fileExclusionsIgnored": true,
+    "archivesScanned": true,
+    "scope": "This Microsoft Defender scan only; not a guarantee for other security products or future definitions.",
+    "results": [
+      {
+        "path": "C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x86\\dlss5-feed-dx9.addon32",
+        "ok": true,
+        "exitCode": 0,
+        "detected": false,
+        "unchanged": true,
+        "files": [
+          {
+            "path": "C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x86\\dlss5-feed-dx9.addon32",
+            "bytes": 188928,
+            "sha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221"
+          }
+        ],
+        "output": "Scan starting...\nScan finished.\nScanning C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x86\\dlss5-feed-dx9.addon32 found no threats."
+      },
+      {
+        "path": "C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x64\\dlss5-feed-dx9.addon64",
+        "ok": true,
+        "exitCode": 0,
+        "detected": false,
+        "unchanged": true,
+        "files": [
+          {
+            "path": "C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x64\\dlss5-feed-dx9.addon64",
+            "bytes": 233984,
+            "sha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731"
+          }
+        ],
+        "output": "Scan starting...\nScan finished.\nScanning C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\manager-048-unified-20260909\\build\\feeder-d3d9on12-fix-provider-r2\\x64\\dlss5-feed-dx9.addon64 found no threats."
+      }
+    ]
+  },
+  "controlled": [
+    {
+      "schema": 1,
+      "candidate": false,
+      "providerSha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221",
+      "sourceSha256": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+      "gamePid": 103592,
+      "exitCode": 0,
+      "completedAt": "2026-09-10T12:16:56.6098445Z",
+      "unboundDepthFixed": true,
+      "disabledSubmissionsStopped": true,
+      "disabledCopiesStopped": true,
+      "shaderSwitchIndependent": true,
+      "reenableVerified": true,
+      "resetWithPendingDepthVerified": true,
+      "configurationPreserved": true,
+      "realGameVerified": false,
+      "samples": [
+        {
+          "frame": 180,
+          "enabled": 1,
+          "presents": 180,
+          "submitted": 179,
+          "copied": 179,
+          "nrCompleted": 172,
+          "disabledPresents": 0,
+          "sceneDepthFrames": 179,
+          "shaders": true
+        },
+        {
+          "frame": 211,
+          "enabled": 0,
+          "presents": 211,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 27,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 240,
+          "enabled": 0,
+          "presents": 240,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 56,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 270,
+          "enabled": 0,
+          "presents": 270,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 86,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 300,
+          "enabled": 0,
+          "presents": 300,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 116,
+          "sceneDepthFrames": 183,
+          "shaders": false
+        },
+        {
+          "frame": 390,
+          "enabled": 1,
+          "presents": 390,
+          "submitted": 268,
+          "copied": 268,
+          "nrCompleted": 256,
+          "disabledPresents": 120,
+          "sceneDepthFrames": 268,
+          "shaders": false
+        },
+        {
+          "frame": 420,
+          "enabled": 1,
+          "presents": 420,
+          "submitted": 298,
+          "copied": 298,
+          "nrCompleted": 286,
+          "disabledPresents": 120,
+          "sceneDepthFrames": 298,
+          "shaders": true
+        },
+        {
+          "frame": 600,
+          "enabled": 1,
+          "presents": 600,
+          "submitted": 477,
+          "copied": 477,
+          "nrCompleted": 458,
+          "disabledPresents": 120,
+          "sceneDepthFrames": 477,
+          "shaders": true
+        }
+      ],
+      "providerLogSha256": "afbda4d2f637510eb0111f2b987c0d6932d5e873e0f3d5f712c601a87f483a08"
+    },
+    {
+      "schema": 1,
+      "candidate": false,
+      "providerSha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731",
+      "sourceSha256": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+      "gamePid": 29700,
+      "exitCode": 0,
+      "completedAt": "2026-09-10T12:31:38.9100480Z",
+      "unboundDepthFixed": true,
+      "disabledSubmissionsStopped": true,
+      "disabledCopiesStopped": true,
+      "shaderSwitchIndependent": true,
+      "reenableVerified": true,
+      "resetWithPendingDepthVerified": true,
+      "configurationPreserved": true,
+      "realGameVerified": false,
+      "samples": [
+        {
+          "frame": 180,
+          "enabled": 1,
+          "presents": 180,
+          "submitted": 179,
+          "copied": 179,
+          "nrCompleted": 172,
+          "disabledPresents": 0,
+          "sceneDepthFrames": 179,
+          "shaders": true
+        },
+        {
+          "frame": 211,
+          "enabled": 0,
+          "presents": 211,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 27,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 240,
+          "enabled": 0,
+          "presents": 240,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 56,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 270,
+          "enabled": 0,
+          "presents": 270,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 86,
+          "sceneDepthFrames": 183,
+          "shaders": true
+        },
+        {
+          "frame": 300,
+          "enabled": 0,
+          "presents": 300,
+          "submitted": 183,
+          "copied": 183,
+          "nrCompleted": 176,
+          "disabledPresents": 116,
+          "sceneDepthFrames": 183,
+          "shaders": false
+        },
+        {
+          "frame": 390,
+          "enabled": 1,
+          "presents": 390,
+          "submitted": 269,
+          "copied": 269,
+          "nrCompleted": 257,
+          "disabledPresents": 119,
+          "sceneDepthFrames": 269,
+          "shaders": false
+        },
+        {
+          "frame": 420,
+          "enabled": 1,
+          "presents": 420,
+          "submitted": 299,
+          "copied": 299,
+          "nrCompleted": 287,
+          "disabledPresents": 119,
+          "sceneDepthFrames": 299,
+          "shaders": true
+        },
+        {
+          "frame": 600,
+          "enabled": 1,
+          "presents": 600,
+          "submitted": 478,
+          "copied": 478,
+          "nrCompleted": 459,
+          "disabledPresents": 119,
+          "sceneDepthFrames": 478,
+          "shaders": true
+        }
+      ],
+      "providerLogSha256": "7df35bb3e06fcdaea2f161a25d01bdd5f6dbf8e8bba97f5bbe5d84f46e9fe578"
+    }
+  ],
+  "probes": [
+    {
+      "schema": 1,
+      "architecture": "x86",
+      "compileLinkVerified": true,
+      "sourceSha256": "ac0a885a1548dcaee6068c5de9515fb59b35608366d664f66fc107d3476fd154",
+      "sha256": "52a5eb9842d51086bb9af3271ccd9ef980c48a3c5764c227cb72c48f3acaee64",
+      "gpuRun": false
+    },
+    {
+      "schema": 1,
+      "architecture": "x64",
+      "compileLinkVerified": true,
+      "sourceSha256": "ac0a885a1548dcaee6068c5de9515fb59b35608366d664f66fc107d3476fd154",
+      "sha256": "4f6af1a67617596f1abbddb2bc3db19722ebe5cdc12426a0b0ad9d658820814c",
+      "gpuRun": false
+    }
+  ],
+  "realGameVerified": false,
+  "archive": "build/feeder-d3d9on12-r2-promotion",
+  "previousPoolFingerprint": "b2b0f9aaae51315306874834193b019db79cdd3122e35a1cead1367672cf9519",
+  "previousRecipeCount": 48,
+  "previousRecipeArchiveSha256": "2cab95910eace7d9b97961c4ce847bdec27089aac4b638c81c558e605a84469a"
+}

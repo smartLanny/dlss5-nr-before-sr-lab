@@ -4,11 +4,28 @@ const fs = require('fs');
 const path = require('path');
 const { appError } = require('./errors');
 
-const DEFAULT_RESHADE_KEY = 36;
+const DEFAULT_RESHADE_KEY = 187;
 // KeyOverlay stores [Windows virtual key, Ctrl, Shift, Alt]. OEM punctuation
 // stays numeric here (e.g. '=' is VK_OEM_PLUS 0xBB, not character code 0x3D).
 // Reference: https://github.com/crosire/reshade/blob/main/source/input.hpp
 const DEFAULT_RESHADE_VALUES = [DEFAULT_RESHADE_KEY, 0, 0, 0];
+const DEFAULT_RESHADE_BINDING = Object.freeze({ key: DEFAULT_RESHADE_KEY, ctrl: false, shift: false, alt: false });
+
+function hasKeyOverlay(text) {
+  let active = false;
+  for (const raw of String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const section = raw.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (section) { active = section[1].trim().toLowerCase() === 'input'; continue; }
+    if (active && /^\s*KeyOverlay\s*=/i.test(raw)) return true;
+  }
+  return false;
+}
+function ensureDefaultReShadeHotkey(text) {
+  // An explicit key, including 0 (disabled), belongs to the user or runtime.
+  // Do not normalize or replace it while preparing unrelated components.
+  const current = String(text || '');
+  return hasKeyOverlay(current) ? current : updateKeyOverlay(current, DEFAULT_RESHADE_BINDING);
+}
 
 function normalizeBinding(binding) {
   if (!binding || typeof binding !== 'object') throw appError('ERR_BAD_REQUEST');
@@ -118,6 +135,9 @@ async function writeReShadeHotkey(file, binding) {
 
 module.exports = {
   DEFAULT_RESHADE_KEY,
+  DEFAULT_RESHADE_BINDING,
+  hasKeyOverlay,
+  ensureDefaultReShadeHotkey,
   parseKeyOverlay,
   updateKeyOverlay,
   readReShadeHotkey,

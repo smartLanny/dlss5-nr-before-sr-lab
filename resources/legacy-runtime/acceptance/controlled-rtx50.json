@@ -1,0 +1,1654 @@
+{
+  "schema": 1,
+  "hardwareFamily": "RTX50",
+  "hardware": "NVIDIA GeForce RTX 5090 Laptop GPU",
+  "luid": "00000000:00014EC3",
+  "scope": "Controlled same-frame SDR Synthetic post-process NR, VORT pixel guides, one resize/reset, exact final immutable components. No native SR/FG injection or game image-quality acceptance.",
+  "RTX40": {
+    "fileVerified": true,
+    "controlledRuntimeVerified": false,
+    "reason": "No RTX40 hardware in this controlled environment."
+  },
+  "realGameVerified": false,
+  "routes": [
+    {
+      "api": "dx9",
+      "architecture": "x86",
+      "loadingBackend": "local",
+      "proxyEntry": "d3d9",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 600,
+      "gamePid": 103592,
+      "proof": {
+        "beforeResize": {
+          "type": "game-received-host-completion",
+          "hostPid": 14720,
+          "dimensions": [
+            640,
+            360
+          ],
+          "receivedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150,
+            180,
+            210,
+            240,
+            270
+          ]
+        },
+        "afterResize": {
+          "type": "game-received-host-completion",
+          "hostPid": 51116,
+          "dimensions": [
+            768,
+            432
+          ],
+          "receivedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150
+          ]
+        },
+        "currentFrameSceneDepthVerified": true,
+        "independentNrSwitchVerified": true,
+        "disabledSubmitAndCopyStopped": true,
+        "reenableHistoryVerified": true,
+        "resetWithPendingDepthVerified": true,
+        "configurationPreserved": true,
+        "samples": [
+          {
+            "frame": 180,
+            "enabled": 1,
+            "presents": 180,
+            "submitted": 179,
+            "copied": 179,
+            "nrCompleted": 172,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 179,
+            "shaders": true
+          },
+          {
+            "frame": 211,
+            "enabled": 0,
+            "presents": 211,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 27,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 240,
+            "enabled": 0,
+            "presents": 240,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 56,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 270,
+            "enabled": 0,
+            "presents": 270,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 86,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 300,
+            "enabled": 0,
+            "presents": 300,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 116,
+            "sceneDepthFrames": 183,
+            "shaders": false
+          },
+          {
+            "frame": 390,
+            "enabled": 1,
+            "presents": 390,
+            "submitted": 268,
+            "copied": 268,
+            "nrCompleted": 256,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 268,
+            "shaders": false
+          },
+          {
+            "frame": 420,
+            "enabled": 1,
+            "presents": 420,
+            "submitted": 298,
+            "copied": 298,
+            "nrCompleted": 286,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 298,
+            "shaders": true
+          },
+          {
+            "frame": 600,
+            "enabled": 1,
+            "presents": 600,
+            "submitted": 477,
+            "copied": 477,
+            "nrCompleted": 458,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 477,
+            "shaders": true
+          }
+        ]
+      },
+      "components": [
+        {
+          "id": "shim-dx9-x86",
+          "base": "game",
+          "target": "d3d9.dll",
+          "sha256": "74a9a415cf8883bed5e56eaacd2a1c3b3da2a3f68c89a0db249c6a69b16bee85"
+        },
+        {
+          "id": "loader-x86",
+          "base": "runtime",
+          "target": "ReShade32.dll",
+          "sha256": "da430e0a9c6eecefa0d1b27d05e16c426fb5d04e808b194d914eaac4b31bc0f8"
+        },
+        {
+          "id": "provider-dx9-x86",
+          "base": "addon",
+          "target": "dlss5-feed.addon32",
+          "sha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221"
+        },
+        {
+          "id": "host-x64",
+          "base": "addon",
+          "target": "host64/dlss5-feed-host64.exe",
+          "sha256": "60c7b068f29868c8b1bdb575960dc89d2259860b7bf77e51c52e44870df0034c"
+        },
+        {
+          "id": "loader-x64",
+          "base": "addon",
+          "target": "host64/dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "host64/addons/DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "host64/addons/nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "host64/addons/nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "host64/addons/nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-d3d9on12-unbound-switch-run-r1",
+        "completedAt": "2026-09-10T12:16:56.6098445Z",
+        "rendererSha256": "52a5eb9842d51086bb9af3271ccd9ef980c48a3c5764c227cb72c48f3acaee64",
+        "rendererReportSha256": "85317f4a0e33a859264ce28c21f63f6bde48fb6ad5b6ddcbe46547d7d558de0b",
+        "switchReportSha256": "d627ce9f4ed04cbe0a3a02ef06b7be1eefbefa76817ef014e1c24d15d5a8224f",
+        "providerLogSha256": "afbda4d2f637510eb0111f2b987c0d6932d5e873e0f3d5f712c601a87f483a08",
+        "hostLogSha256": "af964601e839cb64b7f080deadbd7c36c386729d99cf84bc4b36882abab42570",
+        "shaderLogSha256": "ab0f81c2faeb246da295d66800a6b825f0fbdd6b7471193676115e9e0ef3379b",
+        "buildReportAsset": "dx9-r2-build"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "The full add-on switch/Reset fixture does not inspect NR alpha."
+      }
+    },
+    {
+      "api": "dx9",
+      "architecture": "x64",
+      "loadingBackend": "local",
+      "proxyEntry": "d3d9",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 600,
+      "gamePid": 29700,
+      "proof": {
+        "beforeResize": {
+          "type": "game-received-host-completion",
+          "hostPid": 93868,
+          "dimensions": [
+            640,
+            360
+          ],
+          "receivedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150,
+            180,
+            210,
+            240,
+            270
+          ]
+        },
+        "afterResize": {
+          "type": "game-received-host-completion",
+          "hostPid": 80176,
+          "dimensions": [
+            768,
+            432
+          ],
+          "receivedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150
+          ]
+        },
+        "currentFrameSceneDepthVerified": true,
+        "independentNrSwitchVerified": true,
+        "disabledSubmitAndCopyStopped": true,
+        "reenableHistoryVerified": true,
+        "resetWithPendingDepthVerified": true,
+        "configurationPreserved": true,
+        "samples": [
+          {
+            "frame": 180,
+            "enabled": 1,
+            "presents": 180,
+            "submitted": 179,
+            "copied": 179,
+            "nrCompleted": 172,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 179,
+            "shaders": true
+          },
+          {
+            "frame": 211,
+            "enabled": 0,
+            "presents": 211,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 27,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 240,
+            "enabled": 0,
+            "presents": 240,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 56,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 270,
+            "enabled": 0,
+            "presents": 270,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 86,
+            "sceneDepthFrames": 183,
+            "shaders": true
+          },
+          {
+            "frame": 300,
+            "enabled": 0,
+            "presents": 300,
+            "submitted": 183,
+            "copied": 183,
+            "nrCompleted": 176,
+            "disabledPresents": 116,
+            "sceneDepthFrames": 183,
+            "shaders": false
+          },
+          {
+            "frame": 390,
+            "enabled": 1,
+            "presents": 390,
+            "submitted": 269,
+            "copied": 269,
+            "nrCompleted": 257,
+            "disabledPresents": 119,
+            "sceneDepthFrames": 269,
+            "shaders": false
+          },
+          {
+            "frame": 420,
+            "enabled": 1,
+            "presents": 420,
+            "submitted": 299,
+            "copied": 299,
+            "nrCompleted": 287,
+            "disabledPresents": 119,
+            "sceneDepthFrames": 299,
+            "shaders": true
+          },
+          {
+            "frame": 600,
+            "enabled": 1,
+            "presents": 600,
+            "submitted": 478,
+            "copied": 478,
+            "nrCompleted": 459,
+            "disabledPresents": 119,
+            "sceneDepthFrames": 478,
+            "shaders": true
+          }
+        ]
+      },
+      "components": [
+        {
+          "id": "shim-dx9-x64",
+          "base": "game",
+          "target": "d3d9.dll",
+          "sha256": "7c520f090ec1484ee95af35be2a2ba5f8f953695697be7d9466623311a633a9b"
+        },
+        {
+          "id": "loader-x64",
+          "base": "runtime",
+          "target": "ReShade64.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "provider-dx9-x64",
+          "base": "addon",
+          "target": "dlss5-feed.addon64",
+          "sha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731"
+        },
+        {
+          "id": "host-x64",
+          "base": "addon",
+          "target": "host64/dlss5-feed-host64.exe",
+          "sha256": "60c7b068f29868c8b1bdb575960dc89d2259860b7bf77e51c52e44870df0034c"
+        },
+        {
+          "id": "loader-x64",
+          "base": "addon",
+          "target": "host64/dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "host64/addons/DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "host64/addons/nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "host64/addons/nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "host64/addons/nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-d3d9on12-unbound-switch-run-x64-r1",
+        "completedAt": "2026-09-10T12:31:38.9100480Z",
+        "rendererSha256": "4f6af1a67617596f1abbddb2bc3db19722ebe5cdc12426a0b0ad9d658820814c",
+        "rendererReportSha256": "b435cf4e5b854d3b0fdabba9b7bfcadef45c4f075ad64045e0a087c15df98572",
+        "switchReportSha256": "fd96265df8db797f851cdb98ab90cab1d03b0d96c6b8fabc3b0c81fcf02faf07",
+        "providerLogSha256": "7df35bb3e06fcdaea2f161a25d01bdd5f6dbf8e8bba97f5bbe5d84f46e9fe578",
+        "hostLogSha256": "8010c26b63665751618f16e9e7cd3c35c15334e80e4f6aed6e46697a90e9831f",
+        "shaderLogSha256": "8b97e02bc1b9d1c12ae217250e4d8a7d09667d4b8366e963ca1f6b53c0b1a055",
+        "buildReportAsset": "dx9-r2-build"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "The full add-on switch/Reset fixture does not inspect NR alpha."
+      }
+    },
+    {
+      "api": "dx10",
+      "architecture": "x86",
+      "loadingBackend": "local",
+      "proxyEntry": "dxgi",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 480,
+      "gamePid": 42200,
+      "proof": {
+        "beforeResize": {
+          "epoch": 2,
+          "completedFrames": [
+            30,
+            60,
+            90,
+            120
+          ]
+        },
+        "afterResize": {
+          "epoch": 3,
+          "completedFrames": [
+            150,
+            180,
+            210,
+            240,
+            270,
+            300,
+            330,
+            360
+          ]
+        }
+      },
+      "components": [
+        {
+          "id": "loader-x86",
+          "base": "game",
+          "target": "dxgi.dll",
+          "sha256": "da430e0a9c6eecefa0d1b27d05e16c426fb5d04e808b194d914eaac4b31bc0f8"
+        },
+        {
+          "id": "provider-x86",
+          "base": "addon",
+          "target": "dlss5-feed.addon32",
+          "sha256": "8bdfe3fa2a127f5702984476c9bed84137b76a0f0490cac59d34889f4fd880d8"
+        },
+        {
+          "id": "host-x64",
+          "base": "addon",
+          "target": "host64/dlss5-feed-host64.exe",
+          "sha256": "60c7b068f29868c8b1bdb575960dc89d2259860b7bf77e51c52e44870df0034c"
+        },
+        {
+          "id": "loader-x64",
+          "base": "addon",
+          "target": "host64/dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "host64/addons/DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "host64/addons/nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "host64/addons/nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "host64/addons/nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-final-dx10-x86-r20b",
+        "completedAt": "2026-09-10T11:23:47.0366255Z",
+        "rendererSha256": "54b7941246e466afa4b869f0ecf076f54ff80d4d75f3b107cc33797b6b30f4ce",
+        "rendererReportSha256": "26b4179472a2a7a46970deff6892133902234841289c376a3296937ebba7b734",
+        "providerLogSha256": "8647721f8392da739356ea63a2b051d9790c75f0444e3dec53278c5f4fee26da",
+        "hostLogSha256": "b9e2b50e04db598ba231f32b7fd37fe0a053200be85ed946b27b0b397ccf4ae4",
+        "shaderLogSha256": "663aa53f2970b5475623b3d1b557e227cf6cd714594081aecce8f660af4803d9"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "ReShade overlay changes alpha in its own region; NR alpha is not separately attributed by this fixture."
+      }
+    },
+    {
+      "api": "dx10",
+      "architecture": "x64",
+      "loadingBackend": "local",
+      "proxyEntry": "dxgi",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 480,
+      "gamePid": 85012,
+      "proof": {
+        "beforeResize": {
+          "epoch": 2,
+          "completedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150
+          ]
+        },
+        "afterResize": {
+          "epoch": 3,
+          "completedFrames": [
+            180,
+            210,
+            240,
+            270,
+            300,
+            330,
+            360,
+            390
+          ]
+        }
+      },
+      "components": [
+        {
+          "id": "loader-x64",
+          "base": "game",
+          "target": "dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "provider-relay-x64",
+          "base": "addon",
+          "target": "dlss5-feed.addon64",
+          "sha256": "52aba4995c4de83b985ae81eb82097e246aeb5c9c5c2bc30bd75bbd10dcce9cb"
+        },
+        {
+          "id": "host-x64",
+          "base": "addon",
+          "target": "host64/dlss5-feed-host64.exe",
+          "sha256": "60c7b068f29868c8b1bdb575960dc89d2259860b7bf77e51c52e44870df0034c"
+        },
+        {
+          "id": "loader-x64",
+          "base": "addon",
+          "target": "host64/dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "host64/addons/DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "host64/addons/nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "host64/addons/nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "host64/addons/nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-final-dx10-x64-r20",
+        "completedAt": "2026-09-10T11:17:17.1534314Z",
+        "rendererSha256": "6a2c86c144e3f05e8a4a9492772b810d3b9e1c7b6b4577aaf5161fd63b9f170e",
+        "rendererReportSha256": "1f78672d2d3ffa93b34e5679efd61a1a437744dd205589b8140019e2ecdbf869",
+        "providerLogSha256": "996c8259fb22f788e8d0cf6bf5e4786ce0cdd2e3a6a858aca68f9c24e014b976",
+        "hostLogSha256": "f888f0247ad044462dce78357fd599c605132222e2aabf1cf77a95ce6539958d",
+        "shaderLogSha256": "f6cf0b527b33aa7f73504294e9a93f7a5da134119c272b201fdb3a81318c30b2"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "ReShade overlay changes alpha in its own region; NR alpha is not separately attributed by this fixture."
+      }
+    },
+    {
+      "api": "dx11",
+      "architecture": "x86",
+      "loadingBackend": "local",
+      "proxyEntry": "dxgi",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 480,
+      "gamePid": 76700,
+      "proof": {
+        "beforeResize": {
+          "epoch": 2,
+          "completedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150
+          ]
+        },
+        "afterResize": {
+          "epoch": 3,
+          "completedFrames": [
+            180,
+            210,
+            240,
+            270,
+            300,
+            330,
+            360,
+            390
+          ]
+        }
+      },
+      "components": [
+        {
+          "id": "loader-x86",
+          "base": "game",
+          "target": "dxgi.dll",
+          "sha256": "da430e0a9c6eecefa0d1b27d05e16c426fb5d04e808b194d914eaac4b31bc0f8"
+        },
+        {
+          "id": "provider-x86",
+          "base": "addon",
+          "target": "dlss5-feed.addon32",
+          "sha256": "8bdfe3fa2a127f5702984476c9bed84137b76a0f0490cac59d34889f4fd880d8"
+        },
+        {
+          "id": "host-x64",
+          "base": "addon",
+          "target": "host64/dlss5-feed-host64.exe",
+          "sha256": "60c7b068f29868c8b1bdb575960dc89d2259860b7bf77e51c52e44870df0034c"
+        },
+        {
+          "id": "loader-x64",
+          "base": "addon",
+          "target": "host64/dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "host64/addons/DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "host64/addons/nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "host64/addons/nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "host64/addons/nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-final-dx11-x86-r20",
+        "completedAt": "2026-09-10T11:17:47.8100159Z",
+        "rendererSha256": "d838e9fa14995dce1fb75f9bef40b6b4be4879cbad678c1650bde7dc64077a09",
+        "rendererReportSha256": "e17dc47cafb94e57aa90fd1424aa369e8e4c37c2ff85b7e1a4a12075be971b12",
+        "providerLogSha256": "2980957af3fef75c4f38eaacf463e8fce2d883027856ee179e36acca1d0aa75c",
+        "hostLogSha256": "74a20824c3030818bb10c2026eafe989129fb5711aee0c821b9b871ad54a9ce6",
+        "shaderLogSha256": "68ef499005a4345e673221a5c0187b6a04ff1b5aa152ec0933981977a5f5d9b3"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "ReShade overlay changes alpha in its own region; NR alpha is not separately attributed by this fixture."
+      }
+    },
+    {
+      "api": "dx11",
+      "architecture": "x64",
+      "loadingBackend": "local",
+      "proxyEntry": "dxgi",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 480,
+      "gamePid": 32076,
+      "proof": {
+        "beforeResize": {
+          "epoch": 2,
+          "completedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150,
+            180,
+            210
+          ]
+        },
+        "afterResize": {
+          "epoch": 3,
+          "completedFrames": [
+            240,
+            270,
+            300,
+            330,
+            360,
+            390,
+            420,
+            450
+          ]
+        }
+      },
+      "components": [
+        {
+          "id": "loader-x64",
+          "base": "game",
+          "target": "dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "provider-x64",
+          "base": "addon",
+          "target": "dlss5-feed.addon64",
+          "sha256": "9ab673cbea5c14d42542bc824da8ca917945cceb97ff732efde018d18f927497"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-final-dx11-x64-r20",
+        "completedAt": "2026-09-10T11:18:14.6235717Z",
+        "rendererSha256": "d30111f49b2b646f38f91a27248bd6fbec0978a2abcdec9a09c0addf6c1d7b3d",
+        "rendererReportSha256": "f1e61411f803c1b8b918f3667bb10503740688768776c60a3a719e40fd01e4c9",
+        "providerLogSha256": "caaa200390084ac65b88d3518216b6f7f6f7e6bc52959b366d8b8cad00132bcd",
+        "shaderLogSha256": "126a41ad63a1939a090ef4e9d3acbfd57635fa0a0bf9bac93536ae5f260018a3"
+      },
+      "alpha": {
+        "readbackVerified": false,
+        "note": "ReShade overlay changes alpha in its own region; NR alpha is not separately attributed by this fixture."
+      }
+    },
+    {
+      "api": "dx12",
+      "architecture": "x64",
+      "loadingBackend": "local",
+      "proxyEntry": "dxgi",
+      "controlledRuntimeVerified": true,
+      "resizeVerified": true,
+      "rendererExitCode": 0,
+      "realGameVerified": false,
+      "frames": 600,
+      "gamePid": 22700,
+      "proof": {
+        "beforeResize": {
+          "epoch": 2,
+          "completedFrames": [
+            30,
+            60,
+            90,
+            120,
+            150,
+            180,
+            210,
+            240,
+            270
+          ]
+        },
+        "afterResize": {
+          "epoch": 3,
+          "completedFrames": [
+            300,
+            330,
+            360,
+            390,
+            420,
+            450,
+            480,
+            510,
+            540,
+            570
+          ]
+        }
+      },
+      "components": [
+        {
+          "id": "loader-x64",
+          "base": "game",
+          "target": "dxgi.dll",
+          "sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+        },
+        {
+          "id": "provider-x64",
+          "base": "addon",
+          "target": "dlss5-feed.addon64",
+          "sha256": "9ab673cbea5c14d42542bc824da8ca917945cceb97ff732efde018d18f927497"
+        },
+        {
+          "id": "core",
+          "base": "addon",
+          "target": "DLSS5-AI渲染超分版-beta0.4.7-@野生的装机宅-Bilibili.addon64",
+          "sha256": "93011d9283615ea9dc8e92955f5ca6aeff01435925f63e941dc1eea1128a372c"
+        },
+        {
+          "id": "chain",
+          "base": "addon",
+          "target": "nrchain_nvngx.dll",
+          "sha256": "46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb"
+        },
+        {
+          "id": "runtime-rtx50",
+          "base": "addon",
+          "target": "nvngx_dlssnr.dll",
+          "sha256": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e"
+        },
+        {
+          "id": "core-config",
+          "base": "addon",
+          "target": "nr_before_sr.ini",
+          "sha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74",
+          "observedMutableSha256": "47548da1dab387ffd3e98aeb9d4d954885561bdc858ceb9e0578204121abcd74"
+        },
+        {
+          "id": "preset",
+          "base": "runtime",
+          "target": "ReShadePreset.ini",
+          "sha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7",
+          "observedMutableSha256": "66bc991490d6b7f961d8083f90429b9e8c04e9daefb8add7b8a05d6d6cbf95a7"
+        },
+        {
+          "id": "shared-8",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/DLSS5_Feed.fx",
+          "sha256": "cdac08a721b14b97187dd86c5b5bead157c9063d7ee859a0f131a8ee791695f1"
+        },
+        {
+          "id": "shared-9",
+          "base": "runtime",
+          "target": "licenses/Feeder-MIT.txt",
+          "sha256": "1ce240e402901fb81eb82a60a6bafd2fb913cd5746860b0a4ec52a5acb49ced7"
+        },
+        {
+          "id": "shared-10",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/ReShade.fxh",
+          "sha256": "6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f"
+        },
+        {
+          "id": "shared-11",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/vort_Motion.fx",
+          "sha256": "8365f6e1098d5dda5c8ffbf9380b78afeab4a13768e4640c7f4809bdc539254a"
+        },
+        {
+          "id": "shared-12",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Defs.fxh",
+          "sha256": "a25fa87e29be65a350eec31d5200490a055262372b28829e57e300730875fb9a"
+        },
+        {
+          "id": "shared-13",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Motion_UI.fxh",
+          "sha256": "3e8f2086f12e9cfd387f6e5cca7a3c7c22b33aec431db1b67601582a78791dc4"
+        },
+        {
+          "id": "shared-14",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionUtils.fxh",
+          "sha256": "9c8168cfa38741b197465e325fd41d8696ddc78c206981ddfa96508946c95b7f"
+        },
+        {
+          "id": "shared-15",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_MotionVectors.fxh",
+          "sha256": "d6d4150178880bf2b19a6094c59efbcc2d25030f88e3d0cdfb9ebba9cc8a8f79"
+        },
+        {
+          "id": "shared-16",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Depth.fxh",
+          "sha256": "078cba2dd100cb24eafe70c1ee4c0c36c41cb9e4e7c9f95eddf94636fcbc5667"
+        },
+        {
+          "id": "shared-17",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_ColorTex.fxh",
+          "sha256": "97f844ef15d230b7b5e58033934a5b5286a6095cf6e381aff4e922231352358f"
+        },
+        {
+          "id": "shared-18",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_BlueNoise.fxh",
+          "sha256": "1b51f778ff728b3a893489770eb69762e777a71dca3f61a3edf0dbeb096f80ea"
+        },
+        {
+          "id": "shared-19",
+          "base": "runtime",
+          "target": "reshade-shaders/Shaders/Includes/vort_Tonemap.fxh",
+          "sha256": "27415694e32016e87a33b6858296fddad60e83c2ee5b0cb0bdcf9072142cbae3"
+        },
+        {
+          "id": "shared-20",
+          "base": "runtime",
+          "target": "reshade-shaders/Textures/vort_BlueNoise.png",
+          "sha256": "050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305"
+        },
+        {
+          "id": "shared-21",
+          "base": "runtime",
+          "target": "licenses/VORT-root-MIT.txt",
+          "sha256": "562a1a335ad0815f60b3b27394d1619951d4b125f4f2161f98e8ca088c67778a"
+        },
+        {
+          "id": "shared-24",
+          "base": "runtime",
+          "target": "licenses/ReShade-LICENSE.md",
+          "sha256": "d2bb5eb908e9aa7ac2f7f4cf6441d62e1f6ac1256cf22bb5289516c9f30e5f0a"
+        },
+        {
+          "id": "license-vort-details",
+          "base": "runtime",
+          "target": "licenses/VORT-license-details.txt",
+          "sha256": "b0908e45eae493c94a64058cbe6865bab7fddd5c00d812e5e5b4b96fa14c2dc5"
+        }
+      ],
+      "evidence": {
+        "fixture": "build/feeder-final-dx12-x64-r20b",
+        "completedAt": "2026-09-10T11:19:38.4158304Z",
+        "rendererSha256": "a83313e9e6f9869462b55fd4856098ded93f3c455d2971e9a2f2701b3c25dec4",
+        "rendererReportSha256": "9f9adf477a0e275778b0ee2e3fff54b3a4cb534909a5e8572d23d2d8ce2e1e55",
+        "providerLogSha256": "1ea5012bf92136573593b57789238744a32b8b707e965a48baa6335101a08922",
+        "shaderLogSha256": "e46fbd93d9f000437160732e4eef7d53441ebb15d0abb9b2ca0854843df9c927"
+      },
+      "alpha": {
+        "readbackVerified": true,
+        "changedPixels": 0
+      }
+    }
+  ]
+}

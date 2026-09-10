@@ -55,7 +55,10 @@ test('current module identities are required, old logs remain isolated, and TYPE
   result = await f.service.assess('game', f.session); assert.equal(result.nr.status, 'bypassed'); assert.equal(result.nr.firstReason.code, 'unsupported-format');
   f.append(sample(1, 1) + '\n' + sample(2, 2)); result = await f.service.assess('game', f.session);
   assert.equal(result.nr.status, 'passed'); assert.equal(result.nr.firstReason.code, 'unsupported-format'); assert.equal(result.visual.status, 'unverified');
-  f.modules([f.core]); assert.equal((await f.service.assess('game', f.session)).core.status, 'unverified');
+  f.modules([f.core]); result = await f.service.assess('game', f.session);
+  assert.equal(result.core.status, 'passed'); assert.equal(result.reshade.status, 'unverified'); assert.equal(result.nr.status, 'unverified');
+  f.modules([f.loader]); result = await f.service.assess('game', f.session);
+  assert.equal(result.reshade.status, 'passed'); assert.equal(result.core.status, 'unverified'); assert.equal(result.nr.status, 'unverified');
   f.modules([f.core, f.loader]); fs.appendFileSync(f.core, 'changed'); assert.equal((await f.service.assess('game', f.session)).core.status, 'unverified');
 });
 test('old manifest without hashes, changed deployment, and another session never reuse acceptance', async t => {
@@ -99,22 +102,24 @@ for (const route of ['vulkan', 'feeder']) test(`${route} runtime verification us
   append(sample(1, 1) + '\n' + sample(2, 2)); result = await verification.assess(f.id, session);
   assert.equal(result.nr.status, 'passed'); assert.equal(result.visual.status, 'unverified');
   const wrongPath = path.join(f.exeDir, 'Unowned-ReShade.dll'); put(wrongPath, originalLoader);
-  observedModules = [core.path, wrongPath]; assert.equal((await verification.assess(f.id, session)).core.status, 'unverified');
+  observedModules = [core.path, wrongPath]; result = await verification.assess(f.id, session);
+  assert.equal(result.core.status, 'passed'); assert.equal(result.reshade.status, 'unverified'); assert.equal(result.nr.status, 'unverified');
   observedModules = [core.path, loader.path];
   for (const [target, bytes] of [[core, originalCore], [loader, originalLoader]]) {
     fs.appendFileSync(target.path, ' externally changed');
     const stillExpected = (await f.service.gameModuleManifest(f.id)).find(row => row.path === target.path);
     assert.equal(stillExpected.sha256, target.sha256, 'the managed expected hash never blesses changed disk content');
     assert.notEqual(stillExpected.sha256, hashFile(target.path));
-    result = await verification.assess(f.id, session); assert.equal(result.core.status, 'unverified'); assert.equal(result.nr.status, 'unverified');
-    await verification.prepare(f.id, session); assert.equal((await verification.assess(f.id, session)).core.status, 'unverified');
+    result = await verification.assess(f.id, session); assert.equal(result.core.status, target.role === 'core' ? 'unverified' : 'passed'); assert.equal(result.nr.status, 'unverified');
+    assert.equal(result.reshade.status, target.role === 'reshade' ? 'unverified' : 'passed');
+    await verification.prepare(f.id, session); assert.equal((await verification.assess(f.id, session)).core.status, target.role === 'core' ? 'unverified' : 'passed');
     put(target.path, bytes); await verification.prepare(f.id, session);
   }
   const receiptFile = route === 'vulkan' ? path.join(f.userData, 'vulkan-deployment/receipt.json') : path.join(f.gameRoot, '_DLSS5_Backup/xiaofeng-feeder.json');
   fs.unlinkSync(receiptFile);
   assert.equal((await f.service.gameModuleManifest(f.id)).some(row => row.role === 'reshade'), false);
   append(sample(3, 3) + '\n' + sample(4, 4));
-  result = await verification.assess(f.id, session); assert.equal(result.core.status, 'unverified'); assert.equal(result.nr.status, 'unverified');
+  result = await verification.assess(f.id, session); assert.equal(result.core.status, route === 'vulkan' ? 'passed' : 'unverified'); assert.equal(result.nr.status, 'unverified');
 });
 
 test('a Vulkan layer receipt cannot redirect the fixed owned ReShade loader to an arbitrary identical DLL', async t => {

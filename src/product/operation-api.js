@@ -2,7 +2,7 @@
 
 const { classifyApi } = require('./game-support');
 
-const SUPPORTED = new Set(['dx11', 'dx12', 'vulkan']);
+const SUPPORTED = new Set(['dx9', 'dx10', 'dx11', 'dx12', 'vulkan']);
 
 // The saved preference and the detected API are separate values. In particular,
 // choosing auto must never reuse an effective API produced by a manual override.
@@ -23,7 +23,7 @@ function resolveOperationApi(game, request = {}) {
 
 function requiresOperationApi(request) {
   if (request.uninstall) return false;
-  return ['api', 'version', 'route', 'deployment', 'loadingMode'].some(key => request[key] !== undefined) ||
+  return ['api', 'version', 'route', 'deployment', 'loadingMode', 'loadingBackend', 'proxyEntry', 'components', 'hoyo'].some(key => request[key] !== undefined) ||
     Boolean(request.nr && Object.keys(request.nr).length) ||
     Boolean(request.sr && request.sr.quality !== 'game') || Boolean(request.fg && request.fg.mode !== 'restore');
 }

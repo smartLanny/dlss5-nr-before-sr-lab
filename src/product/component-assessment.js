@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const pe = require('../core/pe');
 const { noLinks } = require('./launch-safety');
 const { addonValues } = require('./reshade-layout');
+const { resolveAddonLoadState, readRegisteredName } = require('./addon-loading-layout');
 
 const HASH = /^[a-f0-9]{64}$/i;
 const ADDON = /\.addon(?:32|64)?$/i;
@@ -137,7 +138,8 @@ function createComponentAssessment({ layout, getExpectedModules = (_id, current)
       } catch (cause) { if (cause.code !== 'ENOENT') warnings.push(issue('DIRECTORY_UNAVAILABLE', '活动目录不可安全读取，未扫描替代目录。', [directory])); }
       if (entriesRead > LIMITS.entries) break;
     }
-    const addonDirectory = current.addonDirectory || current.addonDir, disabled = new Set(), direct = new Set();
+    const addonDirectory = current.addonDirectory || current.addonDir, direct = new Set();
+    let disabledValues = [];
     let addonBinding = current.verified === true && path.isAbsolute(addonDirectory || '');
     if (current.activeConfigPath) {
       try {
@@ -146,8 +148,14 @@ function createComponentAssessment({ layout, getExpectedModules = (_id, current)
         if (!stat.isFile() || stat.size > 1024 * 1024) throw error('CONFIG_LIMIT', '配置超出读取限制。');
         const text = new TextDecoder('utf-8', { fatal: true }).decode(await fs.readFile(current.activeConfigPath)), values = addonValues(text);
         addonBinding = addonBinding && key(path.resolve(path.dirname(current.activeConfigPath), values.get('AddonPath')?.[0] || '.')) === key(addonDirectory);
-        for (const name of values.get('DisabledAddons') || []) disabled.add(path.win32.basename(name.slice(name.lastIndexOf('@') + 1)).toLowerCase());
-        for (const name of values.get('LoadFromDllMain') || []) { const file = path.resolve(path.dirname(current.activeConfigPath), name); if (inScope(file)) direct.add(key(file)); }
+        disabledValues = values.get('DisabledAddons') || [];
+        const early = values.get('LoadFromDllMain') || [];
+        if (early.length > LIMITS.files) throw error('EXPLICIT_LIMIT', '显式加载插件过多。');
+        if (addonBinding) for (const name of early) {
+          const file = path.resolve(addonDirectory, name);
+          if (/^\\\\/.test(file) || /%[^%]+%/.test(name) || !MODULE.test(file)) throw error('EXPLICIT_SCOPE', '显式加载路径无法安全解析。');
+          await noLinks(file); direct.add(key(file)); candidates.set(key(file), file);
+        }
       } catch (cause) {
         if (cause.code !== 'ENOENT') { addonBinding = false; warnings.push(issue('CONFIG_UNAVAILABLE', '活跃插件配置无法核对，未把磁盘文件当作正在加载。')); }
       }
@@ -160,11 +168,20 @@ function createComponentAssessment({ layout, getExpectedModules = (_id, current)
       const row = { name: path.basename(file), path: file, kind: ADDON.test(file) ? 'addon' : PROXY.test(path.basename(file)) ? 'proxy' : 'managed-pe',
         status: 'unknown', classification: 'unknown', label: LABELS.unknown, source: 'unidentified', confidence: 'unknown', sha256: null, architecture: 'unknown',
         expectedSha256: hashes.length === 1 ? hashes[0] : null, expectedIdentities: records.map(value => ({ role: value.role, sha256: value.sha256, owner: value.owner || null })),
-        loadState: ADDON.test(file) ? addonBinding && key(path.dirname(file)) === key(addonDirectory) ? disabled.has(path.basename(file).toLowerCase()) ? 'disabled' : 'enabled' : 'inactive-or-unverified' :
+        loadState: ADDON.test(file) ? addonBinding && key(path.dirname(file)) === key(addonDirectory) ? 'enabled' : 'inactive-or-unverified' :
           direct.has(key(file)) ? 'enabled' : PROXY.test(path.basename(file)) ? 'candidate' : 'dependency', evidence: [], issues: [], runtimeVerified: false };
       if (hashes.length > 1) { row.issues.push('owner-conflict'); conflicts.push(issue('OWNER_CONFLICT', '多个所有者对同一路径记录了不同摘要。', [file], 'managed-sha256', 'verified')); }
       try {
         Object.assign(row, await observeFile(file, budget));
+        const configuredSearch = addonBinding && key(path.dirname(file)) === key(addonDirectory) &&
+          ['.addon', row.architecture === 'x86' ? '.addon32' : '.addon64'].includes(path.extname(file));
+        const registeredName = await readRegisteredName(file);
+        if (ADDON.test(file) || direct.has(key(file))) {
+          const loading = resolveAddonLoadState({ name: row.name, registeredName, searched: configuredSearch,
+            explicit: direct.has(key(file)), architecture: row.architecture, hostArchitecture: 64, disabledValues });
+          Object.assign(row, loading, { registeredName, loadState: loading.loadState === 'explicit' ? 'enabled' :
+            loading.loadState === 'inactive' ? 'inactive-or-unverified' : loading.loadState });
+        }
         const exact = records.find(value => value.sha256 === row.sha256), matches = known.get(row.sha256) || [];
         const identities = [...new Set(matches.map(value => value.classification).filter(value => value !== 'unknown' && value !== 'other-mod'))];
         const fixed = exact || (identities.length === 1 ? matches.find(value => value.classification === identities[0]) : null);
@@ -190,7 +207,7 @@ function createComponentAssessment({ layout, getExpectedModules = (_id, current)
       }
       files.push(row);
     }
-    const loadable = files.filter(row => row.sha256 && ['enabled', 'candidate'].includes(row.loadState)), hashGroups = new Map();
+    const loadable = files.filter(row => row.sha256 && (row.moduleMayLoad === true || row.loadState === 'candidate')), hashGroups = new Map();
     for (const row of loadable) { const rows = hashGroups.get(row.sha256) || []; rows.push(row); hashGroups.set(row.sha256, rows); }
     const duplicates = new Set();
     const markDuplicate = (rows, confidence, source, detail) => {

@@ -9,8 +9,8 @@
   const LAUNCH = { preflight: '正在检查启动条件', 'waiting-helper': '等待加载助手就绪', 'request-sending': '正在发送启动请求', 'waiting-launcher': '等待启动器产生所选游戏进程',
     'waiting-game': '等待所选游戏进程', 'game-matched': '已匹配游戏进程', 'waiting-enhancement': '游戏已启动，增强待确认', 'enhancement-failed': '游戏仍保留，加载失败', failed: '本次启动失败', cancelled: '已取消等待' };
   const NR_CHOICES = { WorkMode: ['参考 · Reference', '质量 · Quality', '平衡 · Balanced', '性能 · Performance', '极致性能 · Ultra', '自定义 · Custom'], Style: ['默认', '自然', '电影'] };
-  const NR = [ ['Intensity', '增强强度', 0, 2, .05], ['WorkMode', 'NR 工作模式', 0, 5, 1], ['CustomWorkScale', '自定义工作比例', .25, 1, .05],
-    ['Style', '画面风格', 0, 2, 1], ['ColorStrength', '颜色强度', 0, 1, .05], ['SkinStructureStrength', '皮肤结构', -1, 2, .05],
+    const NR = [ ['Intensity', '模型强度', 0, 2, .05], ['LocalToneStrength', '局部明暗对比', 0, 2, .05], ['LocalStructureStrength', '整体细节强度', 0, 2, .05], ['WorkMode', 'NR 工作模式', 0, 5, 1], ['CustomWorkScale', '自定义工作比例', .5, 1, .05],
+    ['Style', '画面风格', 0, 2, 1], ['ColorStrength', '颜色强度', 0, 2, .05], ['SkinStructureStrength', '人脸强度', -1, 2, .05],
     ['TransferStrength', '前置传递强度', 0, 4, .05], ['PostTransferStrength', '后置传递强度', 0, 4, .05] ];
   const unwrap = result => { if (result?.ok !== true) throw Object.assign(new Error(result?.error?.message || '操作未完成。'), result?.error); return result.value; };
   const option = (value, label, selected, disabled = false) => `<option value="${esc(value)}"${String(value) === String(selected) ? ' selected' : ''}${disabled ? ' disabled' : ''}>${esc(label)}</option>`;
@@ -23,17 +23,24 @@
   const DETAIL_TAB = { overview: 'enhance', enhance: 'graphics', maintenance: 'advanced' };
   const COMPARISON_VERSION = '0.4.7beta-bg3-bridge1411';
   function recommendedModel(quality) { return quality === 'performance' ? 'M' : quality === 'ultraPerformance' ? 'L' : ['quality', 'balanced', 'dlaa', 'custom'].includes(quality) ? 'K' : null; }
-  function bindingLabel(binding) { if (!binding) return '未设置'; const key = binding.key === 36 ? 'Home' : binding.key === 45 ? 'Insert' : binding.key >= 112 && binding.key <= 135 ? `F${binding.key - 111}` : `VK ${binding.key}`; return [binding.ctrl && 'Ctrl', binding.shift && 'Shift', binding.alt && 'Alt', key].filter(Boolean).join(' + '); }
+  const KEY_NAMES = { 8: 'Backspace', 9: 'Tab', 13: 'Enter', 32: 'Space', 33: 'PageUp', 34: 'PageDown', 35: 'End', 36: 'Home', 37: '←', 38: '↑', 39: '→', 40: '↓', 45: 'Insert', 46: 'Delete', 186: ';', 187: '=', 188: ',', 189: '-', 190: '.', 191: '/', 192: '`', 219: '[', 220: '\\', 221: ']', 222: "'" };
+  function bindingLabel(binding) { if (!binding) return '未设置'; const key = KEY_NAMES[binding.key] || (binding.key >= 112 && binding.key <= 135 ? `F${binding.key - 111}` : binding.key >= 48 && binding.key <= 90 ? String.fromCharCode(binding.key) : `VK ${binding.key}`); return [binding.ctrl && 'Ctrl', binding.shift && 'Shift', binding.alt && 'Alt', key].filter(Boolean).join(' + '); }
+  function capturedBinding(event) {
+    if (event.metaKey || ['Control', 'Shift', 'Alt', 'Meta', 'CapsLock', 'Unidentified'].includes(event.key)) return null;
+    const code = event.code, punctuation = { Semicolon: 186, Equal: 187, Comma: 188, Minus: 189, Period: 190, Slash: 191, Backquote: 192, BracketLeft: 219, Backslash: 220, BracketRight: 221, Quote: 222 };
+    const key = /^Key[A-Z]$/.test(code) ? code.charCodeAt(3) : /^Digit[0-9]$/.test(code) ? code.charCodeAt(5) : /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code) ? 111 + Number(code.slice(1)) : punctuation[code] || event.keyCode;
+    return Number.isInteger(key) && key > 0 && key <= 255 && ![16, 17, 18, 27, 91, 92, 93].includes(key) ? { key, ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey } : null;
+  }
   function initialFields(assessment) {
     const settings = assessment.enhancements || {}, hardware = settings.hardware || assessment.hardware || {};
     const helper = scope.launchSettingsUi || (typeof require === 'function' ? require('./launch-settings-ui') : null);
     const backend = helper.hardwareFacts(hardware).fgBackend || '';
     return { sr: helper.initialSrFields(settings, hardware),
-      fg: { backend: hasFgComponents(assessment) && settings.fgComponents?.backend || backend, mode: 'restore', multiplier: 2, targetFps: 0, ...(settings.requests?.fg?.request || settings.applied?.fg?.request || {}) } };
+      fg: { backend: hasFgComponents(assessment) && settings.fgComponents?.backend || backend, mode: 'restore', multiplier: 2, targetFps: 0, ...(settings.current?.fg?.valid ? settings.current.fg.request : settings.requests?.fg?.request || settings.applied?.fg?.request || {}) } };
   }
   function mount(host, manager, options = {}) {
     let id = null, data = null, draft = {}, fields = {}, invalidFields = {}, tab = 'overview', busy = false, launching = false, message = '', error = false,
-      modal = null, generation = 0, session = null, unsubscribe = null, disposed = false, tabController = null;
+      modal = null, generation = 0, session = null, unsubscribe = null, disposed = false, tabController = null, capturingHotkey = false, faceStrength = 1;
     const loaded = new Set(), sectionRequests = new Map(), sectionTokens = new Map(), sectionFailures = new Map();
     const draftCount = () => new Set([...Object.keys(draft), ...Object.keys(invalidFields)]).size;
     const dirty = () => draftCount() > 0;
@@ -45,29 +52,34 @@
       (data.game.apiOverride && data.game.apiOverride !== 'auto' ? 'unknown' : data.api?.effectiveApi);
     const effectiveApi = () => selected('api', data.game.apiOverride || data.defaults?.api || 'auto') === 'auto'
       ? detectedApi() : selected('api', data.game.apiOverride || data.defaults?.api);
-    const apiReady = () => ['dx11', 'dx12', 'vulkan'].includes(effectiveApi());
+    const apiReady = () => ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan'].includes(effectiveApi());
     const isComparison = row => row.comparisonOnly === true || row.id === COMPARISON_VERSION;
+    function specialInfo(route = specialRoute()) {
+      const current = data.game[route] || {}, selected = current.selections?.[effectiveApi()];
+      return !current.installed && selected ? { ...current, ...selected, selectionAvailable: selected.available } : current;
+    }
     function versionRows() {
-      const special = specialRoute(), info = special ? data.game[special] || {} : null;
-      return special ? [{ id: info.packageId || '', label: `${special === 'vulkan' ? 'Vulkan' : 'DX12 Feeder'} · ${info.coreVersion || '固定配套'}`, ready: info.selectionAvailable ?? info.available }] : data.coreVersions || [];
+      const special = specialRoute(), info = special ? specialInfo(special) : null;
+      return special ? [{ id: info.packageId || '', label: `${special === 'vulkan' ? 'Vulkan' : `${apiLabel(info.api || effectiveApi())} Feeder`} · ${info.coreVersion || '固定配套'}`, ready: info.selectionAvailable ?? info.available }] : data.coreVersions || [];
     }
     function currentVersion() {
       const special = specialRoute();
-      if (special) return data.game[special]?.packageId || '';
+      if (special) return specialInfo(special).packageId || '';
       if (Object.hasOwn(data.defaults || {}, 'version')) return selected('version', data.defaults.version) || '';
       return selected('version', data.deployment?.version || data.game.addonVersion || '') || '';
     }
-    function deploymentMode() { return selected('deployment', data.game.installed ? data.layout?.mode || 'local' : data.defaults?.deployment || 'external'); }
+    function deploymentMode() { return selected('deployment', data.game.installed ? data.layout?.mode || 'local' : data.defaults?.deployment || 'local'); }
     function hasVersionUpdate() {
       const installed = data.deployment?.version || data.game.addonVersion;
       return !specialRoute() && data.game.installed && installed && currentVersion() && installed !== currentVersion();
     }
     function installRequest() {
       const route = specialRoute();
-      return { ...draft, api: selected('api', data.game.apiOverride || data.defaults?.api || 'auto'), version: currentVersion(), ...(route ? { route } : {
+      return { ...draft, api: selected('api', data.game.apiOverride || data.defaults?.api || 'auto'), ...(route ? { route } : {
         deployment: deploymentMode(), ...(deploymentMode() === 'external' ? { loadingMode: selected('loadingMode', data.layout?.loadingMode || data.defaults?.loadingMode || 'proxy') } : {}) }) };
     }
     function apiBlocked(request = draft) {
+      if (request.repair === true) return false;
       if (Object.keys(request).length && Object.keys(request).every(key => key === 'launchMode')) return false;
       if (request.uninstall || request.sr?.quality === 'game' || request.fg?.mode === 'restore') {
         const other = Object.keys(request).filter(key => !['uninstall', 'sr', 'fg'].includes(key));
@@ -77,8 +89,10 @@
     }
     function specialRoute() {
       const api = effectiveApi();
+      if (draft.route) return draft.route === 'native' ? null : draft.route;
+      if (data.layout?.inputRoute === 'feeder') return 'feeder';
       if (data.layout?.source === 'vulkan' || api === 'vulkan') return 'vulkan';
-      if (data.layout?.source === 'feeder' || api === 'dx12' && data.game.nativeDlssAvailable === false && data.game.feeder) return 'feeder';
+      if (data.layout?.source === 'feeder' || ['dx9', 'dx10'].includes(api) || ['dx11', 'dx12'].includes(api) && data.game.nativeDlssAvailable === false && data.game.feeder) return 'feeder';
       return null;
     }
     function feature(domain) { return data?.enhancements?.featureStates?.[domain] || { eligible: false, blockers: [{ message: '尚未确认此功能的支持条件。' }] }; }
@@ -88,7 +102,7 @@
     function diagnosticsContent() {
       const api = data.api || {}, v = data.verification || {}, modules = data.helperModules?.modules || [], deployment = data.deployment || {};
       return `<section class="gp-section" role="tabpanel" aria-label="概览与兼容性"><div class="gp-section-title"><h3>本次运行验收</h3>${act('refresh', '重新检查', busy, 'subtle')}</div>
-        <div class="gp-verification">${[['helper', '加载助手就绪'], ['core', '本 Core 已加载'], ['nr', 'NR 成功并持续提交'], ['visual', '同场景画面变化']].map(([key, label], index) => `<article><div class="gp-step">0${index + 1}</div><h4>${label}</h4>${badge(v[key]?.status || 'unverified')}<p>${esc(v[key]?.detail || '等待本次证据。')}</p></article>`).join('')}</div>
+        <div class="gp-verification">${[['helper', '加载助手就绪'], ['reshade', 'ReShade 已加载'], ['core', data.layout?.hostRequired ? '宿主 Core 已加载' : '本 Core 已加载'], ['nr', 'NR 完成并回填'], ['visual', '同场景画面变化']].map(([key, label], index) => `<article><div class="gp-step">0${index + 1}</div><h4>${label}</h4>${badge(v[key]?.status || 'unverified')}<p>${esc(v[key]?.detail || '等待本次证据。')}</p></article>`).join('')}</div>
         <p class="gp-caption">配置保存、助手就绪和 HDR 成功分别记录；NR 处理和画面变化需要各自的证据。</p>
         ${manager.recordVisualComparison ? act('record-visual', '记录本次画面对照', busy || !(session || data.launch?.session)?.process || (session || data.launch?.session)?.historical) : ''}</section>
         <section class="gp-section"><h3>API 对照</h3><div class="gp-facts">${line('游戏能力', (api.capabilities || []).map(apiLabel).join(' / ') || '证据不足')}${line('当前配置', apiLabel(api.configuredApi))}
@@ -109,15 +123,21 @@
     function selectField(group, key, label, markup, disabled = false, note = '') {
       return `<label class="gp-field"><span>${label}</span><select data-gp-group="${group}" data-gp-field="${key}"${disabled ? ' disabled' : ''}>${markup}</select>${note ? `<small>${note}</small>` : ''}</label>`;
     }
-    function nrFields(advanced = false) {
+    function nrFields() {
       const nr = { ...(data.nr || {}), ...(draft.nr || {}) }, available = Boolean(data.game.installed && data.nr);
-      return `<section class="gp-section"><div class="gp-section-title"><h3>${advanced ? 'NR 详细参数' : 'NR 画面增强'}</h3>${advanced ? '' : `<label class="check-line gp-check"><input type="checkbox" data-gp-group="nr" data-gp-field="Enabled"${nr.Enabled ? ' checked' : ''}${available ? '' : ' disabled'}>开启</label>`}</div>
-        ${!available ? '<p class="gp-caption">安装后可调整画面增强。</p>' : ''}
-        <div class="gp-controls">${NR.filter(([key]) => advanced ? !['Intensity', 'Style'].includes(key) && (key !== 'CustomWorkScale' || Number(nr.WorkMode) === 5) : ['Intensity', 'Style'].includes(key)).map(([key, label, min, max, step]) => {
+      if (nr.AutoMask && nr.SkinStructureStrength < 0) nr.SkinStructureStrength = 0;
+      const primary = ['Intensity', 'LocalToneStrength', 'LocalStructureStrength'];
+      const controls = rows => rows.map(([key, label, min, max, step]) => {
           const capable = available && (!Object.hasOwn(data.nr?.capabilities || {}, key) || data.nr.capabilities[key] === true);
           if (NR_CHOICES[key]) return selectField('nr', key, label, NR_CHOICES[key].map((label, value) => option(value, label, nr[key] ?? 0)).join(''), !capable);
-          return `<label class="gp-field"><span>${label}</span><div class="gp-range"><input type="range" min="${min}" max="${max}" step="${step}" value="${esc(nr[key] ?? min)}" data-gp-group="nr" data-gp-field="${key}"${capable ? '' : ' disabled'}><output>${esc(key === 'SkinStructureStrength' && Number(nr[key]) === -1 ? '关闭' : nr[key] ?? min)}</output></div>${capable ? key === 'CustomWorkScale' ? '<small>工作模式选为“自定义”后生效。</small>' : '' : '<small>当前 Core 或配置未提供此项。</small>'}</label>`;
-        }).join('')}</div>${advanced ? `<label class="check-line gp-check"><input type="checkbox" data-gp-group="nr" data-gp-field="AutoMask"${nr.AutoMask ? ' checked' : ''}${available ? '' : ' disabled'}>自动遮罩</label>` : ''}</section>`;
+          return `<label class="gp-field"><span>${label}</span><div class="gp-range"><input type="range" min="${key === 'SkinStructureStrength' ? 0 : min}" max="${max}" step="${step}" value="${esc(nr[key] ?? min)}" data-gp-group="nr" data-gp-field="${key}"${capable ? '' : ' disabled'}><output>${esc(nr[key] ?? min)}</output></div>${capable ? key === 'CustomWorkScale' ? '<small>工作模式选为“自定义”后生效。</small>' : '' : '<small>当前 Core 或配置未提供此项。</small>'}</label>`;
+      }).join('');
+      return `<section class="gp-section"><div class="gp-section-title"><h3>NR 画面增强</h3><label class="check-line gp-check"><input type="checkbox" data-gp-group="nr" data-gp-field="Enabled"${nr.Enabled ? ' checked' : ''}${available ? '' : ' disabled'}>开启</label></div>
+        ${!available ? '<p class="gp-caption">安装后可调整画面增强。</p>' : ''}
+        ${effectiveApi() === 'dx9' ? '<p class="gp-caption">游戏内面板提供 NR 回填开关；完整参数在此调整，退出游戏后应用。</p>' : ''}
+        <div class="gp-controls gp-nr-primary">${controls(NR.filter(([key]) => primary.includes(key)))}</div>
+        <div class="gp-face-control"><label class="check-line gp-check"><input type="checkbox" data-gp-group="face" data-gp-field="enabled"${nr.AutoMask ? ' checked' : ''}${available && data.nr?.capabilities?.SkinStructureStrength !== false ? '' : ' disabled'}>人脸调节</label>${nr.AutoMask ? controls([['SkinStructureStrength', '人脸强度', 0, 2, .05]]) : '<small>关闭时保留上次强度。</small>'}</div>
+        <details class="gp-nr-details" data-gp-detail="nr"><summary>更多 NR 参数</summary><div class="gp-controls">${controls(NR.filter(([key]) => !primary.includes(key) && key !== 'SkinStructureStrength' && (key !== 'CustomWorkScale' || Number(nr.WorkMode) === 5)))}</div></details></section>`;
     }
     function featurePanel(domain) {
       const info = feature(domain), f = fields[domain], owned = data.enhancements?.applied?.[domain], active = info.eligible === true, allowRestore = Boolean(owned) || domain === 'fg' && hasFgComponents(data), sr = domain === 'sr';
@@ -135,7 +155,8 @@
           (f.mode === 'dynamic' ? `<label class="gp-field"><span>动态目标帧率</span><input type="number" min="0" max="1000" step="1" value="${esc(f.targetFps)}" data-gp-group="fg" data-gp-field="targetFps"${active && modes.includes('dynamic') ? '' : ' disabled'}><small>0 表示自动目标。</small></label>` : '');
       }
       return `<section class="gp-section"><div class="gp-section-title"><div><h3>${sr ? 'DLSS 超分' : f.backend === 'mfgunlock' ? 'RTX40 补帧' : f.backend === 'nvidia' ? 'RTX50 帧生成' : '帧生成'}</h3></div>${badge(info.state || (active ? 'configurable' : 'unavailable'))}</div>
-        ${reasons.length ? `<p class="gp-caption" title="${esc(reasons.join('；'))}">${esc(reasons[0])}</p>` : ''}${info.state === 'waiting-confirmation' && info.canConfirm ? `<div class="gp-confirm-feature"><span>请先在游戏内开启${sr ? ' DLSS 超分' : '帧生成'}。</span>${act(`confirm-${domain}`, '我已开启', busy)}</div>` : info.evidence?.confirmation || info.evidence?.gameSetting?.state === 'on' ? '<p class="gp-confirmed" role="status">✓ 已确认开启</p>' : ''}
+        ${reasons.length ? `<p class="gp-caption" title="${esc(reasons.join('；'))}">${esc(reasons[0])}</p>` : ''}${info.activation ? `<p class="gp-caption" role="status">${esc(info.activation.message || ({ on: '已读取到游戏开关开启。', off: '请先在游戏中开启此功能。', unknown: '支持条件已确认；请先在游戏中开启一次。', missing: '请先运行游戏以生成设置。' })[info.activation.state] || '游戏开关状态待确认。')}</p>` : ''}${(info.warnings || []).map(row => `<p class="gp-caption">${esc(row.message || row)}</p>`).join('')}
+        ${domain === 'fg' && data.enhancements?.current?.fg?.source === 'active-ini' ? `<p class="gp-caption">已读取游戏内保存的当前设置${data.enhancements.current.fg.differsFromLastApplied ? '，与上次管理器请求不同' : ''}。${draft.fg ? '当前草稿保留，应用前会重新核对。' : ''}</p>` : ''}
         <div class="gp-controls">${controls}</div><p class="gp-caption">${owned ? owned.readbackVerified ? '已应用，重启游戏后生效。' : '设置已变化，请重新预览。' : '尚未应用覆盖设置。'}</p>
         <div class="gp-small-actions">${sr ? act('recommend-sr', '恢复推荐', busy || !active || !scope.launchSettingsUi.recommendedPreset(currentHardware()), 'subtle') : ''}${allowRestore ? act(`restore-${domain}`, '恢复原设置', busy, 'subtle') : ''}${owned?.requiresReapply ? act('reapply', '重新预览', busy) : ''}</div></section>`;
     }
@@ -148,29 +169,45 @@
       const automatic = detectedApi(), automaticLabel = !automatic || ['mixed', 'unknown', 'auto'].includes(automatic) ? '需要手动选择' : `${apiLabel(automatic)}（自动）`;
       let status = !loaded.has('installation') ? '正在检查安装条件…' : pending ? '有未完成操作，请先恢复。' : !apiReady()
         ? unresolved ? '需要手动选择游戏实际使用的 API。' : `${apiLabel(effective)} 当前不支持安装。`
-        : game.installed ? data.deployment?.verified === false && data.deployment?.inspection !== 'summary' ? '安装需要检查，可预览修复。' : '已安装，可以调整画面或启动游戏。'
+        : data.layout?.needsInputPreparation ? '加载配置已准备，请预览修复以补齐输入配套。' : game.installed ? data.deployment?.verified === false && data.deployment?.inspection !== 'summary' ? '安装需要检查，可预览修复。' : '已安装，可以调整画面或启动游戏。'
         : '基础条件已确认，安装前将预览本次变更。';
       if (data.antiCheat?.detected && !pending && apiReady()) status = '检测到游戏保护，安装前需确认兼容提示。';
       if (loaded.has('installation') && !pending && apiReady() && !version) status = '配套版本尚未确定，请选择可用 Core。';
       return `<section class="gp-section gp-install-section"><div class="gp-controls">
-        ${selectField('route', 'api', '游戏 API', option('auto', automaticLabel, api) + ['dx11', 'dx12', 'vulkan'].map(key => option(key, API[key], api)).join(''), busy)}
+        ${selectField('route', 'api', '游戏 API', option('auto', automaticLabel, api) + ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan'].map(key => option(key, API[key] || key.toUpperCase(), api)).join(''), busy)}
         ${selectField('route', 'version', 'Core 配套', (!visibleVersion ? option('', '请选择 Core 配套', '', true) : versions.some(row => row.id === visibleVersion) ? '' : option(visibleVersion, `${visibleVersion} · 来源待检查`, visibleVersion, true)) + versions.map(row => option(row.id, row.label || row.id, visibleVersion, row.ready === false)).join(''), busy || Boolean(special))}</div>
         <div class="gp-compatibility ${pending || !apiReady() ? 'needs-attention' : ''}" role="status"><strong>兼容性</strong><span>${esc(status)}</span>${pending ? act('recover-operation', '恢复操作', busy, 'subtle') : ''}</div>
-        ${hasVersionUpdate() ? `<p class="gp-caption">当前已安装 ${esc(data.deployment?.version || game.addonVersion)}；应用后才会更新所选配套。</p>` : !game.installed && !special ? `<p class="gp-caption">默认使用外置目录，加载方式可在“高级与维护”调整。</p>` : ''}</section>${nrFields()}`;
+        ${hasVersionUpdate() ? `<p class="gp-caption">当前已安装 ${esc(data.deployment?.version || game.addonVersion)}；应用后才会更新所选配套。</p>` : !game.installed && !special ? `<p class="gp-caption">默认使用游戏目录；安装预览会核对真实 DLSS 集成，无原生输入时匹配 Feeder。</p>` : ''}</section>${hoyoControls()}${nrFields()}`;
     }
     function enhancements() {
       const facts = scope.launchSettingsUi.hardwareFacts(currentHardware());
-      return `<div class="gp-hardware"><strong>${esc(facts.label)}</strong>${loaded.has('enhancements') ? '' : '<span role="status">正在读取超分补帧条件…</span>'}</div><div class="launch-grid">${featurePanel('sr')}${featurePanel('fg')}</div>`;
+      const fg = data.enhancements?.fgComponents || {}, current = draft.components?.mfgUnlock || fg.installedProvider || fg.defaultProvider;
+      return `<div class="gp-hardware"><strong>${esc(facts.label)}</strong>${loaded.has('enhancements') ? '' : '<span role="status">正在读取超分补帧条件…</span>'}</div><div class="launch-grid">${featurePanel('sr')}${featurePanel('fg')}</div>${fg.catalog?.length && fields.fg?.backend === 'mfgunlock' ? `<section class="gp-section">${selectField('component', 'mfgUnlock', '独立补帧插件', fg.catalog.map(row => option(row.id, row.label || row.id, current)).join(''), busy, '插件独立于 NR；切换后重启游戏，游戏内面板修改会在重新检查后读回。')}</section>` : ''}`;
+    }
+    function hoyoControls() {
+      const rows = data.game.hoyo?.profileOptions || [];
+      if (!rows.length) return '';
+      const backend = selected('loadingBackend', data.layout?.loadingBackend || 'local'), selection = draft.hoyo || data.layout?.hoyo || data.game.hoyo?.selected;
+      const channel = selection?.channel || rows[0].channel, kind = selection?.launcher?.kind || 'hoyoplay';
+      return `<section class="gp-section"><h3>米哈游兼容</h3><div class="gp-controls">${selectField('route', 'loadingBackend', '加载模式', option('local', '常规加载', backend) + option('hoyoshade', 'HoYoShade · 实验', backend), busy)}${backend === 'hoyoshade' ? selectField('hoyo', 'channel', '正式客户端', rows.map(row => option(row.channel, `${row.familyLabel} · ${row.channelLabel}`, channel)).join(''), busy) + selectField('hoyo', 'kind', '绑定启动器', option('hoyoplay', 'HoYoPlay · 就绪后点击启动', kind) + option('starward', 'Starward · 已注册协议', kind), busy) : ''}</div>${backend === 'hoyoshade' ? `<p class="gp-caption">${esc(selection?.launcher?.path || '尚未选择启动器程序')}</p>${act('pick-hoyo-launcher', '选择启动器程序', busy)}<p class="gp-caption">每游戏独立外置目录；助手就绪后等待所选正式客户端，加载与 NR 结果分别核验。</p>` : ''}</section>`;
+    }
+    function hoyoDraft() {
+      const rows = data.game.hoyo?.profileOptions || [], current = draft.hoyo || data.layout?.hoyo || data.game.hoyo?.selected || {};
+      return { family: current.family || rows[0]?.family, channel: current.channel || rows[0]?.channel,
+        launcher: { kind: current.launcher?.kind || 'hoyoplay', path: current.launcher?.path || '' } };
     }
     function advanced() {
-      const layout = data.layout || {}, special = specialRoute(), mode = deploymentMode(), version = currentVersion();
+      const layout = data.layout || {}, special = specialRoute(), mode = deploymentMode(), hoyo = selected('loadingBackend', layout.loadingBackend || 'local') === 'hoyoshade';
+      const bridges = data.componentChoices?.bridges || [], bridge = draft.components?.bridge || data.componentChoices?.selected?.bridge;
       return `<section class="gp-section"><h3>加载与启动</h3><div class="gp-controls">
-        ${selectField('route', 'deployment', '组件目录', special ? option(mode, `${special === 'vulkan' ? 'Vulkan 外置' : 'Feeder 专用'}目录`, mode) : option('external', '每游戏外置目录', mode) + option('local', '游戏目录', mode), busy || Boolean(special))}
-        ${selectField('route', 'loadingMode', '加载方式', option('proxy', '代理加载', selected('loadingMode', layout.loadingMode || 'proxy')) + option('helper', '外置加载助手', selected('loadingMode', layout.loadingMode || 'proxy'), !data.game.installed), busy || Boolean(special) || mode !== 'external', !data.game.installed && !special ? '首次安装使用代理；安装后可切换助手。' : '')}
-        ${selectField('route', 'launchMode', '启动方式', option('auto', '自动 · Steam 优先', selected('launchMode', data.launch?.selected || 'auto')) + option('steam', '通过 Steam', selected('launchMode', data.launch?.selected || 'auto'), !data.launch?.steamAvailable) + option('exe', '直接启动 EXE', selected('launchMode', data.launch?.selected || 'auto')), busy)}
-        ${effectiveApi() === 'dx11' && !special ? ['0.4.7beta', COMPARISON_VERSION].includes(version) ? selectField('bridge', 'version', 'DX11 桥接', option('0.4.7beta', '默认 1.4.12', version) + option(COMPARISON_VERSION, '旧桥 1.4.11 · BG3 排查', version), busy, '两项使用相同 Core，仅桥接器不同。') : '<p class="gp-caption">桥接器随当前 Core 配套；0.4.7beta 提供旧桥对照。</p>' : '<p class="gp-caption">当前路线无需 DX11 桥接器。</p>'}</div></section>
-        ${nrFields(true)}<details class="gp-section"><summary>游戏内面板与快捷键</summary><p class="gp-caption">ReShade：${esc(bindingLabel(draft.hotkeys?.reshade || data.hotkeys?.reshade))} · NR：${esc(data.hotkeys?.nr?.label || '由 Core 提供')}</p>
-        <div class="gp-small-actions">${act('panel-insert', '改用 Insert', busy || !data.game.installed)}${act('panel-ctrl-home', '改用 Ctrl + Home', busy || !data.game.installed)}${act('panel-home', '恢复 Home', busy || !data.game.installed)}</div></details>
+        ${selectField('route', 'deployment', '组件目录', hoyo ? option('external', 'HoYoShade 外置目录', 'external') : special ? option(mode, `${special === 'vulkan' ? 'Vulkan 外置' : 'Feeder 专用'}目录`, mode) : option('external', '每游戏外置目录', mode) + option('local', '游戏目录', mode), busy || Boolean(special) || hoyo)}
+        ${selectField('route', 'loadingMode', '加载方式', option('proxy', '代理加载', hoyo ? 'helper' : selected('loadingMode', layout.loadingMode || 'proxy')) + option('helper', '外置加载助手', hoyo ? 'helper' : selected('loadingMode', layout.loadingMode || 'proxy'), !hoyo && !data.game.installed), busy || Boolean(special) || mode !== 'external' || hoyo, !hoyo && !data.game.installed && !special ? '首次安装使用代理；安装后可切换助手。' : '')}
+        ${selectField('input-route', 'route', 'NR 输入方式', option('auto', '自动核对并匹配配套', draft.route || 'auto') + option('native', '原生 DLSS 输入', draft.route || 'auto', ['dx9', 'dx10'].includes(effectiveApi())) + option('feeder', 'Feeder · 无原生 DLSS', draft.route || 'auto', effectiveApi() === 'vulkan'), busy, '检测依据绑定所选游戏程序；仅有 DLSS DLL 不代表原生集成。')}
+        ${hoyo ? `<p class="gp-caption">启动方式由已绑定的 ${esc(data.launch?.effective === 'starward' ? 'Starward' : 'HoYoPlay')} 决定。</p>` : selectField('route', 'launchMode', '启动方式', option('auto', '自动 · Steam 优先', selected('launchMode', data.launch?.selected || 'auto')) + option('steam', '通过 Steam', selected('launchMode', data.launch?.selected || 'auto'), !data.launch?.steamAvailable) + option('exe', '直接启动 EXE', selected('launchMode', data.launch?.selected || 'auto')), busy)}
+        ${!hoyo && effectiveApi() !== 'vulkan' ? selectField('route', 'proxyEntry', '加载入口', option('auto', '自动 · 保留现有入口', selected('proxyEntry', data.defaults?.proxyEntry || 'auto')) + option('dxgi', 'dxgi.dll', selected('proxyEntry', data.defaults?.proxyEntry || 'auto')) + option('d3d12', 'd3d12.dll · DX12 兼容', selected('proxyEntry', data.defaults?.proxyEntry || 'auto'), effectiveApi() !== 'dx12'), busy, '入口文件名独立于图形 API，预览会检查目标占用。') : ''}
+        ${effectiveApi() === 'dx11' && !special && bridges.length ? selectField('component', 'bridge', 'DX11 桥接器', bridges.map(row => option(row.id, row.label, bridge, !row.ready || !row.compatible)).join(''), busy, '独立选择适配桥接器，保持 Core 版本。') : '<p class="gp-caption">当前路线无需可单独选择的 DX11 桥接器。</p>'}</div></section>
+        <section class="gp-section"><h3>游戏内面板快捷键</h3><p class="gp-caption">ReShade：${esc(bindingLabel(draft.hotkeys?.reshade || data.hotkeys?.reshade))} · NR：${esc(data.hotkeys?.nr?.label || '由 Core 提供')}</p>
+        <div class="gp-small-actions">${act('capture-hotkey', capturingHotkey ? '请按组合键 · Esc 取消' : '点击录入快捷键', busy || !data.game.installed)}${act('panel-default', '恢复默认 =', busy || !data.game.installed)}</div></section>
         ${loaded.has('diagnostics') && loaded.has('enhancements') ? `<details class="gp-section gp-maintenance-details"><summary>卸载、恢复与环境清理</summary>${maintenance()}</details><details class="gp-section gp-diagnostics-details"><summary>运行验收与详细检测</summary>${diagnosticsContent()}</details>` : '<p class="gp-caption" role="status">正在读取恢复记录与详细检测…</p>'}`;
     }
     function maintenance() {
@@ -181,7 +218,7 @@
         ${line('清理归档', env.backupDirectory || (env.isolated ? '已备份隔离' : '尚无清理归档'))}</div>
         ${records ? `<div class="gp-message error"><strong>上次统一应用尚未完成</strong><p>${esc(records.error?.message || '请恢复未完成事务后继续。')}</p>${(records.stages || []).map(row => `<span class="badge">${esc(row.kind)} · ${esc(row.status)}</span>`).join('')}${act('recover-operation', '恢复未完成操作', busy, 'primary')}</div>` : ''}
         ${data.enhancements?.pending?.length ? act('recover-settings', '恢复超分补帧事务', busy) : ''}${dep.needsRecovery ? act('recover-operation', '恢复部署事务', busy) : ''}
-        <div class="gp-actions">${act('back-local', '迁回游戏目录', busy || dep.mode !== 'external')}${act('open-folder', '打开游戏文件夹')}${act('feedback', '保存反馈与验收记录', busy)}</div></section>
+        <div class="gp-actions">${act('repair-install', '预览修复', busy || !data.game.installed || data.operation?.pending || dep.needsRecovery)}${act('recover-operation', '恢复未完成操作', busy || !(data.operation?.pending || dep.needsRecovery))}${act('back-local', '迁回游戏目录', busy || dep.mode !== 'external')}${act('open-folder', '打开游戏文件夹')}${act('feedback', '保存反馈与验收记录', busy)}</div></section>
         <section class="gp-section"><h3>卸载与原样恢复</h3><p class="gp-caption">每次选择本次的处理方式，预览文件后再应用。安装前备份和历史归档都会保留。</p><div class="gp-uninstall"><div><h4>干净移除</h4><p>移除摘要一致的受管文件，旧代理和旧插件继续留在备份中。</p>${act('uninstall-clean', '预览干净移除', busy || !data.game.installed, 'danger')}</div><div><h4>恢复安装前</h4><p>恢复有原始记录及摘要的文件。未知 .bak 不会自动当作原件。</p>${act('uninstall-restore', '预览恢复安装前', busy || !data.game.installed)}</div></div></section>
         <section class="gp-section"><h3>环境检查与清理</h3><p class="gp-caption">${esc(env.scope || '')}</p><div class="gp-module-list">${(env.remainingFiles || []).map(row => `<div><strong>${esc(row.name)}</strong><small>${esc(row.kind || row.classification || '需核对来源')}</small><small>${esc(row.sha256?.slice(0, 20) || '')}</small></div>`).join('') || '<p class="gp-caption">当前检查未发现额外代理或 Add-on。</p>'}</div>
         ${data.game.installed || hasSettings ? '<p class="gp-caption">请先明确移除配套并恢复超分补帧设置，再隔离剩余文件。</p>' : ''}<div class="gp-actions">${act('clean-environment', '预览剩余文件隔离', busy || data.game.installed || hasSettings || env.isolated)}${act('restore-environment', '撤销上次清理', busy || !env.canRestore)}</div></section>
@@ -191,11 +228,11 @@
       const invalid = Object.keys(invalidFields).length > 0, pending = data.operation?.pending || data.deployment?.needsRecovery;
       let primary;
       if (dirty()) primary = act('preview', '预览并应用', busy || invalid || pending || apiBlocked(), 'primary');
-      else if (tab === 'overview' && (!data.game.installed || hasVersionUpdate() || data.deployment?.verified === false && data.deployment?.inspection !== 'summary')) primary = act('prepare', !data.game.installed ? '安装并启用' : hasVersionUpdate() ? '预览更新配套' : '预览修复安装', busy || pending || !loaded.has('installation') || !apiReady() || !currentVersion() || versionRows().find(row => row.id === currentVersion())?.ready === false, 'primary');
+      else if (tab === 'overview' && (!data.game.installed || hasVersionUpdate() || data.layout?.needsInputPreparation || data.deployment?.verified === false && data.deployment?.inspection !== 'summary')) primary = act(data.game.installed && !hasVersionUpdate() ? 'repair-install' : 'prepare', !data.game.installed ? '安装并启用' : hasVersionUpdate() ? '预览更新配套' : '预览修复安装', busy || pending || !loaded.has('installation') || !apiReady() || !currentVersion() || versionRows().find(row => row.id === currentVersion())?.ready === false, 'primary');
       else if (tab === 'enhance') primary = act('preview-sr', '应用超分设置', busy || pending || !apiReady() || !loaded.has('enhancements') || (!feature('sr').eligible && !(fields.sr.quality === 'game' && data.enhancements?.applied?.sr)), 'primary');
       else primary = '';
       const launch = session || data.launch?.session;
-      return `<div class="gp-apply-bar"><div><strong>${invalid ? '请先修正输入' : !apiReady() && apiBlocked() ? '请先在“安装与画面”确认 API' : dirty() ? `${draftCount()} 组修改待应用` : LAUNCH[launch?.status] || (data.game.installed ? '设置已就绪' : '确认 API 后安装')}</strong>${dirty() ? '<small>修改仅暂存，应用前会显示预览。</small>' : ''}</div><div>${dirty() ? act('discard', '放弃修改', busy, 'subtle') : act('refresh', '重新检查', busy, 'subtle')}${primary}${act('launch', launching ? '等待游戏…' : data.game.installed ? '启动游戏' : '原样启动', busy || launching || dirty() || pending, primary ? '' : 'primary')}${launching ? act('cancel-launch', '取消等待') : ''}${act('back', '收起', busy, 'subtle')}</div></div>`;
+      return `<div class="gp-apply-bar"><div><strong>${invalid ? '请先修正输入' : !apiReady() && apiBlocked() ? '请先在“安装与画面”确认 API' : dirty() ? `${draftCount()} 组修改待应用` : LAUNCH[launch?.status] || (data.game.installed ? '设置已就绪' : '确认 API 后安装')}</strong>${dirty() ? '<small>修改仅暂存，应用前会显示预览。</small>' : launch?.status === 'waiting-launcher' && launch.launchInstruction ? `<small>${esc(launch.launchInstruction)}</small>` : ''}</div><div>${dirty() ? act('discard', '放弃修改', busy, 'subtle') : act('refresh', '重新检查', busy, 'subtle')}${primary}${act('launch', launching ? '等待游戏…' : data.game.installed ? '启动游戏' : '原样启动', busy || launching || dirty() || pending, primary ? '' : 'primary')}${launching ? act('cancel-launch', '取消等待') : ''}${act('back', '收起', busy, 'subtle')}</div></div>`;
     }
     function render() {
       if (disposed) return;
@@ -204,9 +241,12 @@
       const focusKey = focused?.dataset?.gpField, focusGroup = focused?.dataset?.gpGroup;
       const focusTab = focused?.dataset?.gpTab, focusAction = focused?.dataset?.gpAction;
       const top = host.closest('.view')?.scrollTop;
+      const expanded = [...host.querySelectorAll('details[data-gp-detail][open]')].map(row => row.dataset.gpDetail);
       tabController?.dispose();
-      host.innerHTML = head() + `<div class="gp-message${error ? ' error' : ''}" role="${error ? 'alert' : 'status'}"${message ? '' : ' hidden'}>${esc(message)}</div>` + ['overview', 'enhance', 'maintenance'].map(key => `<div class="detail-panel" data-detail-panel="${DETAIL_TAB[key]}" role="tabpanel"${tab === key ? '' : ' hidden'}>${tab === key ? key === 'overview' ? installation() : key === 'enhance' ? enhancements() : advanced() : ''}</div>`).join('') + footer();
-      if (scope.GameDetailTabs) tabController = scope.GameDetailTabs.mount(host, { initial: DETAIL_TAB[tab], onSelect: value => selectTab(Object.keys(DETAIL_TAB).find(key => DETAIL_TAB[key] === value)) });
+      const notice = `<div class="gp-message${error ? ' error' : ''}" role="${error ? 'alert' : 'status'}"${message ? '' : ' hidden'}>${esc(message)}</div>`;
+      host.innerHTML = options.maintenanceOnly ? notice + (loaded.has('diagnostics') && loaded.has('enhancements') ? maintenance() : '<p class="gp-caption" role="status">正在读取维护记录…</p>') : head() + notice + ['overview', 'enhance', 'maintenance'].map(key => `<div class="detail-panel" data-detail-panel="${DETAIL_TAB[key]}" role="tabpanel"${tab === key ? '' : ' hidden'}>${tab === key ? key === 'overview' ? installation() : key === 'enhance' ? enhancements() : advanced() : ''}</div>`).join('') + footer();
+      if (scope.GameDetailTabs && !options.maintenanceOnly) tabController = scope.GameDetailTabs.mount(host, { initial: DETAIL_TAB[tab], onSelect: value => selectTab(Object.keys(DETAIL_TAB).find(key => DETAIL_TAB[key] === value)) });
+      for (const key of expanded) { const detail = host.querySelector(`details[data-gp-detail="${key}"]`); if (detail) detail.open = true; }
       if (focusKey) host.querySelector(`[data-gp-group="${focusGroup}"][data-gp-field="${focusKey}"]`)?.focus({ preventScroll: true });
       else if (focusTab) host.querySelector(`[data-gp-tab="${focusTab}"]`)?.focus({ preventScroll: true });
       else if (focusAction) host.querySelector(`[data-gp-action="${focusAction}"]`)?.focus({ preventScroll: true });
@@ -216,11 +256,14 @@
     function renderModal() {
       host.querySelector('.gp-modal')?.remove();
       const plan = modal.plan;
+      const addonRows = plan?.deployment?.addonCompatibility?.decisions || [];
+      modal.addonChoices = addonRows.filter(row => row.moduleMayLoad && !row.mandatory && !['core', 'native-carrier'].includes(row.classification) && (row.action === 'isolate' || row.explicitKeep || row.explicit && row.action === 'preserve'));
       const modalTitle = ({ leave: '离开前处理修改', visual: '本次画面对照记录', cleanup: '备份隔离文件预览', remove: '移出游戏库' })[modal.kind] || '本次操作预览';
       const content = modal.kind === 'remove' ? '<p>将此游戏移出管理器列表。游戏文件与历史备份保留，之后可以重新添加。</p>' : modal.kind === 'leave' ? '<p>当前修改尚未应用。离开后可放弃这些修改。</p>' : modal.kind === 'visual' ?
         '<p>记录绑定本次游戏程序、会话和 Core 摘要。来源会标为用户观察，NR 成功状态仍独立核对。</p><label class="check-line gp-check"><input type="checkbox" data-gp-same-scene>我已完成同场景、相同设置下的增强开关对照</label><label class="gp-field"><span>观察结果</span><select data-gp-visual-result><option value="uncertain">暂时无法确认</option><option value="changed">观察到画面变化</option><option value="unchanged">没有观察到画面变化</option></select></label><label class="gp-field"><span>观察说明</span><textarea data-gp-visual-note maxlength="2000" rows="3" placeholder="例如同一存档位置的人脸、材质或光照变化"></textarea></label><label class="gp-field"><span>F8 / ColorDiag 或截图材料名称（可选）</span><input data-gp-visual-evidence maxlength="240"></label>' : modal.kind === 'cleanup'
         ? `<p>${esc(plan.scope)}</p>${plan.candidates.map(row => `<label class="gp-file-choice"><input type="checkbox" data-gp-clean="${esc(row.name)}"${row.selectedByDefault ? ' checked' : ''}${row.selectable ? '' : ' disabled'}><span><strong>${esc(row.name)}</strong><small>${esc(row.kind)} · ${esc(row.note)}</small><small>${esc(row.sha256)}</small></span></label>`).join('')}`
         : `<p>核对本次变更；操作过程中请保持游戏关闭。</p><div class="gp-change-list">${(plan.changes || []).map(row => `<div><strong>${esc(row.name || row.key || row.domain || row.action)}</strong><span>${esc(({ create: '新增', replace: '替换', remove: '移除', keep: '保留', 'set-config-key': '写入配置', 'set-launch-mode': '修改启动方式' })[row.action] || row.description || row.action)}${row.value !== undefined ? ` → ${esc(row.value)}` : ''}</span><small>${esc(row.path || '')}</small>${row.beforeSha256 !== undefined ? `<details><summary>核验摘要</summary><small>变更前 ${esc(row.beforeSha256 || '不存在')}<br>变更后 ${esc(row.afterSha256 || '移除')}</small></details>` : ''}</div>`).join('')}</div>
+        ${modal.addonChoices.length ? `<section class="gp-section"><h4>未知插件保留选择</h4><p class="gp-caption">默认备份隔离。确认需要保留的插件后，重新预览当前组合。</p>${modal.addonChoices.map((row, index) => `<label class="gp-file-choice"><input type="checkbox" data-gp-addon-keep="${index}"${row.explicitKeep ? ' checked' : ''}><span><strong>保留 ${esc(row.name)}</strong><small>${esc(row.path)}</small></span></label>`).join('')}${act('repreview-addons', '按保留选择重新预览', busy)}</section>` : ''}
         ${(plan.blockers || []).map(row => `<p class="gp-message error">${esc(row.message || row)}</p>`).join('')}
         ${data.antiCheat?.detected || plan.deployment?.requiresAntiCheat ? '<label class="check-line gp-check"><input type="checkbox" data-gp-consent>我已了解反作弊可能阻止加载及账号风险，并决定应用。</label>' : ''}`;
       host.insertAdjacentHTML('beforeend', `<div class="gp-modal" role="dialog" aria-modal="true" aria-label="${modalTitle}"><div class="gp-modal-card"><h3>${modalTitle}</h3>${content}<div class="gp-message gp-modal-message" role="status"></div><div class="gp-modal-actions">${act('modal-cancel', modal.kind === 'leave' ? '继续编辑' : '取消', busy)}${modal.kind === 'leave' ? act('leave-confirm', '放弃修改并离开', busy, 'danger') : modal.kind === 'visual' ? act('save-visual', '保存用户观察', busy, 'primary') : modal.kind === 'remove' ? act('remove-confirm', '确认移出', busy, 'danger') : `${modal.kind === 'apply' && manager.applyOperationElevated ? act('apply-elevated', '以管理员权限应用本次操作', busy || plan.blockers?.length > 0) : ''}${act('modal-apply', modal.kind === 'cleanup' ? '备份并隔离所选文件' : '应用本次变更', busy || plan.blockers?.length > 0, 'primary')}`}</div></div></div>`);
@@ -240,6 +283,7 @@
       sectionFailures.set(section, value.failures || []);
       data.failures = [...sectionFailures.values()].flat();
       if (value.launch) session = value.launch.session;
+      if (value.nr && !draft.nr) faceStrength = Math.max(0, value.nr.SkinStructureStrength ?? 0);
       const initial = initialFields(data);
       for (const domain of ['sr', 'fg']) if (!draft[domain] && !invalidFields[domain]) fields[domain] = initial[domain];
     }
@@ -293,7 +337,7 @@
           // survive an invalid edit and silently become the request sent out.
           draft[domain] = scope.launchSettingsUi.createRequest(domain, fields[domain]); delete invalidFields[domain];
         }
-        if (request === draft && ['api', 'version', 'route', 'deployment', 'loadingMode'].some(key => Object.hasOwn(draft, key))) request = installRequest();
+        if (request === draft && ['api', 'version', 'route', 'deployment', 'loadingMode', 'loadingBackend', 'hoyo'].some(key => Object.hasOwn(draft, key))) request = installRequest();
         modal = { kind: 'apply', plan: unwrap(await manager.previewOperation(id, request)) };
       }
       catch (failure) { message = failure.message; error = true; }
@@ -314,7 +358,7 @@
     function requestLeave(callback) { if (busy) return false; callback(); return true; }
     async function open(gameId, initialTab = 'overview', seed = {}) {
       generation++; id = gameId; loaded.clear(); sectionTokens.clear(); sectionRequests.clear(); sectionFailures.clear(); draft = {}; invalidFields = {};
-      tab = initialTab; modal = null; message = ''; error = false;
+      tab = initialTab; modal = null; message = ''; error = false; capturingHotkey = false; faceStrength = 1;
       const game = seed.game || { id: gameId, name: '游戏', installed: false };
       data = { gameId, game, api: game.chosen?.apiAssessment || { effectiveApi: game.apiOverride && game.apiOverride !== 'auto' ? game.apiOverride : game.chosen?.apiResolution?.api || 'unknown' }, ...seed };
       fields = initialFields(data); render();
@@ -340,15 +384,34 @@
         draft.nr = { ...(draft.nr || {}), [key]: value };
         if (value === data.nr?.[key]) delete draft.nr[key]; if (!Object.keys(draft.nr).length) delete draft.nr;
         const out = input.parentElement.querySelector('output'); if (out) out.textContent = key === 'SkinStructureStrength' && value === -1 ? '关闭' : value;
-      } else if (group === 'bridge') {
-        draft.version = value;
+        if (key === 'SkinStructureStrength' && value >= 0) faceStrength = value;
+      } else if (group === 'face') {
+        const current = draft.nr?.SkinStructureStrength ?? data.nr?.SkinStructureStrength;
+        if (current >= 0) faceStrength = current;
+        draft.nr = { ...(draft.nr || {}), AutoMask: value };
+        if (value && current < 0) draft.nr.SkinStructureStrength = 0;
+        if (draft.nr.AutoMask === data.nr?.AutoMask) delete draft.nr.AutoMask;
+        if (!Object.keys(draft.nr).length) delete draft.nr;
+        render(); return;
+      } else if (group === 'component') {
+        draft.components = { ...(draft.components || {}), [key]: value };
+      } else if (group === 'hoyo') {
+        draft.hoyo = hoyoDraft();
+        if (key === 'channel') draft.hoyo.channel = value;
+        if (key === 'kind') { draft.hoyo.launcher.kind = value; draft.hoyo.launcher.path = ''; }
+      } else if (group === 'input-route') {
+        if (value === 'auto') delete draft.route; else draft.route = value;
+        delete draft.version;
       } else if (group === 'route') {
         draft[key] = value;
         if (key === 'deployment' && value === 'local') delete draft.loadingMode;
-        const route = specialRoute(); if (route) { draft.route = route; draft.version = data.game[route]?.packageId || data.game[route]?.coreVersion; delete draft.loadingMode; }
-        else {
+        if (key === 'loadingBackend') {
+          if (value === 'hoyoshade') { draft.hoyo = hoyoDraft(); draft.deployment = 'external'; draft.loadingMode = 'helper'; delete draft.proxyEntry; }
+          else { delete draft.hoyo; delete draft.loadingMode; }
+        }
+        if (key === 'api') {
           delete draft.route;
-          if (key === 'api' && effectiveApi() !== 'dx11' && currentVersion() === COMPARISON_VERSION) draft.version = '0.4.7beta';
+          if (draft.components?.bridge && effectiveApi() !== 'dx11') { delete draft.components.bridge; if (!Object.keys(draft.components).length) delete draft.components; }
         }
       } else if (group === 'sr' || group === 'fg') {
         fields[group][key] = value;
@@ -364,7 +427,14 @@
       else updateBar();
     }
     host.addEventListener('input', event => { if (event.target.type === 'range' || event.target.type === 'number') change(event.target); });
-    host.addEventListener('change', event => { if (!['range', 'number'].includes(event.target.type)) change(event.target); });
+    host.addEventListener('change', event => {
+      if (event.target.dataset.gpAddonKeep !== undefined && modal?.kind === 'apply') {
+        modal.keepChanged = true;
+        for (const button of host.querySelectorAll('[data-gp-action="modal-apply"],[data-gp-action="apply-elevated"]')) button.disabled = true;
+        host.querySelector('.gp-modal-message').textContent = '保留选择已改变，请先重新预览。'; return;
+      }
+      if (!['range', 'number'].includes(event.target.type)) change(event.target);
+    });
     host.addEventListener('click', async event => {
       const tabButton = event.target.closest('[data-gp-tab]'); if (tabButton) { if (!scope.GameDetailTabs) selectTab(tabButton.dataset.gpTab); return; }
       const button = event.target.closest('[data-gp-action]'); if (!button || button.disabled) return; const action = button.dataset.gpAction;
@@ -376,7 +446,19 @@
         else if (action === 'recommend-sr') { fields.sr = scope.launchSettingsUi.initialSrFields({}, currentHardware()); draft.sr = scope.launchSettingsUi.createRequest('sr', fields.sr); delete invalidFields.sr; message = ''; error = false; render(); }
         else if (action === 'discard') { draft = {}; invalidFields = {}; fields = initialFields(data); message = '已放弃尚未应用的修改。'; error = false; render(); }
         else if (action === 'prepare') { Object.assign(draft, installRequest()); await preview(); }
-        else if (action.startsWith('panel-')) { draft.hotkeys = { reshade: { key: action === 'panel-insert' ? 45 : 36, ctrl: action === 'panel-ctrl-home', shift: false, alt: false } }; render(); }
+        else if (action === 'pick-hoyo-launcher') {
+          const file = unwrap(await manager.pickHoYoLauncher());
+          if (file) { draft.hoyo = hoyoDraft(); draft.hoyo.launcher.path = file; render(); }
+        }
+        else if (action === 'repreview-addons') {
+          const request = structuredClone(modal.plan.request);
+          request.addonKeep = [...host.querySelectorAll('[data-gp-addon-keep]:checked')].map(input => modal.addonChoices[Number(input.dataset.gpAddonKeep)])
+            .map(row => ({ path: row.path, sha256: row.sha256, configFingerprint: row.configFingerprint }));
+          await preview(request);
+        }
+        else if (action === 'repair-install') await preview({ repair: true });
+        else if (action === 'capture-hotkey') { capturingHotkey = true; render(); host.querySelector('[data-gp-action="capture-hotkey"]')?.focus(); }
+        else if (action === 'panel-default') { draft.hotkeys = { reshade: { key: 187, ctrl: false, shift: false, alt: false } }; render(); }
         else if (action === 'restore-sr' || action === 'restore-fg') { const domain = action.slice(-2); fields[domain][domain === 'sr' ? 'quality' : 'mode'] = domain === 'sr' ? 'game' : 'restore'; draft[domain] = scope.launchSettingsUi.createRequest(domain, fields[domain]); delete invalidFields[domain]; message = Object.values(invalidFields).join('；'); error = Boolean(message); render(); }
         else if (action === 'reapply') { draft.reapplyExternalChanges = true; for (const domain of ['sr', 'fg']) if (data.enhancements?.applied?.[domain]?.requiresReapply) draft[domain] = data.enhancements.applied[domain].request; await preview(); }
         else if (action === 'modal-cancel') { modal = null; host.querySelector('.gp-modal')?.remove(); }
@@ -395,19 +477,6 @@
             note: host.querySelector('[data-gp-visual-note]').value, evidenceLabel: host.querySelector('[data-gp-visual-evidence]').value };
           await work(() => manager.recordVisualComparison(id, input), '已保存用户观察。', true);
         }
-        else if (action === 'confirm-sr' || action === 'confirm-fg') {
-          const domain = action.slice(-2); busy = true; message = ''; error = false; render();
-          // A confirmation response already contains the fresh feature state.
-          // Invalidate earlier section reads so they cannot revive the question.
-          sectionTokens.set('enhancements', (sectionTokens.get('enhancements') || 0) + 1);
-          sectionRequests.delete('enhancements');
-          try {
-            const result = unwrap(await manager.confirmGameFeature(id, domain, { enabled: true }));
-            if (!result || result.domain !== domain || typeof result.eligible !== 'boolean') throw new Error('游戏开关确认结果无效，请重新检查。');
-            data.enhancements = { ...(data.enhancements || {}), featureStates: { ...(data.enhancements?.featureStates || {}), [domain]: result } };
-            message = '已确认开启。';
-          } finally { busy = false; render(); }
-        }
         else if (action === 'uninstall-clean' || action === 'uninstall-restore') await preview({ uninstall: action.slice('uninstall-'.length) });
         else if (action === 'back-local') { draft.deployment = 'local'; await preview(); }
         else if (action === 'recover-operation') await work(() => manager.recoverOperation(id), '已检查并恢复未完成操作。', true);
@@ -424,6 +493,13 @@
       } catch (failure) { message = failure.message; error = true; render(); }
     });
     host.addEventListener('keydown', event => {
+      if (capturingHotkey) {
+        event.preventDefault(); event.stopPropagation();
+        if (event.key === 'Escape') { capturingHotkey = false; render(); return; }
+        const binding = capturedBinding(event);
+        if (binding) { draft.hotkeys = { reshade: binding }; capturingHotkey = false; message = `已录入 ${bindingLabel(binding)}，应用后生效。`; error = false; render(); }
+        return;
+      }
       const current = event.target.closest('[data-gp-tab]');
       if (current && !scope.GameDetailTabs && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
         event.preventDefault(); const keys = ['overview', 'enhance', 'maintenance'], at = keys.indexOf(tab);
@@ -436,7 +512,7 @@
       }
     });
     if (manager.onLaunchSession) unsubscribe = manager.onLaunchSession(value => { if (!disposed && value.gameId === id) { session = value; if (!modal) render(); } });
-    return { open, resume, refresh, selectTab, launchGame, requestLeave, hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
+    return { open, resume, refresh, selectTab, launchGame, requestLeave, previewRepair: () => preview({ repair: true }), hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
   }
   const api = { mount, recommendedModel, initialFields };
   if (typeof module === 'object' && module.exports) module.exports = api; else scope.GamePageUi = api;

@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('node:fs');
+const { ensureDefaultReShadeHotkey, hasKeyOverlay } = require('./hotkeys');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -12,6 +13,10 @@ const { externalConfig, localConfig, loaderConfig, inspectProfile } = require('.
 const { INSTALLED_NAMES } = require('./constants');
 const { classifyApi } = require('./game-support');
 const { classifyAddon } = require('./conflicts');
+const { snapshotAddonLoadingLayout, assertAddonSnapshot } = require('./addon-loading-layout');
+const { planAddonCompatibility } = require('./addon-compatibility');
+const { sourceBinding, validSourceBinding, sourceAllows } = require('./addon-source-binding');
+const { HOYO_RECIPE, validHoYoProfile } = require('./hoyoshade-profiles');
 
 const PRODUCT = 'xiaofeng-external-runtime';
 const RECEIPT = '_DLSS5_Backup/xiaofeng-external.json';
@@ -28,6 +33,7 @@ const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const jsonBytes = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 const fail = (code, message, details) => { throw Object.assign(new Error(message), { code: 'DEPLOYMENT_' + code, details }); };
 const active = new Set();
+const HOYO_PROXIES = ['dxgi.dll', 'd3d12.dll', 'd3d11.dll', 'd3d9.dll', 'opengl32.dll', 'ReShade64.dll', 'ReShade32.dll'];
 function leaf(value) {
   return typeof value === 'string' && value.length > 0 && value.length < 220 &&
     path.basename(value) === value && !/[<>:"|?*\0\\/]/.test(value) && !/[. ]$/.test(value) &&
@@ -82,10 +88,12 @@ function createExternalRuntime(options) {
     const profileId = binding?.exe && key(binding.exe) === key(exe) ? binding.profileId : undefined;
     if (profileId !== undefined && !UUID.test(profileId)) fail('RECORD', '外置运行目录代次无效。');
     return { id, gameId: game.id, gameRoot, exe, dir: path.dirname(exe), ownerRoot,
-      profileId, runtimeDir: path.join(ownerRoot, profileId ? 'active-' + profileId : 'active'), receipt: path.join(gameRoot, RECEIPT), pending: path.join(gameRoot, PENDING) };
+      profileId, sourceBinding: binding?.sourceBinding,
+      runtimeDir: path.join(ownerRoot, profileId ? 'active-' + profileId : 'active'), receipt: path.join(gameRoot, RECEIPT), pending: path.join(gameRoot, PENDING) };
   }
   function allowed(t, file, role) {
     const absolute = path.resolve(file);
+    if (role === 'source-addon') return sourceAllows(t.sourceBinding, absolute, t.dir);
     if (role === 'receipt') return key(absolute) === key(t.receipt);
     if (role === 'manifest') return key(absolute) === key(manifestPath(t.gameRoot));
     if (role === 'original-backup') {
@@ -94,7 +102,7 @@ function createExternalRuntime(options) {
       const original = path.resolve(t.gameRoot, match[2]);
       return inside(t.gameRoot, original) && (allowed(t, original, 'managed') || allowed(t, original, 'game-proxy'));
     }
-    if (role === 'game-proxy') return key(path.dirname(absolute)) === key(t.dir) && /^(?:dxgi|d3d12)\.dll$/i.test(path.basename(absolute));
+    if (role === 'game-proxy') return key(path.dirname(absolute)) === key(t.dir) && HOYO_PROXIES.some(name => name.toLowerCase() === path.basename(absolute).toLowerCase());
     if (role === 'profile-loader') return key(absolute) === key(path.join(t.runtimeDir, 'ReShade64.dll'));
     if (![t.dir, t.runtimeDir].some(dir => key(path.dirname(absolute)) === key(dir))) return false;
     const name = path.basename(absolute);
@@ -117,9 +125,52 @@ function createExternalRuntime(options) {
         value.loadingMode !== undefined && !['helper', 'proxy'].includes(value.loadingMode) ||
         value.proxy && (!/^(?:dxgi|d3d12)\.dll$/.test(value.proxy.name || '') || !HASH.test(value.proxy.sha256 || '')))
       fail('RECORD', '外置部署记录与当前游戏不一致，已保留恢复入口。');
-    if (value.origin !== undefined && value.origin !== 'direct') fail('RECORD', '外置来源记录无效。');
+    if (value.proxyBaseline && (!/^(?:dxgi|d3d12)\.dll$/.test(value.proxyBaseline.name || '') || !HASH.test(value.proxyBaseline.sha256 || '')))
+      fail('RECORD', '原加载入口记录无效。');
+    if (value.panelDefaultAdded !== undefined && typeof value.panelDefaultAdded !== 'boolean') fail('RECORD', '外置面板默认键记录无效。');
+    if (value.origin !== undefined && !['direct', 'direct_hoyo'].includes(value.origin)) fail('RECORD', '外置来源记录无效。');
+    if (value.hoyoProfile && (!validHoYoProfile(value.hoyoProfile, t.exe) || !HASH.test(value.profileGeneration || '') ||
+        value.mode === 'external' && value.loadingMode !== 'helper')) fail('RECORD', '米哈游客户端绑定与部署记录不一致。');
+    if (value.origin === 'direct_hoyo') {
+      if (!validHoYoProfile(value.hoyoProfile, t.exe) || !HASH.test(value.profileGeneration || '') || !UUID.test(value.initialOperation || '') ||
+          value.mode === 'external' && value.loadingMode !== 'helper' || value.proxy !== null ||
+          !Array.isArray(value.initialProxies) || value.initialProxies.length > HOYO_PROXIES.length)
+        fail('RECORD', '米哈游专用部署身份或加载方式无效。');
+      const initial = readJson(path.join(t.ownerRoot, 'history', value.initialOperation, 'operation.json'));
+      const config = initial?.files?.find(row => row.role === 'reshade-config' && key(row.file) === key(path.join(t.dir, 'ReShade.ini')));
+      const loader = initial?.files?.find(row => row.role === 'profile-loader' && key(row.file) === key(path.join(t.runtimeDir, 'ReShade64.dll')));
+      if (!initial || initial.product !== PRODUCT || initial.id !== t.id || key(initial.exe || '.') !== key(t.exe) ||
+          (initial.profileId || null) !== (value.profileId || null) || !config || !loader || loader.after !== HOYO_RECIPE.loaderSha256 ||
+          config.before !== (value.originalConfigExisted ? hash(Buffer.from(value.originalReShadeConfig)) : null) ||
+          config.after !== hash(Buffer.from(loaderConfig(value.originalReShadeConfig, t.runtimeDir))) ||
+          value.mode === 'external' && config.after !== value.loaderConfigHash)
+        fail('RECORD', '米哈游首装配置与原事务映射不一致。');
+      const seen = new Set();
+      for (const row of value.initialProxies) {
+        const proof = initial.files.find(item => item.role === 'game-proxy' && key(item.file) === key(path.join(t.dir, row.name || '')));
+        if (!HOYO_PROXIES.includes(row.name) || seen.has(row.name.toLowerCase()) || !HASH.test(row.sha256 || '') ||
+            !proof || proof.before !== row.sha256 || proof.after !== null || proof.snapshot !== row.snapshot)
+          fail('RECORD', '米哈游原加载器恢复映射无效。');
+        seen.add(row.name.toLowerCase());
+      }
+    }
+    if (value.sourceBinding && !validSourceBinding(value.sourceBinding, t.dir)) fail('RECORD', '原插件加载范围记录无效。');
+    if (value.isolatedAddons !== undefined) {
+      if (!Array.isArray(value.isolatedAddons) || value.isolatedAddons.length > 128 || !value.sourceBinding) fail('RECORD', '插件隔离记录无效。');
+      const isolated = new Set();
+      for (const row of value.isolatedAddons) {
+        if (!row || !sourceAllows(value.sourceBinding, row.path, t.dir) || !HASH.test(row.sha256 || '') || isolated.has(key(row.path)) ||
+            !UUID.test(row.operation || '') || !/^before\/[0-9]+\.bin$/.test(row.snapshot || '')) fail('RECORD', '插件隔离位置未绑定原加载范围。');
+        const original = readJson(path.join(t.ownerRoot, 'history', row.operation, 'operation.json'));
+        const proof = original?.files?.find(item => item.role === 'source-addon' && key(item.file) === key(row.path));
+        if (!original || original.product !== PRODUCT || original.id !== t.id || original.sourceBinding?.fingerprint !== value.sourceBinding.fingerprint ||
+            !proof || proof.before !== row.sha256 || proof.after !== null || proof.snapshot !== row.snapshot)
+          fail('RECORD', '插件隔离恢复映射与原事务不一致。');
+        isolated.add(key(row.path));
+      }
+    }
     if (value.origin === 'direct' && (!UUID.test(value.initialOperation || '') || !value.initialProxy ||
-        value.initialProxy.name !== value.proxy?.name || !HASH.test(value.initialProxy.after || '') ||
+        !/^(?:dxgi|d3d12)\.dll$/.test(value.initialProxy.name || '') || !HASH.test(value.initialProxy.after || '') ||
         value.initialProxy.before !== null && !HASH.test(value.initialProxy.before || '') ||
         !/^before\/[0-9]+\.bin$/.test(value.initialProxy.snapshot || '') ||
         typeof value.initialProxy.owned !== 'boolean')) fail('RECORD', '首次外置部署的原始加载器记录无效。');
@@ -138,6 +189,12 @@ function createExternalRuntime(options) {
           config.before !== (value.originalConfigExisted ? hash(Buffer.from(value.originalReShadeConfig)) : null) ||
           value.mode === 'external' && (proxy.after !== value.proxy.sha256 || config.after !== value.loaderConfigHash))
         fail('RECORD', '首次外置恢复目标与原事务映射不一致。');
+      if (value.retiredProxy) {
+        const row = value.retiredProxy, proof = initial.files.find(item => item.role === 'game-proxy' && key(item.file) === key(path.join(t.dir, row.name || '')));
+        if (!/^(?:dxgi|d3d12)\.dll$/.test(row.name || '') || row.name === value.initialProxy.name || !HASH.test(row.sha256 || '') ||
+            !proof || proof.before !== row.sha256 || proof.after !== null || proof.snapshot !== row.snapshot)
+          fail('RECORD', '原加载入口的备份映射无效。');
+      }
     }
     const names = new Set();
     for (const row of value.files) {
@@ -181,8 +238,14 @@ function createExternalRuntime(options) {
       const ini = path.join(t.dir, 'ReShade.ini');
       if (!interrupted && (!fs.existsSync(ini) || hash(fs.readFileSync(ini)) !== saved.loaderConfigHash))
         fail('FILE_CHANGED', '游戏的 ReShade 运行目录指向已被修改，未猜测配置位置。', { file: ini });
-      if (!interrupted && saved.loadingMode === 'helper' && ['dxgi.dll', 'd3d12.dll'].some(name => fs.existsSync(path.join(t.dir, name))))
+      if (!interrupted && saved.loadingMode === 'helper' && (saved.hoyoProfile ? HOYO_PROXIES : ['dxgi.dll', 'd3d12.dll']).some(name => fs.existsSync(path.join(t.dir, name))))
         fail('HELPER_PROXY_CONFLICT', '助手加载时游戏目录出现代理 DLL，已阻止重复加载。');
+      if (!interrupted && saved.hoyoProfile) {
+        const loader = path.join(t.runtimeDir, 'ReShade64.dll'); noLinksSync(loader);
+        const stat = fs.statSync(loader);
+        if (!stat.isFile() || stat.size > 16 * 1024 * 1024 || hash(fs.readFileSync(loader)) !== HOYO_RECIPE.loaderSha256)
+          fail('FILE_CHANGED', '米哈游加载器与固定配套不一致。');
+      }
       if (!interrupted && saved.origin === 'direct' && saved.loadingMode !== 'helper') {
         const proxy = path.join(t.dir, saved.proxy.name); noLinksSync(proxy);
         const stat = fs.statSync(proxy);
@@ -200,6 +263,9 @@ function createExternalRuntime(options) {
       gameRoot: t.gameRoot, loaderDir: t.dir, runtimeDir: external ? runtimeDir : profile.baseDir, addonDir, addonDirectory: addonDir,
       activeConfigPath: configured.activeConfigPath, reshadeConfigDir: configured.baseDir, nrConfigDir: addonDir,
       configured, sourceLayout: saved?.sourceLayout || profile.configured, desired,
+      hoyoProfile: saved?.hoyoProfile || null, profileGeneration: saved?.profileGeneration || null,
+      knownComponents: profileKnownComponents(t, saved),
+      loadingBackend: saved?.mode === 'external' && saved.hoyoProfile ? 'hoyoshade' : 'local',
       warnings: profile.warnings, origin: saved?.origin || 'native',
       logDirs: [...new Set([configured.baseDir, addonDir])], verified: !interrupted && local.ok && profile.ok,
       blockers: interrupted ? ['上次部署尚未恢复'] : !profile.ok ? profile.blockers : local.ok ? [] : [local.code],
@@ -210,6 +276,16 @@ function createExternalRuntime(options) {
       moduleManifest: external ? saved.files.filter(row => !row.mutable).map(row => ({ path: path.join(t.runtimeDir, row.name),
         name: row.name, kind: row.kind, role: ({ addon: 'core', bridge: 'chain', runtime: 'nr-runtime', carrier: 'carrier', loader: 'reshade' })[row.kind] || row.role,
         sha256: row.sha256, architecture: row.architecture ?? (MANAGED.has(row.kind) || row.kind === 'loader' ? 64 : null) })) : [] };
+  }
+  function profileKnownComponents(t, saved) {
+    if (!saved || saved.origin !== 'direct_hoyo') return [];
+    return saved.files.filter(row => !row.mutable && row.originPath).flatMap(row => {
+      const decision = saved.compatibility?.decisions?.find(value => key(value.path) === key(row.originPath) && value.sha256 === row.originHash);
+      if (decision?.action !== 'keep') return [];
+      return [{ path: path.join(t.runtimeDir, row.name), sha256: row.sha256, role: row.role, owned: true, owner: PRODUCT,
+        compatibility: 'compatible', compatibilitySource: decision.explicitKeep ? 'user-choice' : 'verified-profile',
+        sourcePath: row.originPath, sourceFingerprint: saved.compatibility.sourceFingerprint }];
+    });
   }
   async function inspect(game) {
     const t = target(game), saved = record(t), interrupted = pending(t), localManifest = readManifest(t.gameRoot);
@@ -266,6 +342,10 @@ function createExternalRuntime(options) {
         key(wal.exe || '.') !== key(t.exe) || key(wal.gameRoot || '.') !== key(t.gameRoot) ||
         (wal.profileId || null) !== (t.profileId || null) ||
         !Array.isArray(wal.files) || wal.files.length > 256) fail('RECOVERY_INVALID', '外置恢复记录不完整。');
+    if (wal.sourceBinding) {
+      if (!validSourceBinding(wal.sourceBinding, t.dir)) fail('RECOVERY_INVALID', '插件来源快照未绑定原配置。');
+      t = { ...t, sourceBinding: wal.sourceBinding };
+    }
     if (wal.pid !== process.pid && Number.isInteger(wal.pid)) {
       try { process.kill(wal.pid, 0); fail('BUSY', '另一管理器仍在执行部署。'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     }
@@ -300,7 +380,8 @@ function createExternalRuntime(options) {
   }
   async function transaction(t, plan) {
     const wal = { version: 1, product: PRODUCT, id: t.id, operation: plan.operation, exe: t.exe,
-      gameRoot: t.gameRoot, profileId: t.profileId, pid: process.pid, createdAt: new Date().toISOString(), files: [] };
+      gameRoot: t.gameRoot, profileId: t.profileId, sourceBinding: t.sourceBinding,
+      pid: process.pid, createdAt: new Date().toISOString(), files: [] };
     for (let i = 0; i < plan.operations.length; i++) {
       const row = plan.operations[i];
       if (!allowed(t, row.file, row.role)) fail('TARGET', '部署计划含未知目标。');
@@ -326,6 +407,7 @@ function createExternalRuntime(options) {
     try {
       for (let i = 0; i < wal.files.length; i++) {
         const row = wal.files[i];
+        if (row.role === 'source-addon') await plan.beforeSourceIsolation?.();
         if (plan.sourceGuard && (row.role === 'game-proxy' || row.role === 'reshade-config' && key(row.file) === key(path.join(t.dir, 'ReShade.ini'))))
           await plan.sourceGuard();
         const current = await digest(row.file);
@@ -397,10 +479,21 @@ function createExternalRuntime(options) {
     }
     return files;
   }
-  async function sourceAddons(profile) {
+  async function sourceAddons(profile, context = {}) {
     const rows = [], names = new Map(), directNames = [], checks = [];
+    const snapshot = await snapshotAddonLoadingLayout({ exeDir: profile.configured.loaderDir, gameId: context.game?.id || null,
+      architecture: context.architecture || 64, environment: options.environment || process.env });
+    const knownComponents = [...(context.knownComponents || []), ...(typeof options.knownComponents === 'function'
+      ? await options.knownComponents(context.game) : options.knownComponents || [])];
+    const compatibility = planAddonCompatibility(snapshot, { knownComponents, keep: context.keep || [], selectedCore: context.selectedCore,
+      selectedComponents: context.selectedComponents || [] });
+    if (compatibility.blockers.length) fail('SOURCE_POLICY', '插件隔离或保留选择需要重新核对。', { compatibility });
+    const isolated = [...compatibility.isolate, ...compatibility.retire], isolatedPaths = new Set(isolated.map(row => key(row.path)));
+    const binding = sourceBinding(snapshot);
+    if (!validSourceBinding(binding, profile.configured.loaderDir)) fail('SOURCE_LAYOUT', '原插件范围无法建立可恢复映射。');
     const entries = fs.existsSync(profile.addonDir) ? await fsp.readdir(profile.addonDir, { withFileTypes: true }) : [];
-    const searched = row => ADDON.test(row.name) && !/\.addon32$/i.test(row.name);
+    const excluded = new Set((context.excludePaths || []).map(key));
+    const searched = row => ['.addon', context.architecture === 32 ? '.addon32' : '.addon64'].includes(path.extname(row.name));
     const inventory = entries.filter(searched).map(row => `${row.name}:${row.isFile() ? 'file' : 'other'}`).sort();
     async function add(source, role, mutable = false) {
       const name = path.basename(source), previous = names.get(name.toLowerCase());
@@ -409,19 +502,21 @@ function createExternalRuntime(options) {
         fail('SOURCE_CONFLICT', '原活动插件与新外置配套存在同名文件，未覆盖。', { file: source });
       if (previous) { if (key(previous.source) !== key(source)) fail('SOURCE_CONFLICT', '多个原插件目录有同名文件，无法安全合并。', { file: source }); return previous; }
       const actual = await digest(source); if (!actual) fail('SOURCE_CHANGED', '原活动插件缺失，未修改加载目录。', { file: source });
-      if (role === 'user-addon' && classifyAddon(name, source)) fail('SOURCE_CONFLICT', '原活动目录含另一 NR 或 NGX 插件，请先核对冲突。', { file: source });
       const row = { name, role, kind: role, mutable, sha256: actual, originHash: actual, originPath: source, localOwned: false, source };
       names.set(name.toLowerCase(), row); rows.push(row); checks.push({ file: source, sha256: actual });
       if (rows.length > 128) fail('LAYOUT', '原活动插件范围过大。');
       return row;
     }
-    for (const entry of entries) if (ADDON.test(entry.name) && !/\.addon32$/i.test(entry.name)) {
+    for (const entry of entries) if (searched(entry)) {
+      if (isolatedPaths.has(key(path.join(profile.addonDir, entry.name)))) continue;
+      if (excluded.has(key(path.join(profile.addonDir, entry.name)))) continue;
       if (!entry.isFile()) fail('SOURCE_LAYOUT', '原插件目录包含链接或非普通插件文件。');
       await add(path.join(profile.addonDir, entry.name), 'user-addon');
     }
     for (const explicit of profile.directLoads) {
+      if (isolatedPaths.has(key(explicit.path))) continue;
+      if (excluded.has(key(explicit.path))) { directNames.push(path.basename(explicit.path)); continue; }
       if (!ADDON.test(explicit.path) && !/\.dll$/i.test(explicit.path)) fail('SOURCE_LAYOUT', '无法识别显式加载的插件类型。');
-      if (classifyAddon(path.basename(explicit.path), explicit.path)) fail('SOURCE_CONFLICT', '显式加载列表含另一 NR 或 NGX 插件，未重新加载。', { file: explicit.path });
       const row = await add(explicit.path, ADDON.test(explicit.path) ? 'user-addon' : 'user-dependency'); directNames.push(row.name);
     }
     for (let index = 0; index < rows.length; index++) {
@@ -438,16 +533,27 @@ function createExternalRuntime(options) {
         if (fs.existsSync(source)) await add(source, 'user-dependency'); else checks.push({ file: source, sha256: null });
       }
     }
-    const guard = async () => {
+    const guard = async ({ afterIsolation = false, published = [] } = {}) => {
       for (const identity of profile.identities) if (await digest(identity.file) !== identity.sha256)
         fail('PLAN_CHANGED', '预览后原 ReShade 配置改变，请重新核对。');
       const current = fs.existsSync(profile.addonDir) ? await fsp.readdir(profile.addonDir, { withFileTypes: true }) : [];
-      if (JSON.stringify(current.filter(searched).map(row => `${row.name}:${row.isFile() ? 'file' : 'other'}`).sort()) !== JSON.stringify(inventory))
+      const expectedInventory = afterIsolation ? inventory.filter(item => !isolated.some(row =>
+        key(path.dirname(row.path)) === key(profile.addonDir) && item === row.name + ':file' && !fs.existsSync(row.path))) : inventory;
+      for (const row of published) if (row.after && key(path.dirname(row.file)) === key(profile.addonDir) && searched({ name: path.basename(row.file) }) &&
+        !expectedInventory.includes(path.basename(row.file) + ':file')) expectedInventory.push(path.basename(row.file) + ':file');
+      expectedInventory.sort();
+      if (JSON.stringify(current.filter(searched).map(row => `${row.name}:${row.isFile() ? 'file' : 'other'}`).sort()) !== JSON.stringify(expectedInventory))
         fail('PLAN_CHANGED', '预览后原插件目录内容改变，请重新核对。');
       for (const check of checks) if (await digest(check.file) !== check.sha256) fail('PLAN_CHANGED', '预览后原插件文件改变。', { file: check.file });
+      for (const row of snapshot.files) {
+        const actual = await digest(row.path);
+        const changed = published.find(value => key(value.file) === key(row.path));
+        if (actual !== (changed ? changed.after : row.sha256) && !(afterIsolation && isolatedPaths.has(key(row.path)) && actual === null))
+          fail('PLAN_CHANGED', '预览后插件加载清单的文件发生变化。', { file: row.path });
+      }
     };
     await guard();
-    return { rows, directNames, guard };
+    return { rows, directNames, guard, snapshot, compatibility, isolated, binding };
   }
   async function directPlan(t, game, next, operations, extras = {}) {
     if (operations.length > 256) fail('LAYOUT', '外置变更范围过大。');
@@ -466,9 +572,15 @@ function createExternalRuntime(options) {
       api: next.api, version: next.payloadVersion, loadingMode: next.loadingMode, origin: next.origin,
       requiresFgRestore: extras.requiresFgRestore === true, requiresConfirmation: true,
       requiresAntiCheat: Boolean(guards.antiCheatPresent?.(t.gameRoot)), blockers: [], warnings: extras.warnings || [],
+      compatibility: extras.compatibility || next.compatibility || null,
       configured: extras.configured || next.sourceLayout, sourceLayout: next.sourceLayout, desired,
       layout: { mode: next.mode, source: PRODUCT, runtimeDir: desired.baseDir, addonDir: desired.addonDir, addonDirectory: desired.addonDir,
         activeConfigPath: desired.activeConfigPath, configured: desired, sourceLayout: next.sourceLayout, desired,
+        projectedConfig: (() => { const row = operations.find(value => key(value.file) === key(desired.activeConfigPath));
+          return row?.bytes ? { sha256: row.after, text: row.bytes.toString('utf8') } : null; })(),
+        projectedFiles: operations.filter(row => row.role !== 'receipt').map(row => ({ path: row.file, sha256: row.after })),
+        knownComponents: profileKnownComponents(t, next),
+        hoyoProfile: next.hoyoProfile || null, profileGeneration: next.profileGeneration || null,
         loadingMode: next.loadingMode, loaderPath: next.loadingMode === 'helper' ? path.join(t.runtimeDir, 'ReShade64.dll') : null,
         proxyPaths: next.proxy && next.loadingMode !== 'helper' ? [path.join(t.dir, next.proxy.name)] : [], verified: true, blockers: [] },
       retainedAddons: next.files.filter(row => row.role === 'user-addon').map(row => ({ name: row.name, origin: row.originPath, searched: true })),
@@ -528,7 +640,9 @@ function createExternalRuntime(options) {
     return { ...t, profileId: saved.generation, runtimeDir: path.join(t.ownerRoot, 'active-' + saved.generation) };
   }
   async function previewInitial(t, game, request) {
-    if (request.loadingMode && request.loadingMode !== 'proxy') fail('INITIAL_LOADING_MODE', '首次外置部署请先使用代理加载，再按独立预览切换助手加载。');
+    const hoyo = request.deploymentBackend === 'hoyoshade';
+    if (hoyo && (!validHoYoProfile(request.hoyoProfile, t.exe) || request.loadingMode !== 'helper')) fail('HOYO_PROFILE', '米哈游首装需要固定正式客户端与启动器绑定。');
+    if (!hoyo && request.loadingMode && request.loadingMode !== 'proxy') fail('INITIAL_LOADING_MODE', '首次外置部署请先使用代理加载，再按独立预览切换助手加载。');
     const profile = inspectProfile(t.dir, options.environment || process.env);
     if (!profile.ok) fail('SOURCE_LAYOUT', profile.blockers.map(row => row.message).join('；'));
     const api = request.api || classifyApi(game.scan?.chosen || game.chosen), payload = request.payload;
@@ -538,37 +652,46 @@ function createExternalRuntime(options) {
       // compiled previews refer to the same paths. The old history stays put.
       t = await preserveInactiveProfile(t, profile);
     }
-    const operation = crypto.randomUUID(), operations = [], rows = [], kinds = ['addon', 'bridge', 'runtime', 'config', 'reshade', ...(api === 'dx11' ? ['carrier'] : [])];
+    const operation = crypto.randomUUID(), operations = [], rows = [], kinds = hoyo && request.inputRoute === 'feeder' ? ['reshade'] :
+      ['addon', 'bridge', 'runtime', 'config', 'reshade', ...(api === 'dx11' ? ['carrier'] : [])];
     for (const kind of kinds) {
       const spec = payload?.[kind];
       if (!spec?.file || !HASH.test(spec.actual || '') || await digest(spec.file) !== spec.actual) fail('PACKAGE', '首次外置部署缺少完整且可验证的配套。', { kind });
       if (kind !== 'config' && typeof pe.getBitness === 'function' && pe.getBitness(spec.file) !== 64) fail('ARCHITECTURE', '外置配套必须为 x64。', { kind });
       if (kind !== 'reshade') rows.push({ name: INSTALLED_NAMES[kind], kind, role: 'managed', mutable: kind === 'config',
         sha256: spec.actual, originHash: spec.actual, localOwned: false, originAbsent: true, source: spec.file, architecture: kind === 'config' ? null : 64 });
+      else if (hoyo) {
+        if (spec.actual !== HOYO_RECIPE.loaderSha256) fail('HOYO_LOADER', '米哈游需要固定 ReShade 6.8 配套。');
+        rows.push({ name: 'ReShade64.dll', kind: 'loader', role: 'profile-loader', mutable: false,
+          sha256: spec.actual, originHash: spec.actual, localOwned: false, originAbsent: true, source: spec.file, architecture: 64 });
+      }
     }
     const marker = file => { const bytes = fs.readFileSync(file); return bytes.includes(Buffer.from('Searching for add-ons')) || bytes.includes(Buffer.from('Searching for add-ons', 'utf16le')); };
     if (!marker(payload.reshade.file)) fail('PACKAGE', '首次外置部署需要支持 Add-on 的 ReShade。');
     const proxies = [];
-    for (const name of ['dxgi.dll', 'd3d12.dll']) {
+    for (const name of hoyo ? HOYO_PROXIES : ['dxgi.dll', 'd3d12.dll']) {
       const file = path.join(t.dir, name), actual = await digest(file); if (!actual) continue;
       if (!marker(file) || typeof pe.getBitness === 'function' && pe.getBitness(file) !== 64)
         fail('PROXY_CONFLICT', '游戏目录含无法确认的代理，未替换。', { file });
       proxies.push({ name, actual });
     }
-    if (proxies.length > 1) fail('PROXY_CONFLICT', '游戏目录存在多个加载器，未猜测当前入口。');
-    const source = await sourceAddons(profile); rows.push(...source.rows);
+    if (!hoyo && proxies.length > 1) fail('PROXY_CONFLICT', '游戏目录存在多个加载器，未猜测当前入口。');
+    const source = await sourceAddons(profile, { game, keep: request.addonKeep || request.keepAddons || [],
+      knownComponents: [...Object.entries(payload).filter(([_kind, value]) => value?.actual && value.file).map(([kind, value]) => ({ sha256: value.actual, role: kind })), ...(request.knownComponents || [])] });
+    t = { ...t, sourceBinding: source.binding }; rows.push(...source.rows);
     const personalConfig = path.join(profile.addonDir, INSTALLED_NAMES.config);
     let personalConfigHash = null;
-    if (fs.existsSync(personalConfig)) {
+    if (rows.some(row => row.kind === 'config') && fs.existsSync(personalConfig)) {
       const stat = await fsp.stat(personalConfig);
       if (!stat.isFile() || stat.size > 1024 * 1024) fail('SOURCE_LAYOUT', '原 NR 配置不是可检查的文件。');
       personalConfigHash = await digest(personalConfig);
       Object.assign(rows.find(row => row.kind === 'config'), { source: personalConfig, sha256: personalConfigHash,
         originHash: personalConfigHash, originPath: personalConfig, originAbsent: false });
     }
+    let isolationStarted = false;
     const sourceGuard = async () => {
-      await source.guard();
-      if (await digest(personalConfig) !== personalConfigHash) fail('PLAN_CHANGED', '原 NR 配置在预览后改变，未覆盖。');
+      await source.guard({ afterIsolation: isolationStarted });
+      if (rows.some(row => row.kind === 'config') && await digest(personalConfig) !== personalConfigHash) fail('PLAN_CHANGED', '原 NR 配置在预览后改变，未覆盖。');
     };
     await sourceGuard();
     if (fs.existsSync(t.runtimeDir) && (await fsp.readdir(t.runtimeDir)).length) fail('PROFILE_EXISTS', '目标外置目录已有未接管文件，请先核对旧记录。');
@@ -577,12 +700,36 @@ function createExternalRuntime(options) {
       operations.push({ file, role, source, ...(value === undefined ? {} : { bytes: value }), before, after: value === undefined ? after : hash(value) });
     }
     for (const row of rows) await change(path.join(t.runtimeDir, row.name), row.role, row.source, undefined, row.sha256);
-    const activeConfig = externalConfig(profile.config, profile.baseDir, options.environment || process.env, { directLoads: source.directNames });
+    const activeConfig = ensureDefaultReShadeHotkey(externalConfig(profile.config, profile.baseDir, options.environment || process.env, { directLoads: source.directNames }));
     await change(path.join(t.runtimeDir, 'ReShade.ini'), 'reshade-config', null, activeConfig);
-    const proxy = { name: proxies[0]?.name || 'dxgi.dll', sha256: payload.reshade.actual }, proxyBefore = proxies[0]?.actual || null;
+    const isolatedAddons = [];
+    for (const row of source.isolated) {
+      const index = operations.length;
+      await change(row.path, 'source-addon', null, undefined, null);
+      isolatedAddons.push({ path: row.path, sha256: row.sha256, operation, snapshot: `before/${index}.bin`, reason: row.reason,
+        action: row.action, mandatory: row.mandatory, originalOwned: row.owned });
+    }
+    const entry = request.proxyEntry || 'auto';
+    if (!hoyo && entry === 'd3d12' && api !== 'dx12') fail('PROXY_ENTRY', 'D3D12 加载入口只适用于已确认的 DX12 路线。');
+    const proxy = hoyo ? null : { name: entry === 'auto' ? proxies[0]?.name || 'dxgi.dll' : entry + '.dll', sha256: payload.reshade.actual };
+    let retiredProxy = null;
+    if (!hoyo && proxies[0] && proxies[0].name !== proxy.name) {
+      const index = operations.length;
+      await change(path.join(t.dir, proxies[0].name), 'game-proxy', null, undefined, null);
+      retiredProxy = { name: proxies[0].name, sha256: proxies[0].actual, snapshot: `before/${index}.bin` };
+      if (operations[index].before !== retiredProxy.sha256) fail('PLAN_CHANGED', '原加载器在检查后改变。');
+    }
+    const proxyBefore = !hoyo && proxies[0]?.name === proxy.name ? proxies[0].actual : null;
     const proxyIndex = operations.length;
-    await change(path.join(t.dir, proxy.name), 'game-proxy', payload.reshade.file, undefined, proxy.sha256);
-    if (operations[proxyIndex].before !== proxyBefore) fail('PLAN_CHANGED', '检查期间原加载器改变。');
+    const initialProxies = [];
+    if (hoyo) for (const row of proxies) {
+      const index = operations.length; await change(path.join(t.dir, row.name), 'game-proxy', null, undefined, null);
+      if (operations[index].before !== row.actual) fail('PLAN_CHANGED', '检查期间原加载器改变。');
+      initialProxies.push({ name: row.name, sha256: row.actual, snapshot: `before/${index}.bin` });
+    } else {
+      await change(path.join(t.dir, proxy.name), 'game-proxy', payload.reshade.file, undefined, proxy.sha256);
+      if (operations[proxyIndex].before !== proxyBefore) fail('PLAN_CHANGED', '检查期间原加载器改变。');
+    }
     const rootConfig = loaderConfig(profile.rootConfig, t.runtimeDir);
     await change(profile.rootConfigPath, 'reshade-config', null, rootConfig);
     const manifest = newManifest(t.gameRoot, t.exe, api); manifest.payloadVersion = payload.version; manifest.deploymentApi = api; manifest.metadataOnly = true;
@@ -590,9 +737,14 @@ function createExternalRuntime(options) {
       installedSha256: row.sha256, original: { existed: false } }));
     const next = { version: 1, product: PRODUCT, id: t.id, exe: t.exe, gameRoot: t.gameRoot, runtimeDir: t.runtimeDir,
       profileId: t.profileId,
-      generation: operation, mode: 'external', loadingMode: 'proxy', proxy, api, payloadVersion: payload.version, updatedAt: new Date().toISOString(),
-      origin: 'direct', initialOperation: operation,
-      initialProxy: { name: proxy.name, before: proxyBefore, after: proxy.sha256, owned: proxyBefore !== proxy.sha256, snapshot: `before/${proxyIndex}.bin` },
+      generation: operation, mode: 'external', loadingMode: hoyo ? 'helper' : 'proxy', proxy, api, payloadVersion: payload.version || HOYO_RECIPE.id, updatedAt: new Date().toISOString(),
+      origin: hoyo ? 'direct_hoyo' : 'direct', initialOperation: operation,
+      ...(hoyo ? { hoyoProfile: request.hoyoProfile, initialProxies,
+        profileGeneration: hash(Buffer.from(JSON.stringify({ owner: t.id, profileId: t.profileId || null, binding: request.hoyoProfile.bindingId, source: source.snapshot.fingerprint }))) } : {}),
+      sourceBinding: source.binding, isolatedAddons, compatibility: source.compatibility,
+      panelDefaultAdded: !hasKeyOverlay(profile.config),
+      ...(!hoyo ? { initialProxy: { name: proxy.name, before: proxyBefore, after: proxy.sha256, owned: proxyBefore !== proxy.sha256, snapshot: `before/${proxyIndex}.bin` } } : {}),
+      ...(retiredProxy ? { retiredProxy } : {}),
       localManifest: manifest, currentManifest: structuredClone(manifest), sourceLayout: profile.configured,
       originalReShadeConfig: profile.rootConfig, originalConfigExisted: profile.identities.find(row => row.file === profile.rootConfigPath)?.sha256 !== null, loaderConfigHash: hash(Buffer.from(rootConfig)),
       baseline: { installed: false, version: null, ordinarySnapshot: operation, ordinarySnapshotDirectory: path.join(t.ownerRoot, 'history', operation) },
@@ -601,7 +753,8 @@ function createExternalRuntime(options) {
     const activeOrigins = new Set(source.rows.map(row => key(row.originPath))), inactiveAddons =
       (await fsp.readdir(t.dir, { withFileTypes: true })).filter(row => row.isFile() && ADDON.test(row.name) && !activeOrigins.has(key(path.join(t.dir, row.name))))
         .map(row => ({ name: row.name, path: path.join(t.dir, row.name), active: false, action: 'preserve' }));
-    return directPlan(t, game, next, operations, { sourceGuard, warnings: profile.warnings, inactiveAddons, configured: profile.configured });
+    return directPlan(t, game, next, operations, { sourceGuard, beforeSourceIsolation: () => { isolationStarted = true; },
+      compatibility: source.compatibility, warnings: profile.warnings, inactiveAddons, configured: profile.configured });
   }
   async function previewLocalDirect(t, game, saved, request, internal) {
     if (key(saved.sourceLayout?.baseDir || '.') !== key(t.dir) || key(saved.sourceLayout?.addonDir || '.') !== key(t.dir))
@@ -644,8 +797,13 @@ function createExternalRuntime(options) {
         await change(destination, row.role, source, undefined, actual);
       }
     }
-    const initial = saved.initialProxy, proxyFile = path.join(t.dir, initial.name);
-    if (saved.loadingMode === 'helper') await change(proxyFile, 'game-proxy', path.join(t.runtimeDir, 'ReShade64.dll'), undefined, saved.proxy.sha256);
+    const initial = saved.retiredProxy ? { name: saved.retiredProxy.name, before: saved.retiredProxy.sha256, snapshot: saved.retiredProxy.snapshot, owned: true } : saved.initialProxy;
+    const proxyFile = path.join(t.dir, initial.name), activeProxy = path.join(t.dir, saved.proxy.name);
+    if (saved.loadingMode === 'helper' || initial.name !== saved.proxy.name) {
+      if (await digest(proxyFile) !== null) fail('FILE_CHANGED', '原加载入口出现其他文件，未迁移到普通目录。');
+      await change(proxyFile, 'game-proxy', saved.loadingMode === 'helper' ? path.join(t.runtimeDir, 'ReShade64.dll') : activeProxy, undefined, saved.proxy.sha256);
+      if (saved.loadingMode !== 'helper') await change(activeProxy, 'game-proxy', null, undefined, null);
+    }
     if (initial.owned) {
       const entry = { rel: path.relative(t.gameRoot, proxyFile), kind: 'reshade', installedSha256: saved.proxy.sha256, original: { existed: initial.before !== null } };
       if (initial.before) {
@@ -657,12 +815,12 @@ function createExternalRuntime(options) {
       manifest.files.push(entry); manifest.reshadeRoute = path.basename(proxyFile, '.dll');
     }
     const currentConfig = await fsp.readFile(path.join(t.runtimeDir, 'ReShade.ini'), 'utf8');
-    const restoredConfig = localConfig(currentConfig, saved.originalReShadeConfig, t.dir, options.environment || process.env);
+    const restoredConfig = localConfig(currentConfig, saved.originalReShadeConfig, t.dir, options.environment || process.env, { panelDefaultAdded: saved.panelDefaultAdded === true });
     await change(path.join(t.dir, 'ReShade.ini'), 'reshade-config', null, restoredConfig || saved.originalConfigExisted ? restoredConfig : undefined, null);
     await change(manifestPath(t.gameRoot), 'manifest', null, jsonBytes(manifest));
     for (const row of saved.files) await change(path.join(t.runtimeDir, row.name), row.role, null, undefined, null);
     await change(path.join(t.runtimeDir, 'ReShade.ini'), 'reshade-config', null, undefined, null);
-    const next = { ...saved, mode: 'local', loadingMode: 'proxy', generation: operation, payloadVersion: manifest.payloadVersion,
+    const next = { ...saved, mode: 'local', loadingMode: 'proxy', proxy: { ...saved.proxy, name: initial.name }, generation: operation, payloadVersion: manifest.payloadVersion,
       localManifest: manifest, currentManifest: manifest, loaderConfigHash: hash(Buffer.from(restoredConfig)),
       previous: { mode: 'external', version: saved.payloadVersion, generation: saved.generation, snapshot: operation,
         snapshotDirectory: path.join(t.ownerRoot, 'history', operation) } };
@@ -672,12 +830,19 @@ function createExternalRuntime(options) {
   }
   async function preview(game, request = {}, internal = {}) {
     const t = target(game); await closed(t); await assertReady(game);
-    if (!['local', 'external'].includes(request.mode) || request.loadingMode !== undefined && !['proxy', 'helper'].includes(request.loadingMode))
+    if (!['local', 'external'].includes(request.mode) || request.loadingMode !== undefined && !['proxy', 'helper'].includes(request.loadingMode) ||
+        request.proxyEntry !== undefined && !['auto', 'dxgi', 'd3d12'].includes(request.proxyEntry))
       fail('INPUT', '请选择普通或外置部署及加载方式。');
     const saved = record(t), external = saved?.mode === 'external';
+    const hoyo = request.deploymentBackend === 'hoyoshade';
+    if (hoyo && (!validHoYoProfile(request.hoyoProfile, t.exe) || request.loadingMode !== 'helper' || request.payload?.reshade?.actual !== HOYO_RECIPE.loaderSha256))
+      fail('HOYO_PROFILE', '米哈游专用部署需要已绑定的正式客户端及固定加载器。');
+    if (external && saved.hoyoProfile && request.inputRoute && request.inputRoute !== saved.hoyoProfile.inputRoute)
+      fail('INPUT_RESTORE_FIRST', '请先恢复当前输入配套，再切换米哈游输入路线。');
     let manifest = readManifest(t.gameRoot);
     if (!manifest && !external && request.mode === 'external') return previewInitial(t, game, request);
-    if (external && saved.origin === 'direct') {
+    if (external && ['direct', 'direct_hoyo'].includes(saved.origin)) {
+      if (saved.origin === 'direct_hoyo' && request.mode === 'local') fail('HOYO_RESTORE_FIRST', '米哈游专用部署需先恢复原配置，再切换普通加载方式。');
       if (request.mode === 'local') return previewLocalDirect(t, game, saved, request, internal);
       manifest = saved.currentManifest || saved.localManifest;
     }
@@ -698,6 +863,7 @@ function createExternalRuntime(options) {
       }
     }
     const loadingMode = request.mode === 'external' ? request.loadingMode || saved?.loadingMode || 'proxy' : 'proxy';
+    if (loadingMode === 'proxy' && request.proxyEntry === 'd3d12' && api !== 'dx12') fail('PROXY_ENTRY', 'D3D12 加载入口只适用于已确认的 DX12 路线。');
     const operation = crypto.randomUUID(), operations = [], rows = external ? saved.files.map(row => ({ ...row, source: path.join(t.runtimeDir, row.name) })) : await collectLocal(t, manifest);
     if (external) {
       getLayout(game);
@@ -715,6 +881,12 @@ function createExternalRuntime(options) {
         if (!entry.isFile()) fail('LAYOUT', '外置目录含无法迁移的组件。');
         const role = ADDON.test(entry.name) ? 'user-addon' : 'user-sidecar', source = path.join(t.runtimeDir, entry.name);
         const actual = await digest(source), origin = await digest(path.join(t.dir, entry.name));
+        const separateOwner = (request.knownComponents || []).filter(row => row.path && row.owned === true && row.owner && row.owner !== PRODUCT && key(row.path) === key(source));
+        if (separateOwner.length) {
+          if (separateOwner.some(row => row.sha256 !== actual)) fail('FILE_CHANGED', '独立输入或补帧组件与其所有者记录不一致。', { file: source });
+          continue;
+        }
+        if (saved.hoyoProfile?.inputRoute === 'feeder' && MUTABLE.test(entry.name)) continue;
         if (origin) fail('CONFLICT', '新外置组件在游戏目录已有同名文件，未覆盖。', { file: entry.name });
         rows.push({ name: entry.name, role, kind: role, mutable: MUTABLE.test(entry.name), sha256: actual,
           originHash: actual, originAbsent: true, localOwned: false, source });
@@ -726,6 +898,19 @@ function createExternalRuntime(options) {
     const currentConfig = external ? await fsp.readFile(path.join(t.runtimeDir, 'ReShade.ini'), 'utf8') : originalConfig;
     const currentManifest = external ? structuredClone(saved.currentManifest || saved.localManifest) : structuredClone(manifest);
     let proxy = saved?.proxy || null;
+    if (!proxy) {
+      const candidates = [];
+      for (const name of ['dxgi.dll', 'd3d12.dll']) {
+        const file = path.join(t.dir, name), actual = await digest(file); if (!actual) continue;
+        const bytes = await fsp.readFile(file);
+        if (!bytes.includes(Buffer.from('Searching for add-ons')) && !bytes.includes(Buffer.from('Searching for add-ons', 'utf16le')))
+          fail('PROXY_CONFLICT', '游戏目录含无法确认的加载入口，未覆盖。', { file });
+        candidates.push({ name, sha256: actual });
+      }
+      if (candidates.length > 1) fail('PROXY_CONFLICT', '游戏目录存在多个加载入口，未猜测活动入口。');
+      proxy = candidates[0] || null;
+    }
+    const proxyBaseline = saved?.proxyBaseline || proxy;
     if (loadingMode === 'helper' && (!external || saved.loadingMode !== 'helper')) {
       const candidates = [];
       for (const name of ['dxgi.dll', 'd3d12.dll']) {
@@ -749,8 +934,8 @@ function createExternalRuntime(options) {
     let payloadVersion = external ? saved.payloadVersion : manifest.payloadVersion;
     if (request.payload) {
       const payload = request.payload;
-      if (api === 'dx11' && !payload.carrier) fail('PACKAGE', 'DX11 外置部署需要完整配套桥接器。');
-      for (const kind of ['addon', 'bridge', 'runtime', ...(api === 'dx11' ? ['carrier'] : [])]) {
+      if (api === 'dx11' && saved?.hoyoProfile?.inputRoute !== 'feeder' && !payload.carrier) fail('PACKAGE', 'DX11 外置部署需要完整配套桥接器。');
+      for (const kind of saved?.hoyoProfile?.inputRoute === 'feeder' ? [] : ['addon', 'bridge', 'runtime', ...(api === 'dx11' ? ['carrier'] : [])]) {
         const spec = payload[kind];
         if (!spec?.file || !HASH.test(spec.actual || '') || await digest(spec.file) !== spec.actual) fail('PACKAGE', '配套来源或摘要无效。', { kind });
         if (typeof pe.getBitness === 'function' && pe.getBitness(spec.file) !== 64) fail('ARCHITECTURE', '外置 Core 配套必须为 x64。', { kind });
@@ -776,8 +961,8 @@ function createExternalRuntime(options) {
       operations.push({ file, role, source, ...(value === undefined ? {} : { bytes: value }), before,
         after: value !== undefined ? hash(value) : after });
     }
-    const toExternal = request.mode === 'external', activeConfig = toExternal ? external ? currentConfig : externalConfig(originalConfig, t.dir)
-      : localConfig(currentConfig, originalConfig, t.dir);
+    const toExternal = request.mode === 'external', activeConfig = toExternal ? external ? currentConfig : ensureDefaultReShadeHotkey(externalConfig(originalConfig, t.dir))
+      : localConfig(currentConfig, originalConfig, t.dir, options.environment || process.env, { panelDefaultAdded: saved?.panelDefaultAdded === true });
     if (toExternal) {
       for (const row of rows) await change(path.join(t.runtimeDir, row.name), row.role, row.source, undefined, row.sha256);
       await change(path.join(t.runtimeDir, 'ReShade.ini'), 'reshade-config', null, activeConfig);
@@ -791,12 +976,22 @@ function createExternalRuntime(options) {
       }
       await change(manifestPath(t.gameRoot), 'manifest', null, jsonBytes(currentManifest));
     }
+    const requestedProxy = proxy && loadingMode === 'proxy' ?
+      (!toExternal && saved?.origin !== 'direct' ? proxyBaseline?.name : request.proxyEntry && request.proxyEntry !== 'auto' ? request.proxyEntry + '.dll' : proxy.name) : null;
     if (proxy && loadingMode === 'helper' && (!external || saved.loadingMode !== 'helper'))
       await change(path.join(t.dir, proxy.name), 'game-proxy', null, undefined, null);
     else if (proxy && external && saved.loadingMode === 'helper' && loadingMode !== 'helper') {
-      const destination = path.join(t.dir, proxy.name);
+      const destination = path.join(t.dir, requestedProxy);
       if (await digest(destination) !== null) fail('FILE_CHANGED', '游戏目录出现新的加载器，未覆盖。', { file: destination });
       await change(destination, 'game-proxy', path.join(t.runtimeDir, 'ReShade64.dll'), undefined, proxy.sha256);
+      proxy = { ...proxy, name: requestedProxy };
+    } else if (proxy && requestedProxy && requestedProxy !== proxy.name) {
+      const source = path.join(t.dir, proxy.name), destination = path.join(t.dir, requestedProxy);
+      if (await digest(source) !== proxy.sha256) fail('FILE_CHANGED', '当前加载入口已变动，未移动。', { file: source });
+      if (await digest(destination) !== null) fail('PROXY_CONFLICT', '目标加载入口已有文件，未覆盖。', { file: destination });
+      await change(destination, 'game-proxy', source, undefined, proxy.sha256);
+      await change(source, 'game-proxy', null, undefined, null);
+      proxy = { ...proxy, name: requestedProxy };
     }
     const rootConfig = toExternal ? loaderConfig(originalConfig, t.runtimeDir) : activeConfig;
     const originalConfigExisted = external ? saved.originalConfigExisted !== false : fs.existsSync(path.join(t.dir, 'ReShade.ini'));
@@ -806,7 +1001,8 @@ function createExternalRuntime(options) {
     }
     const next = { version: 1, product: PRODUCT, id: t.id, exe: t.exe, gameRoot: t.gameRoot, runtimeDir: t.runtimeDir,
       profileId: t.profileId,
-      generation: operation, mode: request.mode, loadingMode, proxy, api, payloadVersion, updatedAt: new Date().toISOString(),
+      generation: operation, mode: request.mode, loadingMode, proxy, proxyBaseline, api, payloadVersion, updatedAt: new Date().toISOString(),
+      panelDefaultAdded: external ? saved.panelDefaultAdded === true : toExternal && !hasKeyOverlay(originalConfig),
       localManifest: saved?.mode === 'external' ? saved.localManifest : manifest, currentManifest,
       sourceLayout: saved?.mode === 'external' && saved.sourceLayout || { loaderDir: t.dir, baseDir: t.dir, addonDir: t.dir, activeConfigPath: path.join(t.dir, 'ReShade.ini') },
       originalReShadeConfig: originalConfig, originalConfigExisted, loaderConfigHash: hash(Buffer.from(rootConfig)),
@@ -816,8 +1012,14 @@ function createExternalRuntime(options) {
       previous: { mode: external ? 'external' : 'local', version: saved?.payloadVersion || manifest.payloadVersion,
         generation: saved?.generation || null, snapshot: operation, snapshotDirectory: path.join(t.ownerRoot, 'history', operation) },
       files: rows.map(({ source, ...row }) => row) };
-    if (external && saved?.origin === 'direct') Object.assign(next, { origin: 'direct', initialOperation: saved.initialOperation,
-      initialProxy: saved.initialProxy, sourceLayout: saved.sourceLayout });
+    if (external && ['direct', 'direct_hoyo'].includes(saved?.origin)) Object.assign(next, { origin: saved.origin, initialOperation: saved.initialOperation,
+      initialProxy: saved.initialProxy, retiredProxy: saved.retiredProxy, sourceLayout: saved.sourceLayout, sourceBinding: saved.sourceBinding,
+      isolatedAddons: saved.isolatedAddons, compatibility: saved.compatibility });
+    if (hoyo || saved?.hoyoProfile && request.mode === 'external') Object.assign(next, {
+      hoyoProfile: request.hoyoProfile || saved.hoyoProfile,
+      profileGeneration: saved?.profileGeneration || hash(Buffer.from(JSON.stringify({ owner: t.id, binding: request.hoyoProfile.bindingId, profileId: t.profileId || null }))),
+      ...(saved?.origin === 'direct_hoyo' ? { initialProxies: saved.initialProxies } : {})
+    });
     await change(t.receipt, 'receipt', null, jsonBytes(next));
     if (operations.length > 256 || rows.length > 128) fail('LAYOUT', '迁移范围过大。');
     for (const file of [...operations.map(row => row.file), path.join(t.runtimeDir, 'nr-before-sr.previous.log')]) {
@@ -834,6 +1036,10 @@ function createExternalRuntime(options) {
       api, version: payloadVersion, loadingMode, requiresFgRestore, requiresConfirmation: true, requiresAntiCheat: Boolean(guards.antiCheatPresent?.(t.gameRoot)),
       configured, sourceLayout: next.sourceLayout, desired, blockers: [], warnings: getLayout(game).warnings,
       layout: { mode: request.mode, runtimeDir: toExternal ? t.runtimeDir : t.dir, addonDir: desired.addonDir, addonDirectory: toExternal ? t.runtimeDir : t.dir,
+        projectedConfig: { sha256: hash(Buffer.from(activeConfig)), text: activeConfig },
+        projectedFiles: operations.filter(row => row.role !== 'receipt').map(row => ({ path: row.file, sha256: row.after })),
+        knownComponents: profileKnownComponents(t, next),
+        hoyoProfile: next.hoyoProfile || null, profileGeneration: next.profileGeneration || null,
         configured: desired, sourceLayout: next.sourceLayout, desired, verified: true, blockers: [],
         activeConfigPath: path.join(toExternal ? t.runtimeDir : t.dir, 'ReShade.ini'),
         loadingMode, loaderPath: loadingMode === 'helper' ? path.join(t.runtimeDir, 'ReShade64.dll') : null,
@@ -868,14 +1074,14 @@ function createExternalRuntime(options) {
     active.add(t.id); try { const wal = pending(t); return wal ? await rollback(t, wal) : { recovered: false }; }
     finally { active.delete(t.id); }
   }
-  function direct(game) { const saved = record(target(game)); return saved?.mode === 'external' && saved.origin === 'direct'; }
+  function direct(game) { const saved = record(target(game)); return saved?.mode === 'external' && ['direct', 'direct_hoyo'].includes(saved.origin); }
   async function previewRemove(game, mode = 'restore', internal = {}) {
     const t = target(game), saved = record(t); await closed(t); await assertReady(game);
-    if (saved?.origin !== 'direct' || saved.mode !== 'external' || !['clean', 'restore'].includes(mode)) fail('REMOVE', '该部署没有可使用的首次外置卸载记录。');
+    if (!['direct', 'direct_hoyo'].includes(saved?.origin) || saved.mode !== 'external' || !['clean', 'restore'].includes(mode)) fail('REMOVE', '该部署没有可使用的首次外置卸载记录。');
     getLayout(game);
     const requiresFgRestore = ['xiaofeng-fg-components.json', 'xiaofeng-fg-migration.json'].some(name => fs.existsSync(path.join(t.runtimeDir, '_DLSS5_Backup', name)));
     if (requiresFgRestore && internal.plannedFgRestore !== true) fail('FG_RESTORE_FIRST', '请先恢复外置目录中的补帧组件。');
-    const operation = crypto.randomUUID(), operations = [];
+    const operation = crypto.randomUUID(), operations = [], warnings = [];
     async function change(file, role, source, bytes, after) {
       const before = await digest(file), value = bytes === undefined ? undefined : Buffer.from(bytes);
       operations.push({ file, role, source, ...(value === undefined ? {} : { bytes: value }), before, after: value === undefined ? after : hash(value) });
@@ -886,15 +1092,47 @@ function createExternalRuntime(options) {
       await change(file, row.role, null, undefined, null);
     }
     await change(path.join(t.runtimeDir, 'ReShade.ini'), 'reshade-config', null, undefined, null);
-    const initial = saved.initialProxy, proxyFile = path.join(t.dir, initial.name), currentProxy = await digest(proxyFile);
-    const expectedProxy = saved.loadingMode === 'helper' ? null : saved.proxy.sha256;
-    if (currentProxy !== expectedProxy) fail('FILE_CHANGED', '当前游戏加载器已变动，未覆盖。', { file: proxyFile });
-    const restoreOriginal = mode === 'restore' || !initial.owned;
-    if (restoreOriginal && initial.before !== null) {
-      const source = historyFile(t, saved.initialOperation, initial.snapshot);
-      if (await digest(source) !== initial.before) fail('BACKUP_CHANGED', '原加载器快照缺失或已改变。');
-      await change(proxyFile, 'game-proxy', source, undefined, initial.before);
-    } else await change(proxyFile, 'game-proxy', null, undefined, null);
+    if (mode === 'restore') for (const row of saved.isolatedAddons || []) {
+      const current = await digest(row.path), source = historyFile(t, row.operation, row.snapshot);
+      if (await digest(source) !== row.sha256) fail('BACKUP_CHANGED', '插件隔离快照缺失或被修改。');
+      if (current === row.sha256) continue;
+      if (current !== null) { warnings.push({ code: 'ADDON_RESTORE_CONFLICT', path: row.path, archive: source,
+        message: '原位置已有不同文件，保留当前文件和插件隔离快照。' }); continue; }
+      await change(row.path, 'source-addon', source, undefined, row.sha256);
+    }
+    if (saved.origin === 'direct_hoyo') {
+      for (const row of saved.initialProxies) {
+        const proxyFile = path.join(t.dir, row.name), current = await digest(proxyFile), source = historyFile(t, saved.initialOperation, row.snapshot);
+        if (await digest(source) !== row.sha256) fail('BACKUP_CHANGED', '原米哈游加载器快照缺失或已改变。');
+        if (mode !== 'restore' || current === row.sha256) continue;
+        if (current !== null) { warnings.push({ code: 'HOYO_PROXY_RESTORE_CONFLICT', path: proxyFile, archive: source,
+          message: '原加载器位置已有不同文件，保留当前文件和原快照。' }); continue; }
+        await change(proxyFile, 'game-proxy', source, undefined, row.sha256);
+      }
+    } else {
+      const initial = saved.initialProxy, proxyFile = path.join(t.dir, initial.name), activeProxyFile = path.join(t.dir, saved.proxy.name), currentProxy = await digest(activeProxyFile);
+      const expectedProxy = saved.loadingMode === 'helper' ? null : saved.proxy.sha256;
+      if (currentProxy !== expectedProxy) fail('FILE_CHANGED', '当前游戏加载器已变动，未覆盖。', { file: activeProxyFile });
+      if (initial.name !== saved.proxy.name) {
+        if (await digest(proxyFile) !== null) fail('FILE_CHANGED', '原加载入口出现其他文件，保留当前文件和原快照。', { file: proxyFile });
+        if (saved.loadingMode !== 'helper') await change(activeProxyFile, 'game-proxy', null, undefined, null);
+      }
+      const restoreOriginal = mode === 'restore' || !initial.owned;
+      if (restoreOriginal && initial.before !== null) {
+        const source = historyFile(t, saved.initialOperation, initial.snapshot);
+        if (await digest(source) !== initial.before) fail('BACKUP_CHANGED', '原加载器快照缺失或已改变。');
+        await change(proxyFile, 'game-proxy', source, undefined, initial.before);
+      } else await change(proxyFile, 'game-proxy', null, undefined, null);
+      if (mode === 'restore' && saved.retiredProxy) {
+        const retired = saved.retiredProxy, file = path.join(t.dir, retired.name), source = historyFile(t, saved.initialOperation, retired.snapshot);
+        if (await digest(source) !== retired.sha256) fail('BACKUP_CHANGED', '原加载入口备份已变化。');
+        const current = await digest(file);
+        if (file !== activeProxyFile && current !== null) fail('FILE_CHANGED', '原加载入口出现其他文件，未覆盖。', { file });
+        const planned = operations.find(row => key(row.file) === key(file));
+        if (planned) Object.assign(planned, { source, after: retired.sha256 });
+        else await change(file, 'game-proxy', source, undefined, retired.sha256);
+      }
+    }
     await change(path.join(t.dir, 'ReShade.ini'), 'reshade-config', null,
       saved.originalConfigExisted ? saved.originalReShadeConfig : undefined, null);
     const next = { ...saved, generation: operation, mode: 'local', loadingMode: 'proxy', updatedAt: new Date().toISOString(),
@@ -902,7 +1140,7 @@ function createExternalRuntime(options) {
         snapshotDirectory: path.join(t.ownerRoot, 'history', operation) }, removed: true, uninstallMode: mode,
       loaderConfigHash: hash(Buffer.from(saved.originalReShadeConfig)) };
     await change(t.receipt, 'receipt', null, jsonBytes(next));
-    const result = await directPlan(t, game, next, operations, { fromMode: 'external', requiresFgRestore });
+    const result = await directPlan(t, game, next, operations, { fromMode: 'external', requiresFgRestore, warnings });
     return { ...result, mode, phases: ['external-uninstall'], changes: result.changes.map(row => ({ ...row, phase: 'external-uninstall' })), removed: true, archiveDirectory: path.join(t.ownerRoot, 'history', operation) };
   }
   async function remove(game, mode = 'restore', consent = {}) {
@@ -915,12 +1153,19 @@ function createExternalRuntime(options) {
     const t = target(game, true), saved = record(t);
     if (saved?.mode !== 'external') return { restored: false, unchanged: true };
     const boundGame = { ...game, scan: { ...game.scan, chosen: { ...game.scan?.chosen, path: t.exe, bitness: 64, apiResolution: { api: saved.api } } } };
-    if (saved.origin === 'direct') return remove(boundGame, 'restore', consent);
+    if (['direct', 'direct_hoyo'].includes(saved.origin)) return remove(boundGame, 'restore', consent);
     const plan = await preview(boundGame, { mode: 'local' });
     return { ...await apply(plan.planId, consent), restored: true };
   }
   function owned(game) { return record(target(game))?.mode === 'external'; }
   return { getLayout, inspect, preview, apply, restore, recover, assertReady, owned, direct, previewRemove, remove,
+    planAddonMigration: (game, context = {}) => {
+      const exe = game.scan?.chosen?.path || game.chosen?.path || game.exe;
+      if (!path.isAbsolute(exe || '')) fail('TARGET', '插件迁移需要实际 EXE。');
+      const profile = inspectProfile(path.dirname(exe), options.environment || process.env);
+      if (!profile.ok) fail('SOURCE_LAYOUT', profile.blockers.map(row => row.message).join('；'));
+      return sourceAddons(profile, { ...context, game });
+    },
     location: game => { const t = target(game), desired = { loaderDir: t.dir, baseDir: t.runtimeDir, addonDir: t.runtimeDir,
       activeConfigPath: path.join(t.runtimeDir, 'ReShade.ini') };
       return { runtimeDir: t.runtimeDir, addonDir: t.runtimeDir, addonDirectory: t.runtimeDir,

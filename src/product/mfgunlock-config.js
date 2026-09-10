@@ -1,11 +1,11 @@
 'use strict';
 
-// MFGAdaUnlock-RenoDx 0.6.1 @ a975e84712a6bfc84284f50c9621c349ee806734.
+// The 0.6.1 and 0.7 providers share these exact configuration keys.
 // Its SetOptions hook raises a lower game request, never lowers a higher one,
 // and never enables a game whose DLSSG mode is off. Config is read at attach.
 const crypto = require('node:crypto');
 const ini = require('./launch-ini');
-const SOURCE = 'a975e84712a6bfc84284f50c9621c349ee806734';
+const SOURCE = 'ffe6169b5e98ad578fcf2c30614d06a567790fe1';
 const SECTION = 'RenoDX.MFGUnlock';
 const KEYS = Object.freeze(['Enabled', 'ForceMultiplier']);
 const sha256 = text => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
@@ -28,6 +28,17 @@ function validateText(text) {
 function values(text) {
   validateText(text);
   return Object.fromEntries(KEYS.map(key => [key, ini.getIni(text, SECTION, key)]));
+}
+function current(text) {
+  const raw = values(text);
+  const enabled = raw.Enabled === null ? 1 : Number(raw.Enabled), force = raw.ForceMultiplier === null ? 0 : Number(raw.ForceMultiplier);
+  if (raw.Enabled !== null && !/^[01]$/.test(raw.Enabled) || raw.ForceMultiplier !== null && !/^(?:0|[2-6])$/.test(raw.ForceMultiplier) ||
+      ![0, 1].includes(enabled) || ![0, 2, 3, 4, 5, 6].includes(force))
+    fail('SETTINGS_MFG_CONFIG_INVALID', '当前 MFG 配置值无效，请在游戏内核对；管理器保留原文件。');
+  return { enabled: enabled === 1, values: { Enabled: enabled, ForceMultiplier: force }, raw,
+    present: Boolean(ini.sectionBounds(text.replace(/^\uFEFF/, '').split(/\r?\n/), SECTION)),
+    request: { backend: 'mfgunlock', mode: force === 0 ? 'follow' : 'fixed', ...(force ? { multiplier: force } : {}) },
+    experimental: force > 4, multiplierSemantics: 'raise-only', runtimeVerified: false };
 }
 function compile(text, request) {
   validateText(text);
@@ -73,4 +84,4 @@ function restore(current, original, ownedValues) {
   }
   return text;
 }
-module.exports = { SOURCE, SECTION, KEYS, validateText, values, compile, restore };
+module.exports = { SOURCE, SECTION, KEYS, validateText, values, current, compile, restore };

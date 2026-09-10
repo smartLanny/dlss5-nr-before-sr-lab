@@ -22,7 +22,6 @@ const { createExternalRuntime, RECEIPT: EXTERNAL_RECEIPT, PENDING: EXTERNAL_PEND
 const { resolveVersion } = require('./version-selection');
 const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
 const { createVulkanService } = require('./vulkan-service');
-const { createFeederService } = require('./feeder-service');
 const { inspectNativeEnhancementCapabilities } = require('./game-enhancement-capabilities');
 const { createGameLaunchBroker } = require('./game-launch-broker');
 const { createReframeworkPreparation } = require('./reframework-preparation');
@@ -39,10 +38,13 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   const library = overrides.library || createLibraryWorkerClient({ documentsDir });
   const installer = overrides.installer || createInstaller();
   const externalDeployment = overrides.externalDeployment || createExternalRuntime({ userData,
+    knownComponents: async game => [...knownComponentCatalog(), ...(typeof overrides.getKnownComponents === 'function' ? await overrides.getKnownComponents(game.id) : [])],
     guards: { ...require('../core/install-guards'), ...(overrides.assertGameClosed ? { assertGameClosed: overrides.assertGameClosed } : {}) },
     ...overrides.externalDeploymentOptions });
   const deploymentPlans = new Map();
+  const repairPlans = new Map();
   const specialDeploymentPlans = new Map();
+  const hoyoDeploymentPlans = new Map();
   const apiSettingsReader = overrides.apiSettingsReader || createRdr2ApiSettings({ documentsDir });
   const gameApiSettings = overrides.gameApiSettings || createGameApiSettings({ userData, settings: apiSettingsReader,
     assertGameClosed: overrides.assertGameClosed || require('../core/install-guards').assertGameClosed });
@@ -60,7 +62,16 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
   const vulkan = overrides.vulkan || createVulkanService({ userData, resourcesPath, appDir, hardware });
-  const feeder = overrides.feeder || createFeederService({ userData, resourcesPath, appDir, hardware });
+  const feeder = overrides.feeder || require('./feeder-routing-service').createFeederRoutingService({ userData, resourcesPath, appDir, hardware,
+    getLayout: game => hoyo.profile(game),
+    getKnownComponents: async game => [...knownComponentCatalog(), ...(typeof overrides.getKnownComponents === 'function' ? await overrides.getKnownComponents(game.id) : [])] });
+  const hoyo = overrides.hoyo || require('./hoyoshade-profile').createHoYoProfileService({ externalRuntime: externalDeployment, userData, appDir,
+    resourcesPath: resourcesPath && fs.existsSync(path.join(resourcesPath, 'hoyoshade/component.json')) ? resourcesPath : undefined,
+    getKnownComponents: async game => [
+      ...knownComponentCatalog(),
+      ...(typeof overrides.getKnownComponents === 'function' ? await overrides.getKnownComponents(game.id) : []),
+      ...(typeof feeder.ownedModuleManifest === 'function' ? await feeder.ownedModuleManifest(game) : [])
+    ] });
   let nativeLaunchBroker = overrides.nativeLaunchBroker;
   const refResources = resourcesPath && fs.existsSync(path.join(resourcesPath, 'reframework-01417', 'component.json'))
     ? path.join(resourcesPath, 'reframework-01417') : path.join(appDir, 'resources', 'reframework-01417');
@@ -105,10 +116,29 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   const hasExternalRecord = game => fs.existsSync(path.join(game.dir, EXTERNAL_RECEIPT)) || fs.existsSync(path.join(game.dir, EXTERNAL_PENDING));
   const externalOwned = game => hasExternalRecord(game) && externalDeployment.owned(game);
   function gameLayout(game) {
-    if (hasExternalRecord(game)) return externalDeployment.getLayout(game);
+    if (hasExternalRecord(game)) {
+      const layout = externalDeployment.getLayout(game);
+      if (layout.hoyoProfile) {
+        const profile = hoyo.profile(game);
+        if (profile.installed && feederOwned(game)) {
+          const input = feeder.profile?.(game), nrDir = feeder.configDir(game, 'nr');
+          return { ...profile, inputRoute: 'feeder', version: input?.recipe?.coreVersion || profile.version,
+            hostRequired: input?.recipe?.hostRequired === true, nrConfigDir: nrDir,
+            logDirs: [...new Set([...(profile.logDirs || []), nrDir, input?.addonDirectory].filter(Boolean))] };
+        }
+        return profile.installed ? { ...profile, needsInputPreparation: profile.inputRoute === 'feeder' } : { ...layout, loadingBackend: 'hoyoshade', verified: false, needsRecovery: true,
+          blockers: ['米哈游专用客户端绑定无法验证，请先恢复或重新绑定。'] };
+      }
+      return layout;
+    }
     if (feederOwned(game) || vulkanOwned(game)) {
       const isFeeder = feederOwned(game), config = isFeeder ? feeder.configDir(game, 'reshade') : vulkan.configDir(game);
       const addon = isFeeder ? feeder.configDir(game, 'nr') : path.join(config, 'addons');
+      const profile = isFeeder && feeder.profile?.(game);
+      if (profile?.installed) return { ...profile, mode: 'local', source: 'feeder', loadingBackend: 'local', loadingMode: 'proxy', exe: game.scan.chosen.path,
+        gameRoot: game.dir, loaderDir: path.dirname(game.scan.chosen.path), version: profile.recipe?.coreVersion,
+        addonDir: profile.addonDirectory, nrConfigDir: addon, reshadeConfigDir: config, hostRequired: profile.recipe?.hostRequired === true,
+        logDirs: [...new Set([config, addon, profile.addonDirectory])], blockers: [], needsRecovery: false };
       return { mode: isFeeder ? 'local' : 'external', source: isFeeder ? 'feeder' : 'vulkan', exe: game.scan?.chosen?.path,
         gameRoot: game.dir, loaderDir: path.dirname(game.scan.chosen.path), runtimeDir: config, addonDir: addon,
         addonDirectory: addon, activeConfigPath: path.join(config, 'ReShade.ini'), reshadeConfigDir: config,
@@ -125,7 +155,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       detected = { api: current.api || 'unknown', source: 'game-settings', evidence: [] };
     }
     const nextApi = api === 'auto' ? detected.api : api;
-    if (nextApi !== 'dx12') throw appError(['unknown', 'mixed'].includes(nextApi) ? 'ERR_API_SELECTION_REQUIRED' : 'ERR_UNSUPPORTED_API');
+    if (!['dx9', 'dx10', 'dx11', 'dx12'].includes(nextApi)) throw appError(['unknown', 'mixed'].includes(nextApi) ? 'ERR_API_SELECTION_REQUIRED' : 'ERR_UNSUPPORTED_API');
     if (Array.isArray(chosen.supportedApis) && !chosen.supportedApis.includes(nextApi)) throw appError('ERR_UNSUPPORTED_API');
     const selected = { ...chosen, apiResolution: { api: nextApi,
       source: api === 'auto' ? detected.source : 'override', evidence: detected.evidence || [] } };
@@ -136,8 +166,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     try {
       if (vk.installed || vk.needsRecovery) routeRestoreFirst();
       if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
-      const selected = feeder.summary(feederRouteSelection(game, 'dx12'));
-      return { ...current, selectionAvailable: selected.available === true, selectionReason: selected.reason || null };
+      const api = classifyApi(game.scan.chosen), selected = feeder.summary(feederRouteSelection(game, ['dx9', 'dx10', 'dx11', 'dx12'].includes(api) ? api : 'dx12'));
+      return { ...selected, ...current, selections: typeof feeder.selections === 'function' ? feeder.selections(game) : undefined,
+        selectionAvailable: selected.available === true, selectionReason: selected.reason || null };
     } catch (error) {
       return { ...current, selectionAvailable: false, selectionReason: error.message };
     }
@@ -354,22 +385,134 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const api = request.api ?? game.apiOverride ?? 'auto';
     const resolvedApi = api === 'auto' ? game.scan?.chosen?.detectedApiResolution?.api || game.scan?.chosen?.detectedApi || classifyApi(game.scan?.chosen) : api;
     const feed = feeder.summary(game), vk = vulkan.summary(game);
-    const route = request.route || (feed.installed ? 'feeder' : vk.installed || resolvedApi === 'vulkan' ? 'vulkan' : 'native');
+    const route = request.route || layout.inputRoute || (feed.installed ? 'feeder' : vk.installed || resolvedApi === 'vulkan' ? 'vulkan' : 'native');
     const routed = { ...game, addonVersion: layout.version || game.addonVersion, scan: { ...game.scan, chosen: { ...game.scan?.chosen, apiResolution: { api: resolvedApi } } } };
     const installed = Boolean(layout.mode === 'external' || manifest || feed.installed || vk.installed);
-    return { api, version: route === 'feeder' ? request.version || feed.packageId : route === 'vulkan' ? request.version || vk.packageId : selectedVersionForGame(routed, request.version) || readBundle(payloadDir).defaultVersion,
-      deployment: request.deployment || (installed ? layout.mode : route === 'feeder' ? 'local' : 'external'),
-      loadingMode: request.loadingMode || (installed ? layout.loadingMode : 'proxy') || 'proxy', route };
+    const installedVersion = layout.version || manifest?.payloadVersion || game.addonVersion;
+    return { api, version: route === 'feeder' ? request.version || feed.packageId : route === 'vulkan' ? request.version || vk.packageId : request.version || installedVersion || selectedVersionForGame(routed) || readBundle(payloadDir).defaultVersion,
+      deployment: request.deployment || (installed ? layout.mode : 'local'),
+      loadingMode: request.loadingMode || (installed ? layout.loadingMode : 'proxy') || 'proxy',
+      loadingBackend: layout.loadingBackend || 'local',
+      proxyEntry: request.proxyEntry || manifest?.reshadeRoute || 'auto', route };
   }
 
-  function selectedPayload(game, requestedVersion = null) {
+  async function resolveInputRoute(id, request = {}) {
+    const game = findGame(id), layout = gameLayout(game), selected = require('./operation-api').resolveOperationApi(game, request);
+    if (request.route) return request.route;
+    if (layout.loadingBackend === 'hoyoshade' && layout.inputRoute) return layout.inputRoute;
+    if (feederOwned(game)) return 'feeder';
+    if (vulkanOwned(game) || selected.effectiveApi === 'vulkan') return 'vulkan';
+    if (['dx9', 'dx10'].includes(selected.effectiveApi)) return 'feeder';
+    if (readManifest(game.dir) || externalOwned(game)) return 'native';
+    if (typeof overrides.getFeatureEvidence !== 'function') return 'native';
+    const evidence = await overrides.getFeatureEvidence(id, 'sr');
+    return evidence?.support?.status === 'supported' ? 'native' : 'feeder';
+  }
+
+  async function previewProxyEntry(id, entry, { deployment } = {}) {
+    const game = findGame(id), layout = gameLayout(game), manifest = readManifest(game.dir), changes = [], blockers = [];
+    const api = deployment?.api || manifest?.deploymentApi || classifyApi(game.scan.chosen);
+    const current = manifest?.reshadeRoute || 'dxgi', desired = entry === 'auto' ? current : entry;
+    if (!['dxgi', 'd3d12'].includes(desired) || desired === 'd3d12' && api !== 'dx12') blockers.push('当前原生路线只支持 DXGI，D3D12 入口仅用于 DX12 游戏。');
+    if (deployment?.mode === 'external' || !deployment && layout.mode === 'external') blockers.push('外置入口需由外置部署记录共同切换。');
+    const source = path.join(path.dirname(game.scan.chosen.path), current + '.dll'), destination = path.join(path.dirname(game.scan.chosen.path), desired + '.dll');
+    const digest = require('./launch-safety').digestFile;
+    await require('./launch-safety').noLinks(source); await require('./launch-safety').noLinks(destination);
+    const original = await digest(source), existingTarget = source === destination ? original : await digest(destination);
+    const loader = manifest?.files.find(row => row.kind === 'reshade');
+    const projected = deployment?.changes?.find(row => row.role === 'reshade' && path.resolve(row.path).toLowerCase() === path.resolve(source).toLowerCase());
+    const expected = projected?.afterSha256 || loader?.installedSha256 || (current === 'dxgi' && original && installer.isAddonReShade(source) ? original : null);
+    if (!expected || !original && !projected?.afterSha256 || original && loader && original !== loader.installedSha256) blockers.push('无法验证当前受管 ReShade 入口；缺失时请先预览修复。');
+    if (desired !== current && existingTarget) blockers.push(`${desired}.dll 已被其他文件占用，请先核对。`);
+    if (desired !== current) changes.push({ action: 'rename-proxy', role: 'reshade-entry', path: source, destination,
+      beforeSha256: expected, afterSha256: expected, description: `将入口改为 ${desired}.dll，保持图形 API 与 Core 版本。` });
+    return { entry: desired, changes, blockers, api, runtimeVerified: false };
+  }
+
+  async function previewHoYoDeployment(id, request = {}, internal = {}) {
+    const game = findGame(id), inputRoute = request.route || await resolveInputRoute(id, request);
+    if (!['native', 'feeder'].includes(inputRoute)) throw Object.assign(new Error('米哈游模式尚未提供当前 API 的输入配套。'), { code: 'HOYO_INPUT_ROUTE' });
+    const { api, routed } = deploymentApi(game, request.api || 'auto');
+    if (inputRoute === 'native') requireNoFeeder(game);
+    requireKnownVulkanOwnership(game);
+    const version = request.version || gameLayout(game).version || readManifest(game.dir)?.payloadVersion || selectedVersionForGame(routed);
+    const nativePayload = selectedPayload(routed, inputRoute === 'native' ? version : null, request.components);
+    const payload = inputRoute === 'native' ? nativePayload : { reshade: nativePayload.reshade };
+    const profile = await hoyo.preview(routed, { hoyo: request.hoyo, inputRoute, api, version: inputRoute === 'native' ? version : undefined,
+      payload, addonKeep: request.addonKeep, ...internal });
+    const legacy = inputRoute === 'feeder' ? await feeder.previewInstall(routed, { version: request.version, api, loadingBackend: 'hoyoshade', layout: profile.layout }) : null;
+    const planId = crypto.randomUUID();
+    hoyoDeploymentPlans.set(planId, { id, routed, request, api, profile, legacy, expires: Date.now() + 5 * 60000 });
+    return { ...profile, planId, route: inputRoute, mode: 'external', version: legacy?.packageId || profile.version,
+      changes: [...profile.changes, ...(legacy?.changes || [])], blockers: [...(profile.blockers || []), ...(legacy?.blockers || [])],
+      phases: ['hoyoshade-profile', ...(legacy ? ['feeder-install'] : [])], runtimeVerified: false };
+  }
+  async function applyHoYoDeployment(planId, consent = {}) {
+    const plan = hoyoDeploymentPlans.get(planId); hoyoDeploymentPlans.delete(planId);
+    if (!plan || plan.expires < Date.now()) throw Object.assign(new Error('米哈游预览已过期，请重新检查。'), { code: 'DEPLOYMENT_PLAN_EXPIRED' });
+    const game = findGame(plan.id), state = store.read(), key = pathKey(game.dir);
+    let settingChange, preferenceWritten = false;
+    try {
+      settingChange = await gameApiSettings.apply(game, plan.request.api || 'auto');
+      await store.write({ gameOverrides: { ...state.gameOverrides, [key]: { ...state.gameOverrides[key], api: plan.request.api || 'auto', apiExecutable: game.scan.chosen.path } } });
+      preferenceWritten = true;
+      const profile = await hoyo.apply(plan.profile.planId, consent);
+      if (plan.legacy) await feeder.install(plan.routed, { version: plan.legacy.packageId, expectedPlanId: plan.legacy.planId, api: plan.api, loadingBackend: 'hoyoshade',
+        layout: hoyo.profile(game), allowAntiCheat: consent.allowAntiCheat === true });
+      return refreshAfterMutation({ ...profile, applied: true, runtimeVerified: false });
+    } catch (error) {
+      if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
+      throw error;
+    }
+  }
+
+  function installedBridgeHash(game) {
+    if (externalOwned(game)) return gameLayout(game).moduleManifest?.find(row => row.role === 'carrier')?.sha256 || null;
+    return readManifest(game.dir)?.files.find(row => row.kind === 'carrier')?.installedSha256 || null;
+  }
+  function componentChoices(id) {
+    const game = findGame(id), bundle = readBundle(payloadDir), version = installationDefaults(id).version;
+    const core = bundle.versions?.[version], installedHash = installedBridgeHash(game);
+    const registry = require('./component-registry');
+    return { bridges: registry.bridgeCatalog(payloadDir, { coreHash: core?.files?.['nr-before-sr.zh-CN.addon64'], chainHash: core?.files?.['nrchain_nvngx.dll'], installedHash }),
+      selected: { bridge: registry.bridgeByHash(installedHash)?.id || registry.bridgeByHash(core?.files?.[INSTALLED_NAMES.carrier])?.id || null },
+      currentCore: version, defaultCore: bundle.defaultVersion };
+  }
+  function knownComponentCatalog() {
+    const rows = [];
+    for (const source of [...new Set([bundledPayloadDir, payloadDir])]) {
+      try { rows.push(...require('./component-registry').knownPayloadComponents(source)); } catch { /* Source availability does not determine installed ownership. */ }
+    }
+    return rows.filter((row, index) => rows.findIndex(other => other.sha256 === row.sha256 && other.role === row.role) === index);
+  }
+  async function nativeAddonPolicy(game, payload, addonKeep, preserveOwned = false) {
+    const knownComponents = typeof overrides.getKnownComponents === 'function' ? await overrides.getKnownComponents(game.id) : [];
+    return require('./native-addon-policy').compileNativeAddonPolicy({ game, payloadDir, payload, manifest: readManifest(game.dir), addonKeep, knownComponents, preserveOwned });
+  }
+
+  function selectedPayload(game, requestedVersion = null, components = {}) {
     assertSourceIdentity();
     const choice = versionChoice(game, requestedVersion), version = choice.version;
-    if (/^imported-/i.test(version || '')) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
+    if (/^imported-/i.test(version || '')) {
+      const imported = importedAddon(version), manifest = readManifest(game.dir);
+      if (!imported || !manifest) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
+      if (components.bridge) throw Object.assign(new Error('导入的 OTA 保留其桥接配套；独立切换需要选择已验证接口的内置 Core。'), { code: 'COMPONENT_BRIDGE_CORE' });
+      const result = { version, versionInfo: { compatibility: imported.compatibility },
+        addon: { file: imported.file, actual: imported.addonSha256, expected: imported.addonSha256, name: INSTALLED_NAMES.addon } };
+      for (const kind of ['bridge', 'runtime', 'config', 'reshade', 'carrier']) {
+        const provided = kind === 'bridge' ? imported.bridgeFile : kind === 'carrier' ? imported.carrierFile : null;
+        const row = manifest.files.find(row => row.kind === kind), expected = kind === 'bridge' ? imported.bridgeSha256 : kind === 'carrier' ? imported.carrierSha256 : null;
+        const rel = kind === 'reshade' && manifest.reshadeRoute === 'd3d12' ? path.join(path.dirname(row?.rel || ''), 'd3d12.dll') : row?.rel;
+        const file = provided || (rel ? path.resolve(game.dir, rel) : path.join(path.dirname(game.scan.chosen.path), INSTALLED_NAMES[kind]));
+        if (fs.existsSync(file)) result[kind] = { file, name: path.basename(file), actual: provided ? expected : sha256(file), expected: provided ? expected : sha256(file) };
+      }
+      return result;
+    }
     const result = requirePayload(payloadDir, (hardware = detectGpu()).family, version);
     if (requestedVersion && result.version !== requestedVersion) throw appError('ERR_ADDON_NOT_FOUND');
     result.replacement = choice.replacement;
-    return result;
+    return require('./component-registry').selectNativeComponents(payloadDir, result, { api: classifyApi(game.scan?.chosen),
+      bridgeId: components.bridge || (requestedVersion === '0.4.7beta-bg3-bridge1411' ? 'nigos-1.4.11-nr' : undefined), installedHash: installedBridgeHash(game) });
   }
 
   function importedAddon(version) {
@@ -494,7 +637,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
 
   async function diagnoseGame(game) {
     if (externalOwned(game) || fs.existsSync(path.join(game.dir, EXTERNAL_PENDING))) {
-      const state = await externalDeployment.inspect(game);
+      const state = gameLayout(game).loadingBackend === 'hoyoshade' ? await hoyo.inspect(game) : await externalDeployment.inspect(game);
       return { payload: { selectedVersion: state.version, ready: state.ready }, diagnostic: {
         installed: true, complete: state.ready, payloadVersion: state.version, version: state.version,
         deployment: state, runtimeVerified: false, routeMismatch: state.api !== classifyApi(game.scan?.chosen),
@@ -545,8 +688,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         payloadVersionLabel: /^imported-/.test(manifest.payloadVersion || '') ? '已装导入核心（原包需重新导入）' : manifest.payloadVersion, scan: game.scan });
       return {
         payload: { selectedVersion: manifest.payloadVersion, ready: false, missing: ['原安装源不可用'], invalid: [] },
-        diagnostic: { ...result, complete: false, sourceMissing: true, components: [...result.components, { key: 'payload-source', label: '修复组件来源', ok: false,
-          detail: '已按安装记录检查现有文件。原安装源不可用；可重新导入原包，或选择可用核心并点击“应用版本”。卸载恢复不依赖原包。' }] }
+        diagnostic: { ...result, sourceMissing: true, sourceNotice: '原安装源不可用；已按安装记录核对现有文件。需要补回缺失文件时可重新导入原包，卸载恢复不依赖原包。' }
       };
     }
     const payload = inspected.payload;
@@ -559,8 +701,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
 
   async function repairGame(game, options = {}) {
       if (externalOwned(game)) {
-        const payload = await externalPayload(game, options.version);
-        const plan = await externalDeployment.preview(game, { mode: 'external', payload, version: payload.version });
+        const payload = await externalPayload(game, options.version, options.components);
+        const plan = await externalDeployment.preview(game, { mode: 'external', payload, version: payload.version, addonKeep: options.addonKeep });
         return externalDeployment.apply(plan.planId, options);
       }
       if (feederOwned(game)) return feeder.install(game, options);
@@ -572,12 +714,12 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
       if (imported) {
         await prepareExistingReframework(game, options);
-        const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+        const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, addonPolicy: options.addonPolicy || await nativeAddonPolicy(game, null, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
         return prepareDetectedReframework(game, result);
       }
-      const payload = selectedPayload(game, requestedVersion);
+      const payload = selectedPayload(game, requestedVersion, options.components);
       await prepareExistingReframework(game, options);
-      const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+      const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, addonPolicy: await nativeAddonPolicy(game, payload, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
       return prepareDetectedReframework(game, payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result);
   }
 
@@ -594,6 +736,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     if (hasExternalRecord(game)) try { deployment = externalDeployment.getLayout(game); }
     catch (error) { deployment = { mode: 'external', verified: false, needsRecovery: true, blockers: [error.message] }; }
     return { ...safe, vulkan: vk, feeder: feed, deployment,
+      hoyo: { profileOptions: hoyo.supportedProfileOptions(game), installed: Boolean(deployment?.hoyoProfile), selected: deployment?.hoyoProfile || null },
       ...(deployment?.mode === 'external' ? { installed: true, addonVersion: deployment.version || safe.addonVersion } : {}),
       enhancementRoute: feed.installed ? 'feeder-dx12' : vk.installed ? 'vulkan' : safe.installed ? 'native-dlss' : null,
       hasNativeDlss: enhancements.nativeDlssAvailable,
@@ -630,7 +773,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
 
   async function applyGameRoute(id, options = {}, internal = {}) {
     if (!options || typeof options !== 'object' || Array.isArray(options) ||
-        Object.keys(options).some(key => !['api', 'version', 'allowAntiCheat'].includes(key)) ||
+        Object.keys(options).some(key => !['api', 'version', 'allowAntiCheat', 'components', 'addonKeep'].includes(key)) ||
         !['auto', 'dx11', 'dx12', 'vulkan'].includes(options.api) ||
         typeof options.version !== 'string' || !options.version || options.version.length > 100) throw appError('ERR_BAD_REQUEST');
     const game = findGame(id), chosen = game.scan?.chosen;
@@ -657,7 +800,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (options.version !== info.packageId) throw Object.assign(new Error('所选 Core 不属于当前 Vulkan 配套，请核对 API 和配套版本后一起应用。'), { code: 'VULKAN_PACKAGE_MISMATCH' });
     } else {
       if (/^imported-/.test(options.version) && (!imported || !manifest)) throw appError('ERR_ADDON_NOT_FOUND');
-      if (!imported) payload = selectedPayload(routed, options.version);
+      if (!imported) payload = selectedPayload(routed, options.version, options.components);
       const support = assess(routed.scan, { allowDx11: (imported?.compatibility || payload?.versionInfo?.compatibility) === 'dx11' });
       if (!support.supported) throw appError(support.code);
     }
@@ -669,11 +812,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         [key]: { ...state.gameOverrides[key], api: options.api, apiExecutable: chosen.path } } });
       preferenceWritten = true;
       if (nextApi === 'vulkan') result = await vulkan.install(routed, options);
-      else if (imported || externalOwned(game)) result = await repairGame(routed, options);
+      else if (imported || externalOwned(game)) result = await repairGame(routed, { ...options, addonPolicy: internal.addonPolicy });
       else {
         await prepareExistingReframework(routed, options);
         const operation = manifest ? installer.repair : installer.install;
-        result = await operation({ gameDir: game.dir, payload, scan: routed.scan, allowAntiCheat: options.allowAntiCheat === true });
+        result = await operation({ gameDir: game.dir, payload, scan: routed.scan, addonPolicy: internal.addonPolicy || await nativeAddonPolicy(routed, payload, options.addonKeep), allowAntiCheat: options.allowAntiCheat === true });
         result = await prepareDetectedReframework(routed, result);
       }
     } catch (error) {
@@ -791,6 +934,12 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const state = await externalDeployment.inspect(game);
       if (!state.ready) throw Object.assign(new Error(state.blockers?.join('；') || '外置组件未就绪，请先检查或修复。'), { code: 'DEPLOYMENT_NOT_READY' });
       if (state.api !== classifyApi(game.scan.chosen)) throw appError('ERR_API_ROUTE_PENDING');
+      if (gameLayout(game).loadingBackend === 'hoyoshade') {
+        const bound = await hoyo.inspect(game);
+        if (!bound.ready) throw Object.assign(new Error(bound.blockers?.join('；') || '米哈游绑定需要重新检查。'), { code: 'DEPLOYMENT_NOT_READY' });
+        if (bound.inputRoute === 'feeder' && !feederOwned(game)) throw Object.assign(new Error('米哈游加载配置已准备，请先预览修复以完成 Feeder 输入配套。'), { code: 'FEEDER_NOT_READY' });
+        if (feederOwned(game)) { const input = await feeder.inspect(game); if (!input.ready) throw Object.assign(new Error(input.reason || 'Feeder 配套未就绪。'), { code: 'FEEDER_NOT_READY' }); }
+      }
     } else if (feederOwned(game)) {
       // The Feeder service checks its fixed package and ordinary-privilege
       // launch immediately before process creation, independently of SR/FG.
@@ -817,10 +966,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         value.removeSettings !== undefined && typeof value.removeSettings !== 'boolean') throw appError('ERR_BAD_REQUEST');
     return { mode: value.mode || 'restore', removeSettings: value.removeSettings === true };
   }
-  async function externalPayload(game, requested) {
+  async function externalPayload(game, requested, components) {
     const state = await externalDeployment.inspect(game), version = requested || state.version;
     const imported = importedAddon(version);
-    if (!imported) return selectedPayload(game, version);
+    if (!imported) return selectedPayload(game, version, components);
     if (state.api === 'dx11' && (imported.compatibility !== 'dx11' || !imported.carrierFile || !imported.bridgeFile))
       throw appError('ERR_PAYLOAD_MISSING', { file: 'DX11 配套核心与桥接器' });
     const payload = { version: imported.id, versionInfo: { compatibility: imported.compatibility } };
@@ -848,7 +997,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function previewDeployment(id, request = {}, internal = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request) ||
-        Object.keys(request).some(key => !['mode', 'version', 'api', 'loadingMode'].includes(key)) ||
+        Object.keys(request).some(key => !['mode', 'version', 'api', 'loadingMode', 'components', 'addonKeep', 'proxyEntry'].includes(key)) ||
         !['local', 'external'].includes(request.mode) || request.api !== undefined && !['auto', 'dx11', 'dx12', 'vulkan'].includes(request.api) ||
         request.loadingMode !== undefined && !['proxy', 'helper'].includes(request.loadingMode))
       throw appError('ERR_BAD_REQUEST');
@@ -863,26 +1012,28 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const state = store.read(), preference = request.api || game.apiOverride || classifyApi(game.scan?.chosen);
     const { api, routed } = deploymentApi(game, preference);
     const current = await externalDeployment.inspect(game), manifest = readManifest(game.dir);
-    const targetVersion = request.version || (current.mode === 'external' ? current.version : selectedVersionForGame(routed));
+    const targetVersion = request.version || current.version || manifest?.payloadVersion || selectedVersionForGame(routed);
     const fromApi = current.mode === 'external' ? current.api : manifest?.deploymentApi || classifyApi(game.scan?.chosen);
     const sameApi = fromApi === api;
-    let migration = null, migrationRequest = null, phases = [], changes = [], payload = null;
+    if (current.mode !== 'external' && manifest?.reshadeRoute === 'd3d12' && api !== 'dx12' && request.proxyEntry !== 'dxgi')
+      throw Object.assign(new Error('当前入口为 d3d12.dll；改用 DX11 时，请同时把加载入口选择为 dxgi.dll。'), { code: 'DEPLOYMENT_PROXY_API' });
+    let migration = null, migrationRequest = null, phases = [], changes = [], payload = null, addonPolicy = null;
     if (!manifest && current.mode !== 'external' && request.mode === 'external') {
-      payload = selectedPayload(routed, targetVersion);
+      payload = selectedPayload(routed, targetVersion, request.components);
       const support = assess(routed.scan, { allowDx11: payload.versionInfo?.compatibility === 'dx11' });
       if (!support.supported) throw appError(support.code);
-      migrationRequest = { mode: 'external', loadingMode: request.loadingMode || 'proxy', api, version: payload.version, payload };
+      migrationRequest = { mode: 'external', loadingMode: request.loadingMode || 'proxy', api, version: payload.version, payload, addonKeep: request.addonKeep, proxyEntry: request.proxyEntry };
       migration = await externalDeployment.preview(routed, migrationRequest, internal);
       phases = ['external-install']; changes = migration.changes.map(row => ({ ...row, phase: 'external-install' }));
     } else if (current.mode === 'external' && sameApi) {
-      payload = targetVersion !== current.version || request.version ? await externalPayload(routed, targetVersion) : null;
-      migrationRequest = { mode: request.mode, loadingMode: request.loadingMode, api, version: targetVersion, payload };
+      payload = targetVersion !== current.version || request.version || request.components?.bridge ? await externalPayload(routed, targetVersion, request.components) : null;
+      migrationRequest = { mode: request.mode, loadingMode: request.loadingMode, api, version: targetVersion, payload, addonKeep: request.addonKeep, proxyEntry: request.proxyEntry };
       migration = await externalDeployment.preview(routed, migrationRequest, internal);
       phases = [request.mode === 'external' ? 'external-update' : 'restore-local'];
       changes = migration.changes;
     } else if (manifest && current.mode !== 'external' && request.mode === 'external' && sameApi) {
-      payload = targetVersion !== manifest.payloadVersion || request.version ? selectedPayload(routed, targetVersion) : null;
-      migrationRequest = { mode: 'external', loadingMode: request.loadingMode, api, version: targetVersion, payload };
+      payload = targetVersion !== manifest.payloadVersion || request.version || request.components?.bridge ? selectedPayload(routed, targetVersion, request.components) : null;
+      migrationRequest = { mode: 'external', loadingMode: request.loadingMode, api, version: targetVersion, payload, addonKeep: request.addonKeep, proxyEntry: request.proxyEntry };
       migration = await externalDeployment.preview(routed, migrationRequest, internal);
       phases = ['external-migration']; changes = migration.changes;
     } else {
@@ -896,14 +1047,16 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         migration = await externalDeployment.preview(game, migrationRequest, internal);
         phases.push('restore-local'); changes.push(...migration.changes.map(row => ({ ...row, phase: 'restore-local' })));
       }
-      payload = selectedPayload(routed, targetVersion);
+      payload = selectedPayload(routed, targetVersion, request.components);
       const support = assess(routed.scan, { allowDx11: payload.versionInfo?.compatibility === 'dx11' });
       if (!support.supported) throw appError(support.code);
+      if (current.mode !== 'external') { addonPolicy = await nativeAddonPolicy(routed, payload, request.addonKeep); changes.push(...addonPolicy.changes); }
       phases.push(manifest ? 'local-update' : 'local-install');
       const directory = path.dirname(game.scan.chosen.path);
-      for (const kind of ['addon', 'bridge', 'runtime', ...(!manifest ? ['reshade', 'config'] : []), ...(api === 'dx11' ? ['carrier'] : [])]) {
+      const loaderName = manifest?.reshadeRoute === 'd3d12' ? 'd3d12.dll' : INSTALLED_NAMES.reshade;
+      for (const kind of ['addon', 'bridge', 'runtime', ...(!fs.existsSync(path.join(directory, loaderName)) ? ['reshade'] : []), ...(!manifest ? ['config'] : []), ...(api === 'dx11' ? ['carrier'] : [])]) {
         const row = payload[kind]; if (!row) continue;
-        const file = path.join(directory, require('./constants').INSTALLED_NAMES[kind]);
+        const file = path.join(directory, kind === 'reshade' ? loaderName : INSTALLED_NAMES[kind]);
         const before = fs.existsSync(file) && fs.statSync(file).isFile() ? sha256(file) : null;
         changes.push({ path: file, name: path.basename(file), role: kind, phase: 'local-install',
           beforeSha256: before, afterSha256: row.actual, action: before === row.actual ? 'keep' : before === null ? 'create' : 'replace' });
@@ -933,7 +1086,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const planId = crypto.randomUUID();
     deploymentPlans.set(planId, { id, request: { ...request, api: preference, version: targetVersion }, api, routed,
       fromMode: current.mode, fromApi, fromVersion: current.version, hadManifest: Boolean(manifest),
-      migration, migrationRequest, phases, expires: Date.now() + 5 * 60 * 1000,
+      migration, migrationRequest, addonPolicy, phases, expires: Date.now() + 5 * 60 * 1000,
       exe: game.scan.chosen.path, exeHash: await require('./external-runtime').digest(game.scan.chosen.path), preferenceBefore: state });
     const proposedLayout = request.mode === 'external' ? externalDeployment.location(routed) : gameLayout(game);
     const loadingMode = request.mode === 'external' ? request.loadingMode || current.loadingMode || 'proxy' : 'proxy';
@@ -941,9 +1094,55 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       version: migration?.version || targetVersion, api, loadingMode, phases, changes, layout: migration?.layout || { ...proposedLayout, loadingMode,
         loaderPath: loadingMode === 'helper' ? path.join(proposedLayout.runtimeDir, 'ReShade64.dll') : null },
       configured: migration?.configured || current.configured, sourceLayout: migration?.sourceLayout || current.sourceLayout,
-      desired: migration?.desired || proposedLayout.desired, blockers: migration?.blockers || [], warnings: migration?.warnings || current.warnings || [],
+      desired: migration?.desired || proposedLayout.desired, blockers: [...(migration?.blockers || []), ...(addonPolicy?.plan.blockers || [])], warnings: migration?.warnings || current.warnings || [],
+      addonCompatibility: addonPolicy?.plan || migration?.addonCompatibility || null,
       retainedAddons: migration?.retainedAddons || [], inactiveAddons: migration?.inactiveAddons || [], requiresFgRestore: migration?.requiresFgRestore === true,
       requiresAntiCheat: Boolean(require('../core/install-guards').antiCheatPresent(game.dir)), requiresConfirmation: true, runtimeVerified: false };
+  }
+  async function previewRepair(id, request = {}) {
+    const game = findGame(id), layout = gameLayout(game);
+    if (layout.loadingBackend === 'hoyoshade' && layout.inputRoute === 'feeder') {
+      const plan = await previewHoYoDeployment(id, { route: 'feeder', api: game.apiOverride || 'auto', hoyo: hoyo.profile(game).hoyo,
+        version: feeder.summary(game).packageId, addonKeep: request.addonKeep });
+      const planId = crypto.randomUUID();
+      repairPlans.set(planId, { id, owner: 'hoyoshade', nested: plan.planId, expires: Date.now() + 5 * 60000 });
+      return { ...plan, planId, repair: true };
+    }
+    if (externalOwned(game)) {
+      const state = await externalDeployment.inspect(game);
+      const plan = await externalDeployment.preview(game, { mode: 'external', version: state.version, loadingMode: state.loadingMode, addonKeep: request.addonKeep });
+      const planId = crypto.randomUUID();
+      repairPlans.set(planId, { id, owner: 'external', nested: plan.planId, expires: Date.now() + 5 * 60000 });
+      return { ...plan, planId, repair: true };
+    }
+    if (feederOwned(game) || vulkanOwned(game)) {
+      const route = feederOwned(game) ? 'feeder' : 'vulkan', summary = (route === 'feeder' ? feeder : vulkan).summary(game);
+      const plan = await previewSpecialDeployment(id, { route, version: summary.packageId, ...(request.addonKeep ? { addonKeep: request.addonKeep } : {}) });
+      const planId = crypto.randomUUID();
+      repairPlans.set(planId, { id, owner: 'special', nested: plan.planId, expires: Date.now() + 5 * 60000 });
+      return { ...plan, planId, repair: true };
+    }
+    const result = await require('./installed-repair').inspectInstalledRepair({ gameDir: game.dir, exePath: game.scan?.chosen?.path,
+      sourceRoots: [payloadDir, addonVersionsDir] });
+    const addonPolicy = await nativeAddonPolicy(game, null, request.addonKeep, true);
+    const planId = crypto.randomUUID();
+    repairPlans.set(planId, { id, owner: 'local', result, addonPolicy, expires: Date.now() + 5 * 60000 });
+    return { ...result, changes: [...result.changes, ...addonPolicy.changes], blockers: [...result.blockers, ...addonPolicy.plan.blockers],
+      addonCompatibility: addonPolicy.plan, entries: undefined, planId, gameId: id, layout, requiresAntiCheat: Boolean(require('../core/install-guards').antiCheatPresent(game.dir)) };
+  }
+  async function applyRepair(planId, consent = {}) {
+    const plan = repairPlans.get(planId); repairPlans.delete(planId);
+    if (!plan || plan.expires < Date.now()) throw Object.assign(new Error('修复预览已过期，请重新检查。'), { code: 'DEPLOYMENT_PLAN_EXPIRED' });
+    if (plan.owner === 'external') return refreshAfterMutation(await externalDeployment.apply(plan.nested, consent));
+    if (plan.owner === 'hoyoshade') return applyHoYoDeployment(plan.nested, consent);
+    if (plan.owner === 'special') return applySpecialDeployment(plan.nested, consent);
+    const game = findGame(plan.id);
+    const fresh = await require('./installed-repair').inspectInstalledRepair({ gameDir: game.dir, exePath: game.scan?.chosen?.path,
+      sourceRoots: [payloadDir, addonVersionsDir] });
+    if (JSON.stringify(fresh) !== JSON.stringify(plan.result)) throw Object.assign(new Error('修复预览后的文件或来源已改变。'), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+    if (fresh.blockers.length) throw Object.assign(new Error(fresh.blockers.join('；')), { code: 'DEPLOYMENT_BLOCKED' });
+    return refreshAfterMutation(await installer.repairInstalled({ gameDir: game.dir, scan: game.scan,
+      entries: fresh.entries, manifestHash: fresh.manifestHash, addonPolicy: plan.addonPolicy, allowAntiCheat: consent.allowAntiCheat === true }));
   }
   async function applyDeployment(planId, consent = {}) {
     if (specialDeploymentPlans.has(planId)) return applySpecialDeployment(planId, consent);
@@ -974,12 +1173,12 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         if (plan.fromMode === 'external') {
           result = await externalDeployment.apply(plan.migration.planId, consent); completed.push('restore-local');
         }
-        result = await applyGameRoute(plan.id, { api: plan.request.api, version: plan.request.version, allowAntiCheat: consent.allowAntiCheat === true },
-          { onAppliedState: applied => { settingChange = applied.settingChange; } });
+        result = await applyGameRoute(plan.id, { api: plan.request.api, version: plan.request.version, components: plan.request.components, addonKeep: plan.request.addonKeep, allowAntiCheat: consent.allowAntiCheat === true },
+          { addonPolicy: plan.addonPolicy, onAppliedState: applied => { settingChange = applied.settingChange; } });
         preferenceWritten = true; completed.push(plan.hadManifest ? 'local-update' : 'local-install');
         if (plan.request.mode === 'external') {
           game = findGame(plan.id);
-          const next = await externalDeployment.preview(game, { mode: 'external', loadingMode: plan.request.loadingMode, api: plan.api });
+          const next = await externalDeployment.preview(game, { mode: 'external', loadingMode: plan.request.loadingMode, proxyEntry: plan.request.proxyEntry, api: plan.api });
           result = await externalDeployment.apply(next.planId, consent); completed.push('external-migration');
         }
       }
@@ -1003,6 +1202,14 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function previewUninstall(id, request = {}, internal = {}) {
     const game = findGame(id), options = uninstallRequest(request);
+    if (gameLayout(game).loadingBackend === 'hoyoshade' && feederOwned(game)) {
+      const input = await feeder.previewRestore(game), profile = await externalDeployment.previewRemove(game, options.mode, internal);
+      const projected = new Map(input.changes.map(row => [path.resolve(row.path).toLowerCase(), row.afterSha256]));
+      return { ...profile, gameId: id, phases: ['feeder-restore', 'hoyoshade-remove'],
+        changes: [...input.changes.map(row => ({ ...row, phase: 'feeder-restore' })), ...profile.changes.map(row => ({ ...row, phase: 'hoyoshade-remove',
+          ...(projected.has(path.resolve(row.path).toLowerCase()) ? { beforeSha256: projected.get(path.resolve(row.path).toLowerCase()) } : {}) }))],
+        blockers: [...(input.blockers || []), ...(profile.blockers || [])], runtimeVerified: false };
+    }
     if (externalDeployment.direct?.(game)) return { ...await externalDeployment.previewRemove(game, options.mode, internal), gameId: id };
     if (feederOwned(game) || vulkanOwned(game)) {
       const route = feederOwned(game) ? 'feeder' : 'vulkan';
@@ -1028,8 +1235,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const vk = vulkan.summary(game);
       if (vk.installed || vk.needsRecovery) routeRestoreFirst();
       if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
-      if (feederOwned(game) && classifyApi(game.scan.chosen) !== 'dx12') throw Object.assign(new Error('请先恢复已有 Feeder 配套，再更改其 API 绑定。'), { code: 'FEEDER_RESTORE_FIRST' });
-      return feederRouteSelection(game, request.api || 'dx12');
+      const routed = feederRouteSelection(game, request.api || classifyApi(game.scan.chosen));
+      if (feederOwned(game) && feeder.summary(game).api !== classifyApi(routed.scan.chosen)) throw Object.assign(new Error('请先恢复已有 Feeder 配套，再更改其 API 绑定。'), { code: 'FEEDER_RESTORE_FIRST' });
+      return routed;
     }
     requireNoFeeder(game); requireKnownVulkanOwnership(game);
     if (readManifest(game.dir) || externalOwned(game)) routeRestoreFirst();
@@ -1040,9 +1248,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     return { ...game, apiOverride: request.api || 'vulkan', scan: { ...game.scan,
       chosen: { ...chosen, apiResolution: { api: 'vulkan', source: 'override', evidence: [] } }, componentSelection: { dx11Carrier: false } } };
   }
-  const specialFingerprint = preview => crypto.createHash('sha256').update(JSON.stringify(preview.changes)).digest('hex');
+  const specialFingerprint = preview => crypto.createHash('sha256').update(JSON.stringify(preview.changes.map(row =>
+    ['receipt', 'manifest', 'history-receipt'].includes(row.role) && row.afterSha256 !== null ? { ...row, afterSha256: 'generated-manager-record' } : row))).digest('hex');
   async function specialPreviewWithSettings(game, routed, request, owner) {
-    const preview = await owner.previewInstall(routed, { version: request.version });
+    const preview = await owner.previewInstall(routed, { version: request.version, ...(request.proxyEntry ? { proxyEntry: request.proxyEntry } : {}), ...(request.addonKeep ? { addonKeep: request.addonKeep } : {}) });
     const requestedApi = request.api || preview.api;
     const settings = await gameApiSettings.preview?.(game, requestedApi);
     const before = store.read().gameOverrides[pathKey(game.dir)] || {};
@@ -1055,8 +1264,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function previewSpecialDeployment(id, request = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request) ||
-        Object.keys(request).some(key => !['route', 'api', 'version'].includes(key)) || !['vulkan', 'feeder'].includes(request.route) ||
-        request.api !== undefined && !['auto', 'dx12', 'vulkan'].includes(request.api) ||
+        Object.keys(request).some(key => !['route', 'api', 'version', 'proxyEntry', 'addonKeep'].includes(key)) || !['vulkan', 'feeder'].includes(request.route) ||
+        request.api !== undefined && !['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan'].includes(request.api) ||
         request.version !== undefined && (typeof request.version !== 'string' || !request.version || request.version.length > 100)) throw appError('ERR_BAD_REQUEST');
     const game = findGame(id), routed = specialRouteGame(game, request), owner = request.route === 'feeder' ? feeder : vulkan;
     const preview = await specialPreviewWithSettings(game, routed, request, owner);
@@ -1080,7 +1289,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     if (plan.request.route === 'vulkan') return applyGameRoute(plan.id, { api: plan.request.api, version: fresh.packageId, allowAntiCheat: consent.allowAntiCheat === true });
     let settingChange, preferenceWritten = false, result;
     try {
-      result = await feeder.install(routed, { version: plan.request.version, allowAntiCheat: consent.allowAntiCheat === true }, async () => {
+      result = await feeder.install(routed, { version: plan.request.version, ...(fresh.planId ? { expectedPlanId: fresh.planId } : {}),
+        ...(plan.request.proxyEntry ? { proxyEntry: plan.request.proxyEntry } : {}), ...(plan.request.addonKeep ? { addonKeep: plan.request.addonKeep } : {}), allowAntiCheat: consent.allowAntiCheat === true }, async () => {
         settingChange = await gameApiSettings.apply(game, plan.request.api);
         await store.write({ gameOverrides: { ...state.gameOverrides, [key]: { ...before, api: plan.request.api, apiExecutable: plan.exe } } });
         preferenceWritten = true;
@@ -1089,13 +1299,22 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
       throw error;
     }
-    return refreshAfterMutation({ ...result, applied: true, appliedRoute: { api: 'dx12', version: result.coreVersion, mode: 'local' },
+    return refreshAfterMutation({ ...result, applied: true, appliedRoute: { api: classifyApi(routed.scan.chosen), version: result.coreVersion, mode: 'local' },
       completedPhases: ['feeder-install'], runtimeVerified: false });
   }
   async function inspectDeployment(id) {
     const game = findGame(id), feed = feeder.summary(game), vk = vulkan.summary(game);
     const feederState = feed.installed || feed.needsRecovery, vulkanState = vk.installed || vk.needsRecovery;
     if (feederState && vulkanState) throw Object.assign(new Error('同一游戏同时存在多个固定配套的恢复记录，请保留现场核对，未接管其他路线。'), { code: 'DEPLOYMENT_OWNER_CONFLICT' });
+    if (gameLayout(game).loadingBackend === 'hoyoshade') {
+      const profile = await hoyo.inspect(game), input = feederState ? await feeder.inspect(game) : null;
+      const blockers = [...(profile.blockers || []), ...(input?.blockers || []), ...(profile.inputRoute === 'feeder' && !input?.installed ? ['米哈游加载配置已准备，Feeder 输入配套尚未完成，请预览修复。'] : [])];
+      const pending = Boolean(profile.needsRecovery || input?.needsRecovery || feed.needsRecovery);
+      return { ...profile, mode: 'external', source: 'hoyoshade-profile', loadingBackend: 'hoyoshade', route: profile.inputRoute,
+        version: input?.coreVersion || profile.version, ready: profile.ready && (profile.inputRoute !== 'feeder' || input?.ready === true) && !blockers.length,
+        verified: profile.verified && (profile.inputRoute !== 'feeder' || input?.ready === true) && !blockers.length,
+        pending, needsRecovery: pending, blockers, input, runtimeVerified: false };
+    }
     if (feederState || vulkanState) {
       const route = feederState ? 'feeder' : 'vulkan', summary = feederState ? feed : vk;
       const state = await (feederState ? feeder.inspect(game) : vulkan.diagnose(game));
@@ -1103,16 +1322,17 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       return { ...state, source: route, route, mode: feederState ? 'local' : 'external',
         pending, needsRecovery: pending, runtimeVerified: false };
     }
-    return externalDeployment.inspect(game);
+    return gameLayout(game).loadingBackend === 'hoyoshade' ? hoyo.inspect(game) : externalDeployment.inspect(game);
   }
   async function recoverDeployment(id) {
     const game = findGame(id);
+    if (feeder.generation?.(game) === 'feeder-0151' && feeder.summary(game).needsRecovery) await feeder.recover(game);
     const native = hasExternalRecord(game) ? await externalDeployment.recover(game) : { recovered: false };
     const before = await inspectDeployment(id);
     if (['feeder', 'vulkan'].includes(before.source)) {
       if (!before.pending && !before.needsRecovery) return { ...native, source: before.source,
         recovered: native.recovered === true, unchanged: native.recovered !== true, runtimeVerified: false };
-      const result = await (before.source === 'feeder' ? feeder.restore(game) : vulkan.restore(game));
+      const result = await (before.source === 'feeder' ? feeder.recover ? feeder.recover(game) : feeder.restore(game) : vulkan.restore(game));
       const after = await inspectDeployment(id);
       if (after.pending || after.needsRecovery) throw Object.assign(new Error('原固定配套仍有未完成的恢复记录，统一操作记录已保留。'), { code: 'DEPLOYMENT_RECOVERY_REQUIRED' });
       return refreshAfterMutation({ ...result, source: before.source, recovered: true, runtimeVerified: false,
@@ -1145,7 +1365,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const nativeRoles = { addon: 'core', reshade: 'reshade', bridge: 'chain', runtime: 'nr-runtime', carrier: 'carrier' };
       const nativeModule = async (manifest, row, owner) => {
         const role = nativeRoles[row.kind]; if (!role) return;
-        const file = path.resolve(game.dir, row.rel);
+        const rel = row.kind === 'reshade' && manifest.reshadeRoute === 'd3d12' && path.basename(row.rel).toLowerCase() === 'dxgi.dll'
+          ? path.join(path.dirname(row.rel), 'd3d12.dll') : row.rel;
+        const file = path.resolve(game.dir, rel);
         if (!same(path.dirname(file), path.dirname(exe)) || (row.kind === 'reshade'
           ? !/^(?:dxgi|d3d12)\.dll$/i.test(path.basename(file)) : path.basename(file) !== INSTALLED_NAMES[row.kind])) throw new Error('module target does not match its owner');
         await add(file, role, row.installedSha256, manifest.payloadVersion, owner);
@@ -1154,6 +1376,16 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if ((feed.installed || feed.needsRecovery) && (vk.installed || vk.needsRecovery)) return [];
       if (feed.installed || feed.needsRecovery) {
         if (!feed.installed || feed.needsRecovery) return [];
+        if (feed.generation === 'feeder-0151') {
+          for (const row of await feeder.ownedModuleManifest(game)) await add(row.path, row.role === 'game-loader' ? 'reshade' : row.role,
+            row.sha256, feed.coreVersion, 'feeder-0151', row.architecture || game.scan.chosen.bitness);
+          if (externalOwned(game)) {
+            const profile = hoyo.profile(game);
+            if (!profile.installed || !profile.verified || profile.inputRoute !== 'feeder') return [];
+            for (const row of profile.moduleManifest) await add(row.path, row.role, row.sha256, feed.coreVersion, 'hoyoshade', row.architecture);
+          }
+          return modules;
+        }
         // summary validates this receipt against the code-pinned Feeder recipe.
         const row = await readOwned(path.join(game.dir, require('./feeder-runtime').RECEIPT));
         const cores = row.recipe.files.filter(item => item.role === 'core' && item.mutable === false);
@@ -1242,6 +1474,14 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function gameCoreIdentity(id) {
     try {
+      const game = findGame(id);
+      if (feederOwned(game) && feeder.generation?.(game) === 'feeder-0151') {
+        const receipt = feeder.runtimeOwner(game).receipt(game), core = receipt.files.filter(row => row.role === 'core');
+        if (core.length !== 1) return null;
+        await require('./launch-safety').noLinks(core[0].path);
+        if (await require('./launch-safety').digestFile(core[0].path) !== core[0].sha256 || require('../core/pe').getBitness(core[0].path) !== 64) return null;
+        return { path: core[0].path, sha256: core[0].sha256, version: receipt.recipe.coreVersion, verified: true, processScope: receipt.recipe.hostRequired ? 'host' : 'game' };
+      }
       const modules = await gameModuleManifest(id), cores = modules.filter(row => row.role === 'core');
       if (cores.length !== 1) return null;
       const core = cores[0];
@@ -1286,12 +1526,33 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     gameDirectory: id => findGame(id).dir,
     assessmentSeed: id => { const game = findGame(id); return structuredClone({ ...publicGame(game), scan: game.scan }); },
     installationDefaults,
+    resolveInputRoute,
+    previewProxyEntry,
+    applyProxyEntry: (id, entry, consent = {}) => installer.toggleD3D12({ gameDir: findGame(id).dir, scan: findGame(id).scan, enabled: entry === 'd3d12', allowAntiCheat: consent.allowAntiCheat === true }),
+    previewHoYoDeployment,
+    applyHoYoDeployment,
     coreVersionCatalog,
     getLayout: id => gameLayout(findGame(id)),
     gameModuleManifest,
+    feederModuleManifest: id => feederOwned(findGame(id)) && feeder.ownedModuleManifest ? feeder.ownedModuleManifest(findGame(id)) : [],
+    prepareRuntimeLaunch: (id, session) => feederOwned(findGame(id)) && feeder.prepareLaunch ? feeder.prepareLaunch(findGame(id), session) : null,
+    recordRuntimeLaunch: (id, session) => feederOwned(findGame(id)) && feeder.recordLaunch ? feeder.recordLaunch(findGame(id), session.process) : null,
+    legacyRuntimeContext: id => {
+      const game = findGame(id);
+      if (!feederOwned(game) || feeder.generation?.(game) !== 'feeder-0151') return null;
+      const row = feeder.runtimeOwner(game).receipt(game), profile = gameLayout(game);
+      return { game: { exePath: row.game.exe, exeSha256: row.exeSha256 }, recipe: row.recipe, layout: { ...row.layout, verified: true },
+        loader: profile.loadingBackend === 'hoyoshade' ? profile.moduleManifest.find(item => item.role === 'reshade') : null };
+    },
     gameCoreIdentity,
     inspectDeployment,
     previewDeployment,
+    componentChoices,
+    knownComponentCatalog,
+    hoyoProfile: id => hoyo.profile(findGame(id)),
+    hoyoProfileOptions: id => hoyo.supportedProfileOptions(findGame(id)),
+    previewRepair,
+    applyRepair,
     applyDeployment,
     previewSpecialDeployment,
     applySpecialDeployment,
@@ -1530,7 +1791,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (vulkanRoute(game) || vulkanOwned(game)) return refreshAfterMutation(await vulkan.install(game, options));
       const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
       await prepareExistingReframework(game, options);
-      const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+      const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, addonPolicy: await nativeAddonPolicy(game, payload, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
       return refreshAfterMutation(await prepareDetectedReframework(game, payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result));
     },
     repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
@@ -1542,7 +1803,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const imported = importedAddon(version);
       if (!imported) throw appError('ERR_ADDON_NOT_FOUND');
       await prepareExistingReframework(game, options);
-      const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+      const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, addonPolicy: await nativeAddonPolicy(game, null, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
       return refreshAfterMutation(await prepareDetectedReframework(game, result));
     },
     toggleD3D12: async (id, enabled, options = {}) => {
@@ -1572,6 +1833,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     uninstall: async (id, request = false) => {
       const game = findGame(id);
       const { mode, removeSettings } = uninstallRequest(request);
+      if (gameLayout(game).loadingBackend === 'hoyoshade' && feederOwned(game)) await feeder.restore(game);
       if (hasExternalRecord(game)) await externalDeployment.recover(game);
       if (externalDeployment.direct?.(game)) return refreshAfterMutation(await externalDeployment.remove(game, mode, { allowAntiCheat: true }));
       if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
@@ -1588,6 +1850,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     restoreManagedForCleanup: async id => {
       const game = findGame(id);
+      if (gameLayout(game).loadingBackend === 'hoyoshade' && feederOwned(game)) await feeder.restore(game);
       if (hasExternalRecord(game)) await externalDeployment.recover(game);
       if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
       let result = { restored: false, unchanged: true };

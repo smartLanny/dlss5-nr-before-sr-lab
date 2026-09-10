@@ -249,17 +249,22 @@ test('a failed final pending-file deletion restores original files through atomi
   assert.equal(fs.existsSync(f.receipt), false);
   assert.equal((await createGameEnvironment(f.options).inspect('g')).canRestore, false);
 });
-test('HDR, unrelated addons, Generic NR and MFG default to retained while explicit cleanup remains reversible', async t => {
+test('unknown plugins default to isolation, verified HDR stays and confirmed NR cannot be omitted from reversible cleanup', async t => {
   const f = fixture(t), addons = { 'renodx-hdr.addon64': 'DLSS NVNGX references only', 'overlay.addon64': 'ordinary overlay',
     'neutral.addon64': 'RenoDX HDR Color Grading', 'renodx-generic.addon64': 'RenoDX Generic NR', 'MFGUnlock.addon64': 'MFG Unlock',
     'personal.addon64': 'ordinary unknown addon', 'nr-before-sr-hdr.addon64': 'RenoDX HDR' };
   for (const [name, contents] of Object.entries(addons)) fs.writeFileSync(f.file(name), contents);
+  f.options.knownComponents = () => [{ path: f.file('neutral.addon64'),
+    sha256: require('node:crypto').createHash('sha256').update(addons['neutral.addon64']).digest('hex'), role: 'renodx-hdr', compatibility: 'compatible' }];
   const preview = await f.service.preview('g'), rows = Object.fromEntries(preview.candidates.map(row => [row.name, row]));
-  for (const name of Object.keys(addons)) { assert.equal(rows[name].selectedByDefault, false, name); assert.equal(rows[name].selectable, true, name); }
+  for (const name of Object.keys(addons)) { assert.equal(rows[name].selectedByDefault, name !== 'neutral.addon64', name); assert.equal(rows[name].selectable, true, name); }
   assert.equal(rows['renodx-hdr.addon64'].source, 'filename'); assert.equal(rows['renodx-hdr.addon64'].confidence, 'hint');
   assert.equal(rows['neutral.addon64'].source, 'content-declaration'); assert.equal(rows['old-nr.addon64'].selectedByDefault, true);
-  await f.service.apply('g', preview.planId, ['renodx-hdr.addon64']); assert.equal(fs.existsSync(f.file('renodx-hdr.addon64')), false);
-  for (const name of Object.keys(addons).filter(name => name !== 'renodx-hdr.addon64')) assert.equal(fs.readFileSync(f.file(name), 'utf8'), addons[name]);
+  assert.equal(rows['renodx-generic.addon64'].mandatory, true);
+  await assert.rejects(f.service.apply('g', preview.planId, ['renodx-hdr.addon64']), { code: 'ENVIRONMENT_CONFLICT_REQUIRED' });
+  const confirmed = await f.service.preview('g');
+  await f.service.apply('g', confirmed.planId, ['renodx-hdr.addon64', 'renodx-generic.addon64']); assert.equal(fs.existsSync(f.file('renodx-hdr.addon64')), false);
+  for (const name of Object.keys(addons).filter(name => !['renodx-hdr.addon64', 'renodx-generic.addon64'].includes(name))) assert.equal(fs.readFileSync(f.file(name), 'utf8'), addons[name]);
   await f.service.restore('g'); assert.equal(fs.readFileSync(f.file('renodx-hdr.addon64'), 'utf8'), addons['renodx-hdr.addon64']); expectOriginals(f);
 });
 

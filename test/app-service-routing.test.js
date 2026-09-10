@@ -139,7 +139,7 @@ test('installation metadata reads preserve imported and comparison entries witho
   assert.equal(f.service.assessmentSeed(id).scan.chosen.path, f.exe);
   const defaults = f.service.installationDefaults(id);
   assert.equal(defaults.api, 'auto'); assert.equal(defaults.version, '0.3.3.5');
-  assert.equal(defaults.deployment, 'external'); assert.equal(defaults.loadingMode, 'proxy');
+  assert.equal(defaults.deployment, 'local'); assert.equal(defaults.loadingMode, 'proxy');
   fs.renameSync(metadataFile, metadataFile + '.absent');
   assert.ok(f.service.coreVersionCatalog().find(row => row.id === importedId));
 });
@@ -207,7 +207,7 @@ test('missing imported source does not hide installed-file diagnostics or preven
   const file=path.join(f.gameDir,'_DLSS5_Backup/xiaofeng-manager.json'), manifest=JSON.parse(fs.readFileSync(file));
   manifest.payloadVersion='imported-123456789abc';fs.writeFileSync(file,JSON.stringify(manifest));await f.service.refreshAfterMutation({});
   const diagnosis=await f.service.diagnose(f.id);assert.equal(diagnosis.sourceMissing,true);assert.equal(diagnosis.components.find(row=>row.key==='addon').ok,true);
-  assert.equal(diagnosis.components.find(row=>row.key==='payload-source').ok,false);
+  assert.equal(diagnosis.complete, true); assert.match(diagnosis.sourceNotice, /原安装源不可用/);
   await assert.rejects(f.service.repair(f.id),{code:'ERR_ADDON_NOT_FOUND'});
   await f.service.uninstall(f.id);assert.equal(fs.existsSync(file),false);
 });
@@ -226,7 +226,7 @@ test('missing-source feedback keeps current-EXE component diagnostics and ignore
   assert.equal(diagnosis.sourceMissing, true); assert.equal(diagnosis.components.find(row => row.key === 'addon').ok, true);
   const feedback = await f.service.collectFeedback(f.id);
   assert.equal(calls, 2, 'each operation shares one diagnosis path without a duplicate inspect/diagnose');
-  assert.match(feedback.text, /NR→SR 插件：完整/); assert.match(feedback.text, /修复组件来源：已按安装记录检查现有文件/);
+  assert.match(feedback.text, /NR Core：完整/); assert.match(feedback.text, /修复来源：原安装源不可用/);
   assert.doesNotMatch(feedback.text, /诊断生成：/);
 });
 
@@ -583,4 +583,84 @@ test('implicit superseded core selection repairs to replacement but explicit old
   manifest.payloadVersion = '0.3.3.4'; fs.writeFileSync(manifestFile, JSON.stringify(manifest)); await f.service.refresh();
   await assert.rejects(f.service.repair(id, { version: '0.3.3.4' }), error => error.code === 'ERR_ADDON_NOT_FOUND' && error.details?.replacementVersion === '0.3.3.5');
   assert.equal(JSON.parse(fs.readFileSync(manifestFile, 'utf8')).payloadVersion, '0.3.3.4');
+});
+
+test('proxy-only operation preserves the installed Core and API, and a late occupied destination rejects all writes', async t => {
+  const f = makeService(t); await f.service.addManualGame(f.gameDir); const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx12'); await f.service.install(id, { version: '0.3.3.5' });
+  const { createOperationPlans } = require('../src/product/operation-plan');
+  const manifestFile = path.join(f.gameDir, '_DLSS5_Backup/xiaofeng-manager.json'), before = JSON.parse(fs.readFileSync(manifestFile));
+  const core = path.join(path.dirname(f.exe), PAYLOAD_FILES.addon), coreHash = sha256(core);
+  const options = { userData: path.join(f.root, 'operations'), service: f.service,
+    settings: { assertReady: async () => {} }, components: {}, environment: { assertReady: async () => {} }, preparation: { assertReady: async () => {} },
+    guards: { assertGameClosed: async () => {} } };
+  const plans = createOperationPlans(options), first = await plans.preview(id, { proxyEntry: 'd3d12' });
+  assert.deepEqual(first.steps, [{ kind: 'proxy', entry: 'd3d12' }]); assert.equal(first.blockers.length, 0);
+  assert.equal(first.changes[0].action, 'rename-proxy');
+  const destination = path.join(path.dirname(f.exe), 'd3d12.dll'); fs.writeFileSync(destination, 'user proxy');
+  await assert.rejects(plans.apply(first.planId, { confirm: true, fingerprint: first.fingerprint }), { code: 'OPERATION_CHANGED' });
+  assert.equal(sha256(core), coreHash); assert.deepEqual(JSON.parse(fs.readFileSync(manifestFile)), before);
+  fs.unlinkSync(destination); const retry = await plans.preview(id, { proxyEntry: 'd3d12' });
+  await plans.apply(retry.planId, { confirm: true, fingerprint: retry.fingerprint });
+  const after = JSON.parse(fs.readFileSync(manifestFile)); assert.equal(after.reshadeRoute, 'd3d12');
+  assert.equal(after.payloadVersion, before.payloadVersion); assert.deepEqual(after.files, before.files); assert.equal(after.deploymentApi, 'dx12');
+  assert.equal(sha256(core), coreHash); assert.equal((await f.service.boot()).games[0].apiOverride, 'dx12');
+});
+
+test('exact repair restores a missing renamed proxy in place while keeping original ownership and plugin exceptions', async t => {
+  const f = makeService(t); await f.service.addManualGame(f.gameDir); const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx12'); await f.service.install(id, { version: '0.3.3.5' }); await f.service.applyProxyEntry(id, 'd3d12');
+  const manifestFile = path.join(f.gameDir, '_DLSS5_Backup/xiaofeng-manager.json'), before = JSON.parse(fs.readFileSync(manifestFile));
+  const destination = path.join(path.dirname(f.exe), 'd3d12.dll'), expected = sha256(destination); fs.unlinkSync(destination);
+  const plugin = path.join(path.dirname(f.exe), 'personal.addon64'); fs.writeFileSync(plugin, 'unknown active addon');
+  const preview = await f.service.previewRepair(id), choice = preview.addonCompatibility.decisions.find(row => row.path === plugin);
+  assert.equal(choice.action, 'isolate'); assert.ok(preview.changes.some(row => row.path === destination && row.action === 'create'));
+  const kept = await f.service.previewRepair(id, { addonKeep: [{ path: plugin, sha256: choice.sha256, configFingerprint: choice.configFingerprint }] });
+  assert.equal(kept.blockers.length, 0); await f.service.applyRepair(kept.planId);
+  assert.equal(sha256(destination), expected); assert.equal(fs.existsSync(path.join(path.dirname(f.exe), 'dxgi.dll')), false);
+  const after = JSON.parse(fs.readFileSync(manifestFile)); assert.deepEqual(after.files, before.files); assert.equal(after.reshadeRoute, 'd3d12');
+  assert.equal(fs.readFileSync(plugin, 'utf8'), 'unknown active addon');
+});
+
+test('automatic input selection requires executable integration evidence rather than a DLSS file candidate', async t => {
+  let supported = false;
+  const f = makeService(t, { getFeatureEvidence: async () => ({ support: { status: supported ? 'supported' : 'unknown' } }) });
+  await f.service.addManualGame(f.gameDir); const id = (await f.service.boot()).games[0].id;
+  assert.equal(await f.service.resolveInputRoute(id, { api: 'dx12' }), 'feeder');
+  supported = true; assert.equal(await f.service.resolveInputRoute(id, { api: 'dx12' }), 'native');
+  assert.equal(await f.service.resolveInputRoute(id, { api: 'dx9' }), 'feeder');
+  assert.equal(await f.service.resolveInputRoute(id, { api: 'dx12', route: 'feeder' }), 'feeder');
+});
+
+test('HoYo native operation binds the launcher digest, then installs directly into the dedicated profile without a game proxy', async t => {
+  const f = makeService(t, { assertGameClosed: async () => {},
+    externalDeploymentOptions: { guards: { assertGameClosed: async () => {}, antiCheatPresent: () => false }, pe: { getImports: () => [] } } });
+  const pe = label => { const bytes = Buffer.alloc(0x500); bytes.write('MZ'); bytes.writeUInt32LE(0x80, 0x3c); bytes.write('PE\0\0', 0x80);
+    bytes.writeUInt16LE(0x8664, 0x84); bytes.writeUInt16LE(0xf0, 0x94); bytes.writeUInt16LE(0x20b, 0x98); bytes.write(label, 0x300); return bytes; };
+  const exe = path.join(path.dirname(f.exe), 'YuanShen.exe'); fs.renameSync(f.exe, exe); fs.writeFileSync(exe, pe('game'));
+  for (const row of [f.scan.chosen, ...f.scan.exeCandidates]) { row.path = exe; row.name = 'YuanShen.exe'; row.rel = path.relative(f.gameDir, exe); }
+  const launcher = path.join(f.root, 'HYP.exe'); fs.writeFileSync(launcher, pe('launcher'));
+  fs.cpSync(path.resolve(__dirname, '../resources/hoyoshade'), path.join(f.root, 'resources/hoyoshade'), { recursive: true });
+  for (const family of ['RTX40', 'RTX50']) fs.copyFileSync(path.resolve(__dirname, '../payload/nr-before-sr/fixed/RTX50/ReShade64.dll'), path.join(f.payloadDir, 'fixed', family, 'ReShade64.dll'));
+  fs.writeFileSync(path.join(f.payloadDir, 'bundle.json'), JSON.stringify(createCompactBundle(f.payloadDir,
+    [{ id: '0.3.3.5', label: 'stable' }, { id: DX11_COMPAT_VERSION, label: 'DX11 fixture', compatibility: 'dx11' }], '0.3.3.5')));
+  await f.service.addManualGame(f.gameDir); const id = (await f.service.boot()).games[0].id;
+  const { createOperationPlans } = require('../src/product/operation-plan');
+  const plans = createOperationPlans({ userData: path.join(f.root, 'operations'), service: f.service,
+    settings: { assertReady: async () => {} }, components: {}, environment: { assertReady: async () => {} }, preparation: { assertReady: async () => {} },
+    guards: { assertGameClosed: async () => {} } });
+  const request = { api: 'dx11', route: 'native', loadingBackend: 'hoyoshade', hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: launcher } } };
+  const plan = await plans.preview(id, request); assert.equal(plan.blockers.length, 0); assert.equal(plan.resolved.loadingBackend, 'hoyoshade');
+  assert.equal(plan.resolved.launcherSha256, sha256(launcher));
+  assert.equal(fs.existsSync(path.join(path.dirname(exe), 'dxgi.dll')), false);
+  fs.writeFileSync(launcher, pe('updated launcher'));
+  await assert.rejects(plans.apply(plan.planId, { confirm: true, fingerprint: plan.fingerprint }), { code: 'OPERATION_CHANGED' });
+  assert.equal(f.service.hoyoProfile(id).installed, false);
+  const fresh = await plans.preview(id, request); await plans.apply(fresh.planId, { confirm: true, fingerprint: fresh.fingerprint });
+  const profile = f.service.getLayout(id); assert.equal(profile.loadingBackend, 'hoyoshade'); assert.equal(profile.loadingMode, 'helper');
+  assert.equal(profile.hoyoProfile.launcher.sha256, sha256(launcher)); assert.equal((await f.service.inspectDeployment(id)).ready, true);
+  assert.equal(fs.existsSync(path.join(path.dirname(exe), 'dxgi.dll')), false); assert.equal(fs.existsSync(path.join(path.dirname(exe), PAYLOAD_FILES.addon)), false);
+  assert.equal(fs.existsSync(path.join(profile.runtimeDir, PAYLOAD_FILES.addon)), true);
+  await f.service.uninstall(id, { mode: 'restore' }); assert.equal(f.service.hoyoProfile(id).installed, false);
+  assert.equal(fs.existsSync(exe), true);
 });

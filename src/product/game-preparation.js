@@ -138,7 +138,7 @@ function createGamePreparation({ userData, service, settings, components, fgWork
         const current = await components.inspect(id);
         if (current.route === 'compatibility' && (current.ready || current.canPrepare)) {
           await begin('fg'); await fgWorkflow.apply(id, { backend: 'mfgunlock', mode: 'follow' }, { allowAntiCheat: options.allowAntiCheat === true });
-          row('fg', 'prepared', '已准备 MFG Unlock，默认跟随游戏；游戏内 Home → Add-ons → MFG Unlock 可设置倍率。');
+          row('fg', 'prepared', '已准备 MFG Unlock，默认跟随游戏；按 ReShade 菜单键（新安装默认 =）→ Add-ons → MFG Unlock 可设置倍率。');
         } else if (current.route === 'native' && current.ready && !current.needsCleanup) {
           const request = { backend: 'nvidia', mode: 'fixed', multiplier: 2 };
           const plan = await settings.preview(id, 'fg', request);

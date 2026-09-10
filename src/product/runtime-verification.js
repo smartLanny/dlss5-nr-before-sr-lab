@@ -12,7 +12,8 @@ const validReady = (helper, session) => session && !session.historical && helper
   Number.isFinite(Date.parse(helper.readyAt)) && Date.parse(helper.readyAt) >= Date.parse(session.requestedAt);
 const empty = (helper, session) => ({ helper: validReady(helper, session) ? entry('passed', '本次助手已报告绑定游戏与配置的就绪事件。', [helper]) :
   helper?.status === 'not-applicable' ? entry('not-applicable', '当前路线无需加载助手。') : entry(helper?.status === 'failed' ? 'failed' : 'unverified', helper?.reason || '尚无本次助手就绪事件。'),
-  core: entry('unverified', '等待本次游戏进程确认 ReShade 与指定身份的 Core。'),
+  reshade: entry('unverified', '等待本次游戏进程加载指定 ReShade。'),
+  core: entry('unverified', '等待本次进程加载指定身份的 Core。'),
   nr: entry('unverified', '等待本 Core 的 NR 成功与提交持续增长。'),
   visual: entry('unverified', '需同场景开关对照；F8 / ColorDiag 作为独立证据。') });
 
@@ -102,14 +103,14 @@ function createRuntimeVerification({ layout, processes, modules: expectedModules
     const currentLayout = await layout(id);
     if (!same(currentLayout.exe, capture.targetExe) || (currentLayout.generation || null) !== capture.generation) return result;
     const expected = await moduleIdentity(id, currentLayout);
-    if (!capture.coreFile || !capture.coreSha256 || !capture.loader || !expected.core || !expected.loader ||
-        !same(expected.core.path, capture.coreFile) || expected.core.sha256 !== capture.coreSha256 ||
-        !same(expected.loader.path, capture.loader.path) || expected.loader.sha256 !== capture.loader.sha256) return result;
-    if (capture.loader) await noLinks(capture.loader.path);
-    await noLinks(capture.coreFile);
-    const reshadeLoaded = capture.loader && currentLayout.verified && modules.some(file => same(file, capture.loader.path)) && await digestFile(capture.loader.path) === capture.loader.sha256;
-    if (!coreLoaded || !reshadeLoaded) return result;
-    result.core = entry('passed', '本次进程已加载当前部署的 ReShade 与指定摘要的本 Core。', [{ pid: current.pid, startedAt: current.startedAt, path: capture.coreFile, sha256: capture.coreSha256, source: 'process-modules' }]);
+    const sameLoader = capture.loader && expected.loader && same(expected.loader.path, capture.loader.path) && expected.loader.sha256 === capture.loader.sha256;
+    if (sameLoader) await noLinks(capture.loader.path);
+    const reshadeLoaded = sameLoader && currentLayout.verified && modules.some(file => same(file, capture.loader.path)) && await digestFile(capture.loader.path) === capture.loader.sha256;
+    if (reshadeLoaded) result.reshade = entry('passed', '本次游戏进程已加载当前部署的 ReShade。', [{ pid: current.pid, path: capture.loader.path, sha256: capture.loader.sha256 }]);
+    const sameCore = capture.coreFile && capture.coreSha256 && expected.core && same(expected.core.path, capture.coreFile) && expected.core.sha256 === capture.coreSha256;
+    if (sameCore) await noLinks(capture.coreFile);
+    if (sameCore && coreLoaded) result.core = entry('passed', '本次进程已加载指定摘要的本 Core。', [{ pid: current.pid, startedAt: current.startedAt, path: capture.coreFile, sha256: capture.coreSha256, source: 'process-modules' }]);
+    if (!sameCore || !coreLoaded || !reshadeLoaded) return result;
     const text = (await Promise.all(capture.files.map(row => newText(row, capture.startedAt)))).join('\n');
     const parsed = parseCoreSamples(text);
     if (parsed.increasing) result.nr = entry('passed', '本 Core 的 NR 成功与提交计数持续增长；画面变化仍需单独确认。', parsed.samples);

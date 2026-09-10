@@ -40,13 +40,14 @@ function createGameAssessment({ service, coordinator, environment, operations, l
     async function installation() {
       // This section reads small configuration/ownership records only. Full
       // binary, environment and runtime verification belongs to diagnostics.
-      const [currentLayout, operation, launch, currentSession, nr, hotkeys, coreVersions, defaults, antiCheat] = await Promise.all([
+      const [currentLayout, operation, launch, currentSession, nr, hotkeys, coreVersions, defaults, antiCheat, componentChoices] = await Promise.all([
         layout(), optional('operation', () => operations.inspect(id), { pending: true, unavailable: true }),
         optional('launch', () => launchMode(id), {}), session(),
         optional('nr', () => service.readNrSettings(id), null), optional('hotkeys', () => service.readGameHotkeys(id), null),
         optional('coreVersions', () => !full && service.coreVersionCatalog ? service.coreVersionCatalog() : service.listAddonVersions(), []),
         optional('defaults', () => service.installationDefaults ? service.installationDefaults(id) : null, null),
-        optional('antiCheat', () => antiCheatPresent(service.gameDirectory(id)), false)
+        optional('antiCheat', () => antiCheatPresent(service.gameDirectory(id)), false),
+        optional('componentChoices', () => service.componentChoices?.(id), null)
       ]);
       const nativeIntegration = inspectNativeEnhancementCapabilities(scan);
       const owned = Boolean(game.installed || currentLayout?.source === 'xiaofeng-external-runtime' ||
@@ -56,13 +57,13 @@ function createGameAssessment({ service, coordinator, environment, operations, l
         nativeFgAvailable: game.nativeFgAvailable ?? nativeIntegration.nativeFgAvailable };
       const resolvedDefaults = { api: selection.api,
         version: publicGame.addonVersion || null,
-        deployment: owned ? currentLayout?.mode || 'local' : 'external', loadingMode: owned ? currentLayout?.loadingMode || 'proxy' : 'proxy',
+        deployment: owned ? currentLayout?.mode || 'local' : 'local', loadingMode: owned ? currentLayout?.loadingMode || 'proxy' : 'proxy',
         ...defaults, effectiveApi: selection.effectiveApi, requiresApiSelection: selection.requiresManualSelection };
       const deployment = { ...currentLayout, installed: owned, version: publicGame.addonVersion,
         pending: Boolean(currentLayout?.needsRecovery), inspection: 'summary', layoutVerified: currentLayout?.verified === true,
         verified: false, filesVerified: false, runtimeVerified: false };
       Object.assign(value, { game: publicGame, api, hardware: hardware(), nativeIntegration, layout: currentLayout,
-        deployment, defaults: resolvedDefaults, coreVersions, nr, hotkeys, operation, launch: { ...launch, session: currentSession },
+        deployment, defaults: resolvedDefaults, coreVersions, componentChoices, nr, hotkeys, operation, launch: { ...launch, session: currentSession },
         antiCheat: { detected: antiCheat,
           message: '反作弊或游戏保护可能阻止加载，当前路线也可能暂时无法启用；使用模组有账号处罚风险，请自行决定。',
           officialUrl: 'https://help.steampowered.com/zh-cn/faqs/view/571A-97DA-70E9-FF74',

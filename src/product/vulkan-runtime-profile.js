@@ -6,6 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const peDefault = require('../core/pe');
 const { inside, noLinks, digestFile, atomicJson } = require('./launch-safety');
+const { ensureDefaultReShadeHotkey } = require('./hotkeys');
 
 const PRODUCT = 'xiaofeng-vulkan-runtime-profile';
 const RECEIPT = '.xiaofeng-vulkan-runtime.json';
@@ -278,7 +279,14 @@ function createVulkanRuntimeProfile(options = {}) {
       try { fileStat = await fsp.stat(file); } catch { fail('VULKAN_RUNTIME_SOURCE_MISSING', 'Vulkan 运行资产来源缺少文件。', { file: row.source }); }
       if (!fileStat.isFile() || await digestFile(file) !== row.sha256) fail('VULKAN_RUNTIME_SOURCE_HASH', 'Vulkan 运行资产来源文件校验不匹配。', { file: row.source });
       await assertX64(file);
-      sources.push({ ...row, file });
+      let content = null;
+      if (row.mutable && row.target.toLowerCase() === 'reshade.ini') {
+        const original = await fsp.readFile(file);
+        const text = new (require('node:util').TextDecoder)('utf-8', { fatal: true, ignoreBOM: true }).decode(original);
+        const prepared = ensureDefaultReShadeHotkey(text);
+        if (prepared !== text) content = Buffer.from(prepared, 'utf8');
+      }
+      sources.push({ ...row, file, content, installedSha256: content ? crypto.createHash('sha256').update(content).digest('hex') : row.sha256 });
     }
     return { root, sources };
   }
@@ -306,8 +314,8 @@ function createVulkanRuntimeProfile(options = {}) {
         })) } : {}) };
     }
     if (previewOnly) return { ...location({ exe, recipe }), reused: false, changes: [
-      ...recipe.files.map(file => ({ path: resolveContained(place.basePath, file.target), name: path.basename(file.target), role: 'vulkan-runtime',
-        beforeSha256: null, afterSha256: file.sha256, action: 'create' })),
+      ...source.sources.map(file => ({ path: resolveContained(place.basePath, file.target), name: path.basename(file.target), role: 'vulkan-runtime',
+        beforeSha256: null, afterSha256: file.installedSha256, action: 'create' })),
       { path: path.join(place.basePath, RECEIPT), name: RECEIPT, role: 'receipt', beforeSha256: null, action: 'create' }
     ] };
     await noLinks(place.exeRoot);
@@ -326,6 +334,10 @@ function createVulkanRuntimeProfile(options = {}) {
         await noLinks(row.file); await noLinks(target);
         if (await digestFile(row.file) !== row.sha256 || await digestFile(target) !== row.sha256) {
           fail('VULKAN_RUNTIME_SOURCE_CHANGED', 'Vulkan 运行资产在复制期间发生变化。', { file: row.source });
+        }
+        if (row.content) {
+          await fsp.writeFile(target, row.content);
+          if (await digestFile(target) !== row.installedSha256) fail('VULKAN_RUNTIME_SOURCE_CHANGED', 'ReShade 默认键写入后摘要不符。', { file: row.source });
         }
         await assertX64(target);
       }

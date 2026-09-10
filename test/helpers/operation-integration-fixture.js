@@ -24,6 +24,7 @@ const hashFile = file => fs.existsSync(file) ? sha(fs.readFileSync(file)) : null
 function peBytes(label = '') {
   const bytes = Buffer.alloc(1024); bytes.writeUInt16LE(0x5a4d); bytes.writeUInt32LE(128, 60);
   bytes.writeUInt32LE(0x4550, 128); bytes.writeUInt16LE(0x8664, 132); bytes.writeUInt16LE(0xf0, 148);
+  bytes.writeUInt16LE(1, 134); // A real section count lets the read-only launch-level parser validate this inert fixture.
   bytes.writeUInt16LE(0x20b, 152); bytes.write(label, 512, 'utf8'); return bytes;
 }
 function put(file, bytes) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); }

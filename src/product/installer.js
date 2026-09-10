@@ -10,6 +10,7 @@ const { appError, MESSAGES } = require('./errors');
 const { inspectAddonLayout, requireAddonLayout } = require('./reshade-layout');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
+const { ensureDefaultReShadeHotkey } = require('./hotkeys');
 const coreVersionText = value => {
   if (/^0\.3\.3-(?:dev-)?r4\b/.test(String(value || ''))) return '0.3.3.4 · 稳定兼容';
   if (/^(?:beta)?0\.4\.7(?:-?beta)?$/i.test(String(value || ''))) return 'beta0.4.7';
@@ -19,7 +20,7 @@ const coreVersionText = value => {
   if (version.startsWith('0.3.')) return `${version} · 历史对照`;
   return version.startsWith('0.4.') ? `${version} · Beta` : version;
 };
-const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
+const { scanConflicts, moveConflicts, movePlannedConflicts, restoreConflicts } = require('./conflicts');
 const {
   manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry,
   manifestExecutable, assertManifestExecutable
@@ -247,6 +248,8 @@ function createInstaller(overrides = {}) {
     const rel = path.relative(gameDir, target);
     journal.safePath(gameDir, rel);
     let entry = findEntry(manifest, rel);
+    if (!entry && kind === 'reshade' && manifest.reshadeRoute === 'd3d12' && path.basename(target).toLowerCase() === 'd3d12.dll')
+      entry = findEntry(manifest, path.join(path.dirname(rel), 'dxgi.dll'));
     if (entry) return entry;
 
     const existed = fs.existsSync(target);
@@ -345,6 +348,59 @@ function createInstaller(overrides = {}) {
     await journal.capture(gameDir, file);
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
     await journal.atomicJson(file, manifest);
+  }
+
+  async function captureAddonConfigOriginal(gameDir, manifest, file) {
+    safe(gameDir, file); await noLinks(file);
+    const current = fs.existsSync(file) ? sha256(file) : null, existing = manifest.addonConfigOriginal;
+    if (existing) {
+      if (existing.existed === false) {
+        if (existing.rel !== path.relative(gameDir, file) || existing.backupRel !== null || existing.sha256 !== null) throw appError('ERR_BACKUP_INVALID');
+        if (existing.managedSha256 && current !== null && current !== existing.managedSha256) existing.preserveEdited = true;
+        return;
+      }
+      const backup = journal.safePath(gameDir, existing.backupRel);
+      if (existing.rel !== path.relative(gameDir, file) || sha256(backup) !== existing.sha256) throw appError('ERR_BACKUP_INVALID');
+      if (existing.managedSha256 && current !== null && current !== existing.managedSha256) existing.preserveEdited = true;
+      return;
+    }
+    if (current === null) {
+      manifest.addonConfigOriginal = { rel: path.relative(gameDir, file), existed: false, backupRel: null, sha256: null, managedSha256: null, preserveEdited: false };
+      return;
+    }
+    const backup = backupPath(gameDir, manifest.installId, path.join('.addon-config', path.relative(gameDir, file)));
+    await noLinks(backup);
+    if (fs.existsSync(backup)) throw appError('ERR_BACKUP_INVALID');
+    await journal.capture(gameDir, backup); await fs.promises.mkdir(path.dirname(backup), { recursive: true });
+    await copyFile(file, backup);
+    if (sha256(backup) !== current) throw appError('ERR_BACKUP_INVALID');
+    manifest.addonConfigOriginal = { rel: path.relative(gameDir, file), backupRel: path.relative(gameDir, backup), sha256: current, managedSha256: current, preserveEdited: false };
+  }
+  function addonConfigRestoration(gameDir, manifest, mode) {
+    const row = manifest.addonConfigOriginal;
+    if (!row || mode !== 'restore') return null;
+    if (row.existed === false) {
+      const file = journal.safePath(gameDir, row.rel);
+      if (path.resolve(file) !== path.join(path.dirname(manifestExecutable(gameDir, manifest)), 'ReShade.ini') || row.backupRel !== null || row.sha256 !== null ||
+          !/^[a-f0-9]{64}$/i.test(row.managedSha256 || '')) throw appError('ERR_BACKUP_INVALID');
+      const current = fs.existsSync(file) ? sha256(file) : null;
+      return { file, backup: null, sha256: null, remove: true, restore: !row.preserveEdited && (current === null || current === row.managedSha256),
+        current, warning: '新建的 ReShade.ini 已有个人修改，已保留当前配置。' };
+    }
+    const file = journal.safePath(gameDir, row.rel), backup = journal.safePath(gameDir, row.backupRel);
+    if (!/^[a-f0-9]{64}$/i.test(row.sha256 || '') || !/^[a-f0-9]{64}$/i.test(row.managedSha256 || '') || sha256(backup) !== row.sha256)
+      throw appError('ERR_BACKUP_INVALID');
+    const current = fs.existsSync(file) ? sha256(file) : null;
+    return { file, backup, sha256: row.sha256, restore: !row.preserveEdited && (current === null || current === row.managedSha256),
+      current, warning: 'ReShade.ini 在安装后有个人修改，已保留当前配置及安装前备份。' };
+  }
+
+  async function applyAddonConfigEdit(gameDir, manifest, edit) {
+    if ((fs.existsSync(edit.path) ? sha256(edit.path) : null) !== edit.beforeSha256) throw appError('ERR_FILE_CHANGED');
+    await captureAddonConfigOriginal(gameDir, manifest, edit.path);
+    await journal.capture(gameDir, edit.path); await fs.promises.writeFile(edit.path, edit.afterText, 'utf8');
+    if (sha256(edit.path) !== edit.afterSha256) throw appError('ERR_FILE_CHANGED');
+    manifest.addonConfigOriginal.managedSha256 = edit.afterSha256;
   }
 
   function installedFile(exeDir, kind) {
@@ -457,9 +513,11 @@ function createInstaller(overrides = {}) {
     if (!fs.existsSync(file)) return;
     const edited = editCarrierDisabled(fs.readFileSync(file, 'utf8'), true);
     if (!edited.changed) return;
+    await captureAddonConfigOriginal(gameDir, manifest, file);
     await sidecarBackup(gameDir, file, manifest);
     await journal.capture(gameDir, file);
     await fs.promises.writeFile(file, edited.text, 'utf8');
+    manifest.addonConfigOriginal.managedSha256 = sha256(file);
   }
 
   function editAddonDisabled(text, remove = false) {
@@ -495,7 +553,7 @@ function createInstaller(overrides = {}) {
     return { changed, text: lines.join('\n') };
   }
 
-  async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
+  async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false, addonPolicy = null }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     const priorManifest = readManifest(gameDir);
     if (priorManifest) assertManifestExecutable(gameDir, priorManifest, scan?.chosen?.path);
@@ -510,16 +568,19 @@ function createInstaller(overrides = {}) {
     await guards.assertGameClosed(gameDir, exePath);
 
     return journal.transaction(gameDir, async () => {
+      if (addonPolicy) await require('./native-addon-policy').assertNativeAddonPolicy(gameDir, addonPolicy);
       let manifest = readManifest(gameDir) || newManifest(gameDir, exePath, scan.chosen.api);
       assertManifestExecutable(gameDir, manifest, exePath);
+      if (manifest.addonConfigOriginal) await captureAddonConfigOriginal(gameDir, manifest, path.join(exeDir, 'ReShade.ini'));
       try {
         const reshade = scanModule.inspectReShade(exeDir);
         if (existingProxyConflict(exeDir, reshade)) throw appError('ERR_RESHADER_CONFLICT');
         if (reshade.installed && !reshade.addonSupport) throw appError('ERR_RESHADER_NO_ADDON');
-        requireAddonLayout(exeDir);
+        if (!addonPolicy) requireAddonLayout(exeDir);
         const coreTarget = installedFile(exeDir, 'addon');
+        const loaderTarget = path.join(exeDir, manifest.reshadeRoute === 'd3d12' ? 'd3d12.dll' : INSTALLED_NAMES.reshade);
         const writes = ['addon', 'bridge', 'runtime', ...(!reshade.installed ? ['reshade'] : []), ...(carrierRequired ? ['carrier'] : [])]
-          .map(kind => ({ kind, source: payload[kind].file, target: installedFile(exeDir, kind), expected: payload[kind].actual }));
+          .map(kind => ({ kind, source: payload[kind].file, target: kind === 'reshade' ? loaderTarget : installedFile(exeDir, kind), expected: payload[kind].actual }));
         const adoptions = await preflightWrites(gameDir, manifest, writes, payload.version, payload.versionInfo);
         const rootRow = findEntry(manifest, path.relative(gameDir, coreTarget));
         const refContext = await preflightRef(gameDir, exePath, manifest,
@@ -536,20 +597,26 @@ function createInstaller(overrides = {}) {
         // Move only known DLSS/NR/NGX add-ons into a reversible manager backup.
         // ReShade itself, game DLSS DLLs and ordinary RenoDX add-ons are never
         // part of this list.
-        const movedConflicts = await moveConflicts(gameDir, manifest.installId, {
+        const movedConflicts = addonPolicy ? await movePlannedConflicts(gameDir, manifest.installId, addonPolicy.plan, {
+          capture: target => journal.capture(gameDir, target)
+        }) : await moveConflicts(gameDir, manifest.installId, {
           addonDir: exeDir,
           exclude: manifest.files.map(row => row.rel),
           capture: target => journal.capture(gameDir, target)
         });
         manifest.conflicts = [...(manifest.conflicts || []), ...movedConflicts];
+        if (addonPolicy?.configEdit) {
+          await applyAddonConfigEdit(gameDir, manifest, addonPolicy.configEdit);
+        }
         manifest.payloadVersion = payload.version || null;
         manifest.hardwareFamily = payload.hardwareFamily || null;
         manifest.deploymentApi = classifyApi(scan.chosen);
+        if (payload.components) manifest.components = payload.components;
         manifest.carrierDisabledByUser = carrierRequired ? false : manifest.carrierDisabledByUser === true;
 
         if (!reshade.installed) {
           await writeManaged(gameDir, manifest, payload.reshade.file,
-            installedFile(exeDir, 'reshade'), 'reshade', payload.reshade.actual);
+            loaderTarget, 'reshade', payload.reshade.actual);
         }
         await writeManaged(gameDir, manifest, payload.addon.file,
           installedFile(exeDir, 'addon'), 'addon', payload.addon.actual);
@@ -573,15 +640,18 @@ function createInstaller(overrides = {}) {
         // exact filename from [ADDON]. Preserve other sections, names and
         // ReShade's escaped comma entries.
         const reshadeIni = path.join(exeDir, 'ReShade.ini');
-        if (fs.existsSync(reshadeIni)) {
-          const edited = editAddonDisabled(fs.readFileSync(reshadeIni, 'utf8'), true);
-          if (edited.changed) {
-            await sidecarBackup(gameDir, reshadeIni, manifest);
+        {
+          const before = fs.existsSync(reshadeIni) ? fs.readFileSync(reshadeIni, 'utf8') : '';
+          const next = ensureDefaultReShadeHotkey(editAddonDisabled(before, true).text);
+          if (next !== before) {
+            await captureAddonConfigOriginal(gameDir, manifest, reshadeIni);
+            if (fs.existsSync(reshadeIni)) await sidecarBackup(gameDir, reshadeIni, manifest);
             await journal.capture(gameDir, reshadeIni);
-            await fs.promises.writeFile(reshadeIni, edited.text, 'utf8');
+            await fs.promises.writeFile(reshadeIni, next, 'utf8');
           }
         }
         if (carrierRequired) await enableCarrier(gameDir, exeDir, manifest);
+        if (manifest.addonConfigOriginal) manifest.addonConfigOriginal.managedSha256 = sha256(path.join(exeDir, 'ReShade.ini'));
 
         await saveManifest(gameDir, manifest);
         return diagnose({ gameDir, payload, scan, payloadVersion: payload.version });
@@ -645,10 +715,10 @@ function createInstaller(overrides = {}) {
     const executableMismatch = Boolean(manifest && selectedExecutable &&
       path.resolve(selectedExecutable).toLowerCase() !== installedExecutable.toLowerCase());
     const exeDir = installedExecutable ? path.dirname(installedExecutable) : gameDir;
-    const carrierRequired = isDx11Only(scan && scan.chosen);
     const selectedApi = classifyApi(scan && scan.chosen);
     const deploymentApi = manifest && (manifest.deploymentApi ||
       (manifest.files.some(row => row.kind === 'carrier') ? 'dx11' : 'dx12'));
+    const carrierRequired = manifest ? deploymentApi === 'dx11' : isDx11Only(scan && scan.chosen);
     const routeMismatch = Boolean(manifest && (deploymentApi !== selectedApi || executableMismatch));
     const components = [];
     if (manifest) components.push({
@@ -656,6 +726,8 @@ function createInstaller(overrides = {}) {
       detail: executableMismatch ? '当前选择了另一个游戏程序；请重新选择原安装程序并恢复或卸载后，再切换目标。' : null
     });
     const expected = payload || {};
+    if (manifest) components.push({ key: 'route', label: '已装路线与当前 API', ok: !routeMismatch,
+      detail: routeMismatch ? `已装 ${deploymentApi || '待确认'}，当前选择 ${selectedApi}；请通过安装页预览路线切换。修复保持已装组合。` : null });
     const reshadeIni = path.join(exeDir, 'ReShade.ini');
     const addonLayout = inspectAddonLayout(exeDir);
     components.push({ key: 'addon-layout', label: '插件加载位置', ok: addonLayout.ok,
@@ -700,26 +772,26 @@ function createInstaller(overrides = {}) {
       detail: conflictDetail
     });
 
-    if (manifest && payloadVersion) {
+    if (manifest) {
       components.push({
-        key: 'version', label: '核心版本',
-        ok: manifest.payloadVersion === payloadVersion,
-        detail: manifest.payloadVersion === payloadVersion
-          ? `当前为 ${coreVersionText(payloadVersionLabel || payloadVersion)}`
-          : `已安装 ${coreVersionText(manifest.payloadVersion || '旧版本')}，当前选择 ${coreVersionText(payloadVersionLabel || payloadVersion)}；点击修复切换`
+        key: 'version', label: '已安装 Core', ok: true,
+        detail: coreVersionText(manifest.payloadVersion || '版本未记录')
       });
     }
 
     const kinds = ['addon', 'bridge', 'carrier', 'runtime', 'config'];
     for (const kind of kinds) {
-      const file = installedFile(exeDir, kind);
+      const recorded = manifest?.files.find(row => row.kind === kind && typeof row.rel === 'string' &&
+        !path.isAbsolute(row.rel) && path.dirname(path.resolve(gameDir, row.rel)).toLowerCase() === exeDir.toLowerCase());
+      const file = recorded ? safe(gameDir, path.resolve(gameDir, recorded.rel)) : installedFile(exeDir, kind);
       const exists = fs.existsSync(file);
-      const expectedHash = kind === 'carrier' && !carrierRequired ? null : expected[kind] && expected[kind].actual;
+      const expectedHash = kind === 'carrier' && !carrierRequired ? null : manifest ? recorded?.installedSha256 : expected[kind]?.actual;
       const actual = exists && kind !== 'config' ? sha256(file) : null;
       const routeOk = kind === 'carrier' && !carrierRequired ? !exists : exists && !(kind === 'carrier' && carrierDisabled);
       components.push({
         key: kind,
-        label: { addon: 'NR→SR 插件', bridge: '共用运行组件', carrier: '兼容桥接', runtime: 'AI Runtime', config: '配置文件' }[kind],
+        file, sha256: actual, expectedSha256: expectedHash || null,
+        label: { addon: 'NR Core', bridge: 'nrchain · NR 接口', carrier: 'NIGos Bridge · DX11 桥接器', runtime: 'NVIDIA NR Runtime', config: 'NR 参数配置' }[kind],
         ok: routeOk && (kind === 'config' || !expectedHash || actual === expectedHash),
         detail: kind === 'carrier' && !carrierRequired && !exists
           ? (selectedApi === 'dx12' ? '无需启用（DirectX 12）' : '未部署，需先确认 API 与配套组件')
@@ -745,14 +817,52 @@ function createInstaller(overrides = {}) {
       routeMismatch,
       executableMismatch,
       manifest: manifest ? { installedAt: manifest.installedAt, updatedAt: manifest.updatedAt } : null,
+      installedVersion: manifest?.payloadVersion || null,
+      availableUpdate: manifest && payloadVersion && payloadVersion !== manifest.payloadVersion
+        ? { from: manifest.payloadVersion, to: payloadVersion, label: payloadVersionLabel || payloadVersion } : null,
       components
     };
   }
 
-  async function repair({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
+  async function repair({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false, addonPolicy = null }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     if (!readManifest(gameDir)) throw appError('ERR_NOT_INSTALLED');
-    return install({ gameDir, payload, scan, allowAntiCheat });
+    return install({ gameDir, payload, scan, allowAntiCheat, addonPolicy });
+  }
+
+  async function repairInstalled({ gameDir, entries, manifestHash, scan, allowAntiCheat = false, addonPolicy = null }) {
+    const manifest = readManifest(gameDir);
+    if (!manifest) throw appError('ERR_NOT_INSTALLED');
+    const exePath = assertManifestExecutable(gameDir, manifest, scan?.chosen?.path);
+    if (sha256(manifestPath(gameDir)) !== manifestHash) throw appError('ERR_FILE_CHANGED');
+    await guards.assertGameClosed(gameDir, exePath);
+    if (guards.antiCheatPresent(gameDir) && !allowAntiCheat) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation: 'repair' });
+    return journal.transaction(gameDir, async () => {
+      if (sha256(manifestPath(gameDir)) !== manifestHash) throw appError('ERR_FILE_CHANGED');
+      if (addonPolicy) {
+        await require('./native-addon-policy').assertNativeAddonPolicy(gameDir, addonPolicy);
+        const moved = await movePlannedConflicts(gameDir, manifest.installId, addonPolicy.plan, { capture: target => journal.capture(gameDir, target) });
+        manifest.conflicts = [...(manifest.conflicts || []), ...moved];
+        if (addonPolicy.configEdit) {
+          await applyAddonConfigEdit(gameDir, manifest, addonPolicy.configEdit);
+        }
+      }
+      for (const item of entries) {
+        const row = manifest.files.find(row => row.rel === item.rel && row.kind === item.kind);
+        if (!row || row.installedSha256 !== item.sha256) throw appError('ERR_BACKUP_INVALID');
+        const targetRel = row.kind === 'reshade' && manifest.reshadeRoute === 'd3d12' && path.basename(row.rel).toLowerCase() === 'dxgi.dll'
+          ? path.join(path.dirname(row.rel), 'd3d12.dll') : row.rel;
+        if (item.targetRel && item.targetRel !== targetRel) throw appError('ERR_BACKUP_INVALID');
+        const target = safe(gameDir, path.resolve(gameDir, targetRel));
+        await noLinks(item.source); await noLinks(target);
+        if (fs.existsSync(target)) throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+        if (sha256(item.source) !== item.sha256) throw appError('ERR_FILE_CHANGED');
+        await journal.capture(gameDir, target); await fs.promises.copyFile(item.source, target);
+        if (sha256(target) !== item.sha256) throw appError('ERR_FILE_CHANGED');
+      }
+      if (entries.length || addonPolicy?.changes.some(row => row.action !== 'keep' && row.action !== 'preserve')) await saveManifest(gameDir, manifest);
+      return { ...(await diagnose({ gameDir, scan })), repaired: true, preservedVersion: manifest.payloadVersion };
+    });
   }
 
   async function toggleD3D12({ gameDir, enabled, scan: suppliedScan, allowAntiCheat = false }) {
@@ -776,6 +886,11 @@ function createInstaller(overrides = {}) {
     await guards.assertGameClosed(gameDir, exePath);
 
     return journal.transaction(gameDir, async () => {
+      const source = want ? dxgi : d3d12, destination = want ? d3d12 : dxgi;
+      const owned = manifest.files.find(row => row.kind === 'reshade' && path.basename(row.rel).toLowerCase() === 'dxgi.dll');
+      await noLinks(source); await noLinks(destination);
+      if (!fs.existsSync(source) || (owned ? sha256(source) !== owned.installedSha256 : !want || !isAddonReShade(source))) throw appError('ERR_FILE_CHANGED');
+      if (fs.existsSync(destination)) throw appError('ERR_D3D12_CONFLICT');
       if (want) {
         if (!fs.existsSync(dxgi)) throw appError('ERR_NOT_INSTALLED');
         if (fs.existsSync(d3d12)) throw appError('ERR_D3D12_CONFLICT');
@@ -804,7 +919,7 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  async function upgradeAddon({ gameDir, addon, version, versionInfo, scan: suppliedScan, allowAntiCheat = false }) {
+  async function upgradeAddon({ gameDir, addon, version, versionInfo, scan: suppliedScan, allowAntiCheat = false, addonPolicy = null }) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
@@ -829,7 +944,8 @@ function createInstaller(overrides = {}) {
 
     return journal.transaction(gameDir, async () => {
       try {
-        requireAddonLayout(exeDir);
+        if (addonPolicy) await require('./native-addon-policy').assertNativeAddonPolicy(gameDir, addonPolicy);
+        else requireAddonLayout(exeDir);
         const writes = [{ kind: 'addon', source: addon.file, target, expected: addon.addonSha256 }];
         if (addon.bridgeFile) writes.push({ kind: 'bridge', source: addon.bridgeFile, target: installedFile(exeDir, 'bridge'), expected: addon.bridgeSha256 });
         if (carrierRequired) writes.push({ kind: 'carrier', source: addon.carrierFile, target: carrierTarget, expected: addon.carrierSha256 });
@@ -840,12 +956,17 @@ function createInstaller(overrides = {}) {
         await adoptTrusted(gameDir, manifest, adoptions, exePath);
         await planRefUpdate(refContext, addon.addonSha256);
         await retireManagedCarriers(gameDir, manifest, carrierRequired ? carrierTarget : null);
-        const found = await moveConflicts(gameDir, manifest.installId, {
+        const found = addonPolicy ? await movePlannedConflicts(gameDir, manifest.installId, addonPolicy.plan, {
+          capture: target => journal.capture(gameDir, target)
+        }) : await moveConflicts(gameDir, manifest.installId, {
           addonDir: exeDir,
           exclude: manifest.files.map(row => row.rel),
           capture: conflictTarget => journal.capture(gameDir, conflictTarget)
         });
         manifest.conflicts = [...(manifest.conflicts || []), ...found];
+        if (addonPolicy?.configEdit) {
+          await applyAddonConfigEdit(gameDir, manifest, addonPolicy.configEdit);
+        }
         await writeManaged(gameDir, manifest, addon.file, target, 'addon', addon.addonSha256);
         await applyRefUpdate(refContext);
         if (addon.bridgeFile) {
@@ -947,6 +1068,9 @@ function createInstaller(overrides = {}) {
         add(journal.safePath(gameDir, row.sourceRel), 'prior-conflict', row.sha256, source);
       }
     }
+    const configRestore = addonConfigRestoration(gameDir, manifest, mode);
+    if (configRestore?.restore) add(configRestore.file, 'addon-config-original', configRestore.sha256, configRestore.backup);
+    else if (configRestore) retained.push(path.relative(gameDir, configRestore.file));
     for (const row of manifest.sidecars || []) {
       const file = journal.safePath(gameDir, row.rel);
       if (currentHash(file) !== row.sha256) { if (fs.existsSync(file)) retained.push(row.rel); continue; }
@@ -970,6 +1094,7 @@ function createInstaller(overrides = {}) {
 
     const warnings = [];
     return journal.transaction(gameDir, async () => {
+      const configRestore = addonConfigRestoration(gameDir, manifest, mode);
       for (const row of manifest.files) validateEntry(gameDir, manifest, row, journal.safePath);
       const refContext = await preflightRef(gameDir, exePath, manifest, manifest.files.filter(row => row.kind === 'addon'), false);
       const settingsKept = Boolean(refContext) || !removeSettings;
@@ -1072,6 +1197,18 @@ function createInstaller(overrides = {}) {
         await fs.promises.rename(row.file, backup);
         archivedSidecars.push({ sourceRel: row.rel, backupRel, sha256: row.sha256 });
       }
+      if (configRestore?.restore) {
+        await noLinks(configRestore.file); if (configRestore.backup) await noLinks(configRestore.backup);
+        const current = fs.existsSync(configRestore.file) ? sha256(configRestore.file) : null;
+        if (current === configRestore.current && (configRestore.remove || sha256(configRestore.backup) === configRestore.sha256)) {
+          await journal.capture(gameDir, configRestore.file);
+          if (configRestore.remove) { if (current !== null) await fs.promises.unlink(configRestore.file); }
+          else {
+            await copyFile(configRestore.backup, configRestore.file);
+            if (sha256(configRestore.file) !== configRestore.sha256) throw appError('ERR_BACKUP_INVALID');
+          }
+        } else warnings.push({ code: 'CONFIG_EDITED_RETAINED', message: configRestore.warning });
+      } else if (configRestore) warnings.push({ code: 'CONFIG_EDITED_RETAINED', message: configRestore.warning });
       const historyRel = path.join('_DLSS5_Backup', 'xiaofeng-history', `${manifest.installId}.json`);
       const history = journal.safePath(gameDir, historyRel);
       if (fs.existsSync(history)) throw appError('ERR_FILE_CHANGED', { rel: historyRel });
@@ -1088,7 +1225,7 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  return { install, repair, upgradeAddon, toggleD3D12, disableCarrier, uninstall, previewUninstall, diagnose, isAddonReShade };
+  return { install, repair, repairInstalled, upgradeAddon, toggleD3D12, disableCarrier, uninstall, previewUninstall, diagnose, isAddonReShade };
 }
 
 module.exports = { createInstaller };

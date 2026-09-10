@@ -29,7 +29,7 @@ test('custom or bypassed ReShade loading is diagnosed and refuses install or rep
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.addon)), false);
   fs.writeFileSync(ini, '[ADDON]\nAddonPath=.\n');
   await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
-  fs.appendFileSync(ini, 'LoadFromDllMain=dlss5-bridge.addon64\n');
+  fs.appendFileSync(ini, '[ADDON]\nLoadFromDllMain=dlss5-bridge.addon64\n');
   const receipt = fs.readFileSync(manifestPath(f.gameDir));
   const diagnostic = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(diagnostic.complete, false);
@@ -178,7 +178,7 @@ test('DX12 keeps nrchain, never deploys carrier, and restores an unmanaged old c
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.bridge)), true);
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
   assert.equal(fs.existsSync(oldCarrier), false);
-  assert.equal(result.components.find(row=>row.key==='carrier').label,'兼容桥接');
+  assert.equal(result.components.find(row=>row.key==='carrier').label,'NIGos Bridge · DX11 桥接器');
   assert.equal(result.components.find(row=>row.key==='carrier').detail,'无需启用（DirectX 12）');
   assert.match(result.components.find(row=>row.key==='conflicts').detail, /外部冲突备份/);
 
@@ -262,7 +262,7 @@ test('ReShade case-sensitive keys stay untouched and the fixed carrier registrat
   fs.writeFileSync(reshadeIni, ineffective);
   const installed = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(installed.complete, true, 'lowercase section/key do not disable an add-on in ReShade');
-  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), ineffective);
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), ineffective + '\n[INPUT]\nKeyOverlay=187,0,0,0\n');
 
   const nameOnly = '[ADDON]\nDisabledAddons=DLSS 5 Bridge 1.4.12\n';
   fs.writeFileSync(reshadeIni, nameOnly);
@@ -271,7 +271,7 @@ test('ReShade case-sensitive keys stay untouched and the fixed carrier registrat
   assert.match(diagnosed.components.find(row => row.key === 'carrier').detail, /注册名.*手动启用/);
   const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(repaired.complete, false, 'Manager must not claim repair removed a name-only user entry');
-  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), nameOnly);
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), nameOnly + '\n[INPUT]\nKeyOverlay=187,0,0,0\n');
   if (process.env.MANAGER_INTEROP_EVIDENCE_DIR) {
     const evidenceDir = path.resolve(process.env.MANAGER_INTEROP_EVIDENCE_DIR);
     fs.mkdirSync(evidenceDir, { recursive: true });
@@ -361,7 +361,8 @@ test('repairing a DX11 install on a resolved DX12 route retires carrier but reta
   assert.equal(beforeRepair.complete, false);
   assert.equal(beforeRepair.components.find(row => row.key === 'conflicts').ok, true,
     'a Manager-owned carrier is reported by the route component, not as an external conflict');
-  assert.match(beforeRepair.components.find(row => row.key === 'carrier').detail, /目标 DirectX 12.*受管/);
+  assert.equal(beforeRepair.components.find(row => row.key === 'carrier').ok, true, 'installed carrier integrity is independent of the requested API');
+  assert.match(beforeRepair.components.find(row => row.key === 'route').detail, /已装 dx11.*当前选择 dx12/);
   const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(repaired.complete, true);
   assert.equal(repaired.routeMismatch, false);
@@ -387,6 +388,39 @@ test('repair and OTA upgrade refuse to retarget an existing receipt to another E
   const diagnosis = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: otherScan });
   assert.equal(diagnosis.executableMismatch, true); assert.equal(diagnosis.complete, false);
   assert.match(diagnosis.components.find(row => row.key === 'executable').detail, /另一个游戏程序/);
+});
+
+test('health uses installed identities while repair restores exact missing bytes without upgrading the Core', async t => {
+  const f = fixture(t, 'dx11');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const saved = readManifest(f.gameDir), baseline = structuredClone(saved.files.map(row => row.original));
+  const newer = { ...f.payload, addon: { ...f.payload.addon, actual: 'a'.repeat(64) } };
+  const health = await f.installer.diagnose({ gameDir: f.gameDir, scan: f.scan, payload: newer, payloadVersion: 'newer-core' });
+  assert.equal(health.complete, true);
+  assert.deepEqual(health.availableUpdate, { from: saved.payloadVersion, to: 'newer-core', label: 'newer-core' });
+  const bridge = path.join(f.exeDir, INSTALLED_NAMES.bridge); fs.unlinkSync(bridge);
+  const inspect = () => require('../src/product/installed-repair').inspectInstalledRepair({ gameDir: f.gameDir,
+    exePath: f.exePath, sourceRoots: [path.join(f.root, 'payload')] });
+  const before = fs.readFileSync(manifestPath(f.gameDir)), plan = await inspect();
+  assert.deepEqual(plan.blockers, []); assert.equal(plan.entries.length, 1);
+  assert.deepEqual(fs.readFileSync(manifestPath(f.gameDir)), before, 'preview does not mutate the receipt');
+  assert.equal(fs.existsSync(bridge), false);
+  const result = await f.installer.repairInstalled({ gameDir: f.gameDir, scan: f.scan, entries: plan.entries, manifestHash: plan.manifestHash });
+  assert.equal(result.complete, true); assert.equal(result.preservedVersion, saved.payloadVersion);
+  assert.equal(sha256(bridge), f.payload.bridge.actual);
+  assert.deepEqual(readManifest(f.gameDir).files.map(row => row.original), baseline);
+  fs.writeFileSync(bridge, 'manual OTA bytes');
+  const changed = await inspect(); assert.equal(changed.entries.length, 0); assert.match(changed.blockers.join(''), /外部修改/);
+  assert.equal(fs.readFileSync(bridge, 'utf8'), 'manual OTA bytes');
+});
+
+test('repair never substitutes another available version when the original source is missing', async t => {
+  const f = fixture(t); await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  fs.unlinkSync(path.join(f.exeDir, INSTALLED_NAMES.addon)); fs.writeFileSync(f.payload.addon.file, 'newer Core');
+  const plan = await require('../src/product/installed-repair').inspectInstalledRepair({ gameDir: f.gameDir,
+    exePath: f.exePath, sourceRoots: [path.join(f.root, 'payload')] });
+  assert.match(plan.blockers.join(''), /原摘要对应/); assert.equal(plan.entries.length, 0);
+  assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.addon)), false);
 });
 
 test('D3D12 uninstall restores the receipt-bound directory when the selected and original EXEs are unavailable', async t => {

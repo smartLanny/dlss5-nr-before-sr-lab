@@ -22,12 +22,27 @@ function blockerMessages(owner) {
 }
 
 function validateRequest(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['route', 'api', 'version', 'deployment', 'loadingMode', 'nr', 'sr', 'fg', 'hotkeys', 'launchMode', 'uninstall', 'reapplyExternalChanges'].includes(key))) fail('INPUT', '应用请求含未知选项。');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['route', 'api', 'version', 'deployment', 'loadingMode', 'loadingBackend', 'proxyEntry', 'components', 'hoyo', 'addonKeep', 'nr', 'sr', 'fg', 'hotkeys', 'launchMode', 'uninstall', 'repair', 'reapplyExternalChanges'].includes(key))) fail('INPUT', '应用请求含未知选项。');
   const request = clone(value);
-  if (request.api !== undefined && !['auto', 'dx11', 'dx12', 'vulkan'].includes(request.api)) fail('INPUT', 'API 选择无效。');
+  if (request.api !== undefined && !['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan'].includes(request.api)) fail('INPUT', 'API 选择无效。');
   if (request.version !== undefined && (typeof request.version !== 'string' || !/^[a-zA-Z0-9._-]{1,100}$/.test(request.version))) fail('INPUT', 'Core 版本无效。');
   if (request.deployment !== undefined && !['local', 'external'].includes(request.deployment)) fail('INPUT', '部署模式无效。');
   if (request.loadingMode !== undefined && !['proxy', 'helper'].includes(request.loadingMode)) fail('INPUT', '加载方式无效。');
+  if (request.loadingBackend !== undefined && !['local', 'hoyoshade'].includes(request.loadingBackend)) fail('INPUT', '加载后端无效。');
+  if (request.proxyEntry !== undefined && !['auto', 'dxgi', 'd3d11', 'd3d12'].includes(request.proxyEntry)) fail('INPUT', '加载入口无效。');
+  if (request.components !== undefined && (!request.components || typeof request.components !== 'object' || Array.isArray(request.components) ||
+    Object.keys(request.components).some(key => !['bridge', 'mfgUnlock'].includes(key)) ||
+    Object.values(request.components).some(value => typeof value !== 'string' || !/^[a-zA-Z0-9._-]{1,100}$/.test(value)))) fail('INPUT', '独立组件选择无效。');
+  if (request.addonKeep !== undefined && (!Array.isArray(request.addonKeep) || request.addonKeep.length > 128 || request.addonKeep.some(row =>
+    !row || Object.keys(row).some(key => !['path', 'sha256', 'configFingerprint'].includes(key)) || !path.isAbsolute(row.path || '') || row.path.includes('\0') ||
+    !/^[a-f0-9]{64}$/.test(row.sha256 || '') || !/^[a-f0-9]{64}$/.test(row.configFingerprint || '')))) fail('INPUT', '插件保留选择必须绑定当前文件和配置摘要。');
+  if (request.hoyo !== undefined) {
+    const h = request.hoyo;
+    if (!h || Object.keys(h).some(key => !['family', 'channel', 'launcher'].includes(key)) ||
+      !['genshin', 'honkai3', 'starrail', 'zzz'].includes(h.family) || !['cn', 'bilibili', 'global'].includes(h.channel) ||
+      !h.launcher || Object.keys(h.launcher).some(key => !['kind', 'path'].includes(key)) || !['hoyoplay', 'starward'].includes(h.launcher.kind) ||
+      !path.isAbsolute(h.launcher.path || '') || !/\.exe$/i.test(h.launcher.path) || h.launcher.path.includes('\0')) fail('INPUT', '米哈游客户端或启动器绑定无效。');
+  }
   if (request.route !== undefined && !['native', 'feeder', 'vulkan'].includes(request.route)) fail('INPUT', '增强路线无效。');
   if (request.launchMode !== undefined && !['auto', 'steam', 'exe'].includes(request.launchMode)) fail('INPUT', '启动方式无效。');
   if (request.reapplyExternalChanges !== undefined && typeof request.reapplyExternalChanges !== 'boolean') fail('INPUT', '重新应用选项无效。');
@@ -44,6 +59,7 @@ function validateRequest(value) {
     request.hotkeys = { reshade: normalizeBinding(request.hotkeys.reshade) };
   }
   if (request.uninstall !== undefined && (!['clean', 'restore'].includes(request.uninstall) || Object.keys(request).length !== 1)) fail('INPUT', '移除必须单独选择干净移除或恢复安装前。');
+  if (request.repair !== undefined && (request.repair !== true || Object.keys(request).some(key => !['repair', 'addonKeep'].includes(key)))) fail('INPUT', '修复保持已装组合，只允许同时确认插件保留选择。');
   return request;
 }
 
@@ -73,7 +89,7 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
       path.join(t.game, '_DLSS5_Backup', 'xiaofeng-manager.json'), path.join(t.game, '_DLSS5_Backup', 'xiaofeng-external.json')].filter(Boolean))];
     const identities = [];
     for (const file of files) { await noLinks(file); identities.push({ file, sha256: await digestFile(file) }); }
-    return { exe: t.exe, exeSha256: await digestFile(t.exe), layout: { mode: layout.mode, source: layout.source, loadingMode: layout.loadingMode, generation: layout.generation, runtimeDir: layout.runtimeDir, activeConfigPath: layout.activeConfigPath },
+    return { exe: t.exe, exeSha256: await digestFile(t.exe), layout: { mode: layout.mode, source: layout.source, loadingMode: layout.loadingMode, loadingBackend: layout.loadingBackend, inputRoute: layout.inputRoute, bindingId: layout.bindingId, generation: layout.generation, runtimeDir: layout.runtimeDir, activeConfigPath: layout.activeConfigPath },
       identities, override: store.gameOverrides[key] || null };
   }
   async function preview(id, input) {
@@ -86,13 +102,14 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
       fail('API_SELECTION_REQUIRED', apiSelection.requiresManualSelection ? '需要手动选择游戏实际使用的图形 API，才能安装或应用增强设置。' : '当前图形 API 不支持所选增强路线。');
     await preparation.assertReady(id); await environment.assertReady(id); await settings.assertReady(id);
     const before = await snapshot(t), changes = [], blockers = [], steps = [];
-    const routeChange = request.api !== undefined || request.version !== undefined;
-    const deploy = !request.uninstall && (routeChange || request.deployment !== undefined || request.loadingMode !== undefined || request.route !== undefined);
+    const routeChange = request.api !== undefined || request.version !== undefined || request.components?.bridge !== undefined;
+    const deploy = !request.uninstall && !request.repair && (routeChange || request.deployment !== undefined || request.loadingMode !== undefined || request.loadingBackend !== undefined || request.hoyo !== undefined || request.route !== undefined || request.addonKeep !== undefined || request.proxyEntry !== undefined && (before.layout.mode === 'external' || before.layout.source === 'feeder'));
     const defaults = deploy && service.installationDefaults ? await service.installationDefaults(id, request) : null;
     const installed = Boolean(current.installed || current.addonVersion || before.layout.source === 'xiaofeng-external-runtime');
-    const targetMode = request.deployment || defaults?.deployment || (installed ? before.layout.mode || 'local' : 'external');
-    const loadingMode = request.loadingMode || defaults?.loadingMode || (installed ? before.layout.loadingMode : 'proxy') || 'proxy';
-    const route = request.route || defaults?.route;
+    const loadingBackend = request.loadingBackend || before.layout.loadingBackend || defaults?.loadingBackend || 'local';
+    const targetMode = loadingBackend === 'hoyoshade' ? 'external' : request.deployment || defaults?.deployment || (installed ? before.layout.mode || 'local' : 'local');
+    const loadingMode = loadingBackend === 'hoyoshade' ? 'helper' : request.loadingMode || defaults?.loadingMode || (installed ? before.layout.loadingMode : 'proxy') || 'proxy';
+    const route = request.route || (deploy && service.resolveInputRoute ? await service.resolveInputRoute(id, request) : defaults?.route);
     let retainedFg = null;
     const specialOwner = ['vulkan', 'feeder'].includes(route) || ['vulkan', 'feeder'].includes(before.layout.source) || request.api === 'vulkan';
     const changingMode = deploy && installed && !specialOwner && targetMode !== before.layout.mode;
@@ -105,7 +122,11 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
       }
     }
     let deployment = null;
-    if (request.uninstall) {
+    if (request.repair) {
+      deployment = await service.previewRepair(id, request.addonKeep ? { addonKeep: request.addonKeep } : {});
+      changes.push(...(deployment.changes || [])); blockers.push(...blockerMessages(deployment));
+      steps.push({ kind: 'repair' });
+    } else if (request.uninstall) {
       const settingsBefore = await settings.inspect(id);
       for (const domain of ['fg', 'sr']) if (settingsBefore.applied?.[domain]) {
         const previous = settingsBefore.applied[domain];
@@ -121,15 +142,21 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
     } else {
       if (deploy) {
         const api = apiSelection.api, special = ['feeder', 'vulkan'].includes(route);
-        if (special && loadingMode === 'helper') fail('ROUTE', 'Vulkan 与 Feeder 使用各自的固定加载配套。');
+        if (special && loadingMode === 'helper' && loadingBackend !== 'hoyoshade') fail('ROUTE', 'Vulkan 与 Feeder 使用各自的固定加载配套。');
         // Only an actual version in the request is explicit. The deployment
         // owner resolves implicit installed/global defaults and supersession.
-        deployment = special ? await service.previewSpecialDeployment(id, { route, api, ...(request.version ? { version: request.version } : {}) }) :
+        deployment = loadingBackend === 'hoyoshade' ? await service.previewHoYoDeployment(id, { ...request, route, api }, { plannedFgRestore: changingMode }) :
+          special ? await service.previewSpecialDeployment(id, { route, api, ...(request.version ? { version: request.version } : {}), ...(request.proxyEntry ? { proxyEntry: request.proxyEntry } : {}), ...(request.addonKeep ? { addonKeep: request.addonKeep } : {}) }) :
           await service.previewDeployment(id, { mode: targetMode, ...(request.version ? { version: request.version } : {}), api,
-            loadingMode }, { plannedFgRestore: changingMode });
+            loadingMode, ...(request.proxyEntry ? { proxyEntry: request.proxyEntry } : {}), ...(request.components ? { components: request.components } : {}), ...(request.addonKeep ? { addonKeep: request.addonKeep } : {}) }, { plannedFgRestore: changingMode });
         changes.push(...(deployment.changes || [])); blockers.push(...blockerMessages(deployment));
         steps.push({ kind: 'deployment', route, routeChange, api, version: request.version,
-          resolvedVersion: deployment.version || deployment.packageId || defaults?.version || null, mode: targetMode, loadingMode });
+          resolvedVersion: deployment.version || deployment.packageId || defaults?.version || null, mode: targetMode, loadingMode, loadingBackend });
+      }
+      if (request.proxyEntry !== undefined && targetMode === 'local' && !['feeder', 'vulkan'].includes(route)) {
+        const proxy = await service.previewProxyEntry(id, request.proxyEntry, { deployment });
+        changes.push(...proxy.changes); blockers.push(...blockerMessages(proxy));
+        if (proxy.changes.length) steps.push({ kind: 'proxy', entry: proxy.entry });
       }
       if (request.nr && Object.keys(request.nr).length) {
         changes.push(...Object.entries(request.nr).map(([key, value]) => ({ action: 'set-config-key', path: '当前部署 / nr_before_sr.ini', key, value })));
@@ -137,8 +164,18 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
       }
       if (request.hotkeys) { changes.push({ action: 'set-config-key', path: before.layout.activeConfigPath, key: 'INPUT/KeyOverlay',
         value: [request.hotkeys.reshade.key, Number(request.hotkeys.reshade.ctrl), Number(request.hotkeys.reshade.shift), Number(request.hotkeys.reshade.alt)].join(',') }); steps.push({ kind: 'hotkeys' }); }
-      for (const domain of ['sr', 'fg']) if (request[domain] || domain === 'fg' && retainedFg) {
-        const desired = request[domain] || retainedFg;
+      let selectedFg = request.fg || retainedFg;
+      if (request.components?.mfgUnlock) {
+        const componentPreview = await components.previewProvider(id, request.components.mfgUnlock);
+        changes.push(...componentPreview.files); blockers.push(...blockerMessages(componentPreview));
+        if (!selectedFg) {
+          const state = await settings.inspect(id);
+          selectedFg = state.current?.fg?.valid ? state.current.fg.request : state.requests?.fg?.request || state.applied?.fg?.request || { backend: 'mfgunlock', mode: 'follow' };
+        }
+        if (selectedFg.backend !== 'mfgunlock' || selectedFg.mode === 'restore') fail('COMPONENT_MFG_ROUTE', 'MFG 插件版本需与兼容补帧设置一起应用。');
+      }
+      for (const domain of ['sr', 'fg']) if (request[domain] || domain === 'fg' && selectedFg) {
+        const desired = domain === 'fg' ? selectedFg : request[domain];
         const preview = await settings.preview(id, domain, desired, { allowComponentPreparation: true, reapplyExternalChanges: request.reapplyExternalChanges === true });
         changes.push(...preview.operations.map(row => ({ ...row, domain, path: preview.destination })));
         if (preview.needsPreparation || preview.preparation) changes.push({ action: 'prepare-components', domain, description: '应用时一并准备并验证所需组件。' });
@@ -151,8 +188,12 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         changes.push({ action: 'set-launch-mode', value: request.launchMode, path: t.exe }); steps.push({ kind: 'launch' });
       }
     }
-    const resolved = apiDependent ? { api: apiSelection.api, effectiveApi: apiSelection.effectiveApi,
-      ...(deploy ? { version: deployment.version || deployment.packageId || defaults?.version || null, deployment: targetMode, loadingMode, route: route || 'native' } : {}) } : null;
+    let resolved = apiDependent ? { api: apiSelection.api, effectiveApi: apiSelection.effectiveApi,
+      ...(deploy ? { version: deployment.version || deployment.packageId || defaults?.version || null, deployment: targetMode, loadingMode, loadingBackend, route: route || 'native',
+        ...(loadingBackend === 'hoyoshade' ? { bindingId: deployment.layout?.helper?.bindingId || deployment.layout?.bindingId,
+          launcherSha256: deployment.launcher?.sha256 } : {}) } : {}) } : null;
+    if (deployment?.loadingBackend === 'hoyoshade') resolved = { ...resolved, loadingBackend: 'hoyoshade',
+      bindingId: deployment.layout?.helper?.bindingId || deployment.layout?.bindingId, launcherSha256: deployment.launcher?.sha256 };
     const value = { version: 1, planId: crypto.randomUUID(), gameId: id, exe: t.exe, game: t.game, request, before, resolved,
       createdAt: Date.now(), expiresAt: Date.now() + 10 * 60000, changes, blockers: [...new Set(blockers.filter(Boolean))],
       steps, deployment, runtimeVerified: false, requiresConfirmation: true };
@@ -195,15 +236,19 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
           // loadPlan has just rebuilt and verified the deployment preflight.
           // Rebuild once more only if an earlier FG restore changed its files.
           const migration = record.stages.some(row => row.kind === 'restore-fg' && row.status === 'complete') ?
+            (step.loadingBackend === 'hoyoshade' ? await service.previewHoYoDeployment(t.id, { ...plan.request, route: step.route, api: step.api }) :
             (special ? await service.previewSpecialDeployment(t.id, { route: step.route, api: step.api, ...(step.version ? { version: step.version } : {}) }) :
               await service.previewDeployment(t.id, { mode: step.mode, ...(step.version ? { version: step.version } : {}), api: step.api,
-                ...(step.loadingMode ? { loadingMode: step.loadingMode } : {}) })) : plan.deployment;
+                ...(step.loadingMode ? { loadingMode: step.loadingMode } : {}), ...(plan.request.proxyEntry ? { proxyEntry: plan.request.proxyEntry } : {}), ...(plan.request.components ? { components: plan.request.components } : {}), ...(plan.request.addonKeep ? { addonKeep: plan.request.addonKeep } : {}) }))) : plan.deployment;
           const blocked = blockerMessages(migration); if (blocked.length) fail('BLOCKED', blocked.join('；'));
-          stage.result = await (special ? service.applySpecialDeployment : service.applyDeployment)(migration.planId, { allowAntiCheat: consent.allowAntiCheat === true });
-        } else if (step.kind === 'nr') stage.result = await service.writeNrSettings(t.id, plan.request.nr);
+          stage.result = await (step.loadingBackend === 'hoyoshade' ? service.applyHoYoDeployment : special ? service.applySpecialDeployment : service.applyDeployment)(migration.planId, { allowAntiCheat: consent.allowAntiCheat === true });
+        } else if (step.kind === 'repair') stage.result = await service.applyRepair(plan.deployment.planId, { allowAntiCheat: consent.allowAntiCheat === true });
+        else if (step.kind === 'proxy') stage.result = await service.applyProxyEntry(t.id, step.entry, { allowAntiCheat: consent.allowAntiCheat === true });
+        else if (step.kind === 'nr') stage.result = await service.writeNrSettings(t.id, plan.request.nr);
         else if (step.kind === 'hotkeys') stage.result = await service.writeGameHotkey(t.id, 'reshade', plan.request.hotkeys.reshade);
         else if (step.kind === 'restore-fg') { await settings.restore(t.id, 'fg'); stage.result = await components.restore(t.id); }
-        else if (step.kind === 'sr' || step.kind === 'fg') stage.result = await applyEnhancement(t.id, step.kind, step.request, { allowAntiCheat: consent.allowAntiCheat === true, reapplyExternalChanges: plan.request.reapplyExternalChanges === true });
+        else if (step.kind === 'sr' || step.kind === 'fg') stage.result = await applyEnhancement(t.id, step.kind, step.request, { allowAntiCheat: consent.allowAntiCheat === true, reapplyExternalChanges: plan.request.reapplyExternalChanges === true,
+          ...(step.kind === 'fg' && plan.request.components?.mfgUnlock ? { providerId: plan.request.components.mfgUnlock } : {}) });
         else if (step.kind === 'launch') stage.result = await setLaunchMode(t.id, plan.request.launchMode);
         else if (step.kind === 'uninstall') {
           await restoreForUninstall(t.id);

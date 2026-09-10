@@ -10,8 +10,9 @@ function createFgWorkflow({ settings, components, assertClosed }) {
   async function restoreConfig(id, previous) {
     const now = await settings.inspect(id);
     if (previous.applied?.fg?.backend === 'mfgunlock') {
-      const priorRequest = previous.applied.fg.request;
-      const plan = await settings.preview(id, 'fg', priorRequest);
+      const priorRequest = previous.current?.fg?.valid ? previous.current.fg.request : previous.applied.fg.request;
+      const plan = previous.current?.fg?.valid && typeof settings.previewMfgCompensation === 'function'
+        ? await settings.previewMfgCompensation(id, previous.current.fg) : await settings.preview(id, 'fg', priorRequest);
       await settings.apply(plan.id, { confirm: true });
       if (previous.requests?.fg?.request) await settings.save(id, 'fg', previous.requests.fg.request);
       return;
@@ -44,7 +45,7 @@ function createFgWorkflow({ settings, components, assertClosed }) {
         const migrated = await components.migrateLegacy(id, { allowAntiCheat: options.allowAntiCheat === true });
         migrationToken = migrated.migrationToken;
       }
-      prepared = await components.prepare(id, { allowAntiCheat: options.allowAntiCheat === true, migrationToken });
+      prepared = await components.prepare(id, { allowAntiCheat: options.allowAntiCheat === true, migrationToken, providerId: options.providerId });
       const plan = await settings.preview(id, 'fg', request, { reapplyExternalChanges: options.reapplyExternalChanges === true });
       configAttempted = true;
       const result = await settings.apply(plan.id, { confirm: true, automatic: options.reapplyExternalChanges !== true });
@@ -87,7 +88,7 @@ function createFgWorkflow({ settings, components, assertClosed }) {
   }
   async function prepare(id, options = {}) {
     const previous = await settings.inspect(id);
-    const request = previous.applied?.fg?.backend === 'mfgunlock' ? previous.applied.fg.request : { backend: 'mfgunlock', mode: 'follow' };
+    const request = previous.current?.fg?.valid ? previous.current.fg.request : previous.applied?.fg?.backend === 'mfgunlock' ? previous.applied.fg.request : { backend: 'mfgunlock', mode: 'follow' };
     return apply(id, request, options);
   }
   async function recover(id) {

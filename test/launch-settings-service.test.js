@@ -56,76 +56,52 @@ test('generic launch recovery cannot bypass REFramework ownership checks', async
   assert.equal(fs.readFileSync(pending, 'utf8'), bytes); assert.deepEqual(f.driver.peek(), before);
 });
 
-test('missing evidence cannot write, and confirmation persists only for this EXE content and domain', async t => {
+test('automatic eligibility separates support from activation and leaves old confirmations inert', async t => {
   const evidence = enhancementEvidence({ gameSetting: { state: 'unknown', source: null } });
   const f = fixture(t, { service: { getFeatureEvidence: async () => evidence } });
+  const legacyFile = path.join(f.root, 'user/game-feature-confirmations.json'); fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+  const legacyBytes = '{"version":1,"entries":{"historical":"kept verbatim"}}'; fs.writeFileSync(legacyFile, legacyBytes);
   const request = { backend: 'native', quality: 'quality', preset: 'K' };
   let plan = await f.service.preview('g', 'sr', request);
-  assert.equal(plan.eligibility.state, 'waiting-confirmation');
-  assert.equal(plan.eligibility.canConfirm, true);
+  assert.equal(plan.eligibility.state, 'configurable'); assert.equal(plan.eligibility.canConfirm, false);
+  assert.equal(plan.eligibility.activation.state, 'unknown'); await f.service.apply(plan.id, { confirm: true });
+  await assert.rejects(f.service.confirmGameFeature('g', 'sr', { enabled: true }), { code: 'SETTINGS_CONFIRMATION_RETIRED' });
+  evidence.support = { status: 'unknown' }; plan = await f.service.preview('g', 'sr', request);
+  assert.equal(plan.eligibility.eligible, false);
   await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_BLOCKED' });
-  const confirmed = await f.service.confirmGameFeature('g', 'sr', { enabled: true });
-  assert.equal(confirmed.eligible, true); assert.equal(confirmed.runtimeVerified, false);
-  assert.equal(confirmed.state, 'configurable'); assert.equal(confirmed.canConfirm, false);
-  const reopened = f.reopen(), persisted = await reopened.assessEligibility('g', 'sr');
-  assert.equal(persisted.eligible, true); assert.equal(persisted.canConfirm, false);
-  assert.equal(persisted.evidence.confirmation.exeIdentity, require('node:crypto').createHash('sha256').update(fs.readFileSync(f.exe)).digest('hex'));
-  const fg = await reopened.assessEligibility('g', 'fg');
-  assert.equal(fg.eligible, false); assert.equal(fg.canConfirm, true);
-  plan = await f.service.preview('g', 'sr', request); await f.service.apply(plan.id, { confirm: true });
-  const fgConfirmed = await reopened.confirmGameFeature('g', 'fg', { enabled: true });
-  assert.equal(fgConfirmed.eligible, true); assert.equal(fgConfirmed.canConfirm, false);
-  fs.writeFileSync(f.exe, 'updated executable');
-  const updated = f.reopen();
-  for (const domain of ['sr', 'fg']) {
-    assert.equal((await updated.inspectGameFeatureConfirmation('g', domain)).confirmation, null);
-    const state = await updated.assessEligibility('g', domain);
-    assert.equal(state.eligible, false); assert.equal(state.canConfirm, true);
-  }
-  const reconfirmed = await updated.confirmGameFeature('g', 'sr', { enabled: true });
-  assert.equal(reconfirmed.eligible, true); assert.equal(reconfirmed.canConfirm, false);
-  assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, false);
-  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, true);
+  await f.reopen().inspect('g'); assert.equal(fs.readFileSync(legacyFile, 'utf8'), legacyBytes);
 });
 
-test('observed game-off revokes confirmation and cannot be overridden by confirming again', async t => {
+test('observed game-off changes activation without preventing explicit configuration', async t => {
   let gameSetting = { state: 'unknown' };
   const f = fixture(t, { service: { getFeatureEvidence: async () => enhancementEvidence({ gameSetting }) } });
-  await f.service.confirmGameFeature('g', 'sr', { enabled: true });
   gameSetting = { state: 'off', source: 'game-config' };
-  await assert.rejects(f.service.confirmGameFeature('g', 'sr', { enabled: true }), { code: 'SETTINGS_CONFIRMATION_BLOCKED' });
+  await assert.rejects(f.service.confirmGameFeature('g', 'sr', { enabled: true }), { code: 'SETTINGS_CONFIRMATION_RETIRED' });
   assert.equal((await f.service.inspectGameFeatureConfirmation('g', 'sr')).confirmation, null);
   assert.equal((await f.service.assessEligibility('g', 'sr')).canConfirm, false);
   gameSetting = { state: 'unknown' };
   const reopened = f.reopen(), state = await reopened.assessEligibility('g', 'sr');
-  assert.equal(state.state, 'waiting-confirmation'); assert.equal(state.canConfirm, true);
-  const reconfirmed = await reopened.confirmGameFeature('g', 'sr', { enabled: true });
-  assert.equal(reconfirmed.state, 'configurable'); assert.equal(reconfirmed.canConfirm, false);
+  assert.equal(state.state, 'configurable'); assert.equal(state.canConfirm, false);
   assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, false);
 });
 
-test('confirmations remain EXE-path and feature-domain bound even when executable bytes match', async t => {
+test('feature domains retain independent activation values without creating a confirmation file', async t => {
   let currentExe;
   const gameSettings = { sr: { state: 'unknown' }, fg: { state: 'unknown' } };
   const f = fixture(t, { service: { gameExecutable: () => currentExe,
     getFeatureEvidence: async (_id, domain) => enhancementEvidence({ gameSetting: gameSettings[domain] }) } });
   currentExe = f.exe;
-  for (const domain of ['sr', 'fg']) await f.service.confirmGameFeature('g', domain, { enabled: true });
   gameSettings.sr = { state: 'off', source: 'game-config' };
-  assert.equal((await f.reopen().assessEligibility('g', 'sr')).state, 'waiting-game-setting');
-  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, false, 'SR off does not revoke FG');
+  assert.equal((await f.reopen().assessEligibility('g', 'sr')).activation.state, 'off');
+  assert.equal((await f.reopen().assessEligibility('g', 'fg')).activation.state, 'unknown');
   gameSettings.sr = { state: 'unknown' };
   currentExe = path.join(f.exeDir, 'Other.exe'); fs.copyFileSync(f.exe, currentExe);
   const reopened = f.reopen();
   for (const domain of ['sr', 'fg']) {
     const state = await reopened.assessEligibility('g', domain);
-    assert.equal(state.state, 'waiting-confirmation'); assert.equal(state.canConfirm, true);
+    assert.equal(state.state, 'configurable'); assert.equal(state.canConfirm, false);
   }
-  assert.equal((await reopened.confirmGameFeature('g', 'sr', { enabled: true })).canConfirm, false);
-  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, true);
-  currentExe = f.exe;
-  assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, true, 'the original SR revocation stays revoked');
-  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, false, 'the original FG confirmation stays bound to its EXE');
+  assert.equal(fs.existsSync(path.join(f.root, 'user/game-feature-confirmations.json')), false);
 });
 
 test('explicit recommended SR models only change model keys and persist without changing quality, ratio or FG', async t => {
@@ -155,11 +131,11 @@ test('explicit recommended SR models only change model keys and persist without 
   }
 });
 
-test('game switch recheck between preview and apply blocks every write', async t => {
-  let gameSetting = { state: 'on', source: 'game-config' };
-  const f = fixture(t, { service: { getFeatureEvidence: async () => enhancementEvidence({ gameSetting }) } });
+test('lost support between preview and apply blocks every write', async t => {
+  let evidence = enhancementEvidence();
+  const f = fixture(t, { service: { getFeatureEvidence: async () => evidence } });
   const plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' });
-  const before = f.driver.peek(); gameSetting = { state: 'off', source: 'game-config' };
+  const before = f.driver.peek(); evidence = enhancementEvidence({ support: { status: 'unknown' } });
   await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_BLOCKED' });
   assert.deepEqual(f.driver.peek(), before); assert.deepEqual(await f.service.pending('g'), []);
 });
@@ -218,24 +194,46 @@ test('explicit no-change Apply records existing driver values without rewriting 
   await f.service.restore('g', 'sr'); assert.deepEqual(f.driver.peek(), existing);
 });
 
-test('explicit no-change MFG Apply adopts the current key baseline and still detects external drift', async t => {
+test('game-panel MFG changes are displayed and launched read-only while the original baseline is retained', async t => {
   const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
   const original = '[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=3\n'; fs.writeFileSync(file, original);
   const plan = await f.service.preview('g', 'fg', request); assert.equal(plan.recordOnly, true);
   await f.service.apply(plan.id, { confirm: true }); await f.service.save('g', 'fg', request);
   assert.equal((await f.service.beforeLaunch('g'))[0].noOp, true); assert.equal(fs.readFileSync(file, 'utf8'), original);
   fs.writeFileSync(file, original.replace('Multiplier=3', 'Multiplier=4'));
-  assert.equal((await f.service.beforeLaunch('g'))[0].code, 'SETTINGS_REQUIRE_REAPPLY');
+  const state = await f.service.inspect('g');
+  assert.equal(state.current.fg.request.multiplier, 4); assert.equal(state.current.fg.differsFromLastApplied, true);
+  assert.equal(state.requests.fg.request.multiplier, 3); assert.equal(state.applied.fg.requiresReapply, false);
+  const before = fs.readFileSync(file), record = fs.readFileSync(path.join(f.game, '_DLSS5_Backup/xiaofeng-launch-settings.json'));
+  const launch = (await f.service.beforeLaunch('g'))[0]; assert.equal(launch.noOp, true); assert.equal(launch.currentRequest.multiplier, 4);
+  assert.deepEqual(fs.readFileSync(file), before); assert.deepEqual(fs.readFileSync(path.join(f.game, '_DLSS5_Backup/xiaofeng-launch-settings.json')), record);
+  const restore = await f.service.preview('g', 'fg', { backend: 'mfgunlock', mode: 'restore' });
+  assert.equal(restore.externalChanges[0].key, 'ForceMultiplier');
+  await f.service.apply(restore.id, { confirm: true }); assert.equal(fs.readFileSync(file, 'utf8'), original);
 });
 
-test('explicit MFG reapply preserves external values as the new restore baseline', async t => {
+test('explicit MFG reapply keeps the first baseline and removes a configuration it originally created', async t => {
   const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
   await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true });
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('ForceMultiplier=3', 'ForceMultiplier=4'));
   const plan = await f.service.preview('g', 'fg', request, { reapplyExternalChanges: true });
   assert.equal(plan.externalChanges[0].key, 'ForceMultiplier');
   await f.service.apply(plan.id, { confirm: true }); await f.service.restore('g', 'fg');
-  assert.match(fs.readFileSync(file, 'utf8'), /ForceMultiplier=4/);
+  assert.equal(fs.existsSync(file), false);
+});
+
+test('malformed panel settings block MFG launch without any rewrite; 5/6 remain observed experimental values', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini');
+  const request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true }); await f.service.save('g', 'fg', request);
+  for (const value of ['9', 'dynamic', '3\nForceMultiplier=4']) {
+    const text = `[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=${value}\n`; fs.writeFileSync(file, text);
+    assert.equal((await f.service.inspect('g')).current.fg.valid, false);
+    assert.equal((await f.service.beforeLaunch('g'))[0].noOp, undefined); assert.equal(fs.readFileSync(file, 'utf8'), text);
+  }
+  const text = '[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=6\n'; fs.writeFileSync(file, text);
+  const result = (await f.service.beforeLaunch('g'))[0]; assert.equal(result.noOp, true); assert.equal(result.currentRequest.multiplier, 6);
+  assert.equal(fs.readFileSync(file, 'utf8'), text); assert.equal((await f.service.assessEligibility('g', 'fg', { ...request, multiplier: 6 })).eligible, false);
 });
 
 function externalFixture(t, extraService = {}) {
@@ -649,4 +647,33 @@ test('generic recovery refuses Feeder WAL before touching either files or the dr
     const before=f.driver.peek(); await assert.rejects(f.service.recover('g'),{code:'FEEDER_RECOVERY_REQUIRED'});
     assert.equal(fs.readFileSync(pending,'utf8'),bytes);assert.deepEqual(f.driver.peek(),before);
   }
+});
+
+test('MFG workflow compensation restores observed panel keys and the previous request receipt without enabling the addon', async t => {
+  const { createFgWorkflow } = require('../src/product/fg-workflow');
+  for (const force of [4, 6]) {
+    const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+    await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true }); await f.service.save('g', 'fg', request);
+    const receiptFile = path.join(f.game, '_DLSS5_Backup/xiaofeng-launch-settings.json');
+    const originalReceipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8')).applied.fg;
+    const panel = `[RenoDX.MFGUnlock]\nEnabled=0\nForceMultiplier=${force}\n[STYLE]\nFont=Player font\n`; fs.writeFileSync(file, panel);
+    const observed = (await f.service.inspect('g')).current.fg;
+    await assert.rejects(f.service.previewMfgCompensation('g', structuredClone(observed)), { code: 'SETTINGS_MFG_COMPENSATION_INVALID' });
+    let failOnce = true;
+    const workflow = createFgWorkflow({ settings: { ...f.service, save: async (...args) => { if (failOnce) { failOnce = false; throw Object.assign(new Error('save failed'), { code: 'SAVE_FAILED' }); } return f.service.save(...args); } },
+      components: { inspect: async () => ({ route: 'compatibility' }), prepare: async () => ({ changed: false, undoToken: null }), inspectMigration: async () => ({ migrationPending: false }) }, assertClosed: async () => {} });
+    await assert.rejects(workflow.apply('g', { backend: 'mfgunlock', mode: 'fixed', multiplier: 2 }), error => { assert.equal(error.code, 'SAVE_FAILED', JSON.stringify(error.details)); return true; });
+    assert.equal(fs.readFileSync(file, 'utf8'), panel); assert.deepEqual(JSON.parse(fs.readFileSync(receiptFile, 'utf8')).applied.fg, originalReceipt);
+    const launch = (await f.service.beforeLaunch('g'))[0]; assert.equal(launch.noOp, true); assert.equal(launch.currentRequest.multiplier, force);
+  }
+});
+
+test('MFG compensation keeps external post-apply edits and refuses a forged observation', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true });
+  const observed = (await f.service.inspect('g')).current.fg;
+  await f.service.apply((await f.service.preview('g', 'fg', { backend: 'mfgunlock', mode: 'fixed', multiplier: 2 })).id, { confirm: true });
+  const external = '[RenoDX.MFGUnlock]\nEnabled=0\nForceMultiplier=4\n'; fs.writeFileSync(file, external);
+  await assert.rejects(f.service.previewMfgCompensation('g', observed), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+  assert.equal(fs.readFileSync(file, 'utf8'), external);
 });

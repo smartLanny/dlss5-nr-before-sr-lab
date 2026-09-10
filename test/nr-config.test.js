@@ -8,7 +8,7 @@ const { parseSection, updateSection, writeConfig, readConfig } = require('../src
 
 test('parses and normalizes public NR settings', () => {
   const value = parseSection('[NRBeforeSR]\nEnabled=1\nMode=9\nIntensity=9\nWorkMode=7\nCustomWorkScale=0.1\nStyle=2\nAutoMask=0\nColorStrength=2\nSkinStructureStrength=3\n');
-  assert.deepEqual(value, { Enabled: 1, Mode: 2, Intensity: 2, WorkMode: 5, CustomWorkScale: 0.25, Style: 2, AutoMask: 0, ColorStrength: 1, SkinStructureStrength: 2 });
+  assert.deepEqual(value, { Enabled: 1, Mode: 2, Intensity: 2, WorkMode: 5, CustomWorkScale: 0.25, Style: 2, AutoMask: 0, ColorStrength: 2, SkinStructureStrength: 2 });
 });
 
 test('updates only the target section and preserves comments/other sections', () => {
@@ -25,10 +25,11 @@ test('atomically writes and reads a new config', async () => {
   assert.deepEqual(readConfig(file), {
     Enabled: 1, Intensity: 1.2, WorkMode: 2, CustomWorkScale: 0.75,
     Style: 1, AutoMask: 1, ColorStrength: 0.5, SkinStructureStrength: 0.8,
+    LocalToneStrength: 1, LocalStructureStrength: 1,
     TransferStrength: 2.5, PostTransferStrength: 0.66,
     capabilities: {
       WorkMode: true, CustomWorkScale: true, ColorStrength: true,
-      SkinStructureStrength: true, TransferStrength: true, PostTransferStrength: true
+      SkinStructureStrength: true, LocalToneStrength: false, LocalStructureStrength: false, TransferStrength: true, PostTransferStrength: true
     }
   });
 });
@@ -47,9 +48,27 @@ test('keeps legacy 0.2 and 0.3 configs readable while clamping old intensity abo
     CustomWorkScale: false,
     ColorStrength: true,
     SkinStructureStrength: false,
+    LocalToneStrength: false,
+    LocalStructureStrength: false,
     TransferStrength: true,
     PostTransferStrength: true
   });
+});
+
+test('local tone and structure round-trip independently, and disabling face keeps its previous strength', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-face-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'nr_before_sr.ini');
+  await writeConfig(file, { LocalToneStrength: 0.45, LocalStructureStrength: 1.65, SkinStructureStrength: 0.8 });
+  await writeConfig(file, { AutoMask: 0 });
+  const current = readConfig(file);
+  assert.equal(current.LocalToneStrength, 0.45);
+  assert.equal(current.LocalStructureStrength, 1.65);
+  assert.equal(current.SkinStructureStrength, 0.8);
+  assert.equal(current.AutoMask, 0);
+  await writeConfig(file, { AutoMask: 1 });
+  assert.equal(readConfig(file).SkinStructureStrength, 0.8);
+  assert.equal(readConfig(file).AutoMask, 1);
 });
 
 test('writing model strength or shared effect strength preserves color strength', () => {

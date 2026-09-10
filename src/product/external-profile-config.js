@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
 const { addonValues } = require('./reshade-layout');
+const { ensureDefaultReShadeHotkey } = require('./hotkeys');
 
 // Exact path-key contract shipped in 0.4.8-beta.1. This is used only to
 // validate an inactive profile against its already committed restore snapshot.
@@ -73,10 +74,12 @@ function externalConfig(original, oldBase, environment = process.env, options = 
   }
   return result;
 }
-function localConfig(current, original, oldBase, environment = process.env) {
+function localConfig(current, original, oldBase, environment = process.env, { panelDefaultAdded = false } = {}) {
   // Restore the original spelling only for path fields the user did not edit.
   // Other settings and comments from the active external INI survive migration.
-  const expected = entries(externalConfig(original, oldBase, environment));
+  const prepared = externalConfig(original, oldBase, environment);
+  if (panelDefaultAdded && current === ensureDefaultReShadeHotkey(prepared)) return original;
+  const expected = entries(prepared);
   const before = new Map(entries(original).filter(row => row.key).map(row => [row.identity + ':' + row.occurrence, row]));
   const rebased = new Map(expected.filter(row => row.key).map(row => [row.identity + ':' + row.occurrence, row]));
   let restored = entries(current).map(row => {
@@ -94,6 +97,50 @@ function localConfig(current, original, oldBase, environment = process.env) {
 }
 function loaderConfig(original, runtimeDir) {
   return setScalar(original, 'INSTALL', 'BasePath', runtimeDir);
+}
+
+// ReShade 6.8 reads this setting as paths, while Luma's AddonInit reads a
+// bool. Accept only a lone legacy 0/1 with no possible numeric module. Never
+// teach the shared INI parser that numbers generally mean disabled loading.
+function inspectLegacyDirectLoad(values, exeDir, addonDir, environment) {
+  if (values.length !== 1 || !/^[01]$/.test(values[0])) return null;
+  const getEnvironment = name => {
+    const matches = Object.entries(environment).filter(([key]) => key.toLowerCase() === name.toLowerCase());
+    if (new Set(matches.map(([, value]) => value)).size > 1) throw new Error('数字早期加载项的环境路径存在歧义。');
+    return matches[0]?.[1] || '';
+  };
+  const systemRoot = getEnvironment('SystemRoot') || getEnvironment('windir') || process.env.SystemRoot || process.env.windir || '';
+  const searchPath = getEnvironment('PATH');
+  if (typeof searchPath !== 'string' || searchPath.length > 32768) throw new Error('数字早期加载项的搜索路径无法完整核对。');
+  const directories = [addonDir, exeDir];
+  if (systemRoot) directories.push(systemRoot, path.join(systemRoot, 'System32'), path.join(systemRoot, 'SysWOW64'));
+  // The fixed ReShade call uses an absolute target and SEARCH_DEFAULT_DIRS,
+  // which does not search PATH. Check these wider candidates conservatively
+  // as well, so a real numeric DLL is never waived as a boolean convention.
+  for (const entry of searchPath.split(path.delimiter)) {
+    if (!entry) continue;
+    const directory = entry.startsWith('"') && entry.endsWith('"') ? entry.slice(1, -1) : entry;
+    if (!path.isAbsolute(directory) || /[%\x00-\x1f"]/.test(directory)) throw new Error('数字早期加载项的搜索路径无法明确解析。');
+    directories.push(directory);
+  }
+  if (directories.length > 256) throw new Error('数字早期加载项的搜索目录过多。');
+  const checkedPaths = [];
+  if (directories.some(directory => typeof directory !== 'string' || !path.isAbsolute(directory) || /^\\\\/.test(directory) || /[%\x00-\x1f"]/.test(directory)))
+    throw new Error('数字早期加载项的搜索路径无法明确解析。');
+  for (const directory of new Set(directories.map(value => path.resolve(value)))) {
+    for (const name of [values[0], values[0] + '.dll']) {
+      // This is an absence check, not permission to own/load a PATH file.
+      // lstat resolves directory links and also detects a dangling target
+      // link. Anything except a definite missing target remains a blocker.
+      const file = path.join(directory, name);
+      try {
+        fs.lstatSync(file);
+        throw new Error('数字早期加载项存在实际目标，不能按旧布尔配置忽略：' + file);
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      checkedPaths.push(file);
+    }
+  }
+  return { value: values[0], checkedPaths, environment: { PATH: searchPath, SystemRoot: systemRoot } };
 }
 
 // Describe the configuration actually selected by ReShade without creating any
@@ -124,7 +171,7 @@ function inspectProfile(exeDir, environment = process.env) {
     if (/%[^%]+%/.test(expanded) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(expanded)) throw new Error('ReShade 配置路径无法明确解析。');
     return check(path.resolve(base, expanded));
   };
-  let rootConfig = '', config = '', baseDir = exeDir, addonDir = exeDir, activeConfigPath = rootConfigPath, directLoads = [];
+  let rootConfig = '', config = '', baseDir = exeDir, addonDir = exeDir, activeConfigPath = rootConfigPath, directLoads = [], legacyDirectLoad = null;
   try {
     rootConfig = read(rootConfigPath);
     const bases = addonValues(rootConfig, 'INSTALL').get('BasePath') || [];
@@ -140,7 +187,11 @@ function inspectProfile(exeDir, environment = process.env) {
     addonDir = resolve(baseDir, dirs[0]);
     if (fs.existsSync(addonDir) && !fs.statSync(addonDir).isDirectory()) throw new Error('插件搜索路径不是目录。');
     if (!fs.existsSync(addonDir)) warnings.push({ code: 'ADDON_DIRECTORY_MISSING', path: addonDir, message: '原插件目录不存在，未发现可迁移的旧插件。' });
-    directLoads = (values.get('LoadFromDllMain') || []).map(value => ({ value, path: resolve(addonDir, value) }));
+    const directValues = values.get('LoadFromDllMain') || [];
+    legacyDirectLoad = inspectLegacyDirectLoad(directValues, exeDir, addonDir, environment);
+    if (legacyDirectLoad) warnings.push({ code: 'ADDON_LEGACY_BOOLEAN_LOAD', value: legacyDirectLoad.value,
+      message: '原 LoadFromDllMain=' + legacyDirectLoad.value + ' 使用旧插件布尔约定，未发现对应模块；迁移时不保留此早期加载项。' });
+    directLoads = (legacyDirectLoad ? [] : directValues).map(value => ({ value, path: resolve(addonDir, value) }));
     for (const row of directLoads) if (!fs.existsSync(row.path)) throw new Error('原配置显式加载的插件文件缺失：' + row.value);
     for (const [key, values] of addonValues(config, 'GENERAL')) if (['EffectSearchPaths', 'TextureSearchPaths'].includes(key)) {
       for (const value of values) {
@@ -149,7 +200,7 @@ function inspectProfile(exeDir, environment = process.env) {
       }
     }
   } catch (error) { blockers.push({ code: 'DEPLOYMENT_SOURCE_LAYOUT', message: error.message }); }
-  return { rootConfigPath, rootConfig, activeConfigPath, config, baseDir, addonDir, directLoads, identities: [...identities.values()],
+  return { rootConfigPath, rootConfig, activeConfigPath, config, baseDir, addonDir, directLoads, legacyDirectLoad, identities: [...identities.values()],
     configured: { loaderDir: exeDir, baseDir, addonDir, activeConfigPath }, warnings, blockers, ok: blockers.length === 0 };
 }
 module.exports = { externalConfig, localConfig, loaderConfig, setScalar, PATH_KEYS, inspectProfile };

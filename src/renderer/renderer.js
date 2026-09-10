@@ -34,6 +34,19 @@ const state = {
   installing: new Set()
 };
 const inlineGameDetails = new Map();
+let repairController = null, repairControllerId = null;
+function mountRepairActions(game) {
+  const host = $('repairMaintenance');
+  if (!host || !window.GamePageUi || !window.manager.assessGame) return;
+  if (!game) { repairController?.dispose(); repairController = null; repairControllerId = null; host.innerHTML = ''; return; }
+  if (repairControllerId === game.id && repairController) { void repairController.refresh(true); return; }
+  repairController?.dispose(); host.innerHTML = ''; repairControllerId = game.id;
+  repairController = window.GamePageUi.mount(host, window.manager, { maintenanceOnly: true,
+    onChanged: async gameId => { await refreshGames({ gameId }); await loadRepairDiagnostic(); },
+    onBack: () => {}, onFeedback: gameId => { state.feedbackGame = gameId; }
+  });
+  void repairController.open(game.id, 'maintenance', { game, hardware: state.hardware });
+}
 function openGamePage(id, initialTab) {
   if (!window.GamePageUi || typeof window.manager.assessGame !== 'function') return;
   const reopen = state.expanded !== id && inlineGameDetails.has(id);
@@ -173,13 +186,15 @@ function setInstallBusy(id, value) {
 }
 
 function isVulkanRoute(game) { return game?.chosen?.apiResolution?.api === 'vulkan'; }
-function isFeederRoute(game) { return game?.feeder?.installed === true || game?.nativeDlssAvailable === false && game?.chosen?.apiResolution?.api === 'dx12'; }
+function isFeederRoute(game) { const api = game?.chosen?.apiResolution?.api; return game?.feeder?.installed === true ||
+  ['dx9', 'dx10'].includes(api) || game?.nativeDlssAvailable === false && ['dx11', 'dx12'].includes(api); }
 function routeInstalled(game) { return isVulkanRoute(game) ? game?.vulkan?.installed === true : game?.installed === true; }
-function routeSupported(game) { return isVulkanRoute(game) ? game?.vulkan?.available === true : isFeederRoute(game) ? game?.feeder?.available === true : game?.supported === true; }
+function routeSupported(game) { return isVulkanRoute(game) ? game?.vulkan?.available === true : isFeederRoute(game)
+  ? (game?.feeder?.selections?.[game?.chosen?.apiResolution?.api]?.available ?? game?.feeder?.available) === true : game?.supported === true; }
 
 function supportBadge(game) {
   if (game.feeder?.needsRecovery === true) return '<span class="badge bad">Feeder 需恢复</span>';
-  if (isFeederRoute(game) && !game.installed && game.feeder?.available) return '<span class="badge">Feeder 试验配套</span>';
+  if (isFeederRoute(game) && !game.installed && routeSupported(game)) return '<span class="badge">可准备 Feeder</span>';
   if (isVulkanRoute(game) && game.vulkan?.needsRecovery === true) return '<span class="badge bad">Vulkan 需恢复</span>';
   if (routeInstalled(game)) return '<span class="badge good">已安装</span>';
   if (routeSupported(game)) return '<span class="badge good">支持安装</span>';
@@ -355,8 +370,8 @@ function visibleGames() {
     const matchesQuery = !query || `${game.name} ${game.launcher}`.toLowerCase().includes(query);
     const matchesFilter = filter === 'all' ||
       (filter === 'installed' && game.installed) ||
-      (filter === 'supported' && !game.installed && game.supported) ||
-      (filter === 'unsupported' && !game.supported);
+      (filter === 'supported' && !game.installed && routeSupported(game)) ||
+      (filter === 'unsupported' && !routeSupported(game));
     return matchesQuery && matchesFilter;
   });
 }
@@ -701,7 +716,7 @@ function gameDetail(game) {
       <div class="config-actions"><button class="button subtle default-btn">恢复 NR 默认</button></div>
     </div>
     <aside class="enhancement-sidebar">${installationStatus}<div class="config-block enhancement-guide"><h4>快捷操作</h4><p class="config-note">用 F6 对比增强前后的画面，实际效果以游戏内表现为准。</p>
-      <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">修改菜单快捷键后，下次启动游戏生效。</p></div>
+      <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">=</button></div><p class="config-note">新安装默认按 = 打开菜单；保留已有自定义键，修改后下次启动游戏生效。</p></div>
       ${launchJump}
     </div></aside>
   </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${game.chosen ? maintenance : ''}${preinstallCompatibility}</div>`;
@@ -820,7 +835,7 @@ function mergeGameVisuals(previous, next) {
 }
 
 function updateGameListMeta(rows = visibleGames()) {
-  $('gameSummary').textContent = `已找到 ${state.games.length} 个游戏 · 支持 ${state.games.filter(g => g.supported).length} 个`;
+  $('gameSummary').textContent = `已找到 ${state.games.length} 个游戏 · 支持 ${state.games.filter(routeSupported).length} 个`;
   const hasFilter = $('searchInput').value.trim() || $('gameFilter').value !== 'all';
   $('emptyState').querySelector('h3').textContent = hasFilter ? '没有匹配的游戏' : '还没有找到游戏';
   $('emptyState').querySelector('p').textContent = hasFilter ? '换个关键词或筛选条件试试。' : '先自动扫描 Steam、Epic、GOG；也可以选择游戏文件夹或实际运行 EXE。';
@@ -1283,7 +1298,8 @@ async function loadRepairDiagnostic() {
   const token = ++state.repairLoadToken;
   state.diagnostics = null;
   const game = state.games.find(row => row.id === id);
-  $('repairBtn').disabled = !game;
+  $('repairBtn').disabled = !game?.installed;
+  mountRepairActions(game);
   $('copyDiagBtn').disabled = true;
   if (!id) {
     $('diagnostics').innerHTML = '<p>选择需要检查的游戏；尚未安装也可以保存反馈。</p>';
@@ -1300,7 +1316,7 @@ async function loadRepairDiagnostic() {
     if (token !== state.repairLoadToken || state.repairGame !== id) return;
     state.diagnostics = diagnostic;
     const problems = diagnostic.components.filter(row => row.ok === false).length;
-    $('diagnostics').innerHTML = `<div class="diagnostic-heading"><div><h3>${problems ? `${problems} 项需要处理` : '文件检查通过'}</h3><p>${problems ? '先处理以下异常，已通过的项目收在下方。' : '已核对当前安装文件；游戏实际效果仍需在游戏内确认。'}</p></div><span class="badge ${problems ? 'warn' : 'good'}">${escapeHtml(game?.name || '')}</span></div>${diagnosticRows(diagnostic.components)}`;
+    $('diagnostics').innerHTML = `<div class="diagnostic-heading"><div><h3>${problems ? `${problems} 项需要处理` : '文件检查通过'}</h3><p>${problems ? '先处理以下异常，已通过的项目收在下方。' : '已核对当前安装文件；游戏实际效果仍需在游戏内确认。'}</p></div><span class="badge ${problems ? 'warn' : 'good'}">${escapeHtml(game?.name || '')}</span></div>${diagnostic.availableUpdate ? `<p class="config-note">有更新：${escapeHtml(diagnostic.availableUpdate.from)} → ${escapeHtml(diagnostic.availableUpdate.label)}。修复保持已装组合；更新请在安装页预览。</p>` : ''}${diagnostic.sourceNotice ? `<p class="config-note">${escapeHtml(diagnostic.sourceNotice)}</p>` : ''}${diagnosticRows(diagnostic.components)}`;
     $('copyDiagBtn').disabled = false;
   } catch (error) { if (token === state.repairLoadToken) $('diagnostics').innerHTML = `<p class="launch-error">${escapeHtml(error.message)}</p>`; }
 }
@@ -1330,6 +1346,7 @@ function confirmUninstall(id) {
 
 function openMaintenance(id) {
   if (state.busy) return;
+  if (state.activeView === 'repair') { mountRepairActions(state.games.find(row => row.id === id)); $('repairMaintenance')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
   if (typeof window.manager.assessGame === 'function') { openGamePage(id, 'maintenance'); return; }
   const game = state.games.find(row => row.id === id);
   if (!game || !window.gameMaintenanceUi) return;
@@ -1699,7 +1716,7 @@ $('bilibiliBtn').onclick = () => window.manager.openExternal('bilibiliUrl');
 $('qqBtn').onclick = async () => { await window.manager.copyText(state.product.qqGroup); toast('群号已复制'); };
 $('updateBtn').onclick = () => window.manager.openExternal('releaseUrl');
 $('repairGameSelect').onchange = event => { state.repairGame = event.target.value; loadRepairDiagnostic(); };
-$('repairBtn').onclick = () => state.repairGame && openMaintenance(state.repairGame);
+$('repairBtn').onclick = () => repairController?.previewRepair();
 $('exportStartupBtn').onclick = async () => {
   try { await window.manager.exportStartupDiagnostic(); } catch (error) { toast(`无法保存启动诊断：${error.message}`, true); }
 };

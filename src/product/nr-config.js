@@ -26,7 +26,7 @@ function normalizeValue(key, value) {
     return Number(clamp(Number(value) || 0, 0, 4).toFixed(2));
   }
   if (key === 'ColorStrength') {
-    return Number(clamp(Number(value) || 0, 0, 1).toFixed(2));
+    return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
   }
   throw appError('ERR_BAD_REQUEST', { key });
 }
@@ -65,6 +65,8 @@ function readConfig(file) {
     AutoMask: full.AutoMask,
     ColorStrength: full.ColorStrength,
     SkinStructureStrength: full.SkinStructureStrength,
+    LocalToneStrength: full.LocalToneStrength,
+    LocalStructureStrength: full.LocalStructureStrength,
     TransferStrength: full.TransferStrength,
     PostTransferStrength: full.PostTransferStrength,
     capabilities: {
@@ -72,6 +74,8 @@ function readConfig(file) {
       CustomWorkScale: Object.prototype.hasOwnProperty.call(parsed, 'CustomWorkScale'),
       ColorStrength: Object.prototype.hasOwnProperty.call(parsed, 'ColorStrength'),
       SkinStructureStrength: Object.prototype.hasOwnProperty.call(parsed, 'SkinStructureStrength'),
+      LocalToneStrength: Object.prototype.hasOwnProperty.call(parsed, 'LocalToneStrength'),
+      LocalStructureStrength: Object.prototype.hasOwnProperty.call(parsed, 'LocalStructureStrength'),
       TransferStrength: Object.prototype.hasOwnProperty.call(parsed, 'TransferStrength'),
       PostTransferStrength: Object.prototype.hasOwnProperty.call(parsed, 'PostTransferStrength')
     }
@@ -150,6 +154,8 @@ function defaultPatch(version = '') {
     AutoMask: 0,
     ColorStrength: currentBeta ? 1.0 : 0.75,
     SkinStructureStrength: -1,
+    LocalToneStrength: 1.0,
+    LocalStructureStrength: 1.0,
     TransferStrength: 1.0,
     PostTransferStrength: 1.0
   };

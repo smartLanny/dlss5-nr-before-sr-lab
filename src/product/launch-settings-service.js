@@ -10,8 +10,9 @@ const { fail, inside, noLinks, digestFile, atomicJson } = require('./launch-safe
 const { detectGpuAsync: detectGpu } = require('./gpu');
 const { createInstallGuards } = require('../core/install-guards');
 const pe = require('../core/pe');
-const { inspectNativeEnhancementCapabilities, assessEnhancementState } = require('./game-enhancement-capabilities');
-const { createGameFeatureConfirmations } = require('./game-feature-confirmations');
+const { assessEnhancementState } = require('./game-enhancement-capabilities');
+const { createNativeEnhancementProbe } = require('./native-enhancement-probe');
+const mfgConfig = require('./mfgunlock-config');
 
 const DRIVER_IDS = [...policy.IDS.sr, ...policy.IDS.fg];
 const clone = value => structuredClone(value);
@@ -33,8 +34,9 @@ function createLaunchSettingsService(options = {}) {
   const driver = options.driver || createNvapiProfileAdapter({ scriptPath });
   const requestFile = path.join(userData, 'launch-settings-requests.json');
   const plans = new Map();
+  const mfgObservations = new WeakMap(), MFG_COMPENSATION = Symbol('observed-mfg-compensation');
   const scopeReads = new Map();
-  const confirmations = createGameFeatureConfirmations({ file: path.join(userData, 'game-feature-confirmations.json'), resolveExecutable: id => target(id).exe });
+  const featureProbe = typeof options.getFeatureEvidence === 'function' ? null : createNativeEnhancementProbe(options);
   let serial = Promise.resolve();
   const serialize = work => { const next = serial.then(work, work); serial = next.catch(() => {}); return next; };
 
@@ -45,25 +47,20 @@ function createLaunchSettingsService(options = {}) {
     return { id, dir: path.resolve(dir), exe: path.resolve(exe), key: path.resolve(dir).toLowerCase() };
   }
   async function featureEvidence(id, domain) {
-    const t = target(id), scan = typeof options.scan === 'function' ? await options.scan(id) : {};
-    const native = inspectNativeEnhancementCapabilities(scan);
-    const present = domain === 'sr' ? native.nativeDlssAvailable : native.nativeFgAvailable;
-    const supplied = typeof options.getFeatureEvidence === 'function' ? await options.getFeatureEvidence(id, domain) : {};
+    const t = target(id);
+    const supplied = typeof options.getFeatureEvidence === 'function' ? await options.getFeatureEvidence(id, domain) : await featureProbe.inspect(id, domain);
     let metadata = supplied.driver;
     if (!metadata) {
       try { metadata = typeof driver.inspectSettings === 'function' ? await driver.inspectSettings(t.exe) : { available: false }; }
       catch (error) { metadata = { available: false, source: 'unavailable', code: error.code }; }
     }
-    return { staticEvidence: native, support: scan?.enhancementSupport?.[domain] || (present
-      ? { status: 'supported', source: 'native-integration', staticOnly: true, official: false, evidence: ['verified-x64-native-components'] }
-      : { status: 'unknown', source: null, staticOnly: true, evidence: [] }),
-      gameSetting: scan?.gameSettings?.[domain] || { state: 'unknown', source: null }, ...supplied, driver: metadata };
+    return { staticEvidence: null, support: { status: 'unknown', source: null, staticOnly: true, evidence: [] },
+      gameSetting: { state: 'unknown', source: null }, ...supplied, driver: metadata };
   }
   async function assessEligibility(id, domain, input) {
     const t = target(id), evidence = await featureEvidence(id, domain), hardware = await detectHardware();
-    const binding = await confirmations.inspect(id, domain, evidence.gameSetting);
     const request = input || { backend: domain === 'sr' ? 'native' : hardware.series?.includes('RTX40') ? 'mfgunlock' : 'nvidia' };
-    let requiredSettingIds = policy.IDS[domain], minimumDriverVersion = 57216;
+    let requiredSettingIds = domain === 'sr' ? [policy.IDS.sr[0], policy.IDS.sr[3]] : policy.IDS[domain], minimumDriverVersion = 57216;
     if (domain === 'sr' && request.quality && request.quality !== 'game') {
       const compiled = policy.nativeSr(request, hardware);
       requiredSettingIds = compiled.operations.map(row => row.id);
@@ -73,8 +70,16 @@ function createLaunchSettingsService(options = {}) {
     }
     if (domain === 'fg' && (request.mode === 'dynamic' || request.multiplier > 4)) minimumDriverVersion = 59597;
     const context = { domain, request: { ...request, requiredSettingIds, minimumDriverVersion },
-      game: { ...evidence, exe: t.exe, exeIdentity: binding.exeIdentity }, hardware, driver: evidence.driver, confirmation: binding.confirmation };
+      game: { ...evidence, exe: t.exe }, hardware, driver: evidence.driver };
     const result = assessEnhancementState(context);
+    if (domain === 'sr') {
+      const available = evidence.driver?.available === true && Number.isInteger(evidence.driver.version);
+      const ids = new Set(evidence.driver?.settingIds || []), modelKeys = [policy.IDS.sr[0], policy.IDS.sr[3]].every(id => ids.has(id));
+      result.availablePresets = available && modelKeys && evidence.driver.version >= 57216
+        ? ['K', ...(evidence.driver.version >= 59597 ? ['M', 'L'] : [])] : [];
+      result.availableQualities = available && modelKeys ? ['preserve', 'game', ...(policy.IDS.sr.every(id => ids.has(id))
+        ? ['dlaa', 'quality', 'balanced', 'performance', 'ultraPerformance', 'custom'] : [])] : ['game'];
+    }
     // An optional host assessor may add constraints, never erase this boundary.
     if (typeof options.assessEligibility === 'function') {
       const additional = await options.assessEligibility(id, domain, request, context);
@@ -83,16 +88,11 @@ function createLaunchSettingsService(options = {}) {
     return result;
   }
   async function confirmGameFeature(id, domain, input) {
-    const state = await assessEligibility(id, domain);
-    const blocking = state.blockers.filter(row => row.code !== 'SETTINGS_GAME_CONFIRMATION_REQUIRED');
-    if (blocking.length) fail('SETTINGS_CONFIRMATION_BLOCKED', blocking.map(row => row.message).join('\n'), { blockers: blocking });
-    const evidence = await featureEvidence(id, domain);
-    await confirmations.confirm(id, domain, input, evidence.gameSetting);
-    return assessEligibility(id, domain);
+    fail('SETTINGS_CONFIRMATION_RETIRED', '此版本已改为自动检查支持条件，请重新检查游戏；用户自述不再解锁功能。');
   }
   async function inspectGameFeatureConfirmation(id, domain) {
-    const evidence = await featureEvidence(id, domain);
-    return confirmations.inspect(id, domain, evidence.gameSetting);
+    target(id);
+    return { domain, confirmation: null, retired: true, runtimeVerified: false };
   }
   function receiptFile(t) { return path.join(t.dir, '_DLSS5_Backup', 'xiaofeng-launch-settings.json'); }
   function driverPendingFile(t) { return path.join(t.dir, '_DLSS5_Backup', 'launch-driver-pending.json'); }
@@ -206,6 +206,24 @@ function createLaunchSettingsService(options = {}) {
       await saveRequests(state); return { saved: true, applied: false, nextLaunch: true };
     });
   }
+  async function currentMfg(t, old = null) {
+    try {
+      const location = configuration(t, 'mfgunlock', old?.backend === 'mfgunlock' ? old : null);
+      const text = await policy.readText(location.file, true);
+      if (text === null) return old?.backend === 'mfgunlock' ? { backend: 'mfgunlock', source: 'active-ini', configFile: location.file,
+        valid: false, error: { code: 'SETTINGS_BACKEND_MISSING', message: '当前 MFG 配置文件缺失，原恢复记录仍保留。' } } : null;
+      const value = mfgConfig.current(text);
+      if (!value.present && old?.backend !== 'mfgunlock') return null;
+      const differsFromLastApplied = old?.backend === 'mfgunlock' && Object.keys(old.lastValues).some(key => !policy.same(value.raw[key], old.lastValues[key]));
+      const observed = { ...value, backend: 'mfgunlock', source: 'active-ini', configFile: location.file, valid: true,
+        sha256: policy.hash(text), differsFromLastApplied: Boolean(differsFromLastApplied),
+        requiresRestart: true, readOnlyObserved: true, lastAppliedRequest: old?.backend === 'mfgunlock' ? clone(old.request) : null };
+      if (old?.backend === 'mfgunlock') mfgObservations.set(observed, { exe: t.exe, exeHash: await digestFile(t.exe), configFile: location.file,
+        request: clone(value.request), raw: clone(value.raw), beforeText: text, receipt: clone(old) });
+      return observed;
+    } catch (error) { return { backend: 'mfgunlock', source: 'active-ini', valid: false,
+      error: { code: error.code || 'SETTINGS_MFG_CONFIG_UNAVAILABLE', message: error.message }, runtimeVerified: false }; }
+  }
   async function inspect(id) {
     const t = target(id), row = requests().games[t.key] || {}, pendingRows = await pending(id), applied = {};
     let stored = {}, receiptError = null;
@@ -224,6 +242,11 @@ function createLaunchSettingsService(options = {}) {
       if (value.exeHash && value.exeHash !== await digestFile(t.exe)) readbackVerified = false;
       applied[domain] = { ...value, readbackVerified, requiresReapply: !readbackVerified, runtimeVerified: false };
     }
+    const currentFg = await currentMfg(t, stored.fg);
+    if (applied.fg?.backend === 'mfgunlock' && currentFg?.valid && (!applied.fg.exeHash || applied.fg.exeHash === await digestFile(t.exe))) {
+      applied.fg.requiresReapply = false;
+      applied.fg.configurationChanged = currentFg.differsFromLastApplied;
+    }
     let legacy = null;
     if (legacySrModel?.migrationInfo) {
       try { legacy = { ...await legacySrModel.migrationInfo(id), managed: await hasSrRequest(id) }; }
@@ -241,12 +264,12 @@ function createLaunchSettingsService(options = {}) {
       }
       driverScope=await scopeReads.get(t.exe).promise;
     }
-    const featureStates = {};
-    for (const domain of ['sr', 'fg']) {
-      try { featureStates[domain] = await assessEligibility(id, domain); }
-      catch (error) { featureStates[domain] = { domain, eligible: false, state: 'unavailable', blockers: [{ code: error.code || 'SETTINGS_EVIDENCE_UNAVAILABLE', message: error.message }], runtimeVerified: false }; }
-    }
+    const featureStates = Object.fromEntries(await Promise.all(['sr', 'fg'].map(async domain => {
+      try { return [domain, await assessEligibility(id, domain)]; }
+      catch (error) { return [domain, { domain, eligible: false, state: 'unavailable', blockers: [{ code: error.code || 'SETTINGS_EVIDENCE_UNAVAILABLE', message: error.message }], runtimeVerified: false }]; }
+    })));
     return { hardware: await detectHardware(), requests: visibleRequests, applied, legacy, driverScope, featureStates, pending: pendingRows, notice, receiptError, runtimeVerified: false,
+      current: { ...(currentFg ? { fg: currentFg } : {}) },
       note: '配置读回只证明文件或驱动请求已保存，不代表游戏实际采用。' };
   }
   async function assertStopped(t) {
@@ -257,12 +280,13 @@ function createLaunchSettingsService(options = {}) {
   }
   async function preview(id, domain, input, previewOptions = {}) {
     const t = target(id); await assertReady(id); await noLinks(t.exe);
+    const compensation = previewOptions[MFG_COMPENSATION] || null;
     const saved = requestRow(id, domain), request = policy.validateRequest(domain, input || saved?.request);
     const currentReceipt = receipt(t), old = currentReceipt.applied[domain] || null, restoring = policy.isRestore(domain, request);
     if (request.backend === 'rtx40' && !restoring && options.allowLegacyControl !== true)
       fail('SETTINGS_FG_MIGRATION_REQUIRED', '旧补帧方案只保留恢复能力，请先迁移并重新选择设置。');
     let preparation = null;
-    if (domain === 'fg' && !restoring && options.assertComponents) {
+    if (domain === 'fg' && !restoring && !compensation && options.assertComponents) {
       try { await options.assertComponents(id, request.backend); }
       catch (error) {
         if (previewOptions.allowComponentPreparation === true && request.backend === 'mfgunlock' &&
@@ -274,12 +298,13 @@ function createLaunchSettingsService(options = {}) {
     if (old && !samePath(old.exe, t.exe)) fail('SETTINGS_EXE_CHANGED', '请先恢复原 EXE 的启动设置。');
     if (old && old.backend !== request.backend && !restoring) fail('SETTINGS_RESTORE_FIRST', '请先恢复当前设置后端。');
     const plan = { id: crypto.randomUUID(), expires: Date.now() + 120000, gameId: id, domain, request, backend: restoring && old ? old.backend : request.backend,
-      target: t, exeHash: await digestFile(t.exe), restoring, old: clone(old), receipt: currentReceipt, preparation, warnings: [], blockers: [], externalChanges: [], driver: null, change: null, operations: [], noOp: false, requiresReview: false };
+      target: t, exeHash: await digestFile(t.exe), restoring, compensation, old: clone(old), receipt: currentReceipt, preparation, warnings: [], blockers: [], externalChanges: [], driver: null, change: null, operations: [], noOp: false, requiresReview: false };
     const hardware = await detectHardware();
     const series = [...new Set(Array.isArray(hardware?.series) ? hardware.series : [])];
-    if (!restoring) {
+    if (!restoring && !compensation) {
       plan.eligibility = await assessEligibility(id, domain, request);
       plan.blockers.push(...plan.eligibility.blockers.map(row => row.message));
+      plan.warnings.push(...(plan.eligibility.warnings || []).map(row => row.message));
     }
     if (restoring && !old) plan.noOp = true;
     else if (['native', 'nvidia'].includes(plan.backend)) {
@@ -307,7 +332,7 @@ function createLaunchSettingsService(options = {}) {
       if (!plan.noOp && before.profile && !validProfile(before.profile, t))
         plan.blockers.push('当前 NVIDIA 配置不是可确认的游戏官方配置或独立 EXE 配置，未修改参数；原样启动游戏不受影响。');
     } else {
-      if (['rtx40', 'mfgunlock'].includes(plan.backend) && !restoring && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
+      if (['rtx40', 'mfgunlock'].includes(plan.backend) && !restoring && !compensation && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
       const controlRoot = path.dirname(t.exe);
       const name = old?.name || await policy.controlPath(controlRoot, plan.backend);
       const location = plan.backend === 'mfgunlock' ? configuration(t, plan.backend, old) : { file: path.join(controlRoot, name), external: false };
@@ -317,15 +342,22 @@ function createLaunchSettingsService(options = {}) {
       const before = beforeFile ?? '';
       const currentValues = policy.values(before, plan.backend);
       const changed = old ? Object.keys(old.lastValues).filter(key => !policy.same(currentValues[key], old.lastValues[key])) : [];
-      if (changed.length && (restoring || previewOptions.reapplyExternalChanges !== true)) fail('SETTINGS_EXTERNAL_CHANGE', '本工具接管的配置键已被外部修改，请显式重新预览当前值后应用。');
+      if (compensation && changed.length && !policy.same(currentValues, compensation.raw))
+        fail('SETTINGS_EXTERNAL_CHANGE', '本次 MFG 应用后配置又被外部修改，未覆盖新值。');
+      if (plan.backend === 'mfgunlock') mfgConfig.current(before);
+      if (changed.length && plan.backend !== 'mfgunlock' && (restoring || previewOptions.reapplyExternalChanges !== true)) fail('SETTINGS_EXTERNAL_CHANGE', '本工具接管的配置键已被外部修改，请显式重新预览当前值后应用。');
       let content, baselineText = old?.baselineText ?? before;
       if (changed.length) {
-        const priorBaseline = policy.values(baselineText, plan.backend);
-        baselineText = policy.restoreText(baselineText, before, Object.fromEntries(changed.map(key => [key, priorBaseline[key]])), plan.backend);
+        if (plan.backend !== 'mfgunlock') {
+          const priorBaseline = policy.values(baselineText, plan.backend);
+          baselineText = policy.restoreText(baselineText, before, Object.fromEntries(changed.map(key => [key, priorBaseline[key]])), plan.backend);
+        }
         plan.externalChanges.push(...changed.map(key => ({ kind: 'config-key', key, previousApplied: old.lastValues[key], current: currentValues[key] })));
       }
       const baselineMissing = old?.baselineMissing === true || !old && beforeFile === null;
-      if (restoring) content = policy.restoreText(before, baselineText, old.lastValues, plan.backend);
+      if (restoring) content = policy.restoreText(before, baselineText, plan.backend === 'mfgunlock'
+        ? Object.fromEntries(Object.keys(old.lastValues).map(key => [key, currentValues[key]])) : old.lastValues, plan.backend);
+      else if (compensation) content = mfgConfig.restore(before, compensation.beforeText, currentValues);
       else { const result = policy.compileFile(before, request); content = result.content; plan.warnings.push(...result.warnings); plan.requiresReview = result.requiresReview === true; }
       const afterValues = policy.values(content, plan.backend), keys = Object.keys(afterValues).filter(key => !policy.same(currentValues[key], afterValues[key]));
       if (old && !restoring) {
@@ -347,8 +379,11 @@ function createLaunchSettingsService(options = {}) {
       plan.noOp = !restoring && plan.change.beforeHash === plan.change.afterHash;
     }
     if (plan.externalChanges.length) {
-      plan.requiresReview = true; plan.noOp = false;
-      plan.warnings.push('已按本次明确重应用请求更新被外部修改的键；以后恢复将保留这些外部新值。');
+      if (plan.backend !== 'mfgunlock') plan.requiresReview = true;
+      plan.noOp = false;
+      plan.warnings.push(plan.backend === 'mfgunlock'
+        ? '预览已包含活动 MFG 配置中的新值；只有本次明确应用才会修改，最初恢复基线保持不变。'
+        : '已按本次明确重应用请求更新被外部修改的键；以后恢复将保留这些外部新值。');
     }
     // Explicit Apply may validate values already installed by another tool.
     // Record that exact baseline without issuing redundant backend writes, so
@@ -357,6 +392,7 @@ function createLaunchSettingsService(options = {}) {
       plan.recordOnly = true; plan.noOp = false;
       if (plan.change && !Object.keys(plan.change.lastValues).length) plan.change.lastValues = policy.values(plan.change.content, plan.backend);
     }
+    if (compensation) { plan.recordOnly = plan.change.beforeHash === plan.change.afterHash; plan.noOp = false; }
     plans.set(plan.id, plan);
     return { id: plan.id, gameId: id, domain, backend: plan.backend, request, exe: t.exe,
       destination: plan.driver ? 'NVIDIA 每游戏配置' : plan.change ? path.relative(t.dir, plan.change.file) : null,
@@ -393,6 +429,15 @@ function createLaunchSettingsService(options = {}) {
       if (handle) await handle.close().catch(() => {});
       if (created) await fsp.unlink(temporary).catch(cause => { if (cause.code !== 'ENOENT') throw cause; });
     }
+  }
+  async function previewMfgCompensation(id, observed) {
+    const snapshot = mfgObservations.get(observed), t = target(id);
+    // Only an object actually issued to this in-process workflow can authorize
+    // compensation. Renderer JSON cannot manufacture this observation token.
+    if (!snapshot || !samePath(snapshot.exe, t.exe) || await digestFile(t.exe) !== snapshot.exeHash ||
+        !samePath(configuration(t, 'mfgunlock', snapshot.receipt).file, snapshot.configFile))
+      fail('SETTINGS_MFG_COMPENSATION_INVALID', '本轮 MFG 原设置快照无效或目标已改变。');
+    return preview(id, 'fg', snapshot.request, { [MFG_COMPENSATION]: snapshot });
   }
   async function restoreExternalPending(t, forceRestore = false) {
     const file = externalPendingFile(t); await noLinks(file); if (!fs.existsSync(file)) return false;
@@ -493,12 +538,12 @@ function createLaunchSettingsService(options = {}) {
       if (!plan.restoring && (!plan.exeHash || await digestFile(t.exe) !== plan.exeHash)) fail('SETTINGS_EXE_CHANGED', '游戏 EXE 在预览后改变。');
       if (plan.change && plan.backend === 'mfgunlock' && !samePath(configuration(t, plan.backend, plan.old).file, plan.change.file))
         fail('SETTINGS_LAYOUT_CHANGED', '活动配置在预览后改变，请重新核对。');
-      if (!plan.restoring) {
+      if (!plan.restoring && !plan.compensation) {
         const eligibility = await assessEligibility(plan.gameId, plan.domain, plan.request);
         if (!eligibility.eligible) fail('SETTINGS_BLOCKED', eligibility.blockers.map(row => row.message).join('\n'), { eligibility });
       }
       await assertStopped(t);
-      if (plan.domain === 'fg' && !plan.restoring && options.assertComponents) await options.assertComponents(plan.gameId, plan.request.backend);
+      if (plan.domain === 'fg' && !plan.restoring && !plan.compensation && options.assertComponents) await options.assertComponents(plan.gameId, plan.request.backend);
       if (plan.domain === 'sr' && legacySrModel?.migrationInfo) {
         const info = await legacySrModel.migrationInfo(plan.gameId);
         if (info?.baselineCaptured) {
@@ -523,6 +568,8 @@ function createLaunchSettingsService(options = {}) {
       try { result = await journal.transaction(t.dir, async () => {
         const metaFile = receiptFile(t); await journal.capture(t.dir, metaFile);
         const currentReceipt = receipt(t, { allowEmptyRebind: !plan.old && Object.keys(plan.receipt.applied).length === 0 });
+        if (plan.compensation && !policy.same(currentReceipt.applied.fg, plan.old))
+          fail('SETTINGS_EXTERNAL_CHANGE', 'MFG 收据在补偿预览后改变，保留当前设置。');
         if (plan.change && plan.recordOnly) {
           await noLinks(plan.change.file);
           if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
@@ -556,6 +603,7 @@ function createLaunchSettingsService(options = {}) {
         }
         const next = clone(currentReceipt.applied);
         if (plan.restoring) delete next[plan.domain];
+        else if (plan.compensation) next[plan.domain] = clone(plan.compensation.receipt);
         else if (plan.driver) next[plan.domain] = { exe: t.exe, exeHash: plan.exeHash, backend: plan.backend, request: plan.request, profile: driverAfter.profile, ids: plan.driver.ids,
           baseline: plan.driver.baseline, lastValues: subset(driverAfter, plan.driver.ids), runtimeVerified: false };
         else next[plan.domain] = { exe: t.exe, exeHash: plan.exeHash, backend: plan.backend, request: plan.request, name: plan.change.name,
@@ -599,6 +647,21 @@ function createLaunchSettingsService(options = {}) {
       try {
         const applied = state.applied[domain];
         if (!applied || !policy.same(applied.request, row.request)) fail('SETTINGS_REQUIRE_APPLY', '存在尚未应用的设置，请在统一应用页确认后应用。');
+        if (row.request.backend === 'mfgunlock') {
+          if (applied.exeHash && applied.exeHash !== await digestFile(t.exe)) fail('SETTINGS_EXE_CHANGED', '游戏程序已变化，请重新检查原补帧绑定。');
+          const current = state.current?.fg;
+          if (!current?.valid) fail(current?.error?.code || 'SETTINGS_MFG_CONFIG_UNAVAILABLE', current?.error?.message || '无法读取当前 MFG 配置。');
+          const eligibility = await assessEligibility(id, domain, current.request);
+          // A valid experimental value saved in the in-game panel is existing
+          // state, not a new Manager request. Observe it without promoting it to
+          // a supported Manager option or silently rewriting it at launch.
+          const blockers = eligibility.blockers.filter(item => !(current.experimental && item.code === 'SETTINGS_MULTIPLIER_UNCONFIRMED'));
+          if (blockers.length) fail('SETTINGS_BLOCKED', blockers.map(item => item.message).join('\n'));
+          outcomes.push({ domain, applied: false, skipped: true, noOp: true, source: 'active-ini', currentRequest: clone(current.request),
+            configurationChanged: current.differsFromLastApplied, readbackVerified: true, runtimeVerified: false,
+            warnings: current.experimental ? ['当前游戏内配置使用实验倍率；管理器未写入或确认其支持。'] : [] });
+          continue;
+        }
         if (!applied.readbackVerified) fail('SETTINGS_REQUIRE_REAPPLY', '配置已被 NVIDIA App 或其他程序改变，请核对当前值并明确重新应用；启动时不会自动覆盖。');
         const eligibility = await assessEligibility(id, domain, row.request);
         if (!eligibility.eligible) fail('SETTINGS_BLOCKED', eligibility.blockers.map(row => row.message).join('\n'));
@@ -608,7 +671,7 @@ function createLaunchSettingsService(options = {}) {
     }
     return outcomes;
   }
-  return Object.freeze({ inspect, savedRequests, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
+  return Object.freeze({ inspect, savedRequests, save, preview, previewMfgCompensation, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
     assessEligibility, confirmGameFeature, inspectGameFeatureConfirmation,
     requestFile, receiptFile: id => receiptFile(target(id)), driverPendingFile: id => driverPendingFile(target(id)) });
 }

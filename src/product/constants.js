@@ -50,7 +50,7 @@ const DEFAULT_NR_CONFIG = Object.freeze({
 });
 
 const PUBLIC_NR_KEYS = Object.freeze([
-  'Enabled', 'Intensity', 'WorkMode', 'CustomWorkScale', 'Style', 'AutoMask', 'ColorStrength', 'SkinStructureStrength', 'TransferStrength', 'PostTransferStrength'
+  'Enabled', 'Intensity', 'WorkMode', 'CustomWorkScale', 'Style', 'AutoMask', 'ColorStrength', 'SkinStructureStrength', 'LocalToneStrength', 'LocalStructureStrength', 'TransferStrength', 'PostTransferStrength'
 ]);
 
 module.exports = {

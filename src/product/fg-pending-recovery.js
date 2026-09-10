@@ -4,7 +4,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { noLinks } = require('./launch-safety');
-const { ADDON, SHA256 } = require('./fg-mfgunlock-resources');
+const { ADDON, PROVIDERS, knownProviderForHash } = require('./fg-mfgunlock-resources');
 const PRODUCT = 'xiaofeng-fg-components';
 const HASH = /^[a-f0-9]{64}$/;
 const UUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
@@ -36,6 +36,7 @@ function createFgPendingRecovery({ journal, assertGameClosed }) {
     if (normalized === '_dlss5_backup/xiaofeng-fg-components.json') return 'receipt';
     if (normalized === '_dlss5_backup/xiaofeng-fg-migration.json') return 'migration';
     if (new RegExp(`^_dlss5_backup/\\.fg-migration/${UUID}/(?:[0-9]|1[0-5])\\.bin$`, 'i').test(normalized)) return 'migration-snapshot';
+    if (new RegExp(`^_dlss5_backup/\\.fg-originals/${UUID}/addon\\.bin$`, 'i').test(normalized)) return 'original-snapshot';
     if (key(path.dirname(dest)) !== key(t.dir)) return null;
     if (path.basename(dest).toLowerCase() === ADDON.toLowerCase()) return 'addon';
     return OLD_NAMES.test(path.basename(dest)) ? 'legacy-component' : null;
@@ -103,7 +104,7 @@ function createFgPendingRecovery({ journal, assertGameClosed }) {
       const permitted = check ? [check.before, ...check.after] : [before];
       // Old unannotated prepare/restore WALs have no arbitrary Add-on rights.
       // Only the one code-pinned new Add-on admits the known creation/deletion.
-      if (!owner && type === 'addon' && (before === null || before === SHA256)) permitted.push(null, SHA256);
+      if (!owner && type === 'addon' && (before === null || knownProviderForHash(before))) permitted.push(null, ...PROVIDERS.map(row => row.sha256));
       if (!permitted.includes(current)) fail('SETTINGS_FG_EXTERNAL_CHANGE', `${path.basename(row.rel)} 在中断后发生外部变化；文件和恢复记录均已保留。`);
     }
     if ([...checks.keys()].some(rel => !targets.has(rel)) || state.dirs.some(dir => !directories.has(canonicalRel(dir))))

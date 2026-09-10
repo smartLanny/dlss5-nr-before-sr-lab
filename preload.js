@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   },
   pickGame: () => invoke('pick-game'),
   pickExecutable: () => invoke('pick-executable'),
+  pickHoYoLauncher: () => invoke('pick-hoyo-launcher'),
   pickAddon: () => invoke('pick-addon'),
   pickScanFolder: () => invoke('pick-scan-folder'),
   install: (id, options) => invoke('game-install', id, options),

@@ -74,7 +74,13 @@ function harness(options = {}) {
     './src/product/operation-worker': { workerArguments: require('../src/product/operation-worker').workerArguments,
       runOperationWorker: async opts => { logs.push({ stage: 'worker-entry', details: opts.args }); if (options.initializeWorker) await opts.initialize(); return options.workerResult || { ok: true }; } },
     './src/product/game-processes': { createGameProcesses: () => ({}) },
+    './src/product/native-enhancement-probe': { createNativeEnhancementProbe: () => ({ inspect: async (_id, domain) => ({
+      support: { status: (domain === 'sr' ? options.noNativeDlss : options.noNativeFg) ? 'unknown' : 'supported' } }) }) },
+    './src/product/hoyo-launcher': { createHoYoLauncher: () => ({}) },
+    './src/product/hoyo-launch-elevation': { createHoYoLaunchPlans: () => ({}),
+      createHoYoElevatedSessions: ({ normal }) => ({ ...normal, assess: async () => null }) },
     './src/product/runtime-verification': { createRuntimeVerification: () => ({}), emptyVerification: require('../src/product/runtime-verification').emptyVerification },
+    './src/product/legacy-runtime-verification': { createLegacyRuntimeVerification: () => ({}) },
     './src/product/game-launch-broker': { createGameLaunchBroker: () => ({}) },
     './src/product/launch-session': { createLaunchSessions: () => ({ dispose: async () => {} }) },
     './src/product/loading-helper': { createLoadingHelper: () => ({}) },

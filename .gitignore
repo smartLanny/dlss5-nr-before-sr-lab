@@ -31,3 +31,9 @@ dist-beta2-final/
 dist-beta048/
 dist-beta0482/
 resources/loading-helper/*.exe
+resources/legacy-runtime/**/*.dll
+resources/legacy-runtime/**/*.exe
+resources/legacy-runtime/**/*.addon32
+resources/legacy-runtime/**/*.addon64
+scripts/__pycache__/
+dist-beta3*/

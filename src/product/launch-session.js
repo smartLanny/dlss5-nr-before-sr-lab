@@ -8,8 +8,8 @@ const { same } = require('./game-processes');
 const fail = (code, message, details) => { throw Object.assign(new Error(message), { code, details }); };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-function createLaunchSessions({ userData, game, broker, processes, helper = null, launchDirect = null,
-  beforeLaunch = async () => {}, emit = () => {}, timeoutMs = 60000, pollMs = 1000, now = Date.now, delay = sleep }) {
+function createLaunchSessions({ userData, game, broker, processes, helper = null, launchDirect = null, launchHoYo = null,
+  beforeLaunch = async () => {}, onGameMatched = async () => {}, emit = () => {}, timeoutMs = 60000, hoyoTimeoutMs = timeoutMs, pollMs = 1000, now = Date.now, delay = sleep }) {
   const sessions = new Map(), active = new Map();
   const directory = path.join(userData, 'launch-sessions');
   const publicSession = row => structuredClone(Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('_'))));
@@ -17,7 +17,7 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
   async function save(row, status, extra = {}) {
     Object.assign(row, extra, { status, updatedAt: new Date(now()).toISOString() });
     const snapshot = publicSession(row);
-    row._saving = (row._saving || Promise.resolve()).catch(() => {}).then(async () => { await atomicJson(recordFile(row.gameId), snapshot); emit(snapshot); });
+    row._saving = (row._saving || Promise.resolve()).catch(() => {}).then(async () => { await atomicJson(recordFile(row.gameId), snapshot); await emit(snapshot); });
     await row._saving;
   }
   async function inspect(id) {
@@ -34,7 +34,9 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
   async function start(id) {
     if (active.has(id)) fail('LAUNCH_BUSY', '该游戏正在启动，请等待或取消本次等待。');
     const target = await game(id);
-    if (!target || !path.isAbsolute(target.exe || '') || !['steam', 'exe'].includes(target.launchMode)) fail('LAUNCH_TARGET', '没有可验证的启动入口。');
+    if (!target || !path.isAbsolute(target.exe || '') || !['steam', 'exe', 'hoyoplay', 'starward'].includes(target.launchMode)) fail('LAUNCH_TARGET', '没有可验证的启动入口。');
+    const hoyo = ['hoyoplay', 'starward'].includes(target.launchMode);
+    if (hoyo && (!target.helper || !launchHoYo)) fail('LAUNCH_HELPER_UNAVAILABLE', '米哈游路线需要已绑定的启动器和加载助手。');
     const row = { version: 1, sessionId: crypto.randomUUID(), gameId: id, targetExe: target.exe, mode: target.launchMode,
       requestedAt: new Date(now()).toISOString(), status: 'preflight', helper: { status: target.helper ? 'starting' : 'not-applicable' },
       process: null, cleanup: { status: 'not-needed' }, runtimeVerified: false };
@@ -59,7 +61,13 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
       await save(row, 'request-sending');
       if (helperSession && helper.alive && !await helper.alive(helperSession)) fail('LAUNCH_HELPER_EXITED', '助手已在发送启动请求前退出，已停止本次启动。');
       if (row._cancelled) fail('LAUNCH_CANCELLED', '已取消本次启动等待。');
-      if (row.mode === 'steam') {
+      if (hoyo) {
+        row._launchRequested = true;
+        // The adapter revalidates the bound EXE, launcher and protocol after
+        // helper Ready, immediately before issuing the launch request.
+        const launched = await launchHoYo(id, target);
+        row.launchInstruction = launched.launchInstruction;
+      } else if (row.mode === 'steam') {
         if (!/^\d{1,10}$/.test(String(target.steamAppId || '')) || !path.isAbsolute(target.steamRoot || '')) fail('LAUNCH_STEAM_UNVERIFIED', '没有与游戏安装记录匹配的 Steam AppID。');
         const steamExe = path.join(target.steamRoot, 'steam.exe');
         row._launchRequested = true;
@@ -69,8 +77,8 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
         if (launchDirect) await launchDirect(id);
         else await broker.launch({ exe: target.exe, args: target.args || [], cwd: path.dirname(target.exe) });
       }
-      await save(row, row.mode === 'steam' ? 'waiting-launcher' : 'waiting-game');
-      const deadline = now() + timeoutMs, requested = Date.parse(row.requestedAt);
+      await save(row, row.mode === 'steam' || hoyo ? 'waiting-launcher' : 'waiting-game');
+      const deadline = now() + (hoyo ? hoyoTimeoutMs : timeoutMs), requested = Date.parse(row.requestedAt);
       while (now() <= deadline) {
         if (row._cancelled) fail('LAUNCH_CANCELLED', '已取消等待；已发送的启动请求不会撤回，也不会结束游戏。');
         const found = (await processes.find(target.exe)).filter(item => Date.parse(item.startedAt) >= requested - 1000);
@@ -78,6 +86,7 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
         if (found.length === 1) {
           row.process = found[0];
           await save(row, 'game-matched');
+          await onGameMatched(id, publicSession(row));
           await save(row, 'waiting-enhancement');
           await helper?.watch?.(helperSession, { onFailure: async error => {
             row.helper = { ...row.helper, status: 'failed', reason: error.message };

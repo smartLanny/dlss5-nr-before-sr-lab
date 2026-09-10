@@ -11,26 +11,28 @@ const { PENDING } = require('../src/product/external-runtime');
 const journal = require('../src/core/file-journal');
 const { ADDON: MFG_ADDON, SHA256: MFG_SHA } = require('../src/product/fg-mfgunlock-resources');
 const { specialFixture } = require('./helpers/operation-special-fixture');
+const { enhancementEvidence } = require('./helpers/enhancement-evidence');
 
 const confirm = plan => ({ confirm: true, fingerprint: plan.fingerprint });
 const installedHashes = f => Object.fromEntries(Object.entries(INSTALLED_NAMES).map(([kind, name]) => [kind, hashFile(path.join(f.exeDir, name))]));
 
-test('implicit superseded Core defaults stay consistent from the installation summary through preview and external Apply', async t => {
+for (const deployment of ['local', 'external']) test(`implicit superseded Core defaults stay consistent through preview and ${deployment} Apply`, async t => {
   const f = await fixture(t), bundleFile = path.join(f.payload, 'bundle.json');
   const bundle = JSON.parse(fs.readFileSync(bundleFile)); bundle.supersededVersions = { 'legacy-global-core': 'fixture-core-2' };
   put(bundleFile, JSON.stringify(bundle)); await f.service.store.write({ addonVersion: 'legacy-global-core' });
   const defaults = f.service.installationDefaults(f.id);
-  assert.equal(defaults.version, 'fixture-core-2'); assert.equal(defaults.deployment, 'external'); assert.equal(defaults.loadingMode, 'proxy');
+  assert.equal(defaults.version, 'fixture-core-2'); assert.equal(defaults.deployment, 'local'); assert.equal(defaults.loadingMode, 'proxy');
   const requests = [], originalPreview = f.service.previewDeployment;
   f.service.previewDeployment = async (id, request, internal) => { requests.push(structuredClone(request)); return originalPreview(id, request, internal); };
-  const preview = await f.plans.preview(f.id, { api: 'dx12' });
+  const preview = await f.plans.preview(f.id, { api: 'dx12', ...(deployment === 'external' ? { deployment } : {}) });
   assert.equal(Object.hasOwn(preview.request, 'version'), false);
   assert.equal(preview.resolved.version, defaults.version);
-  assert.equal(preview.resolved.deployment, defaults.deployment); assert.equal(preview.resolved.loadingMode, defaults.loadingMode);
+  assert.equal(preview.resolved.deployment, deployment); assert.equal(preview.resolved.loadingMode, defaults.loadingMode);
   await f.plans.apply(preview.planId, confirm(preview));
-  assert.equal(f.layout().mode, 'external'); assert.equal(f.layout().version, defaults.version);
+  assert.equal(f.layout().mode, deployment); assert.equal(f.layout().version, defaults.version);
   assert.equal(hashFile(path.join(f.layout().runtimeDir, INSTALLED_NAMES.addon)), hashFile(path.join(f.payload, 'versions/fixture-core-2', PAYLOAD_FILES.addon)));
-  assert.ok(requests.length >= 2 && requests.every(request => !Object.hasOwn(request, 'version')), 'only a user-supplied version is sent as an explicit selection');
+  assert.ok(requests.every(request => !Object.hasOwn(request, 'version')), 'only a user-supplied version is sent as an explicit selection');
+  if (deployment === 'external') assert.ok(requests.length >= 2);
 });
 
 for (const route of ['vulkan', 'feeder']) test(`OperationPlan ${route} fixed route recompiles the same file effects and restores through its real owner`, async t => {
@@ -134,7 +136,7 @@ test('OperationPlan applies a simultaneous native SR, official FG and NR draft t
 });
 
 test('OperationPlan restores an existing MFG owner before migration and reapplies the saved selection in the external profile', async t => {
-  const f = await fixture(t, { family: 'RTX40' });
+  const f = await fixture(t, { family: 'RTX40', components: { getFeatureEvidence: async () => enhancementEvidence() } });
   await f.apply({ api: 'dx12', version: 'fixture-core-1', deployment: 'local' });
   const selection = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
   await f.apply({ fg: selection });
@@ -189,7 +191,7 @@ test('OperationPlan owner recovery clears a genuinely interrupted external file 
 
 test('OperationPlan recovery dispatches an interrupted MFG file WAL to the FG owner before clearing its ledger', async t => {
   let interrupt = true;
-  const f = await fixture(t, { family: 'RTX40', components: { copyFile: async (...args) => {
+  const f = await fixture(t, { family: 'RTX40', components: { getFeatureEvidence: async () => enhancementEvidence(), copyFile: async (...args) => {
     await fsp.copyFile(...args);
     if (interrupt && path.basename(args[1]) === MFG_ADDON) {
       interrupt = false; throw Object.assign(new Error('simulated process exit after first MFG addon copy'), { preservePending: true });
@@ -207,7 +209,7 @@ test('OperationPlan recovery dispatches an interrupted MFG file WAL to the FG ow
   assert.ok(f.events.includes('components-recover'));
 });
 
-test('real beta0.4.7 DX11 payload changes only the pinned Bridge for the issue 224 A/B variant and restores cleanly', async t => {
+test('real beta0.4.7 DX11 payload switches the Bridge independently, preserves its pin across Core selection, and restores cleanly', async t => {
   const f = await fixture(t, { api: 'dx11', exeName: 'bg3_dx11.exe' });
   const { ID, OLD_BRIDGE, CURRENT_BRIDGE } = require('../scripts/prepare-bg3-bridge-comparison');
   assert.equal(OLD_BRIDGE, '73d438ee9427e73d9919d169a107c7f5d73f60b291ea2cd66bd33279a35d3e95', 'issue #224 original attachment identity');
@@ -223,13 +225,20 @@ test('real beta0.4.7 DX11 payload changes only the pinned Bridge for the issue 2
   await f.apply({ api: 'dx11', version: '0.4.7beta', deployment: 'local' });
   const baseline = installedHashes(f); assert.equal(baseline.carrier, CURRENT_BRIDGE);
   assert.equal(fs.statSync(path.join(f.exeDir, DX11_COMPAT_CARRIER)).size, 809984);
-  const switched = await f.apply({ api: 'dx11', version: ID, deployment: 'local' });
+  const switched = await f.apply({ components: { bridge: 'nigos-1.4.11-nr' } });
   assert.equal(switched.result.runtimeVerified, false);
+  assert.equal(Object.hasOwn(switched.preview.request, 'version'), false, 'independent Bridge selection does not select another Core');
+  assert.equal(readManifest(f.gameRoot).payloadVersion, '0.4.7beta');
   const comparison = installedHashes(f);
   assert.equal(comparison.carrier, OLD_BRIDGE);
   assert.equal(fs.statSync(path.join(f.exeDir, DX11_COMPAT_CARRIER)).size, 513024);
   assert.deepEqual(Object.keys(baseline).filter(kind => baseline[kind] !== comparison[kind]), ['carrier']);
-  await f.apply({ api: 'dx11', version: '0.4.7beta', deployment: 'local' }); assert.deepEqual(installedHashes(f), baseline);
+  await f.apply({ api: 'dx11', version: '0.4.7beta', deployment: 'local' });
+  assert.deepEqual(installedHashes(f), comparison, 'selecting the Core preserves the independently pinned 1.4.11 Bridge');
+  const restoredBridge = await f.apply({ components: { bridge: 'nigos-1.4.12-nr' } });
+  assert.equal(Object.hasOwn(restoredBridge.preview.request, 'version'), false);
+  assert.equal(readManifest(f.gameRoot).payloadVersion, '0.4.7beta');
+  assert.deepEqual(installedHashes(f), baseline, 'only an explicit Bridge selection restores the 1.4.12 baseline');
   await f.apply({ uninstall: 'restore' });
   for (const name of Object.values(INSTALLED_NAMES).filter(name => name !== INSTALLED_NAMES.config)) assert.equal(fs.existsSync(path.join(f.exeDir, name)), false);
   assert.equal(hashFile(path.join(f.exeDir, 'nvngx_dlss.dll')), sha(peBytes('original native DLSS')));

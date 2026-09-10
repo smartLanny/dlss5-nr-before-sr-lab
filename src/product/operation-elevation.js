@@ -1,8 +1,11 @@
 'use strict';
 const fs = require('node:fs/promises');
+// Electron's virtual filesystem opens entries inside ASAR, but not the archive
+// itself. Identity must bind the physical archive in both parent and worker.
+const physicalFs = process.versions.electron ? require('original-fs').promises : fs;
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { noLinks, digestFile } = require('./launch-safety');
+const { noLinks, digestFile, atomicJson } = require('./launch-safety');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -43,7 +46,9 @@ function locations(userData, nonce) {
     request: nonce && path.join(directory, 'requests', `${nonce}.json`),
     claim: nonce && path.join(directory, 'claims', `${nonce}.json`),
     child: nonce && path.join(directory, 'children', `${nonce}.json`),
-    response: nonce && path.join(directory, 'responses', `${nonce}.json`) };
+    response: nonce && path.join(directory, 'responses', `${nonce}.json`),
+    progress: nonce && path.join(directory, 'progress', `${nonce}.json`),
+    cancel: nonce && path.join(directory, 'cancel', `${nonce}.json`) };
 }
 async function activeLock(userData) {
   const lock = await read(locations(userData).lock, 16384);
@@ -79,18 +84,38 @@ function validateResponse(row, request, requestHash, child) {
 function createWindowsProcessInspector(runPowerShell) {
   return async pid => {
     if (!Number.isInteger(pid) || pid < 1) fail('PROCESS', '进程身份无效。');
-    const command = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if($null -eq $p){'null'}else{[ordered]@{pid=[int]$p.ProcessId;executable=[string]$p.ExecutablePath;startedAt=$p.CreationDate.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress}`;
+    const queryImage = 'using System;using System.Text;using System.Runtime.InteropServices;public static class ExactProcessImage{[DllImport("kernel32.dll",SetLastError=true)]public static extern IntPtr OpenProcess(uint a,bool b,uint c);[DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]public static extern bool QueryFullProcessImageName(IntPtr h,uint f,StringBuilder b,ref uint n);[DllImport("kernel32.dll")]public static extern bool CloseHandle(IntPtr h);}';
+    const command = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if($null -eq $p){'null'}else{$image=[string]$p.ExecutablePath;if(!$image){Add-Type -TypeDefinition ${quote(queryImage)};$h=[ExactProcessImage]::OpenProcess(4096,$false,${pid});if($h -ne [IntPtr]::Zero){try{$b=New-Object Text.StringBuilder 32768;$n=[uint32]32768;if([ExactProcessImage]::QueryFullProcessImageName($h,0,$b,[ref]$n)){$image=$b.ToString()}}finally{[void][ExactProcessImage]::CloseHandle($h)}}};[ordered]@{pid=[int]$p.ProcessId;executable=$image;startedAt=$p.CreationDate.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress}`;
     let row; try { row = JSON.parse(await runPowerShell(command, 10000)); } catch { fail('PROCESS', '无法核对工作进程身份，请导出诊断。'); }
     if (row === null) return null;
     if (!processIdentity(row)) fail('PROCESS', '无法完整核对进程路径及启动时间。');
     return row;
   };
 }
+async function archiveDigest(file) {
+  const full = path.resolve(file), root = path.parse(full).root; let current = root;
+  for (const part of full.slice(root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    const stat = await physicalFs.lstat(current);
+    if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1)
+      fail('APPLICATION', '管理器代码包路径包含链接，无法核对安装身份。');
+  }
+  const handle = await physicalFs.open(full, 'r');
+  try {
+    const before = await handle.stat();
+    if (!before.isFile() || before.nlink > 1 || before.size > 64 * 1024 * 1024)
+      fail('APPLICATION', '管理器代码包不是有效的有界普通文件。');
+    const bytes = await handle.readFile(), after = await handle.stat();
+    if (bytes.length !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+      fail('APPLICATION', '管理器代码包在校验过程中改变。');
+    return crypto.createHash('sha256').update(bytes).digest('hex');
+  } finally { await handle.close(); }
+}
 async function applicationIdentity({ execPath, appPath }) {
   const mainHash = await digestFile(path.join(appPath, 'main.js'));
   if (!HASH.test(mainHash || '')) fail('APPLICATION', '无法验证当前管理器入口文件。');
   let codeHash;
-  if (/\.asar$/i.test(appPath)) codeHash = await digestFile(appPath);
+  if (/\.asar$/i.test(appPath)) codeHash = await archiveDigest(appPath);
   else {
     const rows = [], pending = ['main.js', 'package.json', 'package-lock.json', 'product.json', 'src', 'vendor']; let bytes = 0;
     while (pending.length) {
@@ -111,7 +136,9 @@ async function applicationIdentity({ execPath, appPath }) {
 
 function createOperationElevation({ userData, plans, processInfo = process, appPath, packaged = true, runPowerShell,
   inspectProcess = createWindowsProcessInspector(runPowerShell), getApplication = () => applicationIdentity({ execPath: processInfo.execPath, appPath }),
-  now = Date.now, sleep = delay, timeoutMs = 10 * 60000, pollMs = 250, log = () => {} }) {
+  now = Date.now, sleep = delay, timeoutMs = 10 * 60000, pollMs = 250, log = () => {},
+  workerFlag = '--operation-worker', onProgress = null, onDispatched = null }) {
+  if (!['--operation-worker', '--hoyo-launch-worker'].includes(workerFlag)) fail('WORKER', '不支持的管理员工作类型。');
   const base = locations(userData); let busy = false;
   async function inspect() {
     const lock = await activeLock(userData);
@@ -154,7 +181,7 @@ function createOperationElevation({ userData, plans, processInfo = process, appP
       requestHash = hash(request); const files = locations(userData, request.nonce);
       await writeNew(base.lock, { version: 1, nonce: request.nonce, requestHash, parent, child: null, state: 'reserved' }); lockCreated = true;
       await writeNew(files.request, request);
-      const args = [...(packaged ? [] : [appPath]), `--operation-worker=${request.nonce}`, `--operation-request-hash=${requestHash}`];
+      const args = [...(packaged ? [] : [appPath]), `${workerFlag}=${request.nonce}`, `--operation-request-hash=${requestHash}`];
       // Fixed trusted executable and worker arguments only. No shell fragments,
       // arbitrary JSON steps, inherited debug flags or portable-wrapper restart.
       const command = `$ErrorActionPreference='Stop'; $env:NODE_OPTIONS=$null; $env:ELECTRON_RUN_AS_NODE=$null; $env:__COMPAT_LAYER=$null; $p=Start-Process -FilePath ${quote(application.execPath)} -WorkingDirectory ${quote(path.dirname(application.execPath))} -ArgumentList ${quote(args.map(argument).join(' '))} -Verb RunAs -WindowStyle Hidden -PassThru; $p.Id`;
@@ -167,16 +194,34 @@ function createOperationElevation({ userData, plans, processInfo = process, appP
       // Keep the reservation immutable. A separate write-once child identity
       // avoids Windows rename/share races with the worker's lock reader.
       await writeNew(files.child, { version: 1, nonce: request.nonce, requestHash, child });
+      if (onDispatched) await onDispatched({ gameId, nonce: request.nonce, requestHash, child });
       const deadline = now() + timeoutMs;
+      let progressSequence = 0;
       while (now() <= deadline) {
-        const response = await read(files.response, 1024 * 1024, true);
+        if (onProgress) {
+          const progress = await read(files.progress, 1024 * 1024, true);
+          if (progress) {
+            validateResponse(progress, request, requestHash, child);
+            if (!Number.isSafeInteger(progress.sequence) || progress.sequence < 1) fail('PROGRESS', '管理员运行记录的序号无效。');
+            if (progress.sequence > progressSequence) { progressSequence = progress.sequence; await onProgress(progress.result.progress); }
+          }
+        }
+        let response = await read(files.response, 1024 * 1024, true);
+        if (!response) {
+          const current = await inspectProcess(child.pid);
+          if (!sameProcess(current, child)) {
+            // The worker may publish and exit between the first file read and
+            // this process snapshot. Re-read its write-once result before
+            // classifying an ordinary completion as an absent response.
+            response = await read(files.response, 1024 * 1024, true);
+            if (!response) fail('NO_RESPONSE', '工作进程已退出，但没有匹配的执行结果。请先核对并恢复未完成操作，再重新预览。', { needsRecovery: true });
+          }
+        }
         if (response) {
           const checked = validateResponse(response, request, requestHash, child); responseVerified = true;
           if (!checked.ok) fail('WORKER_FAILED', checked.error?.message || '管理员工作进程未完成本次操作。', { worker: checked, needsRecovery: true });
           return { ...checked.result, elevated: true, worker: { nonce: request.nonce, pid: child.pid, targetVerified: true }, runtimeVerified: false };
         }
-        const current = await inspectProcess(child.pid);
-        if (!sameProcess(current, child)) fail('NO_RESPONSE', '工作进程已退出，但没有匹配的执行结果。请先核对并恢复未完成操作，再重新预览。', { needsRecovery: true });
         await sleep(pollMs);
       }
       fail('TIMEOUT', '工作进程尚未返回结果。已保留操作锁和恢复记录，不会重复执行。', { needsRecovery: true });
@@ -219,7 +264,20 @@ async function executeOperationWorker({ userData, nonce, requestHash, processInf
     try { await writeNew(files.claim, { version: 1, nonce, requestHash, child, claimedAt: now() }); claimed = true; }
     catch (error) { if (error.code === 'EEXIST') fail('REPLAY', '这份一次性操作请求已被领取，不能再次执行。'); throw error; }
     if (typeof isAdministrator !== 'function' || await isAdministrator() !== true) fail('PRIVILEGE', '工作进程没有取得管理员权限，未执行任何操作。');
-    const { plans } = await initialize();
+    let progressSequence = 0;
+    const publish = async progress => {
+      const response = { version: 1, nonce, requestHash, planId: request.planId, fingerprint: request.fingerprint,
+        parent: request.parent, child, target: request.target, targetVerified: true, ok: true,
+        sequence: ++progressSequence, result: { applied: true, progress } };
+      if (Buffer.byteLength(JSON.stringify(response)) > 900 * 1024) fail('PROGRESS', '管理员运行记录超过允许大小。');
+      await atomicJson(files.progress, response);
+    };
+    const parentAlive = async () => sameProcess(await inspectProcess(request.parent.pid), request.parent);
+    const cancelled = async () => {
+      const row = await read(files.cancel, 16384, true);
+      return row?.version === 1 && row.nonce === nonce && row.requestHash === requestHash && row.cancel === true;
+    };
+    const { plans } = await initialize({ publish, parentAlive, cancelled });
     const plan = await plans.loadPlan(request.planId, request.fingerprint);
     if (plan.gameId !== request.gameId || !samePath(plan.exe, request.target.exe) || plan.before?.exeSha256 !== request.target.exeHash ||
         plan.fingerprint !== request.fingerprint || plan.blockers?.length) fail('TARGET', '重新检测后的计划或目标程序身份与本次预览不一致。');

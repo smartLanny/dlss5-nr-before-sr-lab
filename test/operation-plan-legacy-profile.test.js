@@ -44,12 +44,12 @@ async function inactiveLegacyProfile(t) {
   return { f, oldProfile, receiptFile };
 }
 
-test('a beta1 local-external-local-uninstall cycle reinstalls to a new default external profile without changing any old file', async t => {
+test('a beta1 local-external-local-uninstall cycle explicitly reinstalls to a new external profile without changing any old file', async t => {
   const { f, oldProfile, receiptFile } = await inactiveLegacyProfile(t);
   const original = snapshotTree(oldProfile), receiptHash = hashFile(receiptFile);
   const defaults = f.service.installationDefaults(f.id);
-  assert.equal(defaults.deployment, 'external'); assert.equal(defaults.loadingMode, 'proxy');
-  const request = { api: 'dx12' };
+  assert.equal(defaults.deployment, 'local'); assert.equal(defaults.loadingMode, 'proxy');
+  const request = { api: 'dx12', deployment: 'external' };
   const first = await f.plans.preview(f.id, request), repeated = await f.plans.preview(f.id, request);
   assert.deepEqual(first.blockers, []); assert.deepEqual(repeated.blockers, []);
   assert.equal(first.fingerprint, repeated.fingerprint);
@@ -69,11 +69,14 @@ test('a beta1 local-external-local-uninstall cycle reinstalls to a new default e
   assert.equal((await f.plans.inspect(f.id)).pending, false);
 });
 
-test('an unknown extra file in a beta1 inactive profile blocks reinstall without a new pending record or any file change', async t => {
+test('an unknown file in a beta1 inactive profile blocks explicit external reinstall while default local preview leaves it inactive', async t => {
   const { f, oldProfile, receiptFile } = await inactiveLegacyProfile(t);
   const extra = path.join(oldProfile, 'user-added-unknown.addon64'); put(extra, 'unknown user file must remain in place');
   const original = snapshotTree(oldProfile), receiptHash = hashFile(receiptFile);
-  await assert.rejects(f.plans.preview(f.id, { api: 'dx12' }), error => {
+  const local = await f.plans.preview(f.id, { api: 'dx12' });
+  assert.deepEqual(local.blockers, []); assert.equal(local.resolved.deployment, 'local');
+  assert.deepEqual(snapshotTree(oldProfile), original, 'default local preview does not touch the inactive external profile');
+  await assert.rejects(f.plans.preview(f.id, { api: 'dx12', deployment: 'external' }), error => {
     assert.equal(error.code, 'DEPLOYMENT_PROFILE_EXISTS');
     assert.match(error.message, /未归属|额外文件/);
     return true;

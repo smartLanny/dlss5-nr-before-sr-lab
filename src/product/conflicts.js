@@ -10,7 +10,7 @@ const BACKUP_DIR = '_DLSS5_Backup';
 const ADDON_EXT = /\.addon(?:32|64)?$/i;
 
 function isProtectedName(name) {
-  return /^(?:dxgi|d3d12|nvngx_dlss|nvngx_dlssg)\.dll$/i.test(name);
+  return /^(?:dxgi|d3d9|d3d10(?:_1)?|d3d11|d3d12|opengl32|dinput8|version|winmm|dsound|nvngx_dlss(?:g|d|nr)?|nrchain_nvngx|_nvngx)\.dll$/i.test(name);
 }
 
 function classifyAddon(name, file) {
@@ -152,6 +152,56 @@ async function moveConflicts(gameDir, installId, options = {}) {
   return moved;
 }
 
+// The installer calls this only after compiling the shared loading snapshot.
+// Its journal still owns both sides of every move and their rollback. Unlike
+// scanConflicts, this path never expands the selection with a fresh name scan.
+async function movePlannedConflicts(gameDir, installId, plan, options = {}) {
+  const { noLinks } = require('./launch-safety');
+  const { assertAddonSnapshot } = require('./addon-loading-layout');
+  if (!plan || plan.version !== 1 || plan.blockers?.length || !Array.isArray(plan.decisions) ||
+      !/^[a-f0-9]{64}$/.test(plan.sourceFingerprint || '') || !/^[a-f0-9-]{36}$/.test(installId || ''))
+    throw appError('ERR_FILE_CHANGED', { reason: '插件隔离预览无效或尚未完成。' });
+  if (options.snapshot) {
+    if (options.snapshot.fingerprint !== plan.sourceFingerprint) throw appError('ERR_FILE_CHANGED', { reason: '插件预览来源不一致。' });
+    await assertAddonSnapshot(options.snapshot, { environment: options.environment || process.env });
+  }
+  const root = path.resolve(gameDir), moved = [], seen = new Set(), rename = options.rename || fs.promises.rename;
+  const rows = plan.decisions.filter(row => ['isolate', 'retire-core'].includes(row.action));
+  // Validate the COMPLETE selection before creating a backup or moving files.
+  for (const row of rows) {
+    if (!row || !path.isAbsolute(row.path || '') || !/^[a-f0-9]{64}$/.test(row.sha256 || '') ||
+        row.sourceFingerprint !== plan.sourceFingerprint || row.configFingerprint !== plan.configFingerprint ||
+        !row.moduleMayLoad || !ADDON_EXT.test(row.path) && !(row.explicit === true && /\.dll$/i.test(row.path)) ||
+        isProtectedName(path.basename(row.path))) throw appError('ERR_FILE_CHANGED', { reason: '插件隔离目标未绑定实际加载范围。' });
+    const relative = path.relative(root, row.path), file = safePath(root, relative), identity = path.resolve(file).toLowerCase();
+    if (seen.has(identity)) throw appError('ERR_FILE_CHANGED', { reason: '插件隔离目标重复。' });
+    seen.add(identity); await noLinks(file);
+    if (sha256(file) !== row.sha256) throw appError('ERR_FILE_CHANGED', { rel: relative });
+  }
+  try {
+    for (const row of rows) {
+      const relative = path.relative(root, row.path), source = safePath(root, relative);
+      let destination = conflictBackupPath(root, installId, relative), index = 0;
+      while (fs.existsSync(destination)) destination = conflictBackupPath(root, installId, relative, ++index);
+      await noLinks(source); await noLinks(destination);
+      if (typeof options.capture === 'function') { await options.capture(source); await options.capture(destination); }
+      if (sha256(source) !== row.sha256) throw appError('ERR_FILE_CHANGED', { rel: relative });
+      await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+      await noLinks(source); await noLinks(destination);
+      if (sha256(source) !== row.sha256 || fs.existsSync(destination)) throw appError('ERR_FILE_CHANGED', { rel: relative });
+      await rename(source, destination);
+      moved.push({ sourceRel: relative, backupRel: path.relative(root, destination), name: path.basename(source), sha256: row.sha256,
+        category: row.action === 'retire-core' ? 'own-core-upgrade' : row.mandatory ? 'confirmed-addon-conflict' : 'unverified-addon',
+        reason: row.reason, sourceFingerprint: plan.sourceFingerprint, configFingerprint: plan.configFingerprint, originalOwned: row.owned === true });
+    }
+  } catch (error) {
+    if (typeof options.capture !== 'function') try { const warnings = await restoreConflicts(root, [...moved].reverse(), { rename }); if (warnings.length) error.rollbackWarnings = warnings; }
+    catch (rollbackError) { error.rollbackError = rollbackError; }
+    throw error;
+  }
+  return moved;
+}
+
 async function restoreConflicts(gameDir, rows, options = {}) {
   const warnings = [];
   const rename = options.rename || fs.promises.rename;
@@ -183,5 +233,6 @@ module.exports = {
   classifyAddon,
   scanConflicts,
   moveConflicts,
+  movePlannedConflicts,
   restoreConflicts
 };

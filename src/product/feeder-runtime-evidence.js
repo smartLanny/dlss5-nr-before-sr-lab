@@ -54,4 +54,28 @@ async function readFeederEvidence({ exeDir, lastLaunch }) {
   if (retained) return { loaded, processed: false, detail: `本次保留原帧：${retained}` };
   return { loaded, processed: 'unknown', detail: '本次 Feeder 已加载，尚无 NR 完成记录。' };
 }
-module.exports = { readFeederEvidence, readWindow };
+async function readLegacyFeederEvidence({ layout, lastLaunch, hostRequired = false }) {
+  const startedAt = Date.parse(lastLaunch?.startedAt || ''), pid = lastLaunch?.pid;
+  const unknown = { loaded: 'unknown', processed: 'unknown', runtimeVerified: false,
+    detail: '尚无可核对的本次 Feeder 启动与完成记录。' };
+  if (!path.isAbsolute(layout?.addonDirectory || '') || !Number.isFinite(startedAt) || !Number.isInteger(pid) || pid <= 0) return unknown;
+  const log = await readWindow(path.join(layout.addonDirectory, 'dlss5-feed.log'), startedAt);
+  let session = null, frame = null, retained = null;
+  for (const line of (log || '').split(/\r?\n/)) {
+    const marker = line.match(/\[nr-feeder-session\] pid=(\d+) source=0151-external-v1\s*$/);
+    if (marker) { session = Number(marker[1]); frame = null; retained = null; continue; }
+    if (session !== pid) continue;
+    const complete = hostRequired
+      ? line.match(/\[nr-feeder-client-completion\] frame=(\d+) output_ready=1 nr_completed=1\s*$/)
+      : line.match(/\[nr-feeder-completion\] frame=(\d+) epoch=\d+ nr_completed=1 output_recorded=1 provenance=Synthetic\s*$/);
+    if (complete && Number.isSafeInteger(Number(complete[1])) && Number(complete[1]) > 0) { frame = Number(complete[1]); retained = null; }
+    const decline = line.match(/\[nr-feeder(?:-client)?-retained\]\s*([^\r\n]{1,240})/);
+    if (decline) { retained = decline[1].replace(/[\x00-\x1f\x7f]/g, ' '); frame = null; }
+  }
+  if (session !== pid) return unknown;
+  if (frame !== null) return { ...unknown, loaded: true, processed: true, frame,
+    detail: hostRequired ? '本次宿主完成 NR，游戏收到该帧完成回执；真实画面仍需核对。' : '本次 NR 已完成并录制输出回填；真实画面仍需核对。' };
+  if (retained) return { ...unknown, loaded: true, processed: false, detail: `本次保留原帧：${retained}` };
+  return { ...unknown, loaded: true, detail: '本次 Feeder 已加载，尚无 NR 完成记录。' };
+}
+module.exports = { readFeederEvidence, readLegacyFeederEvidence, readWindow, ...require('./legacy-runtime-evidence') };
