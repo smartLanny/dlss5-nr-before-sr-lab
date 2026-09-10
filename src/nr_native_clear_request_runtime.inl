@@ -24,6 +24,8 @@ nr_native_clear::Receipt NrNativeClearCandidate(const nr_native_format::Key& key
     return result;
 }
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+std::uint64_t NrDescriptorBoundHeap(ID3D12GraphicsCommandList*);
+bool NrDescriptorBoundGpuHeapMatches(ID3D12GraphicsCommandList*,std::uint64_t,std::uint64_t);
 struct NrNativeClearScope;
 thread_local NrNativeClearScope* g_nr_native_clear_scope=nullptr;
 struct NrNativeClearScope {
@@ -90,7 +92,16 @@ void NrObserveNativeClearRequest(ID3D12GraphicsCommandList* list,ID3D12Resource*
     if(!identity.known || identity.token!=r.list || identity.reset!=r.reset || identity.address!=r.list_address ||
        !output || output.id!=r.resource || output.device!=r.key.device) {r.unknown=true;return;}
     (void)count;(void)rects; // Rect coverage is diagnostic; the typed view is unchanged.
-    r.Observe(before,after);
+    // UavPair returns early for an unknown GPU slot, before it can check the
+    // currently bound heap.  Keep the CPU-only fallback scoped to a known
+    // shader-visible heap identity; an unknown binding remains a rejection.
+    const bool gpu_slot_unknown=(!before.gpu && before.gpu.reason==nr_descriptor::Reason::SlotUnknown) ||
+        (!after.gpu && after.gpu.reason==nr_descriptor::Reason::SlotUnknown);
+    const auto bound_gpu_heap=gpu_slot_unknown?NrDescriptorBoundHeap(list):0;
+    if(gpu_slot_unknown && !NrDescriptorBoundGpuHeapMatches(list,bound_gpu_heap,r.key.device)) {
+        r.unknown=true;return;
+    }
+    r.Observe(before,after,bound_gpu_heap);
 }
 bool NrNativeClearMayFinish(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,
         unsigned long long generation,unsigned format,const nr_native_clear::Receipt& prepared,

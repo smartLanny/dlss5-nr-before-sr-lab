@@ -40,6 +40,34 @@ std::uint64_t NrDescriptorBoundHeap(ID3D12GraphicsCommandList *list) {
     ReleaseSRWLockShared(&g_command_state_lock);
     return address?g_nr_descriptors.HeapAt(address).id:0;
 }
+bool NrDescriptorBoundGpuHeapMatches(ID3D12GraphicsCommandList *list,
+        std::uint64_t heap_id,std::uint64_t device_id) {
+    if(!list || !heap_id || !device_id)return false;
+    const auto identity=SnapshotPostBoundaryList(list);
+    if(!identity.known || !identity.token || !identity.address)return false;
+    ID3D12DescriptorHeap *bound=nullptr;
+    AcquireSRWLockShared(&g_command_state_lock);
+    for(const auto &entry:g_command_states) {
+        if(entry.token==identity.token && entry.native_resets==identity.reset &&
+           reinterpret_cast<std::uint64_t>(entry.native)==identity.address && entry.lifetime_ready &&
+           entry.state && entry.state->known &&
+           !(entry.state->unknown_domains&D3D12_GRAPHICS_STATE_DESCRIPTOR_HEAP) &&
+           entry.state->heaps[0]) {
+            bound=entry.state->heaps[0];IUnknown_AddRef(reinterpret_cast<IUnknown *>(bound));break;
+        }
+    }
+    ReleaseSRWLockShared(&g_command_state_lock);
+    if(!bound)return false;
+    const auto tracked=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(bound));
+    ID3D12Device *owner=nullptr;
+    const bool owner_ok=SUCCEEDED(ID3D12DescriptorHeap_GetDevice(bound,IID_ID3D12Device,
+        reinterpret_cast<void **>(&owner))) && owner;
+    const auto owner_id=owner_ok?NrFormatDeviceIdentity(owner):0;
+    if(owner)ID3D12Device_Release(owner);
+    IUnknown_Release(reinterpret_cast<IUnknown *>(bound));
+    return tracked && tracked.id==heap_id && tracked.shader_visible && tracked.device==device_id &&
+        owner_id==device_id;
+}
 nr_descriptor::Pair NrDescriptorCaptureUav(ID3D12GraphicsCommandList *list,D3D12_GPU_DESCRIPTOR_HANDLE gpu,
         D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *resource) {
     if(!g_nr_descriptor_active_call && !PostBoundaryRecordingActive())return {};

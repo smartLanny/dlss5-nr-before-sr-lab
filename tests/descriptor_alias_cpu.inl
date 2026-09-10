@@ -382,6 +382,24 @@ void NativeClearRequests() {
     model=good;auto changed=pair;changed.cpu.view.format=changed.gpu.view.format=30;
     model.Observe(pair,pair);model.Observe(changed,changed);
     Check(model.conflict,"two stable but different typed Clear requests conflict");
+    auto evicted=pair;evicted.gpu={};evicted.gpu.shader_visible=true;
+    evicted.gpu.stamp=pair.gpu.stamp;evicted.gpu.reason=nr_descriptor::Reason::SlotUnknown;
+    evicted.reason=nr_descriptor::Reason::SlotUnknown;
+    auto cpu_only=fresh.request;cpu_only.finished=false;cpu_only.success=false;
+    cpu_only.clears=0;cpu_only.format=0;cpu_only.unknown=false;cpu_only.conflict=false;cpu_only.overflow=false;
+    cpu_only.Observe(evicted,evicted,pair.gpu.stamp.heap);cpu_only.finished=true;cpu_only.success=true;
+    nr_native_clear::Invocation evicted_invocation{fresh.call,cpu_only};
+    Check(cpu_only && NrNativeClearMayFinish(&native_list,&resource,800,28,prepared,evicted_invocation),
+        "stable CPU UAV plus explicit resource survives an evicted GPU slot and passes the fresh guard");
+    auto wrong_bound=good;wrong_bound.Observe(evicted,evicted,pair.gpu.stamp.heap+1);
+    Check(wrong_bound.unknown,"GPU-unknown CPU fallback rejects a mismatched bound heap identity");
+    nr_descriptor::NativeUse gpu_unknown;gpu_unknown.hooks_ready=gpu_unknown.identity_known=true;
+    gpu_unknown.Observe(evicted);gpu_unknown.Finish(true,g_nr_descriptors);
+    Check(gpu_unknown.unknown==1&&!gpu_unknown.observed_typed&&!gpu_unknown.after_native_valid,
+        "evicted GPU slot remains unknown GPU-use proof beside the CPU declaration");
+    auto changed_gpu=pair;changed_gpu.gpu.stamp.revision++;
+    model=good;model.Observe(pair,changed_gpu);
+    Check(model.unknown,"two known GPU receipts with a changed revision reject the CPU declaration");
     model=good;changed=pair;changed.reason=nr_descriptor::Reason::SlotUnknown;
     model.Observe(pair,pair);model.Observe(changed,changed);
     Check(model.unknown,"a later unknown pair invalidates a previously known Clear in the same scope");
@@ -759,6 +777,12 @@ void Run() {
             "native and verified proxy observe the same currently bound heap");
         Check(private_reads==reads,"hot Snapshot and BoundHeap perform no private-data calls");
     }
+    Check(NrDescriptorBoundGpuHeapMatches(&native_list,gpu_heap.id,device_identity),
+        "bound GPU heap helper confirms the live heap and owning device");
+    Check(!NrDescriptorBoundGpuHeapMatches(&native_list,gpu_heap.id+1,device_identity),
+        "an unrelated bound heap identity rejects a GPU-unknown fallback");
+    Check(!NrDescriptorBoundGpuHeapMatches(&native_list,gpu_heap.id,device_identity+1),
+        "a bound heap owned by another device rejects a GPU-unknown fallback");
     Check(!SnapshotPostBoundaryList(&proxy_list).known,"alias expires when its original-call scope exits");
     Params params;NgxHandle handle{991};const FLOAT values[]={0,0,1,1};
     const auto native_call=[&](ID3D12GraphicsCommandList *list,const NgxHandle *,const NgxParams *,void *) {

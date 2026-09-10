@@ -109,14 +109,17 @@ struct Pipeline {
     }
 };
 template<class Function> NgxResult Native(queue_test::List &list,ID3D12Resource *output,
-        std::uint64_t feature,Function function,NgxResult result=kNgxSuccess) {
+        std::uint64_t feature,Function function,NgxResult result=kNgxSuccess,
+        const nr_native_clear::Receipt *prepared=nullptr,
+        nr_native_clear::Invocation *invocation=nullptr) {
     Params params(output);NgxHandle handle{991};unsigned callback=717,calls=0;
     const auto original=[&](ID3D12GraphicsCommandList *l,const NgxHandle *h,const NgxParams *p,void *c) {
         Check(l==list.native&&h==&handle&&p==&params.base&&c==&callback,"native wrapper preserves arguments");
         ++calls;function();return result;
     };
     g_inside_ngx_evaluate=true;
-    const auto actual=NrCallNativeWithFormatObservation(original,list.native,&handle,&params.base,&callback,feature);
+    const auto actual=NrCallNativeWithFormatObservation(original,list.native,&handle,&params.base,&callback,
+        feature,invocation,prepared);
     g_inside_ngx_evaluate=false;
     Check(calls==1&&actual==result,"native callback is forwarded exactly once with unchanged result");return actual;
 }
@@ -125,7 +128,7 @@ void Barrier(ID3D12GraphicsCommandList *list,ID3D12Resource *resource,D3D12_RESO
     barrier.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};
     ID3D12GraphicsCommandList_ResourceBarrier(list,1,&barrier);
 }
-void ReadPixels(queue_test::Fixture &f,ID3D12Resource *resource) {
+void ReadPixels(queue_test::Fixture &f,ID3D12Resource *resource,bool expect_red_rectangle=true) {
     const auto desc=ID3D12Resource_GetDesc(resource);
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 total=0;
     ID3D12Device_GetCopyableFootprints(f.device,&desc,0,1,0,&footprint,nullptr,nullptr,&total);
@@ -145,9 +148,10 @@ void ReadPixels(queue_test::Fixture &f,ID3D12Resource *resource) {
     Hr(ID3D12Resource_Map(readback,0,&range,&bytes),"descriptor readback map");
     for(unsigned y=0;y<12;++y)for(unsigned x=0;x<16;++x) {
         const auto *pixel=static_cast<const unsigned char *>(bytes)+footprint.Offset+y*footprint.Footprint.RowPitch+x*4;
-        const bool red=x>=2&&x<6&&y>=3&&y<8;
+        const bool red=expect_red_rectangle&&x>=2&&x<6&&y>=3&&y<8;
         Check(pixel[0]==(red?255:0)&&pixel[1]==0&&pixel[2]==(red?0:255)&&pixel[3]==255,
-            "real GPU native UAV clear and later exact RTV rectangle both reached texture storage");
+            expect_red_rectangle ? "real GPU native UAV clear and later exact RTV rectangle both reached texture storage" :
+                "GPU-unknown CPU declaration leaves a valid real Clear that overwrites the prior red rectangle");
     }
     D3D12_RANGE none{};ID3D12Resource_Unmap(readback,0,&none);ReleaseCom(readback);
 }
@@ -230,6 +234,55 @@ void Run() {
     Check(frozen.close==nr_post_boundary::Close::Present&&frozen.other_rtv_clears==1,"closed evidence window retains known-other counts");
     ReadPixels(f,output.resource);
     Check(SnapshotPostBoundary(trace,701,9,502).count==frozen.count,"later readback operations do not mutate a closed window");
+
+    // Fill a separate live shader-visible heap through the bounded provenance
+    // path. Its 65,537 distinct slots evict the original GPU slot while the
+    // real descriptor contents in that original heap remain valid for Clear.
+    auto *overflow_gpu=Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true,65537);
+    const auto source_cpu=Cpu(f,cpu);const auto overflow_cpu=Cpu(f,overflow_gpu);
+    const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(f.device,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for(unsigned i=0;i<65537;++i) {
+        const auto write=g_nr_descriptors.BeginCopy(overflow_cpu.ptr+static_cast<SIZE_T>(i)*stride,
+            source_cpu.ptr,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        g_nr_descriptors.Finish(write);
+    }
+    const auto evicted_gpu=g_nr_descriptors.Gpu(Gpu(f,gpu,1).ptr,0);
+    Check(!evicted_gpu&&evicted_gpu.reason==nr_descriptor::Reason::SlotUnknown,
+        "bounded provenance fill reproduces an evicted original GPU slot");
+    queue_test::List unknown_list(f);pipeline.Bind(unknown_list,gpu);
+    Barrier(unknown_list.native,output.resource,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Native(unknown_list,output.resource,503,[&] {
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(unknown_list.native,Gpu(f,gpu,1),Cpu(f,cpu),
+            output.resource,blue,0,nullptr);
+    });
+    const auto unknown_use=SnapshotNrDescriptorUse();
+    Check(unknown_use.clear_calls==1&&unknown_use.unknown==1&&!unknown_use.observed_typed&&
+        !unknown_use.after_native_valid&&!unknown_use.at_submit_valid,
+        "real Clear with an evicted GPU slot keeps GPU-use and submission proof unknown");
+    const auto cpu_only=NrNativeClearCandidate(NrFormatKey(f.device,output.resource,503,true),9);
+    Check(cpu_only&&cpu_only.format==28,
+        "stable CPU UAV and explicit resource retain an independent typed declaration after GPU eviction");
+    const auto unknown_resolved=NrResolveColorView(f.device,output.resource,ID3D12Resource_GetDesc(output.resource),503,true,0);
+    Check(unknown_resolved&&unknown_resolved.clear_source&&unknown_resolved.plan.srv==28,
+        "GPU-unknown CPU declaration supplies the typed color preparation");
+    nr_native_clear::Invocation fresh_unknown;
+    Native(unknown_list,output.resource,503,[&] {
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(unknown_list.native,Gpu(f,gpu,1),Cpu(f,cpu),
+            output.resource,blue,0,nullptr);
+    },kNgxSuccess,&cpu_only,&fresh_unknown);
+    Check(NrNativeClearMayFinish(unknown_list.native,output.resource,503,28,cpu_only,fresh_unknown),
+        "GPU-unknown CPU declaration still requires and passes the exact fresh-call guard");
+    const auto fresh_unknown_use=SnapshotNrDescriptorUse();
+    Check(fresh_unknown_use.unknown==1&&!fresh_unknown_use.after_native_valid&&!fresh_unknown_use.at_submit_valid,
+        "fresh guarded call does not upgrade its GPU-unknown descriptor proof");
+    Barrier(unknown_list.native,output.resource,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_RENDER_TARGET);
+    unknown_list.Close();
+    ID3D12CommandList *unknown_batch[]={unknown_list.Base()};
+    ProcessSubmittedCommandLists(0,f.a,1,unknown_batch);f.Drain(f.a);
+    const auto submitted_unknown_use=SnapshotNrDescriptorUse();
+    Check(submitted_unknown_use.unknown==1&&!submitted_unknown_use.after_native_valid&&!submitted_unknown_use.at_submit_valid,
+        "actual Execute does not upgrade an evicted-slot GPU proof through the CPU declaration");
+    ReadPixels(f,output.resource,false);ReleaseCom(overflow_gpu);
 
     // Destruction of unused real objects must retire records; registry metadata
     // must not keep either object alive. No undefined D3D12 operation is issued.

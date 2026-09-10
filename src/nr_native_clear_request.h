@@ -19,16 +19,31 @@ struct Receipt {
             list && list_address && resource && resource_address && identity && shape &&
             format && clears && !unknown && !conflict && !overflow && finished && success;
     }
-    void Observe(const nr_descriptor::Pair& before,const nr_descriptor::Pair& after) {
+    void Observe(const nr_descriptor::Pair& before,const nr_descriptor::Pair& after,
+                 Id bound_gpu_heap=0) {
         if(++clears>4)overflow=true;
         const auto same=[](const nr_descriptor::Receipt& a,const nr_descriptor::Receipt& b) {
             return a && b && a.stamp.heap==b.stamp.heap && a.stamp.index==b.stamp.index &&
                 a.stamp.revision==b.stamp.revision && a.stamp.epoch==b.stamp.epoch &&
                 a.shader_visible==b.shader_visible && nr_descriptor::SameView(a.view,b.view);
         };
-        if(!before || !after || !same(before.cpu,after.cpu) || !same(before.gpu,after.gpu) ||
-           before.cpu.shader_visible || !before.gpu.shader_visible ||
-           !nr_descriptor::SameView(before.cpu.view,before.gpu.view) ||
+        // The CPU handle and explicit pResource are enough to retain a
+        // preparation declaration when the paired GPU slot was evicted.  A
+        // known GPU receipt still has to agree exactly; only SlotUnknown is
+        // allowed to be absent here.  This never changes NativeUse, which
+        // remains the independent GPU-use/submission proof.
+        const auto gpu_compatible=[&](const nr_descriptor::Pair& pair) {
+            if(pair.gpu)
+                return pair.reason==nr_descriptor::Reason::None && pair.gpu.shader_visible &&
+                    nr_descriptor::SameView(pair.cpu.view,pair.gpu.view);
+            return pair.reason==nr_descriptor::Reason::SlotUnknown &&
+                pair.gpu.reason==nr_descriptor::Reason::SlotUnknown && pair.gpu.shader_visible &&
+                bound_gpu_heap && pair.gpu.stamp.heap==bound_gpu_heap;
+        };
+        const bool known_gpu_revision_stable=!(before.gpu && after.gpu) || same(before.gpu,after.gpu);
+        if(!before.cpu || !after.cpu || !same(before.cpu,after.cpu) ||
+           !gpu_compatible(before) || !gpu_compatible(after) || !known_gpu_revision_stable ||
+           before.cpu.shader_visible ||
            before.cpu.view.resource.device!=key.device || before.cpu.view.resource.id!=resource ||
            before.cpu.view.resource.address!=resource_address ||
            before.cpu.view.kind!=nr_descriptor::Kind::Uav || !before.cpu.view.format ||

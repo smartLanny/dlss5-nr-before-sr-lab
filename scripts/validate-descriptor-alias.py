@@ -160,6 +160,9 @@ def main():
     if args.negative_controls:
         record['negative_controls'] = []
         mutations = (
+            ('restore-gpu-pair-dependency', 'nr_native_clear_request.h',
+             'if(!before.cpu || !after.cpu || !same(before.cpu,after.cpu) ||',
+             'if(!before || !after || !before.cpu || !after.cpu || !same(before.cpu,after.cpu) ||'),
             ('ignore-current-call', 'nr_native_clear_request.h',
              'current.call==fresh.call && fresh.call>prepared.call', 'true'),
             ('ignore-clear-revision', 'nr_native_clear_request.h',
