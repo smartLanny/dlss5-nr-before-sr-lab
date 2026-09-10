@@ -72,11 +72,17 @@ def main():
               'scope': 'actual Window, extracted ReadUiActivity/DrawNrActivityStatus/FeedbackAppend and real production value journal/F8 writer; Win32 value locks and CPU threads; scripted clock/atomic/UI APIs', 'runs': []}
     controls = (
         ('production', None, None, None, 'UI_RECEIPT_CPU PASS'),
+        ('old-thread-local-window', 'src/nr_ui_activity_runtime.inl',
+         'nr_ui_activity::Window g_nr_ui_activity_window;',
+         'thread_local nr_ui_activity::Window g_nr_ui_activity_window;', 'UI_SHARED_WINDOW'),
+        ('obsolete-caller-clears-window', 'src/nr_settings_ui.inl',
+         'if(detail.before.scope.config==config_generation && detail.before.scope.epoch==epoch)',
+         'if(true)', 'UI_STALE_SCOPE'),
         ('missing-gap-reason', 'src/nr_ui_activity.h', 'receipt->reset_mask|=WindowGap;', 'receipt->reset_mask|=0u;', 'UI_GAP_REASON'),
         ('unstable-thread-identity', 'src/nr_ui_activity_runtime.inl', 'receipt.thread_cookie=thread.cookie;', 'receipt.thread_cookie=NrUiActivityThreadCookie();', 'UI_TLS_ID'),
         ('f8-observes-window', 'src/nr_ui_activity_runtime.inl',
          'void SnapshotNrUiActivity(nr_ui_activity::TraceSnapshot& output) {',
-         'void SnapshotNrUiActivity(nr_ui_activity::TraceSnapshot& output) {\n    NrUiActivityThread().window.Observe(GetTickCount64(),{},{});', 'UI_F8_NO_OBSERVE'),
+         'void SnapshotNrUiActivity(nr_ui_activity::TraceSnapshot& output) {\n    { NrUiActivityWindowGuard guard; g_nr_ui_activity_window.Observe(GetTickCount64(),{},{}); }', 'UI_F8_NO_OBSERVE'),
         ('wrong-display-receipt', 'src/nr_settings_ui.inl', 'displayed=Display::Observed;', 'displayed=Display::Checking;', 'UI_TEXT_STATE'),
         ('redact-ui-decimals', 'src/nr_feedback_text.h', 'if (typed_metadata && UiActivityMetadataNumber(line, i, end))', 'if (false)', 'UI_TYPED_PRIVACY'),
     )

@@ -71,7 +71,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_resource_recovery.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_resource_recovery_semantics.inl',
             'src/nr_compatibility_runtime.inl', 'src/nr_compatibility_verdict.h', 'src/nr_compatibility_verdict_feedback.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '635c88603b97a0f5b9ab69501146d3971972d3d1')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '49dbf55c200a86614b389b2bfe02a8642733fab4')
 
