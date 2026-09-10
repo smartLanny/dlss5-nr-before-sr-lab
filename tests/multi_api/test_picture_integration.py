@@ -56,6 +56,7 @@ class PictureIntegration(unittest.TestCase):
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_native_clear_request.h', 'src/nr_native_clear_request_runtime.inl', 'src/nr_store_comparison.h', 'src/nr_ui_activity_feedback.inl', 'src/nr_ui_activity_runtime.inl', 'src/nr_descriptor_provenance_commands.inl', 'src/nr_descriptor_provenance_hooks.inl', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_route_compatibility_runtime.inl', 'src/nr_route_compatibility.h', 'src/nr_post_boundary.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_ui_activity.h', 'src/nr_imgui_abi.h', 'src/nr_f8_stream.inl', 'src/nr_native_command_record.inl', 'src/nr_command_creation_observer.inl', 'src/nr_rr_depth_projection.h', 'src/nr_rr_depth_shader.h', 'src/nr_rr_depth_adapter.inl', 'src/nr_guide_contract.h', 'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
+            'src/nr_motion_slot_selection.h',
             'src/interop/nr_post_settings.inl', 'src/interop/nr_post_ui.inl',
             'src/interop/nr_post_feedback.inl', 'src/interop/nr_rr_post_runtime.inl',
             'src/interop/nr_rr_depth_evidence.inl',
@@ -73,6 +74,6 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'fc6b93942b5040e389336193b5ba441bec491686')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '45f24524d97abb94978aab20e18624000c4ceba8')
 
 if __name__ == '__main__': unittest.main()

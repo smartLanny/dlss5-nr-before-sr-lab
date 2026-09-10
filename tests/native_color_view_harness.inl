@@ -263,6 +263,162 @@ void RejectionAndReuse(queue_test::Fixture&f,bool post) {
           "Feature generation change does not inherit cached slot key");
     for(auto &s:queue_test::context.slots)DestroySlot(s);
 }
+std::vector<unsigned char> SampleMotion(queue_test::Fixture &f, NrSlot &slot,
+                                        unsigned width=8, unsigned height=6) {
+    Check(slot.motion_source!=nullptr && slot.motion_proxy!=nullptr,
+          "motion sample has source and proxy");
+    queue_test::List list(f);
+    Transition(list.native,slot.motion_proxy,slot.motion_proxy_state,
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    DispatchMotionResample(list.native,slot,width,height,width,height,0,0);
+    UavBarrier(list.native,slot.motion_proxy);
+    Transition(list.native,slot.motion_proxy,slot.motion_proxy_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Submit(f,list);
+    return ReadTexture(f,slot.motion_proxy,slot.motion_proxy_state);
+}
+void MotionSlotRotation(queue_test::Fixture &f,bool post) {
+    const auto generation=++next_generation;
+    constexpr unsigned width=8,height=6;
+    ResetContext(post,generation,width,height);
+    queue_test::context.nr_handle=nullptr;
+    queue_test::context.params=nullptr;
+    queue_test::context.recording_command_lists=0;
+    queue_test::context.pending_recording_token=0;
+    queue_test::context.last_submission_queue=nullptr;
+    queue_test::context.completion_fence_value=0;
+    queue_test::context.awaiting_fence_signal=false;
+    queue_test::context.lifecycle_dependencies_quarantined=false;
+    queue_test::context.create_dependencies_quarantined=false;
+    queue_test::context.failed=false;
+    Check(!g_lifecycle_tracking_uncertain.load(),"motion rotation starts with lifecycle guard active");
+    Texture external;MakeTexture(f,external,DXGI_FORMAT_R8G8B8A8_UNORM,post,16,12,3);
+    Observe(f,external,post,generation);
+    Texture motion_a;MakeTexture(f,motion_a,DXGI_FORMAT_R16G16_FLOAT,false,width,height,7);
+    Texture motion_b;MakeTexture(f,motion_b,DXGI_FORMAT_R16G16_FLOAT,false,width,height,97);
+    auto select=[&](ID3D12Resource *motion) {
+        return FindOrCreateSlot(queue_test::context,f.device,external.resource,post,nullptr,
+            CodecColorMode::ModelEncodedValueDomain,0,nullptr,motion);
+    };
+    NgxHandle temporal{0xC0DEF00Du};
+    queue_test::context.nr_handle=&temporal;
+    NgxHandle *const handle_before=queue_test::context.nr_handle;
+    NrSlot *slot_a=select(motion_a.resource);
+    Check(slot_a!=nullptr,"stable external creates motion A slot");
+    Check(EnsureMotionProxy(f.device,*slot_a,motion_a.resource,width,height),
+          "motion A descriptor is created");
+    Check(slot_a->motion_source==motion_a.resource,"motion A source is bound");
+    Check(queue_test::context.nr_handle==handle_before,"first slot keeps one temporal handle");
+
+    // Record A on a real WARP command list and hold its submission behind an
+    // unsignaled fence. A direct rebind on this slot must fail closed.
+    queue_test::List held(f);
+    Check(RecordNrUseLocked(held.native,queue_test::context,*slot_a),
+          "motion A records on real command list");
+    ID3D12Fence *gate=f.Fence();
+    Hr(ID3D12CommandQueue_Wait(f.a,gate,1),"hold motion A behind real fence");
+    held.Close();held.Submit(f.a);
+    Check(!CanMutateSlotLocked(*slot_a),"recorded motion A is fence-unsafe");
+    ID3D12Resource *const motion_a_before=slot_a->motion_source;
+    Check(!EnsureMotionProxy(f.device,*slot_a,motion_b.resource,width,height),
+          "busy motion A rejects descriptor mutation");
+    Check(slot_a->motion_source==motion_a_before && slot_a->motion_source==motion_a.resource,
+          "busy motion A retains its original SRV source");
+
+    // Motion-aware selection must skip the busy A slot and allocate B in a
+    // second slot while preserving the same context and temporal handle.
+    NrSlot *slot_b=select(motion_b.resource);
+    Check(slot_b!=nullptr && slot_b!=slot_a,"motion B uses another slot while A is busy");
+    Check(EnsureMotionProxy(f.device,*slot_b,motion_b.resource,width,height),
+          "motion B descriptor is created in its selected slot");
+    Check(slot_b->motion_source==motion_b.resource,"motion B source is bound");
+    Check(slot_a->motion_source==motion_a.resource,"motion B does not rewrite motion A");
+    Check(queue_test::context.nr_handle==handle_before,
+          "A and B remain in one context with one temporal handle");
+
+    // Exact A/B repeats must find their existing bindings, including A while
+    // its real submission is still pending; no descriptor rewrite is needed.
+    Check(select(motion_a.resource)==slot_a,"motion A exact binding is reused");
+    Check(select(motion_b.resource)==slot_b,"motion B exact binding is reused");
+    Check(EnsureMotionProxy(f.device,*slot_a,motion_a.resource,width,height),
+          "exact motion A reuse is safe while in flight");
+    Check(EnsureMotionProxy(f.device,*slot_b,motion_b.resource,width,height),
+          "exact motion B reuse is safe");
+    Check(slot_a->motion_source==motion_a.resource && slot_b->motion_source==motion_b.resource,
+          "exact A/B reuse leaves both old bindings intact");
+
+    // Release the actual fence, detach the submitted list, and verify the
+    // descriptor contents with the production resample shader/readback path.
+    Hr(ID3D12Fence_Signal(gate,1),"release motion A fence gate");
+    Check(queue_test::context.last_submission_queue!=nullptr &&
+          queue_test::context.completion_fence_value!=0,
+          "motion A publishes an exact retirement fence");
+    queue_test::Wait(queue_test::context.last_submission_queue->fence,
+                     queue_test::context.completion_fence_value);
+    held.Detach();
+    Check(CanMutateSlotLocked(*slot_a),"motion A becomes mutable after exact fence");
+    auto sampled_a=SampleMotion(f,*slot_a,width,height);
+    Check(sampled_a.size()>=4 && std::memcmp(sampled_a.data(),motion_a.bytes.data(),4)==0,
+          "motion A readback still uses the original SRV");
+    auto sampled_b=SampleMotion(f,*slot_b,width,height);
+    Check(sampled_b.size()>=4 && std::memcmp(sampled_b.data(),motion_b.bytes.data(),4)==0,
+          "motion B readback uses its exact SRV");
+    ReleaseCom(gate);
+
+    // Upload every candidate before installing the queue gate. MakeTexture's
+    // existing helper submits and drains on the same queue, so an upload made
+    // after the gate would wait forever behind it.
+    std::vector<std::unique_ptr<Texture>> extra_motion;
+    for(unsigned i=0;i<6;++i) {
+        auto motion=std::make_unique<Texture>();
+        MakeTexture(f,*motion,DXGI_FORMAT_R16G16_FLOAT,false,width,height,137+i);
+        extra_motion.push_back(std::move(motion));
+    }
+    Texture unseen;MakeTexture(f,unseen,DXGI_FORMAT_R16G16_FLOAT,false,width,height,231);
+
+    // Keep each selected slot recorded on this one list before selecting the
+    // next MV. That makes A/B and every newly allocated slot non-writable,
+    // forcing the selector to consume the next empty slot in order.
+    Check(std::size(queue_test::context.slots)<=kLifecycleUsesPerCommandList,
+          "one command list can retain every motion slot dependency");
+    queue_test::List busy(f);
+    Check(RecordNrUseLocked(busy.native,queue_test::context,*slot_a),
+          "motion A is recorded before filling capacity");
+    Check(RecordNrUseLocked(busy.native,queue_test::context,*slot_b),
+          "motion B is recorded before filling capacity");
+    std::vector<NrSlot*> occupied{slot_a,slot_b};
+    for(auto &motion:extra_motion) {
+        NrSlot *slot=select(motion->resource);
+        Check(slot!=nullptr && slot!=slot_a && slot!=slot_b,
+              "distinct motion fills a fresh rotating slot");
+        Check(EnsureMotionProxy(f.device,*slot,motion->resource,width,height),
+              "distinct motion descriptor is bound");
+        occupied.push_back(slot);
+        Check(RecordNrUseLocked(busy.native,queue_test::context,*slot),
+              "fresh motion slot is recorded before next selection");
+    }
+    Check(occupied.size()==std::size(queue_test::context.slots),
+          "all eight motion slots are occupied");
+    ID3D12Fence *capacity_gate=f.Fence();
+    Hr(ID3D12CommandQueue_Wait(f.a,capacity_gate,1),"hold all motion slots behind real fence");
+    busy.Close();busy.Submit(f.a);
+    for(auto *slot:occupied)
+        Check(!CanMutateSlotLocked(*slot),"busy motion capacity keeps GPU safety guard active");
+    Check(select(unseen.resource)==nullptr,"busy eight-slot motion capacity rejects ninth binding");
+    Check(!g_lifecycle_tracking_uncertain.load(),"busy motion rejection does not disable GPU safety guard");
+    Hr(ID3D12Fence_Signal(capacity_gate,1),"release all motion slots fence gate");
+    Check(queue_test::context.last_submission_queue!=nullptr &&
+          queue_test::context.completion_fence_value!=0,
+          "busy motion capacity publishes an exact retirement fence");
+    queue_test::Wait(queue_test::context.last_submission_queue->fence,
+                     queue_test::context.completion_fence_value);
+    busy.Detach();
+    ReleaseCom(capacity_gate);
+    queue_test::context.nr_handle=nullptr;
+    for(auto &slot:queue_test::context.slots)DestroySlot(slot);
+    Check(!g_lifecycle_tracking_uncertain.load(),"motion rotation finishes with GPU safety guard active");
+    std::printf("NATIVE_COLOR motion post=%d PASS slots=%u\n",post,static_cast<unsigned>(occupied.size()));
+}
 void Run() {
     ID3D12Debug *debug=nullptr;
     if(SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug,(void**)&debug)))ID3D12Debug_EnableDebugLayer(debug);
@@ -274,6 +430,7 @@ void Run() {
         Check(typed==typeless,"typed28 and native-observed typeless27 have identical final storage");
     }
     RejectionAndReuse(fixture,false);RejectionAndReuse(fixture,true);
+    MotionSlotRotation(fixture,false);MotionSlotRotation(fixture,true);
     ID3D12InfoQueue *messages=nullptr;
     if(SUCCEEDED(ID3D12Device_QueryInterface(fixture.device,IID_ID3D12InfoQueue,(void**)&messages))) {
         for(UINT64 i=0;i<ID3D12InfoQueue_GetNumStoredMessages(messages);++i) {

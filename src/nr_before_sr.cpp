@@ -41,6 +41,7 @@
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
+#include "nr_motion_slot_selection.h"
 #include "nr_rr_depth_projection.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
@@ -70,11 +71,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta-corefix.6";
+constexpr const char *kAddonVersion = "0.4.7beta-corefix.7";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta-corefix.6";
+constexpr const char *kBuildIdentity = "0.4.7beta-corefix.7";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -7481,7 +7482,8 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
                          CodecColorMode pre_sr_color_mode =
                              CodecColorMode::Automatic,
                          int feature_create_flags = 0,
-                         const NrColorSemanticContract* semantic_contract = nullptr) {
+                         const NrColorSemanticContract* semantic_contract = nullptr,
+                         ID3D12Resource *required_motion = nullptr) {
     const auto desc = ID3D12Resource_GetDesc(external);
     const auto current_view = NrResolveColorView(device, external, desc,
         context.feature_generation, post_sr, feature_create_flags, semantic_contract);
@@ -7490,36 +7492,53 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;
     for (auto &slot : context.slots) {
+        if (empty == nullptr && slot.key == nullptr) empty = &slot;
         if (slot.key == external && slot.exposure_source == exposure) {
             if (!(slot.native_format_key == current_view.key) ||
                 (post_sr ? slot.result_srv_format : slot.source_srv_format) != current_view.typed.Format)
                 return nullptr;
             if (post_sr) {
-                const D3D12_RESOURCE_DESC desc =
-                    ID3D12Resource_GetDesc(external);
                 const PostSrStorageContract contract =
                     ClassifyPostSrStorage(current_view.typed.Format,
                                           feature_create_flags, current_view.native_bounded_output);
-                const CodecColorMode current_mode =
-                    PostSrCodecColorMode(contract);
                 if (!SupportsPostSrStorage(device, current_view.typed, contract))
                     return nullptr;
-                if (slot.codec_color_mode != current_mode) {
-                    Log("Post-SR color contract changed on a reused Output: "
-                        "codec mode %u -> %u. The current live color contract "
-                        "replaces the cached shader flag.",
-                        static_cast<unsigned int>(slot.codec_color_mode),
-                        static_cast<unsigned int>(current_mode));
-                    slot.codec_color_mode = current_mode;
-                }
             } else if (slot.codec_color_mode != pre_sr_color_mode) {
                 return nullptr;
             }
-            slot.last_used_serial = serial;
-            NrRecoveryAdoptSlot(slot, recovery_token, post_sr);
-            return &slot;
         }
-        if (empty == nullptr && slot.key == nullptr) empty = &slot;
+    }
+    // A game may rotate Motion allocations while retaining the same Color or
+    // Output. Prefer a complete binding, then a safely writable same-key slot;
+    // a busy mismatched slot must not hide a later usable candidate.
+    NrSlot *selected = nr_motion_slot::SelectExisting(
+        context.slots, std::size(context.slots),
+        [&](const NrSlot &slot) {
+            return slot.key == external && slot.exposure_source == exposure;
+        },
+        [&](const NrSlot &slot) {
+            return required_motion == nullptr ||
+                (slot.motion_source == required_motion && slot.motion_proxy != nullptr);
+        },
+        [&](const NrSlot &slot) { return CanMutateSlotLocked(slot); });
+    if (selected != nullptr) {
+        if (post_sr) {
+            const PostSrStorageContract contract =
+                ClassifyPostSrStorage(current_view.typed.Format,
+                                      feature_create_flags, current_view.native_bounded_output);
+            const CodecColorMode current_mode = PostSrCodecColorMode(contract);
+            if (selected->codec_color_mode != current_mode) {
+                Log("Post-SR color contract changed on a reused Output: "
+                    "codec mode %u -> %u. The current live color contract "
+                    "replaces the cached shader flag.",
+                    static_cast<unsigned int>(selected->codec_color_mode),
+                    static_cast<unsigned int>(current_mode));
+                selected->codec_color_mode = current_mode;
+            }
+        }
+        selected->last_used_serial = serial;
+        NrRecoveryAdoptSlot(*selected, recovery_token, post_sr);
+        return selected;
     }
     if (empty != nullptr) {
         if (!CreateSlot(device, external, context.width, context.height,
@@ -9313,7 +9332,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             ? color_contract.exposure_texture : nullptr;
     NrSlot *slot = FindOrCreateSlot(
         *context, device, color, false, exposure_source, pre_sr_color_mode,
-        feature.create_flags, &semantic_contract);
+        feature.create_flags, &semantic_contract,
+        guides.signature.resample_motion ? guides.motion : nullptr);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
@@ -9911,7 +9931,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ? color_contract.exposure_texture : nullptr;
     NrSlot *slot = FindOrCreateSlot(
         *context, device, output, true, exposure_source,
-        CodecColorMode::Automatic, feature.create_flags, &semantic_contract);
+        CodecColorMode::Automatic, feature.create_flags, &semantic_contract,
+        guides.signature.resample_motion ? guides.motion : nullptr);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
@@ -13579,13 +13600,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta-corefix.6 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain 0.4.7beta-corefix.7 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-corefix.6 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-corefix.7 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

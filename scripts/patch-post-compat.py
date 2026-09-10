@@ -172,6 +172,8 @@ def patch_core(text: str) -> str:
         ReleaseCom(device); return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);''')
+        if s.count('guides.signature.resample_motion ? guides.motion : nullptr') != 1:
+            raise ValueError('post slot selector must receive the required Motion binding')
         s=once(s,'    substitution.height = height;',
             '    substitution.height = height;\n    substitution.work_width = work_width;\n    substitution.work_height = work_height;')
         return s

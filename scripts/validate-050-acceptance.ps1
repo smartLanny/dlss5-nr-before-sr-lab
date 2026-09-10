@@ -50,8 +50,11 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.6') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.7') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
+    & python -m unittest tests.test_motion_slot_selection -v
+    if ($LASTEXITCODE) { throw 'Motion binding slot selection CPU regression failed.' }
+    $Checks.Add('production motion slot selection and old-first-match negative control CPU')
     foreach ($Pair in @(@('validate-resource-semantics.py','resource-semantics'), @('validate-resource-recovery.py','resource-recovery'), @('validate-native-format-observer.py','native-format-observer'))) {
         & python (Join-Path $PSScriptRoot $Pair[0]) --source-root (Join-Path $Stage 'core') --compiler $Compiler --output (Join-Path $Output $Pair[1])
         if ($LASTEXITCODE) { throw "Resource contract gate failed: $($Pair[0])" }
@@ -192,6 +195,7 @@ try {
         & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'native-color-view-warp')
         if ($LASTEXITCODE) { throw 'Actual typed native color view WARP gate failed.' }
         $Checks.Add('production typed native color admission descriptors and storage WARP')
+        $Checks.Add('production PRE POST rotating motion slots exact fence and descriptor readback WARP')
         & python (Join-Path $PSScriptRoot 'validate-store-quantization.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'stored-quantization-warp')
         if ($LASTEXITCODE) { throw 'Actual storage quantization WARP gate failed.' }
         $Checks.Add('production PRE POST actual storage quantization and wrong-target WARP')
@@ -225,12 +229,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.6*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.6 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.7*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.7 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 4 -or $Version.FileBuildPart -ne 7 -or $Version.FilePrivatePart -ne 11) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 4 -or $Version.FileBuildPart -ne 7 -or $Version.FilePrivatePart -ne 12) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

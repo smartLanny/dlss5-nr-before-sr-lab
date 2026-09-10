@@ -73,6 +73,10 @@ PostSrSubstitution PrepareAfterSr() {
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 1, width, height,
         post_sr_color_mode);
+    NrSlot *slot = FindOrCreateSlot(
+        *context, device, output, true, exposure_source,
+        CodecColorMode::Automatic, feature.create_flags, &semantic_contract,
+        guides.signature.resample_motion ? guides.motion : nullptr);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     substitution.height = height;
     return substitution;
@@ -164,6 +168,7 @@ class SourcePatch(unittest.TestCase):
         self.assertEqual(out.count('float4 LoadPostArea'),1)
         self.assertIn('SampleProxyStoredV2',out)
         self.assertIn('NrCanReadMotion(device,motion_desc)',out)
+        self.assertIn('guides.signature.resample_motion ? guides.motion : nullptr',out)
     def test_duplicate_or_drift_refused(self):
         out=m.patch_core(FIXTURE)
         with self.assertRaises(ValueError):m.patch_core(out)
