@@ -106,11 +106,12 @@ try {
     $Checks.Add('actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU')
     & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output 'full-feedback-timing')
     if ($LASTEXITCODE) { throw 'Full assembled Core timing/probe F8 writer gate failed.' }
-    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve')) {
+    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption')) {
         & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output "full-feedback-$Control") --negative-control $Control
         if ($LASTEXITCODE) { throw "Full Core F8 negative control failed: $Control" }
     }
     $Checks.Add('full assembled Core timing probe phases reserved tails and negative controls CPU')
+    $Checks.Add('final F8 typed timing numbers privacy disk output and actual summary CPU')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
@@ -178,6 +179,7 @@ try {
         $Checks.Add('production bounded submitted-retirement and output binding WARP')
         $Checks.Add('production post-store readback with unused-target negative control WARP')
         $Checks.Add('production ordinary paused sampling equivalence and late-readback phase WARP')
+        $Checks.Add('production output-state-only barriers without diagnostic dispatch or readback WARP')
         $Checks.Add('production read-only post-boundary callbacks and identity isolation CPU')
         & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
         $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')

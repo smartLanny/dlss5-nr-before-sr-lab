@@ -91,6 +91,8 @@ def package(build: Path, output: Path) -> dict:
                 'exact submitted fence event wait and scoped CPU timing',
                 'actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU',
                 'full assembled Core timing probe phases reserved tails and negative controls CPU',
+                'final F8 typed timing numbers privacy disk output and actual summary CPU',
+                'production output-state-only barriers without diagnostic dispatch or readback WARP',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',

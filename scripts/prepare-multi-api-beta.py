@@ -54,7 +54,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44',
     'src/nr_feedback_capture.inl': 'd8e6c4a737f623d554d1efc5d1f38425460491ff',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '7f4df8fc074a25d64c59321c0642bfa111181614',
+    'src/nr_settings_ui.inl': '8a0776341fbbb9cbdc3be52e2be752800223cb11',
     'src/nr_before_sr.cpp': 'e5966720df9952f3484e9a30df6e1a20571845fc',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
@@ -208,7 +208,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.7.7',
+        'core_pe_version': '0.4.7.8',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
