@@ -11,8 +11,8 @@ function installHoYoMock() {
     installation: { installed: false, ready: false, needsRecovery: false, error: null }, phase: 'binding', nextAction: 'bind', session: null,
     verification: { helper: { state: 'unverified' }, reshade: { state: 'unverified' }, core: { state: 'unverified' }, nr: { state: 'unverified' } }, error: null, busy: false } };
   const api = window.manager;
-  api.hoyoDiscover = async () => { mock.calls.push(['discover']); return ok({ games: [mock.flow], launchers, warnings: [] }); };
-  api.hoyoInspect = async (id, options) => { mock.calls.push(['inspect', id, clone(options)]); return ok(mock.flow); };
+  api.hoyoDiscover = async () => { mock.calls.push(['discover']); return ok({ games: [mock.flow, ...(mock.extraFlow ? [mock.extraFlow] : [])], launchers, warnings: [] }); };
+  api.hoyoInspect = async (id, options) => { mock.calls.push(['inspect', id, clone(options)]); return ok(id === mock.extraFlow?.id ? mock.extraFlow : mock.flow); };
   api.hoyoPickGame = async () => { mock.calls.push(['pick-game']); return ok({ cancelled: true }); };
   api.hoyoPickLauncher = async id => { mock.calls.push(['pick-launcher', id]); mock.flow.binding.launcher = launchers[0]; return ok(mock.flow); };
   api.hoyoBind = async (id, value) => {
@@ -39,22 +39,24 @@ function installHoYoMock() {
     mock.flow.phase = 'ready'; mock.flow.nextAction = 'start'; mock.flow.installation.ready = true; return ok(mock.flow); };
 }
 
-async function smokeHoYo() {
+async function smokeHoYo(options = {}) {
   const mock = window.__hoyoMock, gp = window.__gpMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   let assertions = 0;
   const assert = (value, message) => { assertions++; if (!value) throw Error(message); };
   const until = async (predicate, label, timeout = 6500) => { const start = performance.now(); while (performance.now() - start < timeout) { if (predicate()) return; await delay(20); } throw Error('HoYo UI timeout: ' + label); };
   const host = () => document.getElementById('hoyoWorkspace'), button = action => host().querySelector(`[data-hoyo-action="${action}"]`);
-  const click = action => { const node = button(action); assert(node && !node.disabled, 'available HoYo action ' + action);
+  const click = action => { if (!button(action)) host().querySelector('[data-gp-tab="maintenance"]')?.click(); const node = button(action); assert(node && !node.disabled, 'available HoYo action ' + action);
     const details = node.closest('details'); if (details && !details.open) details.querySelector('summary').click(); node.click(); };
   const field = key => host().querySelector(`[data-hoyo-field="${key}"]`);
   const set = (key, value) => { assert(field(key) && !field(key).disabled, 'available HoYo field ' + key); field(key).value = value; field(key).dispatchEvent(new Event('change', { bubbles: true })); };
-  const primary = () => host().querySelectorAll('.hoyo-current .hoyo-primary-actions .primary');
+  const primary = () => host().querySelectorAll('.game-card .primary');
   const count = name => mock.calls.filter(row => row[0] === name).length;
   await until(() => document.querySelector('.game-card'), 'library ready');
   assert(!document.querySelector('.game-card[data-id="fixture-hoyo"]'), 'managed HoYo clients are excluded from ordinary games');
   document.querySelector('[data-view="hoyo"]').click(); await until(() => button('bind'), 'discovery and binding');
   assert(document.getElementById('pageTitle').textContent === '米哈游游戏' && primary().length === 1 && button('bind').disabled, 'separate view exposes only the unresolved binding step');
+  assert(host().querySelector('.game-list .game-card.expanded .game-card-head .game-meta') && host().querySelector('.game-detail.gp-inline .gp-apply-bar') && !host().querySelector('.hoyo-workspace,.hoyo-clients,.hoyo-settings-modal'), 'HoYo reuses the library card and inline operation layout without a second master-detail UI');
+  assert(getComputedStyle(document.querySelector('.nav-icon-hoyo')).getPropertyValue('--nav-icon').includes('hoyo-crown.svg'), 'the independent navigation uses the crown and star line icon');
   set('launcherId', 'launcher-two'); set('channel', 'global'); click('bind'); await until(() => field('api'), 'API confirmation');
   assert(mock.calls.find(row => row[0] === 'bind')[2].launcherId === 'launcher-two' && mock.flow.binding.launcher.kind === 'starward', 'the exact chosen launcher remains bound');
   assert(button('bind').disabled, 'ambiguous API is not silently defaulted'); set('api', 'dx11'); click('bind'); await until(() => button('preview-install'), 'install step');
@@ -66,7 +68,7 @@ async function smokeHoYo() {
   assert(count('apply') === 0 && host().querySelector('.hoyo-plan-message')?.hidden === false, 'a requested protection acknowledgement must be checked before Apply');
   host().querySelector('[data-hoyo-consent]').checked = true;
   let releaseInstall; mock.applyGate = new Promise(resolve => { releaseInstall = resolve; }); click('apply');
-  assert(button('working')?.disabled && button('working').textContent === '正在应用安装…' && host().querySelector('.hoyo-next-step h3').textContent === '正在应用安装…', 'a pending installation replaces the old step and button with its actual operation');
+  assert(button('working')?.disabled && button('working').textContent === '正在应用安装…' && host().querySelector('.hoyo-next-step strong').textContent === '正在应用安装…', 'a pending installation replaces the old step and button with its actual operation');
   await delay(60); assert(!button('start') && primary().length === 1 && host().querySelector('.hoyo-next-step').textContent.includes('本次操作正在执行'), 'pending install keeps one disabled operation until its promise settles');
   releaseInstall(); mock.applyGate = null;
   await until(() => button('start') && !button('start').disabled, 'ready after explicit apply');
@@ -81,10 +83,17 @@ async function smokeHoYo() {
   await until(() => button('start') && !button('start').disabled, 'changed route explicitly applied');
   assert(mock.flow.api.api === 'dx12' && count('apply') === 2 && mock.flow.binding.launcher.id === 'launcher-two', 'explicit route application restores start while preserving the launcher binding');
   const staticReads = count('inspect'); await delay(2200); assert(count('inspect') === staticReads, 'a ready static page does not poll');
-  click('settings'); await until(() => host().querySelector('.hoyo-settings-host [data-gp-field="Intensity"]:not([disabled])'), 'independent NR settings');
+  await until(() => host().querySelector('.hoyo-settings-host [data-gp-field="Intensity"]:not([disabled])'), 'inline NR settings');
   const settings = () => host().querySelector('.hoyo-settings-host'), gpButton = action => settings().querySelector(`[data-gp-action="${action}"]`);
   assert(settings().querySelectorAll('[role="tab"]').length === 2 && !gpButton('launch') && !gpButton('prepare') && !settings().querySelector('[data-gp-field="loadingBackend"]'), 'HoYo settings show NR and hotkeys without another installer or launch action');
+  assert(settings().closest('.game-detail.gp-inline') && !settings().closest('.gp-modal') && button('start').closest('.game-card-head') && button('start').getBoundingClientRect().top < settings().getBoundingClientRect().top, 'the common editor expands in the card with launch above the draft actions');
+  assert([...settings().querySelectorAll('[role="tab"]')].map(row => row.textContent).join('|') === '安装与画面|高级与维护', 'the supported tabs use the ordinary page vocabulary');
   const input = settings().querySelector('[data-gp-field="Intensity"]'); input.value = '0.75'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  assert(button('start').disabled && !button('start').classList.contains('primary') && primary().length === 1 && primary()[0] === gpButton('preview'), 'a dirty inline editor owns the only primary action and disables the header launch');
+  assert(host().querySelector('.game-card.expanded [data-hoyo-status]').textContent === '有修改待应用', 'a pending draft cannot keep claiming that the client can launch');
+  host().querySelector('[data-hoyo-toggle]').click(); assert(!settings() && button('start').disabled, 'collapsing keeps a draft and cannot enable launch');
+  host().querySelector('[data-hoyo-toggle]').click();
+  assert(settings().querySelector('[data-gp-field="Intensity"]').value === '0.75' && gpButton('preview'), 'expanding reuses the common editor and preserves its draft');
   gpButton('preview').click(); await until(() => gpButton('modal-apply'), 'NR operation preview');
   assert(gpButton('apply-elevated') && settings().querySelectorAll('.gp-modal .gp-modal-actions .primary').length === 1, 'NR preview retains one primary Apply and the existing protected-directory recovery route');
   assert(gp.plan.request.nr.Intensity === .75 && !gp.plan.request.route && !gp.plan.request.version, 'NR edits use the existing scoped operation transaction');
@@ -92,7 +101,8 @@ async function smokeHoYo() {
   assert(gp.assessments['fixture-hoyo'].nr.Intensity === .75, 'the current HoYo profile receives the new NR value');
   settings().querySelector('[data-gp-tab="maintenance"]').click(); await until(() => gpButton('capture-hotkey'), 'HoYo hotkeys');
   assert(settings().textContent.includes('恢复默认 Home'), 'HoYo keeps the same new Home default'); gpButton('back').click();
-  assert(!host().querySelector('.hoyo-settings-modal') && button('start'), 'closing settings stays on the independent client page');
+  assert(!host().querySelector('.game-card.expanded') && button('start'), 'the common editor back action collapses the original card');
+  host().querySelector('[data-hoyo-toggle]').click();
   mock.flow.phase = 'recovery'; mock.flow.nextAction = 'recover'; mock.flow.error = { code: 'FIXTURE', message: '待恢复的安装错误' };
   mock.flow.installation.needsRecovery = true; mock.flow.installation.ready = false; click('inspect'); await until(() => button('recover'), 'recovery priority');
   assert(!button('start') && primary().length === 1, 'an error cannot hide the recovery action or expose start'); click('recover'); await until(() => button('start'), 'recovered');
@@ -112,10 +122,25 @@ async function smokeHoYo() {
   mock.flow.error = null; click('inspect'); await until(() => button('start'), 'ready after recheck');
   click('preview-restore'); await until(() => button('apply'), 'restore preview'); host().querySelector('[data-hoyo-consent]').checked = true;
   let releaseRestore; mock.applyGate = new Promise(resolve => { releaseRestore = resolve; }); click('apply');
-  assert(host().querySelector('.hoyo-next-step h3').textContent === '正在卸载并恢复…' && button('working')?.disabled && !button('start'), 'a pending restore cannot continue showing the old ready title or start button');
-  await delay(60); assert(host().querySelector('.hoyo-client.selected span').textContent === '正在卸载并恢复…' && primary().length === 1, 'both selected-client status and the single main action stay busy until restore completes');
+  assert(host().querySelector('.hoyo-next-step strong').textContent === '正在卸载并恢复…' && button('working')?.disabled && !button('start'), 'a pending restore cannot continue showing the old ready title or start button');
+  await delay(60); assert(host().querySelector('.game-card.expanded [data-hoyo-status]').textContent === '正在卸载并恢复…' && primary().length === 1, 'both selected-client status and the single main action stay busy until restore completes');
   releaseRestore(); mock.applyGate = null; await until(() => button('preview-install') && !button('working'), 'restore completion reveals the next actual state');
-  assert(host().querySelector('.hoyo-next-step h3').textContent === '准备独立画面增强' && !button('start'), 'completed restore shows the returned uninstalled state instead of premature readiness');
+  assert(host().querySelector('.hoyo-next-step strong').textContent === '准备独立画面增强' && !button('start'), 'completed restore shows the returned uninstalled state instead of premature readiness');
+  mock.extraFlow = { ...structuredClone(mock.flow), id: 'client-two', gameId: 'fixture-hoyo-second', family: 'genshin', name: '原神', channel: 'cn', channelLabel: '国服', exePath: 'C:\\UI-fixture\\Genshin Impact\\YuanShen.exe', gameVersion: '6.0.0',
+    binding: { ...structuredClone(mock.flow.binding), status: 'automatic' } };
+  click('discover'); await until(() => host().querySelectorAll('.game-card').length === 2 && !button('working'), 'second automatic client');
+  host().querySelector('[data-hoyo-toggle="client-two"]').click(); await until(() => host().querySelector('.game-card.expanded')?.dataset.hoyoCard === 'client-two' && !button('working'), 'switch automatic client');
+  assert(button('preview-install') && !button('bind') && !field('launcherId'), 'an automatically bound client opens directly at the existing installation preview');
+  assert(host().querySelectorAll('.game-card.expanded').length === 1 && host().querySelectorAll('.hoyo-current').length === 1, 'the library expands only the selected client');
+  host().querySelector('[data-hoyo-toggle="client-one"]').click(); await until(() => host().querySelector('.game-card.expanded')?.dataset.hoyoCard === 'client-one' && !button('working'), 'return to first client');
+  assert(!document.querySelector('#gameList [data-id="fixture-hoyo"]'), 'ordinary games remain separate after shared-card rendering and client switches');
+  if (options.hoyoCapture) {
+    mock.flow.phase = 'ready'; mock.flow.nextAction = 'start'; mock.flow.installation.installed = mock.flow.installation.ready = gp.assessments['fixture-hoyo'].game.installed = true;
+    click('inspect'); await until(() => settings()?.querySelector('[data-gp-field="Intensity"]:not([disabled])'), 'capture ready inline editor');
+    if (options.dirty) { const input = settings().querySelector('[data-gp-field="Intensity"]'); input.value = '0.95'; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    for (const node of host().querySelectorAll('[data-hoyo-detail]')) node.open = false;
+  }
+  assert(host().scrollWidth <= host().clientWidth + 1, 'the shared card layout has no horizontal overflow');
   document.getElementById('view-hoyo').scrollTop = 0;
   return { scope: 'production renderer with deterministic HoYo IPC boundary fixture', assertions, discovered: count('discover'), bound: count('bind'), previews: count('preview'), applies: count('apply'), starts: count('start'), independentVerification: true, onePrimaryAction: true };
 }

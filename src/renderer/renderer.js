@@ -857,7 +857,7 @@ function bindGameCards() {
       host.querySelector('select, button')?.focus({ preventScroll: true });
     };
   });
-  document.querySelectorAll('.game-card').forEach(card => {
+  document.querySelectorAll('#gameList .game-card').forEach(card => {
     const id = card.dataset.id;
     const game = state.games.find(row => row.id === id);
     if (typeof window.manager.assessGame === 'function') {
@@ -1452,7 +1452,7 @@ function switchView(view) {
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));
   const titles = {
     games: ['我的游戏', '选择游戏，确认兼容性后安装'],
-    hoyo: ['米哈游游戏', '绑定正式客户端，按当前步骤准备独立画面增强'],
+    hoyo: ['米哈游游戏', '选择游戏，确认启动器后安装与设置'],
     repair: ['问题修复', '检查组件完整性，并安全恢复缺失文件'],
     settings: ['设置', '只保留真正会影响使用的选项'],
     addons: ['组件管理', '准备安装来源，按游戏应用与回退核心']

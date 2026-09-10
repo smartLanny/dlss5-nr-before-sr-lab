@@ -256,7 +256,7 @@ test('collapsed Vulkan install passes the exact package ID and maintenance opens
   const calls = [], head = {}, install = {}, repair = {};
   const game = { id: 'vk-game', chosen: { apiResolution: { api: 'vulkan' } }, vulkan: { packageId: 'nr-vulkan-e7df0fc', available: true } };
   const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.maintenance-inline-btn': repair })[selector] || null };
-  const context = uiContext(); Object.assign(context, { document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
+  const context = uiContext(); Object.assign(context, { document: { querySelectorAll: selector => selector === '#gameList .game-card' ? [card] : [] },
     window: { manager: { prepareGame: (...args) => { calls.push(['prepare', ...args]); return { ok: true, value: {} }; } } },
     setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), openMaintenance: id => calls.push(['maintenance', id]), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} });
   context.state.games = [game]; context.state.installing = new Set();

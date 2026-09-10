@@ -99,7 +99,7 @@
     }
     function feature(domain) { return data?.enhancements?.featureStates?.[domain] || { eligible: false, blockers: [{ message: '尚未确认此功能的支持条件。' }] }; }
     function head() {
-      const tabs = options.hoyoSettingsOnly ? [['overview', '画面增强'], ['maintenance', '面板快捷键']] : [['overview', '安装与画面'], ['enhance', '超分与补帧'], ['maintenance', '高级与维护']];
+      const tabs = options.hoyoSettingsOnly ? [['overview', '安装与画面'], ['maintenance', '高级与维护']] : [['overview', '安装与画面'], ['enhance', '超分与补帧'], ['maintenance', '高级与维护']];
       return `<div class="detail-tabs gp-tabs" role="tablist" aria-label="游戏设置">${tabs.map(([key, label]) => `<button class="detail-tab" type="button" role="tab" data-detail-tab="${DETAIL_TAB[key]}" data-gp-tab="${key}" aria-selected="${tab === key}" tabindex="${tab === key ? 0 : -1}">${label}</button>`).join('')}</div>`;
     }
     function diagnosticsContent() {
@@ -204,7 +204,7 @@
         launcher: { kind: current.launcher?.kind || 'hoyoplay', path: current.launcher?.path || '' } };
     }
     function advanced() {
-      if (options.hoyoSettingsOnly) return hotkeySection();
+      if (options.hoyoSettingsOnly) return hotkeySection() + (options.maintenanceContent?.() || '');
       const layout = data.layout || {}, special = specialRoute(), mode = deploymentMode(), hoyo = selected('loadingBackend', layout.loadingBackend || 'local') === 'hoyoshade';
       const bridges = data.componentChoices?.bridges || [], bridge = draft.components?.bridge || data.componentChoices?.selected?.bridge;
       return `<section class="gp-section"><h3>加载与启动</h3><div class="gp-controls">

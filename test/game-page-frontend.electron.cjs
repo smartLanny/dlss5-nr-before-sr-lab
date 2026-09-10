@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
     await win.loadFile(path.resolve(__dirname, '../src/renderer/index.html'));
     const selectedTab = process.env.GAME_UI_TAB || 'overview';
     if (!['overview', 'enhance', 'maintenance'].includes(selectedTab)) throw Error('Unknown screenshot tab');
-    const result = await win.webContents.executeJavaScript(`(${(versionMode ? smokeVersionContract : hoyoMode ? smokeHoYo : captureOnly ? captureBaseline : smoke).toString()})(${JSON.stringify({ tab: selectedTab, diagnostics: process.env.GAME_UI_DIAGNOSTICS === '1', dirty: process.env.GAME_UI_DIRTY === '1' })})`);
+    const result = await win.webContents.executeJavaScript(`(${(versionMode ? smokeVersionContract : hoyoMode ? smokeHoYo : captureOnly ? captureBaseline : smoke).toString()})(${JSON.stringify({ tab: selectedTab, diagnostics: process.env.GAME_UI_DIAGNOSTICS === '1', dirty: process.env.GAME_UI_DIRTY === '1', hoyoCapture: process.env.GAME_UI_HOYO_CAPTURE === '1' })})`);
     if (!captureOnly && process.env.GAME_UI_TAB) {
       const selected = process.env.GAME_UI_TAB; if (!['overview', 'enhance', 'maintenance'].includes(selected)) throw Error('Unknown screenshot tab');
       await win.webContents.executeJavaScript(`document.querySelector('.game-card.expanded [data-gp-tab="${selected}"]').click()`);
