@@ -37,7 +37,97 @@ inline std::string Lower(std::string value) {
 }
 inline bool Hex(char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }
 inline bool Word(char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
-inline std::string RedactSensitiveLine(std::string line) {
+inline bool CanonicalUnsigned(std::string_view value, std::uint64_t *parsed = nullptr) {
+    if (value.empty() || value.size() > 20 || (value.size() > 1 && value.front() == '0')) return false;
+    std::uint64_t number = 0;
+    for (const char c : value) {
+        if (c < '0' || c > '9') return false;
+        const auto digit = static_cast<unsigned>(c - '0');
+        if (number > (UINT64_MAX - digit) / 10) return false;
+        number = number * 10 + digit;
+    }
+    if (parsed) *parsed = number;
+    return true;
+}
+inline bool TimingStageKey(std::string_view key) {
+    for (const auto stage : {"carrier", "chain-lock", "queue-lock", "submitted-fence-wait",
+            "readback-map-copy", "nr-evaluate", "native-evaluate", "native-execute", "retirement-signal"})
+        if (key == stage) return true;
+    return false;
+}
+inline bool TimingMetadataNumber(std::string_view line, std::size_t begin, std::size_t end) {
+    // Only the typed measurement/counter fields written by FeedbackAppendTiming
+    // may exempt a decimal token from the address heuristic. Object identities,
+    // arbitrary timing text, unknown keys and raw log lines keep that heuristic.
+    if (begin >= end || end > line.size() || !CanonicalUnsigned(line.substr(begin, end - begin))) return false;
+    const auto equal = line.find('=');
+    if (equal == std::string_view::npos || begin <= equal) return false;
+    auto key = line.substr(0, equal);
+    if (key.substr(0, 13) == "start.timing.") key.remove_prefix(13);
+    else if (key.substr(0, 11) == "end.timing.") key.remove_prefix(11);
+    else return false;
+    for (const auto scalar : {"epoch", "probePhase", "waitPhase", "qpcFrequency", "observed",
+            "excludedOldEpoch", "recentOverwritten", "epochStartedTicks", "capturedTicks",
+            "scopedRecords", "unscopedRecords", "routeUnknownRecords"}) {
+        if (key == scalar) return begin == equal + 1 && end == line.size();
+    }
+    const bool stage = TimingStageKey(key);
+    bool recent = false;
+    if (key.substr(0, 7) == "recent.") {
+        std::uint64_t index = 0;
+        recent = CanonicalUnsigned(key.substr(7), &index) && index < 16;
+    }
+    if (!stage && !recent) return false;
+    const auto body = line.substr(equal + 1);
+    if (recent) {
+        const auto comma = body.find(',');
+        if (body.substr(0, 6) != "stage:" || comma == std::string_view::npos ||
+            !TimingStageKey(body.substr(6, comma - 6))) return false;
+    }
+    // Histogram numbers are a typed twelve-element tail, not arbitrary text
+    // after a "histogram" substring. Reject malformed/extra/overflow elements.
+    if (stage) {
+        const auto histogram = body.find(",histogram:");
+        if (histogram != std::string_view::npos && begin >= equal + 1 + histogram + 11) {
+            std::size_t at = equal + 1 + histogram + 11;
+            unsigned count = 0;
+            bool found = false;
+            while (at < line.size()) {
+                auto next = line.find(',', at);
+                if (next == std::string_view::npos) next = line.size();
+                if (!CanonicalUnsigned(line.substr(at, next - at))) return false;
+                found = found || (at == begin && next == end);
+                if (++count > 12) return false;
+                if (next == line.size()) return found && count == 12;
+                at = next + 1;
+            }
+            return false;
+        }
+    }
+    const auto comma = line.rfind(',', begin - 1);
+    const auto field_begin = comma == std::string_view::npos || comma < equal ? equal + 1 : comma + 1;
+    const auto colon = line.find(':', field_begin);
+    auto field_end = line.find(',', field_begin);
+    if (field_end == std::string_view::npos) field_end = line.size();
+    if (colon == std::string_view::npos || begin != colon + 1 || end != field_end) return false;
+    const auto field = line.substr(field_begin, colon - field_begin);
+    bool allowed = false;
+    if (stage) allowed = field == "count" || field == "measured" || field == "totalTicks" || field == "maxTicks";
+    else allowed = field == "sequence" || field == "epoch" || field == "startedTicks" || field == "durationTicks";
+    if (!allowed) return false;
+    // A second occurrence is malformed schema, even if it has a trusted name.
+    unsigned matches = 0;
+    for (std::size_t at = equal + 1; at < line.size();) {
+        const auto next = line.find(',', at);
+        const auto finish = next == std::string_view::npos ? line.size() : next;
+        if (finish - at > field.size() && line.substr(at, field.size()) == field && line[at + field.size()] == ':')
+            ++matches;
+        if (next == std::string_view::npos) break;
+        at = next + 1;
+    }
+    return matches == 1;
+}
+inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
         if (lower.find(secret) != std::string::npos) return "[sensitive log line omitted]";
@@ -65,6 +155,7 @@ inline std::string RedactSensitiveLine(std::string line) {
         while (end < line.size() && Hex(line[end])) ++end;
         const auto n = end - begin;
         if (n >= 12 && n <= 16 && (end == line.size() || !Word(line[end]))) {
+            if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;
     }
@@ -95,8 +186,8 @@ inline std::string Sanitize(std::string_view input) {
 }
 inline std::string SanitizeMetadata(std::string_view input) {
     // Metadata writers supply complete lines. Preserve valid UTF-8 scalars,
-    // normalize controls/invalid input, then apply exactly the same privacy
-    // redaction as logs. A byte limit must never split a UTF-8 character.
+    // normalize controls/invalid input, then apply the log privacy rules with
+    // exact typed timing-number exceptions. Never split a UTF-8 character.
     constexpr std::string_view marker = "[truncated]";
     constexpr std::size_t payload = kLineLimit - marker.size();
     std::string line;
@@ -126,7 +217,7 @@ inline std::string SanitizeMetadata(std::string_view input) {
         else line.append(input.data() + offset, width);
         offset += width ? width : 1;
     }
-    line = RedactSensitiveLine(std::move(line));
+    line = RedactSensitiveLine(std::move(line), true);
     // Replacing very short repeated paths with a fixed privacy marker may grow
     // the line. Preserve the same bound after redaction as well.
     if (line.size() > kLineLimit) {
