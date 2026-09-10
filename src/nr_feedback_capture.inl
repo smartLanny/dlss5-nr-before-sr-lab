@@ -142,6 +142,16 @@ void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
 #endif
 }
 
+#if defined(NR_HAS_NATIVE_CLEAR_REQUEST)
+void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
+    const auto gate=SnapshotNrNativeClearGate();
+    FeedbackAppend(s,"%s.format.output.freshGate=required:%d,evaluated:%d,accepted:%d,currentScope:%d,sameKey:%d,"
+        "config:%llu,feature:%llu,deviceId:%llu,resourceId:%llu,preparedCall:%llu,currentCall:%llu,requestCall:%llu,reason:%s\n",
+        prefix,gate.required,gate.evaluated,gate.accepted,gate.current_scope,gate.same_key,
+        gate.config,gate.key.feature,gate.key.device,gate.key.resource,
+        gate.prepared_call,gate.current_call,gate.request_call,gate.reason);
+}
+#endif
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     const auto decision = SnapshotNrCompatibilityVerdict();
     FeedbackAppendCompatibilityVerdict(s, prefix, decision);
@@ -226,6 +236,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         exposure_semantic.semantic.missing_evidence, exposure_semantic.semantic.next_action);
 #endif
 #if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
+    FeedbackAppendNativeClearGate(s,prefix);
     const auto formats = SnapshotNrFormatDiagnostics();
     for (unsigned role = 0; role != 2; ++role) {
         for (unsigned first = 0; first != 2; ++first) {
@@ -267,7 +278,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             }
         }
     }
-    FeedbackAppend(s, "%s.format.coverage=admission: synchronous CreateView or current-call-gated NativeClearCpuRequest; "
+    FeedbackAppend(s, "%s.format.coverage=cpuClearSource is a preparation candidate; freshGate is the exact-call result, currentScope marks current native/config match; "
+        "admission: synchronous CreateView or current-call-gated NativeClearCpuRequest; "
         "CPU request is not GPU descriptor proof; worker-thread requests unobserved; "
         "viewReady is not color/NR/game admission; provenance=0:none,1:typed,2:native-view,3:float-contract\n", prefix);
 #endif

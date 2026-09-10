@@ -41,6 +41,12 @@ struct Receipt {
     }
 };
 struct Invocation { Id call=0; Receipt request; };
+struct FreshGate {
+    nr_native_format::Key key;
+    Id config=0,prepared_call=0,current_call=0,request_call=0;
+    bool required=false,evaluated=false,accepted=false,same_key=false,current_scope=false;
+    const char* reason="not-observed";
+};
 template<unsigned Capacity=256> class Ledger {
     std::array<Receipt,Capacity> entries{};
     unsigned next=0;

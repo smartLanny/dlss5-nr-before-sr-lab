@@ -26,8 +26,8 @@ STATE_CURRENT = 'f7af44852dd6c2b39da215b027eaf3f524e06024'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_native_clear_request_runtime.inl': 'ae6c38de5c23bdbabdfeed18d270b3421aac259e',
-    'src/nr_native_clear_request.h': 'ee96a22fdeea549ddeb0a90d63b17e5cc8ed547b',
+    'src/nr_native_clear_request_runtime.inl': 'ebc1c5bba5958e05925999d69c65315be9727d20',
+    'src/nr_native_clear_request.h': 'f9ba6749c95c1fcfc0e0bfd2b4cf0dd208d8cba8',
     'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
@@ -54,10 +54,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': 'f7af44852dd6c2b39da215b027eaf3f524e06024',
-    'src/nr_feedback_capture.inl': 'fe5e4950e50dd4ad46cd56089b714054723c3e88',
+    'src/nr_feedback_capture.inl': '537be0580db45bd262aa4a01aa2e009b5bf54bf0',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '635c88603b97a0f5b9ab69501146d3971972d3d1',
-    'src/nr_before_sr.cpp': 'f6c81c2ce348335d86cb9ff43d13e585cc3e25f6',
+    'src/nr_before_sr.cpp': '739eedf8ba060de79ddefb0031fde8a9ac67f412',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'src/nr_before_sr.rc': '07e5d60947f02e43ee8e193b20863486f15529b8',
@@ -83,7 +83,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
     'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
-    'src/nr_native_format_runtime.inl': 'd174155ec81cfe4f08e496dd656a7dc5dc1fc97c',
+    'src/nr_native_format_runtime.inl': '9eeb11e1d317358c846e9b721bf42da96113d4f6',
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
     'src/nr_post_boundary_native.inl': '2c44059549d6ef78476f1b98432b4f42dea1dd0a',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',

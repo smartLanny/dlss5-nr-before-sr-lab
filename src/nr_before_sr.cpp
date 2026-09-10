@@ -11180,7 +11180,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         before_state.command_list,boundary_coverage);
 #endif
     NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation,
-        &after_sr.current_clear_request);
+        &after_sr.current_clear_request, &after_sr.prepared_clear_request);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     after_sr.native_boundary=native_output_trace.Finish();
 #endif
