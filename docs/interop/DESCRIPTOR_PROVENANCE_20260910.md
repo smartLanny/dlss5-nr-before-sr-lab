@@ -1,5 +1,12 @@
 # Bounded descriptor provenance and explicit native use
 
+Final canonical validation on source `462e61d7617b2f8d15b6e35587d87cfe17275bca`
+passed 560 registry CPU checks and 235 full-Core WARP checks, including actual
+resource destruction invalidating the route without a subsequent Evaluate.
+The complete candidate passed 71 local acceptance gates. The earlier overlay
+results below remain component evidence; see the [final handoff](COREFIX3_COMPARISON_20260910.md)
+for source identity, full F8 validation and game-verification limits.
+
 This change adds read-only evidence for cached D3D12 descriptors. It does not
 promote cached views into the native format admission ledger, choose UNORM from
 hardware support, alter selected typed formats, change resource states, or grant
