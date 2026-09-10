@@ -29,6 +29,10 @@ struct Event {
     std::uint64_t before=0,after=0,sync_before=0,sync_after=0,access_before=0,access_after=0;
     std::uint32_t subresources[6]={}; // Legacy: [0] subresource. Enhanced: exact six-field range.
     std::uint32_t flags=0;
+    std::uint64_t descriptor_resource=0,descriptor_revision=0;
+    std::uint32_t descriptor_format=0,clear_rect_count=0,clear_kind=0;
+    std::int32_t clear_bounds[4]={}; // Multiple rectangles: envelope, not their exact union.
+    std::uint32_t submission_index=0,submission_count=0;
     Kind kind=Kind::Opaque;
     Source source=Source::Native;
     bool reads=false,writes=false,target_known=false,submitted=false;
@@ -40,6 +44,7 @@ struct Native {
     std::uint32_t first_before=0,last_after=0;
     std::uint32_t exact_matches=0,exact_other_lists=0,exact_global=0,unknown_operations=0,coverage=0;
     std::uint32_t count=0,dropped=0;
+    std::uint32_t other_rtv_binds=0,other_rtv_clears=0;
     List list;
     Event events[kNativeEvents];
     void Barrier(bool same_list,bool target,std::uint32_t before,std::uint32_t after) {
@@ -62,11 +67,13 @@ struct Native {
 };
 struct Window {
     std::uint64_t trace=0,frame=0,feature=0,tick=0,closed_tick=0,device=0;
-    std::uint64_t origin_queue=0,origin_submission=0;
+    std::uint64_t origin_queue=0,origin_submission=0,descriptor_resource=0;
+    std::uint32_t origin_submission_index=0,origin_submission_count=0;
     std::uint32_t config=0,barriers=0,read_barriers=0,write_barriers=0;
     std::uint32_t copy_reads=0,copy_writes=0,render_target_binds=0;
     std::uint32_t first_before=0,first_after=0,last_after=0;
     std::uint32_t count=0,dropped=0,coverage=0,exact_following=0,unknown_operations=0;
+    std::uint32_t other_rtv_binds=0,other_rtv_clears=0;
     bool origin_submitted=false;
     Close close=Close::Open;
     Native native;

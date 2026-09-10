@@ -32,6 +32,8 @@
 #include "MinHook.h"
 #include "interop/nr_format_access.h"
 #include "nr_native_format.h"
+#include "nr_descriptor_provenance.h"
+#define NR_HAS_DESCRIPTOR_PROVENANCE 1
 #include "nr_resource_recovery.h"
 #include "nr_compatibility_verdict.h"
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1

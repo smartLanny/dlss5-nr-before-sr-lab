@@ -119,14 +119,19 @@ void ObservePostBoundaryOperation(ID3D12GraphicsCommandList *list,nr_post_bounda
     event.subresources[0]=source_subresource;event.subresources[1]=destination_subresource;
     ObservePostBoundaryEvent(event,(read||write)?target:0);
 }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+#include "nr_descriptor_provenance_commands.inl"
+#endif
 // Existing opaque/state hooks call this outside their state-registry lock.
-// Root/RTV descriptor handles alone never establish the texture written by Draw
-// or Dispatch. No general descriptor decoding is introduced by this observer.
+// Root tables alone still do not establish the texture written by Draw/Dispatch.
 void ObservePostBoundaryStateCommand(ID3D12GraphicsCommandList *list,const char *name) {
     if(!PostBoundaryRecordingActive())return;
+#if !defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     if(std::strcmp(name,"OMSetRenderTargets")==0)
         ObservePostBoundaryOperation(list,nr_post_boundary::Kind::BindTargets);
-    else if(std::strcmp(name,"ExecuteBundle")==0 || std::strcmp(name,"ExecuteIndirect")==0 ||
+    else
+#endif
+    if(std::strcmp(name,"ExecuteBundle")==0 || std::strcmp(name,"ExecuteIndirect")==0 ||
             std::strcmp(name,"BeginRenderPass")==0 || std::strcmp(name,"InitializeMetaCommand")==0 ||
             std::strcmp(name,"ExecuteMetaCommand")==0 || std::strcmp(name,"SetProgram")==0) {
         ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Opaque);
@@ -152,12 +157,40 @@ NR_POST_NATIVE_HOOK(CopyTextureRegion,(ID3D12GraphicsCommandList *list,const D3D
     (list,destination,x,y,z,source,box),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::CopyRegion,source?source->pResource:nullptr,destination?destination->pResource:nullptr,
         source&&source->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX?source->SubresourceIndex:UINT_MAX,
         destination&&destination->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX?destination->SubresourceIndex:UINT_MAX))
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+#define NR_DESCRIPTOR_CLEAR_UAV(NAME,VALUE) \
+    CommandStateHookFamily g_post_hook_##NAME; \
+    template<unsigned I> void STDMETHODCALLTYPE PostHook##NAME(ID3D12GraphicsCommandList *list, \
+            D3D12_GPU_DESCRIPTOR_HANDLE gpu,D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *resource, \
+            const VALUE values[4],UINT count,const D3D12_RECT *rects) { \
+        const auto descriptors=NrDescriptorCaptureUav(list,gpu,cpu,resource); \
+        using Fn=decltype(ID3D12GraphicsCommandListVtbl::NAME); \
+        reinterpret_cast<Fn>(g_post_hook_##NAME.originals[I])(list,gpu,cpu,resource,values,count,rects); \
+        ObservePostBoundaryUavDescriptor(list,resource,descriptors,count,rects); \
+    } \
+    void *const g_post_detours_##NAME[4]={reinterpret_cast<void *>(&PostHook##NAME<0>), \
+        reinterpret_cast<void *>(&PostHook##NAME<1>),reinterpret_cast<void *>(&PostHook##NAME<2>),reinterpret_cast<void *>(&PostHook##NAME<3>)};
+NR_DESCRIPTOR_CLEAR_UAV(ClearUnorderedAccessViewUint,UINT)
+NR_DESCRIPTOR_CLEAR_UAV(ClearUnorderedAccessViewFloat,FLOAT)
+#undef NR_DESCRIPTOR_CLEAR_UAV
+CommandStateHookFamily g_post_hook_ClearRenderTargetView;
+template<unsigned I> void STDMETHODCALLTYPE PostHookClearRenderTargetView(ID3D12GraphicsCommandList *list,
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu,const FLOAT values[4],UINT count,const D3D12_RECT *rects) {
+    const auto descriptor=NrDescriptorCaptureRtv(cpu);
+    using Fn=decltype(ID3D12GraphicsCommandListVtbl::ClearRenderTargetView);
+    reinterpret_cast<Fn>(g_post_hook_ClearRenderTargetView.originals[I])(list,cpu,values,count,rects);
+    ObservePostBoundaryRtvDescriptor(list,nr_post_boundary::Kind::ClearRtv,descriptor,count,rects);
+}
+void *const g_post_detours_ClearRenderTargetView[4]={reinterpret_cast<void *>(&PostHookClearRenderTargetView<0>),
+    reinterpret_cast<void *>(&PostHookClearRenderTargetView<1>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<2>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<3>)};
+#else
 NR_POST_NATIVE_HOOK(ClearUnorderedAccessViewUint,(ID3D12GraphicsCommandList *list,D3D12_GPU_DESCRIPTOR_HANDLE gpu,D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *resource,const UINT values[4],UINT count,const D3D12_RECT *rects),
     (list,gpu,cpu,resource,values,count,rects),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::ClearUav,nullptr,resource))
 NR_POST_NATIVE_HOOK(ClearUnorderedAccessViewFloat,(ID3D12GraphicsCommandList *list,D3D12_GPU_DESCRIPTOR_HANDLE gpu,D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *resource,const FLOAT values[4],UINT count,const D3D12_RECT *rects),
     (list,gpu,cpu,resource,values,count,rects),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::ClearUav,nullptr,resource))
 NR_POST_NATIVE_HOOK(ClearRenderTargetView,(ID3D12GraphicsCommandList *list,D3D12_CPU_DESCRIPTOR_HANDLE cpu,const FLOAT values[4],UINT count,const D3D12_RECT *rects),
     (list,cpu,values,count,rects),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::ClearRtv))
+#endif
 NR_POST_NATIVE_HOOK(DrawInstanced,(ID3D12GraphicsCommandList *list,UINT vertices,UINT instances,UINT start,UINT first_instance),
     (list,vertices,instances,start,first_instance),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Draw))
 NR_POST_NATIVE_HOOK(DrawIndexedInstanced,(ID3D12GraphicsCommandList *list,UINT indices,UINT instances,UINT start,INT base,UINT first_instance),
@@ -182,6 +215,34 @@ void *const g_post_detours_Barrier[4]={reinterpret_cast<void *>(&PostHookBarrier
 struct PostBoundaryPublication {const ID3D12GraphicsCommandListVtbl *vtable=nullptr;unsigned coverage=0;};
 PostBoundaryPublication g_post_boundary_publications[4];
 SRWLOCK g_post_boundary_publication_lock=SRWLOCK_INIT;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+PostBoundaryPublication g_descriptor_command_publications[4];
+bool EnsureNrDescriptorCommandHooks(ID3D12GraphicsCommandList *native) {
+    if(!native)return false;
+    AcquireSRWLockExclusive(&g_post_boundary_publication_lock);
+    PostBoundaryPublication *entry=nullptr;
+    for(auto &value:g_descriptor_command_publications)if(value.vtable==native->lpVtbl){entry=&value;break;}
+    if(!entry)for(auto &value:g_descriptor_command_publications)if(!value.vtable){entry=&value;break;}
+    if(entry && !entry->vtable) {
+        entry->vtable=native->lpVtbl;
+        CommandStateHookRequest requests[]={
+            {&g_post_hook_ClearUnorderedAccessViewUint,reinterpret_cast<void *>(native->lpVtbl->ClearUnorderedAccessViewUint),g_post_detours_ClearUnorderedAccessViewUint},
+            {&g_post_hook_ClearUnorderedAccessViewFloat,reinterpret_cast<void *>(native->lpVtbl->ClearUnorderedAccessViewFloat),g_post_detours_ClearUnorderedAccessViewFloat},
+            {&g_post_hook_ClearRenderTargetView,reinterpret_cast<void *>(native->lpVtbl->ClearRenderTargetView),g_post_detours_ClearRenderTargetView}};
+        entry->coverage=PublishCommandStateHooks(requests,static_cast<unsigned>(std::size(requests)),
+            "optional descriptor-use observer incomplete; format admission unchanged")?1:0;
+    }
+    const bool ready=entry && entry->coverage;
+    ReleaseSRWLockExclusive(&g_post_boundary_publication_lock);return ready;
+}
+bool NrDescriptorCommandHooksReady(ID3D12GraphicsCommandList *native) {
+    if(!native)return false;
+    bool ready=false;
+    AcquireSRWLockShared(&g_post_boundary_publication_lock);
+    for(const auto &entry:g_descriptor_command_publications)if(entry.vtable==native->lpVtbl){ready=entry.coverage!=0;break;}
+    ReleaseSRWLockShared(&g_post_boundary_publication_lock);return ready;
+}
+#endif
 unsigned EnsurePostBoundaryNativeHooks(ID3D12GraphicsCommandList *native) {
     using namespace nr_post_boundary;
     if(!native)return HookMissing|IdentityUnknown;
@@ -238,16 +299,34 @@ struct NrPostBoundarySubmitScope {
     ID3D12CommandQueue *queue;
     UINT count;
     ID3D12CommandList *const *lists;
-    NrPostBoundarySubmitScope(ID3D12CommandQueue *q,UINT n,ID3D12CommandList *const *v):queue(q),count(n),lists(v) {}
-    ~NrPostBoundarySubmitScope() {
-        if(!queue||!lists||!g_post_boundary_resource.load(std::memory_order_acquire))return;
-        std::uint64_t identity=0;
+    std::uint64_t identity=0,submission=0;
+    NrPostBoundarySubmitScope(ID3D12CommandQueue *q,UINT n,ID3D12CommandList *const *v):queue(q),count(n),lists(v) {
+        if(!queue||!lists)return;
+        bool observe=g_post_boundary_resource.load(std::memory_order_acquire)!=0;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        observe=observe || NrDescriptorHasPendingUses();
+#endif
+        if(!observe)return;
         EnterCriticalSection(&g_chain_cs);
         for(const auto &entry:g_graphics_queues)if(entry.live&&entry.queue==queue){identity=entry.identity;break;}
         LeaveCriticalSection(&g_chain_cs);
-        const auto submission=g_post_boundary_submissions.fetch_add(1,std::memory_order_relaxed)+1;
+        submission=g_post_boundary_submissions.fetch_add(1,std::memory_order_relaxed)+1;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        // Descriptor revisions are checked at the intercepted Execute entry.
+        // Volatile slots may have changed since native Evaluate returned. This
+        // remains a CPU receipt and does not authorize NR or prove GPU usage.
+        for(UINT i=0;i<std::min(count,256u);++i)if(lists[i])
+            NrDescriptorObserveSubmission(SnapshotPostBoundaryList(reinterpret_cast<ID3D12GraphicsCommandList *>(lists[i])),identity,submission,i,count);
+#endif
+    }
+    ~NrPostBoundarySubmitScope() {
+        if(!submission)return;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        NrDescriptorExecuteReturned(submission);
+#endif
+        if(!g_post_boundary_resource.load(std::memory_order_acquire))return;
         if(count>256)MarkPostBoundaryObservationGap(nr_post_boundary::EventLoss|nr_post_boundary::SubmissionUnknown);
         for(UINT i=0;i<std::min(count,256u);++i)if(lists[i])
-            ObservePostBoundarySubmission(SnapshotPostBoundaryList(reinterpret_cast<ID3D12GraphicsCommandList *>(lists[i])),identity,submission);
+            ObservePostBoundarySubmission(SnapshotPostBoundaryList(reinterpret_cast<ID3D12GraphicsCommandList *>(lists[i])),identity,submission,i,count);
     }
 };

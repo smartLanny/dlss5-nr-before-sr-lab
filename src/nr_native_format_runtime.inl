@@ -92,15 +92,24 @@ NrNativeFormatScope::~NrNativeFormatScope() {
     g_nr_native_format_scope = parent;
     if (device) ID3D12Device_Release(device);
 }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+#include "nr_descriptor_provenance_runtime.inl"
+#endif
 template <class NativeEvaluate>
 NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
         ID3D12GraphicsCommandList* list, const NgxHandle* handle,
         const NgxParams* params, void* callback, unsigned long long generation) {
     NrNativeFormatScope scope(list, params, generation);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    NrDescriptorNativeUseScope descriptor_use(scope,list,generation);
+#endif
 #if defined(NR_HAS_TIMING)
     NrTimingScope native_timing(nr_timing::Stage::NativeEvaluate);
 #endif
     const NgxResult result = original(list, handle, params, callback);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    descriptor_use.Finish(result==kNgxSuccess);
+#endif
 #if defined(NR_HAS_TIMING)
     NrTimingNativeResult(static_cast<std::int32_t>(result));
     native_timing.Stop();
@@ -116,6 +125,10 @@ void NrPrepareFormatObservation(ID3D12GraphicsCommandList* list) {
     if (list && SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(list, IID_ID3D12Device,
             reinterpret_cast<void**>(&device))) && device) {
         EnsureNrNativeFormatHooks(device);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        EnsureNrDescriptorHooks(device);
+        EnsureNrDescriptorCommandHooks(list);
+#endif
         ID3D12Device_Release(device);
     }
 }

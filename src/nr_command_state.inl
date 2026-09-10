@@ -644,6 +644,10 @@ struct CommandStateHookFamily {
 };
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
 void ObservePostBoundaryStateCommand(ID3D12GraphicsCommandList *,const char *);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+nr_descriptor::RtvBatch NrDescriptorCaptureRtvBatch(UINT,const D3D12_CPU_DESCRIPTOR_HANDLE *,BOOL);
+void ObservePostBoundaryRtvBatch(ID3D12GraphicsCommandList *,const nr_descriptor::RtvBatch &);
+#endif
 #define NR_POST_OBSERVE_STATE(LIST,NAME) ObservePostBoundaryStateCommand(reinterpret_cast<ID3D12GraphicsCommandList *>(LIST),NAME)
 #else
 #define NR_POST_OBSERVE_STATE(LIST,NAME) ((void)0)
@@ -718,8 +722,25 @@ NR_STATE_HOOK(IASetVertexBuffers, (ID3D12GraphicsCommandList *command_list, UINT
     (command_list, first, count, values), CommandStateVertices(state, first, count, values))
 NR_STATE_HOOK(SOSetTargets, (ID3D12GraphicsCommandList *command_list, UINT first, UINT count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *values),
     (command_list, first, count, values), CommandStateStreamOutput(state, first, count, values))
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+CommandStateHookFamily g_state_OMSetRenderTargets;
+template<unsigned I> void STDMETHODCALLTYPE StateHookOMSetRenderTargets(ID3D12GraphicsCommandList *command_list,
+        UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE *values,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE *depth) {
+    const auto descriptors=NrDescriptorCaptureRtvBatch(count,values,contiguous);
+    using Fn=decltype(ID3D12GraphicsCommandListVtbl::OMSetRenderTargets);
+    reinterpret_cast<Fn>(g_state_OMSetRenderTargets.originals[I])(command_list,count,values,contiguous,depth);
+    MutateNativeCommandState(command_list,[&](NativeCommandState &state) {
+        CommandStateTargets(state,command_list,count,values,contiguous,depth);
+    });
+    ObservePostBoundaryRtvBatch(command_list,descriptors);
+}
+void *const g_state_detours_OMSetRenderTargets[4]={
+    reinterpret_cast<void *>(&StateHookOMSetRenderTargets<0>),reinterpret_cast<void *>(&StateHookOMSetRenderTargets<1>),
+    reinterpret_cast<void *>(&StateHookOMSetRenderTargets<2>),reinterpret_cast<void *>(&StateHookOMSetRenderTargets<3>)};
+#else
 NR_STATE_HOOK(OMSetRenderTargets, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_CPU_DESCRIPTOR_HANDLE *values, BOOL contiguous, const D3D12_CPU_DESCRIPTOR_HANDLE *depth),
     (command_list, count, values, contiguous, depth), CommandStateTargets(state, command_list, count, values, contiguous, depth))
+#endif
 NR_STATE_HOOK(SetPredication, (ID3D12GraphicsCommandList *command_list, ID3D12Resource *buffer, UINT64 offset, D3D12_PREDICATION_OP operation),
     (command_list, buffer, offset, operation), CommandStateAssign(state.predicate, buffer); state.dynamic.predicate_offset=offset; state.dynamic.predicate_operation=operation; state.dynamic.recorded |= kDynamicPredicate)
 #undef NR_STATE_STAGE
