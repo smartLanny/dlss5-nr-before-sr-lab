@@ -243,7 +243,7 @@ async function collectPlan({ root, mfg }) {
   const mfgFile = path.resolve(root, mfg), mfgReportFile = path.join(path.dirname(mfgFile), 'staging-report.json');
   await safeSource(root, mfgReportFile);
   const mfgReport = JSON.parse(await fsp.readFile(mfgReportFile, 'utf8'));
-  if (!HASH.test(mfgReport.sha256 || '') || path.resolve(mfgReport.file) !== mfgFile || mfgReport.providers?.length !== 3) fail('独立 MFG ZIP 缺少配套 staging-report.json。');
+  if (!HASH.test(mfgReport.sha256 || '') || typeof mfgReport.file !== 'string' || path.resolve(mfgReport.file) !== mfgFile || mfgReport.providers?.length !== 3) fail('独立 MFG ZIP 缺少配套 staging-report.json。');
   const mfgRow = await addFile(mfgFile, '独立组件/RTX40-MFGUnlock-0.7-zh-CN.zip', mfgReport.sha256, null, { version: '0.7-zh-CN', providers: mfgReport.providers });
   if (mfgRow.bytes !== mfgReport.bytes) fail('独立 MFG ZIP 长度不符。');
   addText(json({ ...mfgReport, file: mfgRow.packagePath }), '独立组件/MFG-来源与校验.json');

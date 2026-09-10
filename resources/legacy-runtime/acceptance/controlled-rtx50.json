@@ -21,40 +21,35 @@
       "rendererExitCode": 0,
       "realGameVerified": false,
       "frames": 600,
-      "gamePid": 103592,
+      "gamePid": 11140,
       "proof": {
         "beforeResize": {
           "type": "game-received-host-completion",
-          "hostPid": 14720,
+          "hostPid": 101908,
           "dimensions": [
             640,
             360
           ],
           "receivedFrames": [
             30,
-            60,
             90,
-            120,
             150,
             180,
             210,
-            240,
             270
           ]
         },
         "afterResize": {
           "type": "game-received-host-completion",
-          "hostPid": 51116,
+          "hostPid": 21056,
           "dimensions": [
             768,
             432
           ],
           "receivedFrames": [
-            30,
             60,
             90,
-            120,
-            150
+            120
           ]
         },
         "currentFrameSceneDepthVerified": true,
@@ -63,14 +58,93 @@
         "reenableHistoryVerified": true,
         "resetWithPendingDepthVerified": true,
         "configurationPreserved": true,
+        "sameSizeDepthFormatSwitchVerified": true,
+        "unsupportedMultisampleDepthBypassVerified": true,
+        "supportedDepthRecoveryVerified": true,
+        "d3d12DebugLayerVerified": false,
+        "deviceRemovedReason": 0,
+        "depthDescriptors": [
+          {
+            "frame": 61,
+            "requested": 80,
+            "dx9Format": 80,
+            "nativeFormat": 55,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 121,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 45,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 361,
+            "requested": 80,
+            "dx9Format": 80,
+            "nativeFormat": 55,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 451,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 0,
+            "samples": 2,
+            "quality": 0,
+            "width": 768,
+            "height": 432
+          },
+          {
+            "frame": 481,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 45,
+            "samples": 1,
+            "quality": 0,
+            "width": 768,
+            "height": 432
+          }
+        ],
         "samples": [
+          {
+            "frame": 60,
+            "enabled": 1,
+            "presents": 60,
+            "submitted": 59,
+            "copied": 59,
+            "nrCompleted": 52,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 59,
+            "shaders": true
+          },
+          {
+            "frame": 120,
+            "enabled": 1,
+            "presents": 120,
+            "submitted": 119,
+            "copied": 119,
+            "nrCompleted": 107,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 119,
+            "shaders": true
+          },
           {
             "frame": 180,
             "enabled": 1,
             "presents": 180,
             "submitted": 179,
             "copied": 179,
-            "nrCompleted": 172,
+            "nrCompleted": 162,
             "disabledPresents": 0,
             "sceneDepthFrames": 179,
             "shaders": true
@@ -79,44 +153,55 @@
             "frame": 211,
             "enabled": 0,
             "presents": 211,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 27,
-            "sceneDepthFrames": 183,
+            "submitted": 184,
+            "copied": 184,
+            "nrCompleted": 167,
+            "disabledPresents": 26,
+            "sceneDepthFrames": 184,
             "shaders": true
           },
           {
             "frame": 240,
             "enabled": 0,
             "presents": 240,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 56,
-            "sceneDepthFrames": 183,
+            "submitted": 184,
+            "copied": 184,
+            "nrCompleted": 167,
+            "disabledPresents": 55,
+            "sceneDepthFrames": 184,
             "shaders": true
           },
           {
             "frame": 270,
             "enabled": 0,
             "presents": 270,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 86,
-            "sceneDepthFrames": 183,
+            "submitted": 184,
+            "copied": 184,
+            "nrCompleted": 167,
+            "disabledPresents": 85,
+            "sceneDepthFrames": 184,
             "shaders": true
           },
           {
             "frame": 300,
             "enabled": 0,
             "presents": 300,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 116,
-            "sceneDepthFrames": 183,
+            "submitted": 184,
+            "copied": 184,
+            "nrCompleted": 167,
+            "disabledPresents": 115,
+            "sceneDepthFrames": 184,
+            "shaders": false
+          },
+          {
+            "frame": 360,
+            "enabled": 1,
+            "presents": 360,
+            "submitted": 238,
+            "copied": 238,
+            "nrCompleted": 216,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 238,
             "shaders": false
           },
           {
@@ -125,7 +210,7 @@
             "presents": 390,
             "submitted": 268,
             "copied": 268,
-            "nrCompleted": 256,
+            "nrCompleted": 241,
             "disabledPresents": 120,
             "sceneDepthFrames": 268,
             "shaders": false
@@ -136,20 +221,64 @@
             "presents": 420,
             "submitted": 298,
             "copied": 298,
-            "nrCompleted": 286,
+            "nrCompleted": 271,
             "disabledPresents": 120,
             "sceneDepthFrames": 298,
+            "shaders": true
+          },
+          {
+            "frame": 450,
+            "enabled": 1,
+            "presents": 450,
+            "submitted": 327,
+            "copied": 327,
+            "nrCompleted": 293,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 327,
+            "shaders": true
+          },
+          {
+            "frame": 460,
+            "enabled": 1,
+            "presents": 460,
+            "submitted": 327,
+            "copied": 327,
+            "nrCompleted": 293,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 327,
+            "shaders": true
+          },
+          {
+            "frame": 480,
+            "enabled": 1,
+            "presents": 480,
+            "submitted": 327,
+            "copied": 327,
+            "nrCompleted": 293,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 327,
+            "shaders": true
+          },
+          {
+            "frame": 540,
+            "enabled": 1,
+            "presents": 540,
+            "submitted": 387,
+            "copied": 387,
+            "nrCompleted": 348,
+            "disabledPresents": 120,
+            "sceneDepthFrames": 387,
             "shaders": true
           },
           {
             "frame": 600,
             "enabled": 1,
             "presents": 600,
-            "submitted": 477,
-            "copied": 477,
-            "nrCompleted": 458,
+            "submitted": 447,
+            "copied": 447,
+            "nrCompleted": 408,
             "disabledPresents": 120,
-            "sceneDepthFrames": 477,
+            "sceneDepthFrames": 447,
             "shaders": true
           }
         ]
@@ -171,7 +300,7 @@
           "id": "provider-dx9-x86",
           "base": "addon",
           "target": "dlss5-feed.addon32",
-          "sha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221"
+          "sha256": "250e4a5523a20c54a0c59dc55f08f81cc38526efa1eb6c920a86e3602fd499f8"
         },
         {
           "id": "host-x64",
@@ -315,15 +444,16 @@
         }
       ],
       "evidence": {
-        "fixture": "build/feeder-d3d9on12-unbound-switch-run-r1",
-        "completedAt": "2026-09-10T12:16:56.6098445Z",
-        "rendererSha256": "52a5eb9842d51086bb9af3271ccd9ef980c48a3c5764c227cb72c48f3acaee64",
+        "fixture": "build/feeder-d3d9on12-depth-switch-run-x86-r3",
+        "completedAt": "2026-09-10T13:00:32.4544946Z",
+        "rendererSha256": "1c2687fa91d0322fa8e84e9355fd817c0443502cf28b7bd54cd7d8806ca70bbb",
         "rendererReportSha256": "85317f4a0e33a859264ce28c21f63f6bde48fb6ad5b6ddcbe46547d7d558de0b",
-        "switchReportSha256": "d627ce9f4ed04cbe0a3a02ef06b7be1eefbefa76817ef014e1c24d15d5a8224f",
-        "providerLogSha256": "afbda4d2f637510eb0111f2b987c0d6932d5e873e0f3d5f712c601a87f483a08",
-        "hostLogSha256": "af964601e839cb64b7f080deadbd7c36c386729d99cf84bc4b36882abab42570",
-        "shaderLogSha256": "ab0f81c2faeb246da295d66800a6b825f0fbdd6b7471193676115e9e0ef3379b",
-        "buildReportAsset": "dx9-r2-build"
+        "switchReportSha256": "b6afe3124055ada3135ad15624788a09c502eaef5b6e1c91cef490a485951429",
+        "depthSwitchReportSha256": "01eba91be10c23687de866f9135d91824088bef6efd4c66e58e4393e17d6427b",
+        "providerLogSha256": "10819f21e7473aa20c5dd916687a7e9366dabe5471bf1b7d146166d3342106ed",
+        "hostLogSha256": "cab480595cc6935328ded677a018b447603f559dc18f70195f1c5903ce9fa1d9",
+        "shaderLogSha256": "14177cb508d54235dfa4682bcb80c1f6cabe94f090cedfc7fb561e0e64b9099b",
+        "buildReportAsset": "dx9-r3-build"
       },
       "alpha": {
         "readbackVerified": false,
@@ -340,20 +470,18 @@
       "rendererExitCode": 0,
       "realGameVerified": false,
       "frames": 600,
-      "gamePid": 29700,
+      "gamePid": 84444,
       "proof": {
         "beforeResize": {
           "type": "game-received-host-completion",
-          "hostPid": 93868,
+          "hostPid": 100476,
           "dimensions": [
             640,
             360
           ],
           "receivedFrames": [
             30,
-            60,
             90,
-            120,
             150,
             180,
             210,
@@ -363,17 +491,15 @@
         },
         "afterResize": {
           "type": "game-received-host-completion",
-          "hostPid": 80176,
+          "hostPid": 13956,
           "dimensions": [
             768,
             432
           ],
           "receivedFrames": [
-            30,
             60,
             90,
-            120,
-            150
+            120
           ]
         },
         "currentFrameSceneDepthVerified": true,
@@ -382,14 +508,93 @@
         "reenableHistoryVerified": true,
         "resetWithPendingDepthVerified": true,
         "configurationPreserved": true,
+        "sameSizeDepthFormatSwitchVerified": true,
+        "unsupportedMultisampleDepthBypassVerified": true,
+        "supportedDepthRecoveryVerified": true,
+        "d3d12DebugLayerVerified": false,
+        "deviceRemovedReason": 0,
+        "depthDescriptors": [
+          {
+            "frame": 61,
+            "requested": 80,
+            "dx9Format": 80,
+            "nativeFormat": 55,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 121,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 45,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 361,
+            "requested": 80,
+            "dx9Format": 80,
+            "nativeFormat": 55,
+            "samples": 1,
+            "quality": 0,
+            "width": 640,
+            "height": 360
+          },
+          {
+            "frame": 451,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 0,
+            "samples": 2,
+            "quality": 0,
+            "width": 768,
+            "height": 432
+          },
+          {
+            "frame": 481,
+            "requested": 75,
+            "dx9Format": 75,
+            "nativeFormat": 45,
+            "samples": 1,
+            "quality": 0,
+            "width": 768,
+            "height": 432
+          }
+        ],
         "samples": [
+          {
+            "frame": 60,
+            "enabled": 1,
+            "presents": 60,
+            "submitted": 59,
+            "copied": 59,
+            "nrCompleted": 52,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 59,
+            "shaders": true
+          },
+          {
+            "frame": 120,
+            "enabled": 1,
+            "presents": 120,
+            "submitted": 119,
+            "copied": 119,
+            "nrCompleted": 107,
+            "disabledPresents": 0,
+            "sceneDepthFrames": 119,
+            "shaders": true
+          },
           {
             "frame": 180,
             "enabled": 1,
             "presents": 180,
             "submitted": 179,
             "copied": 179,
-            "nrCompleted": 172,
+            "nrCompleted": 162,
             "disabledPresents": 0,
             "sceneDepthFrames": 179,
             "shaders": true
@@ -398,77 +603,132 @@
             "frame": 211,
             "enabled": 0,
             "presents": 211,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 27,
-            "sceneDepthFrames": 183,
+            "submitted": 185,
+            "copied": 185,
+            "nrCompleted": 168,
+            "disabledPresents": 25,
+            "sceneDepthFrames": 185,
             "shaders": true
           },
           {
             "frame": 240,
             "enabled": 0,
             "presents": 240,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 56,
-            "sceneDepthFrames": 183,
+            "submitted": 185,
+            "copied": 185,
+            "nrCompleted": 168,
+            "disabledPresents": 54,
+            "sceneDepthFrames": 185,
             "shaders": true
           },
           {
             "frame": 270,
             "enabled": 0,
             "presents": 270,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 86,
-            "sceneDepthFrames": 183,
+            "submitted": 185,
+            "copied": 185,
+            "nrCompleted": 168,
+            "disabledPresents": 84,
+            "sceneDepthFrames": 185,
             "shaders": true
           },
           {
             "frame": 300,
             "enabled": 0,
             "presents": 300,
-            "submitted": 183,
-            "copied": 183,
-            "nrCompleted": 176,
-            "disabledPresents": 116,
-            "sceneDepthFrames": 183,
+            "submitted": 185,
+            "copied": 185,
+            "nrCompleted": 168,
+            "disabledPresents": 114,
+            "sceneDepthFrames": 185,
+            "shaders": false
+          },
+          {
+            "frame": 360,
+            "enabled": 1,
+            "presents": 360,
+            "submitted": 234,
+            "copied": 234,
+            "nrCompleted": 212,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 234,
             "shaders": false
           },
           {
             "frame": 390,
             "enabled": 1,
             "presents": 390,
-            "submitted": 269,
-            "copied": 269,
-            "nrCompleted": 257,
-            "disabledPresents": 119,
-            "sceneDepthFrames": 269,
+            "submitted": 264,
+            "copied": 264,
+            "nrCompleted": 237,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 264,
             "shaders": false
           },
           {
             "frame": 420,
             "enabled": 1,
             "presents": 420,
-            "submitted": 299,
-            "copied": 299,
-            "nrCompleted": 287,
-            "disabledPresents": 119,
-            "sceneDepthFrames": 299,
+            "submitted": 294,
+            "copied": 294,
+            "nrCompleted": 267,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 294,
+            "shaders": true
+          },
+          {
+            "frame": 450,
+            "enabled": 1,
+            "presents": 450,
+            "submitted": 323,
+            "copied": 323,
+            "nrCompleted": 289,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 323,
+            "shaders": true
+          },
+          {
+            "frame": 460,
+            "enabled": 1,
+            "presents": 460,
+            "submitted": 323,
+            "copied": 323,
+            "nrCompleted": 289,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 323,
+            "shaders": true
+          },
+          {
+            "frame": 480,
+            "enabled": 1,
+            "presents": 480,
+            "submitted": 323,
+            "copied": 323,
+            "nrCompleted": 289,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 323,
+            "shaders": true
+          },
+          {
+            "frame": 540,
+            "enabled": 1,
+            "presents": 540,
+            "submitted": 383,
+            "copied": 383,
+            "nrCompleted": 344,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 383,
             "shaders": true
           },
           {
             "frame": 600,
             "enabled": 1,
             "presents": 600,
-            "submitted": 478,
-            "copied": 478,
-            "nrCompleted": 459,
-            "disabledPresents": 119,
-            "sceneDepthFrames": 478,
+            "submitted": 443,
+            "copied": 443,
+            "nrCompleted": 404,
+            "disabledPresents": 124,
+            "sceneDepthFrames": 443,
             "shaders": true
           }
         ]
@@ -490,7 +750,7 @@
           "id": "provider-dx9-x64",
           "base": "addon",
           "target": "dlss5-feed.addon64",
-          "sha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731"
+          "sha256": "7743b2cb7d2bbc8ea42471a2787cc91e635d421162d14a862cba9d4670fa4a2a"
         },
         {
           "id": "host-x64",
@@ -634,15 +894,16 @@
         }
       ],
       "evidence": {
-        "fixture": "build/feeder-d3d9on12-unbound-switch-run-x64-r1",
-        "completedAt": "2026-09-10T12:31:38.9100480Z",
-        "rendererSha256": "4f6af1a67617596f1abbddb2bc3db19722ebe5cdc12426a0b0ad9d658820814c",
+        "fixture": "build/feeder-d3d9on12-depth-switch-run-x64-r3",
+        "completedAt": "2026-09-10T13:01:44.3317957Z",
+        "rendererSha256": "35013d1b69e4ed905efad83578934f3b6fe739c9d49b782b80fd456659439aee",
         "rendererReportSha256": "b435cf4e5b854d3b0fdabba9b7bfcadef45c4f075ad64045e0a087c15df98572",
-        "switchReportSha256": "fd96265df8db797f851cdb98ab90cab1d03b0d96c6b8fabc3b0c81fcf02faf07",
-        "providerLogSha256": "7df35bb3e06fcdaea2f161a25d01bdd5f6dbf8e8bba97f5bbe5d84f46e9fe578",
-        "hostLogSha256": "8010c26b63665751618f16e9e7cd3c35c15334e80e4f6aed6e46697a90e9831f",
-        "shaderLogSha256": "8b97e02bc1b9d1c12ae217250e4d8a7d09667d4b8366e963ca1f6b53c0b1a055",
-        "buildReportAsset": "dx9-r2-build"
+        "switchReportSha256": "6433c97627d2897ae5cbfe997de19ad1bdc40054fa8d9d8fb19de637885f64ab",
+        "depthSwitchReportSha256": "01eba91be10c23687de866f9135d91824088bef6efd4c66e58e4393e17d6427b",
+        "providerLogSha256": "2106ee5077486795da5b6bfb6cdc85de9a4215f41141a508103b441f2520878e",
+        "hostLogSha256": "272bbfb347d5974e5a08ec2528d29fe7edb437ec800946d6b9e43b2d640a8379",
+        "shaderLogSha256": "fbb7266a5a70df694bc465aea29cdca289ecad0c5dd7a0e0bd9e26af6913de6b",
+        "buildReportAsset": "dx9-r3-build"
       },
       "alpha": {
         "readbackVerified": false,

@@ -9,7 +9,7 @@ const { createOperationPlans } = require('../src/product/operation-plan');
 const { readManifest } = require('../src/product/manifest');
 const { PENDING } = require('../src/product/external-runtime');
 const journal = require('../src/core/file-journal');
-const { ADDON: MFG_ADDON, SHA256: MFG_SHA } = require('../src/product/fg-mfgunlock-resources');
+const { ADDON: MFG_ADDON, SHA256: MFG_SHA, providerById } = require('../src/product/fg-mfgunlock-resources');
 const { specialFixture } = require('./helpers/operation-special-fixture');
 const { enhancementEvidence } = require('./helpers/enhancement-evidence');
 
@@ -135,25 +135,32 @@ test('OperationPlan applies a simultaneous native SR, official FG and NR draft t
   assert.equal((await f.service.readNrSettings(f.id)).Intensity, 1.6);
 });
 
-test('OperationPlan restores an existing MFG owner before migration and reapplies the saved selection in the external profile', async t => {
+test('OperationPlan migration preserves the selected MFG provider and current game-menu multiplier in both layouts', async t => {
   const f = await fixture(t, { family: 'RTX40', components: { getFeatureEvidence: async () => enhancementEvidence() } });
   await f.apply({ api: 'dx12', version: 'fixture-core-1', deployment: 'local' });
-  const selection = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
-  await f.apply({ fg: selection });
-  assert.equal(hashFile(path.join(f.exeDir, MFG_ADDON)), MFG_SHA);
+  const selection = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 }, active = { ...selection, multiplier: 4 };
+  const provider = providerById('mfgunlock-0.6.1');
+  await f.apply({ fg: selection, components: { mfgUnlock: provider.id } });
+  assert.equal(hashFile(path.join(f.exeDir, MFG_ADDON)), provider.sha256);
+  const config = f.layout().activeConfigPath;
+  put(config, fs.readFileSync(config, 'utf8').replace('ForceMultiplier=3', 'ForceMultiplier=4'));
+  assert.deepEqual((await f.settings.inspect(f.id)).current.fg.request, active);
   const firstReceipt = f.components.receiptFile(f.id); assert.equal(fs.existsSync(firstReceipt), true);
   f.events.length = 0;
   const applied = await f.apply({ deployment: 'external' });
   assert.deepEqual(applied.result.stages.map(row => row.kind), ['restore-fg', 'deployment', 'fg']);
   assert.ok(f.events.indexOf('settings-restore-fg') < f.events.indexOf('components-restore'));
   assert.ok(f.events.indexOf('components-restore') < f.events.indexOf('components-prepare'));
-  const layout = f.layout(); assert.equal(hashFile(path.join(layout.addonDirectory, MFG_ADDON)), MFG_SHA);
+  const layout = f.layout(); assert.equal(hashFile(path.join(layout.addonDirectory, MFG_ADDON)), provider.sha256);
   assert.equal(fs.existsSync(path.join(f.exeDir, MFG_ADDON)), false); assert.equal(fs.existsSync(firstReceipt), false);
-  assert.deepEqual((await f.settings.inspect(f.id)).applied.fg.request, selection);
-  assert.equal((await f.components.inspect(f.id)).ready, true);
+  assert.deepEqual((await f.settings.inspect(f.id)).current.fg.request, active);
+  assert.deepEqual((await f.settings.inspect(f.id)).applied.fg.request, active);
+  assert.equal((await f.components.inspect(f.id)).installedProvider, provider.id);
   await f.apply({ deployment: 'local' });
-  assert.equal(hashFile(path.join(f.exeDir, MFG_ADDON)), MFG_SHA);
-  assert.deepEqual((await f.settings.inspect(f.id)).applied.fg.request, selection);
+  assert.equal(hashFile(path.join(f.exeDir, MFG_ADDON)), provider.sha256);
+  assert.equal((await f.components.inspect(f.id)).installedProvider, provider.id);
+  assert.deepEqual((await f.settings.inspect(f.id)).current.fg.request, active);
+  assert.deepEqual((await f.settings.inspect(f.id)).applied.fg.request, active);
 });
 
 for (const mode of ['clean', 'restore']) test(`OperationPlan ${mode} uninstall from an external profile preserves unrelated files and its original owner backup`, async t => {

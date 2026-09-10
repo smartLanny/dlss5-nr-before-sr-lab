@@ -67,3 +67,25 @@ test('adapter inventory exposes only the pinned host and fixed read-only argumen
   assert.equal(probe.sha256, host.sha256); assert.equal(probe.file, path.join(runtime.root, host.source));
   assert.deepEqual(probe.args, ['--list-adapters-json']); assert.ok(Object.isFrozen(probe) && Object.isFrozen(probe.args));
 });
+
+test('repair verifies every historical pinned byte even when the current pool identity differs', async t => {
+  const fs = require('node:fs'), os = require('node:os'), crypto = require('node:crypto');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-pinned-repair-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pkg = runtime.load({ api: 'dx11', architecture: 'x64', hardwareFamily: 'RTX50' });
+  const recipe = structuredClone(pkg.recipe);
+  recipe.poolFingerprint = 'a'.repeat(64);
+  // Small inert bytes exercise file validation without distributing runtime DLLs.
+  for (const item of recipe.files) {
+    const bytes = Buffer.from(item.source);
+    item.sha256 = crypto.createHash('sha256').update(bytes).digest('hex'); item.bytes = bytes.length;
+    const file = path.join(root, item.source); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes);
+  }
+  const pinned = createLegacyRuntime({ root, lock: { ...runtime.lock, restorableRecipeFingerprints: [fingerprint(recipe)] },
+    pe: { getBitness: () => 64 } });
+  assert.equal((await pinned.verify({ root, recipe })).recipe, recipe);
+  const file = path.join(root, recipe.files[0].source); fs.appendFileSync(file, 'changed');
+  await assert.rejects(pinned.verify({ root, recipe }), { code: 'LEGACY_PACKAGE_HASH' });
+  fs.unlinkSync(file);
+  await assert.rejects(pinned.verify({ root, recipe }));
+});

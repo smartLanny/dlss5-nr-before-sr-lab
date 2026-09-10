@@ -44,14 +44,17 @@ D3D9On12 implementation and an x64 NR host for either game architecture. The
 release excludes dgVoodoo 2.87.4 after the recorded Defender result and review of
 its distribution terms. No private copy of Microsoft's system runtime is bundled.
 
-The R2 DX9 relay retains bounded current-frame depth candidates observed during
+The DX9 relay retains bounded current-frame depth candidates observed during
 actual draw calls, so a game may unbind its scene depth before Present. Candidate
 references are released at Present and swapchain destruction/Reset. The provider
 owns a separate `dlss5-feed.cfg` `enabled` switch with a Chinese ReShade panel;
 disabled frames skip host submission and output copies, and re-enabling starts a
 new resource/history generation. It is independent of ReShade's global effects
-switch. Both architectures have exact-binary 600-frame unbound-depth, switch and
-Reset evidence in `resources/legacy-runtime/acceptance/dx9-r2-build.json`; the
+switch. R3 also binds reuse to the complete depth descriptor and ready copy
+pipeline, rebuilding after format changes and bypassing unsupported multisample
+depth. Both architectures have exact-binary 600-frame unbound-depth, D24S8/D16
+format-switch, MSAA-bypass, switch and Reset evidence in
+`resources/legacy-runtime/acceptance/dx9-r3-build.json`; the
 five unchanged non-DX9 routes keep their existing controlled evidence.
 
 The local Feeder matrix is DX9/DX10/DX11 x86 and x64, plus DX12 x64, each with

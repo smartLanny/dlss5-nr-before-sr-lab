@@ -72,10 +72,14 @@ struct Session {
         Log("[nr-feeder-dx9-session] pid=%lu host_pid=%lu api=dx9 architecture=%s luid=%08lX:%08lX",GetCurrentProcessId(),host.host_pid,sizeof(void*)==4?"x86":"x64",luid.HighPart,luid.LowPart);return true;
     }
     bool Prepare(ID3D12Resource *color,ID3D12Resource *depth){auto desc=color->GetDesc();auto dd=depth->GetDesc();
-        if(desc.SampleDesc.Count!=1||desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||dd.Width!=desc.Width||dd.Height!=desc.Height||
-            (desc.Format!=DXGI_FORMAT_B8G8R8A8_UNORM&&desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM))return false;
-        if(shared_ready&&width==desc.Width&&height==desc.Height&&format==desc.Format)return true;
-        shared_ready=false;
+        if(desc.SampleDesc.Count!=1||desc.SampleDesc.Quality!=0||desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.DepthOrArraySize!=1||desc.MipLevels!=1||
+            !nr_feeder_depth::Copy::Supported(dd)||dd.Width!=desc.Width||dd.Height!=desc.Height||
+            (desc.Format!=DXGI_FORMAT_B8G8R8A8_UNORM&&desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM)){
+            if(shared_ready||attempts<=3||attempts%30==0)Log("[nr-feeder-dx9-depth-rejected] format=%u samples=%u quality=%u width=%llu height=%u",dd.Format,dd.SampleDesc.Count,dd.SampleDesc.Quality,dd.Width,dd.Height);
+            shared_ready=false;history_reset=true;return false;}
+        // The source may change format without changing the swapchain size.
+        if(shared_ready&&width==desc.Width&&height==desc.Height&&format==desc.Format&&depth_copy.Matches(dd,shared[FEED_DEPTH].Get()))return true;
+        shared_ready=false;history_reset=true;
         if(!Complete())return false;for(auto &texture:shared)texture.Reset();for(auto &handle:handles){if(handle)CloseHandle(handle);handle=nullptr;}depth_copy.Release();
         width=static_cast<UINT>(desc.Width);height=desc.Height;format=desc.Format;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
@@ -87,7 +91,7 @@ struct Session {
         if(!depth_copy.Prepare(device.Get(),depth,shared[FEED_DEPTH].Get()))return false;
         if(!host.Build(device.Get(),width,height,format,handles)){failed=true;Log("[nr-feeder-client-retained] shared set rejected: %s",host.reason);return false;}
         shared_ready=true;
-        ++epoch;Log("[nr-feeder-dx9] resources epoch=%llu width=%u height=%u",epoch,width,height);return true;
+        ++epoch;Log("[nr-feeder-dx9] resources epoch=%llu width=%u height=%u depth_format=%u depth_samples=%u depth_quality=%u",epoch,width,height,dd.Format,dd.SampleDesc.Count,dd.SampleDesc.Quality);return true;
     }
     void Present(){++attempts;UINT64 depth_draws=0,depth_vertices=0;auto scene_depth=TakeDepth(depth_draws,depth_vertices);if(failed)return;
         if(control_generation!=control.generation){control_generation=control.generation;shared_ready=false;history_reset=true;}
@@ -97,6 +101,10 @@ struct Session {
         const HRESULT current_depth=game->GetDepthStencilSurface(&depth9);
         if(scene_depth){depth9=scene_depth;++counters.scene_depth_frames;}
         if(!depth9){if(attempts<=3||attempts%300==0)Log("[nr-feeder-client-retained] present=%llu no current-frame depth; bound_hr=0x%08lX",attempts,current_depth);return;}
+        D3DSURFACE_DESC depth_desc{};
+        if(FAILED(depth9->GetDesc(&depth_desc))||depth_desc.Width!=target_width||depth_desc.Height!=target_height||depth_desc.MultiSampleType!=D3DMULTISAMPLE_NONE||depth_desc.MultiSampleQuality!=0){
+            if(shared_ready||attempts<=3||attempts%30==0)Log("[nr-feeder-dx9-depth-rejected] dx9_format=%u samples=%u quality=%lu width=%u height=%u",depth_desc.Format,depth_desc.MultiSampleType,depth_desc.MultiSampleQuality,depth_desc.Width,depth_desc.Height);
+            shared_ready=false;history_reset=true;return;}
         if(attempts<=3||attempts%300==0)Log("[nr-feeder-dx9-depth] present=%llu source=%s bound_hr=0x%08lX draws=%llu vertices=%llu width=%u height=%u",attempts,scene_depth?"current-frame-scene":"present-bound",current_depth,depth_draws,depth_vertices,target_width,target_height);
         ComPtr<ID3D12Resource> color,depth;
         if(FAILED(interop->UnwrapUnderlyingResource(color9.Get(),queue.Get(),IID_PPV_ARGS(&color))))return;
@@ -107,8 +115,8 @@ struct Session {
             Barrier(list.Get(),shared[FEED_COLOR].Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);list->CopyResource(shared[FEED_COLOR].Get(),color.Get());
             Barrier(list.Get(),shared[FEED_COLOR].Get(),D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);
             Barrier(list.Get(),color.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COMMON);
-            depth_copy.Record(list.Get(),depth.Get(),shared[FEED_DEPTH].Get());
-            if(End()){++counters.submitted;ready=host.Submit(queue.Get(),history_reset,result);if(ready)history_reset=false;}
+            const bool depth_recorded=depth_copy.Record(list.Get(),depth.Get(),shared[FEED_DEPTH].Get());
+            if(End()&&depth_recorded){++counters.submitted;ready=host.Submit(queue.Get(),history_reset,result);if(ready)history_reset=false;}
             if(ready&&Begin()){
                 Barrier(list.Get(),shared[FEED_OUTPUT].Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE);
                 Barrier(list.Get(),color.Get(),D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);list->CopyResource(color.Get(),shared[FEED_OUTPUT].Get());

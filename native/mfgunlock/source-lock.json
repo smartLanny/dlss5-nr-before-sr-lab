@@ -1,6 +1,14 @@
 {
   "schema": 1,
   "provider": "mfgunlock-0.7-zh-CN",
+  "localSafetyPatches": [
+    {
+      "id": "flip-metering-serialization-v1",
+      "files": {
+        "patch_gate.hpp": "d5ff66f0c1cdb52367796fa854a6d89c58a89d07857472cfdd72f6bc359487a8"
+      }
+    }
+  ],
   "upstream": {
     "repository": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx",
     "archiveSha256": "3deedace278de6d9452529f945908be78988aef7db14711a7f6ba9b1ddd2d9fd",

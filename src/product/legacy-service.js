@@ -86,6 +86,13 @@ function setValue(text, section, name, value) {
   }).join(newline);
 }
 const tokens = value => (value || '').split(',').map(row => row.trim()).filter(Boolean);
+function sameConfigValue(row, actual, expected, record) {
+  if (actual === expected) return true;
+  if (typeof actual !== 'string' || !actual || typeof expected !== 'string' || !expected || !path.isAbsolute(record.path || '')) return false;
+  if (!['ADDON/AddonPath', 'GENERAL/PresetPath', 'GENERAL/EffectSearchPaths', 'GENERAL/TextureSearchPaths'].includes(`${row.section}/${row.name}`)) return false;
+  const base = path.dirname(record.path);
+  return same(path.resolve(base, actual), path.resolve(base, expected));
+}
 function configure(text, layout, recipe, seedText = text, { legacyDefaults = false } = {}) {
   let result = seedText; const deltas = [];
   const settings = [
@@ -128,12 +135,12 @@ function restoreConfiguration(current, record) {
   let result = current; const warnings = [];
   for (const row of [...record.deltas].reverse()) {
     const now = valueOf(result, row.section, row.name);
-    if (now === row.after) { result = setValue(result, row.section, row.name, row.before); continue; }
+    if (sameConfigValue(row, now, row.after, record)) { result = setValue(result, row.section, row.name, row.before); continue; }
     if (row.list) {
-      let next = tokens(now).filter(value => !row.added.includes(value));
+      let next = tokens(now).filter(value => !row.added.some(added => sameConfigValue(row, value, added, record)));
       for (const old of row.removed) {
         const occupied = row.name === 'PreprocessorDefinitions' && next.some(value => value.split('=')[0] === old.split('=')[0]);
-        if (!occupied && !next.includes(old)) next.push(old);
+        if (!occupied && !next.some(value => sameConfigValue(row, value, old, record))) next.push(old);
       }
       result = setValue(result, row.section, row.name, next.length ? next.join(',') : row.before === null ? null : '');
     } else warnings.push({ code: 'LEGACY_CONFIG_USER_CHANGE', section: row.section, key: row.name,
@@ -199,7 +206,7 @@ function createLegacyService(options = {}) {
     if (specs.length !== row.files.length) fail('RECEIPT', 'Feeder 收据的组件数量不匹配。');
     for (const item of row.files) {
       const spec = specs.find(value => value.base === item.base && value.target === item.target), file = spec && pathFor(t, row.layout, spec);
-      if (!spec || !same(item.path, file) || seen.has(key(file)) || item.sha256 !== spec.sha256 || item.mutable !== spec.mutable || typeof item.owned !== 'boolean' ||
+      if (!spec || !same(item.path, file) || seen.has(key(file)) || item.role !== spec.role || item.sha256 !== spec.sha256 || item.mutable !== spec.mutable || typeof item.owned !== 'boolean' ||
           !HASH.test(item.installedHash || '') || !item.mutable && item.installedHash !== spec.sha256) fail('RECEIPT', 'Feeder 收据含未知文件或错误身份。');
       seen.add(key(file));
     }
@@ -251,6 +258,38 @@ function createLegacyService(options = {}) {
     }
     return files;
   }
+  function isHostConfiguration(spec) {
+    return spec?.base === 'addon' && (spec.role === 'host-config' && spec.target === 'host64/ReShade.ini' ||
+      spec.role === 'host-guides' && spec.target === 'host64/NRGuides.ini');
+  }
+  async function hostConfigurationBytes(file) {
+    await noLinks(file);
+    if ((await fsp.stat(file)).size > 256 * 1024) fail('CONFIG_SIZE', '宿主配置超出可核对范围，保留原文件。', { file });
+    return bytesAt(file);
+  }
+  function savedHostConfiguration(spec, bytes) {
+    if (!isHostConfiguration(spec)) return false;
+    const text = textBytes(bytes), original = textBytes(spec.content), seen = new Set(); let section = '';
+    for (const line of text.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+      const header = ini.sectionHeader(line);
+      if (header !== null) { section = header; continue; }
+      if (!line.trim() || /^\s*[;#]/.test(line)) continue;
+      const match = line.match(/^\s*([^;#][^=]*?)\s*=\s*(.*)$/);
+      if (!match) fail('HOST_CONFIG_CHANGED', '宿主配置含无法核对的 INI 内容，保留原文件。');
+      const name = match[1].trim().toLowerCase(), identity = `${section}/${name}`;
+      if (seen.has(identity)) fail('HOST_CONFIG_CHANGED', '宿主配置含重复配置键，保留原文件。');
+      seen.add(identity);
+      if (section === 'addon' && name !== 'addonpath' && (match[2].trim() || !['loadfromdllmain', 'disabledaddons'].includes(name)))
+        fail('HOST_CONFIG_CHANGED', '宿主插件加载清单已改变，保留原文件。');
+    }
+    const required = [['ADDON', 'AddonPath'], ['GENERAL', 'EffectSearchPaths'], ['GENERAL', 'TextureSearchPaths'],
+      ['GENERAL', 'PresetPath'], ['GENERAL', 'PreprocessorDefinitions'], ['GENERAL', 'NoReloadOnInit']];
+    for (const [group, name] of required) {
+      const actual = valueOf(text, group, name), expected = valueOf(original, group, name);
+      if ((actual || '') !== (expected || '')) fail('HOST_CONFIG_CHANGED', '宿主所需的插件、着色器或引导配置已改变，保留原文件。', { section: group, key: name });
+    }
+    return true;
+  }
   async function currentHash(file) { const value = await fileDigest(file); return value || null; }
   async function bytesAt(file) { await noLinks(file); return fsp.readFile(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; }); }
   async function assertNoOtherOwner(t, layout) {
@@ -277,7 +316,7 @@ function createLegacyService(options = {}) {
   }
   async function compile(game, request = {}) {
     const t = selected(game); await closed(t); const old = readReceipt(game), selection = selectionFor(game, request, old);
-    const pkg = await runtime.verify(selection), recipe = pkg.recipe;
+    const pkg = await runtime.verify(old ? { root: runtime.root, recipe: old.recipe, fingerprint: old.recipeFingerprint } : selection), recipe = pkg.recipe;
     if (old && pkg.fingerprint !== old.recipeFingerprint) fail('PINNED_PACKAGE_UNAVAILABLE', '原配套来源当前不可用，修复不会改装另一版本；可先恢复。');
     if (request.version !== undefined && ![recipe.id, recipe.coreVersion].includes(request.version)) fail('VERSION', '所选版本没有对应完整 Feeder 配套，未替换原选择。');
     if (pe.getBitness(t.exe) !== (selection.architecture === 'x86' ? 32 : 64)) fail('ARCHITECTURE', 'Feeder 位数必须匹配实际 EXE。');
@@ -325,14 +364,15 @@ function createLegacyService(options = {}) {
     const planId = crypto.randomUUID(), rows = [], changes = [], isolatedByPath = new Map((migration?.isolated || []).map(row => [key(row.path), row]));
     for (const spec of specifications(recipe, specOptions)) {
       const file = pathFor(t, layout, spec), before = await expectedBefore(file), previous = old?.files.find(row => same(row.path, file));
+      const hostSaved = Boolean(old && before && before !== spec.sha256 && isHostConfiguration(spec) && savedHostConfiguration(spec, await hostConfigurationBytes(file)));
       if (before && spec.mutable && fs.existsSync(file) && (await fsp.stat(file)).size > 256 * 1024) fail('CONFIG_SIZE', 'Feeder 配置超出可核对范围，保留原文件。', { file });
-      if (before && !spec.mutable && before !== spec.sha256 && (old || !isolatedByPath.has(key(file)))) fail('FILE_CHANGED', 'Feeder 目标已有不同文件，未覆盖。', { file });
+      if (before && !spec.mutable && !hostSaved && before !== spec.sha256 && (old || !isolatedByPath.has(key(file)))) fail('FILE_CHANGED', 'Feeder 目标已有不同文件，未覆盖。', { file });
       if (old && !before && previous.owned !== true) fail('BORROWED_MISSING', '安装前已有的用户文件已缺失，修复不会接管它。', { file });
-      const after = before && spec.mutable ? before : spec.sha256;
+      const after = before && (spec.mutable || hostSaved) ? before : spec.sha256;
       const owned = previous ? previous.owned : before === null || isolatedByPath.has(key(file));
       rows.push({ base: spec.base, target: spec.target, path: file, role: spec.role, sha256: spec.sha256,
         installedHash: previous?.installedHash || after, mutable: spec.mutable, owned });
-      changes.push({ file, role: spec.role, before, after, mutable: spec.mutable, source: spec.content ? null : resolveFile(pkg.root, spec.source), content: spec.content || null });
+      changes.push({ file, role: spec.role, before, after, mutable: spec.mutable || hostSaved, source: spec.content ? null : resolveFile(pkg.root, spec.source), content: spec.content || null });
     }
     const sourceCopies = structuredClone(old?.sourceCopies || []), sourceBindings = structuredClone(old?.sourceBindings || []);
     for (const saved of sourceCopies) {
@@ -402,7 +442,9 @@ function createLegacyService(options = {}) {
   function validateConfig(text, config) {
     for (const row of config.deltas) {
       const value = valueOf(text, row.section, row.name);
-      if (row.list ? row.added.some(token => !tokens(value).includes(token)) : value !== row.after)
+      // This is an editable initial UI binding, not a loading dependency.
+      if (row.section === 'INPUT' && row.name === 'KeyOverlay') continue;
+      if (row.list ? row.added.some(token => !tokens(value).some(actual => sameConfigValue(row, actual, token, config))) : !sameConfigValue(row, value, row.after, config))
         fail('CONFIG_CHANGED', 'Feeder 所需的活动配置已改变，请核对或恢复。', { section: row.section, key: row.name });
     }
   }
@@ -418,9 +460,14 @@ function createLegacyService(options = {}) {
       if (fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(row.layout))) fail('LAYOUT_CHANGED', '共享加载布局已改变。'); }
     catch (error) { blockers.push(error.message); }
     const components = [];
+    const specs = specifications(row.recipe, { legacyDefaults: row.config.panelDefault === undefined });
     for (const file of [...row.files, ...(row.sourceCopies || [])]) {
       let actual = null; try { actual = await currentHash(file.path); } catch (error) { blockers.push(error.message); }
-      const valid = actual !== null && (file.mutable ? (await fsp.stat(file.path)).size <= 256 * 1024 : actual === file.sha256);
+      let valid = actual !== null && (file.mutable ? (await fsp.stat(file.path)).size <= 256 * 1024 : actual === file.sha256);
+      const spec = specs.find(value => value.base === file.base && value.target === file.target);
+      if (actual && !valid && isHostConfiguration(spec)) try {
+        valid = savedHostConfiguration(spec, await hostConfigurationBytes(file.path));
+      } catch (error) { blockers.push(error.message); }
       if (!valid) blockers.push(`${path.basename(file.path)} 缺失或已变化。`);
       components.push({ ...file, actual, valid });
     }
@@ -459,6 +506,9 @@ function createLegacyService(options = {}) {
     return resolveFile(t.root, `${HISTORY}/${operation}/${leaf}`);
   }
   function claimPath(file, operation, index) { return path.join(path.dirname(file), `.dlss5-feeder-${operation}-${index}.held`); }
+  function recoveryClaimPath(file, operation, index) {
+    return path.join(path.dirname(file), `.dlss5-feeder-${operation}-${index}.recovery`, 'after.bin');
+  }
   async function checkPlan(plan, live = true) {
     await closed(plan.t);
     if (await currentHash(plan.t.exe) !== plan.exeHash) fail('PLAN_CHANGED', '预览后游戏 EXE 已变更。');
@@ -499,9 +549,11 @@ function createLegacyService(options = {}) {
       const copied = state.receipt.sourceCopies?.find(value => same(value.path, row.file));
       if (spec) {
         const ownership = state.receipt.files.find(value => same(value.path, row.file));
+        const hostSaved = state.kind === 'restore' && row.before !== null && row.before !== spec.sha256 && isHostConfiguration(spec) &&
+          savedHostConfiguration(spec, await hostConfigurationBytes(historyFile(t, state.operation, `before/${i}.bin`)));
         if (!ownership || state.kind === 'install' && row.after !== spec.sha256 ||
             state.kind === 'restore' && (!ownership.owned || row.after !== (isolated?.sha256 || null)) ||
-            !spec.mutable && row.before !== null && row.before !== spec.sha256 && !(state.kind === 'install' && isolated?.operation === state.operation && row.before === isolated.sha256))
+            !spec.mutable && !hostSaved && row.before !== null && row.before !== spec.sha256 && !(state.kind === 'install' && isolated?.operation === state.operation && row.before === isolated.sha256))
           fail('RECOVERY', '恢复动作与固定组件及原所有权不一致。');
       } else if (copied) {
         if (state.kind === 'install' ? row.after !== copied.sha256 || row.before !== null : !copied.owned || row.after !== null || !copied.mutable && row.before !== copied.sha256)
@@ -520,15 +572,30 @@ function createLegacyService(options = {}) {
         const expected = !state.receipt.config.originalExisted && !restored.trim() ? null : sha(Buffer.from(restored));
         if (row.after !== expected) fail('RECOVERY', '共享配置恢复动作超出原变更范围。');
       }
-      const current = await currentHash(row.file), held = await currentHash(claimPath(row.file, state.operation, i));
-      if (current !== row.before && current !== row.after && current !== null || held !== null && held !== row.before)
+      const recoveryClaim = recoveryClaimPath(row.file, state.operation, i); await noLinks(recoveryClaim);
+      const current = await currentHash(row.file), held = await currentHash(claimPath(row.file, state.operation, i)), displaced = await currentHash(recoveryClaim);
+      if (current !== row.before && current !== row.after && current !== null || held !== null && held !== row.before || displaced !== null && displaced !== row.after)
         fail('FILE_CHANGED', '中断后目标文件被外部修改，保留当前文件和恢复快照。', { file: row.file });
     }
     for (let i = state.files.length - 1; i >= 0; i--) {
-      const row = state.files[i], current = await currentHash(row.file), claim = claimPath(row.file, state.operation, i);
+      const row = state.files[i], current = await currentHash(row.file), claim = claimPath(row.file, state.operation, i), recoveryClaim = recoveryClaimPath(row.file, state.operation, i);
       await closed(t);
       if (current !== row.before) {
-        if (current !== null) { if (await currentHash(row.file) !== row.after) fail('FILE_CHANGED', '恢复前文件再次变化。'); await fsp.unlink(row.file); }
+        if (current !== null) {
+          if (await currentHash(row.file) !== row.after) fail('FILE_CHANGED', '恢复前文件再次变化。');
+          await noLinks(recoveryClaim);
+          const directory = path.dirname(recoveryClaim);
+          try { await fsp.mkdir(directory); }
+          catch (error) {
+            if (error.code !== 'EEXIST') throw error;
+            // An empty directory is the only pre-claim interrupted state. Never
+            // rename over a retained candidate, even when its bytes are known.
+            if ((await fsp.readdir(directory)).length) fail('FILE_CHANGED', '恢复暂存已有文件，保留当前目标及暂存文件。', { file: row.file, retainedAt: recoveryClaim });
+          }
+          await fsp.rename(row.file, recoveryClaim);
+          if (await currentHash(recoveryClaim) !== row.after)
+            fail('FILE_CHANGED', '目标在恢复取得时被替换，保留取得的文件及恢复记录。', { file: row.file, retainedAt: recoveryClaim });
+        }
         if (row.before !== null) {
           const source = historyFile(t, state.operation, `before/${i}.bin`);
           if (await currentHash(source) !== row.before) fail('RECOVERY', '原文件快照在恢复前变化。');
@@ -536,6 +603,11 @@ function createLegacyService(options = {}) {
         }
       }
       if (await currentHash(row.file) !== row.before) fail('RECOVERY', 'Feeder 恢复校验未通过。');
+      if (await currentHash(recoveryClaim) !== null) {
+        if (await currentHash(recoveryClaim) !== row.after) fail('FILE_CHANGED', '恢复暂存文件已变化，保留文件及恢复记录。', { retainedAt: recoveryClaim });
+        await fsp.unlink(recoveryClaim);
+      }
+      await fsp.rmdir(path.dirname(recoveryClaim)).catch(error => { if (error.code !== 'ENOENT') throw error; });
       if (await currentHash(claim) !== null) { if (await currentHash(claim) !== row.before) fail('RECOVERY', 'Feeder 暂存原件已变化。'); await fsp.unlink(claim); }
     }
     await fsp.unlink(t.pending); return { recovered: true, runtimeVerified: false };
@@ -614,11 +686,13 @@ function createLegacyService(options = {}) {
     const layout = await layoutFor(game, { layout: row.layout }, row.recipe, row.layout.source !== 'local');
     if (fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(row.layout))) fail('LAYOUT_CHANGED', 'Feeder 恢复布局与原记录不同。');
     await assertNoOtherOwner(t, layout); const changes = [], warnings = [];
+    const specs = specifications(row.recipe, { legacyDefaults: row.config.panelDefault === undefined });
     for (const item of [...row.files].reverse()) {
-      const before = await currentHash(item.path);
-      if (before && !item.mutable && before !== item.sha256) fail('FILE_CHANGED', 'Feeder 文件已被外部替换，保留当前文件。', { file: item.path });
+      const before = await currentHash(item.path), spec = specs.find(value => value.base === item.base && value.target === item.target);
+      const hostSaved = Boolean(before && before !== item.sha256 && isHostConfiguration(spec) && savedHostConfiguration(spec, await hostConfigurationBytes(item.path)));
+      if (before && !item.mutable && !hostSaved && before !== item.sha256) fail('FILE_CHANGED', 'Feeder 文件已被外部替换，保留当前文件。', { file: item.path });
       const isolated = row.isolatedAddons?.find(value => same(value.path, item.path));
-      changes.push({ file: item.path, role: item.role, before, after: item.owned ? isolated?.sha256 || null : before, mutable: item.mutable,
+      changes.push({ file: item.path, role: item.role, before, after: item.owned ? isolated?.sha256 || null : before, mutable: item.mutable || hostSaved,
         source: isolated ? historyFile(t, isolated.operation, isolated.snapshot) : null });
     }
     for (const item of row.sourceCopies || []) {

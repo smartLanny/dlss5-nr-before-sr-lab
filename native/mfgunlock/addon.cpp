@@ -122,6 +122,7 @@
 #include "./upstream/loadhook.hpp"
 #include "./upstream/midpoint.hpp"
 #include "./upstream/ngx_hook.hpp"
+#include "./patch_gate.hpp"
 
 namespace {
 
@@ -783,7 +784,8 @@ std::atomic_bool g_flip_meter_patched{false};
 std::vector<FlipSite> g_flip_meter_sites;
 std::atomic<unsigned int> g_flip_meter_offset{0};
 std::atomic<unsigned int> g_flip_meter_value{0};
-int g_flip_meter_attempts = 0;
+std::atomic_int g_flip_meter_attempts{0};
+SRWLOCK g_flip_meter_lock = SRWLOCK_INIT;
 constexpr int kMaxFlipMeterAttempts = 4000;
 
 // Records the original bytes before writing, so the instruction can be put back
@@ -1106,6 +1108,8 @@ bool TryPatchFlipMeteringInModule(HMODULE mod) {
 }
 
 void TryPatchFlipMetering() {
+  const mfgunlock::TryPatchGuard guard(g_flip_meter_lock);
+  if (!guard) return;
   if (g_flip_meter_patched.load(std::memory_order_acquire)) return;
   if (g_flip_meter_attempts >= kMaxFlipMeterAttempts) return;
 
@@ -1136,6 +1140,13 @@ void RestoreFlipMetering() {
   }
   g_flip_meter_sites.clear();
   g_flip_meter_patched.store(false, std::memory_order_release);
+}
+
+void RestorePacingPatches() {
+  const mfgunlock::TryPatchGuard guard(g_flip_meter_lock);
+  if (!guard) return;
+  RestoreFrameCountCeiling();
+  RestoreFlipMetering();
 }
 
 // Keep compatibility retries away from Present. The load-time hook remains the
@@ -1407,8 +1418,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID /*lpv_reserved*
       mfgunlock::framecount::Uninstall();
       RestoreMidpoint();
       RestoreDlssgArchGate();
-      RestoreFrameCountCeiling();
-      RestoreFlipMetering();
+      RestorePacingPatches();
       reshade::unregister_addon(h_module);
       break;
     default:

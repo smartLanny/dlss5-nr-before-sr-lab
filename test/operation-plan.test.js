@@ -160,3 +160,43 @@ test('a preflight exception on Apply leaves no execution ledger or deployment wr
   await f.plans.apply(plan.planId, { confirm: true, fingerprint: plan.fingerprint });
   assert.deepEqual(f.calls, ['deployment']);
 });
+
+function mfgMigrationFixture(t) {
+  const f = fixture(t), saved = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  const current = { request: { ...saved, multiplier: 4 }, providerId: 'mfgunlock-0.6.1' };
+  const applied = [];
+  f.settings.inspect = async () => ({ current: { fg: { valid: true, request: current.request } },
+    requests: { fg: { request: saved } }, applied: { fg: { backend: 'mfgunlock', request: saved } } });
+  f.components.inspect = async () => ({ managed: true, receipt: {}, installedProvider: current.providerId });
+  f.components.previewProvider = async () => ({ files: [], blockers: [] });
+  f.options.applyEnhancement = async (_id, domain, request, options) => { f.calls.push(domain); applied.push({ request, options }); };
+  f.plans = createOperationPlans(f.options);
+  return { ...f, current, applied };
+}
+
+test('explicit MFG requests and provider choices take precedence over migration retention', async t => {
+  const f = mfgMigrationFixture(t), request = { deployment: 'external', components: { mfgUnlock: 'mfgunlock-0.7' },
+    fg: { backend: 'mfgunlock', mode: 'fixed', multiplier: 5 } };
+  const plan = await f.plans.preview('game', request);
+  await f.plans.apply(plan.planId, { confirm: true, fingerprint: plan.fingerprint });
+  assert.deepEqual(f.applied[0].request, request.fg);
+  assert.equal(f.applied[0].options.providerId, request.components.mfgUnlock);
+  assert.deepEqual(f.calls, ['restore-fg', 'restore-components', 'deployment', 'fg']);
+});
+
+for (const changed of ['menu', 'provider']) test(`MFG ${changed} changes after migration preview require a fresh preview before any writes`, async t => {
+  const f = mfgMigrationFixture(t), plan = await f.plans.preview('game', { deployment: 'external' });
+  if (changed === 'menu') f.current.request = { ...f.current.request, multiplier: 5 };
+  else f.current.providerId = 'mfgunlock-0.7';
+  await assert.rejects(f.plans.apply(plan.planId, { confirm: true, fingerprint: plan.fingerprint }), { code: 'OPERATION_CHANGED' });
+  assert.deepEqual(f.calls, []); assert.equal((await f.plans.inspect('game')).pending, false);
+});
+
+test('explicit FG restore during layout migration does not reinstall the retained provider', async t => {
+  const f = mfgMigrationFixture(t), request = { deployment: 'external', fg: { backend: 'mfgunlock', mode: 'restore' } };
+  f.components.previewProvider = async () => { throw new Error('restoration must not prepare a provider'); };
+  const plan = await f.plans.preview('game', request);
+  await f.plans.apply(plan.planId, { confirm: true, fingerprint: plan.fingerprint });
+  assert.deepEqual(f.applied[0].request, request.fg);
+  assert.equal(Object.hasOwn(f.applied[0].options, 'providerId'), false);
+});

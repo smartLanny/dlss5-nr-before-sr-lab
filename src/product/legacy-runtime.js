@@ -93,7 +93,7 @@ function createLegacyRuntime(options = {}) {
   }
   async function verify(value) {
     const pkg = value?.recipe ? value : load(value);
-    validate(pkg.recipe); await noLinks(pkg.root);
+    validateStored(pkg.recipe); await noLinks(pkg.root);
     for (const item of pkg.recipe.files) {
       const file = resolveFile(pkg.root, item.source);
       if (await fileDigest(file) !== item.sha256 || fs.statSync(file).size !== item.bytes)

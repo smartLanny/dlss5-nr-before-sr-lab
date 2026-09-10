@@ -15,12 +15,13 @@
         "tag": "0.7",
         "commit": "ffe6169b5e98ad578fcf2c30614d06a567790fe1",
         "origin": "source-build",
+        "localSafetyPatches": ["flip-metering-serialization-v1"],
         "url": "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.7"
       },
       "files": {
         "addon": {
           "file": "renodx-mfgunlock.addon64",
-          "sha256": "2cd3a44e78429da4b07b2a50d694750e7b3dd34bf4ce007207f1635cf4a70d4e",
+          "sha256": "950ceaf889a720188c6f8c24ab5d92a847caab1fc93a0880ce698a3978d2ac56",
           "buildScript": "scripts/build-fg-mfgunlock.ps1",
           "sourceLock": "native/mfgunlock/source-lock.json"
         },

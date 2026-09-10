@@ -41,7 +41,7 @@ function runtimeFixture(root, pe, loader) {
   for (const loadingBackend of ['local', 'hoyoshade']) lock.restorableRecipeFingerprints.push(runtime.load({ api: 'dx11', architecture: 'x64', hardwareFamily: 'RTX50', loadingBackend }).fingerprint);
   return runtime;
 }
-async function jointFixture(t, mode) {
+async function jointFixture(t, mode, { existingHotkey = true } = {}) {
   return fixture(t, { api: 'dx11', family: 'RTX50', noDlss: true, exeName: mode === 'hoyoshade' ? 'YuanShen.exe' : 'Game.exe',
     specialSetup: async ({ root, userData, resourcesPath, hardware, guards, pe, gameRoot, exeDir, exe }) => {
       const loader = fs.readFileSync(path.join(PROJECT, 'payload/nr-before-sr/fixed/RTX50/ReShade64.dll'));
@@ -64,7 +64,8 @@ async function jointFixture(t, mode) {
         broker: { inspect: async () => ({ elevated: false, launchable: true }), launch: async () => { throw new Error('fixture never launches a game'); } },
         afterWrite: ({ row }) => { if (row.role === 'receipt' && row.after === null) events.push('legacy-remove'); } });
       const feeder = createFeederRoutingService({ appDir: root, userData, resourcesPath, runtime, modern, hardware });
-      const original = '; personal INI\r\n[ADDON]\r\nAddonPath=.\\personal-addons\r\n[GENERAL]\r\nPresetPath=.\\PersonalPreset.ini\r\n[STYLE]\r\nHdrOverlayBrightness=178\r\n[INPUT]\r\nKeyOverlay=36,0,0,0\r\n';
+      const original = '; personal INI\r\n[ADDON]\r\nAddonPath=.\\personal-addons\r\n[GENERAL]\r\nPresetPath=.\\PersonalPreset.ini\r\n[STYLE]\r\nHdrOverlayBrightness=178\r\n' +
+        (existingHotkey ? '[INPUT]\r\nKeyOverlay=36,0,0,0\r\n' : '');
       put(path.join(exeDir, 'ReShade.ini'), original); put(path.join(exeDir, 'PersonalPreset.ini'), 'Techniques=UserEffect');
       return { overrides: { feeder, hoyo, externalDeployment: external }, runtime, modern, hoyo, external, feeder, events, launcher, original, exe };
     } });
@@ -88,6 +89,7 @@ test('real AppService and OperationPlan keep local Feeder previews stable, route
   assert.match(fs.readFileSync(path.join(layout.nrConfigDir, 'nr_before_sr.ini'), 'utf8'), /Intensity=1\.65/);
   assert.equal(fs.existsSync(path.join(f.exeDir, 'nr_before_sr.ini')), false);
   assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '121,1,0,0');
+  assert.equal((await f.special.modern.inspect(game)).ready, true);
   const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
   assert.equal(fs.existsSync(path.join(f.gameRoot, LEGACY_RECEIPT)), false); assert.equal(fs.existsSync(path.join(f.exeDir, 'dxgi.dll')), false);
   assert.match(fs.readFileSync(path.join(f.exeDir, 'ReShade.ini'), 'utf8'), /HdrOverlayBrightness=178/);
@@ -111,10 +113,25 @@ test('real AppService and OperationPlan bind HoYo and legacy owners, retain pins
   const edited = await stablePreview(f, { nr: { Intensity: 1.55 }, hotkeys: { reshade: { key: 120, ctrl: false, shift: true, alt: false } } });
   await f.plans.apply(edited.planId, confirm(edited)); assert.match(fs.readFileSync(path.join(layout.nrConfigDir, 'nr_before_sr.ini'), 'utf8'), /Intensity=1\.55/);
   assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '120,0,1,0');
+  assert.equal((await f.special.modern.inspect(game)).ready, true);
   assert.equal(fs.existsSync(path.join(f.exeDir, 'nr_before_sr.ini')), false);
   const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
   assert.ok(f.special.events.indexOf('legacy-remove') >= 0); assert.ok(f.special.events.indexOf('legacy-remove') < f.special.events.indexOf('profile-remove'));
   assert.equal(fs.existsSync(path.join(f.gameRoot, LEGACY_RECEIPT)), false); assert.equal(JSON.parse(fs.readFileSync(path.join(f.gameRoot, PROFILE_RECEIPT))).removed, true);
   assert.equal(fs.readFileSync(path.join(f.exeDir, 'ReShade.ini'), 'utf8'), f.special.original); assert.equal(fs.readFileSync(path.join(f.exeDir, 'PersonalPreset.ini'), 'utf8'), 'Techniques=UserEffect');
   assert.equal((await f.plans.inspect(f.id)).pending, false);
+});
+
+test('official AppService hotkey edits keep a fresh Feeder default-key installation ready and preserve the edited key on restore', async t => {
+  const f = await jointFixture(t, 'local', { existingHotkey: false });
+  const preview = await stablePreview(f, { route: 'feeder', api: 'dx11', loadingBackend: 'local', deployment: 'local' });
+  await f.plans.apply(preview.planId, confirm(preview));
+  const game = (await f.service.listGames())[0], layout = f.service.getLayout(f.id);
+  assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '187,0,0,0');
+  await f.service.writeGameHotkey(f.id, 'reshade', { key: 121, ctrl: true, shift: false, alt: false });
+  assert.equal((await f.special.modern.inspect(game)).ready, true); assert.equal((await f.service.inspectDeployment(f.id)).ready, true);
+  const repair = await stablePreview(f, { repair: true }); await f.plans.apply(repair.planId, confirm(repair));
+  assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '121,1,0,0');
+  const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
+  assert.equal(getIni(fs.readFileSync(path.join(f.exeDir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '121,1,0,0');
 });

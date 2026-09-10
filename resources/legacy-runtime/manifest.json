@@ -436,21 +436,21 @@
       "role": "provider",
       "architecture": "x86",
       "mutable": false,
-      "sha256": "f9b8d9b32411cf7118e0f00f66af7528db51a2742e815c797a0e00b8878dd221",
-      "bytes": 188928,
+      "sha256": "250e4a5523a20c54a0c59dc55f08f81cc38526efa1eb6c920a86e3602fd499f8",
+      "bytes": 190976,
       "provenance": {
         "type": "source-owned-build",
         "upstreamCommit": "3f624855276c4bde55145c712782477639b30e85",
-        "build": "d3d9on12-provider-fix-r2",
-        "sourceSha256": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+        "build": "d3d9on12-provider-fix-r3",
+        "sourceSha256": "40b8af455ad5d89823bb42ad854bec5d687658e5bd6cba30026f0434985da774",
         "source": {
-          "scripts/feeder-beta3/nr_feeder_d3d9.cpp": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+          "scripts/feeder-beta3/nr_feeder_d3d9.cpp": "40b8af455ad5d89823bb42ad854bec5d687658e5bd6cba30026f0434985da774",
           "scripts/feeder-beta3/nr_feeder_control.h": "065526266d538bfa79e72dcc2922b1b6f651627a4bee0763c4cc8220532decbf",
           "scripts/feeder-beta3/nr_feeder_query.h": "eaaa774eac519f4253d08055481a337270dd3ee17dc794f51a0710b6f8fce12e",
           "scripts/feeder-beta3/nr_feeder_ipc_client.h": "ce8290338f20a1e599464f7ea0b0c1e8a1cd8625c86be66ff1a4728d41c79377",
-          "scripts/feeder-beta3/nr_feeder_depth_copy.h": "01701c4089f8ffa575fdd22d87f1bfa5a86203a314be37f0310e0945696f26c8"
+          "scripts/feeder-beta3/nr_feeder_depth_copy.h": "4be5925e1716a87209a6013a812c0159cd9c8e4f5db0d43558070d224ae9ac1d"
         },
-        "buildReportAsset": "dx9-r2-build"
+        "buildReportAsset": "dx9-r3-build"
       }
     },
     {
@@ -459,21 +459,21 @@
       "role": "provider",
       "architecture": "x64",
       "mutable": false,
-      "sha256": "cb89471ab6c3a378be140d83d195d69de9e5238a37af1e88e704f72a56b2d731",
-      "bytes": 233984,
+      "sha256": "7743b2cb7d2bbc8ea42471a2787cc91e635d421162d14a862cba9d4670fa4a2a",
+      "bytes": 236032,
       "provenance": {
         "type": "source-owned-build",
         "upstreamCommit": "3f624855276c4bde55145c712782477639b30e85",
-        "build": "d3d9on12-provider-fix-r2",
-        "sourceSha256": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+        "build": "d3d9on12-provider-fix-r3",
+        "sourceSha256": "40b8af455ad5d89823bb42ad854bec5d687658e5bd6cba30026f0434985da774",
         "source": {
-          "scripts/feeder-beta3/nr_feeder_d3d9.cpp": "6e642c29e7c4de422e5479354b273b11f0603d44783e6054657d3060de7d8a88",
+          "scripts/feeder-beta3/nr_feeder_d3d9.cpp": "40b8af455ad5d89823bb42ad854bec5d687658e5bd6cba30026f0434985da774",
           "scripts/feeder-beta3/nr_feeder_control.h": "065526266d538bfa79e72dcc2922b1b6f651627a4bee0763c4cc8220532decbf",
           "scripts/feeder-beta3/nr_feeder_query.h": "eaaa774eac519f4253d08055481a337270dd3ee17dc794f51a0710b6f8fce12e",
           "scripts/feeder-beta3/nr_feeder_ipc_client.h": "ce8290338f20a1e599464f7ea0b0c1e8a1cd8625c86be66ff1a4728d41c79377",
-          "scripts/feeder-beta3/nr_feeder_depth_copy.h": "01701c4089f8ffa575fdd22d87f1bfa5a86203a314be37f0310e0945696f26c8"
+          "scripts/feeder-beta3/nr_feeder_depth_copy.h": "4be5925e1716a87209a6013a812c0159cd9c8e4f5db0d43558070d224ae9ac1d"
         },
-        "buildReportAsset": "dx9-r2-build"
+        "buildReportAsset": "dx9-r3-build"
       }
     },
     {
@@ -510,8 +510,8 @@
       "role": "evidence",
       "architecture": null,
       "mutable": false,
-      "sha256": "337535f8a3f611e954810635a55ba3e71ea869d512e5b3e535b1df6ebb660cc4",
-      "bytes": 58068
+      "sha256": "0cce70c0c133b4068465cf09ae0c13642647981c9fc09d30f1c3a4e7e7858ba5",
+      "bytes": 65260
     },
     {
       "id": "dx9-r2-build",
@@ -521,6 +521,15 @@
       "mutable": false,
       "sha256": "bbc2d73b849ddc50b5db98bbe232c21df634a3f22ba32902dd35aef8fbb00f3f",
       "bytes": 10339
+    },
+    {
+      "id": "dx9-r3-build",
+      "source": "acceptance/dx9-r3-build.json",
+      "role": "evidence",
+      "architecture": null,
+      "mutable": false,
+      "sha256": "2f6bfa0fa2c4494e4dacc6ec7a3695e18957d1fe9b170ef265424a042ff1c054",
+      "bytes": 17291
     }
   ],
   "protocols": {

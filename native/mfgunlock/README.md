@@ -5,10 +5,13 @@
 固定提交 `ffe6169b5e98ad578fcf2c30614d06a567790fe1`。
 原始版权、许可与 README 均保留在 `upstream` 中。
 
-`addon.cpp` 只调整四个相对 include 路径，并把 `OnRegisterOverlay` 替换为
-`panel_zh.inl`。运行时 hook、默认值、INI 键、导出/注册名、英文诊断日志
-均与固定上游一致。`verify-fg-mfgunlock-source.js` 会逐文件检查原始源摘要，
-并核对面板以外的主源文件完全相同。
+`addon.cpp` 调整四个相对 include 路径，并把 `OnRegisterOverlay` 替换为
+`panel_zh.inl`。另有明确记录的 `flip-metering-serialization-v1` 安全补丁：
+启动发现线程、设备/队列回调和帧节奏请求共用非阻塞 SRW 门，持锁后复查状态，
+避免同时追加补丁记录和改写同一指令；RAII 释放门，恢复使用同一门，重试计数为原子值。
+默认值、INI 键、导出/注册名、英文诊断日志及补丁匹配算法保持上游约定。
+`verify-fg-mfgunlock-source.js` 逐文件检查原始源摘要，并精确核对上述有限变更。
+官方 0.7 和 0.6.1 回退文件保持官方原始字节，不含此本地安全补丁。
 
 界面常用项是跟随游戏、2×、3×、4×；已有 5×/6× 配置会保留并标为实验请求，
 不会列为默认可选项。详细行为在“使用说明”，低频参数在“兼容设置”，诊断在
@@ -39,7 +42,10 @@ node scripts/verify-fg-mfgunlock.js
 目录编译，不修改原依赖目录。`source-lock.json` 记录精确仓库提交、归档与头文件
 摘要。`/Brepro` 的两次独立目录构建已产生完全相同的 Add-on：
 
-`2cd3a44e78429da4b07b2a50d694750e7b3dd34bf4ce007207f1635cf4a70d4e`
+`950ceaf889a720188c6f8c24ab5d92a847caab1fc93a0880ce698a3978d2ac56`
+
+构建同时运行真实 SRW 门的并发检查：16 线程、100 轮、每轮 2000 条共享记录，
+核对单写者、争用立即返回、重入拒绝与异常释放。该检查不执行游戏指令补丁。
 
 `build-mfgunlock.json` 记录实际编译输入、输出摘要和 ABI。编译成功本身不会标记
 GPU 或面板验收通过；独立验收记录区分中文/ABI/INI 与实际游戏 MFG 输出。

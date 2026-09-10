@@ -25,6 +25,7 @@ function fixture(t, controls = {}) {
   const game = { id: 'fixture-game', dir: gameRoot, scan: { chosen: { path: exe, bitness: controls.bitness || 64, apiResolution: { api: controls.api || 'dx11' } } } };
   const pool = path.join(root, 'pool'); fs.mkdirSync(pool); const accepted = new Set(), state = { version: 'fixture-v1', running: false, offline: false, ...controls };
   const runtime = {
+    root: pool,
     load(input) {
       if (state.offline) throw Object.assign(new Error('pool unavailable'), { code: 'POOL_OFFLINE' });
       const selection = catalog.resolve(input); if (selection.deliveryBlocked) throw Object.assign(new Error('blocked wrapper'), { code: 'LEGACY_COMPONENT_DELIVERY_BLOCKED' });
@@ -50,7 +51,15 @@ function fixture(t, controls = {}) {
     },
     validate(recipe) { assert.equal(fingerprint(recipe), this.load(recipe.selection).fingerprint); return recipe; },
     validateStored(recipe) { if (!accepted.has(fingerprint(recipe))) throw Object.assign(new Error('untrusted stored recipe'), { code: 'LEGACY_RECEIPT_INVALID' }); return recipe; },
-    async verify(value) { const pkg = value?.recipe ? value : this.load(value); this.validate(pkg.recipe); return pkg; }
+    async verify(value) {
+      const pkg = value?.recipe ? value : this.load(value); this.validateStored(pkg.recipe);
+      for (const item of pkg.recipe.files) {
+        const source = path.join(pkg.root, item.source);
+        if (!fs.existsSync(source) || hash(fs.readFileSync(source)) !== item.sha256)
+          throw Object.assign(new Error('pinned source unavailable'), { code: 'LEGACY_PACKAGE_HASH' });
+      }
+      return pkg;
+    }
   };
   const original = '\uFEFF; my settings\r\n[ADDON]\r\nAddonPath=.\\personal-addons\r\n[GENERAL]\r\nPresetPath=.\\my-preset.ini\r\n' +
     'EffectSearchPaths=.\\my-shaders\\**\r\nPreprocessorDefinitions=USER_QUALITY=3,V_MV_MODE=9\r\n[STYLE]\r\nHdrOverlayBrightness=180\r\n';
@@ -92,12 +101,20 @@ test('shared INI restore removes only feeder deltas and preserves subsequent set
   assert.equal(getIni(restored, 'GENERAL', 'PreprocessorDefinitions').includes('V_MV_MODE=9'), true);
 });
 
-test('recipe update cannot silently repair or switch an installed selection; offline restoration still uses trusted old pins', async t => {
+test('recipe update repairs from unchanged old sources without upgrading, rejects missing old sources, and restores offline', async t => {
   const f = fixture(t); await f.service.install(f.game); const saved = fs.readFileSync(f.receipt), provider = path.join(f.layout.addonDirectory, 'dlss5-feed.addon64');
   const oldBytes = fs.readFileSync(provider); f.state.version = 'fixture-v2';
-  await assert.rejects(f.service.previewInstall(f.game), { code: 'LEGACY_PINNED_PACKAGE_UNAVAILABLE' });
+  fs.unlinkSync(provider);
+  const repair = await f.service.previewInstall(f.game);
+  await f.service.install(f.game, { expectedPlanId: repair.planId });
+  assert.deepEqual(fs.readFileSync(provider), oldBytes);
   await assert.rejects(f.service.previewInstall(f.game, { api: 'dx12' }), { code: 'LEGACY_RESTORE_FIRST' });
-  assert.deepEqual(fs.readFileSync(f.receipt), saved); assert.deepEqual(fs.readFileSync(provider), oldBytes);
+  assert.deepEqual(f.service.receipt(f.game).recipe, JSON.parse(saved).recipe);
+  assert.equal(f.service.receipt(f.game).recipeFingerprint, JSON.parse(saved).recipeFingerprint);
+  assert.deepEqual(fs.readFileSync(provider), oldBytes);
+  const source = f.service.receipt(f.game).recipe.files.find(row => row.role === 'provider').source;
+  fs.unlinkSync(path.join(f.pool, source));
+  await assert.rejects(f.service.previewInstall(f.game), { code: 'LEGACY_PACKAGE_HASH' });
   f.state.offline = true; assert.equal((await f.service.restore(f.game)).restored, true); assert.equal(exists(provider), false);
 });
 
@@ -130,6 +147,77 @@ test('recovery rejects altered snapshots, other targets and newer external files
     assert.deepEqual(fs.readFileSync(f.pending), before);
     if (variant === 'replacement') assert.equal(fs.readFileSync(wal.files[0].file, 'utf8'), 'new user replacement');
   }
+});
+
+test('recovery retains a replacement that wins the atomic claim and another newly published target', async t => {
+  const f = fixture(t, { options: { afterWrite: () => { throw Object.assign(new Error('fixture interruption'), { preservePending: true }); } } });
+  await assert.rejects(f.service.install(f.game), /fixture interruption/);
+  const journal = fs.readFileSync(f.pending), wal = JSON.parse(journal), victim = wal.files[0].file;
+  const first = 'external replacement before claim', second = 'external replacement after claim';
+  const rename = fsp.rename; let retainedAt, raced = false;
+  fsp.rename = async (source, target) => {
+    if (!raced && source === victim && path.basename(target) === 'after.bin') {
+      raced = true; retainedAt = target; fs.writeFileSync(victim, first);
+      await rename(source, target); fs.writeFileSync(victim, second); return;
+    }
+    return rename(source, target);
+  };
+  try {
+    await assert.rejects(createLegacyService({ ...f.options, afterWrite: undefined }).recover(f.game), { code: 'LEGACY_FILE_CHANGED' });
+  } finally { fsp.rename = rename; }
+  assert.equal(raced, true); assert.equal(fs.readFileSync(retainedAt, 'utf8'), first);
+  assert.equal(fs.readFileSync(victim, 'utf8'), second); assert.deepEqual(fs.readFileSync(f.pending), journal);
+  await assert.rejects(createLegacyService({ ...f.options, afterWrite: undefined }).recover(f.game), { code: 'LEGACY_FILE_CHANGED' });
+  assert.equal(fs.readFileSync(retainedAt, 'utf8'), first); assert.equal(fs.readFileSync(victim, 'utf8'), second);
+  assert.deepEqual(fs.readFileSync(f.pending), journal);
+});
+
+test('recovery resumes after an atomic claim for both a created file and a replaced original', async t => {
+  for (const variant of ['created', 'replaced']) {
+    const f = fixture(t, { options: { afterWrite: ({ row, index }) => {
+      if (variant === 'created' ? index === 0 : row.role === 'shared-config')
+        throw Object.assign(new Error('fixture interruption'), { preservePending: true });
+    } } });
+    await assert.rejects(f.service.install(f.game), /fixture interruption/);
+    const wal = JSON.parse(fs.readFileSync(f.pending)), row = variant === 'created' ? wal.files[0] : wal.files.find(value => value.role === 'shared-config');
+    const rename = fsp.rename; let retainedAt, interrupted = false;
+    fsp.rename = async (source, target) => {
+      await rename(source, target);
+      if (!interrupted && source === row.file && path.basename(target) === 'after.bin') {
+        interrupted = true; retainedAt = target; throw new Error('recovery interrupted after claim');
+      }
+    };
+    try {
+      await assert.rejects(createLegacyService({ ...f.options, afterWrite: undefined }).recover(f.game), /recovery interrupted after claim/);
+    } finally { fsp.rename = rename; }
+    assert.equal(interrupted, true); assert.equal(exists(row.file), false); assert.equal(hash(fs.readFileSync(retainedAt)), row.after);
+    assert.equal(exists(f.pending), true);
+    assert.equal((await createLegacyService({ ...f.options, afterWrite: undefined }).recover(f.game)).recovered, true);
+    assert.equal(row.before === null ? !exists(row.file) : hash(fs.readFileSync(row.file)) === row.before, true);
+    assert.equal(exists(path.dirname(retainedAt)), false); assert.equal(exists(f.pending), false);
+    assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+  }
+});
+
+test('recovery exclusive restore preserves a target published after claiming the old candidate', async t => {
+  const f = fixture(t, { options: { afterWrite: ({ row }) => {
+    if (row.role === 'shared-config') throw Object.assign(new Error('fixture interruption'), { preservePending: true });
+  } } });
+  await assert.rejects(f.service.install(f.game), /fixture interruption/);
+  const journal = fs.readFileSync(f.pending), wal = JSON.parse(journal), index = wal.files.findIndex(row => row.role === 'shared-config'), row = wal.files[index];
+  let raced = false;
+  const service = createLegacyService({ ...f.options, afterWrite: undefined, copyFile: async (source, target, flags) => {
+    if (!raced && target === row.file) { raced = true; fs.writeFileSync(target, 'new config during exclusive restore'); }
+    return fsp.copyFile(source, target, flags);
+  } });
+  await assert.rejects(service.recover(f.game), { code: 'EEXIST' }); assert.equal(raced, true);
+  assert.equal(fs.readFileSync(row.file, 'utf8'), 'new config during exclusive restore');
+  const retainedAt = path.join(path.dirname(row.file), `.dlss5-feeder-${wal.operation}-${index}.recovery`, 'after.bin');
+  assert.equal(hash(fs.readFileSync(retainedAt)), row.after);
+  assert.equal(hash(fs.readFileSync(path.join(f.gameRoot, '_DLSS5_Backup/feeder-v2-history', wal.operation, 'before', `${index}.bin`))), row.before);
+  assert.deepEqual(fs.readFileSync(f.pending), journal);
+  await assert.rejects(service.recover(f.game), { code: 'LEGACY_FILE_CHANGED' });
+  assert.equal(fs.readFileSync(row.file, 'utf8'), 'new config during exclusive restore');
 });
 
 test('HoYo projected profile compiles one bounded plan and shares INI and receipt ownership through restore', async t => {
@@ -297,4 +385,99 @@ test('pre-equals legacy receipts keep their original configuration and host byte
   assert.equal(fs.readFileSync(host.path, 'utf8'), originalHost);
   await f.service.restore(f.game);
   assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+});
+
+test('runtime-saved host INIs retain receipt identities, stay repairable and archive exact saved bytes on restore', async t => {
+  for (const legacyDefaults of [false, true]) {
+    const f = fixture(t, { api: 'dx9' }); await f.service.install(f.game);
+    const receipt = JSON.parse(fs.readFileSync(f.receipt));
+    if (legacyDefaults) {
+      const old = configure(receipt.config.beforeText, receipt.layout, receipt.recipe, receipt.config.seedText, { legacyDefaults: true });
+      receipt.config = { ...receipt.config, ...old }; delete receipt.config.panelDefault; fs.writeFileSync(receipt.config.path, old.text);
+      const host = receipt.files.find(row => row.role === 'host-config'), original = '[ADDON]\r\nAddonPath=.\\addons\r\n';
+      fs.writeFileSync(host.path, original); host.sha256 = host.installedHash = hash(original); fs.writeFileSync(f.receipt, JSON.stringify(receipt));
+    }
+    const configs = receipt.files.filter(row => ['host-config', 'host-guides'].includes(row.role)), saved = new Map();
+    for (const file of configs) {
+      assert.equal(file.mutable, false);
+      let text = fs.readFileSync(file.path, 'utf8').replace(/\r?\n/g, '\r\n');
+      if (file.role === 'host-config') text += '[DLSS5Host]\r\nWindowWidth=900\r\nWindowHeight=0\r\n[OVERLAY]\r\n' +
+        'Docking=[Docking][Data],DockSpace ID=0xB0DF600F Pos=8,,8 Size=884,,1334\r\nWindow=[Window][###home],Pos=8,,8,Collapsed=0\r\n';
+      else text = text.replace('ShowFPS=0', 'ShowFPS=1').replace('KeyOverlay=0,0,0,0', 'KeyOverlay=121,0,0,0');
+      fs.writeFileSync(file.path, text); saved.set(file.path, Buffer.from(text));
+    }
+    assert.equal((await f.service.inspect(f.game)).ready, true);
+    const preview = await f.service.previewInstall(f.game);
+    for (const file of configs) assert.equal(preview.changes.find(row => row.path === file.path).action, 'keep');
+    await f.service.install(f.game, { expectedPlanId: preview.planId });
+    for (const file of configs) {
+      assert.deepEqual(fs.readFileSync(file.path), saved.get(file.path));
+      assert.deepEqual(f.service.receipt(f.game).files.find(row => row.path === file.path), file);
+    }
+    const removal = await f.service.previewRestore(f.game), restored = await f.service.restore(f.game, { expectedPlanId: removal.planId });
+    const operation = JSON.parse(fs.readFileSync(path.join(restored.archiveDirectory, 'operation.json')));
+    for (const file of configs) {
+      const index = operation.files.findIndex(row => row.file === file.path);
+      assert.deepEqual(fs.readFileSync(path.join(restored.archiveDirectory, 'before', `${index}.bin`)), saved.get(file.path));
+      assert.equal(exists(file.path), false);
+    }
+    assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+  }
+});
+
+test('host INI normal-save allowance rejects changed loading paths, early modules, duplicate keys and receipt role spoofing', async t => {
+  const f = fixture(t, { api: 'dx9' }); await f.service.install(f.game); const receipt = fs.readFileSync(f.receipt), row = JSON.parse(receipt);
+  const host = row.files.find(file => file.role === 'host-config'), guides = row.files.find(file => file.role === 'host-guides');
+  const variants = [
+    [host, text => text.replace('AddonPath=.\\addons', 'AddonPath=C:\\external-addons')],
+    [host, text => text.replace('AddonPath=.\\addons', 'AddonPath=.\\addons\r\nLoadFromDllMain=foreign.dll')],
+    [host, text => text.replace('AddonPath=.\\addons', 'AddonPath=.\\addons\r\nDisabledAddons=core')],
+    [host, text => text.replace('AddonPath=.\\addons', 'AddonPath=.\\addons\r\nAddonPath=C:\\external-addons')],
+    [guides, text => text.replace('PresetPath=.\\..\\..\\ReShadePreset.ini', 'PresetPath=C:\\external.ini')],
+    [guides, text => text.replace('V_MV_MODE=1', 'V_MV_MODE=9')],
+    [host, text => text + ';' + 'x'.repeat(256 * 1024)]
+  ];
+  for (const [file, change] of variants) {
+    const original = fs.readFileSync(file.path); fs.writeFileSync(file.path, change(original.toString()));
+    const changed = fs.readFileSync(file.path);
+    assert.equal((await f.service.inspect(f.game)).ready, false);
+    await assert.rejects(f.service.previewInstall(f.game), error => /^LEGACY_(HOST_CONFIG_CHANGED|CONFIG_AMBIGUOUS|CONFIG_SIZE)$/.test(error.code));
+    await assert.rejects(f.service.previewRestore(f.game), error => /^LEGACY_(HOST_CONFIG_CHANGED|CONFIG_AMBIGUOUS|CONFIG_SIZE)$/.test(error.code));
+    assert.equal(exists(f.pending), false); assert.deepEqual(fs.readFileSync(file.path), changed); fs.writeFileSync(file.path, original);
+  }
+  row.files.find(file => file.role === 'core').role = 'host-config'; fs.writeFileSync(f.receipt, JSON.stringify(row));
+  await assert.rejects(f.service.inspect(f.game), { code: 'LEGACY_RECEIPT' }); fs.writeFileSync(f.receipt, receipt);
+  const changed = JSON.parse(receipt); changed.files.find(file => file.role === 'host-config').mutable = true; fs.writeFileSync(f.receipt, JSON.stringify(changed));
+  await assert.rejects(f.service.previewRestore(f.game), { code: 'LEGACY_RECEIPT' }); fs.writeFileSync(f.receipt, receipt);
+  assert.equal((await f.service.restore(f.game)).restored, true);
+});
+
+test('interrupted restore of runtime-saved host configuration rolls back the exact saved bytes', async t => {
+  const f = fixture(t, { api: 'dx9' }); await f.service.install(f.game);
+  const file = f.service.receipt(f.game).files.find(row => row.role === 'host-guides').path;
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\r?\n/g, '\r\n').replace('ShowFPS=0', 'ShowFPS=1'));
+  const saved = fs.readFileSync(file);
+  const interrupted = createLegacyService({ ...f.options, afterWrite: ({ row }) => {
+    if (row.file === file) throw Object.assign(new Error('restore interrupted at saved host INI'), { preservePending: true });
+  } });
+  await assert.rejects(interrupted.restore(f.game), /restore interrupted at saved host INI/);
+  assert.equal(exists(file), false); assert.equal(exists(f.pending), true);
+  assert.equal((await f.service.recover(f.game)).recovered, true); assert.deepEqual(fs.readFileSync(file), saved);
+  assert.equal((await f.service.inspect(f.game)).ready, true); assert.equal((await f.service.restore(f.game)).restored, true);
+});
+
+test('ReShade relative serialization of owned paths stays ready and restores the original paths while rejecting another target', async t => {
+  const f = fixture(t); await f.service.install(f.game); const file = path.join(f.dir, 'ReShade.ini');
+  const initial = fs.readFileSync(file, 'utf8'), normalized = initial.split(f.layout.runtimeDir).join('.\\_DLSS5_Feeder15');
+  assert.notEqual(normalized, initial); fs.writeFileSync(file, normalized);
+  assert.equal((await f.service.inspect(f.game)).ready, true);
+  const repair = await f.service.previewInstall(f.game); await f.service.install(f.game, { expectedPlanId: repair.planId });
+  assert.equal(fs.readFileSync(file, 'utf8'), normalized);
+  fs.writeFileSync(file, normalized.replace('PresetPath=.\\_DLSS5_Feeder15', 'PresetPath=.\\another-runtime'));
+  assert.equal((await f.service.inspect(f.game)).ready, false);
+  await assert.rejects(f.service.previewInstall(f.game), { code: 'LEGACY_CONFIG_CHANGED' }); fs.writeFileSync(file, normalized);
+  await f.service.restore(f.game); const restored = fs.readFileSync(file, 'utf8');
+  assert.equal(getIni(restored, 'GENERAL', 'PresetPath'), '.\\my-preset.ini');
+  assert.equal(getIni(restored, 'GENERAL', 'EffectSearchPaths'), '.\\my-shaders\\**');
+  assert.equal(restored.includes('_DLSS5_Feeder15'), false);
 });

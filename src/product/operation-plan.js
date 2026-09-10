@@ -110,12 +110,16 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
     const targetMode = loadingBackend === 'hoyoshade' ? 'external' : request.deployment || defaults?.deployment || (installed ? before.layout.mode || 'local' : 'local');
     const loadingMode = loadingBackend === 'hoyoshade' ? 'helper' : request.loadingMode || defaults?.loadingMode || (installed ? before.layout.loadingMode : 'proxy') || 'proxy';
     const route = request.route || (deploy && service.resolveInputRoute ? await service.resolveInputRoute(id, request) : defaults?.route);
-    let retainedFg = null;
+    let retainedFg = null, retainedMfgProvider = null;
     const specialOwner = ['vulkan', 'feeder'].includes(route) || ['vulkan', 'feeder'].includes(before.layout.source) || request.api === 'vulkan';
     const changingMode = deploy && installed && !specialOwner && targetMode !== before.layout.mode;
     if (changingMode) {
       const previous = await settings.inspect(id), componentState = await components.inspect(id);
-      retainedFg = previous.requests?.fg?.request || previous.applied?.fg?.request || null;
+      retainedFg = previous.current?.fg?.valid ? previous.current.fg.request : previous.requests?.fg?.request || previous.applied?.fg?.request || null;
+      retainedMfgProvider = componentState.installedProvider || null;
+      // Restoring the old owner removes the evidence used to select its provider.
+      // Bind both choices before that happens, including game-menu changes.
+      before.fgMigration = { request: retainedFg, providerId: retainedMfgProvider };
       if (retainedFg || componentState.managed || componentState.receipt) {
         changes.push({ action: 'restore-fg-before-migration', path: before.layout.runtimeDir, description: '先恢复当前补帧配置和组件，再迁移，并按保留的补帧选择重新准备。' });
         steps.push({ kind: 'restore-fg' });
@@ -165,8 +169,10 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
       if (request.hotkeys) { changes.push({ action: 'set-config-key', path: before.layout.activeConfigPath, key: 'INPUT/KeyOverlay',
         value: [request.hotkeys.reshade.key, Number(request.hotkeys.reshade.ctrl), Number(request.hotkeys.reshade.shift), Number(request.hotkeys.reshade.alt)].join(',') }); steps.push({ kind: 'hotkeys' }); }
       let selectedFg = request.fg || retainedFg;
-      if (request.components?.mfgUnlock) {
-        const componentPreview = await components.previewProvider(id, request.components.mfgUnlock);
+      const selectedMfgProvider = request.components?.mfgUnlock ||
+        (selectedFg?.backend === 'mfgunlock' && selectedFg.mode !== 'restore' ? retainedMfgProvider : null);
+      if (selectedMfgProvider) {
+        const componentPreview = await components.previewProvider(id, selectedMfgProvider);
         changes.push(...componentPreview.files); blockers.push(...blockerMessages(componentPreview));
         if (!selectedFg) {
           const state = await settings.inspect(id);
@@ -180,7 +186,8 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         changes.push(...preview.operations.map(row => ({ ...row, domain, path: preview.destination })));
         if (preview.needsPreparation || preview.preparation) changes.push({ action: 'prepare-components', domain, description: '应用时一并准备并验证所需组件。' });
         blockers.push(...blockerMessages(preview));
-        steps.push({ kind: domain, request: desired, preview });
+        steps.push({ kind: domain, request: desired, preview,
+          ...(domain === 'fg' && selectedMfgProvider ? { providerId: selectedMfgProvider } : {}) });
       }
       if (request.launchMode !== undefined) {
         const status = await inspectLaunchMode(id);
@@ -248,7 +255,7 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         else if (step.kind === 'hotkeys') stage.result = await service.writeGameHotkey(t.id, 'reshade', plan.request.hotkeys.reshade);
         else if (step.kind === 'restore-fg') { await settings.restore(t.id, 'fg'); stage.result = await components.restore(t.id); }
         else if (step.kind === 'sr' || step.kind === 'fg') stage.result = await applyEnhancement(t.id, step.kind, step.request, { allowAntiCheat: consent.allowAntiCheat === true, reapplyExternalChanges: plan.request.reapplyExternalChanges === true,
-          ...(step.kind === 'fg' && plan.request.components?.mfgUnlock ? { providerId: plan.request.components.mfgUnlock } : {}) });
+          ...(step.kind === 'fg' && step.providerId ? { providerId: step.providerId } : {}) });
         else if (step.kind === 'launch') stage.result = await setLaunchMode(t.id, plan.request.launchMode);
         else if (step.kind === 'uninstall') {
           await restoreForUninstall(t.id);

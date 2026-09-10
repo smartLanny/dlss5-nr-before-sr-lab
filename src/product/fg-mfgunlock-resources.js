@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const ID = 'mfgunlock-0.7-zh-CN';
 const BACKEND = 'mfgunlock';
 const ADDON = 'renodx-mfgunlock.addon64';
-const SHA256 = '2cd3a44e78429da4b07b2a50d694750e7b3dd34bf4ce007207f1635cf4a70d4e';
+const SHA256 = '950ceaf889a720188c6f8c24ab5d92a847caab1fc93a0880ce698a3978d2ac56';
 const LICENSE_SHA256 = '4ce922ecb6aa4b60d24f63f6241f0436e960a00989d71c68e2eb81ecc3d718fd';
 const HASH = /^[a-f0-9]{64}$/;
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');

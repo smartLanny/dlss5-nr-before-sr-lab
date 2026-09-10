@@ -30,12 +30,15 @@ The configuration code itself does not implement rendering or frame generation.
 New RTX 40 preparation uses the MIT-licensed
 [MFG Unlock 0.7](https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.7)
 ReShade Add-on from source commit `ffe6169b5e98ad578fcf2c30614d06a567790fe1`.
-The default is built from that source with a separate simplified Chinese overlay;
-runtime hooks, defaults, registration, configuration keys and original diagnostic
-messages are retained. The untouched upstream source and MIT license are in
+The default is built from that source with a separate simplified Chinese overlay
+and the documented `flip-metering-serialization-v1` local safety patch. The patch
+serializes concurrent pacing discovery and restoration with a nonblocking RAII
+gate and uses an atomic retry counter. Hook matching, defaults, registration,
+configuration keys and original diagnostic messages are retained. The untouched upstream source and MIT license are in
 `native/mfgunlock/upstream`, with locked SDK and Detours dependencies in
 `native/mfgunlock/source-lock.json`. The official 0.7 and official 0.6.1
-(`a975e84712a6bfc84284f50c9621c349ee806734`) binaries remain selectable alternatives.
+(`a975e84712a6bfc84284f50c9621c349ee806734`) binaries remain selectable alternatives
+with their original bytes; they do not include this local safety patch.
 Each pinned binary digest, original README and full license is recorded in
 `resources/fg-mfgunlock/manifest.json` and shipped alongside its Add-on.
 Only one selected version is deployed to the canonical active filename.
