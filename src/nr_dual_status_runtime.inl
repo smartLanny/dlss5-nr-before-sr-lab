@@ -229,7 +229,13 @@ UiSnapshot SnapshotUiAlreadyLocked() noexcept {
     auto snapshot = g_observation.SnapshotUi(query);
     const auto fatal = nr_dual_runtime::fatal_result.load(
         std::memory_order_acquire);
-    if (fatal != 0) {
+    const auto raw_status = nr_dual_runtime::status.load(
+        std::memory_order_acquire);
+    if (fatal != 0 || raw_status == nr_dual_runtime::Status::Failed) {
+        // Run can quarantine an aliased auxiliary params/handle and publish a
+        // raw Failed status without an NGX result code.  That opaque failure
+        // is terminal and must remain visible even when the request is now
+        // pending or disabled, until the caller restarts the chain/process.
         snapshot.state = UiState::Failed;
         snapshot.counts = {};
         snapshot.config_generation = config_generation;

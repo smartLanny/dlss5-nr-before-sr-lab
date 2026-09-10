@@ -1,4 +1,5 @@
 #include "nr_dual_spatial_d3d12.hpp"
+#include "nr_descriptor_plan.h"
 // The real production descriptor writers are compiled here. These wrappers
 // adapt SDK C helper spelling to this harness's C++ COM interfaces only.
 #define ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(h) (h)->GetCPUDescriptorHandleForHeapStart()
@@ -15,6 +16,11 @@ struct NrSlot {
     ID3D12Resource *face_mask=nullptr,*region_field=nullptr;
     ID3D12DescriptorHeap *heap=nullptr;
     ID3D12DescriptorHeap *snapshot_heap=nullptr;
+    struct StageCaptureBinding {
+        ID3D12Resource *buffer=nullptr;
+        UINT64 bytes=0;
+        bool armed=false;
+    } stage_capture{};
     DXGI_FORMAT source_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT source_srv_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT result_format=DXGI_FORMAT_UNKNOWN,result_uav_format=DXGI_FORMAT_UNKNOWN;

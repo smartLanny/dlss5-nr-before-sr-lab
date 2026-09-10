@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory=$true)][string]$DirectionalBaselineSource,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$ReShadeDllPath,
+    [string]$CodecCacheRoot,
     [switch]$RunWarp
 )
 # Focused acceptance of the configuration/wiring slice, not the full historical
@@ -144,7 +145,7 @@ try {
     $Checks.Add('post transformation exact adapter pair and negative controls')
     & (Join-Path $PSScriptRoot 'validate-codec-shader.ps1') -Source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
     $Checks.Add('all staged production SM5 entries compiled')
-    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
+    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -CodecCacheRoot $CodecCacheRoot
     $Checks.Add('full staged bilingual Core and nrchain compile/link')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -PostLightStyle -CompileOnly
     $Checks.Add('generated legacy-post light fixture compiled without GPU dispatch')

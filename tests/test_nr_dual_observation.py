@@ -390,7 +390,11 @@ enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
     PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
 }
 namespace nr_dual_runtime {
-std::atomic<unsigned> fatal_result{0}, status{0};
+enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending,
+    Active, UnsupportedGuides, ResourceBudget, QueuePending, SlotPending,
+    Failed, DeviceIdentity, PipelineUnavailable, ResourceContract };
+std::atomic<unsigned> fatal_result{0};
+std::atomic<Status> status{Status::Off};
 std::atomic<nr_binding::Refusal> binding_reason{nr_binding::Refusal::None};
 std::atomic<unsigned> binding_generation{0};
 std::atomic<unsigned long long> binding_context{0};
@@ -455,6 +459,21 @@ int main() {
           "raw dual fatal is immediate in UI snapshot");
     nr_dual_runtime::fatal_result.store(0);
 
+    // An opaque alias/quarantine branch can publish Status::Failed without
+    // an NGX result code. It remains terminal while the request is pending
+    // and even if NR2 is then disabled.
+    nr_dual_runtime::status.store(nr_dual_runtime::Status::Failed);
+    g_config.nr_passes = 2;
+    s = SnapshotUi();
+    Check(s.state == UiState::Failed && s.fatal_code == 0,
+          "raw dual Failed is not masked by a pending snapshot");
+    g_config.nr_passes = 1;
+    s = SnapshotUi();
+    Check(s.state == UiState::Failed && s.fatal_code == 0,
+          "raw dual Failed is visible while NR2 is disabled");
+    g_config.nr_passes = 2;
+    nr_dual_runtime::status.store(nr_dual_runtime::Status::QueuePending);
+
     // Capture actual secondary identity fields after a successful Evaluate.
     g_config_generation.store(3); primary.instance_id = 200;
     RecordObservation(primary, nullptr, false, false, false, false);
@@ -478,7 +497,7 @@ int main() {
     nr_dual_runtime::binding_reason.store(nr_binding::Refusal::Queue);
     nr_dual_runtime::binding_generation.store(3);
     nr_dual_runtime::binding_context.store(300);
-    nr_dual_runtime::status.store(7);
+    nr_dual_runtime::status.store(nr_dual_runtime::Status::QueuePending);
     nr_regions::binding_reason.store(nr_binding::Refusal::InvalidPlan);
     nr_regions::config_generation.store(3);
     nr_regions::guide_flags.store(0x13);

@@ -2,7 +2,8 @@
     [switch]$Clean,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT,
-    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
+    [string]$CodecCacheRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -133,7 +134,9 @@ $ObjectFiles += $DualObject
 $CodecCompiler=Join-Path $Build 'compile-codec-artifact.exe'
 & $CppCompiler '-std=c++20' '-O2' '-static' '-municode' (Join-Path $PSScriptRoot 'compile-codec-artifact.cpp') '-ld3dcompiler' '-o' $CodecCompiler
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $CodecCompiler -PathType Leaf)){throw 'Codec artifact compiler build failed.'}
-& python (Join-Path $PSScriptRoot 'prepare-codec-artifacts.py') --source (Join-Path $ProjectRoot 'src/nr_before_sr.cpp') --compiler $CodecCompiler --output $Build --workers 2
+$CodecCacheArgs = @()
+if ($CodecCacheRoot) { $CodecCacheArgs = @('--cache-from', (Resolve-Path -LiteralPath $CodecCacheRoot).Path) }
+& python (Join-Path $PSScriptRoot 'prepare-codec-artifacts.py') --source (Join-Path $ProjectRoot 'src/nr_before_sr.cpp') --compiler $CodecCompiler --output $Build --workers 2 @CodecCacheArgs
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_codec_precompiled.h') -PathType Leaf)){throw 'Frozen shader artifact generation failed.'}
 $Common += '-DNR_CODEC_PRECOMPILED=1'
 

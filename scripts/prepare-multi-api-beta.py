@@ -49,7 +49,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'b226402f3e23f343af46b24c8db404e094e8c555',
+    'scripts/build.ps1': '582a89b433183700ace464832585743e9b397cd2',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -109,7 +109,7 @@ INTEGRATION_CORE_PINS = {
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
     'src/nr_dual_timing.inl': 'd77dd926b77172629bc104946fd7d0bccb13085a',
-    'scripts/prepare-codec-artifacts.py': '6ee3ee071e08c534f67ce24cef0873711700ca1f',
+    'scripts/prepare-codec-artifacts.py': 'fae58e7744fff25c4aafedb055b9f36b788bb8c5',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/patch-format-access.py': 'be848f256f921115db67378a34ef2f9219544d53',
     'scripts/patch-exposure-access.py': '84dc9604b1f1d9c0b8689fe3088aa0f20368f249',
@@ -119,7 +119,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_dual_observation.hpp': 'a5ae692324f1c6ce33c22a5aa8996b21993bbe97',
-    'src/nr_dual_status_runtime.inl': '5d45741e02f8a5944f2208161690b7239d4acb98',
+    'src/nr_dual_status_runtime.inl': '5e6403b12b13388270f5e7c3304bea50542b9ee6',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
