@@ -49,6 +49,10 @@ R3 另验证同一 640×360 输出下 D24S8／D16 深度来回切换，实际 D3
 
 会话证据校验要求当前仍存活的准确游戏／宿主进程、启动时间、EXE 与组件摘要、对应显卡 LUID，以及读取游标之后的新 NR 完成帧。旧日志、已退出进程、单独“助手就绪”或一次历史成功不能复用为本次成功。上述证据仍需配合同场景画面核对。
 
+## 显式 DX10.1 补充验收
+
+最终包另外完成 x86／x64 的显式 `D3D10CreateDeviceAndSwapChain1` 测试，两者均实际取得 `ID3D10Device1`、Feature Level `0xa100`，完成 480 帧和 640×360→768×432 重置，正常退出码为 0。VS／PS 使用 SM4；VORT／Feed 成功编译，重置前后均取得同次 PID／LUID 的 NR 完成回执。组件直接复制自最终 win-unpacked，固定文件摘要一致。本补测未修改正式资源清单或七路原记录；证据 `build/beta3-dx101-supplemental-acceptance.json`。这仍是受控程序验收，不代表真实游戏画质。
+
 ## 真实游戏实测登记
 
 以下由主测试负责人在实际运行后填写。受控测试不能替代这些项目；RTX40 的硬件项目由用户完成。
@@ -75,9 +79,10 @@ R3 另验证同一 640×360 输出下 D24S8／D16 深度来回切换，实际 D3
 | 真实资产安装／恢复往返 | 最终 R3 的 DX11/x64 与 DX9/x86：2/2 通过；真实组件完整安装、修改配置、恢复原 INI 字节及逐个源摘要检查。测试目录使用未执行的 PE 身份夹具；证据 `build/beta3-legacy-real-assets.json`。 |
 | 全量测试与 UI 检查 | 冻结候选 `1fffc736`：1200 项测试中 1194 通过、0 失败、6 跳过；UI 729 项断言通过，沙箱开启。审查修复另做定向回归。 |
 | 实际打包 ASAR 与管理员操作 | 2026-09-10 12:55 UTC 通过。复制候选包，仅增加设置隔离目录的测试入口；生产 main.js 与操作模块字节不变。真实普通父进程安装，两个真实管理员工作进程改键／改回，普通父进程恢复安装前文件，原 INI 完全一致。测试副本 ASAR 与交付 ASAR 分别记录摘要，未冒充相同包；证据 `build/beta3-packaged-uac-report.json`。 |
-| 正式审查与定向修复 | 固定 `c66f227c..1fffc736` 做一次运行安全／功能契约并行审查：5 项 P1、1 项 P2 已修复。另由真实恢复发现的宿主 INI 正常保存兼容问题已修。旧配方／恢复／宿主配置联合回归 25/25；MFG 迁移回归 47/47；DX9 R3 两架构 GPU 复测和 MFG 并发门实测通过。审查记录为 `build/beta3-review-runtime.md` 与 `build/beta3-review-functional.md`。 |
-| 安装版、便携版、完整 ZIP | 待主发布负责人构建并核验 |
-| 最终原文件及压缩包 Defender 扫描 | 待主发布负责人记录摘要、引擎、规则与输出 |
-| 26 路线游戏插件手动更新包 | 待主发布负责人记录生成、校验与扫描结果；不是 Manager OTA 导入格式 |
+| 正式审查与定向修复 | 固定 `c66f227c..1fffc736` 做一次运行安全／功能契约并行审查：5 项 P1、1 项 P2 已修复。另由真实恢复发现的宿主 INI 正常保存、等价路径和修改默认快捷键后的维护问题已修。最终联合回归 27/27；MFG 迁移回归 47/47；DX9 R3 两架构 GPU 复测和 MFG 并发门实测通过。审查记录为 `build/beta3-review-runtime.md` 与 `build/beta3-review-functional.md`。 |
+| 安装版、便携版、完整 ZIP | 从生产提交 `74b4c755525ce187034df3e0e2666e0bb44930b9` 构建。三个分发包各 226 个文件与 win-unpacked 逐文件 SHA 相同，ASAR 中 147 项生产源匹配；R3 35 项资产及新版中文 MFG 匹配。静态核验未执行 Setup 安装，记录 `build/beta3-release-static-r1/report.json`。 |
+| 最终程序实际启动 | 解压版和便携版均通过真实普通窗口启动；默认沙箱、普通令牌、renderer-ready/page-loaded/window-visible 及内层 EXE/ASAR 摘要核验通过。新测试配置隔离，用户默认 settings 及原 beta2 四个进程身份保持不变，没有新测试进程遗留。记录 `build/beta3-release-startup/acceptance.json`。 |
+| 最终原文件及压缩包 Defender 扫描 | 2026-09-10 13:24 UTC 通过：win-unpacked、Setup、便携 EXE、完整 ZIP、游戏 OTA、独立 MFG ZIP 六个目标；扫描后原文件摘要不变。引擎 `1.1.26080.3`，规则 `1.459.142.0`，实时防护开启。仅代表本次 Microsoft Defender 结果；记录 `build/beta3-release-defender.json`。 |
+| 26 路线游戏插件手动更新包 | 最终 R3 与中文 MFG 安全修正版已纳入，574 个文件逐个校验通过；ZIP 309678175 字节。记录 `build/beta3-game-ota-release-r3/build-report.json`。不是 Manager OTA 导入格式。 |
 
 26 个手动路线由 8 个原生组合与 18 个 Feeder 组合构成；HoYo 手动材料限定 x64 DX11／DX12，使用已核验的活动目录。此数量与内部 24 个 Feeder 基础配方不是同一统计口径。管理器接管的安装继续通过管理器更新收据、备份和文件；手动材料中的 `.example` 配置不得直接覆盖个人配置。

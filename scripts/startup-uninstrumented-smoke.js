@@ -16,11 +16,14 @@ const sha256 = file => crypto.createHash('sha256').update(fs.readFileSync(file))
 
 async function processWindow(pid, closeTicks = null) {
   if (!Number.isSafeInteger(pid) || pid <= 0 || closeTicks !== null && !/^\d+$/.test(closeTicks)) throw new Error('Invalid owned process identity.');
-  const close = closeTicks === null ? '' : `if ($taskProcess.StartTime.ToFileTimeUtc().ToString() -ne '${closeTicks}') { throw 'Process identity changed; did not close it.' }; $closeRequested = $taskProcess.CloseMainWindow();`;
+  const close = closeTicks === null ? '' : `if ($taskStartTicks -ne '${closeTicks}') { throw 'Process identity changed; did not close it.' }; $closeRequested = $taskProcess.CloseMainWindow();`;
   const script = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); ` +
+    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class StartupVisibility { [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle); }'; ` +
     `$taskProcess=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($null -eq $taskProcess) { @{exists=$false}|ConvertTo-Json -Compress; exit }; ` +
-    `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class StartupVisibility { [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle); }'; ` + close +
-    `@{exists=$true;pid=$taskProcess.Id;path=$taskProcess.Path;startTicks=$taskProcess.StartTime.ToFileTimeUtc().ToString();handle=$taskProcess.MainWindowHandle.ToInt64().ToString();visible=[StartupVisibility]::IsWindowVisible($taskProcess.MainWindowHandle);closeRequested=$closeRequested}|ConvertTo-Json -Compress`;
+    `try { $taskStartTicks=$taskProcess.StartTime.ToFileTimeUtc().ToString(); $taskPath=$taskProcess.Path; $taskHandle=$taskProcess.MainWindowHandle; ` + close +
+    `} catch { if ($taskProcess.HasExited) { @{exists=$false}|ConvertTo-Json -Compress; exit }; throw }; ` +
+    `if ($taskProcess.HasExited) { @{exists=$false}|ConvertTo-Json -Compress; exit }; ` +
+    `@{exists=$true;pid=$taskProcess.Id;path=$taskPath;startTicks=$taskStartTicks;handle=$taskHandle.ToInt64().ToString();visible=[StartupVisibility]::IsWindowVisible($taskHandle);closeRequested=$closeRequested}|ConvertTo-Json -Compress`;
   const result = await execute(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 16384 });
   return JSON.parse(result.stdout);
 }
