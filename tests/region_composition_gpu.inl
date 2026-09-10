@@ -45,5 +45,13 @@ void ValidateRegionComposition(Gpu& gpu) {
   Require(std::abs(controlled.output[flat].x-.2f)<.00003f,"REGION_FULL_SOURCE_EDGE_DOES_NOT_DISABLE_FLAT_NEIGHBOUR");
   ++scenarios;
  }
- std::printf("PASS region composition WARP: %u scenarios, pre/post x five domains x 100/75/50 grids, per-group luma/colour, neutral/outside identity, gain-independent preview and conserved soft boundaries.\n",scenarios);
+ for(UINT scale:{100u,75u,50u}) {
+  RegionCase r;r.flags=1;r.field={2,0,.4f,.8f};r.gains[0]=4;
+  auto result=Run(gpu,16,12,0,1,1025,43,true,16*scale/100,12*scale/100,{},0,{},1,{1,1,1,1},true,0,{}, {},r);
+  for(UINT y=0;y<12;y++)for(UINT x=0;x<8;x++){
+   float value=result.output[(y+1)*20+x+2].x;
+   Require(value>.9f && value<.9999f,"REGION_SDR_HEADROOM_SOFT_PROTECTION");}
+  ++scenarios;
+ }
+ std::printf("PASS region composition WARP: %u scenarios, pre/post x five domains x 100/75/50 grids, per-group luma/colour, neutral/outside identity, fixed preview, soft boundaries, original edges and SDR headroom.\n",scenarios);
 }

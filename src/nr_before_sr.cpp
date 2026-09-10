@@ -4046,7 +4046,21 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
             abs(baseLog), lumaStrength - 1.0, budget);
     }
-    if(regionGain.x!=1)poweredLog=log2(clamp(1+(exp2(poweredLog)-1)*regionGain.x,1/maxRatio,maxRatio));
+    if(regionGain.x!=1){
+        float requestedLog=log2(clamp(1+(exp2(poweredLog)-1)*regionGain.x,1/maxRatio,maxRatio));
+        if(boostProtectionEnabled && regionGain.x>1 && abs(poweredLog)>.000001){
+            float budget=logLimit;
+            if(poweredLog>0 && (Passthrough&(1u|16u|32u))!=0u){
+                float peak=max(source.r,max(source.g,source.b));
+                budget=max(poweredLog,min(logLimit,max(log2(rcp(max(peak,.000001))),0)));
+            }
+            // Preserve the existing neutral region result. Only the extra
+            // regional amplification spends remaining SDR/ratio headroom.
+            float extra=abs(requestedLog)/abs(poweredLog)-1;
+            requestedLog=sign(poweredLog)*SoftExtraMagnitudeV3(abs(poweredLog),extra,budget);
+        }
+        poweredLog=requestedLog;
+    }
     if(faceMask>0)poweredLog=FaceEditV1(poweredLog,
         clamp(logRatio*confidence,-logLimit,logLimit),faceMask,FaceOriginalLuma);
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
