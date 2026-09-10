@@ -293,6 +293,16 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
         g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed));
+    const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
+        FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,coverageLost:%d\n",
+            prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.coverage_lost);
+    };
+    descriptor_pool("heaps",descriptor_counts.heaps);descriptor_pool("resources",descriptor_counts.resources);
+    descriptor_pool("cpuSlots",descriptor_counts.cpu_slots);descriptor_pool("gpuSlots",descriptor_counts.gpu_slots);
+    FeedbackAppend(s,"%s.descriptor.lastClear=cpuReason:%s,cpuHeap:%llu,cpuSlot:%u,gpuReason:%s,gpuHeap:%llu,gpuSlot:%u; presence-is-not-pair-admission\n",
+        prefix,nr_descriptor::ReasonName(descriptor_use.last_pair.cpu.reason),descriptor_use.last_pair.cpu.stamp.heap,
+        descriptor_use.last_pair.cpu.stamp.index,nr_descriptor::ReasonName(descriptor_use.last_pair.gpu.reason),
+        descriptor_use.last_pair.gpu.stamp.heap,descriptor_use.last_pair.gpu.stamp.index);
     FeedbackAppend(s,"%s.descriptor.outputCache=resource:%llu,device:%llu,lifetimeKnown:%d,observedSlots:%u,srv:%u,uav:%u,rtv:%u,unknownShapeOrType:%u,formatGroups:%u,truncated:%d; cached-only-not-use; kind/format/count=",
         prefix,descriptor_inventory.resource,descriptor_inventory.device,descriptor_inventory.lifetime_known,
         descriptor_inventory.slots,descriptor_inventory.srv,descriptor_inventory.uav,descriptor_inventory.rtv,

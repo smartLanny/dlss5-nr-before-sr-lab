@@ -82,6 +82,17 @@ def main():
     fixture = ROOT/'tests/descriptor_provenance.cpp'
     shutil.copyfile(fixture, out/'descriptor-cpu.cpp')
     record['cpu_fixture_sha256'] = sha(fixture)
+    # Compile the exact production call-selection accessor against value-only
+    # globals; an overwritten ring slot must never masquerade as another call.
+    adapter = ROOT/'src/nr_descriptor_provenance_runtime.inl'
+    adapter_text = adapter.read_text(encoding='utf-8-sig')
+    first = adapter_text.index('nr_descriptor::NativeUse SnapshotNrDescriptorUse(')
+    last = adapter_text.index('\nstd::uint64_t NrDescriptorResourceToken(', first)
+    (out/'descriptor-use-snapshot.inl').write_text(
+        'std::mutex g_nr_descriptor_use_mutex;\n'
+        'nr_descriptor::NativeUse g_nr_descriptor_uses[64];\n'
+        'std::uint64_t g_nr_descriptor_next_call=0;\n'+adapter_text[first:last]+'\n', encoding='utf-8')
+    record['cpu_snapshot_adapter_sha256'] = sha(out/'descriptor-use-snapshot.inl')
 
     def run(command, name, timeout=180):
         result = subprocess.run([str(item) for item in command], cwd=out, capture_output=True,
