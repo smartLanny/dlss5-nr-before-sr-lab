@@ -33,14 +33,16 @@ template<unsigned I> void STDMETHODCALLTYPE NrDescriptorCreateCbv(ID3D12Device *
 template<unsigned I> void STDMETHODCALLTYPE NrDescriptorCopyDescriptors(ID3D12Device *device,UINT destinations,
         const D3D12_CPU_DESCRIPTOR_HANDLE *destination,const UINT *destination_sizes,UINT sources,
         const D3D12_CPU_DESCRIPTOR_HANDLE *source,const UINT *source_sizes,D3D12_DESCRIPTOR_HEAP_TYPE type) {
-    auto copy=NrDescriptorBeginCopy(device,destinations,destination,destination_sizes,sources,source,source_sizes,type);
+    NrDescriptorCopy copy;
+    NrDescriptorBeginCopy(copy,device,destinations,destination,destination_sizes,sources,source,source_sizes,type);
     using Fn=decltype(ID3D12DeviceVtbl::CopyDescriptors);
     reinterpret_cast<Fn>(g_descriptor_copy_hooks.originals[I])(device,destinations,destination,destination_sizes,
         sources,source,source_sizes,type);
 }
 template<unsigned I> void STDMETHODCALLTYPE NrDescriptorCopyDescriptorsSimple(ID3D12Device *device,UINT count,
         D3D12_CPU_DESCRIPTOR_HANDLE destination,D3D12_CPU_DESCRIPTOR_HANDLE source,D3D12_DESCRIPTOR_HEAP_TYPE type) {
-    auto copy=NrDescriptorBeginCopy(device,1,&destination,&count,1,&source,&count,type);
+    NrDescriptorCopy copy;
+    NrDescriptorBeginCopy(copy,device,1,&destination,&count,1,&source,&count,type);
     using Fn=decltype(ID3D12DeviceVtbl::CopyDescriptorsSimple);
     reinterpret_cast<Fn>(g_descriptor_copy_simple_hooks.originals[I])(device,count,destination,source,type);
 }

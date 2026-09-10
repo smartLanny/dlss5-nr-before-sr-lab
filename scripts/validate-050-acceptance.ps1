@@ -50,7 +50,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.7') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.8') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python -m unittest tests.test_motion_slot_selection -v
     if ($LASTEXITCODE) { throw 'Motion binding slot selection CPU regression failed.' }
@@ -86,6 +86,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-descriptor-alias.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-alias-runtime-cpu') --negative-controls
     if ($LASTEXITCODE) { throw 'Proxy/native identity and descriptor-domain gate failed.' }
     $Checks.Add('descriptor-alias-runtime-cpu')
+    $Checks.Add('production bulk-copy destination scope and old-global negative control CPU')
     $Checks.Add('production native Clear CPU request and exact fresh-call guard CPU')
     & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
     if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
@@ -192,6 +193,7 @@ try {
         if ($LASTEXITCODE) { throw 'Production descriptor provenance and native output-use WARP gate failed.' }
         $Checks.Add('production descriptor provenance native uses RTV targets and Execute positions WARP')
         $Checks.Add('production native Clear CPU format declaration and fresh-call rejection WARP')
+        $Checks.Add('production oversized native copies preserve unrelated Output CPU evidence WARP')
         & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'native-color-view-warp')
         if ($LASTEXITCODE) { throw 'Actual typed native color view WARP gate failed.' }
         $Checks.Add('production typed native color admission descriptors and storage WARP')
@@ -229,8 +231,8 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.7*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.7 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.8*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.8 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo

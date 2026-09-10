@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the renamed 0.4.7beta-corefix.7 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-corefix.8 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-corefix.7'
-DISPLAY_VERSION = '0.4.7beta-corefix.7'
+VERSION = '0.4.7beta-corefix.8'
+DISPLAY_VERSION = '0.4.7beta-corefix.8'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -55,17 +55,17 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_single_text.h': '75dd661ad4d1a22a0c8c9741802853a12717710e',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': '264fd84efa480d262e7bcaae19b5ecd4e0073e09',
-    'src/nr_feedback_capture.inl': '277bf453a69d98c039df39fce0892d9ed74c0db1',
+    'src/nr_feedback_capture.inl': 'ac78d43ef87c92c2c7817e31ad761e94254e3af7',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42',
-    'src/nr_before_sr.cpp': 'b230e272fb458af3ba0b1c97d69a5b9adda2aee6',
+    'src/nr_before_sr.cpp': 'e679149b39582f3376227cc72a1d2d0bc9649c49',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '44c597fea88cae2121355de15daf266d806f5b64',
+    'src/nr_before_sr.rc': '40512f8a4bbb86958013e232ee6dfa50aa8ec4aa',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '45f24524d97abb94978aab20e18624000c4ceba8',
+    'scripts/build.ps1': '64034bcb783ae556b58c1006315d7d3cec804b51',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
@@ -93,9 +93,9 @@ INTEGRATION_CORE_PINS = {
     'src/nr_resource_semantics.h': '81874dae21f36985d6b78a9b7e738f2c1d251f99',
     'src/nr_route_compatibility.h': '3e7006e48ea39639bb9a3ea59a6abe5414f9f377',
     'src/nr_route_compatibility_runtime.inl': '7c3b93dc457f896087d179d7d6b9ffe04ff907ad',
-    'src/nr_descriptor_provenance.h': '6056653b5302c85878e08ff5a3f864076dd920ab',
-    'src/nr_descriptor_provenance_runtime.inl': '9eeb49df657b6042dc65eafda0ff0a91ebda6220',
-    'src/nr_descriptor_provenance_hooks.inl': 'b41f5cf49f1fee1136b638078715e44c2410d124',
+    'src/nr_descriptor_provenance.h': 'a8f64d2adab785c1b4fc2fd426d315fdadb6247c',
+    'src/nr_descriptor_provenance_runtime.inl': '73b6a25f23ea6b6198db6f3ad46f97b37c48d982',
+    'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
     'src/nr_descriptor_provenance_commands.inl': '29a3f47109ad04899b5f4b48788827bf2c497106',
     'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
     'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
@@ -209,7 +209,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.7beta-corefix.7' not in resource_text:
+    if '0.4.7beta-corefix.8' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -220,7 +220,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.7.12',
+        'core_pe_version': '0.4.7.13',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

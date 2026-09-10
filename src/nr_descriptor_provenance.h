@@ -67,6 +67,25 @@ struct ClearRange {
     unsigned count=0;
     RangeKind kind=RangeKind::Unknown;
 };
+// A bounded descriptor-copy path may know the destination CPU-handle ranges
+// but cannot decode every descriptor in the call.  The range is inclusive;
+// the caller owns the array for the complete lifetime of the UnknownCopy node.
+struct UnknownRange {
+    Id first=0,last=0;
+    unsigned type=0;
+};
+struct UnknownCopy {
+    const UnknownRange *ranges=nullptr;
+    unsigned count=0;
+    bool all=false;
+    UnknownCopy *next=nullptr;
+    bool active=false;
+    UnknownCopy()=default;
+    UnknownCopy(const UnknownCopy&)=delete;
+    UnknownCopy &operator=(const UnknownCopy&)=delete;
+    UnknownCopy(UnknownCopy&&)=delete;
+    UnknownCopy &operator=(UnknownCopy&&)=delete;
+};
 template<class Rect> ClearRange DescribeClear(const View &view,unsigned count,const Rect *rects) {
     ClearRange result;result.count=count;
     if(!view.shape_known || !view.width || !view.height ||
@@ -144,7 +163,7 @@ struct PoolCounters {
 };
 struct Counters {
     Id writes=0, copies=0, unknown_writes=0, overlaps=0, evictions=0, invalidations=0,
-       resources_retired=0, heaps_retired=0;
+       resources_retired=0, heaps_retired=0, scoped_copies=0, global_copies=0;
     PoolCounters heaps,resources,cpu_slots,gpu_slots;
 };
 struct Inventory {
@@ -263,10 +282,74 @@ class Registry {
     mutable Slots<GpuSlotCapacity> gpu_slots;
     std::array<Range,HeapCapacity> cpu_ranges{},gpu_ranges{};
     unsigned cpu_range_count=0,gpu_range_count=0;
+    UnknownCopy *unknown_copies=nullptr;
     Id epoch=1,revision=0;
     Counters counters;
     struct Location {const Heap *heap=nullptr;unsigned index=0;};
     const Heap *HeapId(Id id) const {return heaps.Find(id);}
+    bool UnknownAllLocked() const {
+        for(const auto *scope=unknown_copies;scope;scope=scope->next)
+            if(scope->active && scope->all)return true;
+        return false;
+    }
+    static bool UnknownRangesValid(const UnknownRange *ranges,unsigned count) {
+        if(!count)return true;
+        if(!ranges)return false;
+        for(unsigned i=0;i<count;++i)
+            if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
+        return true;
+    }
+    static bool UnknownScopeMasksLocked(const UnknownCopy &scope,Id handle,unsigned type) {
+        if(!scope.active)return false;
+        if(scope.all)return true;
+        if(!scope.ranges)return false;
+        for(unsigned i=0;i<scope.count;++i) {
+            const auto &range=scope.ranges[i];
+            if(range.type==type && range.first<=handle && handle<=range.last)return true;
+        }
+        return false;
+    }
+    bool UnknownCpuHandleLocked(Id handle,unsigned type) const {
+        if(UnknownAllLocked())return true;
+        if(!handle)return false;
+        for(const auto *scope=unknown_copies;scope;scope=scope->next) {
+            if(UnknownScopeMasksLocked(*scope,handle,type))return true;
+        }
+        return false;
+    }
+    bool UnknownMaskedLocked(const Heap &heap,unsigned index) const {
+        if(index>=heap.count)return false;
+        const auto offset=static_cast<Id>(index)*heap.stride;
+        if(heap.cpu>std::numeric_limits<Id>::max()-offset)return true;
+        const auto handle=heap.cpu+offset;
+        for(const auto *scope=unknown_copies;scope;scope=scope->next)
+            if(UnknownScopeMasksLocked(*scope,handle,heap.type))return true;
+        return false;
+    }
+    void InvalidateUnknownSlotsLocked(const UnknownCopy *scope=nullptr) {
+        if(revision==std::numeric_limits<Id>::max()) {InvalidateLocked();return;}
+        ++revision;
+        const auto invalidate=[&](auto &pool) {
+            for(auto &slot:pool.values) {
+                if(!slot.stamp.heap)continue;
+                const auto *heap=HeapId(slot.stamp.heap);
+                if(!heap)continue;
+                const bool masked=scope?UnknownScopeMasksLocked(*scope,
+                    heap->cpu+static_cast<Id>(slot.stamp.index)*heap->stride,heap->type):
+                    UnknownMaskedLocked(*heap,slot.stamp.index);
+                if(!masked)continue;
+                slot.value={};
+                // Keep the invalidation local to this heap slot.  A stale
+                // epoch makes readers report SlotUnknown, which preserves the
+                // distinction from a known empty descriptor while leaving
+                // unrelated slots in the current registry epoch.
+                slot.stamp.epoch=epoch?epoch-1:0;
+                slot.stamp.revision=revision;
+                if(slot.pending)slot.overlap=true;
+            }
+        };
+        invalidate(cpu_slots);invalidate(gpu_slots);
+    }
     bool ResourceCurrent(const Resource &r) const {
         if(!r || counters.resources.coverage_lost)return false;
         const auto *current=resources.Find(r.id);
@@ -319,6 +402,7 @@ class Registry {
         if(!where.heap){if(counters.heaps.coverage_lost)result.reason=Reason::CoverageLost;return result;}
         const auto &h=*where.heap;result.shader_visible=h.shader_visible;
         result.stamp.heap=h.id;result.stamp.index=where.index;
+        if(UnknownMaskedLocked(h,where.index)){result.reason=Reason::WritePending;return result;}
         const auto *s=FindSlot(h,where.index);
         if(!s || s->stamp.epoch!=epoch){result.reason=Reason::SlotUnknown;return result;}
         result.stamp=s->stamp;
@@ -334,6 +418,7 @@ class Registry {
     bool CurrentLocked(const Receipt &r) const {
         if(!r || r.stamp.epoch!=epoch || counters.heaps.coverage_lost)return false;
         const auto *h=HeapId(r.stamp.heap);if(!h || r.stamp.index>=h->count)return false;
+        if(UnknownMaskedLocked(*h,r.stamp.index))return false;
         // Recheck uniqueness: a later overlapping live heap invalidates receipts.
         const auto where=Locate(h->cpu+static_cast<Id>(r.stamp.index)*h->stride,h->type,false);
         if(where.heap!=h)return false;
@@ -344,6 +429,7 @@ class Registry {
     template<unsigned Capacity> Write BeginIn(Slots<Capacity> &pool,PoolCounters &counter,
                                               const Location &where,const View &value) {
         Write write;const auto &h=*where.heap;
+        if(UnknownMaskedLocked(h,where.index)){Increment(counters.unknown_writes);return write;}
         Increment(revision);
         if(revision==std::numeric_limits<Id>::max()){InvalidateLocked();return write;}
         auto *s=pool.Find(h.id,where.index);
@@ -459,21 +545,57 @@ public:
         return result;
     }
     Receipt Cpu(Id handle,unsigned type,Kind expected=Kind::Unknown) const {
-        std::lock_guard guard(mutex);return Read(Locate(handle,type,false),expected);
+        std::lock_guard guard(mutex);
+        if(UnknownCpuHandleLocked(handle,type)){Receipt result;result.reason=Reason::WritePending;return result;}
+        return Read(Locate(handle,type,false),expected);
     }
     Receipt Gpu(Id handle,unsigned type,Kind expected=Kind::Unknown) const {
-        std::lock_guard guard(mutex);return Read(Locate(handle,type,true),expected);
+        std::lock_guard guard(mutex);
+        if(UnknownAllLocked()){Receipt result;result.reason=Reason::WritePending;return result;}
+        return Read(Locate(handle,type,true),expected);
     }
     Id OffsetCpu(Id handle,unsigned type,unsigned offset) const {
         std::lock_guard guard(mutex);const auto where=Locate(handle,type,false);
         if(!where.heap || offset>=where.heap->count-where.index)return 0;
         return handle+static_cast<Id>(offset)*where.heap->stride;
     }
+    // The range array is borrowed for the lifetime of scope.  The caller must
+    // keep both the node and its array alive until EndUnknownCopy returns.
+    // A malformed range is treated as a global unknown window so a bad
+    // observer cannot publish a guessed descriptor value.
+    void BeginUnknownCopy(UnknownCopy &scope,const UnknownRange *ranges,unsigned count,bool all=false) {
+        std::lock_guard guard(mutex);
+        if(scope.active)return;
+        const bool global=all || !UnknownRangesValid(ranges,count);
+        scope.ranges=global?nullptr:ranges;scope.count=global?0:count;
+        scope.all=global;scope.next=nullptr;scope.active=true;
+        scope.next=unknown_copies;unknown_copies=&scope;
+        if(global){Increment(counters.global_copies);InvalidateLocked();}
+        else if(count){Increment(counters.scoped_copies);InvalidateUnknownSlotsLocked(&scope);}
+    }
+    void EndUnknownCopy(UnknownCopy &scope) {
+        std::lock_guard guard(mutex);
+        if(!scope.active)return;
+        const bool global=scope.all;
+        if(global)InvalidateLocked();
+        else if(scope.count)InvalidateUnknownSlotsLocked(&scope);
+        UnknownCopy **link=&unknown_copies;
+        while(*link && *link!=&scope)link=&(*link)->next;
+        if(*link==&scope)*link=scope.next;
+        scope.ranges=nullptr;scope.count=0;scope.all=false;scope.next=nullptr;scope.active=false;
+    }
     Write BeginWrite(Id cpu,unsigned type,const View &value) {
-        std::lock_guard guard(mutex);return BeginLocked(Locate(cpu,type,false),value);
+        std::lock_guard guard(mutex);
+        if(UnknownCpuHandleLocked(cpu,type)){Increment(counters.unknown_writes);return {};}
+        return BeginLocked(Locate(cpu,type,false),value);
     }
     Write BeginCopy(Id destination,Id source,unsigned type) {
-        std::lock_guard guard(mutex);const auto from=Read(Locate(source,type,false),Kind::Unknown);
+        std::lock_guard guard(mutex);
+        if(UnknownCpuHandleLocked(destination,type)) {
+            Increment(counters.unknown_writes);Increment(counters.copies);
+            Write write;write.copy=true;return write;
+        }
+        const auto from=Read(Locate(source,type,false),Kind::Unknown);
         if(from && !from.shader_visible)TouchUseLocked(from);
         auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
         write.source=from;write.copy=true;Increment(counters.copies);return write;

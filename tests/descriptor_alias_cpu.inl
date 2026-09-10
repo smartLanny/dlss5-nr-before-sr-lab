@@ -100,6 +100,7 @@ constexpr std::uint64_t device_identity=91;
 constexpr std::uint64_t command_device_identity=1701;
 struct DriverView {ID3D12Resource *resource=nullptr;DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;};
 std::map<std::uint64_t,DriverView> driver_descriptors;
+std::function<void(D3D12_CPU_DESCRIPTOR_HANDLE)> during_copy;
 D3D12_CPU_DESCRIPTOR_HANDLE Raw(D3D12_CPU_DESCRIPTOR_HANDLE handle) {
     for(const auto *state:{&proxy_cpu_state,&proxy_gpu_state})if(handle.ptr>=state->cpu&&handle.ptr-state->cpu<256)
         return {static_cast<SIZE_T>(state->private_owner->cpu+handle.ptr-state->cpu)};
@@ -136,6 +137,7 @@ void STDMETHODCALLTYPE ProxySrv(ID3D12Device *,ID3D12Resource *value,
 void STDMETHODCALLTYPE DriverCopy(ID3D12Device *,UINT count,D3D12_CPU_DESCRIPTOR_HANDLE destination,
         D3D12_CPU_DESCRIPTOR_HANDLE source,D3D12_DESCRIPTOR_HEAP_TYPE) {
     ++driver_copies;for(UINT i=0;i<count;++i)driver_descriptors[destination.ptr+i*32]=driver_descriptors.at(source.ptr+i*32);
+    if(during_copy)during_copy(destination);
 }
 void STDMETHODCALLTYPE DriverCopyRanges(ID3D12Device *,UINT destinations,const D3D12_CPU_DESCRIPTOR_HANDLE *destination,
         const UINT *destination_sizes,UINT sources,const D3D12_CPU_DESCRIPTOR_HANDLE *source,const UINT *source_sizes,
@@ -146,6 +148,7 @@ void STDMETHODCALLTYPE DriverCopyRanges(ID3D12Device *,UINT destinations,const D
         Check(si<sources,"synthetic copy receives valid source ranges unchanged");
         driver_descriptors[destination[d].ptr+i*32]=driver_descriptors.at(source[si].ptr+offset++*32);
     }
+    if(during_copy&&destinations)during_copy(destination[0]);
 }
 void STDMETHODCALLTYPE ProxyCopy(ID3D12Device *,UINT count,D3D12_CPU_DESCRIPTOR_HANDLE destination,
         D3D12_CPU_DESCRIPTOR_HANDLE source,D3D12_DESCRIPTOR_HEAP_TYPE type) {
@@ -718,6 +721,55 @@ void InactiveClearDoesNotWaitForRegistry() {
     Check(driver_clears==clears+1&&private_reads==reads,
         "inactive Clear forwards the original once without any private-data lookup");
 }
+void CopyScopeUnrelatedOracle() {
+    const auto type=static_cast<unsigned>(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const nr_descriptor::Heap unrelated{0x9001,device_identity,0x710000,0x6000000,0,1024,32,type,false};
+    Check(g_nr_descriptors.ObserveHeap(unrelated),
+        "scoped-copy oracle publishes an independent CPU heap");
+    const auto stable_handle=unrelated.cpu+300*unrelated.stride;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC stable_desc{};
+    stable_desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    stable_desc.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+    const auto stable_write=NrDescriptorBeginUav(&native_device,&resource,nullptr,&stable_desc,
+        {static_cast<SIZE_T>(stable_handle)});
+    g_nr_descriptors.Finish(stable_write);
+    const auto stable=g_nr_descriptors.Cpu(stable_handle,type,nr_descriptor::Kind::Uav);
+    Check(stable&&g_nr_descriptors.Current(stable),
+        "scoped-copy oracle starts with an unrelated current CPU receipt");
+
+    const auto seed=[&](nr_descriptor::Id base,unsigned count) {
+        for(unsigned i=0;i<count;++i)
+            driver_descriptors[base+static_cast<nr_descriptor::Id>(i)*unrelated.stride]={&resource,DXGI_FORMAT_R8G8B8A8_UNORM};
+    };
+    const auto destination_base=unrelated.cpu;
+    const auto source_base=stable_handle;
+    seed(destination_base,257);seed(source_base,257);
+    const auto before=g_nr_descriptors.SnapshotCounters();const auto copies_before=driver_copies;
+    bool target_pending=false;
+    during_copy=[&](D3D12_CPU_DESCRIPTOR_HANDLE destination) {
+        const auto observed=g_nr_descriptors.Cpu(destination.ptr,type,nr_descriptor::Kind::Uav);
+        target_pending=observed.reason==nr_descriptor::Reason::WritePending;
+    };
+    NrDescriptorCopyDescriptorsSimple<0>(&native_device,257,
+        {static_cast<SIZE_T>(destination_base)},{static_cast<SIZE_T>(source_base)},
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    during_copy={};
+
+    std::array<D3D12_CPU_DESCRIPTOR_HANDLE,65> destinations{},sources{};
+    std::array<UINT,65> sizes{};sizes.fill(1);
+    for(unsigned i=0;i<destinations.size();++i) {
+        destinations[i].ptr=destination_base+static_cast<nr_descriptor::Id>(i)*unrelated.stride;
+        sources[i].ptr=source_base+static_cast<nr_descriptor::Id>(i)*unrelated.stride;
+    }
+    NrDescriptorCopyDescriptors<0>(&native_device,static_cast<UINT>(destinations.size()),destinations.data(),sizes.data(),
+        static_cast<UINT>(sources.size()),sources.data(),sizes.data(),D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const auto after=g_nr_descriptors.SnapshotCounters();
+    Check(driver_copies==copies_before+2&&target_pending&&g_nr_descriptors.Current(stable)&&
+        after.scoped_copies==before.scoped_copies+2&&after.global_copies==before.global_copies&&
+        after.invalidations==before.invalidations&&after.cpu_slots.active==before.cpu_slots.active&&
+        after.cpu_slots.evictions==before.cpu_slots.evictions,
+        "COPY_SCOPE_UNRELATED_ORACLE");
+}
 void Run() {
     Initialize();
     const auto failures=g_nr_descriptor_lifetime_failures.load();
@@ -825,7 +877,7 @@ void Run() {
     Check(!NrFormatEvidence(NrFormatKey(&native_device,&resource,701,true)).Resolved()&&
           !NrFormatEvidence(NrFormatKey(&native_device,&resource,702,true)).Resolved(),
         "neither cached-use control nor successful proxy clear promotes diagnostics into the admission ledger");
-    NativeClearRequests();LedgerEvents();DescriptorWindowRetirement();IdentityNegatives();
+    NativeClearRequests();LedgerEvents();CopyScopeUnrelatedOracle();DescriptorWindowRetirement();IdentityNegatives();
     std::printf("PASS %u assertions; full production TU; synthetic COM CPU only; D3D devices=0 GPU submits=0 NGX=0\n",checks);
 }
 }

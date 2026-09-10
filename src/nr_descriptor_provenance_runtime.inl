@@ -195,45 +195,77 @@ nr_descriptor::Write NrDescriptorBeginRtv(ID3D12Device *device,ID3D12Resource *r
         shape?desc->Texture2D.MipSlice:0,shape?desc->Texture2D.PlaneSlice:0,shape);
     return g_nr_descriptors.BeginWrite(cpu.ptr,2,view);
 }
-// Copy operations are bounded and allocated away from the game worker stack.
-// Losing the bound invalidates provenance globally; it never changes the copy.
+// Small copies retain per-slot provenance. Larger copies mask their destination
+// ranges for the complete native call and leave those destinations unknown.
+// Unrelated views remain usable; observation limits are not native API limits.
 struct NrDescriptorCopy {
     static constexpr unsigned kMaximum=256;
-    nr_descriptor::Write writes[kMaximum];
+    std::unique_ptr<nr_descriptor::Write[]> writes;
+    std::unique_ptr<nr_descriptor::UnknownRange[]> ranges;
+    nr_descriptor::UnknownCopy unknown;
     unsigned count=0;
-    ~NrDescriptorCopy(){for(unsigned i=0;i<count;++i)g_nr_descriptors.Finish(writes[i]);}
+    ~NrDescriptorCopy(){
+        for(unsigned i=0;i<count;++i)g_nr_descriptors.Finish(writes[i]);
+        if(unknown.active)g_nr_descriptors.EndUnknownCopy(unknown);
+    }
+    NrDescriptorCopy()=default;
+    NrDescriptorCopy(const NrDescriptorCopy&)=delete;
+    NrDescriptorCopy& operator=(const NrDescriptorCopy&)=delete;
 };
-std::unique_ptr<NrDescriptorCopy> NrDescriptorBeginCopy(ID3D12Device *device,UINT destinations,
+void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT destinations,
         const D3D12_CPU_DESCRIPTOR_HANDLE *destination,const UINT *destination_sizes,UINT sources,
         const D3D12_CPU_DESCRIPTOR_HANDLE *source,const UINT *source_sizes,D3D12_DESCRIPTOR_HEAP_TYPE type) {
-    if(!NrDescriptorObserveDeviceLayer(device) || (type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV))return {};
+    if(!NrDescriptorObserveDeviceLayer(device) || (type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV))return;
+    const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,type);
+    const auto unknown_destinations=[&]() {
+        // This small RAII object exists even if either allocation fails. Unknown
+        // geometry then requires a global mask, including the native-call window.
+        if(!stride || (destinations&&!destination) ||
+           destinations>std::numeric_limits<std::size_t>::max()/sizeof(nr_descriptor::UnknownRange)) {
+            g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;
+        }
+        if(!destinations)return;
+        copy.ranges.reset(new(std::nothrow) nr_descriptor::UnknownRange[destinations]);
+        if(!copy.ranges){g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;}
+        unsigned range_count=0;
+        for(UINT i=0;i<destinations;++i) {
+            const auto size=destination_sizes?destination_sizes[i]:1;
+            if(!size)continue;
+            const auto first=static_cast<nr_descriptor::Id>(destination[i].ptr);
+            if(!first || static_cast<nr_descriptor::Id>(size-1)>
+                    (std::numeric_limits<nr_descriptor::Id>::max()-first)/stride) {
+                g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;
+            }
+            copy.ranges[range_count++]={first,first+static_cast<nr_descriptor::Id>(size-1)*stride,
+                static_cast<unsigned>(type)};
+        }
+        if(range_count)g_nr_descriptors.BeginUnknownCopy(copy.unknown,copy.ranges.get(),range_count);
+    };
     if(destinations>64 || sources>64 || (destinations&&!destination) || (sources&&!source)) {
-        g_nr_descriptors.Invalidate();return {};
+        unknown_destinations();return;
     }
     std::uint64_t destination_count=0,source_count=0;
     for(UINT i=0;i<destinations;++i)destination_count+=destination_sizes?destination_sizes[i]:1;
     for(UINT i=0;i<sources;++i)source_count+=source_sizes?source_sizes[i]:1;
     if(destination_count!=source_count || destination_count>NrDescriptorCopy::kMaximum) {
-        g_nr_descriptors.Invalidate();return {};
+        unknown_destinations();return;
     }
-    if(!destination_count)return {};
-    std::unique_ptr<NrDescriptorCopy> copy(new(std::nothrow) NrDescriptorCopy);
-    if(!copy){g_nr_descriptors.Invalidate();return {};}
-    const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,type);
-    if(!stride){g_nr_descriptors.Invalidate();return {};}
+    if(!destination_count)return;
+    if(!stride){unknown_destinations();return;}
+    copy.writes.reset(new(std::nothrow) nr_descriptor::Write[static_cast<unsigned>(destination_count)]);
+    if(!copy.writes){unknown_destinations();return;}
     unsigned destination_range=0,destination_offset=0,source_range=0,source_offset=0;
     for(std::uint64_t n=0;n<destination_count;++n) {
         while(destination_range<destinations && destination_offset==(destination_sizes?destination_sizes[destination_range]:1)) {++destination_range;destination_offset=0;}
         while(source_range<sources && source_offset==(source_sizes?source_sizes[source_range]:1)) {++source_range;source_offset=0;}
-        if(destination_range==destinations || source_range==sources){g_nr_descriptors.Invalidate();return {};}
+        if(destination_range==destinations || source_range==sources){unknown_destinations();return;}
         const auto destination_handle=destination[destination_range].ptr+static_cast<std::uint64_t>(destination_offset++)*stride;
         const auto source_handle=source[source_range].ptr+static_cast<std::uint64_t>(source_offset++)*stride;
         if(destination_handle<destination[destination_range].ptr || source_handle<source[source_range].ptr) {
-            g_nr_descriptors.Invalidate();return {};
+            unknown_destinations();return;
         }
-        copy->writes[copy->count++]=g_nr_descriptors.BeginCopy(destination_handle,source_handle,static_cast<unsigned>(type));
+        copy.writes[copy.count++]=g_nr_descriptors.BeginCopy(destination_handle,source_handle,static_cast<unsigned>(type));
     }
-    return copy;
 }
 bool NrDescriptorFormatScopeMatches(const NrNativeFormatScope &scope,unsigned role,
         ID3D12Device *device,ID3D12Resource *resource) {

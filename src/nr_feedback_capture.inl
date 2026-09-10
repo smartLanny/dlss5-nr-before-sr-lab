@@ -306,10 +306,10 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,descriptor_use.after_native_valid,descriptor_use.submission_seen,descriptor_use.at_submit_valid,descriptor_use.execute_returned,
         descriptor_use.queue,descriptor_use.submission,descriptor_use.submission_index,descriptor_use.submission_count,
         descriptor_use.replayed,descriptor_use.RevisionsCurrent(g_nr_descriptors));
-    FeedbackAppend(s,"%s.descriptor.registry=writes:%llu,copies:%llu,unknownWrites:%llu,overlaps:%llu,evictions:%llu,invalidations:%llu,resourceRetirements:%llu,heapRetirements:%llu,lifetimeFailures:%llu\n",
+    FeedbackAppend(s,"%s.descriptor.registry=writes:%llu,copies:%llu,unknownWrites:%llu,overlaps:%llu,evictions:%llu,invalidations:%llu,resourceRetirements:%llu,heapRetirements:%llu,lifetimeFailures:%llu,scopedCopies:%llu,globalCopies:%llu\n",
         prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
-        g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed));
+        g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed),descriptor_counts.scoped_copies,descriptor_counts.global_copies);
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
         FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
             prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);

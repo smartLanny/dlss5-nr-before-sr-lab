@@ -223,6 +223,75 @@ void CompleteKeysAndPools() {
     Check(churn.active==32&&!churn.Insert({9999,7,0xffff}),"live-object cap remains exact even with spare index buckets");
     for(unsigned i=513;i<=544;++i)Check(churn.Find(i)!=nullptr,"every retained key survives repeated high-occupancy deletion");
 }
+void UnknownCopyScopes() {
+    TestRegistry registry;Seed(registry);
+    const auto old_cpu=registry.Cpu(cpu.cpu,0),old_gpu=registry.Gpu(gpu.gpu,0);
+    UnknownRange ranges[]={{cpu.cpu,cpu.cpu+32,0},{gpu.cpu,gpu.cpu+32,0}};
+    UnknownCopy scope;
+    registry.BeginUnknownCopy(scope,ranges,2);
+    auto counts=registry.SnapshotCounters();
+    Check(scope.active&&scope.ranges==ranges&&scope.count==2&&!scope.all&&counts.scoped_copies==1&&counts.global_copies==0,
+        "bounded unknown copy borrows the caller range array and counts a scoped window");
+    Check(registry.Cpu(cpu.cpu,0).reason==Reason::WritePending&&registry.Gpu(gpu.gpu,0).reason==Reason::WritePending,
+        "each CPU destination range masks both its CPU and shader-visible slot during the copy window");
+    Check(!registry.Current(old_cpu)&&!registry.Current(old_gpu),
+        "receipts for masked destinations are not current while the copy window is active");
+    const auto blocked=registry.BeginWrite(cpu.cpu+32,0,MakeView(output,30));registry.Finish(blocked);
+    Check(!blocked.destination.heap,"a new tracked slot inside an unknown range is suppressed during the window");
+    registry.EndUnknownCopy(scope);
+    Check(!scope.active&&!scope.next&&!scope.ranges&&!scope.count&&!scope.all,
+        "ending an unknown copy unlinks and clears the borrowed scope node");
+    Check(!registry.Cpu(cpu.cpu,0)&&!registry.Gpu(gpu.gpu,0)&&
+          registry.Cpu(cpu.cpu,0).reason==Reason::SlotUnknown&&registry.Gpu(gpu.gpu,0).reason==Reason::SlotUnknown,
+        "undecoded copy retires target observations instead of declaring known empty views");
+    WriteView(registry,cpu.cpu,MakeView(output,30));
+    Check(registry.Cpu(cpu.cpu,0).view.format==30,"a fresh post-window write can establish new provenance");
+    WriteView(registry,cpu.cpu+32,MakeView(output,31));
+    Check(registry.Cpu(cpu.cpu+32,0).view.format==31,"a new slot can be tracked after its unknown window closes");
+
+    const auto late=registry.BeginWrite(cpu.cpu,0,MakeView(output,32));
+    UnknownRange late_range{cpu.cpu,cpu.cpu,0};UnknownCopy late_scope;
+    registry.BeginUnknownCopy(late_scope,&late_range,1);registry.EndUnknownCopy(late_scope);registry.Finish(late);
+    Check(!registry.Cpu(cpu.cpu,0),"a write completed after its scope closes cannot resurrect a masked slot");
+
+    UnknownRange copy_range{gpu.cpu,gpu.cpu+32,0};UnknownCopy copy_scope;
+    registry.BeginUnknownCopy(copy_scope,&copy_range,1);
+    const auto blocked_copy=registry.BeginCopy(gpu.cpu,cpu.cpu,0);registry.Finish(blocked_copy);
+    Check(blocked_copy.copy&&!blocked_copy.destination.heap,"BeginCopy suppresses a masked destination just like BeginWrite");
+    registry.EndUnknownCopy(copy_scope);
+    Check(!registry.Gpu(gpu.gpu,0),"a suppressed copy leaves its destination unknown after scope close");
+
+    UnknownRange first{cpu.cpu,cpu.cpu,0},second{cpu.cpu+32,cpu.cpu+32,0};
+    UnknownCopy outer,inner;
+    registry.BeginUnknownCopy(outer,&first,1);registry.BeginUnknownCopy(inner,&second,1);
+    Check(registry.Cpu(cpu.cpu,0).reason==Reason::WritePending&&registry.Cpu(cpu.cpu+32,0).reason==Reason::WritePending,
+        "overlapping active scopes retain both destination masks");
+    registry.EndUnknownCopy(outer);
+    Check(registry.Cpu(cpu.cpu,0).reason!=Reason::WritePending&&registry.Cpu(cpu.cpu+32,0).reason==Reason::WritePending,
+        "ending one scope leaves a second overlapping destination mask active");
+    registry.EndUnknownCopy(inner);
+    Check(registry.Cpu(cpu.cpu+32,0).reason!=Reason::WritePending,
+        "ending the final overlapping scope releases its mask");
+
+    TestRegistry raw;raw.ObserveResource(output);UnknownRange unobserved{0x9000,0x9030,0};UnknownCopy raw_scope;
+    raw.BeginUnknownCopy(raw_scope,&unobserved,1);
+    Check(raw.Cpu(0x9000,0).reason==Reason::WritePending&&raw.Cpu(0x9030,0).reason==Reason::WritePending,
+        "a mathematically valid range masks handles even before its heap is observed");
+    Check(raw.Cpu(0x9031,0).reason!=Reason::WritePending,"the inclusive range stops at its declared last handle");
+    raw.EndUnknownCopy(raw_scope);
+
+    TestRegistry global;Seed(global);const auto old=global.Cpu(cpu.cpu,0);
+    UnknownCopy all;global.BeginUnknownCopy(all,nullptr,0,true);
+    counts=global.SnapshotCounters();
+    Check(all.active&&all.all&&counts.global_copies==1&&global.Cpu(cpu.cpu,0).reason==Reason::WritePending&&
+          global.Gpu(gpu.gpu,0).reason==Reason::WritePending&&global.Cpu(0xdead,0).reason==Reason::WritePending,
+        "allocation-failure fallback masks every known and unknown handle for the whole call");
+    const auto blocked_global=global.BeginWrite(cpu.cpu,0,MakeView(output,30));global.Finish(blocked_global);
+    Check(!blocked_global.destination.heap,"global unknown fallback suppresses new descriptor publication");
+    global.EndUnknownCopy(all);
+    Check(!global.Current(old)&&global.Cpu(cpu.cpu,0).reason!=Reason::None,
+        "global begin/end epochs retire old receipts after the fallback closes");
+}
 void ConcurrentWrites() {
     TestRegistry registry;Seed(registry);
     std::barrier gate(2);
@@ -275,6 +344,6 @@ void ClearExtents() {
     Check(sizeof(nr_post_boundary::Window)<4096,"full event windows retain the small worker-stack budget");
 }
 int main() {
-    CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();CompleteKeysAndPools();ConcurrentWrites();CallSnapshots();ClearExtents();
+    CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();CompleteKeysAndPools();UnknownCopyScopes();ConcurrentWrites();CallSnapshots();ClearExtents();
     std::printf("PASS descriptor provenance CPU: %u checks; production registry, copy/reuse/retirement/concurrency/range negatives; no GPU\n",checks.load());
 }

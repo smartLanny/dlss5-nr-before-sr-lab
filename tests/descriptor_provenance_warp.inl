@@ -201,6 +201,12 @@ void Run() {
     const auto resolved=NrResolveColorView(f.device,output.resource,ID3D12Resource_GetDesc(output.resource),502,true,0);
     Check(resolved && resolved.clear_source && resolved.plan.srv==28,
         "real cached Clear CPU request resolves the existing R8 color and capability contract");
+    const auto stable_cpu_output=g_nr_descriptors.Cpu(Cpu(f,cpu).ptr,0,nr_descriptor::Kind::Uav);
+    Check(stable_cpu_output&&g_nr_descriptors.Current(stable_cpu_output),
+        "real CPU Output UAV receipt is current before oversized descriptor copies");
+    const auto prepared_before_copy=NrNativeClearCandidate(NrFormatKey(f.device,output.resource,502,true),9);
+    Check(static_cast<bool>(prepared_before_copy),
+        "current native Clear format candidate exists before oversized descriptor copies");
     NrDiagnosticIdentity identity{};identity.frame_id=701;identity.config_generation=9;
     const auto trace=PublishPostBoundary(output.resource,native,identity,502,reinterpret_cast<std::uint64_t>(f.device));
     Barrier(list.native,output.resource,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -283,6 +289,92 @@ void Run() {
     Check(submitted_unknown_use.unknown==1&&!submitted_unknown_use.after_native_valid&&!submitted_unknown_use.at_submit_valid,
         "actual Execute does not upgrade an evicted-slot GPU proof through the CPU declaration");
     ReadPixels(f,output.resource,false);ReleaseCom(overflow_gpu);
+
+    // A copy larger than the observer's bounded write array must preserve the
+    // source CPU Output receipt and candidate while leaving touched GPU slots
+    // undecoded. An existing known conflict is unsafe and is rejected first;
+    // the native operation below is valid because the real GPU destination is
+    // the same Output resource after the copy.
+    constexpr unsigned kBulkCopyCount=257;
+    auto *bulk_cpu=Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,false,kBulkCopyCount);
+    auto *bulk_gpu=Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true,kBulkCopyCount+1);
+    Uav(f,other.resource,Cpu(f,bulk_gpu));
+    Uav(f,other.resource,Cpu(f,bulk_gpu,kBulkCopyCount));
+    for(unsigned i=0;i<kBulkCopyCount;++i)Uav(f,output.resource,Cpu(f,bulk_cpu,i));
+    const auto bulk_source_output=g_nr_descriptors.Cpu(Cpu(f,bulk_cpu).ptr,0,nr_descriptor::Kind::Uav);
+    Check(bulk_source_output&&g_nr_descriptors.Current(bulk_source_output),
+        "oversized CopyDescriptorsSimple starts with a stable CPU Output source");
+    const auto bulk_heap=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(bulk_gpu));
+    const auto output_identity=g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(output.resource));
+    const auto known_conflict=g_nr_descriptors.UavPair(NrFormatDeviceIdentity(f.device),output_identity,
+        bulk_heap.id,Gpu(f,bulk_gpu).ptr,Cpu(f,bulk_cpu).ptr);
+    Check(!known_conflict&&known_conflict.reason==nr_descriptor::Reason::WrongResource,
+        "known GPU resource conflict remains rejected before oversized descriptor copy");
+    const auto untouched_bulk_gpu=g_nr_descriptors.Gpu(Gpu(f,bulk_gpu,kBulkCopyCount).ptr,0,nr_descriptor::Kind::Uav);
+    Check(untouched_bulk_gpu&&untouched_bulk_gpu.view.resource.address==reinterpret_cast<std::uint64_t>(other.resource),
+        "GPU descriptor outside the oversized copy range starts as a known other resource");
+    ID3D12Device_CopyDescriptorsSimple(f.device,kBulkCopyCount,Cpu(f,bulk_gpu),Cpu(f,bulk_cpu),
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    Check(g_nr_descriptors.Current(stable_cpu_output)&&g_nr_descriptors.Current(bulk_source_output),
+        "oversized CopyDescriptorsSimple preserves the original and copied CPU Output receipts");
+    Check(!g_nr_descriptors.Gpu(Gpu(f,bulk_gpu).ptr,0),
+        "oversized CopyDescriptorsSimple leaves its touched GPU destination unknown");
+    Check(g_nr_descriptors.Current(untouched_bulk_gpu),
+        "oversized CopyDescriptorsSimple preserves an untouched slot in the same GPU heap");
+
+    // The same scoped invalidation rule applies when the API receives more
+    // than 64 sparse source/destination ranges. The original API still gets
+    // every range; provenance marks only the touched destinations unknown.
+    constexpr unsigned kSparseRanges=65;
+    auto *sparse_cpu=Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,false,kSparseRanges);
+    auto *sparse_gpu=Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true,kSparseRanges+1);
+    for(unsigned i=0;i<kSparseRanges;++i)Uav(f,output.resource,Cpu(f,sparse_cpu,i));
+    Uav(f,other.resource,Cpu(f,sparse_gpu,kSparseRanges));
+    D3D12_CPU_DESCRIPTOR_HANDLE sparse_destinations[kSparseRanges]{};
+    D3D12_CPU_DESCRIPTOR_HANDLE sparse_sources[kSparseRanges]{};
+    UINT sparse_sizes[kSparseRanges]{};
+    for(unsigned i=0;i<kSparseRanges;++i) {
+        sparse_destinations[i]=Cpu(f,sparse_gpu,i);sparse_sources[i]=Cpu(f,sparse_cpu,i);sparse_sizes[i]=1;
+    }
+    const auto untouched_sparse_gpu=g_nr_descriptors.Gpu(Gpu(f,sparse_gpu,kSparseRanges).ptr,0,nr_descriptor::Kind::Uav);
+    Check(untouched_sparse_gpu&&untouched_sparse_gpu.view.resource.address==reinterpret_cast<std::uint64_t>(other.resource),
+        "GPU descriptor outside sparse ranges starts as a known other resource");
+    ID3D12Device_CopyDescriptors(f.device,kSparseRanges,sparse_destinations,sparse_sizes,
+        kSparseRanges,sparse_sources,sparse_sizes,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const auto candidate_after_copy=NrNativeClearCandidate(NrFormatKey(f.device,output.resource,502,true),9);
+    Check(candidate_after_copy&&candidate_after_copy.call==prepared_before_copy.call&&
+        g_nr_descriptors.Current(stable_cpu_output),
+        "oversized sparse CopyDescriptors preserves the current Clear candidate and CPU Output receipt");
+    Check(!g_nr_descriptors.Gpu(Gpu(f,sparse_gpu).ptr,0),
+        "oversized sparse CopyDescriptors leaves its touched GPU destination unknown");
+    Check(g_nr_descriptors.Current(untouched_sparse_gpu),
+        "oversized sparse CopyDescriptors preserves an untouched slot in the same GPU heap");
+
+    // A copy destination is a known heap range whose contents were not
+    // decoded. Its touched slot has a stale local epoch, so the CPU-only
+    // fallback may pass only through the current-call guard and never becomes
+    // GPU proof.
+    queue_test::List bulk_list(f);pipeline.Bind(bulk_list,bulk_gpu);
+    Barrier(bulk_list.native,output.resource,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    nr_native_clear::Invocation bulk_invocation;
+    Native(bulk_list,output.resource,502,[&] {
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(bulk_list.native,Gpu(f,bulk_gpu),
+            Cpu(f,bulk_cpu),output.resource,blue,0,nullptr);
+    },kNgxSuccess,&prepared_before_copy,&bulk_invocation);
+    Check(NrNativeClearMayFinish(bulk_list.native,output.resource,502,28,prepared_before_copy,bulk_invocation),
+        "unknown GPU copy destination retains CPU-only NativeClear qualification on the current call");
+    const auto bulk_use=SnapshotNrDescriptorUse();
+    Check(bulk_use.unknown==1&&!bulk_use.observed_typed&&!bulk_use.after_native_valid&&!bulk_use.at_submit_valid,
+        "CPU-only NativeClear qualification never upgrades unknown GPU proof");
+    Barrier(bulk_list.native,output.resource,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_RENDER_TARGET);
+    bulk_list.Close();
+    ID3D12CommandList *bulk_batch[]={bulk_list.Base()};
+    ProcessSubmittedCommandLists(0,f.a,1,bulk_batch);f.Drain(f.a);
+    const auto submitted_bulk_use=SnapshotNrDescriptorUse();
+    Check(submitted_bulk_use.unknown==1&&!submitted_bulk_use.after_native_valid&&!submitted_bulk_use.at_submit_valid,
+        "actual Execute keeps the CPU-only clear's GPU proof unknown");
+    ReadPixels(f,output.resource,false);
+    ReleaseCom(sparse_cpu);ReleaseCom(sparse_gpu);ReleaseCom(bulk_cpu);ReleaseCom(bulk_gpu);
 
     // Destruction of unused real objects must retire records; registry metadata
     // must not keep either object alive. No undefined D3D12 operation is issued.

@@ -160,6 +160,9 @@ def main():
     if args.negative_controls:
         record['negative_controls'] = []
         mutations = (
+            ('restore-global-copy-invalidation', 'nr_descriptor_provenance_runtime.inl',
+             'if(destination_count!=source_count || destination_count>NrDescriptorCopy::kMaximum) {\n        unknown_destinations();return;',
+             'if(destination_count!=source_count || destination_count>NrDescriptorCopy::kMaximum) {\n        g_nr_descriptors.Invalidate();return;'),
             ('restore-gpu-pair-dependency', 'nr_native_clear_request.h',
              'if(!before.cpu || !after.cpu || !same(before.cpu,after.cpu) ||',
              'if(!before || !after || !before.cpu || !after.cpu || !same(before.cpu,after.cpu) ||'),
@@ -197,6 +200,8 @@ def main():
                 save()
                 if not item['caught']:
                     raise SystemExit('Negative control unexpectedly passed: '+name)
+                if name == 'restore-global-copy-invalidation' and 'COPY_SCOPE_UNRELATED_ORACLE' not in result.stdout+result.stderr:
+                    raise SystemExit('Global-copy negative control failed outside its unrelated-view oracle.')
                 print('PASS caught negative control: '+name)
             finally:
                 target.write_bytes(original)
