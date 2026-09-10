@@ -105,6 +105,13 @@ try {
     & $ProbePolicy
     if ($LASTEXITCODE) { throw 'Probe phase isolation failed.' }
     $Checks.Add('process-local automatic GPU sampling policy and concurrent phase snapshots CPU')
+    & python (Join-Path $PSScriptRoot 'validate-store-interval.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'store-interval-cpu')
+    if ($LASTEXITCODE) { throw 'Exact UNORM interval collection and shader gate failed.' }
+    foreach ($Control in @('ignore-mismatch','accept-incomplete')) {
+        & python (Join-Path $PSScriptRoot 'validate-store-interval.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output "store-interval-$Control") --negative-control $Control
+        if ($LASTEXITCODE) { throw "UNORM interval negative control failed: $Control" }
+    }
+    $Checks.Add('production UNORM interval coverage mismatch and late-phase collection CPU')
     & python (Join-Path $PSScriptRoot 'validate-config-policy.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'jitter-config-policy') --negative-control
     if ($LASTEXITCODE) { throw 'Jitter migration, persistence and fresh-process gate failed.' }
     $Checks.Add('production jitter migration Win32 persistence fresh processes and negative controls CPU')
@@ -186,6 +193,7 @@ try {
         & python (Join-Path $PSScriptRoot 'validate-store-quantization.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'stored-quantization-warp')
         if ($LASTEXITCODE) { throw 'Actual storage quantization WARP gate failed.' }
         $Checks.Add('production PRE POST actual storage quantization and wrong-target WARP')
+        $Checks.Add('production UNORM legal interval endpoints complete coverage and slot reuse WARP')
         & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-runtime-warp') --run-warp
         if ($LASTEXITCODE) { throw 'Same-process production resource recovery WARP gate failed.' }
         $Checks.Add('production same-process semantic recovery with real descriptor submit and readback WARP')

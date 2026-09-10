@@ -64,6 +64,8 @@ def package(build: Path, output: Path) -> dict:
                 'production native boundary detours and immutable scoped window CPU',
                 'production typed native color admission descriptors and storage WARP',
                 'production PRE POST actual storage quantization and wrong-target WARP',
+                'production UNORM interval coverage mismatch and late-phase collection CPU',
+                'production UNORM legal interval endpoints complete coverage and slot reuse WARP',
                 'production same-process semantic recovery with real descriptor submit and readback WARP',
                 'production codec FLOAT exposure finite extreme and composition regression WARP',
                 'production typed R8 exposure versus R32 normalized control WARP',
