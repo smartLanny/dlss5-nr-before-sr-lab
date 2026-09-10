@@ -1,5 +1,15 @@
 # 统一开发与测试交接入口
 
+## 2026-09-11 corefix.7：运动矢量轮换时选择安全槽位
+
+Corefix.6 绝区零前置和后置仍强烈闪烁。当前窗口 44 次 carrier Evaluate 仅增加 14 次 NR/transfer 提交，尾部有 27 条 Motion 描述符忙碌而保留原生 SR 的记录。旧选择器只按 Color/Output 和 exposure 返回首槽，可能在仍有空槽时选中绑定旧 Motion 的忙槽；[复测事实与边界](COREFIX6_RETEST_MOTION_20260911.md)。
+
+冻结运行源 `7d68fef12958764b05429eec98f18e9cb134a73b`，Core PE `0.4.7.12`。PRE 与最终组装 POST 共同优先选择完整的当前 Motion 绑定，再使用可安全修改的同资源槽位或原有空槽/回收路径。保持单一 NrContext/NR handle/history、8 槽上限和全部 GPU/队列/格式安全检查。
+
+首轮同源 CPU、双语编译及 WARP 共 80 项检查通过；生产选择器五组 CPU 场景通过，旧首命中策略负对照被检测；完整 native-color WARP 共 11,293 项检查，新增 PRE/POST 真实忙槽、A/B 描述符读回、单一 handle 和八槽耗尽拒绝均通过。此次未启用 D3D12 debug layer，不宣称该层验收；没有 NVIDIA NR、游戏视觉、性能或新菜单验收。[冻结字节、验证与交接](COREFIX7_MOTION_SLOTS_20260911.md)。
+
+下一步仅绝区零当前 POST 原场景约 30 秒、一份 F8，保留设置并反馈是否仍闪。死亡搁浅不重复四阶段，本轮未替换游戏文件。#2/#205/#203 保持开放，不自动合并或发布稳定版。
+
 ## 2026-09-11 corefix.6：GPU 槽淘汰下保留独立 CPU Clear 格式声明
 
 冻结源 `04bb64fa64b8020a21f8283f5d99cfc581cdbc12`，源码清单 SHA-256 为
