@@ -34,9 +34,37 @@ F8 adds cumulative `scopedCopies` and `globalCopies` counts to the registry row.
 ## Identity and validation
 
 Candidate identity is `0.4.7beta-corefix.8`, numeric Core PE `0.4.7.13`.
-Frozen source, actual artifacts, and same-source validation will be recorded
-after the candidate gate completes. Component development checks do not certify
-the frozen candidate, NVIDIA NR, or game visuals.
+Frozen validation source is `69490510345f5a34481e7a7600defc87e7df62f0`. Its production source is identical
+to runtime freeze `b6ce55ef847ff18892798304e788fc4e2fe0ba71`; the intervening
+commit changes only two validation scripts.
+
+The final same-source CPU, bilingual compile/link, and WARP run passes all
+82 required checks. The staged registry passes 1709 assertions; the full
+production TU passes 230 and detects all six negative controls. Descriptor
+WARP passes 668 checks, including real 257-descriptor and 65-range copies,
+preserved unrelated CPU Output evidence, current-call admission, continued
+GPU-proof rejection, and Clear texture readback.
+
+Source manifest SHA-256: `57b6a5af7998a693a580254ec8c5d2aed8c9059e7a3b1f9d2fa51ed297524a48`.
+Validation JSON SHA-256: `3a3b37993c132ead1c1a081ca48656a3c03a51976c4daedf2d985272ffcd131a`.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `DLSS5-AI-Rendering-Upscaling-0.4.7beta-corefix.8-@野生的装机宅-Bilibili.en.addon64` | 3213824 | `4a52a62eeb2dc9e6d32a94c0cb9f0df26203582612ec72bf55bc921b4dcbd478` |
+| `DLSS5-AI渲染超分版-0.4.7beta-corefix.8-@野生的装机宅-Bilibili.addon64` | 3241472 | `504bb48b1137b02a9ab126fe10337f0331a93684c413f411f4fea4fa47eb1b8d` |
+| `nrchain_nvngx.dll` | 8192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+The first full run remains failed: its 27-scene post-output WARP case exceeded
+the existing 30-second process limit. The same current executable subsequently
+passed 5977 checks in about 30.3 seconds; the previous frozen candidate passed
+the same case in about 29.6 seconds. Only that compound case now has a bounded
+90-second limit, with elapsed time recorded; other cases retain 30 seconds.
+The stale numeric PE assertion was also replaced by comparison against the
+source manifest. Production code was unchanged for the successful second run.
+Its compound post-output case completed in 22.8 seconds.
+
+These results do not certify NVIDIA NR, game visuals, performance, a newly
+tested menu, or D3D12 debug-layer validation. No game files were replaced.
 
 Development history is preserved. The first WARP build stopped on fixture
 handle/bool conversions. The second executed and caught an actual integration
