@@ -26,8 +26,8 @@ STATE_CURRENT = 'f7af44852dd6c2b39da215b027eaf3f524e06024'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_native_clear_request_runtime.inl': '5dfdd731e39f17ed32308750369037a94a6d731d',
-    'src/nr_native_clear_request.h': '8195a22b30c5f583fa24ad67ecdfd8bdd16947ba',
+    'src/nr_native_clear_request_runtime.inl': 'ae6c38de5c23bdbabdfeed18d270b3421aac259e',
+    'src/nr_native_clear_request.h': 'ee96a22fdeea549ddeb0a90d63b17e5cc8ed547b',
     'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
@@ -83,7 +83,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
     'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
-    'src/nr_native_format_runtime.inl': '846328a25742c6bdaa2147b6d6fb9f06e7739135',
+    'src/nr_native_format_runtime.inl': 'd174155ec81cfe4f08e496dd656a7dc5dc1fc97c',
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
     'src/nr_post_boundary_native.inl': '2c44059549d6ef78476f1b98432b4f42dea1dd0a',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
@@ -95,7 +95,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance.h': '4e9471d5ecf056d15d6474b9b7a5d042991f08af',
     'src/nr_descriptor_provenance_runtime.inl': '94b5d0f00154ff95c09fb116aa8702285f28250c',
     'src/nr_descriptor_provenance_hooks.inl': 'b41f5cf49f1fee1136b638078715e44c2410d124',
-    'src/nr_descriptor_provenance_commands.inl': '0346c205dff34fbdbcd54055c803b03ecb58f695',
+    'src/nr_descriptor_provenance_commands.inl': '80b2556eb57803cc12024034eaa6585b7851b571',
     'src/nr_ui_activity_runtime.inl': '585503da5ca79b5d22aedccb32528dd22b8f1830',
     'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
 }

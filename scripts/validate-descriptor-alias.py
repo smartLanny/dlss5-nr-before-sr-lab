@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--overlay-root', type=Path)
+    parser.add_argument('--negative-controls', action='store_true')
     args = parser.parse_args()
     source = args.source.resolve(strict=True)
     compiler = args.compiler.resolve(strict=True)
@@ -116,7 +117,8 @@ def main():
     record['device_adapter_sha256'] = sha(helper)
     wrapper = out/'descriptor-alias.cpp'
     wrapper.write_text('#include "core/src/nr_before_sr.cpp"\n#include "fixture.inl"\n'
-                       'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);descriptor_alias_test::Run();return 0;}\n', encoding='utf-8')
+                       'int main(){SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);'
+                       'std::setvbuf(stdout,nullptr,_IONBF,0);descriptor_alias_test::Run();return 0;}\n', encoding='utf-8')
     record['runner_sha256'] = sha(Path(__file__))
     record['commands'] = []
 
@@ -155,6 +157,46 @@ def main():
     record['binary_sha256'] = sha(binary)
     record['full_production_translation_unit'] = True
     run([binary], 'cpu', 30)
+    if args.negative_controls:
+        record['negative_controls'] = []
+        mutations = (
+            ('ignore-current-call', 'nr_native_clear_request.h',
+             'current.call==fresh.call && fresh.call>prepared.call', 'true'),
+            ('ignore-clear-revision', 'nr_native_clear_request.h',
+             'a.stamp.revision==b.stamp.revision', 'true'),
+            ('ignore-current-sync-conflict', 'nr_native_clear_request_runtime.inl',
+             '(!synchronous.Resolved() || synchronous.Resolved()==format)', 'true'),
+            ('skip-first-command-guard', 'nr_before_sr.cpp',
+             'if(substitution.prepared_clear_request.call &&', 'if(false &&'),
+        )
+        for name, filename, old, new in mutations:
+            target = snapshot/filename
+            original = target.read_bytes()
+            text = original.decode('utf-8')
+            if text.count(old) != 1:
+                raise SystemExit('Negative-control source anchor changed: '+name)
+            try:
+                target.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+                negative_binary = out/(name+'.exe')
+                command = [compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper,
+                           *objects, '-o', negative_binary, '-lkernel32', '-luser32', '-ld3d12', '-ldxgi',
+                           '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32']
+                run(command, 'compile-'+name)
+                result = subprocess.run([str(negative_binary)], cwd=out, capture_output=True, text=True,
+                                        encoding='utf-8', errors='replace', timeout=30)
+                log = out/(name+'.log')
+                log.write_text(result.stdout+result.stderr, encoding='utf-8')
+                item = {'name': name, 'file': filename, 'original_sha256': hashlib.sha256(original).hexdigest(),
+                        'mutation_sha256': sha(target), 'binary_sha256': sha(negative_binary),
+                        'command': [str(negative_binary)], 'exit': result.returncode, 'log_sha256': sha(log),
+                        'caught': result.returncode != 0}
+                record['negative_controls'].append(item)
+                save()
+                if not item['caught']:
+                    raise SystemExit('Negative control unexpectedly passed: '+name)
+                print('PASS caught negative control: '+name)
+            finally:
+                target.write_bytes(original)
     record['source_unchanged_after_run'] = inventory(snapshot) == record['source_inputs_sha256']
     record['original_source_unchanged_after_run'] = inventory(source.parent) == before
     record['manifest_unchanged_after_run'] = sha(manifest) == manifest_sha256

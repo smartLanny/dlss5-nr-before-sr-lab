@@ -191,6 +191,12 @@ void Run() {
         "native full-view clear retains exact output descriptor identity and extent");
     const auto ledger=NrFormatEvidence(NrFormatKey(f.device,output.resource,502,true));
     Check(!ledger.view.format&&!ledger.Resolved(),"cached descriptor-use receipt never promotes the admission typed ledger");
+    const auto cpu_request=NrNativeClearCandidate(NrFormatKey(f.device,output.resource,502,true),9);
+    Check(cpu_request && cpu_request.format==28,
+        "real Clear records an independent frozen CPU request without promoting GPU proof");
+    const auto resolved=NrResolveColorView(f.device,output.resource,ID3D12Resource_GetDesc(output.resource),502,true,0);
+    Check(resolved && resolved.clear_source && resolved.plan.srv==28,
+        "real cached Clear CPU request resolves the existing R8 color and capability contract");
     NrDiagnosticIdentity identity{};identity.frame_id=701;identity.config_generation=9;
     const auto trace=PublishPostBoundary(output.resource,native,identity,502,reinterpret_cast<std::uint64_t>(f.device));
     Barrier(list.native,output.resource,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_RENDER_TARGET);

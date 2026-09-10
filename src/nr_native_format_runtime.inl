@@ -205,17 +205,6 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
     request.observed_view = result.evidence.Resolved();
     request.observation_conflict = result.evidence.view.conflict;
     request.observation_stale = result.evidence.failed;
-    if(post_sr) {
-        result.clear_request=NrNativeClearCandidate(result.key,g_config_generation.load(std::memory_order_acquire));
-        if(result.clear_request) {
-            if(request.observed_view && request.observed_view!=result.clear_request.format)
-                request.observation_conflict=result.evidence.view.conflict=true;
-            else if(!request.observed_view && !request.observation_conflict && !request.observation_stale) {
-                request.observed_view=result.clear_request.format;
-                result.clear_source=true;
-            }
-        }
-    }
     request.lifecycle_known = static_cast<bool>(result.key);
     request.shape_valid = desc.Width && desc.Height &&
         desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
@@ -231,8 +220,7 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
         request.contract = Contract::SceneFloat;
         request.contract_known = true; // Existing explicit FLOAT adapter contract.
     }
-    result.semantic = ResourceSemanticResolver::Resolve(request,
-        [device](unsigned read, unsigned write) {
+    const auto capabilities = [device](unsigned read, unsigned write) {
             Capability capability{};
             if (!device) return capability;
             D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
@@ -253,7 +241,22 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
                 ((support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0 &&
                  (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) != 0);
             return capability;
-        });
+        };
+    result.semantic = ResourceSemanticResolver::Resolve(request,capabilities);
+    if(post_sr) {
+        result.clear_request=NrNativeClearCandidate(result.key,g_config_generation.load(std::memory_order_acquire));
+        if(result.clear_request) {
+            if(request.observed_view && request.observed_view!=result.clear_request.format) {
+                request.observation_conflict=result.evidence.view.conflict=true;
+                result.semantic=ResourceSemanticResolver::Resolve(request,capabilities);
+            } else if(!request.observed_view && result.semantic.verdict==Verdict::Ambiguous &&
+                      !request.observation_conflict && !request.observation_stale) {
+                request.observed_view=result.clear_request.format;
+                result.clear_source=true;
+                result.semantic=ResourceSemanticResolver::Resolve(request,capabilities);
+            }
+        }
+    }
     result.plan = result.semantic.access;
     result.typed.Format = static_cast<DXGI_FORMAT>(result.plan.srv);
     result.native_bounded_output = post_sr && contract.flags_known &&
