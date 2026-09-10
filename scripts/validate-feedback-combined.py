@@ -188,7 +188,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
         path = snapshot / 'src/nr_feedback_text.h'
         original = path.read_text(encoding='utf-8')
         before = ('inline std::string SanitizeMetadata(std::string_view input) {' if args.ascii_metadata_negative else
-                  'inline std::string RedactSensitiveLine(std::string line) {')
+                  'inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {')
         if original.count(before) != 1: raise SystemExit('Metadata privacy control anchor changed')
         original = original.replace(before, before + ('\n    return Sanitize(input);' if args.ascii_metadata_negative else
                                                       '\n    return line;'))

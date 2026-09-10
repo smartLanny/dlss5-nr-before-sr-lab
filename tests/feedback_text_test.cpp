@@ -8,7 +8,88 @@ void check(bool ok, const char *message) {
     ++checks;
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
 }
+void timing_metadata_privacy() {
+    const std::string ticks = "123456789012345";
+    std::uint64_t parsed = 0;
+    check(CanonicalUnsigned("0", &parsed) && parsed == 0, "canonical zero is a typed unsigned value");
+    check(CanonicalUnsigned("18446744073709551615", &parsed) && parsed == UINT64_MAX,
+        "canonical unsigned range includes UINT64_MAX");
+    for (const auto invalid : {"", "00", "0123456789012345", "+123456789012345", "-123456789012345",
+            "123456789012345 ", " 123456789012345", "123456789012345x", "0x123456789012345",
+            "18446744073709551616", "999999999999999999999", "\xEF\xBC\x91\xEF\xBC\x92"}) {
+        check(!CanonicalUnsigned(invalid), "typed exception rejects noncanonical ASCII uint64");
+        const auto line = std::string("end.timing.capturedTicks=") + invalid;
+        check(!TimingMetadataNumber(line, line.find('=') + 1, line.size()),
+            "invalid uint64 cannot acquire the typed metadata exception");
+    }
+    for (unsigned digits = 11; digits <= 20; ++digits) {
+        const std::string value = digits == 20 ? "18446744073709551615" : "1" + std::string(digits - 1, '2');
+        for (const auto prefix : {"start.timing.", "end.timing."}) {
+            for (const auto scalar : {"epoch", "probePhase", "waitPhase", "qpcFrequency", "observed",
+                    "excludedOldEpoch", "recentOverwritten", "epochStartedTicks", "capturedTicks",
+                    "scopedRecords", "unscopedRecords", "routeUnknownRecords"}) {
+                const auto line = std::string(prefix) + scalar + "=" + value;
+                check(SanitizeMetadata(line) == line, "typed metadata scalar is preserved at every decimal width");
+                if (digits >= 12 && digits <= 16)
+                    check(Sanitize(line) == std::string(prefix) + scalar + "=[address]",
+                        "raw log lookalikes retain decimal address redaction");
+            }
+            for (const auto stage : {"carrier", "chain-lock", "queue-lock", "submitted-fence-wait",
+                    "readback-map-copy", "nr-evaluate", "native-evaluate", "native-execute", "retirement-signal"}) {
+                const auto line = std::string(prefix) + stage + "=count:" + value + ",measured:" + value +
+                    ",totalTicks:" + value + ",maxTicks:" + value;
+                check(SanitizeMetadata(line) == line, "typed stage statistics preserve each decimal width");
+                std::string histogram;
+                for (unsigned i = 0; i < 12; ++i) histogram += (i ? "," : "") + value;
+                const auto full = line + ",histogram:" + histogram;
+                check(SanitizeMetadata(full) == full, "exact twelve-bin histogram preserves typed decimal counts");
+            }
+            for (unsigned index = 0; index < 16; ++index) {
+                const auto line = std::string(prefix) + "recent." + std::to_string(index) +
+                    "=stage:carrier,sequence:" + value + ",epoch:" + value +
+                    ",startedTicks:" + value + ",durationTicks:" + value;
+                check(SanitizeMetadata(line) == line, "bounded recent typed measurements preserve decimal widths");
+            }
+        }
+    }
+    const auto mixed = "end.timing.recent.0=stage:carrier,ptr:0x123456789ABCDEF0,startedTicks:" + ticks +
+        ",purePointer:0000123412341234,durationTicks:" + ticks + ",fakeStartedTicks:" + ticks;
+    check(SanitizeMetadata(mixed) == "end.timing.recent.0=stage:carrier,ptr:[address],startedTicks:" + ticks +
+          ",purePointer:[address],durationTicks:" + ticks + ",fakeStartedTicks:[address]",
+        "extra and forged fields on the same timing line retain pointer privacy");
+    for (const auto prefix : {"unknown=", "end.timing.note=", "gpu=end.timing.capturedTicks=",
+            "fake.end.timing.capturedTicks=", "end.timing.capturedTicks.fake=",
+            "end.timing.recent.16=stage:carrier,startedTicks:",
+            "end.timing.recent.00=stage:carrier,startedTicks:",
+            "end.timing.recent.0=stage:unknown,startedTicks:",
+            "end.timing.recent.0=stage:carrier,notstartedTicks:",
+            "end.timing.carrier=notTotalTicks:", "end.timing.unknown-stage=totalTicks:",
+            "end.timing.aggregateScope=device:", "end.timing.recent.0=stage:carrier,device:"}) {
+        check(SanitizeMetadata(std::string(prefix) + ticks) == std::string(prefix) + "[address]",
+            "unlisted schema tokens never receive a numeric exception");
+    }
+    check(SanitizeMetadata("end.timing.capturedTicks=0x123456789ABCDEF0") == "end.timing.capturedTicks=[address]",
+        "typed field name never exempts a hexadecimal pointer");
+    check(SanitizeMetadata("end.timing.capturedTicks=0000123412341234") == "end.timing.capturedTicks=[address]",
+        "zero-padded pointer is not canonical decimal metadata");
+    check(SanitizeMetadata("end.timing.carrier=count:" + ticks + ",count:" + ticks) ==
+        "end.timing.carrier=count:[address],count:[address]", "duplicate typed fields fail closed");
+    check(SanitizeMetadata("end.timing.capturedTicks=" + ticks + ",extra:" + ticks) ==
+        "end.timing.capturedTicks=[address],extra:[address]", "scalar exception requires the whole scalar value");
+    check(SanitizeMetadata("end.timing.carrier=histogram:" + ticks) == "end.timing.carrier=histogram:[address]",
+        "histogram requires its exact typed twelve-bin tail");
+    const auto private_path = "end.timing.recent.0=stage:carrier,startedTicks:" + ticks +
+        ",owner:C:\\fixture-private\\game\\file | ptr=0x123456789ABCDEF0";
+    check(SanitizeMetadata(private_path) == "end.timing.recent.0=stage:carrier,startedTicks:" + ticks +
+        ",owner:[local-path] | ptr=[address]", "timing exception preserves independent path and pointer redaction");
+    for (const auto secret : {"Authorization: fixture", "password=fixture", "access_token=fixture",
+            "github_pat_fixture", "ghp_fixture", "private key fixture"}) {
+        check(SanitizeMetadata("end.timing.capturedTicks=" + ticks + " | " + secret) ==
+            "[sensitive log line omitted]", "credential omission still takes priority over typed metadata");
+    }
+}
 int main() {
+    timing_metadata_privacy();
     check(CoreHotkey(117) == 119, "F6 cannot trigger both master and capture");
     check(CoreHotkey(118) == 119, "F7 belongs to image supplement");
     for (unsigned k = 0; k < 256; ++k) {
