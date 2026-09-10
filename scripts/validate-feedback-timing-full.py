@@ -34,7 +34,8 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit',
                         'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
-                        'omit-end-ui-receipt', 'redact-ui-decimals'))
+                        'omit-end-ui-receipt', 'redact-ui-decimals',
+                        'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
     source = args.source_root.resolve(strict=True)
@@ -100,6 +101,17 @@ def main():
     elif args.negative_control == 'redact-ui-decimals':
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && UiActivityMetadataNumber(line, i, end))',
                     'if (false)', 'FULL_CORE_F8_UI_RECORD')
+    elif args.negative_control == 'redact-boundary-numbers':
+        mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && BoundaryMetadataNumber(line, i, end))',
+                    'if (false && BoundaryMetadataNumber(line, i, end))', 'FULL_CORE_F8_READONLY_IDENTITY_PRESERVED')
+    elif args.negative_control == 'bypass-boundary-privacy':
+        anchor = 'inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {'
+        mutation = ('src/nr_feedback_text.h', anchor, anchor +
+                    '\n    if (typed_metadata && (line.find("start.post.boundary.") == 0 || line.find("end.post.boundary.") == 0)) return line;',
+                    'FULL_CORE_F8_BOUNDARY_TYPED_PRIVACY')
+    elif args.negative_control == 'borrow-historical-boundary':
+        mutation = ('src/nr_post_boundary_runtime.inl', '} else if(latest) {', '} else if(false && latest) {',
+                    'FULL_CORE_F8_CURRENT_READONLY_OLD_STORE_DISTINCT')
     if mutation:
         path = snapshot / mutation[0]
         text = path.read_text(encoding='utf-8-sig')

@@ -134,8 +134,9 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     records += command[history_start:history_end] + '\n'
     records += boundary[boundary.index('SRWLOCK g_post_boundary_lock='):boundary.index('// Implemented beside')] + '\n'
     records += 'std::atomic<bool> g_enabled_fast{true};\n'
-    for signature in ('void ClosePostBoundaryLocked(', 'bool PostBoundaryWindowCurrentLocked(',
-                      'nr_post_boundary::Window SnapshotPostBoundary('):
+    for signature in ('nr_probe_policy::Snapshot PostBoundaryProbePolicy(', 'void ClosePostBoundaryLocked(',
+                      'bool PostBoundaryWindowCurrentLocked(', 'nr_post_boundary::Window SnapshotPostBoundary(',
+                      'nr_post_boundary::Selection SelectPostBoundary('):
         records += function(boundary, signature) + '\n'
     atoms = ('g_pipeline_stats_epoch', 'g_pipeline_stats_generation', 'g_pipeline_stats_mode',
              'g_pipeline_feature18_success', 'g_pipeline_transfer_submitted',

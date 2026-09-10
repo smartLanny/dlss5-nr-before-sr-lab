@@ -456,15 +456,43 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,stored.actual_mean,prefix,stored.expected_mean,prefix,stored.actual_max,prefix,stored.expected_max,
         prefix,stored.before_hash,prefix,stored.expected_hash,prefix,stored.actual_hash,prefix);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
-    const auto boundary=stored.boundary_trace_id?SnapshotPostBoundary(stored.boundary_trace_id,
-        stored.frame,stored.config,stored.feature_generation):nr_post_boundary::Window{};
+    const auto boundary_policy=PostBoundaryProbePolicy();
+    nr_post_boundary::ObservationScope boundary_scope;
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+    if(current.input.current.available && current.input.current.effective_mode==1 && key.scope.mode==1 &&
+       key.role==1 && key.scope.config_generation==current.input.current.config &&
+       key.scope.config_generation==g_config_generation.load(std::memory_order_relaxed) &&
+       key.scope.feature_generation==current.input.current.feature_generation && key.resource==key.resource_generation)
+        boundary_scope={key.scope.device,key.scope.feature_generation,key.resource,boundary_policy.phase,
+            static_cast<unsigned>(current.input.current.config),1,static_cast<unsigned>(boundary_policy.mode),key.subresource};
+#endif
+    const nr_post_boundary::StoreProbeReference boundary_store{stored.boundary_trace_id,stored.frame,
+        {stored.recovery_token.key.scope.device,stored.feature_generation,stored.recovery_target.resource,
+         stored.probe_policy.phase,stored.config,static_cast<unsigned>(stored.mode),
+         static_cast<unsigned>(stored.probe_policy.mode),stored.recovery_target.subresource}};
+    const auto boundary_selection=SelectPostBoundary(boundary_scope,boundary_store);
+    const auto &boundary=boundary_selection.window;
+    FeedbackAppend(s,"%s.post.boundary.selection=%s\n%s.post.boundary.provenance=%s\n"
+        "%s.post.boundary.probePhase=%llu\n%s.post.boundary.probeMode=%s\n"
+        "%s.post.boundary.phaseCurrent=%d\n%s.post.boundary.scopeCurrent=%d\n"
+        "%s.post.boundary.device=%llu\n%s.post.boundary.target=%llu\n%s.post.boundary.subresource=%u\n"
+        "%s.post.boundary.storeTrace=%llu\n%s.post.boundary.storeFrame=%llu\n"
+        "%s.post.boundary.storeProbePhase=%llu\n%s.post.boundary.storeTraceAvailable=%d\n",
+        prefix,nr_post_boundary::SelectionName(boundary_selection.kind),
+        prefix,nr_post_boundary::ProvenanceName(boundary.provenance),
+        prefix,boundary.observation.phase,prefix,boundary.trace?nr_probe_policy::Name(
+            static_cast<nr_probe_policy::Mode>(boundary.observation.probe_mode)):"unavailable",
+        prefix,boundary_selection.phase_current,prefix,boundary_selection.scope_current,
+        prefix,boundary.observation.device,prefix,boundary.observation.target,prefix,boundary.observation.subresource,
+        prefix,boundary_store.trace,prefix,boundary_store.frame,prefix,boundary_store.scope.phase,
+        prefix,boundary_selection.store_trace_available);
     FeedbackAppend(s,"%s.post.boundary.frame=%llu\n%s.post.boundary.config=%u\n%s.post.boundary.featureGeneration=%llu\n"
         "%s.post.boundary.ageMs=%llu\n%s.post.boundary.nativeEventEntries=%u\n%s.post.boundary.nativeMatches=%u\n"
         "%s.post.boundary.nativeOtherListMatches=%u\n%s.post.boundary.nativeFirstBefore=0x%X\n%s.post.boundary.nativeLastAfter=0x%X\n"
         "%s.post.boundary.followingBarriers=%u\n%s.post.boundary.firstBefore=0x%X\n%s.post.boundary.firstAfter=0x%X\n"
         "%s.post.boundary.lastAfter=0x%X\n%s.post.boundary.readBarriers=%u\n%s.post.boundary.writeBarriers=%u\n"
         "%s.post.boundary.copyReads=%u\n%s.post.boundary.copyWrites=%u\n%s.post.boundary.renderTargetBinds=%u\n"
-        "%s.post.boundary.note=immutable sampled-frame recording window; ReShade counters omit split/subresources; exact native events below; neither path proves GPU order or consumed pixels; zero matches means unobserved\n",
+        "%s.post.boundary.note=immutable selected recording window; ReShade counters omit split/subresources; exact native events below; neither path proves GPU order or consumed pixels; zero matches means unobserved\n",
         prefix,boundary.frame,prefix,boundary.config,prefix,boundary.feature,
         prefix,boundary.tick?GetTickCount64()-boundary.tick:0,prefix,boundary.native.callbacks,prefix,boundary.native.matches,
         prefix,boundary.native.other_lists,prefix,boundary.native.first_before,prefix,boundary.native.last_after,
@@ -481,7 +509,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.post.boundary.originSubmission=%d,%llu,%llu\n"
         "%s.post.boundary.originArrayPosition=%u,%u\n"
         "%s.post.boundary.coverageKey=1:legacy,2:enhanced,4:enhanced-unavailable,8:base-operations,16:hook-missing,32:interface-unknown,64:list-identity-unknown,128:event-loss,256:opaque,512:target-unknown,1024:submission-unknown\n",
-        prefix,boundary.trace,prefix,boundary.trace!=0,prefix,boundary.frame&&boundary.config==g_config_generation.load(),
+        prefix,boundary.trace,prefix,boundary_selection.paired_with_probe,prefix,boundary.frame&&boundary.config==g_config_generation.load(),
         prefix,nr_post_boundary::CloseName(boundary.close),prefix,boundary.native.exact_matches,prefix,boundary.native.exact_other_lists,
         prefix,boundary.native.exact_global,prefix,boundary.native.unknown_operations,prefix,boundary.native.coverage,prefix,boundary.coverage,
         prefix,boundary.exact_following,prefix,boundary.unknown_operations,prefix,boundary.native.dropped,prefix,boundary.dropped,
@@ -499,13 +527,13 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             e.clear_kind,e.clear_rect_count,e.clear_bounds[0],e.clear_bounds[1],e.clear_bounds[2],e.clear_bounds[3]);
     };
     // Keep room for the rest of the F8 metadata. Start carries coherent summary
-    // identities; the final matched window carries the full bounded event list.
+    // identities; the final selected window carries the full bounded event list.
     const bool export_events=std::strcmp(prefix,"end")==0;
     if(export_events) {
         for(unsigned i=0;i<boundary.native.count;++i)append_boundary_event("native",i,boundary.native.events[i]);
         for(unsigned i=0;i<boundary.count;++i)append_boundary_event("following",i,boundary.events[i]);
     }
-    FeedbackAppend(s,"%s.post.boundary.eventExport=%s\n",prefix,export_events?"final-paired-window":"summary-only; full events in end window");
+    FeedbackAppend(s,"%s.post.boundary.eventExport=%s\n",prefix,export_events?"final-selected-window":"summary-only; full events in end window");
     if(export_events)FeedbackAppend(s,"%s.post.boundary.eventKey=1:transition,2:UAV,3:aliasing,4:enhanced-texture,5:enhanced-global,6:enhanced-buffer,7:copy,8:copy-region,9:UAV-clear,10:RT-clear,11:draw,12:indexed-draw,13:dispatch,14:RT-bind,15:opaque,16:resolve,17:discard; src1:native,src2:ReShade; target=0 unknown; position=index/count in one actual Execute array; descriptor=resource-lifetime/revision/format; clear=kind/count/left/top/right/bottom, kind0:unknown,1:full-view,2:one-rect,3:rect-envelope-not-union; submit is CPU Execute return, cross-queue order and consumed pixels unknown; ray/mesh/render-pass/descriptor-indirect targets not decoded\n",prefix);
 #endif
 #endif

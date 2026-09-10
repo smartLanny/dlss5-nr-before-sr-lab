@@ -455,6 +455,7 @@ void BoundaryCallbacks() {
     std::printf("Boundary callbacks: %u checks; production read-only callbacks, CPU only, no state permission\n",queue_test::checks);
 }
 #include "post_boundary_native.inl"
+#include "post_boundary_readonly.inl"
 #endif
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -462,6 +463,7 @@ int main(int argc, char **argv) {
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     if(mode=="boundary-callbacks"){BoundaryCallbacks();return 0;}
     if(mode=="boundary-native"){BoundaryNativeHooks();return 0;}
+    if(mode=="boundary-readonly"){boundary_readonly_test::Run();return 0;}
 #endif
     if (mode == "one-shot") queue_test::OneShot();
     else if (mode == "guards") queue_test::Guards();

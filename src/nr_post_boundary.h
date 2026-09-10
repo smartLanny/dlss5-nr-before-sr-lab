@@ -13,6 +13,46 @@ enum class Kind : std::uint32_t {
 };
 enum class Source : std::uint32_t { Native=1, ReShade=2 };
 enum class Close : std::uint32_t { Open=0, Present=1, ScopeChanged, ResourceRetired, Superseded, Expired, Detached };
+enum class Provenance : std::uint32_t { Unknown, StoreProbe, ReadOnlyRecording };
+
+// Value identities only. In particular, device/target are semantic lifetime
+// tokens, never COM addresses. The process-local sampling phase is independent
+// of saved configuration and of the successful NR evaluation frame.
+struct ObservationScope {
+    std::uint64_t device=0,feature=0,target=0,phase=0;
+    std::uint32_t config=0,mode=0,probe_mode=0,subresource=0;
+    explicit operator bool() const {
+        return device && feature && target && phase && config && mode==1 && probe_mode<=2;
+    }
+};
+inline bool operator==(const ObservationScope &a,const ObservationScope &b) {
+    return a.device==b.device && a.feature==b.feature && a.target==b.target && a.phase==b.phase &&
+        a.config==b.config && a.mode==b.mode && a.probe_mode==b.probe_mode && a.subresource==b.subresource;
+}
+struct ObservationTicket {
+    ObservationScope scope;
+    bool armed=false;
+    explicit operator bool() const { return armed && static_cast<bool>(scope); }
+};
+struct ReadOnlyCadence {
+    ObservationScope last_scope;
+    std::uint32_t last_evaluation=0;
+    bool observed=false;
+    bool Arm(const ObservationScope &scope,std::uint32_t evaluation) {
+        // This CPU observer does not arm or consume an automatic GPU sample.
+        // A failed/retried carrier at the same evaluation cannot spin the
+        // observer; a new scope/phase still gets its first opportunity.
+        if(!scope || scope.probe_mode==0)return false;
+        const bool changed=!observed || !(last_scope==scope);
+        if(!changed && last_evaluation==evaluation)return false;
+        if(!changed && evaluation>=3 && evaluation%120!=0)return false;
+        last_scope=scope;last_evaluation=evaluation;observed=true;return true;
+    }
+};
+struct StoreProbeReference {
+    std::uint64_t trace=0,frame=0;
+    ObservationScope scope;
+};
 enum Coverage : std::uint32_t {
     Legacy=1u, Enhanced=2u, EnhancedAbsent=4u, Operations=8u,
     HookMissing=16u, InterfaceUnknown=32u, IdentityUnknown=64u,
@@ -76,6 +116,8 @@ struct Window {
     std::uint32_t other_rtv_binds=0,other_rtv_clears=0;
     bool origin_submitted=false;
     Close close=Close::Open;
+    ObservationScope observation;
+    Provenance provenance=Provenance::Unknown;
     Native native;
     Event events[kFollowingEvents];
     void Barrier(std::uint32_t before,std::uint32_t after) {
@@ -105,6 +147,35 @@ struct Window {
     }
 };
 static_assert(sizeof(Window)<4096,"boundary snapshots must fit the existing small-worker stack budget");
+inline bool Matches(const Window &window,const ObservationScope &scope) {
+    return scope && window.trace && window.frame && window.config==scope.config &&
+        window.feature==scope.feature && window.observation==scope;
+}
+inline bool Matches(const Window &window,const StoreProbeReference &probe) {
+    return probe.trace && probe.frame && window.trace==probe.trace && window.frame==probe.frame &&
+        window.provenance==Provenance::StoreProbe && Matches(window,probe.scope);
+}
+enum class SelectionKind { None, CurrentStoreProbe, CurrentReadOnly, HistoricalStoreProbe };
+struct Selection {
+    Window window;
+    SelectionKind kind=SelectionKind::None;
+    bool paired_with_probe=false,store_trace_available=false,scope_current=false,phase_current=false;
+};
+inline const char *ProvenanceName(Provenance value) {
+    switch(value) {
+    case Provenance::StoreProbe:return "store-probe-recording";
+    case Provenance::ReadOnlyRecording:return "read-only-post-recording";
+    default:return "unavailable";
+    }
+}
+inline const char *SelectionName(SelectionKind value) {
+    switch(value) {
+    case SelectionKind::CurrentStoreProbe:return "current-store-probe-pair";
+    case SelectionKind::CurrentReadOnly:return "current-read-only-recording";
+    case SelectionKind::HistoricalStoreProbe:return "historical-store-probe-pair";
+    default:return "no-matching-closed-window";
+    }
+}
 inline const char *CloseName(Close value) {
     switch(value) {
     case Close::Present:return "first-same-device-Present";
