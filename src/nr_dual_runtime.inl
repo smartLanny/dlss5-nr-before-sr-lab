@@ -23,7 +23,7 @@ struct Prepared {
     explicit operator bool() const {return context&&slot&&bool(plan);}
 };
 void SetStatus(Status value){status.store(value,std::memory_order_relaxed);}
-void ClearSelection(NrSlot& slot){slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
+void ClearSelection(NrSlot& slot){slot.dual_capture_index=nr_replay::Recorder::Invalid;slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
 template<class Slot> void InitializeSourceFormats(Slot& slot) {
     slot.source_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     // The production source adapter adds a separate typed SRV field. Both
@@ -224,6 +224,7 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
         main.region_constants[16]=aux.width;main.region_constants[17]=aux.height;
         main.region_constants[18]=main.dual_reduced?1:0;main.region_constants[19]=main.dual_model_domain;
     }
+    nr_dual_capture::Begin(list,primary,main,aux,slot,prepared.guides);
     SetStatus(Status::Active);
     if(aux.evaluations<=3||aux.evaluations%600==0)
         Log("[dual-nr] recorded parent=%llu:%u auxiliary=%llu:%u N1=%ux%u N2=%ux%u scale=%u/%u domain=%u phase=unknown final=%s; CPU Evaluate success, GPU completion pending.",primary.instance_id,primary.evaluations,aux.instance_id,aux.evaluations,primary.width,primary.height,aux.width,aux.height,prepared.plan.requested.numerator,prepared.plan.requested.denominator,main.dual_model_domain,main.dual_reduced?"fused-matched-residual":"direct-P2");

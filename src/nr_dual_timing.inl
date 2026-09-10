@@ -1,6 +1,6 @@
 namespace nr_dual_runtime {
 constexpr unsigned kTimeStages=7,kTimeQueries=14,kTimeWindow=120;
-std::atomic<unsigned> time_samples{0};
+std::atomic<unsigned> time_samples{0},time_config{0};
 std::atomic<unsigned long long> time_warmup_samples{0};
 std::atomic<double> time_median[kTimeStages]{},time_p95[kTimeStages]{},time_last[kTimeStages]{};
 double time_values[kTimeStages][kTimeWindow]{};
@@ -22,6 +22,7 @@ void CollectTiming(NrSlot& slot) {
     if(FAILED(ID3D12Resource_Map(slot.dual_time_readback,0,&range,&mapped))||!mapped)return;
     UINT64 ticks[kTimeQueries]{};std::memcpy(ticks,mapped,sizeof(ticks));
     const D3D12_RANGE empty{0,0};ID3D12Resource_Unmap(slot.dual_time_readback,0,&empty);
+    if(slot.dual_time_generation!=g_config_generation.load())return;
     if(!slot.dual_time_stable){time_warmup_samples.fetch_add(1);return;}
     double ms[kTimeStages]{};
     for(unsigned i=0;i<kTimeStages;++i) {
@@ -43,6 +44,7 @@ void CollectTiming(NrSlot& slot) {
         time_last[i].store(ms[i]);time_median[i].store(median);
         time_p95[i].store(sorted[(time_count*95+99)/100-1]);
     }
+    time_config.store(time_generation,std::memory_order_release);
     time_samples.store(time_count,std::memory_order_release);second_completed.fetch_add(1);
 }
 bool PrepareTiming(ID3D12Device* device,NrSlot& slot) {
@@ -60,6 +62,7 @@ bool PrepareTiming(ID3D12Device* device,NrSlot& slot) {
         D3D12_HEAP_PROPERTIES h{};h.Type=D3D12_HEAP_TYPE_READBACK;h.CreationNodeMask=h.VisibleNodeMask=1;
         if(FAILED(ID3D12Device_CreateCommittedResource(device,&h,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&slot.dual_time_readback))))return false;
     }
+    if(StageCaptureStatus()!=0||nr_f8::IsActive()||nr_replay::Active())return false;
     slot.dual_time_generation=g_config_generation.load();slot.dual_time_active=true;return true;
 }
 void Stamp(ID3D12GraphicsCommandList* list,NrSlot& slot,unsigned query) {
@@ -76,7 +79,7 @@ void Clock(void* user,ID3D12GraphicsCommandList* list,unsigned query){Stamp(list
 void ResolveTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool visible) {
     if(!slot.dual_time_active||fatal_result.load())return;
     if(slot.dual_time_mask&(1u<<10))Stamp(list,slot,11);
-    slot.dual_time_stable=visible&&slot.dual_selected!=nullptr;
+    slot.dual_time_stable=visible&&slot.dual_selected!=nullptr&&slot.dual_capture_index==nr_replay::Recorder::Invalid&&StageCaptureStatus()==0&&!nr_f8::IsActive()&&!nr_replay::Active();
     slot.dual_time_reduced=slot.dual_reduced;
     // Resolve only runs actually EndQuery'd; skipped direct-path downsample or
     // a warmup's missing secondary invocation must never resolve stale queries.

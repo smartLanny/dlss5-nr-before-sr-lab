@@ -4711,6 +4711,7 @@ struct NrSlot {
     bool dual_time_active=false,dual_time_pending=false,dual_time_stable=false,dual_time_reduced=false;
     NrContext* dual_owner=nullptr;
     ID3D12Resource* dual_guides[2]={};
+    unsigned dual_capture_index=16;
     nr_dual::dx12::SpatialSlot* dual_spatial=nullptr;
     ID3D12DescriptorHeap* dual_consumer_heap=nullptr;
     ID3D12DescriptorHeap* dual_region_heap=nullptr;
@@ -5045,6 +5046,7 @@ std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 nr_f8_gpu::CaptureRing g_f8_gpu;
 #include "nr_replay_gpu.inl"
 namespace nr_replay { Recorder recorder; void Collect(); }
+namespace nr_dual_capture {nr_replay::Recorder recorder;void Collect();}
 #include "nr_face_tracker_gpu.inl"
 namespace nr_face_runtime {
     nr_face_gpu::Tracker* tracker=nullptr;
@@ -5056,6 +5058,7 @@ bool IsSameRrDepthDevice(ID3D12Device *first,ID3D12Device *second);
 
 void CollectF8GpuLocked() {
     nr_replay::Collect();
+    nr_dual_capture::Collect();
     nr_face_runtime::Collect();
     if(g_lifecycle_tracking_uncertain.load()) return; // preserve unproven GPU resources
     g_f8_gpu.Collect([](void *key,unsigned long long fence) {
@@ -6043,6 +6046,7 @@ void DetachLifecycleCommandListTokenLocked(
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_replay::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_dual_capture::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
@@ -6365,6 +6369,7 @@ bool CaptureSubmissionBatchLocked(
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
         nr_replay::recorder.Submit(record->token,queue_state,batch.fence_value);
+        nr_dual_capture::recorder.Submit(record->token,queue_state,batch.fence_value);
         nr_face_runtime::Submit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
@@ -8899,6 +8904,7 @@ struct Substitution {
 
 #include "nr_rr_depth_adapter.inl"
 #include "nr_region_runtime.inl"
+#include "nr_dual_capture.inl"
 #include "nr_dual_runtime.inl"
 
 // Snapshot the current game's output mapping before native Evaluate can mutate
@@ -9449,6 +9455,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
     nr_dual_runtime::Stamp(command_list,*slot,7);
+    nr_dual_capture::Finish(command_list,*slot);
     replay.Finish(command_list,*context,*slot,false);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
@@ -10071,7 +10078,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     replay.Finish(command_list,context,slot,false);
     SetBypassReason(BypassReason::None);
-    nr_dual_runtime::Stamp(command_list,slot,7);timing.visible=true;
+    nr_dual_runtime::Stamp(command_list,slot,7);
+    nr_dual_capture::Finish(command_list,slot);timing.visible=true;
     return true;
 }
 

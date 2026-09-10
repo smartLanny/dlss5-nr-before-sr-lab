@@ -19,10 +19,13 @@ void DrawUi(ChainConfig& next,bool& changed,bool& discrete) {
     ImGui::TextWrapped(zh?"实际尺寸：%u × %u → %u × %u；第二层成功录制 %llu 次。":"Actual sizes: %u x %u -> %u x %u; secondary recordings: %llu.",primary_width.load(),primary_height.load(),second_width.load(),second_height.load(),second_evaluations.load());
     ImGui::TextWrapped(zh?"辅助纹理：%.1f MiB（全池上限 1024 MiB；不含模型内部显存）。":"Auxiliary textures: %.1f MiB (pool limit 1024 MiB; excludes model internals).",double(g_dual_allocated_bytes.load())/(1024*1024));
     const unsigned count=time_samples.load(std::memory_order_acquire);
-    if(count) {
+    if(count&&time_config.load(std::memory_order_acquire)==g_config_generation.load()) {
         ImGui::TextWrapped(zh?"GPU 稳定样本 %u：链路中位 %.2f ms / P95 %.2f ms；第二层 %.2f ms。":"Stable GPU samples %u: chain median %.2f ms / P95 %.2f ms; NR2 %.2f ms.",count,time_median[5].load(),time_p95[5].load(),time_median[2].load());
         SettingsNote(zh?"此处只计 NR 与 SR 链路，不代表游戏整帧耗时；切换后的暖机不纳入稳定窗口。":"This measures the NR/SR chain, not the whole game frame; switch warmup is excluded.");
     }
+    if(ImGui::Button(zh?"采集双次 NR 对照（F7）":"Capture dual NR comparison (F7)"))RequestStageCapture();
+    SettingsNote(zh?"双次 NR 生效时，F7 额外保存同一帧的 P1、L1、L2、第二层导引及最终合成到文档 / DLSS5-Dual-Capture。只记录观察帧，不是完整历史重放。":"When both passes are active, F7 also saves P1, L1, L2, bound NR2 guides and final composition in Documents / DLSS5-Dual-Capture. One observed frame, not a complete history replay.");
+    ImGui::Text(zh?"双次采集状态：%u（0未开始 / 1等待 / 2已导出 / 3失败）":"Dual capture status: %u (0 idle / 1 pending / 2 exported / 3 failed)",nr_dual_capture::status.load());
     if(value==Status::UnsupportedGuides||value==Status::ResourceBudget||value==Status::Failed)
         SettingsNote(zh?"请用 F8 上传反馈；画质和性能需在游戏中对比。":"Use F8 to upload feedback; compare quality and performance in the game.");
 }
