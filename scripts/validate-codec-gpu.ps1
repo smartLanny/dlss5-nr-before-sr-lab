@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource)
+﻿param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -148,6 +148,20 @@ if($PostLightStyle) {
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--composition-contract") == 0) { ExportCompositionContract(gpu, argv[2]); return 0; }')
 }
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
+if($Regions){
+    $regionTests=Get-Content -LiteralPath (Join-Path $projectRoot 'tests/region_composition_gpu.inl') -Raw -Encoding UTF8
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$regionTests)
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--regions")==0){ValidateRegionComposition(gpu);return 0;}')
+}
+
+if($FaceProtection) {
+    $harness=$harness.Replace('const char kCodecShader[] = R"HLSL(','const char kCodecShader[] = R"HLSL('+"`n#define NR_FACE_SHADER_ENABLE 1`n")
+    if($BaselineSource -or $LightStyle -or $PostLightStyle -or $CombinedLowGrid -or $ColorEditField -or $NegativeControl -or $LayerNegativeControl) {throw 'Run face composition independently.'}
+    $faceTests=Get-Content -LiteralPath (Join-Path $projectRoot 'tests/face_composition_gpu.inl') -Raw -Encoding UTF8
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$faceTests)
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--face-protection")==0){ValidateFaceComposition(gpu);return 0;}')
+    if($FaceNegativeControl) {$harness=$harness.Replace('if((FaceOptions&2u)!=0u) {','if(false) {')}
+} elseif($FaceNegativeControl) {throw 'Face negative control requires FaceProtection.'}
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
 $writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
 $writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw -Encoding UTF8
@@ -186,6 +200,18 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
 if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
+    return
+}
+if($Regions){& $binary '--regions';if($LASTEXITCODE){throw 'Region compositor GPU contract failed.'};return}
+if($FaceProtection) {
+    $faceOutput = & $binary '--face-protection' 2>&1
+    $faceExit = $LASTEXITCODE
+    $faceOutput | Write-Output
+    if($FaceNegativeControl) {
+        if($faceExit -ne 1 -or ($faceOutput -join "`n") -notmatch 'FACE_C1_ANCHOR') {throw 'Face negative control must fail the exact 1x image anchor.'}
+        $global:LASTEXITCODE=0
+        Write-Host 'PASS face negative control: removed production C1 guard rejected.'
+    } elseif($faceExit) {throw 'Production face composition GPU contract failed.'}
     return
 }
 if($PostLightStyle) {

@@ -9,6 +9,7 @@ struct NrSlot {
     ID3D12Resource *exposure_source=nullptr,*result=nullptr,*motion_proxy=nullptr,*delta_stats=nullptr;
     ID3D12Resource *edit_field=nullptr,*edit_horizontal=nullptr;
     ID3D12Resource *lanczos_intermediate=nullptr;
+    ID3D12Resource *face_mask=nullptr,*region_field=nullptr;
     ID3D12DescriptorHeap *heap=nullptr;
     ID3D12DescriptorHeap *snapshot_heap=nullptr;
     DXGI_FORMAT source_format=DXGI_FORMAT_R16G16B16A16_FLOAT;

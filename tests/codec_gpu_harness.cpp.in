@@ -411,11 +411,14 @@ struct LightCase {
     float lighting=0.f;
 };
 
+struct RegionCase {UINT flags=0; Float4 field={2,0,.4f,.2f}; float gains[11]={1,1,1,1,1,1,1,1,1,1,1};};
+struct FaceCase {unsigned options=0; float luma=0,color=0; float mask=1; bool valid=true;};
+
 RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false, float requested_color = -1.f, LightCase light = {}) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false, float requested_color = -1.f, LightCase light = {}, FaceCase face = {}, RegionCase region = {}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -508,6 +511,11 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         }
         if(variant==35) std::fill(original.begin(),original.end(),Float4{1e-8f,1e-8f,1e-8f,.625f});
     }
+    if(variant==40 || variant==41) {
+        std::fill(original.begin(),original.end(),Float4{.2f,.2f,.2f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{.2f,.2f,.2f,.75f});
+        std::fill(neural.begin(),neural.end(),variant==40?Float4{.3f,.25f,.2f,.875f}:Float4{.13f,.16f,.2f,.875f});
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -559,6 +567,20 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(kCodecEditRestoreSrvIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
     gpu.UavTexture(kCodecEditRestoreUavIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
     gpu.Srv(kCodecLanczosSrvIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    Texture face_texture;
+    if(face.options) {
+        std::vector<Float4> field(width*height);
+        for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x)
+            field[y*width+x]={x<width/2?face.mask:0.f,.4f,.2f,face.valid?1.f:0.f};
+        face_texture=gpu.MakeTexture(width,height,field);
+        gpu.TextureState(face_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    gpu.Srv(kCodecFaceSrvIndex,face_texture.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
+    Texture region_texture;
+    if(region.flags){std::vector<Float4> field(width*height,region.field);
+        for(UINT y=0;y<height;y++)for(UINT x=width/2;x<width;x++)field[y*width+x].w=-1;
+        region_texture=gpu.MakeTexture(width,height,field);gpu.TextureState(region_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+    gpu.Srv(kCodecRegionSrvIndex,region_texture.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecLanczosUavIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
@@ -582,6 +604,8 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     constants.light_reflection=light.reflection; constants.light_structure=light.structure;
     constants.light_glow=light.glow; constants.light_preview=light.preview;
     constants.lighting_lock=light.lighting;
+    constants.region_flags=region.flags;std::copy(region.gains,region.gains+11,constants.region_gains);
+    constants.face_options=face.options;constants.face_original_luma=face.luma;constants.face_original_color=face.color;
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);

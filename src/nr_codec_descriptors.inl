@@ -22,6 +22,8 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     srv(kCodecEditFieldSrvIndex,slot.edit_field,edit_field_format);
     srv(kCodecEditRestoreSrvIndex,slot.edit_horizontal,DXGI_FORMAT_R16G16_FLOAT);
     srv(kCodecLanczosSrvIndex,slot.lanczos_intermediate,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(kCodecFaceSrvIndex,slot.face_mask,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(kCodecRegionSrvIndex,slot.region_field,DXGI_FORMAT_R32G32B32A32_FLOAT);
     uav(kCodecSrvCount,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);
     uav(kCodecResultUavIndex,slot.result,slot.result_uav_format);
     uav(kCodecMotionUavIndex,slot.motion_proxy,DXGI_FORMAT_R16G16_FLOAT);

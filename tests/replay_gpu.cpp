@@ -188,4 +188,4 @@ void GpuCases() {
     for(auto &input:inputs)ReleaseCom(input.resource);
     Check(recorder.ResetDevice(),"safe recorder shutdown");
 }
-int main(int argc,char **argv){if(argc==2)export_fixture=argv[1];FormatCases();GpuCases();std::printf("PASS replay format and actual WARP capture: %u checks\n",checks);}
+int main(int argc,char **argv){if(argc==2)export_fixture=argv[1];FormatCases();GpuCases();std::printf("PASS replay format and actual WARP capture: %u checks\n",checks);return 0;}

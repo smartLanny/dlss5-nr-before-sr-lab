@@ -1,7 +1,8 @@
-param(
+﻿param(
     [switch]$Clean,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
-    [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT
+    [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT,
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,6 +97,33 @@ foreach ($Relative in $CFiles) {
     $ObjectFiles += $Object
 }
 
+$FaceBackend = 0
+$FaceCompile = @('-DNR_FACE_BACKEND=0')
+if (-not [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) {
+    $FaceRuntimeRoot = (Resolve-Path -LiteralPath $FaceRuntimeRoot).Path
+    $faceHeader = Join-Path $FaceRuntimeRoot 'include/onnxruntime_c_api.h'
+    $faceRuntime = Join-Path $FaceRuntimeRoot 'lib/onnxruntime.dll'
+    if ((Get-FileHash -LiteralPath $faceHeader).Hash.ToLowerInvariant() -ne '820cc6c379d259045d96dcce9d30f2505fdb31ba526e294a283083d015914466' -or
+        (Get-FileHash -LiteralPath $faceRuntime).Hash.ToLowerInvariant() -ne 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea') {
+        throw 'Face backend requires the pinned official ONNX Runtime 1.23.2 CPU headers and runtime.'
+    }
+    $FaceBackend = 1
+    $FaceCompile = @('-DNR_FACE_BACKEND=1', '-I'+(Join-Path $FaceRuntimeRoot 'include'))
+}
+$Common += @('-DNR_FACE_BACKEND='+$FaceBackend)
+foreach ($faceName in @('nr_face_detector', 'nr_face_worker')) {
+    $faceSource = Join-Path $ProjectRoot ('src/'+$faceName+'.cpp')
+    $faceObject = Join-Path $Objects ($faceName+'.o')
+    & $CppCompiler @Common @FaceCompile '-std=c++20' '-Wall' '-Wextra' '-Werror' '-c' $faceSource '-o' $faceObject
+    if ($LASTEXITCODE) {throw "Face backend compilation failed: $faceName"}
+    $ObjectFiles += $faceObject
+}
+[ordered]@{schema='nr-face-build-v1';enabled=($FaceBackend -eq 1);runtime_version='1.23.2';
+    runtime_sha256='dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea';
+    model_sha256='b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1';
+    activation='Opt-in; assets loaded only by asynchronous worker; no game quality or 5% performance qualification'
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Build 'face-backend.json') -Encoding utf8
+
 $BridgeSource = Join-Path $ProjectRoot 'src\nrchain_nvngx.cpp'
 $BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
 & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject
@@ -112,7 +140,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline9-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline10-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -121,7 +149,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline9-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline10-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -147,7 +175,7 @@ foreach ($AddonBuild in $AddonBuilds) {
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
-        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
+        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }

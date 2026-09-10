@@ -12,8 +12,8 @@ param(
     [string]$ReShadeDllPath,
     [string]$ReShadeSha256 = '0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7',
     [string]$ExpectedSdkCommit = '4a50d1eddace85734871d91792ff214f13f66c01',
-    [string]$ExpectedVersion = 'beta0.5-dline9',
-    [string]$ExpectedPeVersion = '0.5.1.9',
+    [string]$ExpectedVersion = 'beta0.5-dline10',
+    [string]$ExpectedPeVersion = '0.5.1.10',
     [ValidateSet(0,1)][int]$LightControlMode = 1
 )
 

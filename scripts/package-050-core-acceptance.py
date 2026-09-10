@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline9'
+VERSION = 'beta0.5-dline10'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -34,7 +34,8 @@ def checked_file(root: Path, name: str, expected: str) -> bytes:
 def git(*args: str) -> str:
     return subprocess.check_output(['git', '-C', str(ROOT), *args], text=True).strip()
 
-def package(build: Path, output: Path) -> dict:
+def package(build: Path, output: Path, face_runtime_root: Path | None = None,
+            face_model: Path | None = None, face_model_license: Path | None = None) -> dict:
     if output.exists():
         raise ValueError('Output already exists; preserve all previous packages.')
     build = build.resolve(strict=True)
@@ -57,6 +58,11 @@ def package(build: Path, output: Path) -> dict:
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {'canonical pinned full-source staging', 'validate-work-config.py',
+                'face tracker exact lifetime WARP and optional native CPU worker',
+                'independent face C1 and original endpoints production WARP',
+                'independent face production C1 negative control',
+                'engine region production adapter and snapshot WARP',
+                'fine region composition production WARP',
                 'full-input replay actual WARP capture and independent reader; isolated model lab compile',
                 'legacy stage capture lifecycle and shared diagnostic lease',
                 'frozen generated D4 directional reference source',
@@ -109,13 +115,32 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline9 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline10 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE9_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE10_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    face_assets = {}
+    receipt = json.loads(checked_file(binary_root, 'face-backend.json', result['face_backend_receipt_sha256']))
+    if receipt['enabled'] != result['face_backend_enabled']:
+        raise ValueError('Face build receipt differs from validation.')
+    if receipt['enabled']:
+        if not all((face_runtime_root, face_model, face_model_license)):
+            raise ValueError('Enabled experimental backend requires all pinned assets and licenses.')
+        asset_pins = {
+            'lib/onnxruntime.dll': 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea',
+            'lib/onnxruntime_providers_shared.dll': 'a2b3a50956aa75a9879c8472bc7df4f7a8072bcd2db19a1b7d988e7688f293ef',
+            'LICENSE': 'c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674',
+            'ThirdPartyNotices.txt': 'e00f828e0a33de591a355ae6606d2625f5758da7d2c844db7821c9dd3e3647b6',
+        }
+        for name, digest in asset_pins.items():
+            face_assets['nr_face/' + Path(name).name] = checked_file(face_runtime_root, name, digest)
+        face_assets['nr_face/yunet-dynamic.onnx'] = checked_file(face_model.parent, face_model.name,
+            'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1')
+        face_assets['nr_face/YUNET-LICENSE'] = checked_file(face_model_license.parent, face_model_license.name,
+            'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958')
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
@@ -132,13 +157,19 @@ def package(build: Path, output: Path) -> dict:
             'rr_depth_adapter': '0.4.7 standard positive view-Z adapter and verified device identity; integration awaits owner game test',
             'post_light_style_warp_verified': True, 'post_light_style_game_verified': False,
             'skin_protection_runtime': False,
-            'face_isolation_runtime': False,
+            'face_isolation_runtime': receipt['enabled'],
+            'face_isolation_default': False,
+            'fine_regions_runtime': True,
+            'fine_regions_default': False,
+            'reflection_scope': 'model edits on surfaces with valid RR specular albedo and hit-distance guides',
+            'low_grid_post_composition': True,
+            'face_assets_included': bool(face_assets),
             'extra_strength_ui_range': [1, 4],
             'saved_extra_policy_version': 1,
             'jitter_policy_version': 1,
             'jitter_migration': 'once off, then respect user re-enable; native SR unchanged',
             'abc_new_changes_merged': False,
-            'optional_layer_probe': 'incoming NGX metadata only; not mask pixels or verified semantic regions',
+            'optional_layer_probe': 'metadata observer retained; region adapter separately validates and snapshots supported RR inputs',
             'model_baseline_comparison': 'manual seven-control reset with generation-bound undo; not a face-fix claim',
             'face_diagnostic': 'nine transient model-control groups; selected ROI and complete PNGs; exact picture restore; no face algorithm change',
             'source_verified': True, 'compile_verified': True, 'warp_verified': True,
@@ -150,6 +181,7 @@ def package(build: Path, output: Path) -> dict:
         entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
                    'README.zh-CN.md': guide, 'LICENSES.txt': notice,
                    'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
+        entries.update(face_assets)
         entries['SHA256.json'] = json.dumps({n: sha(v) for n, v in entries.items()}, ensure_ascii=False, indent=2).encode('utf-8')
         target = output / f'DLSS5-{VERSION}-{language}-D3D12-Core-Acceptance.zip'
         with zipfile.ZipFile(target, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
@@ -170,5 +202,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--face-runtime-root', type=Path)
+    parser.add_argument('--face-model', type=Path)
+    parser.add_argument('--face-model-license', type=Path)
     args = parser.parse_args()
-    print(json.dumps(package(args.build, args.output), ensure_ascii=False, indent=2))
+    print(json.dumps(package(args.build, args.output, args.face_runtime_root, args.face_model, args.face_model_license), ensure_ascii=False, indent=2))

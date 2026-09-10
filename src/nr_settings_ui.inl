@@ -657,8 +657,39 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
         next.identity_use_original = false; changed = true;
     }
-    DrawLightStyleControls(next,before_sr,current.generation,light_undo,
-        has_pending,pending_light_undo,changed,apply_discrete_edit);
+    SettingsSection(ui("Fine region controls", "精细分区控制"));
+    changed |= ImGui::Checkbox(ui("Use engine-guided region controls", "使用引擎导引精细分区"), &next.region_enabled);
+    SettingsNote(ui("Choose regions from the original NR change; 1x keeps the current change, 0x removes it. Region gains replace the older five light controls. Model controls are unchanged.",
+        "按 NR 原始改动固定分区；1 倍保留当前改动，0 倍去除该区改动。启用后替代旧五项光效调节，模型参数不变。"));
+    if(next.region_enabled) {
+        const char* namesEn[]={"Broad brightening","Fine brightening","Broad darkening","Fine darkening","Engine specular region"};
+        const char* namesZh[]={"宽范围增亮","细节增亮","宽范围压暗","细节压暗","引擎镜面区域"};
+        const unsigned regionStatus=nr_regions::status.load();
+        for(unsigned i=0;i<5;i++) {
+            ImGui::PushID(static_cast<int>(i));ImGui::TextUnformatted(ui(namesEn[i],namesZh[i]));
+            if(i==4 && regionStatus!=3)ImGui::BeginDisabled();
+            changed |= SettingsSliderFloat(ui("Luminance", "明暗"),"##region-luma",&next.region_gains[i*2],0.f,4.f,"%.2fx");
+            changed |= SettingsSliderFloat(ui("Colour", "颜色"),"##region-colour",&next.region_gains[i*2+1],0.f,4.f,"%.2fx");
+            if(i==4 && regionStatus!=3)ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+        changed |= SettingsSliderFloat(ui("Colour-only changes", "纯颜色改动"),"##region-pure-colour",&next.region_gains[10],0.f,4.f,"%.2fx");
+        SettingsNote(ui("Colour gains refine the current colour-follow amount. Specular guidance identifies edits on reflective surfaces; it is not a separately rendered reflection image.",
+            "颜色倍率以当前颜色跟随量为基础。镜面导引限定反射表面上的模型改动，并非引擎独立渲染的反射图层。"));
+        SettingsNote(regionStatus==3?ui("Engine depth and specular guidance connected.","引擎镜面导引已接入。"):
+            regionStatus==2?ui("Depth guidance connected; specular inputs unavailable.","深度导引已接入；未提供可用镜面导引。"):
+            regionStatus==1?ui("Image edges only; engine guidance unavailable.","当前仅使用图像边缘；引擎导引不可用。"):
+            ui("Waiting for a supported NR frame.","等待可用 NR 帧。"));
+        const char* previewEn[]={"Off","All regions","Broad brightening","Fine brightening","Broad darkening","Fine darkening","Specular region","Colour-only"};
+        const char* previewZh[]={"关闭","全部分区","宽范围增亮","细节增亮","宽范围压暗","细节压暗","镜面区域","纯颜色"};
+        SettingsField(ui("Preview", "选区预览"));int preview=static_cast<int>(next.region_preview);
+        if(ImGui::Combo("##region-preview",&preview,UseChineseUi()?previewZh:previewEn,8)){next.region_preview=static_cast<unsigned>(preview);changed=true;}
+        if(ImGui::Button(ui("Reset region gains", "重置分区倍率"))){std::fill(next.region_gains,next.region_gains+11,1.f);changed=true;}
+    } else {
+        DrawLightStyleControls(next,before_sr,current.generation,light_undo,
+            has_pending,pending_light_undo,changed,apply_discrete_edit);
+    }
+    nr_face_runtime::DrawUi(next,changed);
     SettingsSection(ui("Advanced picture controls", "高级画质"));
 
 #if NR_HAS_DETAIL_STABILITY
@@ -696,11 +727,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "分开控制 AI 明暗与颜色（实验）"), &next.independent_chroma_composition);
     SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
         "前置和后置均可使用此候选。非零最终强度控制亮度，颜色跟随独立控制色度并使用共同颜色预算；最终强度为零仍关闭全部修改。关闭恢复原路线。HDR 颜色准入不变，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
-    ImGui::BeginDisabled(!before_sr && !next.independent_chroma_composition);
+    ImGui::BeginDisabled(false);
     changed |= ImGui::Checkbox(ui("Low-grid luminance edit field (experimental)",
         "低分辨率亮度合成（实验）"), &next.low_grid_edit_field);
-    SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
-        "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
+    SettingsTooltip(ui("Available before or after SR/RR with Colour follow zero; selects shared composition. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
+        "前后置均可用，需颜色跟随为零；启用会选择共用合成。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
     ImGui::BeginDisabled(next.low_grid_color_edit_field || next.color_strength > 0.000001f);
     changed |= ImGui::Checkbox(ui("Catmull-Rom edit restore (experimental; off = BilinearSafe)",
         "更锐利的细节恢复（实验）"), &next.catmull_edit_restore);
@@ -709,8 +740,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::EndDisabled();
     changed |= ImGui::Checkbox(ui("Low-grid stable colour edit field (experimental)",
         "低分辨率色彩合成（实验）"), &next.low_grid_color_edit_field);
-    SettingsTooltip(ui("Before SR only. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
-        "仅用于前置路线。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
+    SettingsTooltip(ui("Available before or after SR/RR. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
+        "前后置路线均可用。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
     ImGui::BeginDisabled(!before_sr);
     int input_filter=static_cast<int>(next.nr_input_filter);
     if(ImGui::Combo(ui("NR input filter", "NR 输入滤波"),&input_filter,

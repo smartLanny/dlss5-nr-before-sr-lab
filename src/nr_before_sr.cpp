@@ -42,6 +42,10 @@
 #include "nr_work_config.h"
 #include "nr_face_capture_geometry.h"
 #include "nr_pre_fallback.h"
+#include "nr_face_worker.h"
+#ifndef NR_FACE_BACKEND
+#define NR_FACE_BACKEND 0
+#endif
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -57,11 +61,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline9";
+constexpr const char *kAddonVersion = "beta0.5-dline10";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline9";
+constexpr const char *kBuildIdentity = "beta0.5-dline10";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -152,7 +156,10 @@ bool GetResource(const NgxParams *params, const char *key, ID3D12Resource **valu
         std::strcmp(key, "Depth") == 0 ||
         std::strcmp(key, "MotionVectors") == 0 ||
         std::strcmp(key, "Output") == 0 ||
-        std::strcmp(key, "ExposureTexture") == 0;
+        std::strcmp(key, "ExposureTexture") == 0 ||
+        std::strcmp(key, "GBuffer.Normals") == 0 ||
+        std::strcmp(key, "DLSS.Input.SpecularAlbedo") == 0 ||
+        std::strcmp(key, "DLSSD.SpecularHitDistance") == 0;
     if (!known_resource) return false;
     void *untyped_resource = nullptr;
     auto untyped_fn = ParamSlot<GetVoidFn>(params, 8);
@@ -883,6 +890,14 @@ struct ChainConfig {
     bool color_protection = true; // Additional enhancement chroma budget; composition only.
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
+    unsigned region_version=1;
+    bool region_enabled=false;
+    float region_gains[11]={1,1,1,1,1,1,1,1,1,1,1};
+    unsigned region_preview=0;
+    unsigned face_protection_version = 1;
+    bool face_protection = false, face_extra_cap = true;
+    float face_original_luma = 0, face_original_color = 0;
+    unsigned face_preview = 0; // Transient; never persisted.
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
     bool catmull_edit_restore = false; // #85: off = existing BilinearSafe.
     bool low_grid_color_edit_field = false; // #86 normalized opponent-colour field; defaults to A.
@@ -1370,6 +1385,13 @@ void NormalizeConfig(ChainConfig &config) {
     if (config.nr_input_filter > 1u) config.nr_input_filter = 0u;
     config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
     nr_light_style::Normalize(config);
+    if(config.region_version!=1)config.region_enabled=false;
+    for(float& gain:config.region_gains)gain=std::clamp(FiniteOr(gain,1.f),0.f,4.f);
+    config.region_preview=std::min(config.region_preview,7u);
+    if(config.face_protection_version!=1){config.face_protection=false;config.face_preview=0;}
+    config.face_original_luma=std::clamp(FiniteOr(config.face_original_luma,0.f),0.f,1.f);
+    config.face_original_color=std::clamp(FiniteOr(config.face_original_color,0.f),0.f,1.f);
+    config.face_preview=std::min(config.face_preview,1u);
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
@@ -1410,6 +1432,11 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.color_protection == b.color_protection &&
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
+           a.region_version==b.region_version && a.region_enabled==b.region_enabled &&
+           a.region_preview==b.region_preview && std::equal(a.region_gains,a.region_gains+11,b.region_gains) &&
+           a.face_protection_version==b.face_protection_version && a.face_protection==b.face_protection &&
+           a.face_extra_cap==b.face_extra_cap && a.face_original_luma==b.face_original_luma &&
+           a.face_original_color==b.face_original_color && a.face_preview==b.face_preview &&
            a.low_grid_edit_field == b.low_grid_edit_field &&
            a.catmull_edit_restore == b.catmull_edit_restore &&
            a.low_grid_color_edit_field == b.low_grid_color_edit_field &&
@@ -1520,6 +1547,16 @@ void ReloadConfig(bool force = false) {
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
+    next.region_version=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionCompositionVersion",1,g_ini_path);
+    next.region_enabled=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionComposition",0,g_ini_path)!=0;
+    for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);next.region_gains[i]=ReadIniFloat(key,1.f);}
+    next.region_preview=g_config.region_preview;
+    next.face_protection_version=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceProtectionVersion",1,g_ini_path);
+    next.face_protection=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceProtection",0,g_ini_path)!=0;
+    next.face_extra_cap=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceExtraCap",1,g_ini_path)!=0;
+    next.face_original_luma=ReadIniFloat(L"FaceOriginalLuma",0.f);
+    next.face_original_color=ReadIniFloat(L"FaceOriginalColor",0.f);
+    next.face_preview=g_config.face_preview;
     next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
     next.catmull_edit_restore = GetPrivateProfileIntW(L"NRBeforeSR", L"CatmullRomEditRestore", 0, g_ini_path) != 0;
     next.low_grid_color_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridColorEditField", 0, g_ini_path) != 0;
@@ -1720,6 +1757,14 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
     record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
+    record_write(WriteIniInt(L"RegionCompositionVersion",static_cast<int>(config.region_version)));
+    record_write(WriteIniInt(L"RegionComposition",config.region_enabled?1:0));
+    for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);record_write(WriteIniFloat(key,config.region_gains[i]));}
+    record_write(WriteIniInt(L"FaceProtectionVersion",static_cast<int>(config.face_protection_version)));
+    record_write(WriteIniInt(L"FaceProtection",config.face_protection?1:0));
+    record_write(WriteIniInt(L"FaceExtraCap",config.face_extra_cap?1:0));
+    record_write(WriteIniFloat(L"FaceOriginalLuma",config.face_original_luma));
+    record_write(WriteIniFloat(L"FaceOriginalColor",config.face_original_color));
     record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
     record_write(WriteIniInt(L"CatmullRomEditRestore", config.catmull_edit_restore ? 1 : 0));
     record_write(WriteIniInt(L"LowGridColorEditField", config.low_grid_color_edit_field ? 1 : 0));
@@ -1841,8 +1886,10 @@ bool ApplyConfig(ChainConfig next, const char *source,
         return false;
     }
     ChainConfig persisted_next=next;
+    persisted_next.region_preview=g_config.region_preview;
     persisted_next.light_preview=g_config.light_preview;
-    const bool preview_only=next.light_preview!=g_config.light_preview && SameConfig(persisted_next,g_config);
+    persisted_next.face_preview=g_config.face_preview;
+    const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
@@ -2254,6 +2301,7 @@ struct Codec {
     // V2 is isolated so Mode 1 and the legacy reference path remain available.
     ID3D12PipelineState *encode_v2 = nullptr;
     ID3D12PipelineState *combine_v2 = nullptr;
+    ID3D12PipelineState *combine_face = nullptr, *combine_v2_face = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
     ID3D12RootSignature *rr_depth_root = nullptr;
@@ -2274,7 +2322,9 @@ struct Codec {
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 8;
+constexpr UINT kCodecSrvCount = 10;
+constexpr UINT kCodecRegionSrvIndex = 9;
+constexpr UINT kCodecFaceSrvIndex = 8;
 constexpr UINT kCodecUavCount = 8;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
@@ -2288,7 +2338,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 41;
+constexpr UINT kCodecRootConstantCount = 56;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -2305,6 +2355,8 @@ Texture2D<float4> ExposureScaleTexture : register(t4);
 Texture2D<float4> EditField : register(t5);
 Texture2D<float2> EditHorizontal : register(t6);
 Texture2D<float4> LanczosIntermediate : register(t7);
+Texture2D<float4> RegionField : register(t9);
+Texture2D<float4> FaceRegion : register(t8);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
@@ -2357,9 +2409,67 @@ cbuffer Constants : register(b0) {
     float LightStructure;
     float LightGlow;
     uint LightPreview;
+    uint FaceOptions;
+    float FaceOriginalLuma;
+    float FaceOriginalColor;
+    float RegionWideBrightLuma,RegionWideBrightColor;
+    float RegionFineBrightLuma,RegionFineBrightColor;
+    float RegionWideDarkLuma,RegionWideDarkColor;
+    float RegionFineDarkLuma,RegionFineDarkColor;
+    float RegionReflectionLuma,RegionReflectionColor,RegionPureColor;
+    uint RegionFlags;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
+
+#ifndef NR_FACE_SHADER_ENABLE
+#define NR_FACE_SHADER_ENABLE 0
+#endif
+#if !NR_FACE_SHADER_ENABLE
+#define FaceOptions 0u
+#define FaceOriginalLuma 0.0
+#define FaceOriginalColor 0.0
+#endif
+// FACE_COMPOSITION_V1_BEGIN
+
+// The mask derives from pre-NR input and has already been reprojected into
+// this frame. Original-luma guidance only refines its boundary; it never
+// creates a face selection from colour alone.
+float FaceMaskV1(float2 centre,float referenceLuma) {
+    if((FaceOptions&1u)==0u)return 0;
+    uint w,h;FaceRegion.GetDimensions(w,h);
+    if(w==0||h==0)return 0;
+    float2 p=centre*float2(w,h)/float2(Width,Height)-.5;
+    int2 base=int2(floor(p)),upper=int2(w,h)-1;float2 f=frac(p);
+    float4 samples[4];
+    samples[0]=FaceRegion.Load(int3(clamp(base,int2(0,0),upper),0));
+    samples[1]=FaceRegion.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
+    samples[2]=FaceRegion.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
+    samples[3]=FaceRegion.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    float4 weights=float4((1-f.x)*(1-f.y),f.x*(1-f.y),(1-f.x)*f.y,f.x*f.y);
+    float sum=0,weight=0;
+    [unroll]for(uint i=0;i<4;++i) {
+        if(!all(isfinite(samples[i]))||samples[i].w<.5)continue;
+        float edge=1-smoothstep(.06,.30,abs(referenceLuma-samples[i].z));
+        sum+=weights[i]*edge*samples[i].x;weight+=weights[i]*edge;
+    }
+    return weight>1e-5?saturate(sum/weight):0;
+}
+float FaceEditV1(float candidate,float sameNrOne,float mask,float originalProtection) {
+    if((FaceOptions&2u)!=0u) {
+        float bounded=clamp(candidate,min(0.0,sameNrOne),max(0.0,sameNrOne));
+        candidate=mask==1?bounded:lerp(candidate,bounded,mask);
+    }
+    return candidate*(1-mask*saturate(originalProtection));
+}
+float3 FaceChromaV1(float3 candidate,float3 sameNrOne,float mask) {
+    return float3(FaceEditV1(candidate.x,sameNrOne.x,mask,FaceOriginalColor),
+                  FaceEditV1(candidate.y,sameNrOne.y,mask,FaceOriginalColor),
+                  FaceEditV1(candidate.z,sameNrOne.z,mask,FaceOriginalColor));
+}
+
+// FACE_COMPOSITION_V1_END
+
 
 float ResolveExposureScale() {
     if ((Passthrough & 64u) != 0u) {
@@ -3280,6 +3390,50 @@ float PostLightEditMeanV1(float2 center, float edit, float proxyLuma) {
     return local.x / local.y;
 }
 
+// REGION_COMPOSITION_V1_BEGIN
+// Weights are selected before all user gains and restored from the bounded
+// model grid. Gains never feed the selector, including preview selection.
+struct RegionSelectionV1 {float4 generic;float reflection;float colour;};
+RegionSelectionV1 SelectRegionV1(float2 center,float rawLog,float proxyLuma) {
+ RegionSelectionV1 result;result.generic=0;result.reflection=0;result.colour=0;
+ if((RegionFlags&1u)==0u)return result;
+ uint w,h;RegionField.GetDimensions(w,h);if(!w||!h)return result;
+ float2 pos=center*float2(w,h)/float2(Width,Height)-.5;int2 p=int2(floor(pos));float2 f=frac(pos);
+ float4 reference=RegionField.Load(int3(clamp(int2(floor(pos+.5)),0,int2(w-1,h-1)),0));
+ float broad=0,reflection=0,den=0;
+ [unroll]for(uint i=0;i<4;i++){
+  int2 o=int2(i&1u,i>>1);float4 tap=RegionField.Load(int3(clamp(p+o,0,int2(w-1,h-1)),0));
+  if(tap.w<0||!all(isfinite(tap)))continue;
+  if(abs(rawLog)>.0001 && sign(tap.x)!=sign(rawLog))continue;
+  float weight=(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
+  weight*=1-smoothstep(.1,.5,abs(proxyLuma-tap.w)/max(max(proxyLuma,tap.w),1.0/1024));
+  if(reference.z>=0){if(tap.z<0)continue;float tolerance=(RegionFlags&16u)?max(abs(reference.z)*.015,.001):.0002;
+   weight*=1-smoothstep(tolerance,tolerance*4,abs(reference.z-tap.z));}
+  broad+=saturate(abs(tap.x)-1)*weight;reflection+=saturate(tap.y)*weight;den+=weight;
+ }
+ if(den<=.000001)return result;
+ broad/=den;reflection/=den;result.reflection=reflection;
+ if(abs(rawLog)<=.0001)result.colour=1-reflection;
+ else if(rawLog>0)result.generic.xy=float2(broad,1-broad)*(1-reflection);
+ else result.generic.zw=float2(broad,1-broad)*(1-reflection);
+ return result;
+}
+float2 RegionGainV1(RegionSelectionV1 s){
+ float2 gain=1.0.xx;
+ gain+=s.generic.x*(float2(RegionWideBrightLuma,RegionWideBrightColor)-1);
+ gain+=s.generic.y*(float2(RegionFineBrightLuma,RegionFineBrightColor)-1);
+ gain+=s.generic.z*(float2(RegionWideDarkLuma,RegionWideDarkColor)-1);
+ gain+=s.generic.w*(float2(RegionFineDarkLuma,RegionFineDarkColor)-1);
+ gain+=s.reflection*(float2(RegionReflectionLuma,RegionReflectionColor)-1);
+ gain.y+=s.colour*(RegionPureColor-1);return gain;
+}
+float3 RegionPreviewV1(RegionSelectionV1 s){
+ uint mode=(RegionFlags>>1)&7u;
+ if(mode==1)return s.generic.x*float3(1,.65,.12)+s.generic.y*float3(1,.2,.05)+s.generic.z*float3(.15,.7,1)+s.generic.w*float3(.15,.15,1)+s.reflection*float3(.2,1,.4)+s.colour*float3(.85,.2,1);
+ float m=mode>=2&&mode<=5?s.generic[mode-2]:mode==6?s.reflection:s.colour;return m.xxx;
+}
+// REGION_COMPOSITION_V1_END
+
 [numthreads(8, 8, 1)]
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -3306,11 +3460,20 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         SourceToDiagnosticLinear(storedOriginal.rgb);
     const bool lightStyleActive = (Passthrough & 262144u) != 0u;
     const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
+    const float faceMask=FaceMaskV1(float2(tid.xy)+.5,dot(storedProxy,kLuma));
     float3 diagnosticProxy = ModelToDiagnosticLinear(storedProxy);
     float3 diagnosticNeural = ModelToDiagnosticLinear(storedNeural);
     float diagnosticDelta = max(abs(diagnosticNeural.r - diagnosticProxy.r),
         max(abs(diagnosticNeural.g - diagnosticProxy.g),
             abs(diagnosticNeural.b - diagnosticProxy.b)));
+    if ((FaceOptions&4u)!=0u) {
+        float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
+        WriteCombined(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a));
+        return;
+    }
+    if (faceMask==1 && FaceOriginalLuma==1 && FaceOriginalColor==1) {
+        WriteCombined(tid.xy,destinationCoord,storedOriginal);return;
+    }
     if (TransferStrength <= 0.000001) {
         WriteCombined(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -3343,7 +3506,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
         float4 unchanged = storedOriginal;
-        if (lightStylePreview) unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
+        if (lightStylePreview || (RegionFlags&14u)!=0u) unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
         WriteCombined(tid.xy, destinationCoord, unchanged);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
@@ -3358,6 +3521,10 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    RegionSelectionV1 regions=SelectRegionV1(float2(tid.xy)+.5,
+        log2(max(neuralLuma,1.0/4096)/max(proxyLuma,1.0/4096)),max(proxyLuma,0));
+    float2 regionGain=RegionGainV1(regions);
+    if((RegionFlags&14u)!=0u){WriteCombined(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
     const float lightOriginalEdit = lightStyleActive
         ? PostRelativeEditV1(proxyLuma, neuralLuma) : 0.0;
     const float lightOriginalMean = lightStyleActive
@@ -3413,6 +3580,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         transferredLumaRatio = PostLightTransferRatioV1(relativeLumaDelta,
             lightOriginalEdit, lightOriginalMean, TransferStrength, maxRatio,
             LightBroad, LightDark, LightReflection, LightStructure, LightGlow);
+    if(regionGain.x!=1)transferredLumaRatio=clamp(1+(transferredLumaRatio-1)*regionGain.x,1/maxRatio,maxRatio);
+    if(faceMask>0)transferredLumaRatio=1+FaceEditV1(transferredLumaRatio-1,
+        clamp(1+relativeLumaDelta,1/maxRatio,maxRatio)-1,faceMask,FaceOriginalLuma);
     float lumaRatio = lerp(1.0, transferredLumaRatio, transferConfidence);
     float3 lumaOnly = source * lumaRatio;
 
@@ -3427,6 +3597,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         float3 channelRatio = clamp(
             1.0.xxx + relativeChannelDelta * TransferStrength,
             (1.0 / maxRatio).xxx, maxRatio.xxx);
+        if(regionGain.y!=1)channelRatio=clamp(1+(channelRatio-1)*regionGain.y,(1/maxRatio).xxx,maxRatio.xxx);
+        if(faceMask>0)channelRatio=1+FaceChromaV1(channelRatio-1,
+            clamp(1+relativeChannelDelta,(1/maxRatio).xxx,maxRatio.xxx)-1,faceMask);
         float3 channelConfidence = smoothstep(
             (1.0 / 65536.0).xxx, (1.0 / 1024.0).xxx,
             max(proxy, 0.0.xxx));
@@ -3730,6 +3903,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         all(abs(neural) <= 65504.0.xxx);
     // The candidate's logarithmic chromaticity has no signed-colour contract.
     // Retain the exact source for such samples; do not silently rectify them.
+    float3 faceReference=(Passthrough&1u)!=0u?fullProxy:LinearToSRGB(fullProxy);
+    const float faceMask=FaceMaskV1(center,dot(faceReference,kLuma));
     const bool unsupportedSignedSource = (independentChroma || lowGridColor) &&
         any(storedOriginal.rgb < 0.0.xxx);
     if ((independentChroma || lowGridColor) &&
@@ -3739,10 +3914,18 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
+    if ((FaceOptions&4u)!=0u && finiteInputs && !unsupportedSignedSource) {
+        float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
+        WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a));
+        return;
+    }
+    if (faceMask==1 && FaceOriginalLuma==1 && FaceOriginalColor==1) {
+        WriteCombinedV2(tid.xy,destinationCoord,storedOriginal);return;
+    }
     if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
         float4 unchanged = storedOriginal;
-        if (lightStylePreview && finiteInputs && !unsupportedSignedSource &&
+        if ((lightStylePreview || (RegionFlags&14u)!=0u) && finiteInputs && !unsupportedSignedSource &&
             TransferStrength > 0.000001 && FrameConfidence > 0.000001)
             unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
         WriteCombinedV2(tid.xy, destinationCoord, unchanged);
@@ -3758,6 +3941,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
+    RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,proxyLuma);
+    float2 regionGain=RegionGainV1(regions);
+    if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
     if ((Passthrough & 8192u) != 0u) {
         float2 edit = SampleRestoredEdit(center);
         if (edit.y != 1.0) {
@@ -3851,6 +4037,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
             abs(baseLog), lumaStrength - 1.0, budget);
     }
+    if(regionGain.x!=1)poweredLog=log2(clamp(1+(exp2(poweredLog)-1)*regionGain.x,1/maxRatio,maxRatio));
+    if(faceMask>0)poweredLog=FaceEditV1(poweredLog,
+        clamp(logRatio*confidence,-logLimit,logLimit),faceMask,FaceOriginalLuma);
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
 
     // Preserve HDR energy above the bounded model proxy instead of multiplying
@@ -3889,6 +4078,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
                 float3 sourceNorm = source / sourceLuma;
                 float3 opponentRgbDelta = OpponentDeltaToRgbV6(field.yz);
                 float requested = clamp(ColorStrength, 0.0, 2.0) * confidence;
+                requested*=regionGain.y;
+                if(faceMask>0)requested*=1-faceMask*saturate(FaceOriginalColor);
                 float scale = min(requested,
                     OpponentRatioLimitV6(sourceNorm, opponentRgbDelta, maxRatio));
                 float3 colouredNorm = sourceNorm + opponentRgbDelta * scale;
@@ -3922,6 +4113,13 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             poweredChromaLog = baseChroma * scale;
         }
         if (!lowGridColor) {
+            float3 beforeRegionChroma=poweredChromaLog;
+            if(regionGain.y!=1)poweredChromaLog=clamp(poweredChromaLog*regionGain.y,-logLimit.xxx,logLimit.xxx);
+            if(faceMask>0) {
+                float3 sameNrOne=independentChroma?beforeRegionChroma:
+                    clamp(chromaLog*(ColorStrength*confidence),-logLimit.xxx,logLimit.xxx);
+                poweredChromaLog=FaceChromaV1(poweredChromaLog,sameNrOne,faceMask);
+            }
             float3 chromaGain = exp2(poweredChromaLog);
             float3 coloured = max(source, 0.0.xxx) * chromaGain;
             float colouredLuma = dot(coloured, kLuma);
@@ -4002,11 +4200,12 @@ void ResampleMotionCS(uint3 tid : SV_DispatchThreadID) {
 }
 )HLSL";
 
-ID3DBlob *CompileCodecShader(const char *entry) {
+ID3DBlob *CompileCodecShader(const char *entry, bool face = false) {
     ID3DBlob *shader = nullptr;
     ID3DBlob *errors = nullptr;
+    const D3D_SHADER_MACRO macros[]={{"NR_FACE_SHADER_ENABLE",face?"1":"0"},{nullptr,nullptr}};
     const HRESULT hr = D3DCompile(
-        kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", nullptr,
+        kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", macros,
         nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
         &shader, &errors);
     if (FAILED(hr)) {
@@ -4018,6 +4217,28 @@ ID3DBlob *CompileCodecShader(const char *entry) {
     }
     ReleaseCom(errors);
     return SUCCEEDED(hr) ? shader : nullptr;
+}
+
+// Only an explicit experimental face request initializes these variants.
+// The normal compositor compiles the face branches out completely.
+bool EnsureFaceCodec() {
+    if(g_codec.combine_face&&g_codec.combine_v2_face)return true;
+    if(!g_codec.device||!g_codec.root)return false;
+    ID3DBlob* legacy=CompileCodecShader("CombineCS",true);
+    ID3DBlob* v2=CompileCodecShader("CombineV2CS",true);
+    HRESULT hr=E_FAIL;
+    if(legacy&&v2) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};pso.pRootSignature=g_codec.root;
+        pso.CS={ID3D10Blob_GetBufferPointer(legacy),ID3D10Blob_GetBufferSize(legacy)};
+        hr=ID3D12Device_CreateComputePipelineState(g_codec.device,&pso,IID_ID3D12PipelineState,reinterpret_cast<void**>(&g_codec.combine_face));
+        if(SUCCEEDED(hr)) {
+            pso.CS={ID3D10Blob_GetBufferPointer(v2),ID3D10Blob_GetBufferSize(v2)};
+            hr=ID3D12Device_CreateComputePipelineState(g_codec.device,&pso,IID_ID3D12PipelineState,reinterpret_cast<void**>(&g_codec.combine_v2_face));
+        }
+    }
+    ReleaseCom(legacy);ReleaseCom(v2);
+    if(FAILED(hr)){ReleaseCom(g_codec.combine_face);ReleaseCom(g_codec.combine_v2_face);return false;}
+    return true;
 }
 
 bool EnsureCodec(ID3D12Device *device) {
@@ -4294,6 +4515,12 @@ struct NrStageCapture {
 };
 
 struct NrSlot {
+    ID3D12Resource *region_guide=nullptr,*region_field=nullptr,*region_inputs[4]={};
+    ID3D12DescriptorHeap *region_heap=nullptr;
+    D3D12_RESOURCE_STATES region_guide_state=D3D12_RESOURCE_STATE_COMMON,region_field_state=D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long region_bytes=0;
+    UINT region_constants[16]={};
+    bool region_ready=false,region_recorded=false;
     unsigned replay_capture_index=nr_replay::kFrames;
     NrCaptureParams capture_params = {};
     nr_face_capture_geometry::OutputMapping face_output = {};
@@ -4328,6 +4555,9 @@ struct NrSlot {
     ID3D12Resource *delta_stats = nullptr;
     ID3D12Resource *delta_stats_readback = nullptr;
     ID3D12DescriptorHeap *heap = nullptr;
+    ID3D12DescriptorHeap *face_codec_heap = nullptr;
+    ID3D12Resource *face_mask = nullptr;
+    unsigned face_tracker_index = 24;
     // ClearUnorderedAccessViewUint requires its CPU descriptor to come from a
     // non-shader-visible heap, while the GPU descriptor remains in heap.
     ID3D12DescriptorHeap *stats_clear_heap = nullptr;
@@ -4605,10 +4835,18 @@ std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 nr_f8_gpu::CaptureRing g_f8_gpu;
 #include "nr_replay_gpu.inl"
 namespace nr_replay { Recorder recorder; void Collect(); }
+#include "nr_face_tracker_gpu.inl"
+namespace nr_face_runtime {
+    nr_face_gpu::Tracker* tracker=nullptr;
+    void Collect();
+    void Submit(std::uint64_t,void*,std::uint64_t);
+    void Invalidate(std::uint64_t,bool);
+}
 bool IsSameRrDepthDevice(ID3D12Device *first,ID3D12Device *second);
 
 void CollectF8GpuLocked() {
     nr_replay::Collect();
+    nr_face_runtime::Collect();
     if(g_lifecycle_tracking_uncertain.load()) return; // preserve unproven GPU resources
     g_f8_gpu.Collect([](void *key,unsigned long long fence) {
         auto *q=static_cast<LifecycleQueue *>(key);
@@ -4638,7 +4876,7 @@ constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
 constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
 
 unsigned long long ExtraSlotBytes(const NrSlot &slot) {
-    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes;
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes;
 }
 
 bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
@@ -4656,6 +4894,10 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.stats_clear_heap);
     ReleaseCom(slot.capture_cpu_heap);
     ReleaseCom(slot.snapshot_heap);
+    ReleaseCom(slot.face_codec_heap);
+    ReleaseCom(slot.face_mask);
+    ReleaseCom(slot.region_heap);ReleaseCom(slot.region_field);ReleaseCom(slot.region_guide);
+    for(auto& input:slot.region_inputs)ReleaseCom(input);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
@@ -5574,6 +5816,7 @@ void DetachLifecycleCommandListTokenLocked(
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_replay::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
@@ -5895,6 +6138,7 @@ bool CaptureSubmissionBatchLocked(
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
         nr_replay::recorder.Submit(record->token,queue_state,batch.fence_value);
+        nr_face_runtime::Submit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
     }
@@ -6664,7 +6908,7 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
 bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
                      unsigned int width, unsigned int height,
                      bool color_variant) {
-    if (!device || !slot.heap || !width || !height || slot.snapshots_native_output)
+    if (!device || !slot.heap || !width || !height)
         return false;
     const DXGI_FORMAT field_format = color_variant
         ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R32G32_FLOAT;
@@ -7165,6 +7409,11 @@ struct CodecConstants {
     float light_structure = 1.0f;
     float light_glow = 0.0f;
     unsigned int light_preview = 0;
+    unsigned int face_options = 0;
+    float face_original_luma = 0;
+    float face_original_color = 0;
+    float region_gains[11]={1,1,1,1,1,1,1,1,1,1,1};
+    unsigned region_flags=0;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 static_assert(offsetof(CodecConstants, light_broad) == 35 * sizeof(UINT));
@@ -7192,16 +7441,17 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_config.light_dark != 1.0f || g_config.light_reflection != 1.0f ||
         g_config.light_structure != 1.0f || g_config.light_glow != 0.0f ||
         g_config.light_preview != 0u;
-    const bool light_style_active = light_style_supported && light_style_requested;
+    const bool light_style_active = !g_config.region_enabled && light_style_supported && light_style_requested;
     // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
     // the same candidate with its own source rectangle, colour policy/exposure
     // and work grid; it does not change the model input or guide semantics.
     const bool independent_chroma = g_config.independent_chroma_composition &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
     const bool low_grid_color = g_config.low_grid_color_edit_field &&
-        g_config.mode == 2 && slot.edit_field_recorded &&
+        slot.edit_field_recorded &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
-    if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;
+    const bool low_grid_luma = g_config.low_grid_edit_field && g_config.color_strength<=0.000001f && slot.edit_field_recorded;
+    if (independent_chroma || low_grid_color || (low_grid_luma && pipeline==g_codec.combine)) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const bool capture_delta = any_combine &&
@@ -7232,8 +7482,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ((light_style_active && g_config.light_control_mode == 1u) ? 524288u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
-          g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
-        ((v2_combine && g_config.mode == 2 && slot.edit_field_recorded &&
+          g_config.color_strength<=0.000001f) ? 16384u : 0u) |
+        ((v2_combine && slot.edit_field_recorded &&
           ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
            low_grid_color)) ? 8192u : 0u) |
         (low_grid_color ? 32768u : 0u) |
@@ -7299,7 +7549,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_f8_gpu.DiscardUnrecorded(f8_capture.slot);
         nr_f8::RawReady(f8_capture.ticket,f8_info,nullptr,0,false);f8_armed=false;
     }
-    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:slot.heap;
+    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:(any_combine && slot.face_mask && slot.face_codec_heap?slot.face_codec_heap:slot.heap);
     ID3D12DescriptorHeap *heaps[] = {selected_heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
@@ -7399,7 +7649,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ? model_width : width;
     const unsigned int resolved_model_height = model_height != 0
         ? model_height : height;
-    const CodecConstants constants = {
+    CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, effective_color_strength,
         g_config.max_luma_ratio, codec_flags,
@@ -7424,12 +7674,22 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         light_style_active ? g_config.light_reflection : 1.0f,
         light_style_active ? g_config.light_structure : 1.0f,
         light_style_active ? g_config.light_glow : 0.0f,
-        light_style_active ? g_config.light_preview : 0u};
+        light_style_active ? g_config.light_preview : 0u,
+        any_combine && slot.face_mask && (g_config.face_protection || g_config.face_preview)
+            ? 1u | (g_config.face_protection && g_config.face_extra_cap?2u:0u) | (g_config.face_preview?4u:0u) : 0u,
+        g_config.face_protection?g_config.face_original_luma:0.f,
+        g_config.face_protection?g_config.face_original_color:0.f};
+    if(any_combine && g_config.region_enabled && slot.region_recorded){
+        std::copy(g_config.region_gains,g_config.region_gains+11,constants.region_gains);
+        constants.region_flags=1u|(g_config.region_preview<<1)|((slot.region_constants[6]&16u)?16u:0u);
+    }
     if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
+    ID3D12PipelineState* selected_pipeline=pipeline;
+    if(constants.face_options&1u)selected_pipeline=v2_combine?g_codec.combine_v2_face:g_codec.combine_face;
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, selected_pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8,
         ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
@@ -8370,6 +8630,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
 }
 
 #include "nr_replay_runtime.inl"
+#include "nr_face_runtime.inl"
 
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
@@ -8444,6 +8705,7 @@ struct Substitution {
 };
 
 #include "nr_rr_depth_adapter.inl"
+#include "nr_region_runtime.inl"
 
 // Snapshot the current game's output mapping before native Evaluate can mutate
 // its parameter block. This is optional CPU metadata, never an NR admission gate.
@@ -8740,6 +9002,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
+        pre_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
     slot->lanczos_recorded = false;
@@ -8822,6 +9086,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
     Transition(command_list, slot->proxy, slot->proxy_state,
@@ -8895,6 +9160,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->next_create_retry_frame = 0;
     }
 
+    nr_face_runtime::Begin(command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y);
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,*context,*slot,guides,color_contract,
         render_width,render_height,color_x,color_y,0,0);
@@ -8912,6 +9178,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::RuntimeRejected);
         return substitution;
     }
+    nr_face_runtime::Commit(*slot,guides);
     context->guide_history.CommitOnEvaluate(guides.signature, true);
     ++context->evaluations;
     CompleteNrDiagnosticEvaluation(*context, *slot);
@@ -8968,6 +9235,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             slot->edit_horizontal_recorded=true;
         }
     }
+    nr_regions::Dispatch(command_list,*slot,true);
     slot->face_output = ResolveFaceCaptureOutput(sr_params, feature, render_width, render_height);
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,
@@ -9257,6 +9525,16 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    slot->edit_field_recorded=false;slot->edit_horizontal_recorded=false;
+    const bool post_color_field=g_config.low_grid_color_edit_field;
+    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
+    if(post_field_requested && !g_config.identity_use_original && ActiveTransferStrength(g_config)>0.000001f) {
+        if(EnsureEditField(device,*slot,context->width,context->height,post_color_field) &&
+            !post_color_field && g_config.catmull_edit_restore && (width!=context->width || height!=context->height))
+            EnsureEditRestore(device,*slot,width,context->height);
+    }
+    nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
+        post_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
     if (!EnsureRrDepthSlot(device,*slot,guides)) {
         g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
@@ -9271,6 +9549,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
     substitution.active = true;
@@ -9477,6 +9756,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         context.next_create_retry_frame = 0;
     }
 
+    nr_face_runtime::Begin(command_list,context,slot,substitution.guides,feature,width,height,0,0);
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,context,slot,substitution.guides,color_contract,
         width,height,0,0,substitution.output_base_x,substitution.output_base_y);
@@ -9499,6 +9779,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    nr_face_runtime::Commit(slot,substitution.guides);
     context.guide_history.CommitOnEvaluate(substitution.guides.signature, true);
     ++context.evaluations;
     CompleteNrDiagnosticEvaluation(context, slot);
@@ -9528,6 +9809,31 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
+    const bool post_color_field=g_config.low_grid_color_edit_field;
+    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
+    const DXGI_FORMAT post_field_format=post_color_field?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+    if(post_field_requested && slot.edit_field && ID3D12Resource_GetDesc(slot.edit_field).Format==post_field_format &&
+       ID3D12Resource_GetDesc(slot.edit_field).Width==context.width && ID3D12Resource_GetDesc(slot.edit_field).Height==context.height &&
+       (post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field)) {
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,slot,post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field,
+            context.width,context.height,color_contract,(feature.create_flags&1)!=0,0,0,0,0,
+            slot.codec_color_mode,width,height,context.width,context.height);
+        UavBarrier(command_list,slot.edit_field);
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        slot.edit_field_recorded=true;
+        if(!post_color_field && g_config.catmull_edit_restore && slot.edit_horizontal &&
+           ID3D12Resource_GetDesc(slot.edit_horizontal).Width==width && ID3D12Resource_GetDesc(slot.edit_horizontal).Height==context.height &&
+           g_codec.restore_edit_horizontal) {
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            DispatchCodec(command_list,slot,g_codec.restore_edit_horizontal,width,height,color_contract,
+                (feature.create_flags&1)!=0,0,0,0,0,slot.codec_color_mode,width,height,context.width,context.height);
+            UavBarrier(command_list,slot.edit_horizontal);
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            slot.edit_horizontal_recorded=true;
+        }
+    }
+    nr_regions::Dispatch(command_list,slot,true);
     DispatchCodec(command_list, slot, g_codec.combine, width, height,
                    color_contract, (feature.create_flags & 1) != 0,
                    0, 0, substitution.output_base_x,
@@ -11062,6 +11368,9 @@ bool IsD3D12GraphicsQueue(reshade::api::command_queue *queue) {
 }
 
 void OnDestroyCommandQueue(reshade::api::command_queue *queue) {
+    EnterCriticalSection(&g_chain_cs);
+    nr_face_runtime::StopWorker();
+    LeaveCriticalSection(&g_chain_cs);
     // No queue has been retained before the first admitted DLSS frame. Avoid
     // touching a queue proxy during engine bootstrap/destruction in that case.
     if (g_live_graphics_queue_count.load(std::memory_order_acquire) == 0)
@@ -12841,13 +13150,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline9 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline10 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline9 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline10 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

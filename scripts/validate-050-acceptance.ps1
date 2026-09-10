@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -54,7 +54,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline9') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline10') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
@@ -152,18 +152,28 @@ try {
         $Checks.Add('four-region light controls production WARP; synthetic Neural only')
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
         $Checks.Add('combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR')
+        & (Join-Path $PSScriptRoot 'validate-regions.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'regions')
+        $Checks.Add('engine region production adapter and snapshot WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -Regions
+        $Checks.Add('fine region composition production WARP')
+        & (Join-Path $PSScriptRoot 'validate-face-runtime.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'face-runtime')
+        $Checks.Add('face tracker exact lifetime WARP and optional native CPU worker')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -FaceProtection
+        $Checks.Add('independent face C1 and original endpoints production WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -FaceProtection -FaceNegativeControl
+        $Checks.Add('independent face production C1 negative control')
     }
     foreach ($Entry in $Manifest.files.PSObject.Properties) {
         $Hash = (Get-FileHash -LiteralPath (Join-Path $Stage $Entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline9*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline9 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline10*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline10 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 9) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 10) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
@@ -194,6 +204,8 @@ try {
         nvidia_feature18_verified=$false; game_runtime_verified=$false;
         five_percent_performance_gate='unmeasured'; hosted_ci_verified=$false;
         carrier_compiled=$false;
+        face_backend_enabled=([bool]$env:DLSS5_FACE_RUNTIME_ROOT);
+        face_backend_receipt_sha256=$(if(Test-Path -LiteralPath (Join-Path $Stage 'core/build/face-backend.json')){(Get-FileHash -LiteralPath (Join-Path $Stage 'core/build/face-backend.json')).Hash.ToLowerInvariant()}else{$null});
         log_sha256=(Get-FileHash -LiteralPath (Join-Path $Output 'validation.log')).Hash.ToLowerInvariant()
     }
     $Result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Output 'validation.json') -Encoding UTF8

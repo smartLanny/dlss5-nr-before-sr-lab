@@ -209,6 +209,10 @@ def patch_core(text: str) -> str:
         s=once(s,'substitution.output_base_y, slot.codec_color_mode);',
             'substitution.output_base_y, slot.codec_color_mode, width, height,\n'
             '                   work_width, work_height, 1.0f, 1);')
+        # Optional edit-field construction uses the effective post colour
+        # policy even when the requested mode was pre-SR with RR fallback.
+        s=s.replace('slot.codec_color_mode,width,height,context.width,context.height);',
+                    'slot.codec_color_mode,width,height,context.width,context.height,1.0f,1);')
         return s
     text=edit(text,'bool FinishAfterSr(',finish)
 
