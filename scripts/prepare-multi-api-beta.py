@@ -54,7 +54,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': 'f7af44852dd6c2b39da215b027eaf3f524e06024',
     'src/nr_feedback_capture.inl': 'd271c02695a459e4138f0cfb4702ae48a2cd8032',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '635c88603b97a0f5b9ab69501146d3971972d3d1',
+    'src/nr_settings_ui.inl': 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42',
     'src/nr_before_sr.cpp': 'df92c5477e0017ca91d9a13dca492da3665a8b1c',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
@@ -94,7 +94,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance_runtime.inl': 'b19093c8c38eeaecf7cf9147f597687c97fd6d0f',
     'src/nr_descriptor_provenance_hooks.inl': 'b41f5cf49f1fee1136b638078715e44c2410d124',
     'src/nr_descriptor_provenance_commands.inl': '821c2f07079b677b47043d0df0259a75ffd3b0c6',
-    'src/nr_ui_activity_runtime.inl': '585503da5ca79b5d22aedccb32528dd22b8f1830',
+    'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
     'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
 }
 BRIDGE_BLOBS = {

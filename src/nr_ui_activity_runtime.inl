@@ -5,6 +5,18 @@ SRWLOCK g_nr_ui_activity_lock=SRWLOCK_INIT;
 std::atomic<nr_ui_activity::Count> g_nr_ui_activity_next_thread{0};
 nr_ui_activity::TraceSnapshot g_nr_ui_activity_trace;
 unsigned g_nr_ui_activity_recent_next=0;
+// Activity counters describe the process, so drawing-thread migration must not
+// select an older private sampling window. Never hold this lock while drawing,
+// publishing, collecting F8, or calling a graphics API.
+SRWLOCK g_nr_ui_activity_window_lock=SRWLOCK_INIT;
+nr_ui_activity::Window g_nr_ui_activity_window;
+class NrUiActivityWindowGuard {
+public:
+    NrUiActivityWindowGuard() {AcquireSRWLockExclusive(&g_nr_ui_activity_window_lock);}
+    ~NrUiActivityWindowGuard() {ReleaseSRWLockExclusive(&g_nr_ui_activity_window_lock);}
+    NrUiActivityWindowGuard(const NrUiActivityWindowGuard&)=delete;
+    NrUiActivityWindowGuard& operator=(const NrUiActivityWindowGuard&)=delete;
+};
 
 nr_ui_activity::Count NrUiActivityThreadCookie() {
     auto previous=g_nr_ui_activity_next_thread.load(std::memory_order_relaxed);
@@ -15,7 +27,6 @@ nr_ui_activity::Count NrUiActivityThreadCookie() {
     return 0; // Exhausted metadata identity never alters the activity decision.
 }
 struct NrUiActivityThreadState {
-    nr_ui_activity::Window window;
     const nr_ui_activity::Count cookie=NrUiActivityThreadCookie();
     nr_ui_activity::Count calls=0,last_read=0;
     bool read_seen=false;

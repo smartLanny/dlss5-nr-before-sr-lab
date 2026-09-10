@@ -788,7 +788,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     }
     CheckReadonlyBoundaryThroughCollector(directory);
     CheckPrivacyThroughCollector(directory);
-    Check(NrUiActivityThread().calls==ui_calls&&!NrUiActivityThread().window.Inspect().initialized,
+    Check(NrUiActivityThread().calls==ui_calls&&!g_nr_ui_activity_window.Inspect().initialized,
           "FULL_CORE_F8_UI_NO_OBSERVE");
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",
                 checks, failures, activity.report_used, sizeof(activity.report), text_bytes, missing_clock);

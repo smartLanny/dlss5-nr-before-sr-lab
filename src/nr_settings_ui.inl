@@ -269,12 +269,14 @@ void DrawSimpleImageCaptureControls() {
 
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
-// Each drawing thread keeps its own bounded window. Multiple swapchains must
-// not turn lock contention into a one-frame "checking" status.
+// All drawing threads observe one bounded process-counter window. The short
+// CPU lock covers the reads as well as Observe, so a delayed reader cannot
+// apply older time/counters after a newer observation. Drawing stays outside.
 nr_ui_activity::Sample ReadUiActivity(unsigned config_generation,
                                     nr_ui_activity::ReadReceipt* receipt=nullptr) {
     auto& thread=NrUiActivityThread();
-    auto& window=thread.window;
+    NrUiActivityWindowGuard guard;
+    auto& window=g_nr_ui_activity_window;
     nr_ui_activity::ReadReceipt observation{};
     const auto epoch=g_pipeline_stats_epoch.load(std::memory_order_acquire);
     const nr_ui_activity::Counters counters{g_carrier_evaluations.load(),
@@ -298,7 +300,10 @@ nr_ui_activity::Sample ReadUiActivity(unsigned config_generation,
         if(detail.gap_known)detail.gap_ms=now-detail.before.last_observed;
         detail.reset_mask=config_checked!=config_generation?nr_ui_activity::ConfigReadChanged:
             nr_ui_activity::EpochReadChanged;
-        window={};
+        // An obsolete caller must not erase a newer, already observed scope.
+        // An incoherent read of the currently held scope still invalidates it.
+        if(detail.before.scope.config==config_generation && detail.before.scope.epoch==epoch)
+            window={};
         if(receipt)*receipt=observation;
         return {};
     }
