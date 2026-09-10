@@ -185,6 +185,7 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
         }
         entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
                    'README.zh-CN.md': guide, 'LICENSES.txt': notice,
+                   'DLINE11_CORE_ACCEPTANCE.zh-CN.md': (ROOT / 'docs/testing/DLINE11_CORE_ACCEPTANCE.zh-CN.md').read_bytes(),
                    'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
         entries.update(face_assets)
         entries['SHA256.json'] = json.dumps({n: sha(v) for n, v in entries.items()}, ensure_ascii=False, indent=2).encode('utf-8')
