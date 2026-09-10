@@ -2,8 +2,8 @@
 """Compile the complete assembled Core and verify F8 timing/probe text on CPU.
 
 No source-function extraction, serializer mocks, devices, NGX or game execution.
-The only API fault injection is a missing Win32 performance clock, selected in
-a fresh process before the production timing frequency cache initializes.
+The only API seams are missing or fixed-width Win32 performance clocks, selected
+in a fresh process before the production timing frequency cache initializes.
 """
 from pathlib import Path
 import argparse
@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -31,7 +32,8 @@ def main():
     parser.add_argument('--source-manifest', type=Path,
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve'))
+    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve',
+                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption'))
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
     source = args.source_root.resolve(strict=True)
@@ -75,6 +77,18 @@ def main():
     elif args.negative_control == 'old-tail-reserve':
         mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 80u * 1024u',
                     'kMandatoryTailBytes = 64u * 1024u', 'FULL_CORE_F8_CAPACITY')
+    elif args.negative_control == 'redact-timing-numbers':
+        mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
+                    'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
+    elif args.negative_control == 'bypass-timing-privacy':
+        anchor = 'inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {'
+        mutation = ('src/nr_feedback_text.h', anchor, anchor +
+                    '\n    if (typed_metadata && (line.find("start.timing.") == 0 || line.find("end.timing.") == 0)) return line;',
+                    'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
+    elif args.negative_control == 'untyped-decimal-exemption':
+        mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && TimingMetadataNumber(line, i, end))',
+                    "if (std::all_of(line.begin() + i, line.begin() + end, [](char c) { return c >= '0' && c <= '9'; }))",
+                    'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
     if mutation:
         path = snapshot / mutation[0]
         text = path.read_text(encoding='utf-8-sig')
@@ -92,12 +106,16 @@ def main():
 #define WIDL_C_INLINE_WRAPPERS
 #include <windows.h>
 bool g_feedback_fixture_missing_clock = false;
+unsigned g_feedback_fixture_digits = 0;
+unsigned long long g_feedback_fixture_clock_ticks = 0;
 BOOL WINAPI FeedbackFixtureFrequency(LARGE_INTEGER* value) {
     if (g_feedback_fixture_missing_clock) { if(value)value->QuadPart=0; return FALSE; }
+    if (g_feedback_fixture_digits) { if(value)value->QuadPart=10000000; return TRUE; }
     return ::QueryPerformanceFrequency(value);
 }
 BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     if (g_feedback_fixture_missing_clock) { if(value)value->QuadPart=0; return FALSE; }
+    if (g_feedback_fixture_digits) { if(value)value->QuadPart=static_cast<LONGLONG>(g_feedback_fixture_clock_ticks); return TRUE; }
     return ::QueryPerformanceCounter(value);
 }
 #define QueryPerformanceFrequency FeedbackFixtureFrequency
@@ -140,15 +158,59 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32', '-ld3d12', '-ldxgi',
          '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
     cases = []
+    case_names = ('known-clock', 'missing-clock', 'qpc-12', 'qpc-13', 'qpc-14', 'qpc-15', 'qpc-16')
     if not args.compile_only:
-        for case in ('known-clock', 'missing-clock'):
+        for case in case_names:
             result = run([str(binary), str(out / case), case], case, 30)
             print(result.stdout, end='', flush=True)
             matched = re.search(r'FULL_CORE_F8_TIMING checks=(\d+) failures=(\d+) metadataBytes=(\d+) metadataCapacity=(\d+) textBytes=(\d+) missingClock=(\d+)', result.stdout)
             tail = re.search(r'FULL_CORE_F8_TAIL startBytes=(\d+) requiredBytes=(\d+) configuredReserve=(\d+) tailTruncated=(\d+)', result.stdout)
             expected = (result.returncode == 41 and ('FAIL ' + mutation[3]) in result.stdout
                         if mutation else result.returncode == 0 and matched is not None)
+            summary_info = None
+            text_path_file = out / case / 'final-text-path.txt'
+            if text_path_file.is_file():
+                text_path = Path(text_path_file.read_text(encoding='utf-8'))
+                summary_path = out / case / 'timing-summary.json'
+                summary_result = run([sys.executable, str(ROOT / 'scripts/summarize-runtime-timing.py'),
+                                      str(text_path), '--output', str(summary_path)],
+                                     case + '-summary', 30)
+                summary_info = {'exit_code': summary_result.returncode, 'input_text_sha256': sha(text_path),
+                                'output': str(summary_path) if summary_path.is_file() else None}
+                if summary_result.returncode == 0:
+                    summarized = json.loads(summary_path.read_text(encoding='utf-8'))[0]
+                    raw = dict(line.split('=', 1) for line in (out / case / 'metadata.txt').read_text(
+                        encoding='utf-8').splitlines() if '=' in line)
+                    frequency = int(raw['end.timing.qpcFrequency'])
+                    clock = raw['end.timing.clockAvailable'] == '1' and frequency > 0
+                    expected_seconds = ((int(raw['end.timing.capturedTicks']) -
+                                         int(raw['end.timing.epochStartedTicks'])) / frequency if clock else None)
+                    same_numbers = summarized['segment_seconds'] == expected_seconds
+                    for stage, reported in summarized['stages'].items():
+                        values = dict(item.split(':', 1) for item in raw['end.timing.' + stage].split(
+                            ',histogram:', 1)[0].split(','))
+                        count, measured = int(values['count']), int(values['measured'])
+                        mean = int(values['totalTicks']) * 1000 / frequency / measured if clock and measured else None
+                        maximum = int(values['maxTicks']) * 1000 / frequency if clock and measured else None
+                        same_numbers = same_numbers and (reported['calls'], reported['measured_calls'],
+                            reported['mean_cpu_ms'], reported['segment_max_cpu_ms']) == (count, measured, mean, maximum)
+                    if case.startswith('qpc-'):
+                        same_numbers = same_numbers and summarized['segment_seconds'] == 31.0
+                    summary_info['matches_raw_writer_numbers'] = same_numbers
+                if not mutation:
+                    expected = expected and summary_result.returncode == 0 and summary_info.get('matches_raw_writer_numbers', False)
+                elif args.negative_control == 'redact-timing-numbers':
+                    # A real unavailable clock still has numeric zero fields.
+                    # Fixed/real known clocks must reproduce the actual parser failure.
+                    if case == 'missing-clock':
+                        expected = expected and summary_result.returncode == 0
+                    else:
+                        expected = expected and summary_result.returncode != 0 and (
+                            'Missing or invalid end.timing.epochStartedTicks' in summary_result.stderr)
+            elif not mutation or args.negative_control == 'redact-timing-numbers':
+                expected = False
             cases.append({'case': case, 'expected_result': expected, 'exit_code': result.returncode,
+                          'summary': summary_info,
                           'tail': dict(zip(('start_bytes', 'required_bytes', 'configured_reserve', 'truncated'), map(int, tail.groups()))) if tail else None,
                           'measurements': dict(zip(('checks', 'failures', 'metadata_bytes', 'metadata_capacity', 'text_bytes', 'missing_clock'),
                                                    map(int, matched.groups()))) if matched else None})
@@ -157,21 +219,23 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     final_inputs = {str(path.relative_to(snapshot)): sha(path)
                     for path in sorted(snapshot.rglob('*')) if path.is_file()}
     artifacts = [{'path': str(path.relative_to(out)), 'bytes': path.stat().st_size, 'sha256': sha(path)}
-                 for path in sorted(out.glob('*/*.txt')) if path.is_file()]
+                 for case in case_names for path in sorted((out / case).rglob('*'))
+                 if path.is_file() and path.suffix in ('.txt', '.json')]
     receipt = {'gate': 'assembled Core F8 timing/probe serialization CPU',
-               'passed': not args.compile_only and len(cases) == 2 and all(case['expected_result'] for case in cases),
+               'passed': not args.compile_only and len(cases) == len(case_names) and all(case['expected_result'] for case in cases),
                'production_translation_unit': True, 'source_function_extraction': False,
                'source_root': str(source), 'original_source_sha256': inputs, 'compiled_source_sha256': final_inputs,
                'source_commit': source_commit, 'source_manifest': str(manifest_path),
                'source_manifest_sha256': sha(manifest_path), 'source_manifest_verified': True,
                'negative_control': args.negative_control, 'compile_only': args.compile_only,
                'fixture_sha256': sha(fixture), 'runner_sha256': sha(Path(__file__)), 'binary_sha256': sha(binary),
+               'summary_script_sha256': sha(ROOT / 'scripts/summarize-runtime-timing.py'),
                'compiler_sha256': sha(compiler), 'reshade_headers': str(reshade),
                'cases': cases, 'logs': logs, 'artifacts': artifacts,
-               'clock_fault_injection': 'Win32 QueryPerformanceFrequency/Counter only; fresh process per case',
+               'clock_fault_injection': 'Win32 QPF/QPC only; real, unavailable, or deterministic 12-16 digit clocks; fresh process per case',
                'gpu_executed': False, 'ngx_executed': False, 'game_verified': False,
                'worker_equivalent_bytes': 8192, 'timeline_burst_bytes': 4096,
-               'scope': 'metadata capacity including a full timeline burst and synthetic 8 KiB worker-equivalent body, timing identities, policy phases, unknown clocks and final actual single text; no worker module enumeration or GPU execution'}
+               'scope': 'metadata capacity including full timeline burst and 8 KiB worker-equivalent body; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
     (out / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
     print('receipt:', out / 'validation.json')
     if not args.compile_only and not receipt['passed']:

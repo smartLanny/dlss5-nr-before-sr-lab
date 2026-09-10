@@ -192,7 +192,7 @@ void SeedTiming(const nr_timing::Identity &old_origin, bool missing_clock) {
         d.queue = wide - 8; d.fence_target = wide - 9; d.fence_before = wide - 10; d.fence_after = wide - 11;
         d.wait_method = 3; d.wait_fallback = 5; d.wait_registration = static_cast<std::int32_t>(0x80000006u);
         r.started_ticks = NrTimingCounter();
-        r.duration_ticks = frequency ? frequency / 100 + 1 : 0;
+        r.duration_ticks = frequency ? (g_feedback_fixture_digits ? g_feedback_fixture_clock_ticks + i : frequency / 100 + 1) : 0;
         r.clock_known = !missing_clock;
         NrTimingRecord(r);
     }
@@ -214,6 +214,13 @@ void SeedTiming(const nr_timing::Identity &old_origin, bool missing_clock) {
             stats.measured = stats.total_ticks = stats.maximum_ticks = wide;
             for (auto &bucket : stats.histogram) bucket = wide / stats.histogram.size();
             stats.histogram.back() += wide % stats.histogram.size();
+            if (g_feedback_fixture_digits) {
+                stats.count = stats.measured = g_feedback_fixture_clock_ticks;
+                stats.maximum_ticks = g_feedback_fixture_clock_ticks + 100;
+                stats.total_ticks = g_feedback_fixture_clock_ticks + 200;
+                stats.histogram.fill(0);
+                stats.histogram.back() = stats.measured;
+            }
         }
     }
     ReleaseSRWLockExclusive(&g_nr_timing_lock);
@@ -281,10 +288,106 @@ void CheckTiming(const std::string &report, const char *prefix,
         Check(Field(line, "readbackOrigin", U(origin.epoch) + "/" + U(origin.probe.phase) + "/" +
               U(origin.wait.phase) + "/" + U(origin.frame) + "/" + U(origin.feature) + "/" + U(origin.config) + "/" + U(origin.mode)),
               "FULL_CORE_F8_READBACK_ORIGIN");
+        Check(Field(line, "startedTicks", U(r.started_ticks)) && Field(line, "durationTicks", U(r.duration_ticks)),
+              "FULL_CORE_F8_RECENT_TIMING_VALUES");
     }
     Check(Value(report, key + "recent.16").empty(), "FULL_CORE_F8_RECENT_EXPORT_BOUND");
     Check(Value(report, key + "waitMethodKey").find("4:not-waited") != std::string::npos,
           "FULL_CORE_F8_WAIT_METHOD_FOUR_MEANING");
+}
+
+void CheckSerializedTiming(const std::string &serialized, const std::string &raw) {
+    std::size_t begin = 0;
+    unsigned fields = 0;
+    while (begin < raw.size()) {
+        auto end = raw.find('\n', begin);
+        if (end == std::string::npos) end = raw.size();
+        const auto line = raw.substr(begin, end - begin);
+        const auto equal = line.find('=');
+        if (equal != std::string::npos && (line.starts_with("start.timing.") || line.starts_with("end.timing."))) {
+            const auto key = line.substr(0, equal);
+            Check(Value(serialized, key) == line.substr(equal + 1), "FULL_CORE_F8_TIMING_VALUES_PRESERVED");
+            ++fields;
+        }
+        begin = end + 1;
+    }
+    Check(fields > 100, "FULL_CORE_F8_TIMING_FIELD_COVERAGE");
+    for (const auto prefix : {"start.timing.", "end.timing."}) {
+        for (const auto name : {"epochStartedTicks", "capturedTicks", "qpcFrequency"})
+            Check(nr_feedback_text::CanonicalUnsigned(Value(serialized, std::string(prefix) + name)),
+                  "FULL_CORE_F8_CANONICAL_FINAL_CLOCK");
+    }
+}
+
+void CheckPrivacyThroughCollector(const std::filesystem::path &directory) {
+    const std::string ticks = "123456789012345";
+    std::vector<std::pair<std::string, std::string>> cases{
+        {"fixture.pointer=0x123456789ABCDEF0", "fixture.pointer=[address]"},
+        {"fixture.decimalPointer=123456789012345", "fixture.decimalPointer=[address]"},
+        {"fixture.zeroPaddedPointer=0000123412341234", "fixture.zeroPaddedPointer=[address]"},
+        {"end.timing.capturedTicks=0x123456789ABCDEF0", "end.timing.capturedTicks=[address]"},
+        {"end.timing.capturedTicks=0000123412341234", "end.timing.capturedTicks=[address]"},
+        {"end.timing.note=" + ticks, "end.timing.note=[address]"},
+        {"fake.end.timing.capturedTicks=" + ticks, "fake.end.timing.capturedTicks=[address]"},
+        {"gpu=end.timing.capturedTicks=" + ticks, "gpu=end.timing.capturedTicks=[address]"},
+        {"end.timing.capturedTicks.fake=" + ticks, "end.timing.capturedTicks.fake=[address]"},
+        {"end.timing.recent.16=stage:carrier,startedTicks:" + ticks,
+            "end.timing.recent.16=stage:carrier,startedTicks:[address]"},
+        {"end.timing.recent.00=stage:carrier,startedTicks:" + ticks,
+            "end.timing.recent.00=stage:carrier,startedTicks:[address]"},
+        {"end.timing.recent.0=stage:unknown,startedTicks:" + ticks,
+            "end.timing.recent.0=stage:unknown,startedTicks:[address]"},
+        {"end.timing.recent.0=stage:carrier,startedTicks:" + ticks +
+            ",ptr:0x123456789ABCDEF0,decimalPointer:123456789012345,fakeStartedTicks:" + ticks,
+            "end.timing.recent.0=stage:carrier,startedTicks:" + ticks +
+            ",ptr:[address],decimalPointer:[address],fakeStartedTicks:[address]"},
+        {"end.timing.recent.1=stage:carrier,device:" + ticks + ",durationTicks:" + ticks,
+            "end.timing.recent.1=stage:carrier,device:[address],durationTicks:" + ticks},
+        {"end.timing.carrier=count:" + ticks + ",count:" + ticks,
+            "end.timing.carrier=count:[address],count:[address]"},
+        {"end.timing.native-execute=totalTicks:" + ticks + ",maxTicks:" + ticks + ",fakeTotalTicks:" + ticks,
+            "end.timing.native-execute=totalTicks:" + ticks + ",maxTicks:" + ticks + ",fakeTotalTicks:[address]"},
+        {"end.timing.capturedTicks=" + ticks + ",extra:" + ticks,
+            "end.timing.capturedTicks=[address],extra:[address]"},
+        {"end.timing.recent.2=stage:carrier,startedTicks:" + ticks + ",owner:C:\\fixture-private\\file | ptr=0x123456789ABCDEF0",
+            "end.timing.recent.2=stage:carrier,startedTicks:" + ticks + ",owner:[local-path] | ptr=[address]"},
+        {"end.timing.recent.3=stage:carrier,startedTicks:" + ticks + ",owner=\\\\fixture-host\\private\\file | status=okay",
+            "end.timing.recent.3=stage:carrier,startedTicks:" + ticks + ",owner=[local-path] | status=okay"},
+    };
+    for (const auto secret : {"Authorization: fixture", "password=fixture", "access_token=fixture",
+            "github_pat_fixture", "ghp_fixture", "private key fixture"})
+        cases.emplace_back("end.timing.capturedTicks=" + ticks + " | " + secret, "[sensitive log line omitted]");
+    auto session = std::make_unique<nr_core_feedback::CoreSession>();
+    const auto output = directory / L"privacy";
+    std::filesystem::create_directory(output);
+    session->snapshot_ok = true; session->serial = 2;
+    wcscpy_s(session->directory, output.c_str());
+    wcscpy_s(session->exe, (output / L"privacy-fixture.exe").c_str());
+    GetLocalTime(&session->local_time); GetSystemTime(&session->utc_time);
+    FeedbackAppend(session->activity, "format=synthetic-privacy-fixture\n");
+    for (unsigned i = 0; i < cases.size(); ++i)
+        FeedbackAppend(session->activity, "fixture.privacy.%u=begin\n%s\n", i, cases[i].first.c_str());
+    const auto result = nr_core_feedback::CollectSingleText(*session, true);
+    Check(result.text && result.complete && result.error == ERROR_SUCCESS, "FULL_CORE_F8_PRIVACY_TEXT_CREATED");
+    if (!result.text) return;
+    const auto disk = Read(result.path);
+    Check(disk == *result.text, "FULL_CORE_F8_PRIVACY_ATOMIC_BYTES");
+    for (unsigned i = 0; i < cases.size(); ++i) {
+        const auto expected = "fixture.privacy." + U(i) + "=begin\n" + cases[i].second + "\n";
+        Check(result.text->find(expected) != std::string::npos && disk.find(expected) != std::string::npos,
+              "FULL_CORE_F8_TYPED_METADATA_PRIVACY");
+    }
+    const auto logs = disk.find("===== nr-current");
+    Check(logs != std::string::npos, "FULL_CORE_F8_PRIVATE_LOG_SECTION");
+    if (logs != std::string::npos) {
+        const auto raw_log = disk.substr(logs);
+        Check(raw_log.find("end.timing.capturedTicks=[address]") != std::string::npos &&
+              raw_log.find("fixture.raw.pointer=[address]") != std::string::npos &&
+              raw_log.find(ticks) == std::string::npos &&
+              raw_log.find("fixture-private") == std::string::npos &&
+              raw_log.find("fixture-secret") == std::string::npos,
+              "FULL_CORE_F8_RAW_LOG_PRIVACY");
+    }
 }
 
 void FillTimeline(FeedbackSession &session) {
@@ -352,7 +455,9 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     wcscpy_s(g_ini_path, (directory / L"fixture.ini").c_str());
     wcscpy_s(g_log_path, (directory / L"nr-before-sr.log").c_str());
     Write(g_ini_path, "[NRBeforeSR]\nJitterMode=0\nJitterPolicyVersion=1\n");
-    Write(g_log_path, "00:00:00.000 CPU serialization fixture; no NGX, device creation or game execution.\n");
+    Write(g_log_path, "00:00:00.000 CPU serialization fixture; no NGX, device creation or game execution.\n"
+        "end.timing.capturedTicks=123456789012345\nfixture.raw.pointer=0000123412341234\n"
+        "fixture.raw.path=C:\\fixture-private\\data | status=okay\npassword=fixture-secret\n");
     const auto ini_before = Read(g_ini_path);
     auto session = std::make_unique<nr_core_feedback::CoreSession>();
     auto &activity = session->activity;
@@ -389,6 +494,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(g_config_generation == config && g_history_generation == history && Read(g_ini_path) == ini_before,
           "FULL_CORE_F8_DIAGNOSTIC_SWITCH_NO_CONFIG_CHANGE");
     SeedTiming(origin, missing_clock);
+    if (g_feedback_fixture_digits) g_feedback_fixture_clock_ticks += 31 * NrTimingFrequency();
     auto end = std::make_unique<nr_timing::Snapshot>(); SnapshotNrTiming(*end);
     const auto worker_equivalent = WorkerEquivalent();
     Check(worker_equivalent.size() == 8192 && nr_bundle::ValidUtf8(worker_equivalent.c_str()),
@@ -433,9 +539,14 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
               text.text->find("end.timing.recent.15=") != std::string::npos &&
               nr_bundle::ValidUtf8(text.text->c_str()), "FULL_CORE_F8_SERIALIZED_METADATA_COMPLETE");
         Check(Read(text.path) == *text.text, "FULL_CORE_F8_ATOMIC_TEXT_BYTES");
+        CheckSerializedTiming(*text.text, activity.report);
+        CheckSerializedTiming(Read(text.path), activity.report);
+        CheckTiming(*text.text, "start", *start, missing_clock);
+        CheckTiming(Read(text.path), "end", *end, missing_clock);
         const auto path_utf8 = std::filesystem::path(text.path).u8string();
         Write(directory / "final-text-path.txt", std::string(reinterpret_cast<const char *>(path_utf8.data()), path_utf8.size()));
     }
+    CheckPrivacyThroughCollector(directory);
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",
                 checks, failures, activity.report_used, sizeof(activity.report), text_bytes, missing_clock);
     DeleteCriticalSection(&g_chain_cs);
@@ -447,5 +558,13 @@ int wmain(int argc, wchar_t **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc != 3) return 2;
     g_feedback_fixture_missing_clock = std::wcscmp(argv[2], L"missing-clock") == 0;
+    if (std::wcsncmp(argv[2], L"qpc-", 4) == 0) {
+        wchar_t *end = nullptr;
+        g_feedback_fixture_digits = static_cast<unsigned>(std::wcstoul(argv[2] + 4, &end, 10));
+        if (!end || *end || g_feedback_fixture_digits < 12 || g_feedback_fixture_digits > 16) return 2;
+        g_feedback_fixture_clock_ticks = 1;
+        for (unsigned i = 1; i < g_feedback_fixture_digits; ++i) g_feedback_fixture_clock_ticks *= 10;
+        g_feedback_fixture_clock_ticks += 12345;
+    }
     return feedback_timing_test::Run(argv[1], g_feedback_fixture_missing_clock);
 }
