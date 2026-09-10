@@ -49,7 +49,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '3bf7d7c4c343e3a104778b153d005a20b931a70b',
+    'scripts/build.ps1': '3e7d6e4421550b657a82043439292dc8cb349b2d',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -163,6 +163,10 @@ def configure(core: Path):
     previous_prepare = m.prepare
     def prepare_with_native_abi(core_root: Path, upstream: Path, stage: Path) -> None:
         previous_prepare(core_root, upstream, stage)
+        # The historical archive exports only build.ps1 from scripts. Copy the
+        # explicitly pinned shader compiler inputs into this candidate as well.
+        for relative in ('scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py'):
+            (stage / 'core' / relative).write_bytes(git(core_root, 'show', 'HEAD:' + relative))
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
         exposure = load('exposure_adapter', core_root / 'scripts/patch-exposure-access.py')
