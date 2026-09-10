@@ -49,6 +49,7 @@
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
 #include "nr_probe_policy.h"
+#include "nr_store_comparison.h"
 #define NR_HAS_PROBE_POLICY 1
 #include "nr_runtime_timing.h"
 
@@ -442,10 +443,12 @@ std::atomic<unsigned long long> g_pipeline_transfer_bound{0};
 std::atomic<unsigned long long> g_pipeline_transfer_submitted{0};
 constexpr unsigned int kDiagnosticStageCount = 4;
 // The first 28 words retain the original model/composition diagnostic layout.
-// Words 28..39 hold sparse stored-result evidence; no pixel images are exported.
-constexpr unsigned int kDiagnosticStatsUintCount = 40;
+// Words 28..39 retain unique-value statistics. Words 40..47 aggregate the
+// UNORM interval comparison; its bounded GPU-only tail is never read back.
+constexpr unsigned int kDiagnosticStatsUintCount = 48;
 constexpr unsigned int kDiagnosticStatsBytes =
     kDiagnosticStatsUintCount * sizeof(std::uint32_t);
+static_assert(kDiagnosticStatsBytes==nr_store_comparison::kHeaderBytes);
 std::atomic<float> g_last_diagnostic_r[kDiagnosticStageCount] = {};
 std::atomic<float> g_last_diagnostic_g[kDiagnosticStageCount] = {};
 std::atomic<float> g_last_diagnostic_b[kDiagnosticStageCount] = {};
@@ -3232,6 +3235,77 @@ float StoreUnormExpected(float value, uint maximum, out bool unique) {
     uint code = (twice+1u) >> 1;
     return (float)code / (float)maximum;
 }
+// Diagnostic-only legal integer encodings. FLOAT->UNORM permits 0.6 integer
+// ULP: DirectX Functional Specification 3.2.3.6. A binary FP input times an
+// integer cannot equal k+2/5 or k+3/5, so exact fifths classify both endpoints
+// without a floating multiply/epsilon. No part of ResultOut uses these bounds.
+uint2 StoreUnormBounds(float value,uint maximum) {
+    float bounded=saturate(value);
+    uint base=StoreUnormScaledFloor(bounded,maximum);
+    uint fifths=StoreUnormScaledFloor(bounded,maximum*5u)-base*5u;
+    return uint2(base+(fifths>2u?1u:0u),base+(fifths>=2u?1u:0u));
+}
+bool StoreIntervalEnabled() {
+    uint kind=(Passthrough>>19)&7u;
+    return (Passthrough&131072u)!=0u && (kind==2u || kind==3u);
+}
+bool StoreIntervalAddress(uint2 coord,out uint address) {
+    address=0u;
+    uint bytes;DeltaStats.GetDimensions(bytes);
+    if(bytes<192u)return false;
+    uint columns=Width/32u+(Width%32u!=0u?1u:0u),rows=Height/32u+(Height%32u!=0u?1u:0u);
+    if(columns==0u || rows==0u || columns>65535u || rows>65535u) {
+        uint ignored;DeltaStats.InterlockedOr(188u,1u,ignored);return false;
+    }
+    if(columns>65535u/rows || coord.x>=Width || coord.y>=Height) {
+        uint ignored;DeltaStats.InterlockedOr(188u,1u,ignored);return false;
+    }
+    if(192u+columns*rows*8u>bytes) {
+        uint ignored;DeltaStats.InterlockedOr(188u,1u,ignored);return false;
+    }
+    address=192u+((coord.y/32u)*columns+coord.x/32u)*8u;return true;
+}
+uint StorePackCodes(uint3 codes) {return codes.x|(codes.y<<10u)|(codes.z<<20u);}
+uint3 StoreUnpackCodes(uint word) {return uint3(word,word>>10u,word>>20u)&1023u;}
+void RecordPostStoreInterval(uint2 coord,float3 expected,float3 original) {
+    if(!StoreIntervalEnabled())return;
+    uint bytes;DeltaStats.GetDimensions(bytes);if(bytes<192u)return;
+    if(coord.x==0u && coord.y==0u)DeltaStats.Store(160u,0x4e525531u); // NRU1
+    uint address;if(!StoreIntervalAddress(coord,address))return;
+    bool valid=all(isfinite(expected)) && all(isfinite(original));
+    uint low=0u,high=0u;
+    if(valid) {
+        uint maximum=((Passthrough>>19)&7u)==2u?255u:1023u;
+        uint2 r=StoreUnormBounds(expected.x,maximum),g=StoreUnormBounds(expected.y,maximum),b=StoreUnormBounds(expected.z,maximum);
+        low=StorePackCodes(uint3(r.x,g.x,b.x));high=StorePackCodes(uint3(r.y,g.y,b.y));
+    }
+    DeltaStats.Store2(address,uint2(low|0x40000000u|(valid?0x80000000u:0u),high));
+    uint ignored;DeltaStats.InterlockedAdd(164u,1u,ignored);
+    if(!valid)DeltaStats.InterlockedAdd(180u,1u,ignored);
+}
+void ComparePostStoreInterval(uint2 coord,float3 actual) {
+    if(!StoreIntervalEnabled())return;
+    uint bytes;DeltaStats.GetDimensions(bytes);if(bytes<192u)return;
+    uint address,ignored;
+    if(!StoreIntervalAddress(coord,address)) {DeltaStats.InterlockedAdd(176u,1u,ignored);return;}
+    uint2 record=DeltaStats.Load2(address);
+    if((record.x&0x40000000u)==0u) {DeltaStats.InterlockedAdd(176u,1u,ignored);return;}
+    if((record.x&0x80000000u)==0u)return; // Producer counted an explicitly invalid expectation.
+    uint maximum=((Passthrough>>19)&7u)==2u?255u:1023u;
+    uint3 low=StoreUnpackCodes(record.x),high=StoreUnpackCodes(record.y);
+    if((record.y&0xc0000000u)!=0u || any(low>high) || any(high>maximum) || any(high-low>1u)) {
+        DeltaStats.InterlockedOr(188u,2u,ignored);return;
+    }
+    if(!all(isfinite(actual)) || any(actual<0.0) || any(actual>1.0)) {
+        DeltaStats.InterlockedAdd(184u,1u,ignored);return;
+    }
+    // Recover the stored integer from its typed UNORM load; the read rounding
+    // is near an integer code center, not the uncertain FP32 store boundary.
+    uint3 code=uint3(StoreUnormScaledFloor(actual.x,maximum*2u),StoreUnormScaledFloor(actual.y,maximum*2u),
+        StoreUnormScaledFloor(actual.z,maximum*2u));code=(code+1u)>>1u;
+    DeltaStats.InterlockedAdd(168u,1u,ignored);
+    if(any(code<low) || any(code>high))DeltaStats.InterlockedAdd(172u,1u,ignored);
+}
 float3 StoreExpectedValue(float3 value, out bool known) {
     uint kind = (Passthrough >> 19) & 7u;
     known = all(isfinite(value));
@@ -3279,6 +3353,7 @@ void RecordPostStoreExpected(uint2 coord, float3 expected) {
     if ((Passthrough & 131072u) == 0u || (coord.x & 31u) != 0u ||
         (coord.y & 31u) != 0u) return;
     float3 original = OriginalColor.Load(int3(coord + uint2(SourceBaseX, SourceBaseY), 0)).rgb;
+    RecordPostStoreInterval(coord,expected,original);
     bool known;
     expected = StoreExpectedValue(expected,known);
     // An unsupported format, nonfinite value or ambiguous UNORM boundary
@@ -3303,6 +3378,7 @@ void ProbePostStoreCS(uint3 tid : SV_DispatchThreadID) {
     // Post uses the private snapshot at t5. Pre uses the original Color and
     // its real source offset; the diagnostic flag changes no composition math.
     float3 actual = OriginalColor.Load(int3(coord + uint2(DestinationBaseX,DestinationBaseY),0)).rgb;
+    ComparePostStoreInterval(coord,actual);
     uint2 referenceCoord = coord + (((Passthrough & 262144u) != 0u)
         ? uint2(SourceBaseX,SourceBaseY) : uint2(0,0));
     float3 original = EditField.Load(int3(referenceCoord,0)).rgb;
@@ -4210,6 +4286,7 @@ struct NrStoredResultMetadata {
     nr_native_format::Key native_key{};
     unsigned long long feature_generation=0;
     nr_probe_policy::Snapshot probe_policy{};
+    unsigned interval_capacity=0,interval_samples=0;
     unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
     int mode=0;
     bool recorded=false;
@@ -4259,6 +4336,7 @@ struct NrSlot {
     ID3D12Resource *exposure_source = nullptr;
     ID3D12Resource *delta_stats = nullptr;
     ID3D12Resource *delta_stats_readback = nullptr;
+    unsigned store_interval_capacity=0;
     ID3D12DescriptorHeap *heap = nullptr;
     // ClearUnorderedAccessViewUint requires its CPU descriptor to come from a
     // non-shader-visible heap, while the GPU descriptor remains in heap.
@@ -4324,6 +4402,8 @@ struct NrPostStoreEvidence {
     nr_probe_policy::Snapshot probe_policy{};
     unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
     bool comparison_known=false,matches_expected=false;
+    unsigned comparison_method=0,interval_capacity=0,interval_samples=0;
+    nr_store_comparison::Counters interval{};
     bool actual_nonfinite=false,reference_nonfinite=false;
     int mode=0; // 2: owned pre-SR Result; 1: game's post-SR Output.
     unsigned long long frame=0,feature_generation=0,tick=0;
@@ -4878,11 +4958,21 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         evidence.expected_mean=values[39]?static_cast<float>(values[36])/(values[39]*65535.0f):0.0f;
         evidence.expected_max=static_cast<float>(values[37])/1048576.0f;
         evidence.expected_changed=values[38]; evidence.expected_samples=values[39];
-        evidence.comparison_known=NrStoreDiagnosticFormat(static_cast<DXGI_FORMAT>(metadata.result_uav))!=0 &&
-            values[39]==values[28] && evidence.invalid==0 &&
-            !evidence.actual_nonfinite && !evidence.reference_nonfinite;
-        evidence.matches_expected=evidence.comparison_known && values[34]==values[35] &&
-            values[38]==values[29] && values[37]==values[31] && values[36]==values[32];
+        const auto store_kind=NrStoreDiagnosticFormat(static_cast<DXGI_FORMAT>(metadata.result_uav));
+        const bool finite_inputs=evidence.invalid==0 && !evidence.actual_nonfinite && !evidence.reference_nonfinite;
+        if(nr_store_comparison::Unorm(store_kind)) {
+            evidence.comparison_method=1;
+            evidence.interval_capacity=metadata.interval_capacity;evidence.interval_samples=metadata.interval_samples;
+            std::memcpy(&evidence.interval,values+nr_store_comparison::kLegacyWords,sizeof(evidence.interval));
+            const auto comparison=nr_store_comparison::Classify(store_kind,metadata.interval_samples,
+                metadata.interval_capacity,values[28],finite_inputs,evidence.interval);
+            evidence.interval.flags=comparison.flags;
+            evidence.comparison_known=comparison.known;evidence.matches_expected=comparison.match;
+        } else {
+            evidence.comparison_known=store_kind!=0 && values[39]==values[28] && finite_inputs;
+            evidence.matches_expected=evidence.comparison_known && values[34]==values[35] &&
+                values[38]==values[29] && values[37]==values[31] && values[36]==values[32];
+        }
         AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
         auto& destination=evidence.mode==2?g_pre_store_evidence:g_post_store_evidence;
         if (evidence.frame>=destination.frame) destination=evidence;
@@ -6470,13 +6560,16 @@ bool CreateTexture(ID3D12Device *device, unsigned int width, unsigned int height
 }
 
 bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
+    const auto result_desc=ID3D12Resource_GetDesc(slot.result);
+    slot.store_interval_capacity=nr_store_comparison::CapacityForExtent(
+        result_desc.Width,result_desc.Height,NrStoreDiagnosticFormat(slot.result_uav_format));
     D3D12_HEAP_PROPERTIES default_heap = {};
     default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     default_heap.CreationNodeMask = 1;
     default_heap.VisibleNodeMask = 1;
     D3D12_RESOURCE_DESC buffer = {};
     buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    buffer.Width = kDiagnosticStatsBytes;
+    buffer.Width = nr_store_comparison::BufferWords(slot.store_interval_capacity)*sizeof(std::uint32_t);
     buffer.Height = 1;
     buffer.DepthOrArraySize = 1;
     buffer.MipLevels = 1;
@@ -6488,6 +6581,13 @@ bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
         device, &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
         D3D12_RESOURCE_STATE_COMMON, nullptr, IID_ID3D12Resource,
         reinterpret_cast<void **>(&slot.delta_stats));
+    if ((FAILED(result) || slot.delta_stats == nullptr) && slot.store_interval_capacity) {
+        // Optional diagnostic storage must not introduce a new NR admission
+        // failure. A header-only fallback reports an unavailable interval.
+        ReleaseCom(slot.delta_stats);slot.store_interval_capacity=0;buffer.Width=kDiagnosticStatsBytes;
+        result=ID3D12Device_CreateCommittedResource(device,&default_heap,D3D12_HEAP_FLAG_NONE,&buffer,
+            D3D12_RESOURCE_STATE_COMMON,nullptr,IID_ID3D12Resource,reinterpret_cast<void **>(&slot.delta_stats));
+    }
     if (FAILED(result) || slot.delta_stats == nullptr) return false;
     ID3D12Resource_SetName(slot.delta_stats, L"NRChain.DeltaStats");
 
@@ -6495,6 +6595,7 @@ bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
     readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
     readback_heap.CreationNodeMask = 1;
     readback_heap.VisibleNodeMask = 1;
+    buffer.Width = kDiagnosticStatsBytes; // Only the aggregate header leaves the GPU.
     buffer.Flags = D3D12_RESOURCE_FLAG_NONE;
     result = ID3D12Device_CreateCommittedResource(
         device, &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -6900,7 +7001,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     stats_uav.Format = DXGI_FORMAT_R32_TYPELESS;
     stats_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     stats_uav.Buffer.FirstElement = 0;
-    stats_uav.Buffer.NumElements = kDiagnosticStatsUintCount;
+    stats_uav.Buffer.NumElements = nr_store_comparison::BufferWords(slot.store_interval_capacity);
     stats_uav.Buffer.StructureByteStride = 0;
     stats_uav.Buffer.CounterOffsetInBytes = 0;
     stats_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
@@ -7861,6 +7962,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         // Read the stored target while the same slot/recording owns it. Only
         // the already-armed sparse diagnostic sample pays for this dispatch.
         UavBarrier(command_list,slot.result);
+        // The probe reads the preceding Combine's interval records in this
+        // separate UAV. The Output barrier alone does not publish those writes.
+        if(nr_store_comparison::Unorm(NrStoreDiagnosticFormat(slot.result_uav_format)))
+            UavBarrier(command_list,slot.delta_stats);
         const auto previous_result_state=slot.result_state;
         Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         ID3D12DescriptorHeap *probe_heap=probe_pre_store?slot.pre_store_probe_heap:slot.snapshot_heap;
@@ -7883,6 +7988,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         metadata.identity=slot.diagnostic_identity;
         metadata.native_key=slot.native_format_key;
         metadata.probe_policy=probe_policy;
+        metadata.interval_capacity=slot.store_interval_capacity;
+        metadata.interval_samples=nr_store_comparison::Unorm(NrStoreDiagnosticFormat(slot.result_uav_format))
+            ? nr_store_comparison::PlannedSamples(width,height):0;
         metadata.feature_generation=slot.diagnostic_feature_generation;
         metadata.mode=g_config.mode;
         metadata.source_physical=static_cast<unsigned>(slot.source_format);

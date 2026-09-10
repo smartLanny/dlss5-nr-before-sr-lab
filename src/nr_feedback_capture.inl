@@ -439,9 +439,15 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             hash(sample.actual_hash,available).c_str(),decimal(sample.expected_mean,expected_available).c_str(),
             decimal(sample.actual_mean,available).c_str(),decimal(sample.expected_max,expected_available).c_str(),
             decimal(sample.actual_max,available).c_str());
+        const auto &range=sample.interval;
+        FeedbackAppend(s,"%s.store.%s.comparison=method:%s,N:%u,cap:%u,schema:%X,written:%u,compared:%u,mismatched:%u,missing:%u,invalidExpected:%u,invalidActual:%u,flags:0x%X\n",
+            prefix,route,available?nr_store_comparison::MethodName(sample.comparison_method):"unavailable",
+            sample.interval_samples,sample.interval_capacity,range.protocol,range.written,range.compared,
+            range.mismatched,range.missing,range.invalid_expected,range.invalid_actual,range.flags);
     };
     append_store("pre",pre_stored);
     append_store("post",stored);
+    FeedbackAppend(s,"%s.store.comparisonMeaning=UNORM interval requires every planned point; legacy expected/hash/mean fields retain unique-only expectation vs all actual samples and do not decide interval match; not consumer or Present proof\n",prefix);
     FeedbackAppend(s,"%s.post.outputProbe.available=%d\n%s.post.outputProbe.frame=%llu\n"
         "%s.post.outputProbe.config=%u\n%s.post.outputProbe.featureGeneration=%llu\n%s.post.outputProbe.ageMs=%llu\n"
         "%s.post.outputProbe.samples=%u\n%s.post.outputProbe.expectedSamples=%u\n"

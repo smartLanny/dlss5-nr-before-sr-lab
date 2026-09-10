@@ -2,12 +2,15 @@
 // The numerical oracle writes real typed UAVs; no NVIDIA model is loaded.
 #include <bit>
 #include <limits>
+#include "store_interval_shader.h"
 namespace store_quantization_test {
 using queue_test::Check;using queue_test::Hr;
 using native_color_test::Texture;using native_color_test::Observe;
 using post_output_test::ReadTexture;using post_output_test::Submit;
 using post_output_test::ClearViews;
 struct Pixel {float r,g,b,a;};
+struct OraclePixel {Pixel expected;unsigned lower,upper;};
+static_assert(sizeof(OraclePixel)==24);
 unsigned oracle_samples=0,oracle_unknown=0;
 unsigned Bits(float f){return std::bit_cast<unsigned>(f);}
 float Float(unsigned b){return std::bit_cast<float>(b);}
@@ -96,7 +99,10 @@ ID3D12PipelineState *OraclePipeline(queue_test::Fixture&f) {
     ResultOut[coord]=value;
     bool known;float3 expected=StoreExpectedValue(value.rgb,known);
     uint i=(coord.y/32u)*((Width+31u)/32u)+coord.x/32u;
-    StageCapture.Store4(i*16u,asuint(float4(expected,known?1.0:0.0)));
+    StageCapture.Store4(i*24u,asuint(float4(expected,known?1.0:0.0)));
+    uint2 bounds=uint2(0u,0u);uint kind=(Passthrough>>19u)&7u;
+    if((kind==2u || kind==3u) && isfinite(value.x))bounds=StoreUnormBounds(value.x,kind==2u?255u:1023u);
+    StageCapture.Store2(i*24u+16u,bounds);
     RecordPostStoreExpected(coord,value.rgb);
 }
 )HLSL";
@@ -126,7 +132,13 @@ std::vector<float> Values(DXGI_FORMAT format) {
         const unsigned n=format==DXGI_FORMAT_R8G8B8A8_UNORM?255:1023;
         for(unsigned i=0;i<n;++i) {
             values.push_back(static_cast<float>(i)/n);
-            for(double fraction:{.39,.4,.41,.49,.5,.51,.59,.6,.61})values.push_back(static_cast<float>((i+fraction)/n));
+            for(double fraction:{.39,.4,.41,.49,.5,.51,.59,.6,.61}) {
+                const auto value=static_cast<float>((i+fraction)/n);values.push_back(value);
+                if(fraction==.4 || fraction==.6) {
+                    values.push_back(std::nextafter(value,-std::numeric_limits<float>::infinity()));
+                    values.push_back(std::nextafter(value,std::numeric_limits<float>::infinity()));
+                }
+            }
         }
         values.push_back(std::nextafter(1.f,0.f));values.push_back(std::nextafter(1.f,2.f));
     } else if(format==DXGI_FORMAT_R11G11B10_FLOAT) {
@@ -158,8 +170,8 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
     slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;slot.result_format=target.Format;
     slot.result_srv_format=slot.result_uav_format=format;
     WriteCodecDescriptorSet(f.device,slot,slot.heap);WritePreStoreProbeDescriptors(f.device,slot);
-    ID3D12Resource *capture=MakeBuffer(f,count*16,false),*capture_readback=MakeBuffer(f,count*16,true);
-    BindStageCaptureDescriptor(slot,capture,count*16);
+    ID3D12Resource *capture=MakeBuffer(f,count*sizeof(OraclePixel),false),*capture_readback=MakeBuffer(f,count*sizeof(OraclePixel),true);
+    BindStageCaptureDescriptor(slot,capture,count*sizeof(OraclePixel));
     CodecConstants constants{};constants.width=width;constants.height=height;
     constants.passthrough=131072u|262144u|(NrStoreDiagnosticFormat(format)<<19);
     queue_test::List list(f);ID3D12GraphicsCommandList_SetComputeRootSignature(list.native,g_codec.root);
@@ -172,6 +184,7 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
     UavBarrier(list.native,slot.delta_stats);ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list.native,0,gpu);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list.native,1,kCodecRootConstantCount,&constants,0);
     ID3D12GraphicsCommandList_SetPipelineState(list.native,pipeline);ID3D12GraphicsCommandList_Dispatch(list.native,(columns+7)/8,(rows+7)/8,1);
+    UavBarrier(list.native,slot.delta_stats);
     UavBarrier(list.native,slot.result);Transition(list.native,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list.native,1,&slot.pre_store_probe_heap);
     gpu=ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.pre_store_probe_heap);
@@ -181,14 +194,14 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
     Transition(list.native,slot.result,slot.result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     UavBarrier(list.native,capture);auto capture_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     Transition(list.native,capture,capture_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
-    ID3D12GraphicsCommandList_CopyBufferRegion(list.native,capture_readback,0,capture,0,count*16);Submit(f,list);
+    ID3D12GraphicsCommandList_CopyBufferRegion(list.native,capture_readback,0,capture,0,count*sizeof(OraclePixel));Submit(f,list);
     const auto actual=ReadTexture(f,slot.result,slot.result_state);
-    Pixel expected[count]{};void *mapped=nullptr;D3D12_RANGE range{0,sizeof(expected)};
+    OraclePixel expected[count]{};void *mapped=nullptr;D3D12_RANGE range{0,sizeof(expected)};
     Hr(ID3D12Resource_Map(capture_readback,0,&range,&mapped),"oracle diagnostic results");std::memcpy(expected,mapped,sizeof(expected));
     D3D12_RANGE none{};ID3D12Resource_Unmap(capture_readback,0,&none);
     for(unsigned i=0;i<count&&first+i<values.size();++i) {
         const float v=values[first+i];const unsigned pixel=((i/columns)*32)*width+(i%columns)*32;
-        bool unique=std::isfinite(v);const auto *q=&expected[i].r;
+        bool unique=std::isfinite(v);const auto *q=&expected[i].expected.r;
         if(format==DXGI_FORMAT_R32G32B32A32_FLOAT) {
             unique=false;
             for(unsigned c=0;c<3;++c) {
@@ -201,6 +214,20 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
             const double bounded=std::isnan(v)?0:std::clamp(static_cast<double>(v),0.,1.);
             const double scaled=bounded*maximum,fraction=scaled-std::floor(scaled);
             unique&=fraction<.4||fraction>.6;
+            if(std::isfinite(v)) {
+                // Independent binary64 oracle: an FP32 value times <=1023
+                // is exact here. Test 5*distance<=3, never an epsilon band.
+                unsigned low=maximum,high=0,accepted=0;
+                const int base=static_cast<int>(std::floor(scaled));
+                for(int candidate=std::max(0,base-1);candidate<=std::min(static_cast<int>(maximum),base+2);++candidate)
+                    if(std::abs(static_cast<double>(candidate)-scaled)*5.0<=3.0) {
+                        low=std::min(low,static_cast<unsigned>(candidate));high=std::max(high,static_cast<unsigned>(candidate));++accepted;
+                    }
+                Check(accepted>=1 && accepted<=2 && expected[i].lower==low && expected[i].upper==high,
+                      "production UNORM interval equals independent exact legal-code set");
+                for(unsigned c=0;c<3;++c)Check(StoredCode(actual,pixel,format,c)>=low && StoredCode(actual,pixel,format,c)<=high,
+                      "actual typed store is within the exact allowed interval");
+            }
             for(unsigned c=0;c<3;++c) {
                 const auto code=StoredCode(actual,pixel,format,c),ideal=static_cast<unsigned>(std::floor(scaled+.5));
                 Check(std::abs(static_cast<double>(code)-scaled)<=.60000000001,"actual UNORM encoding satisfies specified 0.6 integer ULP");
@@ -222,7 +249,7 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
             }
             unique&=std::isfinite(ideal_value);
         }
-        Check((expected[i].a==1.f)==unique,"comparison known exactly follows finite/unique format conversion");
+        Check((expected[i].expected.a==1.f)==unique,"legacy unique expectation still reports ambiguous format conversion");
         ++oracle_samples;oracle_unknown+=!unique;
     }
     DestroySlot(slot);ReleaseCom(capture);ReleaseCom(capture_readback);
@@ -294,8 +321,11 @@ void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identi
             "actual-only and reference-only nonfinite are separate measured evidence");
         Check(evidence.expected_samples==(nonfinite_case==2?1u:0u),"nonfinite reference/expectation does not fabricate known pairs");
     }
-    else if(format==DXGI_FORMAT_R11G11B10_FLOAT||format==DXGI_FORMAT_R16G16B16A16_FLOAT||identity)
-        Check(evidence.comparison_known,"finite R11/FP16 and UNORM identity have exact comparison");
+    else Check(evidence.comparison_known,"finite supported storage has a complete format-aware comparison");
+    if(!invalid && nr_store_comparison::Unorm(NrStoreDiagnosticFormat(format)))
+        Check(evidence.comparison_method==1 && evidence.interval.written==1 && evidence.interval.compared==1 &&
+              evidence.interval.flags==0 && evidence.interval.mismatched==(wrong_target?1u:0u),
+              "full production UNORM pipeline compares every planned coordinate");
     if(evidence.comparison_known)Check(evidence.matches_expected==!wrong_target,"exact stored fingerprint/counters distinguish real write from wrong target");
     else Check(!evidence.matches_expected,"unknown precision never reports a successful comparison");
     const auto after=ReadTexture(f,output.resource,slot.result_state);const auto stride=BytesPerPixel(format);
@@ -312,6 +342,7 @@ void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identi
         evidence.comparison_known,evidence.matches_expected,evidence.expected_mean,evidence.actual_mean);
     DestroySlot(slot);ReleaseCom(gate);ReleaseCom(unused);
 }
+#include "store_interval_gpu.inl"
 void Run(bool oracle=true) {
     queue_test::Fixture f;Check(EnsureCodec(f.device)&&g_codec.post_store_probe,"production diagnostic shaders compile");
     ID3D12PipelineState *pipeline=OraclePipeline(f);
@@ -340,6 +371,7 @@ void Run(bool oracle=true) {
     pre_store_test::Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,false);
     pre_store_test::Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,true);
     pre_store_test::Case(f,DXGI_FORMAT_R32G32B32A32_FLOAT,true,true,false);
+    IntervalCases(f);
     std::printf("STORE_QUANTIZATION WARP PASS checks=%u samples=%u unknown=%u; actual typed UAV storage, no NGX/game\n",queue_test::checks,oracle_samples,oracle_unknown);
 }
 } // namespace store_quantization_test

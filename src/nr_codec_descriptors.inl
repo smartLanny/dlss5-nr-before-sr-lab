@@ -30,7 +30,7 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     uav(kCodecLanczosUavIndex,slot.lanczos_intermediate,DXGI_FORMAT_R16G16B16A16_FLOAT);
     D3D12_UNORDERED_ACCESS_VIEW_DESC raw={};raw.Format=DXGI_FORMAT_R32_TYPELESS;
     raw.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;raw.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;
-    raw.Buffer.NumElements=kDiagnosticStatsUintCount;
+    raw.Buffer.NumElements=kDiagnosticStatsUintCount+slot.store_interval_capacity*2u;
     ID3D12Device_CreateUnorderedAccessView(device,slot.delta_stats,nullptr,&raw,at(kCodecStatsUavIndex));
     raw.Buffer.NumElements=4;
     ID3D12Device_CreateUnorderedAccessView(device,nullptr,nullptr,&raw,at(kCodecCaptureUavIndex));

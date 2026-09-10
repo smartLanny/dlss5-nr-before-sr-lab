@@ -5,6 +5,7 @@
 #define ID3D12Device_CreateShaderResourceView(d,r,s,h) (d)->CreateShaderResourceView(r,s,h)
 #define ID3D12Device_CreateUnorderedAccessView(d,r,c,s,h) (d)->CreateUnorderedAccessView(r,c,s,h)
 struct NrSlot {
+    unsigned store_interval_capacity=0;
     ID3D12Resource *source=nullptr,*proxy=nullptr,*neural=nullptr,*motion_source=nullptr;
     ID3D12Resource *exposure_source=nullptr,*result=nullptr,*motion_proxy=nullptr,*delta_stats=nullptr;
     ID3D12Resource *edit_field=nullptr,*edit_horizontal=nullptr;

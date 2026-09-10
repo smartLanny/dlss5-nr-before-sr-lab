@@ -83,6 +83,7 @@ def main() -> None:
 #include "nr_post_boundary.h"
 #include "nr_resource_recovery.h"
 #include "nr_probe_policy.h"
+#include "nr_store_comparison.h"
 #define NR_HAS_COMMAND_CREATION_EVIDENCE 1
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1
 #define NR_HAS_EXPOSURE_SEMANTIC_EVIDENCE 1
