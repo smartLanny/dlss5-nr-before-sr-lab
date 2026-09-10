@@ -56,6 +56,10 @@ class PictureIntegration(unittest.TestCase):
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {
+            'src/nr_replay_format.h',
+            'src/nr_replay_shader.h',
+            'src/nr_replay_gpu.inl',
+            'src/nr_replay_runtime.inl',
             'src/nr_face_capture_geometry.h',
             'src/nr_face_diagnostic.h',
             'src/nr_face_diagnostic_ui.inl',
@@ -107,8 +111,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_native_command_record.inl',
             'src/interop/nr_post_area.hlsl',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '9b0e309c9bd34ef9f98c6c920a6c7fcc7f1cadc0')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '140668e9231bcdf747c2d6e534ed3d72e68b5943')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'aaba9199889fe70ba0bc3aaaba61baf8a610b593')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '62221f7eb0ba254ade108419cd515e571e9eff02')
 
 if __name__ == '__main__': unittest.main()
