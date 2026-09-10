@@ -271,26 +271,52 @@ void DrawSimpleImageCaptureControls() {
 // readouts remain available without putting implementation knobs on the home.
 // Each drawing thread keeps its own bounded window. Multiple swapchains must
 // not turn lock contention into a one-frame "checking" status.
-nr_ui_activity::Sample ReadUiActivity(unsigned config_generation) {
-    static thread_local nr_ui_activity::Window window;
+nr_ui_activity::Sample ReadUiActivity(unsigned config_generation,
+                                    nr_ui_activity::ReadReceipt* receipt=nullptr) {
+    auto& thread=NrUiActivityThread();
+    auto& window=thread.window;
+    nr_ui_activity::ReadReceipt observation{};
     const auto epoch=g_pipeline_stats_epoch.load(std::memory_order_acquire);
     const nr_ui_activity::Counters counters{g_carrier_evaluations.load(),
         g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load(),
         g_queue_affinity_unknown_bypass_frames.load()};
     const auto reason=g_last_bypass_reason.load(std::memory_order_acquire);
-    if (g_config_generation.load(std::memory_order_acquire)!=config_generation ||
-        g_pipeline_stats_epoch.load(std::memory_order_acquire)!=epoch) {
+    const auto config_checked=g_config_generation.load(std::memory_order_acquire);
+    const bool epoch_checked_known=config_checked==config_generation;
+    const auto epoch_checked=epoch_checked_known?
+        g_pipeline_stats_epoch.load(std::memory_order_acquire):0;
+    const auto now=GetTickCount64();
+    NrUiActivityReadIdentity(thread,observation,now);
+    observation.config_argument=config_generation;observation.epoch_entered=epoch;
+    observation.config_checked=config_checked;observation.epoch_checked=epoch_checked;
+    observation.epoch_checked_known=epoch_checked_known;
+    if (config_checked!=config_generation || (epoch_checked_known && epoch_checked!=epoch)) {
+        auto& detail=observation.observation;
+        detail.before=window.Inspect();detail.current=counters;detail.input_scope={config_generation,epoch};
+        detail.now=now;detail.live_reason=reason;detail.kind=nr_ui_activity::Kind::Incoherent;
+        detail.gap_known=detail.before.initialized && now>=detail.before.last_observed;
+        if(detail.gap_known)detail.gap_ms=now-detail.before.last_observed;
+        detail.reset_mask=config_checked!=config_generation?nr_ui_activity::ConfigReadChanged:
+            nr_ui_activity::EpochReadChanged;
         window={};
+        if(receipt)*receipt=observation;
         return {};
     }
-    return window.Observe(GetTickCount64(),counters,{config_generation,epoch},reason);
+    const auto sample=window.Observe(now,counters,{config_generation,epoch},reason,&observation.observation);
+    if(receipt)*receipt=observation;
+    return sample;
 }
 
 void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
-                          const ChainConfig &config,unsigned generation) {
+                          const ChainConfig &config,unsigned generation,nr_ui_activity::Site site) {
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
-    const auto activity=ReadUiActivity(generation);
+    nr_ui_activity::ReadReceipt receipt{};
+    const auto activity=ReadUiActivity(generation,&receipt);
+    using Display=nr_ui_activity::Display;
+    // The platform assembler replaces the first API-warning body. Its branch
+    // identity stays the same; every subsequent branch sets its own identity.
+    Display displayed=Display::WrongApi;
     // A carrier can safely skip between two submitted NR frames. Keep the
     // entire summary on one window instead of contradicting it every frame.
     // The unfiltered per-carrier reason and counters remain in diagnostics/F8.
@@ -299,41 +325,63 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
         ImGui::TextWrapped("%s", ui(
             "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
             "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
-    else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f)
+    else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f) {
+        displayed=Display::Native;
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
-    else if (!activity.valid)
+    }
+    else if (!activity.valid) {
+        displayed=Display::Checking;
         ImGui::TextWrapped("%s", ui("Checking recent NR activity...", "正在检查近期 NR 处理状态……"));
-    else if (activity.Intermittent())
+    }
+    else if (activity.Intermittent()) {
+        displayed=Display::Intermittent;
         ImGui::TextWrapped("%s", ui(
             "NR is processing intermittently. Some evaluations are skipped while queue synchronization requirements are unmet. Use F6 to compare and F8 to report.",
             "NR 正在间歇处理；部分评估因队列同步条件未满足而跳过。按 F6 对比画面，按 F8 反馈。"));
-    else if (activity.Processing())
+    }
+    else if (activity.Processing()) {
+        displayed=Display::Observed;
         ImGui::TextWrapped("%s", ui("Recent NR processing and output submission observed. Use F6 to compare the picture.",
             "最近已观察到 NR 处理和画面输出提交。按 F6 对比实际效果。"));
-    else if (reason == BypassReason::QueueRetirementTimeout)
+    }
+    else if (reason == BypassReason::QueueRetirementTimeout) {
+        displayed=Display::QueueTimeout;
         ImGui::TextWrapped("%s", ui("Submitted NR did not finish within the bounded wait. Native output is retained for these settings; use F8 before retrying with F6.",
             "上一轮 NR 未在等待上限内完成；当前设置保持原生输出。请先按 F8 记录，再用 F6 重新尝试。"));
-    else if (reason == BypassReason::RuntimeUnavailable)
+    }
+    else if (reason == BypassReason::RuntimeUnavailable) {
+        displayed=Display::RuntimeUnavailable;
         ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll beside the addon. Use F8 for the actual failure record.",
             "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，将配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁；按 F8 记录具体失败。"));
-    else if (reason == BypassReason::CodecUnavailable)
+    }
+    else if (reason == BypassReason::CodecUnavailable) {
+        displayed=Display::CodecUnavailable;
         ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
             "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
+    }
     else if (reason == BypassReason::RayReconstructionGuard) {
+        displayed=Display::RayReconstruction;
         DrawPostRouteStatus();
     }
-    else if (reason == BypassReason::ShortFuseOwnsNr)
+    else if (reason == BypassReason::ShortFuseOwnsNr) {
+        displayed=Display::OtherOwner;
         ImGui::TextWrapped("%s", ui("Another NR plugin is active. Disable its NR effect before using this one.",
             "另一个 NR 插件正在运行。请先关闭它的 NR 效果，再使用本插件。"));
-    else if (reason == BypassReason::GenericRenoDxConflict)
+    }
+    else if (reason == BypassReason::GenericRenoDxConflict) {
+        displayed=Display::Conflict;
         ImGui::TextWrapped("%s", ui(
             "Duplicate NR plugin detected: remove renodx-dlss5.addon64 and restart the game.",
             "检测到重复 NR 插件：请删除 renodx-dlss5.addon64，然后重启游戏。"));
-    else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling)
+    }
+    else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling) {
+        displayed=Display::WaitingForSr;
         ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in the game settings.",
             "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
+    }
     else if (reason == BypassReason::ModuleObserverUncertain) {
+        displayed=Display::ObserverIncomplete;
         ImGui::TextWrapped("%s", ui(
             "DLSS lifecycle observation is incomplete. NR stays off to protect SR/RR and any existing FG/MFG. F8 includes the first hook failure; changing NR strength cannot repair this.",
             "DLSS 生命周期观察不完整，NR 已安全旁路以保护原生 SR/RR 和现有 FG/MFG。F8 会保留首次 Hook 失败；调高强度不能解决此问题。"));
@@ -343,6 +391,7 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
                 failure.operation, failure.entry);
     }
     else if (reason == BypassReason::CommandStateUnverified) {
+        displayed=Display::CommandStateUnknown;
         const auto evidence = SnapshotCommandStateEvidence();
         ImGui::TextWrapped("%s", ui(
             "The command list is not yet safe for NR insertion. Native SR is preserved. The last carrier decision below is an observation, not a compatibility guarantee.",
@@ -355,12 +404,17 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
         ImGui::TextWrapped("%s", ui("Use F8 for the structured state report; do not disable safety guards.",
             "按 F8 获取结构化状态报告；请勿通过关闭安全保护强行启用。"));
     }
-    else if (reason != BypassReason::None)
+    else if (reason != BypassReason::None) {
+        displayed=Display::Bypassed;
         ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and collect feedback with F8.",
             "NR 当前已跳过（%s）。请保留问题场景，按 F8 收集反馈。"), BypassReasonName(reason));
-    else
+    }
+    else {
+        displayed=Display::NoSubmission;
         ImGui::TextWrapped("%s", ui("No new NR output submission observed in the recent interval. Enter gameplay; use F8 if this persists.",
             "近期暂未观察到新的 NR 画面输出提交。请进入实际场景；持续无效时按 F8 反馈。"));
+    }
+    NrPublishUiActivity(receipt,site,displayed);
     SettingsTooltip(ui("Updated about once per second from recent process counters. Submission is not proof of presentation or picture quality. Per-evaluation reasons remain in F8.",
         "约每秒根据近期处理计数更新。提交不等于已显示或画质已改善；每次评估的具体原因仍保留在 F8。"));
 }
@@ -396,7 +450,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (current.config.enabled && ActiveTransferStrength(current.config)>0.000001f)
         DrawGenericCompatibilityStatus();
 #endif
-    DrawNrActivityStatus(runtime,current.config,current.generation);
+    DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
 
 
     if (next.identity_use_original)

@@ -47,6 +47,9 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
 }
 
 #include "nr_compatibility_verdict_feedback.inl"
+#if defined(NR_HAS_UI_ACTIVITY_RECEIPTS)
+#include "nr_ui_activity_feedback.inl"
+#endif
 #if NR_HAS_TIMING
 #include "nr_timing_feedback.inl"
 #endif
@@ -335,6 +338,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,g_queue_retirement_waits.load(),prefix,g_queue_retirement_wait_completed.load(),
         prefix,g_queue_retirement_wait_timeouts.load(),prefix,g_queue_retirement_wait_ms.load(),
         prefix,g_queue_retirement_wait_max_ms.load());
+#if defined(NR_HAS_UI_ACTIVITY_RECEIPTS)
+    FeedbackAppendUiActivity(s,prefix);
+#endif
 #if NR_HAS_PROBE_POLICY
     const auto probe_policy=NrProbePolicySnapshot();
     FeedbackAppend(s,"%s.probeControl.phase=%llu\n%s.probeControl.mode=%s\n"

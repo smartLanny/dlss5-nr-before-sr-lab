@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdint>
 #include <deque>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -127,6 +128,50 @@ inline bool TimingMetadataNumber(std::string_view line, std::size_t begin, std::
     }
     return matches == 1;
 }
+inline bool UiActivityMetadataNumber(std::string_view line, std::size_t begin, std::size_t end) {
+    if(begin>=end || end>line.size() || !CanonicalUnsigned(line.substr(begin,end-begin)))return false;
+    const auto equal=line.find('=');
+    if(equal==std::string_view::npos || begin<=equal)return false;
+    auto key=line.substr(0,equal);
+    if(key.substr(0,17)=="start.uiActivity.")key.remove_prefix(17);
+    else if(key.substr(0,15)=="end.uiActivity.")key.remove_prefix(15);
+    else return false;
+    for(const auto scalar:{"snapshotTick","published","overwritten"})
+        if(key==scalar)return begin==equal+1 && end==line.size();
+    bool record=key=="latest.top" || key=="latest.feedback";
+    if(key.substr(0,7)=="recent.") {
+        std::uint64_t index=0;
+        record=CanonicalUnsigned(key.substr(7),&index) && index<4;
+    }
+    if(!record)return false;
+    // Complete fixed record grammar. No free-form field, pointer, extra tuple
+    // element or duplicate trusted label inherits a numeric exemption.
+    struct Field { std::string_view name; unsigned count; };
+    constexpr Field fields[]={{"seq",1},{"thread",1},{"call",1},{"site",1},{"atMs",1},
+        {"readGap",2},{"windowGap",2},{"scopeBefore",2},{"readScope",5},{"reset",1},
+        {"regressed",1},{"observe",1},{"kind",1},{"initialized",1},{"valid",2},{"sampleMs",1},
+        {"counterBefore",4},{"counterNow",4},{"delta",4},{"reason",2},{"event",1},{"display",4}};
+    std::size_t at=equal+1;bool found=false;
+    for(unsigned field=0;field<std::size(fields);++field) {
+        const auto name=fields[field].name;
+        if(line.substr(at,name.size())!=name || at+name.size()>=line.size() || line[at+name.size()]!=':')return false;
+        at+=name.size()+1;
+        for(unsigned component=0;component<fields[field].count;++component) {
+            auto finish=at;
+            while(finish<line.size() && line[finish]>='0' && line[finish]<='9')++finish;
+            if(!CanonicalUnsigned(line.substr(at,finish-at)))return false;
+            found=found || (at==begin && finish==end);
+            at=finish;
+            if(component+1<fields[field].count) {
+                if(at>=line.size() || line[at++]!='/')return false;
+            }
+        }
+        if(field+1<std::size(fields)) {
+            if(at>=line.size() || line[at++]!=',')return false;
+        }
+    }
+    return found && at==line.size();
+}
 inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
@@ -155,6 +200,7 @@ inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = f
         while (end < line.size() && Hex(line[end])) ++end;
         const auto n = end - begin;
         if (n >= 12 && n <= 16 && (end == line.size() || !Word(line[end]))) {
+            if (typed_metadata && UiActivityMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;
