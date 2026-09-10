@@ -264,8 +264,9 @@ if __name__=='__main__':
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
         route = definition(ui, 'bool DrawProcessingModeBlocks(')
         assert 'const int requested_mode = option == 0 ? 2 : 1;' in route
-        assert 'const int shown_mode = rr_guarded ? 1 : next.mode;' in route
-        assert 'if (clicked && !rr_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
-        assert 'if (rr_guarded) ImGui::BeginDisabled();' in route
-        assert 'if (rr_guarded) ImGui::EndDisabled();' in route
+        assert 'const bool mode_guarded = rr_guarded || compatible_post_locked;' in route
+        assert 'const int shown_mode = mode_guarded ? 1 : next.mode;' in route
+        assert 'if (clicked && !mode_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
+        assert 'if (mode_guarded) ImGui::BeginDisabled();' in route
+        assert 'if (mode_guarded) ImGui::EndDisabled();' in route
         print('PASS sticky registration / visible comparison integration')

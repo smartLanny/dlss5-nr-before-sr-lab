@@ -1,0 +1,258 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdarg>
+#include <cstring>
+#include <string>
+#include "nr_route_compatibility.h"
+#include "nr_native_format.h"
+#include "nr_compatibility_verdict.h"
+#define NR_HAS_ROUTE_COMPATIBILITY 1
+namespace nr_recovery = nr_resource_recovery;
+using NgxResult = unsigned;
+struct Desc {
+    unsigned Format=10,Flags=4,Dimension=3;
+    unsigned long long Width=1920;
+    unsigned Height=1080,DepthOrArraySize=1,MipLevels=1;
+    struct {unsigned Count=1,Quality=0;} SampleDesc;
+    unsigned Layout=0;
+};
+struct ID3D12Resource { std::uint64_t identity=0; Desc desc{}; };
+Desc ID3D12Resource_GetDesc(ID3D12Resource* resource) { return resource->desc; }
+unsigned long long NrFormatResourceIdentity(ID3D12Resource* resource) { return resource ? resource->identity : 0; }
+struct NgxParams {
+    ID3D12Resource* color=nullptr; ID3D12Resource* output=nullptr;
+    float exposure=1;
+    unsigned x=0;
+};
+struct FeatureRecord { int feature_id=1,create_flags=1; bool create_flags_known=true; unsigned long long generation=7; };
+bool GetResource(const NgxParams* p,const char* name,ID3D12Resource** value) {
+    *value=!std::strcmp(name,"Color")?p->color:!std::strcmp(name,"Output")?p->output:nullptr;
+    return *value!=nullptr;
+}
+bool GetUInt(const NgxParams* p,const char* name,unsigned* value) {
+    if (std::strcmp(name,"DLSS.Output.Subrect.Base.X")) return false;
+    *value=p->x; return true;
+}
+bool GetFloat(const NgxParams* p,const char* name,float* value) {
+    if (std::strcmp(name,"DLSS.Pre.Exposure") && std::strcmp(name,"DLSS.Exposure.Scale")) return false;
+    *value=p->exposure; return true;
+}
+nr_native_format::Ledger<> native_views;
+nr_native_format::Evidence NrFormatEvidence(const nr_native_format::Key& key) { return native_views.Find(key); }
+std::atomic<unsigned> g_config_generation{9};
+std::atomic<int> g_requested_mode_fast{2};
+std::atomic<bool> g_enabled_fast{true},g_feature_tracking_uncertain{false},g_lifecycle_tracking_uncertain{false};
+bool rr=false;
+bool IsRayReconstructionRouteObserved() { return rr; }
+enum class BypassReason { None,UnsupportedInputFormat,InputColorContractUnverified,UnsupportedOutputFormat,OutputColorContractUnverified,RuntimeRejected };
+const char* BypassReasonName(BypassReason value) {
+    return value==BypassReason::UnsupportedOutputFormat?"unsupported-output-format":
+        value==BypassReason::RuntimeRejected?"runtime-rejected":"none";
+}
+struct RecoverySnapshot { std::uint64_t frame=0; nr_compatibility_verdict::Input input{}; nr_recovery::Key key{}; } g_nr_recovery_snapshot;
+struct RecoveryCarrier { nr_recovery::Scope scopes[2]{}; RecoverySnapshot snapshot; } recovery_carrier;
+RecoveryCarrier* g_nr_recovery_carrier=&recovery_carrier;
+nr_recovery::Scope g_nr_recovery_scopes[4]{};
+SRWLOCK g_nr_recovery_lock=SRWLOCK_INIT;
+nr_recovery::Ledger<16,32,4> g_nr_recovery;
+#include "nr_route_compatibility_runtime.inl"
+// These two producer boundaries are extracted verbatim from the current Core.
+// @RECORD@
+// @BYPASS@
+struct NrPostStoreEvidence {
+    nr_recovery::Token recovery_token{}; nr_recovery::Target recovery_target{};
+    unsigned samples=0,actual_nonfinite=0;
+    bool comparison_known=false,matches_expected=false;
+};
+// @STORED@
+struct FeedbackSession { std::string report; };
+__attribute__((format(printf,2,3)))
+void FeedbackAppend(FeedbackSession& s,const char* format,...) {
+    char text[4096]; va_list args; va_start(args,format);
+    const int count=std::vsnprintf(text,sizeof(text),format,args);va_end(args);
+    if(count<0||static_cast<unsigned>(count)>=sizeof(text))std::abort();
+    s.report.append(text,static_cast<unsigned>(count));
+}
+void RouteFeedback(FeedbackSession& s,const char* prefix) {
+// @FEEDBACK@
+}
+unsigned checks=0,failures=0;
+void Check(bool ok,const char* label) {++checks;if(!ok){++failures;std::printf("FAIL %s\n",label);}}
+ID3D12Resource color{30}, output{40};
+NgxParams params{&color,&output};FeatureRecord feature;
+unsigned pre_calls=0,post_gate_calls=0,native_calls=0,nr_calls=0;
+bool pre_definitive=true,post_admissible=true,writeback=true,native_success=true,nr_success=true;
+nr_recovery::Token last_token{};
+void Reset() {
+    g_nr_route={};g_nr_recovery={};native_views={};
+    color={30};output={40};params={&color,&output};feature={};
+    color.desc.Format=29;
+    g_config_generation=9;g_requested_mode_fast=2;g_enabled_fast=true;
+    g_feature_tracking_uncertain=false;g_lifecycle_tracking_uncertain=false;rr=false;
+    recovery_carrier.scopes[1]={19,19,1,7,9,1};
+    pre_calls=post_gate_calls=native_calls=nr_calls=0;
+    pre_definitive=post_admissible=writeback=native_success=nr_success=true;
+    last_token={};
+}
+nr_resource_semantics::Decision PreDecision() {
+    using namespace nr_resource_semantics;
+    Request r{};r.storage=color.desc.Format;
+    r.role=Role::ColorInput;r.contract=Contract::LdrEncoded;r.contract_known=true;r.lifecycle_known=true;
+    return ResourceSemanticResolver::Resolve(r,[](unsigned,unsigned){return Capability{true,0,true,true,true};});
+}
+struct Before {bool active=false,compatibility_fallback=true;};
+struct After {bool active=false;nr_recovery::Token token{};};
+void Frame(std::uint64_t frame) {
+    if(!pre_definitive)color.desc.Format=27;
+    recovery_carrier.snapshot.frame=frame;
+    recovery_carrier.scopes[1].config_generation=g_config_generation.load();
+    recovery_carrier.scopes[1].feature_generation=feature.generation;
+    const auto scope=recovery_carrier.scopes[1];
+    const auto carrier=g_nr_recovery.ObserveCarrier(scope,1,frame);
+    NrRouteCarrierScope route(&params,feature);
+    route.Reconcile();
+    Before before{};After after{};
+    const bool fallback=nr_route::Prepare(before,after,[]{return NrRoutePostLocked();},
+        [&] {
+            ++pre_calls;const auto decision=PreDecision();
+            NrRouteSemanticObserved(decision,false);
+            NrRoutePreRejected(nr_route::DefinitivePreSemantic(decision),decision.reason);
+            return Before{};
+        },[](const Before& value){return value.compatibility_fallback&&!value.active;},[]{},
+        [&](bool force) {
+            ++post_gate_calls;Check(force,"production gate requests POST only after fallback/lock");
+            NrRouteAttemptPost();
+            if(!post_admissible) {
+                using namespace nr_resource_semantics;
+                Request r{};r.storage=nr_format_access::Rgba8Typeless;r.role=Role::Output;
+                r.contract=Contract::LdrEncoded;r.contract_known=r.lifecycle_known=r.allow_write=true;
+                const auto decision=ResourceSemanticResolver::Resolve(r,[](unsigned,unsigned){return Capability{true,0,true,true,true};});
+                NrRouteSemanticObserved(decision,true);NrRouteBypass(BypassReason::UnsupportedOutputFormat);
+                NrRoutePostPrepared(false,{});return After{};
+            }
+            nr_recovery::Key key{scope,output.identity,output.identity,0,1};
+            nr_recovery::ViewSignature view{10,10,1,1};
+            g_nr_recovery.Resolve(key,view,nr_recovery::SemanticState::Exact);
+            const auto token=g_nr_recovery.Begin(key,view,carrier);
+            NrRecoveryRecord(token,nr_recovery::Stage::Descriptor,true);
+            NrRoutePostPrepared(true,token);last_token=token;
+            return After{true,token};
+        });
+    Check(fallback,"fallback receipt preserved");
+    ++native_calls;
+    if(after.active) {
+        NrRecoveryRecord(after.token,nr_recovery::Stage::NativeSrEvaluate,native_success,native_success?1:0xBAD0000Eu);
+        if(native_success) {
+            ++nr_calls;
+            NrRecoveryRecord(after.token,nr_recovery::Stage::NrEvaluate,nr_success,nr_success?1:0xBAD0000Du);
+            if(nr_success)NrRecoveryRecord(after.token,nr_recovery::Stage::TransferRecorded,true);
+            NrRoutePostFinished(nr_success);
+        }
+    }
+    g_nr_recovery.EndCarrier(scope,1,carrier,after.active&&native_success&&nr_success);
+    if(after.active&&native_success&&nr_success) {
+        NrRecoveryRecord(after.token,nr_recovery::Stage::Submitted,true);
+        if(writeback)NrRecoveryStoredEvidence({after.token,{output.identity,output.identity,0},1,0,true,true});
+    }
+}
+void HappyAndRejects() {
+    Reset();Frame(1);Check(!SnapshotNrRoute().locked,"SINGLE_SUCCESS_ORACLE: one actual successful carrier cannot lock");
+    Frame(2);Check(!SnapshotNrRoute().locked,"two successful carriers cannot lock");
+    Frame(3);auto good=SnapshotNrRoute();
+    Check(good.locked&&good.post_verified&&good.post_submitted&&good.pre_definitive,"EXACT_PROOF_ORACLE: actual ledger window and actual stored producer lock the matching route");
+    Check(good.proof.proof_attempt_id==last_token.attempt_id,"proof attempt is exact");
+    Frame(4);Check(pre_calls==3&&post_gate_calls==4&&native_calls==4&&nr_calls==4,"POST_GATE_ORACLE: lock skips only PRE, every POST admission and native call remains");
+    FeedbackSession feedback;RouteFeedback(feedback,"end");
+    Check(feedback.report.find("state:locked-post,current:1,locked:1,requested:2,selected:1")!=std::string::npos&&
+          feedback.report.find("attempted:1,admitted:1,recorded:1,submitted:1,verified:1")!=std::string::npos&&
+          feedback.report.find("final visuals unverified")!=std::string::npos,"production F8 separates actual phase facts from final visuals");
+    std::printf("ROUTE_F8_BYTES %zu per snapshot\n",feedback.report.size());
+    Check(std::string_view(nr_route::Notice(good,false,true)).find("最终画面待确认")!=std::string_view::npos,"locked notice never certifies final pixels");
+    auto manual=good;manual.scope.requested=1;manual.locked=false;manual.state=nr_route::State::TryingPost;
+    Check(!*nr_route::Notice(manual,false,true),"manual POST is not described as an automatic PRE fallback");
+    post_admissible=false;Frame(5);auto blocked=SnapshotNrRoute();
+    Check(!blocked.locked&&!blocked.post_admitted&&!blocked.post_recorded&&!blocked.post_submitted&&blocked.state==nr_route::State::PostBlocked,
+          "POST_GATE_ORACLE: previously locked POST is still rejected by its live admission gate");
+    Check(std::string_view(nr_route::Notice(blocked,false,true)).find("Output 视图类型")!=std::string_view::npos,
+          "ZZ_UNKNOWN_ORACLE: ambiguous Output is described as unknown, not missing runtime or usable POST");
+    NrRouteRefreshProof(last_token);Check(!SnapshotNrRoute().locked,"failed POST cannot relock from its previous completed window");
+    Reset();pre_definitive=false;Frame(1);Frame(2);Frame(3);auto unresolved=SnapshotNrRoute();
+    Check(unresolved.post_verified&&!unresolved.pre_definitive&&!unresolved.locked,"PRE_UNKNOWN_ORACLE: verified POST plus ambiguous PRE cannot establish a lock");
+    Reset();writeback=false;Frame(1);Frame(2);Frame(3);
+    Check(SnapshotNrRoute().post_submitted&&!SnapshotNrRoute().post_verified&&!SnapshotNrRoute().locked,
+          "STORAGE_ORACLE: three submitted successes without actual writeback remain unverified");
+    Reset();Frame(1);Frame(2);Frame(3);nr_success=false;Frame(4);
+    Check(!SnapshotNrRoute().locked&&native_calls==4&&nr_calls==4,"NR failure revokes lock without retrying native or model");
+    Reset();Frame(1);Frame(2);Frame(3);native_success=false;Frame(4);
+    Check(!SnapshotNrRoute().locked&&native_calls==4&&nr_calls==3,"native failure revokes lock and does not run NR");
+}
+void ScopeControls() {
+    Reset();Frame(1);Frame(2);Frame(3);const auto good=SnapshotNrRoute();
+    for(unsigned field=0;field<54;++field) {
+        nr_route::Policy policy;policy.Begin(good.scope,1);policy.PreRejected(true,"known-pre-contract");
+        policy.AttemptPost();policy.AdmitPost(good.proof_token);policy.RecordedPost(true);
+        policy.Begin(good.scope,3);policy.Refresh(good.proof_token,good.proof);
+        Check(policy.Read().locked,"control starts from a verified current scope");
+        auto changed=good.scope;
+        if(field==0)++changed.device;else if(field==1)++changed.feature;else if(field==2)++changed.config;
+        else if(field==3)++changed.color;else if(field==4)++changed.output;else if(field==5)changed.requested=1;
+        else ++changed.contract[field-6];
+        policy.Begin(changed,4);policy.PreRejected(true,"known-pre-contract");policy.AttemptPost();
+        policy.AdmitPost(good.proof_token);policy.Refresh(good.proof_token,good.proof);
+        Check(!policy.Read().locked,"SCOPE_ORACLE: every resource/config/view/region/exposure field change rejects the old proof");
+    }
+    for(unsigned field=0;field<12;++field) {
+        nr_route::Policy policy;policy.Begin(good.scope,1);policy.PreRejected(true,"known-pre-contract");
+        policy.AttemptPost();policy.AdmitPost(good.proof_token);policy.RecordedPost(true);policy.Begin(good.scope,3);
+        auto proof=good.proof;
+        if(field==0)++proof.attempt_id;else if(field==1)++proof.proof_attempt_id;
+        else if(field==2)++proof.proof_target.resource;else if(field==3)++proof.proof_target.resource_generation;
+        else if(field==4)++proof.proof_target.subresource;else if(field==5)proof.correlated_window=false;
+        else if(field==6)proof.descriptor_verified=false;else if(field==7)proof.writeback_verified=false;
+        else if(field==8)proof.nr_success_streak=1;else if(field==9)proof.native_success_streak=1;
+        else if(field==10)proof.submitted_count=0;else proof.capacity_unknown=true;
+        policy.Refresh(good.proof_token,proof);
+        Check(!policy.Read().locked,"EXACT_PROOF_ORACLE: partial, mismatched or insufficient exact proof cannot lock");
+    }
+    nr_route::Policy submitted;submitted.Begin(good.scope,1);submitted.AttemptPost();submitted.AdmitPost(good.token);
+    auto old=good.token;--old.carrier.frame_id;submitted.Stage(old,nr_recovery::Stage::Submitted,true);
+    Check(!submitted.Read().post_submitted,"old carrier submission cannot mark current carrier submitted");
+    submitted.Stage(good.token,nr_recovery::Stage::Submitted,true);
+    Check(submitted.Read().post_submitted,"exact current carrier submission is retained");
+    rr=true;Check(!SnapshotNrRoute().current&&!SnapshotNrRoute().locked,"RR transition invalidates ordinary SR scope");
+    Check(std::string_view(nr_route::Notice({},true,true)).find("RR → NR")!=std::string_view::npos,"RR forced-route notice stays independent");
+    Reset();Frame(1);Frame(2);Frame(3);NrRouteRetireFeature(7);Check(!SnapshotNrRoute().locked,"Feature retirement invalidates lock");
+    Reset();Frame(1);Frame(2);Frame(3);++g_config_generation;Check(!SnapshotNrRoute().locked,"settings generation invalidates lock without rewriting mode");
+    Check(g_requested_mode_fast==2,"requested PRE preference stays unchanged");
+}
+void SemanticVerdict() {
+    using namespace nr_compatibility_verdict;
+    Input input{};input.current={true,9,7,2,1};
+    input.resource={true,input.current,false,false,ResourceState::UnknownSemantic,
+        "multiple-legal-resource-interpretations","current-native-Output-UAV-format",NextAction::AutoRetry};
+    recovery_carrier.snapshot.input=input;
+    NrObserveCompatibilityBypass(BypassReason::UnsupportedOutputFormat);
+    input=recovery_carrier.snapshot.input;
+    const auto result=Resolve(input);
+    Check(!input.first_block.definitive&&result.reason=="unknown-resource-semantic"&&
+          result.firstDefinitiveFailure.empty()&&!result.evidenceComplete,"ZZ_UNKNOWN_ORACLE: actual mapper cannot promote a broad format bypass to definitive hardware rejection");
+    input.resource.definitive=true;input.resource.state=ResourceState::Rejected;
+    input.first_block=CurrentResourceBlock(input.current,"unsupported-output-format",input.resource);
+    Check(Resolve(input).firstDefinitiveFailure=="unsupported-output-format","known resource rejection remains definitive");
+    input.resource.scope.config=8;input.resource.definitive=false;
+    Check(CurrentResourceBlock(input.current,"unsupported-output-format",input.resource).definitive,
+          "stale unknown metadata cannot erase an unrelated current format rejection");
+    nr_resource_semantics::Decision decision{};decision.verdict=nr_resource_semantics::Verdict::Unsupported;
+    decision.definitive=true;decision.reason="prior-interpretation-validation-failed";
+    Check(!nr_route::DefinitivePreSemantic(decision),"shared/model validation failure is not PRE contract incompatibility");
+}
+int main() {
+    HappyAndRejects();ScopeControls();SemanticVerdict();
+    std::printf("ROUTE_CPU %s checks=%u failures=%u; production route gate/runtime/recovery producers/F8, real Win32 value locks; API/NR facts scripted; no GPU/game\n",
+        failures?"FAIL":"PASS",checks,failures);
+    return failures?41:0;
+}

@@ -7,6 +7,9 @@ nr_recovery::ViewSignature NrRecoveryViewSignature(const NrResolvedColorView& re
         static_cast<unsigned>(result.semantic.contract), 1};
 }
 NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) {
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteSemanticObserved(result.semantic, post_sr);
+#endif
 #if defined(NR_HAS_TIMING)
     // RR has an independent timing carrier but deliberately no Feature1
     // recovery carrier. Candidate resource facts apply to either real route.

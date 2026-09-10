@@ -187,6 +187,17 @@ inline ReasonPolicy ClassifyReason(std::string_view reason) {
     return {Stage::Unknown, NextAction::NeedsCode, false};
 }
 
+inline FirstBlock CurrentResourceBlock(const Scope& scope, std::string_view reason,
+                                       const ResourceEvidence& resource) {
+    const bool format_reason = reason == "unsupported-input-format" || reason == "input-color-contract-unverified" ||
+        reason == "unsupported-output-format" || reason == "output-color-contract-unverified";
+    const bool current_rejection = format_reason && resource.available && !resource.admitted && SameScope(resource.scope, scope);
+    if (current_rejection && !resource.definitive)
+        return {true, true, scope, resource.state == ResourceState::QueryFailed ?
+            "format-query-failed" : "unknown-resource-semantic", false};
+    return {true, true, scope, reason, current_rejection ? resource.definitive : ClassifyReason(reason).known};
+}
+
 inline void Missing(Verdict &v, std::string_view field) {
     if (field.empty()) return;
     if (!v.missingEvidence.empty()) v.missingEvidence += ";";

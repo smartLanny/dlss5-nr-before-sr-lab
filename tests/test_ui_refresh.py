@@ -61,7 +61,10 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn('CollapsingHeader(ui("Advanced picture controls"', self.ui)
         self.assertIn('SettingsSection(ui("Advanced picture controls"', self.ui)
         self.assertIn("ImGui::SameLine();", self.ui)
-        self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
+        self.assertIn("GetTextLineHeightWithSpacing() * 6.25f", self.ui)
+        self.assertEqual(self.ui.count("DrawGenericCompatibilityStatus();"), 1)
+        self.assertLess(self.ui.index("DrawGenericCompatibilityStatus();"),
+                        self.ui.index('ImGui::BeginTabBar("nr-main-tabs")'))
 
     def test_feedback_and_diagnostics_are_one_complete_tab(self):
         marker = '"Feedback and diagnostics###nr-feedback-diagnostics"'

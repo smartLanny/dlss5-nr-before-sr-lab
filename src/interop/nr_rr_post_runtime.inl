@@ -4,6 +4,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
                         ID3D12GraphicsCommandList* command_list,
                         const NgxHandle* handle, const NgxParams* params,
                         void* callback, const FeatureRecord& feature) {
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteInvalidate("rr-route-active");
+#endif
     g_last_carrier_feature.store(13,std::memory_order_relaxed);
     g_rr_guard_was_active.store(true,std::memory_order_relaxed);
     [[maybe_unused]] const auto rr_frame=++g_rr_passthrough_evaluations;

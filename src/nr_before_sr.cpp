@@ -33,6 +33,8 @@
 #include "interop/nr_format_access.h"
 #include "nr_native_format.h"
 #include "nr_resource_recovery.h"
+#include "nr_route_compatibility.h"
+#define NR_HAS_ROUTE_COMPATIBILITY 1
 #include "nr_compatibility_verdict.h"
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1
 #include "interop/nr_post_compat.h"
@@ -494,6 +496,16 @@ const char *BypassReasonName(BypassReason reason) {
 }
 
 void NrObserveCompatibilityBypass(BypassReason reason);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+void NrRouteBypass(BypassReason);
+void NrRouteInvalidate(const char*);
+void NrRouteRetireFeature(unsigned long long);
+void NrRouteRefreshProof(const nr_resource_recovery::Token&);
+void NrRouteRecoveryStage(const nr_resource_recovery::Token&, nr_resource_recovery::Stage, bool);
+void NrRouteSemanticObserved(const nr_resource_semantics::Decision&, bool);
+bool NrRoutePostLocked();
+nr_route::Snapshot SnapshotNrRoute();
+#endif
 void SetBypassReason(BypassReason reason) {
     if (g_generic_renodx_conflict.load(std::memory_order_acquire))
         reason = BypassReason::GenericRenoDxConflict;
@@ -511,6 +523,9 @@ void SetBypassReason(BypassReason reason) {
             next, std::memory_order_relaxed);
     }
     NrObserveCompatibilityBypass(static_cast<BypassReason>(next));
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteBypass(static_cast<BypassReason>(next));
+#endif
     if (previous == next) return;
     const unsigned long long transition =
         g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1007,11 +1022,18 @@ std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback
 std::atomic<ULONGLONG> g_compat_fallback_tick{0};
 std::atomic<int> g_compat_fallback_reason{0};
 std::atomic<unsigned int> g_compat_fallback_config{0};
-bool IsCompatibilityPostObserved() {
+bool IsCompatibilityPostAttemptRecent() {
     const auto tick=g_compat_fallback_tick.load(std::memory_order_acquire);
     const auto now=GetTickCount64();
     return tick && now>=tick && now-tick<=2000 &&
         g_compat_fallback_config.load(std::memory_order_relaxed)==g_config_generation.load(std::memory_order_relaxed);
+}
+bool IsCompatibilityPostObserved() {
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    return NrRoutePostLocked();
+#else
+    return false;
+#endif
 }
 
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
@@ -4305,6 +4327,9 @@ void NrRecoveryStoredEvidence(const NrPostStoreEvidence& evidence) {
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     g_nr_recovery.RecordWriteback(evidence.recovery_token, proof);
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteRefreshProof(evidence.recovery_token);
+#endif
 }
 NrPostStoreEvidence SnapshotPostStoreEvidence() {
     AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
@@ -6645,6 +6670,9 @@ bool SupportsPostSrStorage(ID3D12Device *device,
 }
 
 #include "nr_native_format_runtime.inl"
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+#include "nr_route_compatibility_runtime.inl"
+#endif
 #include "nr_codec_descriptors.inl"
 
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
@@ -8860,6 +8888,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         substitution.compatibility_fallback = render_extent_valid && width && height &&
             TextureContainsRegion(color,color_x,color_y,width,height) &&
             !IsUsablePreSrStorage(storage_contract);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+        NrRoutePreRejected(substitution.compatibility_fallback &&
+            nr_route::DefinitivePreSemantic(color_view.semantic),
+            substitution.compatibility_fallback ? color_view.semantic.reason : "invalid-input-region");
+#endif
         const bool unknown_color =
             storage_contract == PreSrStorageContract::R8EncodingUnknown ||
             storage_contract == PreSrStorageContract::R10EncodingUnknown;
@@ -8922,6 +8955,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             color_contract, create_declares_sdr, live_bounded_output);
         if (!live_r8_admitted) {
             substitution.compatibility_fallback = true;
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+            NrRoutePreRejected(feature.create_flags_known && live_bounded_output &&
+                color_contract.has_pre_exposure && color_contract.has_exposure_scale &&
+                !color_contract.exposure_texture, "pre-r8-exposure-contract");
+#endif
             SetBypassReason(BypassReason::InputColorContractUnverified);
             static unsigned int rejected_live_r8_contracts = 0;
             ++rejected_live_r8_contracts;
@@ -8950,6 +8988,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (storage_contract == PreSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
         substitution.compatibility_fallback = true;
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+        NrRoutePreRejected(feature.create_flags_known && color_contract.has_pre_exposure &&
+            color_contract.has_exposure_scale && !color_contract.exposure_texture,
+            "pre-pq-exposure-contract");
+#endif
         SetBypassReason(BypassReason::InputColorContractUnverified);
         static unsigned int rejected_pq_exposure = 0;
         ++rejected_pq_exposure;
@@ -8977,6 +9020,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                               &color_format_support,
                               &color_format_query)) {
         substitution.compatibility_fallback = true;
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+        NrRoutePreRejected(SUCCEEDED(color_format_query), SUCCEEDED(color_format_query) ?
+            "pre-shader-read-unsupported" : "pre-format-query-unverified");
+#endif
         SetBypassReason(BypassReason::UnsupportedInputFormat);
         static unsigned int rejected_capabilities = 0;
         ++rejected_capabilities;
@@ -9039,6 +9086,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
     BeginPipelineStatsScopeLocked(feature.generation, 2);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRoutePreAdmitted();
+#endif
     const bool nr_ready = EnsureNrApi(device);
     const bool ready = nr_ready && EnsureCodec(device);
     if (nr_ready && !ready) SetBypassReason(BypassReason::CodecUnavailable);
@@ -10772,6 +10822,9 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 
     NrPrepareFormatObservation(command_list);
     NrRecoveryCarrierScope recovery_carrier(command_list, feature.generation);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteCarrierScope route_carrier(params, feature);
+#endif
 
     // This is a classified outermost Feature 1 call. Cached RR handles remain
     // registered for lifetime tracking, but do not block the game's selected
@@ -10934,6 +10987,9 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     recovery_carrier.ReconcileConfig();
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    route_carrier.Reconcile();
+#endif
     // Each prepare path begins its diagnostic scope only after input admission.
     // A front-colour rejection may select post without resetting its counters
     // to Mode2 on every Evaluate.
@@ -10946,21 +11002,40 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     NrRecoveryCommandObserved();
-    Substitution before_sr = PrepareBeforeSr(
-        before_state.command_list, handle, params, feature);
-    const bool compatibility_fallback = before_sr.compatibility_fallback &&
-        !before_sr.active && (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
-    if (compatibility_fallback) {
-        g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
+    Substitution before_sr{};
+    PostSrSubstitution after_sr{};
+    const auto prepare_before = [&] { return PrepareBeforeSr(before_state.command_list, handle, params, feature); };
+    const auto can_fallback = [&](const Substitution& candidate) {
+        return candidate.compatibility_fallback && !candidate.active &&
+            (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
+    };
+    const auto observe_fallback = [&] {
+        if (before_sr.compatibility_fallback)
+            g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
         g_compat_fallback_config.store(g_config_generation.load(std::memory_order_relaxed),std::memory_order_relaxed);
         g_compat_fallback_tick.store(GetTickCount64(),std::memory_order_release);
         const auto count=++g_compat_fallback_attempts;
         if(count<=3 || count%600==0)
             Log("[compat-route] pre input rejected; requestedMode=2 fallbackAttempt=post-NR reason=%d count=%llu; post admission and native SR success remain required. Saved preference retained; F8 feedback requested.",
                 g_compat_fallback_reason.load(),count);
-    }
-    PostSrSubstitution after_sr = PrepareAfterSr(
-        before_state.command_list, handle, params, feature, compatibility_fallback);
+    };
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    const bool compatibility_fallback = nr_route::Prepare(before_sr, after_sr,
+        [] { return NrRoutePostLocked(); }, prepare_before, can_fallback, observe_fallback,
+        [&](bool fallback) {
+            const bool attempt = fallback || g_config.mode == 1;
+            if (attempt) NrRouteAttemptPost();
+            auto prepared = PrepareAfterSr(before_state.command_list, handle, params, feature, fallback);
+            if (attempt) NrRoutePostPrepared(prepared.active,
+                prepared.slot ? prepared.slot->recovery_token : nr_recovery::Token{});
+            return prepared;
+        });
+#else
+    before_sr = prepare_before();
+    const bool compatibility_fallback = can_fallback(before_sr);
+    if (compatibility_fallback) observe_fallback();
+    after_sr = PrepareAfterSr(before_state.command_list, handle, params, feature, compatibility_fallback);
+#endif
     if(before_sr.active || after_sr.active)
         g_pipeline_eligible_carriers.fetch_add(1,std::memory_order_relaxed);
     // Feature 18 warm-up, Create or Evaluate failure may still have changed
@@ -11040,7 +11115,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             NativeCommandStateScope after_state(command_list);
             if (after_state.active) {
                 NrRecoveryCommandObserved();
-                if (FinishAfterSr(after_state.command_list, params, feature, after_sr) && compatibility_fallback)
+                const bool post_recorded = FinishAfterSr(after_state.command_list, params, feature, after_sr);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+                NrRoutePostFinished(post_recorded);
+#endif
+                if (post_recorded && compatibility_fallback)
                     ++g_compat_fallback_recorded;
                 after_state.Restore();
             } else if (after_sr.redirected_output) {

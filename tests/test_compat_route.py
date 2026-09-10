@@ -137,15 +137,17 @@ class CompatibilityRoute(unittest.TestCase):
             "    NativeCommandStateScope before_state(command_list);"
         )
         before_prepare = self.process.index(
-            "    Substitution before_sr = PrepareBeforeSr(", state_start
+            "    const auto prepare_before = [&] { return PrepareBeforeSr(", state_start
         )
         state_boundary = self.process[state_start:before_prepare]
         self.assertIn("if (!before_state.active)", state_boundary)
         self.assertIn(observed_return, state_boundary)
 
         after_prepare = self.process.index(
-            "    PostSrSubstitution after_sr = PrepareAfterSr("
+            "    const bool compatibility_fallback = nr_route::Prepare("
         )
+        self.assertIn("auto prepared = PrepareAfterSr(", self.process[after_prepare:])
+        self.assertIn("[] { return NrRoutePostLocked(); }", self.process[after_prepare:])
         restore = self.process.index("    before_state.Restore();", after_prepare)
         no_substitution = self.process.index(
             "    if (!before_sr.active && !after_sr.active)", restore
@@ -156,7 +158,7 @@ class CompatibilityRoute(unittest.TestCase):
         self.assertLess(no_substitution, finish)
         self.assertIn("if (used_after_sr)", self.process[no_substitution:finish])
         self.assertIn(
-            "before_state.command_list, handle, params, feature, compatibility_fallback",
+            "before_state.command_list, handle, params, feature, fallback",
             self.process,
         )
         self.assertIn("original(command_list, handle, params, callback)", self.process)

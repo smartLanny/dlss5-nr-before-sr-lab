@@ -2,14 +2,33 @@
 // Keep one named TXT and the established bounded FeedbackAppend writer.
 {
     const auto post = nr_post_settings::Read();
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    const bool compatibility_attempt_recent=IsCompatibilityPostAttemptRecent();
+#else
+    const bool compatibility_attempt_recent=IsCompatibilityPostObserved();
+#endif
     FeedbackAppend(s,"%s.settings.colorProtection=%d\n",prefix,g_config.color_protection?1:0);
     FeedbackAppend(s,"%s.post.rr.depthAdapter.lastReject=%s\n%s.post.rr.depthAdapter.proxyDeviceMatches=%llu\n",
         prefix,RrDepthRejectName(g_rr_depth_last_reject.load(std::memory_order_relaxed)),
         prefix,g_rr_depth_proxy_matches.load(std::memory_order_relaxed));
     FeedbackAppend(s,"%s.compat.requestedMode=%d\n%s.compat.effectiveMode=%d\n%s.compat.preInputFallback.recent=%d\n%s.compat.preInputFallback.reason=%d\n%s.compat.preInputFallback.attempts=%llu\n%s.compat.preInputFallback.recorded=%llu\n%s.compat.note=Evaluate only; post admission remains required; recording is not GPU completion; no Present NR provider\n",
         prefix,g_config.mode,prefix,EffectivePictureMode(g_config.mode),
-        prefix,IsCompatibilityPostObserved()?1:0,prefix,g_compat_fallback_reason.load(),
+        prefix,compatibility_attempt_recent?1:0,prefix,g_compat_fallback_reason.load(),
         prefix,g_compat_fallback_attempts.load(),prefix,g_compat_fallback_recorded.load(),prefix);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    const auto route=SnapshotNrRoute();
+    const auto u=[](std::uint64_t value){return static_cast<unsigned long long>(value);};
+    FeedbackAppend(s,"%s.compat.route=state:%s,current:%d,locked:%d,requested:%u,selected:%u,frame:%llu,scopeFirstFrame:%llu,device:%llu,feature:%llu,config:%llu,color:%llu,output:%llu,attempted:%d,admitted:%d,recorded:%d,submitted:%d,verified:%d,preDefinitive:%d,pre:%s,post:%s,invalidated:%s\n",
+        prefix,nr_route::Name(route.state),route.current,route.locked,route.scope.requested,
+        route.locked?1u:route.scope.requested,u(route.frame),u(route.first_frame),u(route.scope.device),
+        u(route.scope.feature),u(route.scope.config),u(route.scope.color),u(route.scope.output),
+        route.post_attempted,route.post_admitted,route.post_recorded,route.post_submitted,route.post_verified,
+        route.pre_definitive,route.pre_reason,route.post_reason,route.invalidation);
+    FeedbackAppend(s,"%s.compat.routeProof=attempt:%llu,tokenFrame:%llu,proofAttempt:%llu,proofFrame:%llu,window:%llu/%llu,descriptor:%d,storage:%d; submitted is this token, verified is its exact scope window; final visuals unverified\n",
+        prefix,u(route.token.attempt_id),u(route.token.carrier.frame_id),u(route.proof.proof_attempt_id),
+        u(route.proof.proof_frame_id),u(route.proof.window_first_frame_id),u(route.proof.window_last_frame_id),
+        route.proof.descriptor_verified,route.proof.writeback_verified);
+#endif
     FeedbackAppend(s,"%s.commandState.nativeCreated=%llu\n%s.commandState.nativeRetired=%llu\n%s.commandState.nativeRecordFailures=%llu\n",
         prefix,g_native_command_records.load(),prefix,g_native_command_retirements.load(),prefix,g_native_command_record_failures.load());
     FeedbackAppend(s, "%s.post.rr.depthAdapter.recorded=%llu\n%s.post.rr.depthAdapter.declined=%llu\n%s.post.rr.depthAdapter.note=standard positive view-Z projection; dispatch is not GPU completion\n",
