@@ -24,6 +24,8 @@ def main():
     queue=ROOT/'tests/queue_retirement_harness.cpp'
     helpers=[ROOT/'tests'/f for f in ('post_output_harness.inl','native_color_view_harness.inl','pre_store_probe_harness.inl')]
     fixture=ROOT/'tests/store_quantization_harness.inl'
+    interval_helpers=[ROOT/'tests/store_interval_shader.h',ROOT/'tests/store_interval_gpu.inl']
+    for helper in interval_helpers:shutil.copy2(helper,out/helper.name)
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n} // namespace queue_test\n'
     if 'struct Fixture' not in q:raise SystemExit('Shared WARP fixture boundary changed.')
     (out/'fixture.inl').write_text('\n'.join([q,*[f.read_text(encoding='utf-8') for f in helpers],fixture.read_text(encoding='utf-8')]),encoding='utf-8')
@@ -48,8 +50,9 @@ def main():
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'fixture_sha256':sha(fixture),'binary_sha256':sha(exe),
-            'borrowed_helpers_sha256':{f.name:sha(f) for f in [queue,*helpers]},'production_translation_unit':True,
-            'warp_only':True,'nvidia_nr':False,'game_verified':False,'core_only':a.core_only,'run_exit':None}
+            'borrowed_helpers_sha256':{f.name:sha(f) for f in [queue,*helpers,*interval_helpers]},'production_translation_unit':True,
+            'warp_only':True,'nvidia_nr':False,'game_verified':False,'core_only':a.core_only,
+            'compile_only':a.compile_only,'gpu_executed':not a.compile_only,'run_exit':None}
     if not a.compile_only:
         r=run([str(exe),*(['--core-only'] if a.core_only else [])],'run',240);record['run_exit']=r.returncode;print(r.stdout)
     (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')

@@ -220,6 +220,8 @@ void SeedBoundedEvidence(nr_probe_policy::Snapshot probe) {
     stored.expected_mean = stored.actual_mean = stored.expected_max = stored.actual_max = std::numeric_limits<float>::max();
     stored.source_physical = stored.source_view = stored.result_physical = stored.result_view = stored.result_uav = word;
     stored.probe_policy = probe;
+    stored.comparison_method=1;stored.interval_capacity=stored.interval_samples=word;
+    stored.interval={word,word,word,word,word,word,word,word};
     stored.comparison_known = stored.matches_expected = false;
     stored.boundary_trace_id = wide;
     g_pre_store_evidence = stored; g_pre_store_evidence.mode = 2;

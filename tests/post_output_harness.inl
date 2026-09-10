@@ -46,12 +46,13 @@ std::vector<unsigned char> ReadTexture(queue_test::Fixture&f,ID3D12Resource *r,D
 // Per-instance observation only: forward every invocation to the real WARP
 // implementation while counting the API operations emitted by DispatchCodec.
 struct CodecApiCalls {
-    ID3D12GraphicsCommandList *list; ID3D12Resource *target;
+    ID3D12GraphicsCommandList *list; ID3D12Resource *target,*stats;
     decltype(ID3D12GraphicsCommandList::lpVtbl) original;
     ID3D12GraphicsCommandListVtbl table;
     unsigned dispatches=0, clears=0, copies=0, target_transitions=0, target_uavs=0;
+    unsigned stats_uavs=0;UINT64 stats_copy_bytes=0;
     inline static thread_local CodecApiCalls *active=nullptr;
-    CodecApiCalls(ID3D12GraphicsCommandList *l,ID3D12Resource *r):list(l),target(r),original(l->lpVtbl),table(*original) {
+    CodecApiCalls(ID3D12GraphicsCommandList *l,ID3D12Resource *r,ID3D12Resource *s=nullptr):list(l),target(r),stats(s),original(l->lpVtbl),table(*original) {
         Check(!active,"non-nested native call observer");active=this;
         table.Dispatch=Dispatch;table.ClearUnorderedAccessViewUint=Clear;table.CopyBufferRegion=Copy;table.ResourceBarrier=Barrier;
         list->lpVtbl=&table;
@@ -64,13 +65,14 @@ struct CodecApiCalls {
         auto &a=*active;++a.clears;a.original->ClearUnorderedAccessViewUint(l,g,c,r,v,n,rects);
     }
     static void STDMETHODCALLTYPE Copy(ID3D12GraphicsCommandList*l,ID3D12Resource*d,UINT64 x,ID3D12Resource*s,UINT64 y,UINT64 n) {
-        auto &a=*active;++a.copies;a.original->CopyBufferRegion(l,d,x,s,y,n);
+        auto &a=*active;++a.copies;if(s==a.stats)a.stats_copy_bytes+=n;a.original->CopyBufferRegion(l,d,x,s,y,n);
     }
     static void STDMETHODCALLTYPE Barrier(ID3D12GraphicsCommandList*l,UINT n,const D3D12_RESOURCE_BARRIER*b) {
         auto &a=*active;
         for(UINT i=0;i<n;++i) {
             if(b[i].Type==D3D12_RESOURCE_BARRIER_TYPE_TRANSITION && b[i].Transition.pResource==a.target)++a.target_transitions;
             if(b[i].Type==D3D12_RESOURCE_BARRIER_TYPE_UAV && b[i].UAV.pResource==a.target)++a.target_uavs;
+            if(b[i].Type==D3D12_RESOURCE_BARRIER_TYPE_UAV && b[i].UAV.pResource==a.stats)++a.stats_uavs;
         }
         a.original->ResourceBarrier(l,n,b);
     }
