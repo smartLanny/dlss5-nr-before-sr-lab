@@ -74,6 +74,12 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-compatibility-rr-scope.py') --compiler $Compiler --source-root (Join-Path $Stage 'core/src') --output (Join-Path $Output 'compatibility-rr-scope')
     if ($LASTEXITCODE) { throw 'Unclassified RR notification and Feature1 verdict isolation gate failed.' }
     $Checks.Add('production RR notifications cannot retain old blocks or borrow Feature1 recovery CPU')
+    & python (Join-Path $PSScriptRoot 'validate-route-compatibility.py') --compiler $Compiler --source-root (Join-Path $Stage 'core') --output (Join-Path $Output 'route-compatibility-runtime-cpu')
+    if ($LASTEXITCODE) { throw 'Scoped compatibility route runtime gate failed.' }
+    $Checks.Add('route-compatibility-runtime-cpu')
+    & python (Join-Path $PSScriptRoot 'validate-descriptor-provenance.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-provenance-cpu') --cpu-only
+    if ($LASTEXITCODE) { throw 'Bounded descriptor provenance CPU gate failed.' }
+    $Checks.Add('descriptor-provenance-cpu')
     & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
     if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
     $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
@@ -164,6 +170,9 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        & python (Join-Path $PSScriptRoot 'validate-descriptor-provenance.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-provenance-warp')
+        if ($LASTEXITCODE) { throw 'Production descriptor provenance and native output-use WARP gate failed.' }
+        $Checks.Add('production descriptor provenance native uses RTV targets and Execute positions WARP')
         & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'native-color-view-warp')
         if ($LASTEXITCODE) { throw 'Actual typed native color view WARP gate failed.' }
         $Checks.Add('production typed native color admission descriptors and storage WARP')

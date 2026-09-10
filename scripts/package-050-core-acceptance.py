@@ -93,6 +93,8 @@ def package(build: Path, output: Path) -> dict:
                 'full assembled Core timing probe phases reserved tails and negative controls CPU',
                 'final F8 typed timing numbers privacy disk output and actual summary CPU',
                 'production output-state-only barriers without diagnostic dispatch or readback WARP',
+                'route-compatibility-runtime-cpu', 'descriptor-provenance-cpu',
+                'production descriptor provenance native uses RTV targets and Execute positions WARP',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',
