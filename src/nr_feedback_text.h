@@ -55,6 +55,24 @@ inline bool TimingStageKey(std::string_view key) {
         if (key == stage) return true;
     return false;
 }
+inline bool BoundaryMetadataNumber(std::string_view line,std::size_t begin,std::size_t end) {
+    // These exact scalar fields contain source-written counters or semantic
+    // lifetime tokens. Never exempt raw logs, event text or arbitrary suffixes.
+    const auto equal=line.find('=');
+    if(equal==std::string_view::npos || begin!=equal+1 || end!=line.size() ||
+       !CanonicalUnsigned(line.substr(begin,end-begin)))return false;
+    auto key=line.substr(0,equal);
+    if(key.substr(0,20)=="start.post.boundary.")key.remove_prefix(20);
+    else if(key.substr(0,18)=="end.post.boundary.")key.remove_prefix(18);
+    else return false;
+    for(const auto scalar:{"frame","config","featureGeneration","ageMs","trace","probePhase","device","target",
+        "subresource","storeTrace","storeFrame","storeProbePhase","nativeEventEntries","nativeMatches",
+        "nativeOtherListMatches","followingBarriers","readBarriers","writeBarriers","copyReads","copyWrites",
+        "renderTargetBinds","nativeExactMatches","nativeExactOtherLists","nativeGlobals","nativeUnknownOperations",
+        "exactFollowing","unknownOperations","nativeDropped","followingDropped"})
+        if(key==scalar)return true;
+    return false;
+}
 inline bool TimingMetadataNumber(std::string_view line, std::size_t begin, std::size_t end) {
     // Only the typed measurement/counter fields written by FeedbackAppendTiming
     // may exempt a decimal token from the address heuristic. Object identities,
@@ -155,6 +173,7 @@ inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = f
         while (end < line.size() && Hex(line[end])) ++end;
         const auto n = end - begin;
         if (n >= 12 && n <= 16 && (end == line.size() || !Word(line[end]))) {
+            if (typed_metadata && BoundaryMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;

@@ -33,7 +33,8 @@ def main():
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit',
-                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption'))
+                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
+                        'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
     source = args.source_root.resolve(strict=True)
@@ -92,6 +93,17 @@ def main():
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && TimingMetadataNumber(line, i, end))',
                     "if (std::all_of(line.begin() + i, line.begin() + end, [](char c) { return c >= '0' && c <= '9'; }))",
                     'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
+    elif args.negative_control == 'redact-boundary-numbers':
+        mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && BoundaryMetadataNumber(line, i, end))',
+                    'if (false && BoundaryMetadataNumber(line, i, end))', 'FULL_CORE_F8_READONLY_IDENTITY_PRESERVED')
+    elif args.negative_control == 'bypass-boundary-privacy':
+        anchor = 'inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {'
+        mutation = ('src/nr_feedback_text.h', anchor, anchor +
+                    '\n    if (typed_metadata && (line.find("start.post.boundary.") == 0 || line.find("end.post.boundary.") == 0)) return line;',
+                    'FULL_CORE_F8_BOUNDARY_TYPED_PRIVACY')
+    elif args.negative_control == 'borrow-historical-boundary':
+        mutation = ('src/nr_post_boundary_runtime.inl', '} else if(latest) {', '} else if(false && latest) {',
+                    'FULL_CORE_F8_CURRENT_READONLY_OLD_STORE_DISTINCT')
     if mutation:
         path = snapshot / mutation[0]
         text = path.read_text(encoding='utf-8-sig')

@@ -21,6 +21,13 @@ constexpr std::uint64_t kPostBoundaryMaxAgeMs=500;
 nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *);
 unsigned EnsurePostBoundaryNativeHooks(ID3D12GraphicsCommandList *);
 
+nr_probe_policy::Snapshot PostBoundaryProbePolicy() {
+#if NR_HAS_PROBE_POLICY
+    return NrProbePolicySnapshot();
+#else
+    return {};
+#endif
+}
 void ClosePostBoundaryLocked(nr_post_boundary::Close reason) {
     if(g_post_boundary_current.frame) {
         g_post_boundary_current.close=reason;
@@ -41,8 +48,11 @@ void ClosePostBoundaryLocked(nr_post_boundary::Close reason) {
 }
 bool PostBoundaryWindowCurrentLocked() {
     if(!g_post_boundary_current.frame)return false;
+    const auto policy=PostBoundaryProbePolicy();
+    const auto &observed=g_post_boundary_current.observation;
     if(g_post_boundary_current.config!=g_config_generation.load(std::memory_order_relaxed) ||
-       !g_enabled_fast.load(std::memory_order_relaxed)) {
+       !g_enabled_fast.load(std::memory_order_relaxed) ||
+       (observed.phase && (observed.phase!=policy.phase || observed.probe_mode!=static_cast<unsigned>(policy.mode)))) {
         ClosePostBoundaryLocked(nr_post_boundary::Close::ScopeChanged);return false;
     }
     if(GetTickCount64()-g_post_boundary_current.tick>kPostBoundaryMaxAgeMs) {
@@ -64,8 +74,8 @@ struct NrNativeOutputTraceScope {
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
         descriptor_resource=NrDescriptorResourceToken(resource);
 #endif
-        native_list=reinterpret_cast<std::uint64_t>(list);
         evidence.list=SnapshotPostBoundaryList(list);
+        native_list=evidence.list.known?evidence.list.address:reinterpret_cast<std::uint64_t>(list);
         evidence.coverage=coverage;
         previous=g_native_output_trace;g_native_output_trace=this;active=true;
     }
@@ -191,8 +201,12 @@ void ObservePostBoundarySubmission(const nr_post_boundary::List &list,std::uint6
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }
 std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundary::Native &native,
-        const NrDiagnosticIdentity &identity,unsigned long long feature,std::uint64_t device=0) {
+        const NrDiagnosticIdentity &identity,unsigned long long feature,std::uint64_t device=0,
+        const nr_post_boundary::ObservationScope &observation={},
+        nr_post_boundary::Provenance provenance=nr_post_boundary::Provenance::Unknown) {
     if(!resource||!identity.frame_id)return 0;
+    if(provenance!=nr_post_boundary::Provenance::Unknown &&
+       (!observation || observation.config!=identity.config_generation || observation.feature!=feature))return 0;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     const auto descriptor_resource=NrDescriptorResourceToken(reinterpret_cast<std::uint64_t>(resource));
 #endif
@@ -203,6 +217,8 @@ std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundar
     g_post_boundary_current.frame=identity.frame_id;
     g_post_boundary_current.config=identity.config_generation;
     g_post_boundary_current.feature=feature;
+    g_post_boundary_current.observation=observation;
+    g_post_boundary_current.provenance=provenance;
     g_post_boundary_current.native=native;
     g_post_boundary_current.device=native.list.device;
     g_post_boundary_current.coverage=native.coverage;
@@ -331,6 +347,41 @@ nr_post_boundary::Window SnapshotPostBoundary(std::uint64_t trace=0,std::uint64_
         if(!entry.frame)continue;
         if(trace && (entry.trace!=trace||entry.frame!=frame||entry.config!=config||entry.feature!=feature))continue;
         result=entry;break;
+    }
+    ReleaseSRWLockExclusive(&g_post_boundary_lock);return result;
+}
+nr_post_boundary::Selection SelectPostBoundary(const nr_post_boundary::ObservationScope &current,
+        const nr_post_boundary::StoreProbeReference &stored) {
+    using namespace nr_post_boundary;
+    Selection result;
+    AcquireSRWLockExclusive(&g_post_boundary_lock);
+    PostBoundaryWindowCurrentLocked();
+    const auto policy=PostBoundaryProbePolicy();
+    const bool current_allowed=current && current.config==g_config_generation.load(std::memory_order_relaxed) &&
+        g_enabled_fast.load(std::memory_order_relaxed) && current.phase==policy.phase &&
+        current.probe_mode==static_cast<unsigned>(policy.mode);
+    const Window *paired=nullptr,*latest=nullptr;
+    for(unsigned n=0;n<kHistory;++n) {
+        const auto &entry=g_post_boundary_history[(g_post_boundary_history_next+kHistory-1-n)%kHistory];
+        if(!entry.frame || entry.close==Close::Open)continue;
+        if(!paired && Matches(entry,stored))paired=&entry;
+        if(!latest && current_allowed && entry.provenance==Provenance::ReadOnlyRecording && Matches(entry,current))latest=&entry;
+    }
+    result.store_trace_available=paired!=nullptr;
+    if(paired && current_allowed && Matches(*paired,current)) {
+        result.window=*paired;result.kind=SelectionKind::CurrentStoreProbe;result.paired_with_probe=true;
+    } else if(latest) {
+        result.window=*latest;result.kind=SelectionKind::CurrentReadOnly;
+    } else if(paired) {
+        // Retain an explicitly historical exact pair when no current recording
+        // exists. Never substitute a nearby/current trace for an evicted pair.
+        result.window=*paired;result.kind=SelectionKind::HistoricalStoreProbe;result.paired_with_probe=true;
+    }
+    if(result.window.trace) {
+        const auto &scope=result.window.observation;
+        result.phase_current=scope.phase==policy.phase && scope.probe_mode==static_cast<unsigned>(policy.mode);
+        auto comparable=scope;comparable.phase=current.phase;comparable.probe_mode=current.probe_mode;
+        result.scope_current=current_allowed && comparable==current;
     }
     ReleaseSRWLockExclusive(&g_post_boundary_lock);return result;
 }

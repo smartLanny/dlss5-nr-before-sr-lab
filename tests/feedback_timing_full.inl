@@ -83,6 +83,13 @@ void SeedRouteAndDescriptorEvidence() {
     g_nr_recovery_snapshot.key = key; g_nr_recovery_snapshot.signature = signature;
     g_nr_recovery_snapshot.frame = wide;
     g_nr_recovery_snapshot.input.current = {true, word, route.feature, 2, 1};
+    g_post_store_evidence.feature_generation=route.feature;
+    g_post_store_evidence.recovery_token=token;
+    g_post_store_evidence.recovery_target={route.output,route.output,0};
+    auto &boundary=g_post_boundary_history[0];boundary.feature=route.feature;
+    boundary.observation={route.device,route.feature,route.output,g_post_store_evidence.probe_policy.phase,
+        word,1,static_cast<unsigned>(g_post_store_evidence.probe_policy.mode),0};
+    boundary.provenance=nr_post_boundary::Provenance::StoreProbe;
     Check(SnapshotNrRoute().locked, "FULL_CORE_F8_ROUTE_REAL_VERIFIED_WINDOW");
 
     // Populate the actual bounded registry through its public value API. All
@@ -472,6 +479,67 @@ void CheckPrivacyThroughCollector(const std::filesystem::path &directory) {
     }
 }
 
+void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &directory) {
+    const auto policy=NrProbePolicySnapshot();
+    constexpr std::uint64_t device=123456789012341,feature=123456789012342,target=123456789012343;
+    constexpr std::uint64_t old_frame=123456789012344,old_trace=123456789012345,new_frame=123456789012346,new_trace=123456789012347;
+    g_config_generation.store(9);g_enabled_fast.store(true);
+    auto &stored=g_post_store_evidence;stored={};stored.mode=1;stored.config=9;stored.samples=1;
+    stored.frame=old_frame;stored.boundary_trace_id=old_trace;stored.feature_generation=feature;
+    stored.recovery_token.key={{device,device,1,feature,9,1},target,target,0,1};
+    stored.recovery_target={target,target,0};
+    auto &receipt=g_nr_recovery_snapshot;receipt={};receipt.key=stored.recovery_token.key;
+    receipt.input.current={true,9,feature,1,1};
+    nr_post_boundary::Window old;old.trace=old_trace;old.frame=old_frame;old.config=9;old.feature=feature;
+    old.observation={device,feature,target,1,9,1,0,0};old.provenance=nr_post_boundary::Provenance::StoreProbe;
+    old.close=nr_post_boundary::Close::Present;
+    auto current=old;current.trace=new_trace;current.frame=new_frame;current.observation.phase=policy.phase;
+    current.observation.probe_mode=static_cast<unsigned>(policy.mode);
+    current.provenance=nr_post_boundary::Provenance::ReadOnlyRecording;
+    current.native.count=nr_post_boundary::kNativeEvents;current.count=nr_post_boundary::kFollowingEvents;
+    g_post_boundary_current={};g_post_boundary_history[0]=old;g_post_boundary_history[1]=current;
+    g_post_boundary_history_next=2;
+    const auto output=directory/L"readonly-boundary";std::filesystem::create_directory(output);
+    auto session=std::make_unique<nr_core_feedback::CoreSession>();session->snapshot_ok=true;session->serial=3;
+    wcscpy_s(session->directory,output.c_str());wcscpy_s(session->exe,(output/L"readonly-fixture.exe").c_str());
+    GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
+    FeedbackAppendActivity(session->activity,"start");FeedbackAppendActivity(session->activity,"end");
+    const std::string digits="123456789012345";
+    std::vector<std::pair<std::string,std::string>> privacy{
+        {"end.post.boundary.trace=0000123412341234","end.post.boundary.trace=[address]"},
+        {"end.post.boundary.trace=0x123456789ABCDEF0","end.post.boundary.trace=[address]"},
+        {"end.post.boundary.note="+digits,"end.post.boundary.note=[address]"},
+        {"end.post.boundary.trace.extra="+digits,"end.post.boundary.trace.extra=[address]"},
+        {"fake.end.post.boundary.trace="+digits,"fake.end.post.boundary.trace=[address]"},
+        {"end.post.boundary.trace="+digits+",extra:"+digits,"end.post.boundary.trace=[address],extra:[address]"},
+        {"end.post.boundary.trace="+digits+" | file=C:\\fixture-private\\file","end.post.boundary.trace=[address] | file=[local-path]"},
+        {"end.post.boundary.trace="+digits+" | path=\\\\fixture-host\\private","end.post.boundary.trace=[address] | path=[local-path]"},
+    };
+    for(const auto secret:{"Authorization: fixture","password=fixture","access_token=fixture","github_pat_fixture","ghp_fixture","private key fixture"})
+        privacy.emplace_back("end.post.boundary.trace="+digits+" | "+secret,"[sensitive log line omitted]");
+    for(unsigned width=12;width<=16;++width)for(const auto key:{"frame","trace","probePhase","storeFrame","storeTrace","storeProbePhase","device","target","featureGeneration"}) {
+        const auto line=std::string("end.post.boundary.")+key+"="+std::string(width,'7');privacy.emplace_back(line,line);
+    }
+    for(unsigned i=0;i<privacy.size();++i)FeedbackAppend(session->activity,"fixture.boundaryPrivacy.%u=begin\n%s\n",i,privacy[i].first.c_str());
+    const auto result=nr_core_feedback::CollectSingleText(*session,true);
+    Check(result.text && result.complete && result.error==ERROR_SUCCESS,"FULL_CORE_F8_READONLY_TEXT_CREATED");
+    if(!result.text)return;
+    const auto disk=Read(result.path);Check(disk==*result.text,"FULL_CORE_F8_READONLY_ATOMIC_BYTES");
+    Check(Value(disk,"end.post.boundary.selection")=="current-read-only-recording" &&
+          Value(disk,"end.post.boundary.trace")==U(new_trace) && Value(disk,"end.post.boundary.frame")==U(new_frame) &&
+          Value(disk,"end.post.boundary.storeTrace")==U(old_trace) && Value(disk,"end.post.boundary.storeFrame")==U(old_frame) &&
+          Value(disk,"end.post.boundary.device")==U(device) && Value(disk,"end.post.boundary.target")==U(target) &&
+          Value(disk,"end.post.boundary.pairedWithProbe")=="0" && Value(disk,"end.post.boundary.phaseCurrent")=="1" &&
+          Value(disk,"end.post.boundary.storeTraceAvailable")=="1" && Value(disk,"end.store.post.probePhaseCurrent")=="0",
+          "FULL_CORE_F8_READONLY_IDENTITY_PRESERVED");
+    Check(!Value(disk,"end.post.boundary.native.5").empty() && !Value(disk,"end.post.boundary.following.11").empty() &&
+          Value(disk,"start.post.boundary.native.0").empty(),"FULL_CORE_F8_READONLY_ONE_BOUNDED_WINDOW");
+    for(unsigned i=0;i<privacy.size();++i)Check(disk.find("fixture.boundaryPrivacy."+U(i)+"=begin\n"+privacy[i].second+"\n")!=std::string::npos,
+        "FULL_CORE_F8_BOUNDARY_TYPED_PRIVACY");
+    Check(nr_feedback_text::Sanitize("end.post.boundary.trace="+digits)=="end.post.boundary.trace=[address]",
+          "FULL_CORE_F8_BOUNDARY_RAW_LOG_PRIVACY");
+}
+
 void FillTimeline(FeedbackSession &session) {
     const auto limit = sizeof(session.report) - nr_feedback_limits::kTimelineReserveBytes;
     Check(session.report_used < limit, "FULL_CORE_F8_START_FITS_TIMELINE_BUDGET");
@@ -604,6 +672,12 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     SetNrProbePolicy(nr_probe_policy::Mode::Paused);
     SetNrWaitComparison(1);
     const auto end_probe = NrProbePolicySnapshot(); const auto policy = NrTimingPolicySnapshot();
+    // A current CPU recording is distinct from the untouched old GPU sample.
+    auto current_boundary=g_post_boundary_history[0];current_boundary.trace-=1;current_boundary.frame-=1;
+    current_boundary.observation.phase=end_probe.phase;
+    current_boundary.observation.probe_mode=static_cast<unsigned>(end_probe.mode);
+    current_boundary.provenance=nr_post_boundary::Provenance::ReadOnlyRecording;
+    g_post_boundary_history[1]=current_boundary;g_post_boundary_history_next=2;
     Check(end_probe.phase > start_probe.phase && end_probe.mode == nr_probe_policy::Mode::Paused &&
           policy.probe.phase == end_probe.phase && policy.probe.mode == static_cast<unsigned>(end_probe.mode),
           "FULL_CORE_F8_UI_AND_TIMING_PHASE_MATCH");
@@ -634,6 +708,11 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
           "FULL_CORE_F8_CAPACITY");
     CheckTiming(activity.report, "end", *end, missing_clock);
     CheckExpandedEvidence(activity.report, "end");
+    Check(Value(activity.report,"end.post.boundary.selection")=="current-read-only-recording" &&
+          Value(activity.report,"end.post.boundary.pairedWithProbe")=="0" &&
+          Value(activity.report,"end.post.boundary.probePhase")==U(end_probe.phase) &&
+          Value(activity.report,"end.post.boundary.storeProbePhase")==U(start_probe.phase),
+          "FULL_CORE_F8_CURRENT_READONLY_OLD_STORE_DISTINCT");
     Check(Value(activity.report, "end.probeControl.mode") == "paused" &&
           Value(activity.report, "end.probeControl.phase") == U(end_probe.phase), "FULL_CORE_F8_PROBE_CONTROL_END");
     for (const char *route : {"pre", "post"}) {
@@ -664,6 +743,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
         const auto path_utf8 = std::filesystem::path(text.path).u8string();
         Write(directory / "final-text-path.txt", std::string(reinterpret_cast<const char *>(path_utf8.data()), path_utf8.size()));
     }
+    CheckReadonlyBoundaryThroughCollector(directory);
     CheckPrivacyThroughCollector(directory);
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",
                 checks, failures, activity.report_used, sizeof(activity.report), text_bytes, missing_clock);

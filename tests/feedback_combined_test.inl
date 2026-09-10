@@ -224,6 +224,10 @@ void PopulateCombinedEvidence() {
     stored.recovery_token.key.scope.mode = 1;
     stored.recovery_token.key.role = 1;
     stored.recovery_target = {wide, wide, word};
+    g_post_boundary_history[0].observation={stored.recovery_token.key.scope.device,stored.feature_generation,
+        stored.recovery_target.resource,stored.probe_policy.phase,stored.config,1,
+        static_cast<unsigned>(stored.probe_policy.mode),stored.recovery_target.subresource};
+    g_post_boundary_history[0].provenance=nr_post_boundary::Provenance::StoreProbe;
     g_pre_store_evidence = stored;
     g_pre_store_evidence.mode = 2;
     g_pre_store_evidence.frame = wide - 1;

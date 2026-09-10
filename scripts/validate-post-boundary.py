@@ -72,12 +72,13 @@ int main(){}
     run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32',
          '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
-    for case in ('boundary-callbacks', 'boundary-native'):
+    for case in ('boundary-callbacks', 'boundary-native', 'boundary-readonly'):
         run([str(binary), case], case, 30)
     sha=lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     evidence={'source':str(source), 'source_sha256':sha(source),
               'fixture_sha256':sha(fixture), 'native_fixture_sha256':sha(ROOT/'tests/post_boundary_native.inl'),
-              'compiler_sha256':sha(compiler), 'cases':['boundary-callbacks','boundary-native'],
+              'readonly_fixture_sha256':sha(ROOT/'tests/post_boundary_readonly.inl'),
+              'compiler_sha256':sha(compiler), 'cases':['boundary-callbacks','boundary-native','boundary-readonly'],
               'full_production_translation_unit':True, 'native_minhook':True,
               'synthetic_com':True, 'warp':False, 'nvidia_nr':False, 'game':False}
     if args.sdk_header:

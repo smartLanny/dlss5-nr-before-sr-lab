@@ -4478,6 +4478,7 @@ struct NrContext {
     // repeat that stall every frame; a new committed configuration retries.
     bool retirement_wait_blocked = false;
     unsigned int retirement_wait_blocked_generation = 0;
+    nr_post_boundary::ReadOnlyCadence boundary_read_only_cadence;
     NrSlot slots[8] = {};
 };
 
@@ -9496,11 +9497,55 @@ struct PostSrSubstitution {
     unsigned int width = 0;
     unsigned int height = 0;
     nr_post_boundary::Native native_boundary;
+    nr_post_boundary::ObservationTicket boundary_ticket;
     unsigned int guide_width = 0;
     unsigned int guide_height = 0;
     ColorContract color_contract = {};
     NrGuideBinding guides = {};
 };
+
+nr_post_boundary::ObservationScope PostBoundaryScope(const NrContext &context,const NrSlot &slot,
+        const nr_probe_policy::Snapshot &policy) {
+    const auto &key=slot.native_format_key;
+    const auto &target=slot.recovery_target;
+    if(context.mode!=1 || key.role!=nr_native_format::Role::Output ||
+       key.feature!=context.feature_generation || !target || target.resource!=key.resource ||
+       target.resource_generation!=target.resource)return {};
+    return {key.device,key.feature,target.resource,policy.phase,context.config_generation,
+        static_cast<unsigned>(context.mode),static_cast<unsigned>(policy.mode),target.subresource};
+}
+void ArmPostBoundaryObservationLocked(PostSrSubstitution &substitution,const nr_probe_policy::Snapshot &policy) {
+    substitution.boundary_ticket={};
+    if(!substitution.active || !substitution.context || !substitution.slot)return;
+    auto &context=*substitution.context;const auto &slot=*substitution.slot;
+    const auto scope=PostBoundaryScope(context,slot,policy);
+    if(!scope)return;
+    const bool armed=policy.AutomaticSampling()
+        ? slot.delta_stats_capture_armed && slot.snapshot_heap && g_codec.post_store_probe
+        : context.boundary_read_only_cadence.Arm(scope,context.evaluations);
+    substitution.boundary_ticket={scope,armed};
+}
+void PublishPostBoundaryRecording(const PostSrSubstitution &substitution,const NrDiagnosticIdentity &identity,
+        std::uint64_t feature,std::uint64_t device) {
+    if(!substitution.boundary_ticket || !substitution.context || !substitution.slot || !identity.frame_id)return;
+    const auto &context=*substitution.context;auto &slot=*substitution.slot;
+    const auto policy=NrProbePolicySnapshot();const auto &scope=substitution.boundary_ticket.scope;
+    if(!(PostBoundaryScope(context,slot,policy)==scope) || identity.config_generation!=scope.config ||
+       context.instance_id!=identity.instance_id || feature!=scope.feature)return;
+    const auto &metadata=slot.stored_result_metadata;
+    const bool paired=policy.AutomaticSampling() && slot.post_boundary_probe_recorded && metadata.recorded &&
+        metadata.mode==1 && metadata.identity.frame_id==identity.frame_id &&
+        metadata.identity.config_generation==scope.config && metadata.feature_generation==scope.feature &&
+        metadata.probe_policy.phase==scope.phase && static_cast<unsigned>(metadata.probe_policy.mode)==scope.probe_mode &&
+        metadata.recovery_target.resource==scope.target && metadata.recovery_target.subresource==scope.subresource &&
+        metadata.native_key.device==scope.device && metadata.native_key.feature==scope.feature;
+    if(policy.AutomaticSampling() && !paired)return;
+    const auto provenance=paired?nr_post_boundary::Provenance::StoreProbe:nr_post_boundary::Provenance::ReadOnlyRecording;
+    const auto trace=PublishPostBoundary(slot.result,substitution.native_boundary,identity,feature,device,scope,provenance);
+    // An outstanding GPU readback retains its original frame, phase and trace.
+    // A CPU-only recording has its own ticket and never relabels that sample.
+    if(paired)slot.post_boundary_trace_id=trace;
+}
 
 PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
                                   const NgxHandle *sr_handle,
@@ -9786,6 +9831,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.color_contract = color_contract;
     substitution.guides = guides;
     substitution.native_output_snapshot = slot->snapshots_native_output;
+    ArmPostBoundaryObservationLocked(substitution,NrProbePolicySnapshot());
     // No Output/subrect mutation: native SR completes before the private snapshot.
     g_nr_transfer_attempted_frames.fetch_add(1,
                                              std::memory_order_relaxed);
@@ -10010,6 +10056,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     context.guide_history.CommitOnEvaluate(substitution.guides.signature, true);
     ++context.evaluations;
     CompleteNrDiagnosticEvaluation(context, slot);
+    const auto boundary_identity=g_applied_nr_identity;
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
@@ -10043,9 +10090,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
     SetBypassReason(BypassReason::None);
-    if(slot.post_boundary_probe_recorded)
-        slot.post_boundary_trace_id=PublishPostBoundary(slot.result,substitution.native_boundary,
-            slot.diagnostic_identity,feature.generation,reinterpret_cast<std::uint64_t>(g_codec.device));
+    PublishPostBoundaryRecording(substitution,boundary_identity,feature.generation,
+        reinterpret_cast<std::uint64_t>(g_codec.device));
     return true;
 }
 
@@ -11118,8 +11164,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
-    const bool trace_post_boundary=after_sr.active && after_sr.slot &&
-        after_sr.slot->delta_stats_capture_armed && after_sr.slot->snapshot_heap && g_codec.post_store_probe;
+    const bool trace_post_boundary=static_cast<bool>(after_sr.boundary_ticket);
     const unsigned boundary_coverage=trace_post_boundary?EnsurePostBoundaryNativeHooks(before_state.command_list):0;
     NrNativeOutputTraceScope native_output_trace(trace_post_boundary?after_sr.original_output:nullptr,
         before_state.command_list,boundary_coverage);

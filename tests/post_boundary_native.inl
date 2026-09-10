@@ -104,7 +104,8 @@ void BoundaryNativeHooks() {
     Check(scope.evidence.unknown_operations==1 && scope.evidence.count==3,"native dispatch does not invent texture descriptor contents");
     const auto native=scope.Finish();g_inside_ngx_evaluate=false;
     NrDiagnosticIdentity identity{};identity.frame_id=71;identity.config_generation=9;
-    const auto trace=PublishPostBoundary(output,native,identity,3,0x4444);
+    const ObservationScope store_scope{17,3,101,1,9,1,0,0};
+    const auto trace=PublishPostBoundary(output,native,identity,3,0x4444,store_scope,Provenance::StoreProbe);
     ID3D12GraphicsCommandList_CopyResource(list,unrelated,output);
     UINT zeros[4]={};FLOAT floats[4]={};
     ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(list,{}, {},output,zeros,0,nullptr);
@@ -143,6 +144,8 @@ void BoundaryNativeHooks() {
     ClosePostBoundaryAtPresent(0x4444);
     g_post_store_evidence.frame=71;g_post_store_evidence.config=9;g_post_store_evidence.feature_generation=3;
     g_post_store_evidence.boundary_trace_id=trace;g_post_store_evidence.samples=2040;
+    g_post_store_evidence.mode=1;g_post_store_evidence.recovery_token.key.scope.device=17;
+    g_post_store_evidence.recovery_target={101,101,0};
     auto feedback=std::make_unique<FeedbackSession>();
     FeedbackAppendActivity(*feedback,"start");FeedbackAppendActivity(*feedback,"end");
     Check(!feedback->report_truncated && std::strstr(feedback->report,"end.post.boundary.pairedWithProbe=1") &&
@@ -152,7 +155,7 @@ void BoundaryNativeHooks() {
     FeedbackAppendActivity(*feedback,"end");
     Check(std::strstr(feedback->report,"end.post.boundary.pairedWithProbe=0") && !std::strstr(feedback->report,"end.post.boundary.native.0="),
           "missing exact probe trace never borrows a nearby historical window");
-    identity.frame_id=74;const auto full_trace=PublishPostBoundary(output,native,identity,3,0x4444);
+    identity.frame_id=74;const auto full_trace=PublishPostBoundary(output,native,identity,3,0x4444,store_scope,Provenance::StoreProbe);
     Event wide;wide.kind=Kind::EnhancedTexture;wide.list.token=wide.list.reset=wide.order=wide.queue=wide.submission=UINT64_MAX;
     wide.before=wide.after=wide.sync_before=wide.sync_after=wide.access_before=wide.access_after=UINT64_MAX;
     wide.flags=UINT_MAX;for(auto &value:wide.subresources)value=UINT_MAX;
