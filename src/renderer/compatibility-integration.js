@@ -6,14 +6,11 @@
   if (!original?.mount || !scope.ManagerCompatibilityUX?.mount) return;
   const unwrap = result => { if (result?.ok !== true) throw Object.assign(new Error(result?.error?.message || '反馈操作未完成。'), result?.error); return result.value; };
   function description(state) {
-    const data = state.data || {}, native = data.launch?.session, verification = data.verification;
-    const historical = native?.historical === true;
+    const data = state.data || {};
     if (data.operation?.pending || data.deployment?.needsRecovery) return '先恢复未完成的操作；仍可保存反馈供排查。';
-    if (historical) return '上次运行记录已保留，本次是否生效仍待确认。';
-    if (verification?.nr?.status === 'passed') return '已观察到 NR 处理；画面效果和流畅度请你确认。';
-    if (verification?.nr?.status === 'bypassed') return '插件已加载，但这次没有正常处理。可在反馈中附带原因。';
-    if (verification?.core?.status === 'passed') return '插件已加载，是否处理画面仍待确认。';
-    return data.game?.installed ? '文件已安装；是否在游戏里生效，需要运行证据和你的体验。' : '打不开游戏或没有效果，也可以直接反馈。';
+    // Installation and diagnostics are loaded separately in 048. Their cached
+    // fields alone cannot establish that an NR result belongs to the latest launch.
+    return data.game?.installed ? '文件已安装；反馈时会核对运行记录，画面与流畅度由你评价。' : '打不开游戏或没有效果，也可以直接反馈。';
   }
   // Reuse existing controls, attributes and event delegation; never rewrite values or backend requests.
   function simplifyControls(host) {
@@ -50,46 +47,56 @@
     if (summary) summary.textContent = '细节、性能与更多设置';
     if (focused?.isConnected) { if (details.contains(focused)) details.open = true; focused.focus({ preventScroll: true }); }
   }
-  function mount(host, manager, options = {}) {
-    if (!manager.openCompatibilityFeedback) return original.mount(host, manager, options);
-    // Preserve the original DOM depth and CSS selectors. The dialog lives outside the rerendered game card.
+  // Shared by the real ordinary game controller and the HoYo outer workflow.
+  // HoYo owns one entry even when its settings editor is not mounted (failed,
+  // recovery, or waiting states). No installer/launcher is invoked by this mount.
+  function mountFeedback(host, manager, readState) {
+    if (!manager.openCompatibilityFeedback) return null;
     const footer = document.createElement('div'); footer.className = 'cx-feedback-footer';
-    const controller = original.mount(host, manager, options);
     let disposed = false, token = null, widget = null, lastKey = null, lastView = '', generation = 0, opening = null;
-    const closeToken = () => { const old = token; token = null; if (old) Promise.resolve(manager.closeCompatibilityFeedback(old)).catch(() => {}); };
+    const closeToken = () => {
+      const old = token; token = null;
+      if (old) Promise.resolve().then(() => manager.closeCompatibilityFeedback(old)).catch(() => {});
+    };
+    const identity = state => JSON.stringify([state.id || '', state.contextKey || '']);
     async function context() {
-      const state = controller.getState();
-      if (!state.id) throw new Error('请先选择一个游戏。');
-      if (state.busy || state.launching) throw new Error('请先等待当前操作完成。');
+      const state = readState();
+      if (!state.id || state.visible === false) throw new Error('请先选择游戏。');
+      if (state.busy) throw new Error('请先完成当前操作，再整理反馈。');
       if (token) return token;
       if (opening) return opening;
-      const mine = generation, id = state.id;
-      opening = Promise.resolve(manager.openCompatibilityFeedback(id)).then(unwrap).then(value => {
-        if (disposed || mine !== generation || controller.getState().id !== id) {
-          void manager.closeCompatibilityFeedback(value.token); throw new Error('已切换游戏，请重新打开反馈。');
+      const mine = generation, key = identity(state);
+      const pending = Promise.resolve(manager.openCompatibilityFeedback(state.id)).then(unwrap).then(value => {
+        if (disposed || mine !== generation || identity(readState()) !== key || readState().visible === false) {
+          void Promise.resolve(manager.closeCompatibilityFeedback(value.token)).catch(() => {});
+          throw new Error('已切换游戏，请重新打开反馈。');
         }
         token = value.token; return token;
-      }).finally(() => { opening = null; });
-      return opening;
+      });
+      opening = pending;
+      try { return await pending; } finally { if (opening === pending) opening = null; }
     }
+    function close() { generation++; closeToken(); widget?.closeFeedback(); }
     function update() {
       if (disposed) return;
-      const state = controller.getState(), data = state.data;
-      simplifyControls(host);
-      footer.hidden = !state.id || !data;
-      if (footer.hidden) { if (lastKey) { generation++; closeToken(); lastKey = null; widget?.closeFeedback(); } return; }
-      if (footer.parentNode !== host) host.append(footer);
-      const key = `${state.id}:${data.layout?.bindingId || ''}:${data.layout?.version || data.game?.addonVersion || ''}`;
+      const state = readState(), key = identity(state);
+      footer.hidden = !state.id || state.visible === false;
+      if (footer.hidden) {
+        if (lastKey !== null) { close(); lastKey = null; lastView = ''; }
+        return;
+      }
+      const target = state.mountTarget || host;
+      if (footer.parentNode !== target) target.append(footer);
       if (key !== lastKey) { generation++; closeToken(); lastKey = key; }
-      const view = { contextKey: key, gameName: data.game?.name || '当前游戏', title: '这次体验怎么样？', subtitle: '兼容反馈', status: description(state), reasons: [], warnings: [],
-        verification: '', layers: [], alternatives: [], feedbackDisabled: state.busy || state.launching };
+      const view = { contextKey: key, gameName: state.gameName || '当前游戏', title: '这次体验怎么样？', subtitle: '兼容反馈',
+        status: state.status || '反馈会核对当前配套；不确定的项目可以跳过。',
+        reasons: [], warnings: [], verification: '', layers: [], alternatives: [], feedbackDisabled: state.busy === true };
       const value = JSON.stringify(view);
       if (value === lastView) return;
       lastView = value;
       if (widget) widget.update(view);
       else widget = scope.ManagerCompatibilityUX.mount(footer, { decision: view, compact: true, dialogHost: document.body, bridge: {
         preview: async request => {
-          // Every new preview gets a fresh main-process context; a failed/expired preview never pins the user to an old token.
           closeToken(); const active = await context();
           return unwrap(await manager.previewCompatibilityFeedback(active, request));
         },
@@ -97,12 +104,27 @@
           if (!token) throw new Error('反馈预览已失效，请返回修改后重新预览。');
           return unwrap(await manager.saveCompatibilityFeedback(token, request));
         },
-        discard: async previewId => { if (token) await manager.discardCompatibilityFeedback(token, previewId); }
+        discard: async previewId => { if (token) await manager.discardCompatibilityFeedback(token, previewId); },
+        close: closeToken
       } });
     }
-    // Ignore our own footer mutations and reattachment. No polling or background scan.
+    return { update, close, footer, dispose() { disposed = true; generation++; closeToken(); widget?.destroy(); footer.remove(); } };
+  }
+  function mount(host, manager, options = {}) {
+    if (!manager.openCompatibilityFeedback) return original.mount(host, manager, options);
+    const controller = original.mount(host, manager, options);
+    let disposed = false;
+    const feedback = options.compatibilityFeedbackOwned ? null : mountFeedback(host, manager, () => {
+      const state = controller.getState(), data = state.data || {};
+      return { id: state.id, visible: Boolean(state.id && state.data), busy: state.busy || state.launching,
+        gameName: data.game?.name, status: description(state),
+        contextKey: JSON.stringify([data.layout?.exe || data.game?.chosen?.path || '', data.layout?.bindingId || '',
+          data.layout?.version || data.game?.addonVersion || '', data.launch?.session?.sessionId || '']) };
+    });
+    function update() { if (!disposed) { simplifyControls(host); feedback?.update(); } }
     const observer = new MutationObserver(records => {
-      if (records.some(row => !footer.contains(row.target) && !(row.target === host &&
+      const footer = feedback?.footer;
+      if (records.some(row => !footer || !footer.contains(row.target) && !(row.target === host &&
           [...row.addedNodes, ...row.removedNodes].every(node => node === footer)))) update();
     });
     observer.observe(host, { childList: true, subtree: true });
@@ -114,9 +136,9 @@
         return result;
       };
     }
-    wrapped.dispose = () => { disposed = true; generation++; observer.disconnect(); closeToken(); widget?.destroy(); controller.dispose(); footer.remove(); };
+    wrapped.dispose = () => { disposed = true; observer.disconnect(); feedback?.dispose(); controller.dispose(); };
     return wrapped;
   }
   scope.GamePageUi = { ...original, mount };
-  scope.CompatibilityGamePage = Object.freeze({ description, simplifyControls });
+  scope.CompatibilityGamePage = Object.freeze({ description, simplifyControls, mountFeedback });
 })(typeof window === 'object' ? window : globalThis);

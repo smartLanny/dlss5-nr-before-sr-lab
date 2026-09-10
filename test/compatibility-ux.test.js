@@ -4,3 +4,5 @@ require('./compatibility/model.test.cjs');
 require('./compatibility/package.test.cjs');
 require('./compatibility/reminder.test.cjs');
 require('./compatibility/manager.test.cjs');
+
+require('./compatibility/048-followup.test.cjs');
