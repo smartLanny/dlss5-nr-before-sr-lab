@@ -24,16 +24,19 @@ unsigned int StageCaptureStatus() {
 }
 
 bool RequestStageCapture() {
+    EnterCriticalSection(&g_chain_cs);
+    if(nr_f8::g_config_hold.load()) {LeaveCriticalSection(&g_chain_cs);return false;}
     unsigned int expected = 0;
     // Reserve the request before publishing its identity. State 4 is a brief
     // request publication/cancellation state, never eligible for render-thread arm.
     if (!g_stage_capture_status.compare_exchange_strong(
-            expected, 4, std::memory_order_acq_rel)) return false;
+            expected, 4, std::memory_order_acq_rel)) {LeaveCriticalSection(&g_chain_cs);return false;}
     g_stage_capture_request_id.fetch_add(1, std::memory_order_relaxed);
     g_stage_capture_last_result.store(0, std::memory_order_relaxed);
     g_stage_capture_retry_count.store(0, std::memory_order_relaxed);
     g_stage_capture_rebuild_pending.store(true, std::memory_order_relaxed);
     g_stage_capture_status.store(1, std::memory_order_release);
+    LeaveCriticalSection(&g_chain_cs);
     Log("Stage capture requested: next eligible warmed-up NR composition; "
         "one outstanding request, sampled raw stages, no native-SR output read. "
         "NR is recreated before capture, waits at least 64 successful "
@@ -51,9 +54,8 @@ bool CancelPendingStageCapture(unsigned long long request) {
     unsigned int expected = 1;
     if (g_stage_capture_status.compare_exchange_strong(
             expected, 4, std::memory_order_acq_rel)) {
-        // Check identity after reserving status: RequestStageCapture publishes
-        // without g_chain_cs, so a check before the CAS could observe an older
-        // request, then accidentally cancel a newly published one.
+        // Check the reserved identity so a late cancellation can never discard
+        // a newer request. Request publication shares the configuration lock.
         if (g_stage_capture_request_id.load(std::memory_order_acquire) == request) {
             g_stage_capture_prepared_context = {};
             g_stage_capture_rebuild_pending.store(false, std::memory_order_relaxed);

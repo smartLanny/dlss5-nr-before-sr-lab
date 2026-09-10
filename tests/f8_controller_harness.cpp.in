@@ -307,6 +307,20 @@ void TestBudgetAndLegacyFailure(){
 int main(int argc,char **argv){Check(argc==2,"output argument");wchar_t wide[1024]={};MultiByteToWideChar(CP_UTF8,0,argv[1],-1,wide,1024);output_root=wide;output_root+=L"\\run-"+std::to_wstring(GetCurrentProcessId());Check(CreateDirectoryW(output_root.c_str(),nullptr)!=FALSE,"unique fixture directory");
     const std::wstring log=output_root+L"\\fixture.log";wcscpy_s(g_log_path,log.c_str());wcscpy_s(g_ini_path,log.c_str());wcscpy_s(g_reshade_ini_path,log.c_str());FILE *f=nullptr;_wfopen_s(&f,log.c_str(),L"wb");std::fputs("fixture-only=true\n",f);std::fclose(f);
     wcscpy_s(nr_core_feedback::g_report_path,g_log_path);wcscpy_s(g_feedback_last_zip,g_log_path);
+    {
+        using namespace nr_f8;
+        Reset();config.enabled=true;g_config_hold.store(true);
+        Check(!RequestWithOptions(Options{}),"external replay lease rejects an overlapping image request");
+        Check(g_config_hold.load()&&!config_calls,"rejected request does not release another diagnostic lease");
+        g_config_hold.store(false);
+        Reset();config.enabled=true;
+        Check(RequestWithOptions(Options{}),"image request can wait for its core report");
+        g_config_hold.store(true);reshade::api::effect_runtime pending_runtime;
+        Present(&pending_runtime);
+        Check(g_status==Status::Failed&&!g_session&&!config_calls&&g_config_hold.load(),
+            "late lease conflict rejects publication without altering the other owner");
+        g_config_hold.store(false);
+    }
     TestFullscreen();
     TestFaceDiagnostic();
     TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();

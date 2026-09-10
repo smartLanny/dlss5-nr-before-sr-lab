@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline8'
-DISPLAY_VERSION = '0.5-dline8'
+VERSION = 'beta0.5-dline9'
+DISPLAY_VERSION = '0.5-dline9'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -31,25 +31,25 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 INTEGRATION_CORE_PINS = {
     'src/nr_feedback_picture.inl': 'cb9c146bd78a6aca13c457d4a7802295c36be3b4',
-    'config/nr_before_sr.ini': 'cc0b0e6939964e18781dcac06eab304dc6331a3d',
+    'config/nr_before_sr.ini': '7c6808700a54082f9ce41cd9dacb642dcbe32a1a',
     'scripts/patch-post-compat.py': '035040cc833053f938afbcdb99521a48551ee5e1',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': '5a1ace22787579ae14ca087508917021010c337b',
+    'src/nr_f8_sequence.inl': 'aa5d2df96d9e7683da024098a074558efa94c09c',
     'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
     'src/nr_feedback_capture.inl': '5e70b51324c3d7a494716d3b11aa8e8a3b5c4c16',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '9b0e309c9bd34ef9f98c6c920a6c7fcc7f1cadc0',
-    'src/nr_before_sr.cpp': '774c6b27089de181468439be5faf194c688652c6',
+    'src/nr_settings_ui.inl': '140668e9231bcdf747c2d6e534ed3d72e68b5943',
+    'src/nr_before_sr.cpp': '9143b6b04a40e20cc4bae9ed81488f02e9b75b04',
     'src/nr_recommended_picture.inl': 'd58c87b37cc8e25c70a0dbc553d617d4db291202',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '5d61af94d59ea72812c3755706859e23cc487d34',
+    'src/nr_before_sr.rc': 'f2e9cd8ac091eab20f5afb7732a0930663ba45f9',
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'aaba9199889fe70ba0bc3aaaba61baf8a610b593',
+    'scripts/build.ps1': '62221f7eb0ba254ade108419cd515e571e9eff02',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -61,7 +61,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_light_style.h': '1320dccd90fd3a774908cc142f2742c62808605b',
     'src/nr_light_style_ui.inl': 'a298b7240c6dee7fcb60c5685b92f56941f9680b',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
-    'src/nr_stage_capture.inl': '0abf85425a3a37796eafd7b634cedcab339228a1',
+    'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',
     'src/nr_rr_depth_adapter.inl': 'b606205e654bdcc9107a7266e71af23724377a86',
     'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
@@ -80,6 +80,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_config_policy_runtime.inl': '707fdfa24530c8b3dbaf0e81487ca5acf285cbd3',
     'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
     'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
+    'src/nr_replay_format.h': '59a54dad6733d20b4bf95421216730216be34558',
+    'src/nr_replay_shader.h': '208de4fe323b7b9281d0f1d6acefc985e0955b0a',
+    'src/nr_replay_gpu.inl': 'a520b803ec873361834043f6c6d4a48612fd30aa',
+    'src/nr_replay_runtime.inl': '6f39bec52e68e7db074d4ce1500388928290f6c0',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -189,7 +193,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline8 beta' not in resource_text:
+    if '0.5.1 dline9 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -200,7 +204,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.8',
+        'core_pe_version': '0.5.1.9',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

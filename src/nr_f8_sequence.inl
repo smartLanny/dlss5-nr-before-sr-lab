@@ -152,7 +152,7 @@ bool RequestWithOptions(const Options &options) {
         nr_face_diagnostic::ValidCenter(options.center_x, options.center_y) &&
         ((options.expected_source_width == 0) == (options.expected_source_height == 0)) &&
         SnapshotConfig().enabled);
-    bool accepted = valid_face && !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
+    bool accepted = valid_face && !g_config_hold.load() && !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
     if (accepted) {
         g_options=options; g_cancel.store(false);
         AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0;
@@ -673,7 +673,15 @@ void Present(reshade::api::effect_runtime *runtime) {
         const UINT64 overview_reserve=s->options.comparison==Comparison::Current?40ull*1024*1024+16u:0u;
         if(roi_bytes*s->group_count*(face?1:s->options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames)+overview_reserve>
             nr_f8_budget::kPayloadLimit){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
-        g_config_hold.store(true);s->original=SnapshotConfig();s->post_original=nr_post_settings::Read();
+        EnterCriticalSection(&g_chain_cs);
+        bool expected_hold=false;
+        const bool acquired_hold=StageCaptureStatus()==0 && g_config_hold.compare_exchange_strong(expected_hold,true);
+        LeaveCriticalSection(&g_chain_cs);
+        if(!acquired_hold) {
+            delete s;UnchangedFaceFailure("another diagnostic owns the configuration; no settings changed");
+            g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
+        }
+        s->original=SnapshotConfig();s->post_original=nr_post_settings::Read();
         FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
         AcquireSRWLockExclusive(&g_lock);g_session=s;g_status.store(Status::Running);ReleaseSRWLockExclusive(&g_lock);
         StartGroup(*s);

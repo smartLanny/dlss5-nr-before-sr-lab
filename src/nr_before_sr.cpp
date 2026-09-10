@@ -23,6 +23,7 @@
 #include <limits>
 #include <new>
 #include <memory>
+#include <type_traits>
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -56,11 +57,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline8";
+constexpr const char *kAddonVersion = "beta0.5-dline9";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline8";
+constexpr const char *kBuildIdentity = "beta0.5-dline9";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -859,6 +860,7 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 // -------------------------------------------------------------------------
 
 #include "nr_light_style.h"
+#include "nr_replay_format.h"
 
 struct ChainConfig {
     bool enabled = false;
@@ -1004,7 +1006,7 @@ BypassReason OtherNrOwnerBypassReason() {
 // current Evaluate did not provide a legal finite pair, 2 = values were
 // actually written to the NR parameter block for the current binding.
 
-namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+namespace nr_f8 { extern std::atomic<bool> g_config_hold; bool IsActive(); }
 
 std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
 std::atomic<ULONGLONG> g_compat_fallback_tick{0};
@@ -4292,6 +4294,7 @@ struct NrStageCapture {
 };
 
 struct NrSlot {
+    unsigned replay_capture_index=nr_replay::kFrames;
     NrCaptureParams capture_params = {};
     nr_face_capture_geometry::OutputMapping face_output = {};
     NrStageCapture stage_capture = {};
@@ -4600,8 +4603,12 @@ std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 
 #include "nr_f8_gpu.inl"
 nr_f8_gpu::CaptureRing g_f8_gpu;
+#include "nr_replay_gpu.inl"
+namespace nr_replay { Recorder recorder; void Collect(); }
+bool IsSameRrDepthDevice(ID3D12Device *first,ID3D12Device *second);
 
 void CollectF8GpuLocked() {
+    nr_replay::Collect();
     if(g_lifecycle_tracking_uncertain.load()) return; // preserve unproven GPU resources
     g_f8_gpu.Collect([](void *key,unsigned long long fence) {
         auto *q=static_cast<LifecycleQueue *>(key);
@@ -5566,6 +5573,7 @@ void DetachLifecycleCommandListTokenLocked(
         --context->recording_command_lists;
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_replay::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
@@ -5886,6 +5894,7 @@ bool CaptureSubmissionBatchLocked(
         // never-submitted work in the narrow post-Execute return window.
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
+        nr_replay::recorder.Submit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
     }
@@ -7416,6 +7425,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         light_style_active ? g_config.light_structure : 1.0f,
         light_style_active ? g_config.light_glow : 0.0f,
         light_style_active ? g_config.light_preview : 0u};
+    if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
+        kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -8358,6 +8369,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     return true;
 }
 
+#include "nr_replay_runtime.inl"
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
@@ -8882,6 +8895,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->next_create_retry_frame = 0;
     }
 
+    nr_replay::Attempt replay;
+    replay.index=nr_replay::Begin(command_list,*context,*slot,guides,color_contract,
+        render_width,render_height,color_x,color_y,0,0);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -8922,6 +8938,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->successful_evaluations_since_reset <= g_config.warmup_after_create) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
+        replay.Finish(command_list,*context,*slot,true);
         return substitution;
     }
 
@@ -8961,6 +8978,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
+    replay.Finish(command_list,*context,*slot,false);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
     substitution.original_color = color;
@@ -9459,6 +9477,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         context.next_create_retry_frame = 0;
     }
 
+    nr_replay::Attempt replay;
+    replay.index=nr_replay::Begin(command_list,context,slot,substitution.guides,color_contract,
+        width,height,0,0,substitution.output_base_x,substitution.output_base_y);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -9503,6 +9524,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             context.successful_evaluations_since_reset, g_config.warmup_after_create)) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
+        replay.Finish(command_list,context,slot,true);
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -9513,6 +9535,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     UavBarrier(command_list, slot.result);
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
+    replay.Finish(command_list,context,slot,false);
     SetBypassReason(BypassReason::None);
     return true;
 }
@@ -12818,13 +12841,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline8 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline9 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline8 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline9 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

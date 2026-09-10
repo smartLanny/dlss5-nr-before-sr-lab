@@ -812,6 +812,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),
             nullptr, feedback_tab_flags)) {
         DrawSimpleFeedbackControls();
+        nr_replay::DrawUi();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
         DrawFaceDiagnosticControls(runtime, current.config);

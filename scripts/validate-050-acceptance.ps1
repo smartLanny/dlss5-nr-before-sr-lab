@@ -54,7 +54,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline8') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline9') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
@@ -71,6 +71,8 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-config-policy.py') --compiler $Compiler --negative-control --output-dir (Join-Path $Output 'config-policy')
     if ($LASTEXITCODE) { throw 'One-time user policy migration or persistence failure contract failed.' }
     $Checks.Add('validate-config-policy.py')
+    & (Join-Path $PSScriptRoot 'validate-stage-capture-lifecycle.ps1') -ToolchainRoot $Toolchain
+    $Checks.Add('legacy stage capture lifecycle and shared diagnostic lease')
     & python (Join-Path $PSScriptRoot 'validate-face-capture-geometry.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'Face diagnostic display geometry admission failed.' }
     $Checks.Add('validate-face-capture-geometry.py')
@@ -133,6 +135,8 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        & (Join-Path $PSScriptRoot 'validate-replay.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'replay')
+        $Checks.Add('full-input replay actual WARP capture and independent reader; isolated model lab compile')
         & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --compiler $Compiler --gpu
         if ($LASTEXITCODE) { throw 'F8 capture GPU group index, fence or readback gate failed.' }
         $Checks.Add('face diagnostic group8 production GPU ring and invalid group9 WARP')
@@ -154,12 +158,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline8*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline8 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline9*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline9 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 8) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 9) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

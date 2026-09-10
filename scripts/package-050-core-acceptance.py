@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline8'
+VERSION = 'beta0.5-dline9'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -57,6 +57,8 @@ def package(build: Path, output: Path) -> dict:
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {'canonical pinned full-source staging', 'validate-work-config.py',
+                'full-input replay actual WARP capture and independent reader; isolated model lab compile',
+                'legacy stage capture lifecycle and shared diagnostic lease',
                 'frozen generated D4 directional reference source',
                 'directional light production scalar and independent negative controls',
                 'validate-color-policy.py', 'validate-bug-sweep.py',
@@ -107,7 +109,7 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline8 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline9 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
