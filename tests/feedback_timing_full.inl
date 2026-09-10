@@ -1,8 +1,8 @@
 // Included after the complete, canonically assembled production Core TU.
 // Only fixture values and the Win32 clock fault are synthetic. Every snapshot,
 // activity writer, sanitizer and final text writer below is production code.
-#if !NR_HAS_TIMING || !NR_HAS_PROBE_POLICY || !NR_HAS_RUNTIME_LOAD_EVIDENCE
-#error This fixture requires the assembled Core timing/probe/runtime writers.
+#if !NR_HAS_TIMING || !NR_HAS_PROBE_POLICY || !NR_HAS_RUNTIME_LOAD_EVIDENCE || !NR_HAS_UI_ACTIVITY_RECEIPTS
+#error This fixture requires the assembled Core timing/probe/runtime/UI writers.
 #endif
 
 #include <filesystem>
@@ -557,6 +557,40 @@ void CheckExpandedEvidence(const std::string &report, const char *prefix) {
     }
 }
 
+void SeedUiActivityEvidence() {
+    // Synthetic maximum-width UI observations enter the real publication
+    // boundary. The isolated UI gate separately executes the actual reader and
+    // display branches; this full TU gate verifies their storage and final TXT.
+    using namespace nr_ui_activity;
+    constexpr auto wide=std::numeric_limits<Count>::max();
+    g_nr_ui_activity_trace={};g_nr_ui_activity_trace.published=wide-6;
+    g_nr_ui_activity_recent_next=0;
+    ReadReceipt read{};read.thread_cookie=12345678901234ull; // Address-sized decimal must survive typed privacy.
+    read.thread_call=read.read_gap_ms=wide;
+    read.config_argument=read.epoch_entered=read.config_checked=read.epoch_checked=wide;
+    read.read_gap_known=read.epoch_checked_known=true;
+    auto& o=read.observation;o.now=o.gap_ms=wide;o.gap_known=o.observe_called=true;
+    o.before.initialized=true;o.before.scope={wide,wide};o.before.counters={wide,wide,wide,wide};
+    o.current=o.sample.delta=o.before.counters;o.sample.valid=o.before.sample.valid=true;
+    o.sample.elapsed_ms=wide;o.reset_mask=255;o.regression_mask=15;o.kind=Kind::Incoherent;
+    for(unsigned i=0;i!=6;++i)NrPublishUiActivity(read,static_cast<Site>(i%2),Display::CommandStateUnknown);
+}
+void CheckUiActivityEvidence(const std::string& text,const char* prefix,const std::string* raw=nullptr) {
+    const auto key=std::string(prefix)+".uiActivity.";
+    Check(Value(text,key+"schema")=="1"&&Value(text,key+"available")=="1"&&
+          Value(text,key+"recentCount")=="4","FULL_CORE_F8_UI_RECORD");
+    for(const auto suffix:{"latest.top","latest.feedback","recent.0","recent.1","recent.2","recent.3"}) {
+        const auto value=Value(text,key+suffix);
+        Check(Field(value,"thread","12345678901234")&&
+              Field(value,"readScope","18446744073709551615/18446744073709551615/18446744073709551615/18446744073709551615/1")&&
+              Field(value,"counterNow","18446744073709551615/18446744073709551615/18446744073709551615/18446744073709551615"),
+              "FULL_CORE_F8_UI_RECORD");
+        if(raw)Check(!value.empty()&&value==Value(*raw,key+suffix),"FULL_CORE_F8_UI_RECORD");
+    }
+    Check(Value(text,key+"meaning").find("F8 never samples the Window")!=std::string::npos,
+          "FULL_CORE_F8_UI_OBSERVATION_BOUNDARY");
+}
+
 int Run(const std::filesystem::path &directory, bool missing_clock) {
     std::filesystem::create_directories(directory);
     InitializeCriticalSection(&g_chain_cs);
@@ -578,6 +612,8 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(start_probe.mode == nr_probe_policy::Mode::Normal && start_probe.phase == 1,
           "FULL_CORE_F8_DEFAULT_PROBE_PHASE");
     SeedBoundedEvidence(start_probe);
+    SeedUiActivityEvidence();
+    const auto ui_calls=NrUiActivityThread().calls;
     auto origin = NrTimingCurrentIdentity();
     origin.frame = 991; origin.feature = 992; origin.config = 993; origin.mode = 1;
     SeedTiming(origin, missing_clock);
@@ -594,6 +630,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     const auto start_bytes = activity.report_used;
     CheckTiming(activity.report, "start", *start, missing_clock);
     CheckExpandedEvidence(activity.report, "start");
+    CheckUiActivityEvidence(activity.report,"start");
     Check(Value(activity.report, "start.store.pre.probePhaseCurrent") == "1" &&
           Value(activity.report, "start.store.post.probePhaseCurrent") == "1", "FULL_CORE_F8_INITIAL_PROBE_PHASE");
     FillTimeline(activity);
@@ -634,6 +671,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
           "FULL_CORE_F8_CAPACITY");
     CheckTiming(activity.report, "end", *end, missing_clock);
     CheckExpandedEvidence(activity.report, "end");
+    CheckUiActivityEvidence(activity.report,"end");
     Check(Value(activity.report, "end.probeControl.mode") == "paused" &&
           Value(activity.report, "end.probeControl.phase") == U(end_probe.phase), "FULL_CORE_F8_PROBE_CONTROL_END");
     for (const char *route : {"pre", "post"}) {
@@ -659,12 +697,19 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
         Check(Read(text.path) == *text.text, "FULL_CORE_F8_ATOMIC_TEXT_BYTES");
         CheckSerializedTiming(*text.text, activity.report);
         CheckSerializedTiming(Read(text.path), activity.report);
+        const std::string raw_ui(activity.report,activity.report_used);
+        CheckUiActivityEvidence(*text.text,"start",&raw_ui);
+        CheckUiActivityEvidence(*text.text,"end",&raw_ui);
+        CheckUiActivityEvidence(Read(text.path),"start",&raw_ui);
+        CheckUiActivityEvidence(Read(text.path),"end",&raw_ui);
         CheckTiming(*text.text, "start", *start, missing_clock);
         CheckTiming(Read(text.path), "end", *end, missing_clock);
         const auto path_utf8 = std::filesystem::path(text.path).u8string();
         Write(directory / "final-text-path.txt", std::string(reinterpret_cast<const char *>(path_utf8.data()), path_utf8.size()));
     }
     CheckPrivacyThroughCollector(directory);
+    Check(NrUiActivityThread().calls==ui_calls&&!NrUiActivityThread().window.Inspect().initialized,
+          "FULL_CORE_F8_UI_NO_OBSERVE");
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",
                 checks, failures, activity.report_used, sizeof(activity.report), text_bytes, missing_clock);
     DeleteCriticalSection(&g_chain_cs);

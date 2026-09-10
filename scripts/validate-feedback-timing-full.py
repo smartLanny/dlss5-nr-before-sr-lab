@@ -33,7 +33,8 @@ def main():
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit',
-                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption'))
+                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
+                        'omit-end-ui-receipt', 'redact-ui-decimals'))
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
     source = args.source_root.resolve(strict=True)
@@ -92,6 +93,13 @@ def main():
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && TimingMetadataNumber(line, i, end))',
                     "if (std::all_of(line.begin() + i, line.begin() + end, [](char c) { return c >= '0' && c <= '9'; }))",
                     'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
+    elif args.negative_control == 'omit-end-ui-receipt':
+        mutation = ('src/nr_feedback_capture.inl', '    FeedbackAppendUiActivity(s,prefix);',
+                    '    if (std::strcmp(prefix,"end") != 0) FeedbackAppendUiActivity(s,prefix);',
+                    'FULL_CORE_F8_UI_RECORD')
+    elif args.negative_control == 'redact-ui-decimals':
+        mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && UiActivityMetadataNumber(line, i, end))',
+                    'if (false)', 'FULL_CORE_F8_UI_RECORD')
     if mutation:
         path = snapshot / mutation[0]
         text = path.read_text(encoding='utf-8-sig')

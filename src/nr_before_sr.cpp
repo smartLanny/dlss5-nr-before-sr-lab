@@ -59,6 +59,7 @@
 namespace {
 
 #include "nr_runtime_timing.inl"
+#include "nr_ui_activity_runtime.inl"
 #include "nr_submitted_fence_wait.inl"
 #include "nr_diagnostic_bundle.inl"
 
@@ -12785,7 +12786,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
 
-void DrawNrActivityStatus(reshade::api::effect_runtime *,const ChainConfig &,unsigned);
+void DrawNrActivityStatus(reshade::api::effect_runtime *,const ChainConfig &,unsigned,nr_ui_activity::Site);
 
 void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
     const auto current=SnapshotOverlayConfig();
@@ -13017,7 +13018,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
         g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed);
 
     ImGui::SeparatorText(ui("Recent activity", "近期状态"));
-    DrawNrActivityStatus(runtime,next,current.generation);
+    DrawNrActivityStatus(runtime,next,current.generation,nr_ui_activity::Site::Feedback);
     ImGui::TextDisabled(
         ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s fault=%s startup-covered=%s preflight=%llu/%llu F1-create=%llu/%llu in-flight=%u null-evals=%llu",
            "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 首因=%s 启动补挂=%s 预扫=%llu/%llu F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
