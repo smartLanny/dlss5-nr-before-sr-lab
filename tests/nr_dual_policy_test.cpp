@@ -1,4 +1,5 @@
 #include "nr_dual_pass.hpp"
+#include "nr_dual_lifetime.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -121,6 +122,17 @@ int main() {
         { FakeBackend b; auto p=MakePlan({1,{1,2}}, {1920,1080}, rules);
           auto out=RecordPreparedSecond(p,{},b);
           Check(out.selection==Selection::Primary && b.calls.empty(), "disabled exact no-work"); }
+        {
+            struct Context;
+            struct Slot {void* dual_spatial=nullptr;Context* dual_owner=nullptr;};
+            struct Context {Slot slots[8]{};unsigned handle=0;};
+            Context active;active.handle=123;active.slots[3].dual_spatial=&active;active.slots[3].dual_owner=&active;
+            Context deferred=active;RebindSlotOwners(deferred);active={};active.handle=456;
+            Check(deferred.slots[3].dual_owner==&deferred&&deferred.slots[3].dual_owner->handle==123,"first deferred move rebases owner away from reused active entry");
+            Context worker=deferred;RebindSlotOwners(worker);deferred={};deferred.handle=789;
+            Check(worker.slots[3].dual_owner==&worker&&worker.slots[3].dual_owner->handle==123,"worker move rebases owner away from reused queue entry");
+            Check(worker.slots[0].dual_owner==nullptr,"empty slots are not assigned false owners");
+        }
         std::cout << "PASS " << checks << " assertions (portable policy and fake backend; not GPU/NGX)\n";
     } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

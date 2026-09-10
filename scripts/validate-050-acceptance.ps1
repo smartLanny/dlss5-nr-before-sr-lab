@@ -61,7 +61,7 @@ try {
     & python (Join-Path $Root 'tests/test_nr_dual_reference_math.py')
     if($LASTEXITCODE){throw 'Dual matched residual numeric oracle failed.'}
     $DualPolicy=Join-Path $Output 'dual-policy.exe'
-    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror (Join-Path $Root 'tests/nr_dual_policy_test.cpp') -o $DualPolicy
+    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Root 'src') (Join-Path $Root 'tests/nr_dual_policy_test.cpp') -o $DualPolicy
     if($LASTEXITCODE){throw 'Dual policy compile failed.'}
     & $DualPolicy
     if($LASTEXITCODE){throw 'Dual policy admission/opaque failure contract failed.'}

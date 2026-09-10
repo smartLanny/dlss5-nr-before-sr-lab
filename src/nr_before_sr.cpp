@@ -44,6 +44,7 @@
 #include "nr_pre_fallback.h"
 #include "nr_face_worker.h"
 #include "nr_dual_spatial_d3d12.hpp"
+#include "nr_dual_lifetime.hpp"
 #if NR_CODEC_PRECOMPILED
 #include "../build/nr_codec_precompiled.h"
 #endif
@@ -5510,6 +5511,7 @@ void CollectRetiredContextsLocked() {
                 static_cast<const void *>(context.sr_handle), context.mode,
                 context.width, context.height);
             *pending = context;
+            nr_dual::RebindSlotOwners(*pending);
             context = {};
         }
     }
@@ -5528,6 +5530,7 @@ void DrainPendingContextDestructions() {
         }
         if (source != nullptr) {
             pending = *source;
+            nr_dual::RebindSlotOwners(pending);
             *source = {};
         }
         LeaveCriticalSection(&g_chain_cs);

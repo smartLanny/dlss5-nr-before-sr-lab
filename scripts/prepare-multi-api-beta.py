@@ -42,7 +42,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_capture.inl': 'c909a3b1496a8860a6b9617f8f3db9dc7b482bac',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '79756634d03519f1fbc1181df9cf8846aeef9345',
-    'src/nr_before_sr.cpp': '5236465f5d57b9884044f9387b4c42216bd1dbbb',
+    'src/nr_before_sr.cpp': '15d383360797b17ae3891bdd601c4281d2dd4966',
     'src/nr_recommended_picture.inl': '39a9d0083c37f6d8377091f40aa7b598a732ef69',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'src/nr_before_sr.rc': '6785d69d5029cc11ddf0f8297906da55fd460910',
@@ -101,7 +101,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_dual_residual.hlsl': '545307f5dff6c461ce6830e09cc35695b4861cd0',
     'src/nr_dual_resolve.hlsli': 'dfd746ca6bcc7faab5a2f22c224dcaa26ed3781d',
     'src/nr_dual_resolve_cached.hlsli': 'fce4454d5039019237f4cfe08d5db7c2a8fa92a5',
-    'src/nr_dual_runtime.inl': 'd19cee497729694485f1c2b68c1c3f0e6b8f6d6d',
+    'src/nr_dual_runtime.inl': '06bdf9c7d3fa98611c1c80f8ac2a87741089b5ae',
     'src/nr_dual_spatial_d3d12.cpp': 'b306e7b3e80b8d528d6718e86aa9090de733e225',
     'src/nr_dual_spatial_d3d12.hpp': 'f77d5c4f72460bbe8ac05d33e41bed0a0bab9f0a',
     'src/nr_dual_ui.inl': 'cdfd4e76f3e01349d2da9e59034d08e9d3bc1246',
@@ -114,6 +114,7 @@ INTEGRATION_CORE_PINS = {
     'scripts/patch-format-access.py': 'be848f256f921115db67378a34ef2f9219544d53',
     'scripts/patch-exposure-access.py': '84dc9604b1f1d9c0b8689fe3088aa0f20368f249',
     'src/nr_dual_capture.inl': '56e523bfd5bcbd54e2ea91be541ba82e87bcd240',
+    'src/nr_dual_lifetime.hpp': '33119e1c92269636feb757eaa5073164ac8d5a8b',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',

@@ -54,7 +54,10 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     unsigned x,unsigned y,CodecColorMode color_mode) {
     ClearSelection(main);
     if(CanMutateSlotLocked(main)){CollectTiming(main);main.dual_time_active=false;}
-    if(g_config.nr_passes!=2){SetStatus(Status::Off);return {};}
+    if(g_config.nr_passes!=2){
+        for(auto& child:g_contexts)if(child.layer_index==1&&child.parent_instance_id==primary.instance_id)child.retired=true;
+        SetStatus(Status::Off);return {};
+    }
     if(fatal_result.load()){SetStatus(Status::Failed);return {};}
     if(!primary.nr_handle||!primary.instance_id||g_config.identity_use_original||
        primary.successful_evaluations_since_reset<=g_config.warmup_after_create){SetStatus(Status::PrimaryWarming);return {};}
