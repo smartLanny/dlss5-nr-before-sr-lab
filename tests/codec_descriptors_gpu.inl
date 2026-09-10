@@ -1,3 +1,4 @@
+#include "nr_dual_spatial_d3d12.hpp"
 // The real production descriptor writers are compiled here. These wrappers
 // adapt SDK C helper spelling to this harness's C++ COM interfaces only.
 #define ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(h) (h)->GetCPUDescriptorHandleForHeapStart()
@@ -5,6 +6,8 @@
 #define ID3D12Device_CreateShaderResourceView(d,r,s,h) (d)->CreateShaderResourceView(r,s,h)
 #define ID3D12Device_CreateUnorderedAccessView(d,r,c,s,h) (d)->CreateUnorderedAccessView(r,c,s,h)
 struct NrSlot {
+    NrSlot* dual_selected=nullptr;bool dual_reduced=false;
+    nr_dual::dx12::SpatialSlot* dual_spatial=nullptr;
     ID3D12Resource *source=nullptr,*proxy=nullptr,*neural=nullptr,*motion_source=nullptr;
     ID3D12Resource *exposure_source=nullptr,*result=nullptr,*motion_proxy=nullptr,*delta_stats=nullptr;
     ID3D12Resource *edit_field=nullptr,*edit_horizontal=nullptr;

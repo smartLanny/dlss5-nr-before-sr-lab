@@ -33,6 +33,8 @@ HARNESS=r'''
 #include <string>
 #include <vector>
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 #include "nr_model_controls.h"
 #include "nr_work_config.h"
 #include "nr_config_policy.h"

@@ -1,4 +1,4 @@
-﻿param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -195,7 +195,7 @@ $generated = Join-Path $build 'codec_gpu_validation.cpp'
 $binary = Join-Path $build 'codec_gpu_validation.exe'
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
-& $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
+& $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-I' (Join-Path $SourceRoot 'src') $generated (Join-Path $SourceRoot 'src/nr_dual_spatial_d3d12.cpp') `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
 if ($CompileOnly) {

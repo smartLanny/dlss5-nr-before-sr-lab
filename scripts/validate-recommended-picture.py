@@ -115,6 +115,8 @@ def main():
 #include <algorithm>
 #include <initializer_list>
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}

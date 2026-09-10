@@ -41,6 +41,8 @@ harness = r'''
 #include <cstring>
 #include <string>
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 enum DXGI_FORMAT { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R16G16B16A16_FLOAT,
                    DXGI_FORMAT_R11G11B10_FLOAT };
 struct ID3D12Resource {};

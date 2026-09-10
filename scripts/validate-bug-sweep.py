@@ -44,6 +44,8 @@ PREAMBLE = r'''
 #include <random>
 #include <string>
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
     ++checks;

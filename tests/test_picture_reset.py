@@ -39,6 +39,8 @@ HARNESS = r'''
 #include <utility>
 #include <vector>
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG

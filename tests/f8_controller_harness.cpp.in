@@ -16,6 +16,8 @@
 #include <vector>
 #include "nr_f8_budget.h"
 #include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
 enum class input_source { mouse };
