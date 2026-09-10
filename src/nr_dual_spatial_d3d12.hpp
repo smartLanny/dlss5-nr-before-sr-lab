@@ -19,6 +19,8 @@ using EvaluateFn = std::uint32_t (*)(void* user, ID3D12GraphicsCommandList* list
                                     const void* feature, const void* params);
 using TimestampFn = void (*)(void* user,ID3D12GraphicsCommandList* list,unsigned query);
 using RetiredFn = bool (*)(void* user); // Core's exact-fence AND recording-ref retirement predicate.
+using DeviceIdentityFn = bool (*)(ID3D12Device*,ID3D12Device*);
+enum class SpatialError : unsigned { None, Contract, DeviceIdentity, Budget, Allocation };
 
 struct Surfaces {
     ID3D12Resource* primary = nullptr;   // P1, borrowed from the pinned primary slot
@@ -37,7 +39,8 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error);
 // under the Core lock. Reserve SlotBytes() before exposing the slot to other threads.
 SpatialSlot* CreateSpatialSlot(Pipelines* pipelines, ID3D12Resource* first_answer,
                                const Plan& plan, ModelDomain domain,
-                               std::uint64_t budget_available_bytes, std::string& error);
+                               std::uint64_t budget_available_bytes, std::string& error,
+                               DeviceIdentityFn same_device=nullptr,SpatialError* failure=nullptr);
 Surfaces GetSurfaces(const SpatialSlot* slot) noexcept;
 std::uint64_t SlotBytes(const SpatialSlot* slot) noexcept;
 

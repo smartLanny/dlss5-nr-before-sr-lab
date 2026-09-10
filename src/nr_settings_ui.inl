@@ -252,6 +252,45 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 #endif
 }
 
+// Use the same recent composition policy as the global colour controls. A
+// pending or old sample cannot establish the current game's colour contract.
+bool DrawRegionColourStatus(ChainConfig &next, bool has_pending, bool &changed) {
+    const bool zh = UseChineseUi();
+    auto snapshot = SnapshotColorPolicy();
+    if (snapshot.status != NrColorPolicyStatus::Bypassed &&
+        (has_pending || changed || snapshot.mode != EffectivePictureMode(next.mode)))
+        snapshot.status = NrColorPolicyStatus::Pending;
+    const bool current = snapshot.status == NrColorPolicyStatus::Current;
+    if (next.allow_unverified_hdr_color || (current &&
+        snapshot.policy.color_reason == NrColorReason::UnverifiedHdr)) {
+        if (ImGui::Checkbox(zh ? "允许实验 HDR 调色###region-hdr-colour" :
+                "Allow experimental HDR colour###region-hdr-colour", &next.allow_unverified_hdr_color)) {
+            changed = true;
+            snapshot.status = NrColorPolicyStatus::Pending;
+        }
+        SettingsTooltip(zh ? "与开发者选项是同一设置。允许在尚未确认的 HDR 输入上尝试 AI 颜色；出现偏色或闪烁时关闭。" :
+            "The same setting as Developer options. Allows AI colour on unverified HDR inputs; turn off if hue shifts or flicker appear.");
+    }
+    if (next.color_strength <= 0.f) {
+        ImGui::TextWrapped("%s", zh ? "AI 色彩强度为 0，区域颜色倍率暂不生效。可在下方高级画质中提高 AI 色彩强度。" :
+            "AI colour amount is 0, so region colour gains have no effect. Raise AI colour amount under Advanced picture controls below.");
+        return true;
+    }
+    if (snapshot.status != NrColorPolicyStatus::Current) {
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(snapshot.status, zh));
+        return false;
+    }
+    if (!snapshot.policy.color_allowed) {
+        ImGui::TextWrapped("%s", zh ? "当前 HDR 策略暂停 AI 颜色：区域颜色倍率不生效，明暗调节仍可用。可用上方实验开关尝试调色。" :
+            "The current HDR policy pauses AI colour: region colour gains have no effect; luminance controls remain available. Use the experimental option above to try colour edits.");
+        return true;
+    }
+    ImGui::TextWrapped("%s", snapshot.policy.color_reason == NrColorReason::ExperimentalUnverifiedHdr
+        ? (zh ? "区域颜色已获实验 HDR 许可；出现偏色或闪烁时关闭上方开关。" : "Region colour has experimental HDR permission; turn it off above if hue shifts or flicker appear.")
+        : (zh ? "区域颜色可用；实际变化取决于模型是否改变了该区域的颜色。" : "Region colour is available; visible changes depend on the model's colour edits in each region."));
+    return false;
+}
+
 void DrawSimpleFeedbackControls() {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
@@ -677,6 +716,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsNote(ui("Choose regions from the original NR change; 1x keeps the current change, 0x removes it. Region gains replace the older five light controls. Model controls are unchanged.",
         "按 NR 原始改动固定分区；1 倍保留当前改动，0 倍去除该区改动。启用后替代旧五项光效调节，模型参数不变。"));
     if(next.region_enabled) {
+        SettingsNote(ui("Broad and fine describe the spatial extent of NR's luminance change. Same-direction neighbouring changes form broad regions; image edges and available depth/normals limit mixing across surfaces.",
+            "宽窄按 NR 明暗改动的空间范围区分：周围也同向变化，归入宽范围；局部孤立变化，归入细节。原图边缘及可用深度、法线限制跨表面混合。"));
+        const bool region_colour_disabled = DrawRegionColourStatus(next,has_pending,changed);
         const char* namesEn[]={"Broad brightening","Fine brightening","Broad darkening","Fine darkening","Engine specular region"};
         const char* namesZh[]={"宽范围增亮","细节增亮","宽范围压暗","细节压暗","引擎镜面区域"};
         const unsigned regionStatus=nr_regions::status.load();
@@ -684,11 +726,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             ImGui::PushID(static_cast<int>(i));ImGui::TextUnformatted(ui(namesEn[i],namesZh[i]));
             if(i==4 && regionStatus!=3)ImGui::BeginDisabled();
             changed |= SettingsSliderFloat(ui("Luminance", "明暗"),"##region-luma",&next.region_gains[i*2],0.f,4.f,"%.2fx");
+            ImGui::BeginDisabled(region_colour_disabled);
             changed |= SettingsSliderFloat(ui("Colour", "颜色"),"##region-colour",&next.region_gains[i*2+1],0.f,4.f,"%.2fx");
+            ImGui::EndDisabled();
             if(i==4 && regionStatus!=3)ImGui::EndDisabled();
             ImGui::PopID();
         }
+        ImGui::BeginDisabled(region_colour_disabled);
         changed |= SettingsSliderFloat(ui("Colour-only changes", "纯颜色改动"),"##region-pure-colour",&next.region_gains[10],0.f,4.f,"%.2fx");
+        ImGui::EndDisabled();
         SettingsNote(ui("Colour gains refine the current colour-follow amount. Specular guidance identifies edits on reflective surfaces; it is not a separately rendered reflection image.",
             "颜色倍率以当前颜色跟随量为基础。镜面导引限定反射表面上的模型改动，并非引擎独立渲染的反射图层。"));
         SettingsNote(regionStatus==4?ui("Region resources unavailable; existing NR composition retained.","分区资源暂不可用；保留现有 NR 合成。"):

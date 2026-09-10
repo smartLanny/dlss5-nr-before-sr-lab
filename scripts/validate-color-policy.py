@@ -135,6 +135,7 @@ bool SettingsSliderFloat(const char*,const char* id,float* value,float minimum,
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }
+REGION_UI
 unsigned checks=0,failures=0;
 void check(bool ok,const char* label) {
     ++checks; if(!ok) { ++failures; if(failures<30) std::printf("FAIL: %s\n",label); }
@@ -338,6 +339,28 @@ int main() {
                      NrColorReason::SrgbSdr,NrColorReason::ModelValueDomain,
                      NrColorReason::PostSrFp16UnitExposure,NrColorReason::UnverifiedHdr})
         check(std::strlen(NrColorReasonName(reason))>0,"stable export colour reason");
+    // Owner's post-SR FP16 + non-unit exposure contract. Test the actual UI
+    // function and dispatch; neither a checkbox nor stale history grants colour.
+    g_config={}; g_config.mode=1; c={}; c.has_pre_exposure=true; c.pre_exposure=1.548f;
+    slot.result_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
+    next=g_config; changed=false; ImGui::try_edits=false; ImGui::text.clear();
+    check(DrawRegionColourStatus(next,false,changed) && !changed && !next.allow_unverified_hdr_color &&
+          ImGui::text.find("region colour gains have no effect")!=std::string::npos &&
+          slot.diagnostic_color_strength==0,"real non-unit-exposure HDR denies and explains region colour");
+    ImGui::try_edits=true;
+    check(!DrawRegionColourStatus(next,false,changed) && changed && next.allow_unverified_hdr_color &&
+          slot.diagnostic_color_strength==0,"explicit region opt-in is pending until committed composition");
+    ImGui::try_edits=false; g_config=next; ++g_config_generation;
+    DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
+    changed=false; ImGui::text.clear();
+    check(!DrawRegionColourStatus(next,false,changed) && slot.diagnostic_color_strength==1 &&
+          ImGui::text.find("experimental HDR permission")!=std::string::npos,"committed opt-in enables actual colour coefficient");
+    next.color_strength=0;
+    check(DrawRegionColourStatus(next,false,changed),"zero global colour disables region colours even with HDR opt-in");
+    next=g_config; g_recorded_color_policy.policy.color_allowed=false; clock_ms+=3000; ImGui::text.clear();
+    check(!DrawRegionColourStatus(next,false,changed) &&
+          ImGui::text.find("region colour gains have no effect")==std::string::npos,"stale colour denial cannot claim a current restriction");
     std::printf("Color policy: %u contracts, %u checks, %u failures.\n",cases,checks,failures);
     return failures?1:0;
 }
@@ -349,6 +372,7 @@ for marker, replacement in {
     "PEAK_SHOULDER": definition(source, "bool UsePeakShoulder("),
     "DISPATCH": dispatch,
     "UI_BLOCK": ui_block,
+    "REGION_UI": definition(ui_source, "bool DrawRegionColourStatus(").replace("ChainConfig", "Config"),
 }.items():
     harness = harness.replace(marker, replacement)
 with tempfile.TemporaryDirectory(prefix="nr-color-policy-") as directory:

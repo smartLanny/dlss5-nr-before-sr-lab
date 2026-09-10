@@ -43,11 +43,14 @@ D3D12_RESOURCE_DESC Description(Extent size, DXGI_FORMAT format) {
     d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     return d;
 }
-bool SameDevice(ID3D12Device* expected, ID3D12Resource* resource) {
+bool SameDevice(ID3D12Device* expected, ID3D12Resource* resource,DeviceIdentityFn compare) {
     ID3D12Device* actual = nullptr; IUnknown* a = nullptr; IUnknown* b = nullptr;
-    bool ok = SUCCEEDED(resource->GetDevice(IID_PPV_ARGS(&actual))) && actual &&
-              SUCCEEDED(expected->QueryInterface(IID_PPV_ARGS(&a))) && a &&
-              SUCCEEDED(actual->QueryInterface(IID_PPV_ARGS(&b))) && b && a == b;
+    bool ok = SUCCEEDED(resource->GetDevice(IID_PPV_ARGS(&actual))) && actual;
+    // Reuse the Core's pinned ReShade identity proof. Keep the original
+    // execution device and texture; identity resolution never substitutes them.
+    if(ok)ok=compare?compare(expected,actual):
+        SUCCEEDED(expected->QueryInterface(IID_PPV_ARGS(&a))) && a &&
+        SUCCEEDED(actual->QueryInterface(IID_PPV_ARGS(&b))) && b && a == b;
     Drop(a); Drop(b); Drop(actual); return ok;
 }
 bool Supports(ID3D12Device* device, DXGI_FORMAT format) {
@@ -176,12 +179,17 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error) {
 }
 SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
                               const Plan& plan, ModelDomain domain,
-                              std::uint64_t available, std::string& error) {
+                              std::uint64_t available, std::string& error,
+                              DeviceIdentityFn compare,SpatialError* failure) {
     error.clear();
+    if(failure)*failure=SpatialError::Contract;
     if (!p || !p->device || p->poisoned || !first || !plan || plan.path == Path::Single ||
-        (domain != ModelDomain::DirectValue && domain != ModelDomain::SrgbProxy) ||
-        !SameDevice(p->device, first)) {
-        error = "Invalid pipeline/plan/domain/device"; return nullptr;
+        (domain != ModelDomain::DirectValue && domain != ModelDomain::SrgbProxy)) {
+        error = "Invalid pipeline, plan or model domain"; return nullptr;
+    }
+    if(!SameDevice(p->device,first,compare)) {
+        if(failure)*failure=SpatialError::DeviceIdentity;
+        error="Primary resource device identity could not be proven";return nullptr;
     }
     const auto d = first->GetDesc();
     if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || d.Width != plan.primary.width ||
@@ -199,8 +207,10 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
     const auto delta_bytes=plan.path==Path::MatchedResidual?AllocBytes(p->device,delta):0;
     const auto total = plan.path == Path::MatchedResidual ? 2 * color_bytes + mask_bytes + delta_bytes : color_bytes;
     if (!color_bytes || (plan.path == Path::MatchedResidual && (!mask_bytes||!delta_bytes)) || total > available) {
+        if(failure)*failure=SpatialError::Budget;
         error = "Secondary texture allocation exceeds the remaining Core budget"; return nullptr;
     }
+    if(failure)*failure=SpatialError::Allocation;
     auto* s = new(std::nothrow) SpatialSlot;
     if (!s) { error = "Spatial slot allocation failed"; return nullptr; }
     s->owner = p; ++p->live_slots;
@@ -209,7 +219,7 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
     if (!MakeTexture(p->device, color, &s->second, L"NRDual.SecondAnswer")) {
         error = "Secondary answer allocation failed"; DropSlot(s); return nullptr;
     }
-    if (plan.path == Path::DirectSecond) return s; // No copy, downsample, delta, or second full-size intermediate.
+    if (plan.path == Path::DirectSecond) {if(failure)*failure=SpatialError::None;return s;} // No extra full-size intermediate.
     if (!MakeTexture(p->device, color, &s->low_input, L"NRDual.LowInput") ||
         !MakeTexture(p->device, mask, &s->valid, L"NRDual.LowValid") ||
         !MakeTexture(p->device, delta, &s->delta, L"NRDual.LowMatchedDelta")) {
@@ -238,6 +248,7 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
     srv(s->delta_heap,0,s->low_input,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(s->delta_heap,1,s->second,DXGI_FORMAT_R16G16B16A16_FLOAT);
     srv(s->delta_heap,2,s->valid,DXGI_FORMAT_R32_UINT);uav(s->delta_heap,3,s->delta,DXGI_FORMAT_R32G32B32A32_FLOAT);
     uav(s->delta_heap,4,nullptr,DXGI_FORMAT_R32_UINT);
+    if(failure)*failure=SpatialError::None;
     return s;
 }
 Surfaces GetSurfaces(const SpatialSlot* s) noexcept {

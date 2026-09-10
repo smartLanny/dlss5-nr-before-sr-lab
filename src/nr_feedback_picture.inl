@@ -3,6 +3,16 @@
 void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool valid) {
     FeedbackAppend(s, "requested.pictureSnapshotValid=%d\n", valid ? 1 : 0);
     if (!valid) return; // A busy snapshot must not report constructor defaults as facts.
+    FeedbackAppend(s,"requested.regionEnabled=%d\nrequested.regionVersion=%u\nrequested.regionPreview=%u\n"
+        "requested.regionGains=%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n"
+        "requested.regionGainOrder=broadBrightLuma,broadBrightColour,fineBrightLuma,fineBrightColour,broadDarkLuma,broadDarkColour,fineDarkLuma,fineDarkColour,specularLuma,specularColour,pureColour\n"
+        "requested.regionColourContract=multiplies effective global colour; consult color.status and color.reason; not proof of visible change\n",
+        config.region_enabled?1:0,config.region_version,config.region_preview,
+        static_cast<double>(config.region_gains[0]),static_cast<double>(config.region_gains[1]),
+        static_cast<double>(config.region_gains[2]),static_cast<double>(config.region_gains[3]),
+        static_cast<double>(config.region_gains[4]),static_cast<double>(config.region_gains[5]),
+        static_cast<double>(config.region_gains[6]),static_cast<double>(config.region_gains[7]),
+        static_cast<double>(config.region_gains[8]),static_cast<double>(config.region_gains[9]),static_cast<double>(config.region_gains[10]));
     FeedbackAppend(s,"requested.nrPasses=%u\nrequested.nrSecondScale=%u/%u\n"
         "requested.genericResidual=%d\nrequested.genericGains=%.9g,%.9g,%.9g,%.9g,%.9g\n"
         "requested.genericContract=normalized model-domain directional RGB and relative HSL; D final protection retained; not material masks\n",

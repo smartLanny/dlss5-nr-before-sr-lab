@@ -142,8 +142,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_dual_capture.inl',
             'src/nr_dual_lifetime.hpp',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '79756634d03519f1fbc1181df9cf8846aeef9345')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '75405fc098ba9ea3c84596add311f376aaa998c5')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '3e7d6e4421550b657a82043439292dc8cb349b2d')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '5ba47e56fdc1df28c6c1e6e75458d956c22a815f')
 
 if __name__ == '__main__': unittest.main()

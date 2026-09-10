@@ -105,6 +105,7 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
 #endif
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    FeedbackAppend(s,"%s.dual.statusLegend=0:off,1:primary-warmup,2:secondary-warmup,3:create-pending,4:recorded,5:guides,6:resources-budget,7:queue,8:slot,9:fatal,10:device-identity,11:pipeline,12:resource-contract\n",prefix);
     FeedbackAppend(s,"%s.dual.status=%u\n%s.dual.primary=%ux%u\n%s.dual.secondary=%ux%u\n"
         "%s.dual.createCalls=%llu\n%s.dual.evaluateSuccess=%llu\n%s.dual.completedStableSamples=%llu\n"
         "%s.dual.parentInstance=%llu\n%s.dual.secondaryInstance=%llu\n%s.dual.parentEvaluation=%llu\n"

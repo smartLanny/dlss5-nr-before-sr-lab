@@ -2,7 +2,8 @@
 // Included after the actual Core guide/NGX/lifetime/codec declarations.
 namespace nr_dual_runtime {
 enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending, Active,
-    UnsupportedGuides, ResourceBudget, QueuePending, SlotPending, Failed };
+    UnsupportedGuides, ResourceBudget, QueuePending, SlotPending, Failed,
+    DeviceIdentity, PipelineUnavailable, ResourceContract };
 std::atomic<Status> status{Status::Off};
 std::atomic<unsigned> primary_width{0},primary_height{0},second_width{0},second_height{0};
 std::atomic<unsigned long long> second_evaluations{0},second_creates{0},second_completed{0};
@@ -23,6 +24,17 @@ struct Prepared {
     explicit operator bool() const {return context&&slot&&bool(plan);}
 };
 void SetStatus(Status value){status.store(value,std::memory_order_relaxed);}
+void Unavailable(Status value,const std::string& reason) {
+    // Serialized by the existing Core lock. Repeated refusals must not fill
+    // F8's bounded evidence with a copy of the same line on every frame.
+    static std::string previous;static ULONGLONG last=0;
+    const auto now=GetTickCount64();
+    if(previous!=reason||status.load()!=value||now-last>=60000){
+        Log("[dual-nr] unavailable status=%u detail=%s; single NR retained.",static_cast<unsigned>(value),reason.c_str());
+        previous=reason;last=now;
+    }
+    SetStatus(value);
+}
 void ClearSelection(NrSlot& slot){slot.dual_capture_index=nr_replay::Recorder::Invalid;slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
 template<class Slot> void InitializeSourceFormats(Slot& slot) {
     slot.source_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -83,10 +95,10 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     if(aux->nr_handle&&!completed){SetStatus(Status::CreatePending);return {};}
     if(!pipelines) {
         std::string error;pipelines=nr_dual::dx12::CreatePipelines(device,error);
-        if(!pipelines){Log("[dual-nr] pipeline unavailable: %s",error.c_str());SetStatus(Status::ResourceBudget);return {};}
+        if(!pipelines){Unavailable(Status::PipelineUnavailable,error);return {};}
         pipeline_device=device;
     }
-    if(!IsSameRrDepthDevice(pipeline_device,device)){SetStatus(Status::ResourceBudget);return {};}
+    if(!IsSameRrDepthDevice(pipeline_device,device)){Unavailable(Status::DeviceIdentity,"Execution device differs from the pipeline owner");return {};}
     // The same 8 primary slots map to at most 8 independent secondary slots.
     // An occupied slot is never recycled while its Feature may retain Create
     // descriptors. A primary resource replacement retires the entire child.
@@ -103,8 +115,10 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         const auto available=g_dual_allocated_bytes.load()<kDualTotalBudget?
             std::min(kDualSlotBudget,kDualTotalBudget-g_dual_allocated_bytes.load()):0ull;
         std::string error;
-        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,main.neural,plan,domain,available,error);
-        if(!slot.dual_spatial){Log("[dual-nr] resources unavailable: %s",error.c_str());SetStatus(Status::ResourceBudget);return {};}
+        nr_dual::dx12::SpatialError failure{};
+        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,main.neural,plan,domain,available,error,IsSameRrDepthDevice,&failure);
+        if(!slot.dual_spatial){Unavailable(failure==nr_dual::dx12::SpatialError::DeviceIdentity?Status::DeviceIdentity:
+            failure==nr_dual::dx12::SpatialError::Contract?Status::ResourceContract:Status::ResourceBudget,error);return {};}
         slot.dual_owner=aux;slot.dual_bytes=nr_dual::dx12::SlotBytes(slot.dual_spatial);
         g_dual_allocated_bytes.fetch_add(slot.dual_bytes);
         const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);

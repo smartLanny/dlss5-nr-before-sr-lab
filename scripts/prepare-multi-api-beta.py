@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline11'
-DISPLAY_VERSION = '0.5-dline11'
+VERSION = 'beta0.5-dline12'
+DISPLAY_VERSION = '0.5-dline12'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -30,7 +30,7 @@ REQUIRED_ANCESTORS += ('2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc',)
 REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 INTEGRATION_CORE_PINS = {
-    'src/nr_feedback_picture.inl': 'f2e7a9d5eb7bfc056c9ad73377de1351327f0095',
+    'src/nr_feedback_picture.inl': 'bfa3934cc3d6263ba2a19939f5bbe77d19eb89db',
     'config/nr_before_sr.ini': '051b53e85b17a85f1efa59963506378bd208c0ef',
     'scripts/patch-post-compat.py': 'dd9606498e5283d859999a234db1302f2da87adb',
     'src/nr_codec_descriptors.inl': 'd60b15f55438a9cddeedbaa809cbbde4630dfe4d',
@@ -39,17 +39,17 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'aa5d2df96d9e7683da024098a074558efa94c09c',
     'src/nr_command_state.inl': '2bd60573a9d7e2d44c4463161aaa0e2ddfa52db6',
-    'src/nr_feedback_capture.inl': 'e053483146b56a0eedda49acf258fd0338cdb902',
+    'src/nr_feedback_capture.inl': '91529de37dfb992e386871d50930edd28a6d6e98',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '79756634d03519f1fbc1181df9cf8846aeef9345',
-    'src/nr_before_sr.cpp': '15d383360797b17ae3891bdd601c4281d2dd4966',
+    'src/nr_settings_ui.inl': '75405fc098ba9ea3c84596add311f376aaa998c5',
+    'src/nr_before_sr.cpp': 'e7a10612ee99cf7716bc930b78bef77734cc7cef',
     'src/nr_recommended_picture.inl': '39a9d0083c37f6d8377091f40aa7b598a732ef69',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '6785d69d5029cc11ddf0f8297906da55fd460910',
+    'src/nr_before_sr.rc': '99f3170d92387dfb40969cf3f475a15d9f200dfa',
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '3e7d6e4421550b657a82043439292dc8cb349b2d',
+    'scripts/build.ps1': '5ba47e56fdc1df28c6c1e6e75458d956c22a815f',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -101,10 +101,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_dual_residual.hlsl': '545307f5dff6c461ce6830e09cc35695b4861cd0',
     'src/nr_dual_resolve.hlsli': 'dfd746ca6bcc7faab5a2f22c224dcaa26ed3781d',
     'src/nr_dual_resolve_cached.hlsli': 'fce4454d5039019237f4cfe08d5db7c2a8fa92a5',
-    'src/nr_dual_runtime.inl': '06bdf9c7d3fa98611c1c80f8ac2a87741089b5ae',
-    'src/nr_dual_spatial_d3d12.cpp': 'b306e7b3e80b8d528d6718e86aa9090de733e225',
-    'src/nr_dual_spatial_d3d12.hpp': 'f77d5c4f72460bbe8ac05d33e41bed0a0bab9f0a',
-    'src/nr_dual_ui.inl': 'cdfd4e76f3e01349d2da9e59034d08e9d3bc1246',
+    'src/nr_dual_runtime.inl': '59ea962c8adf7f3ebfd2faf5b2ad6ba1fdcacbce',
+    'src/nr_dual_spatial_d3d12.cpp': '767143762eb40e763288f640c0b9fcf86a266466',
+    'src/nr_dual_spatial_d3d12.hpp': '35ade5e1d880d59cab360dfb8c2eabfb147f4833',
+    'src/nr_dual_ui.inl': '83d758d5c0a365f0ae04c1688cfd177dc92f666a',
     'src/nr_generic_residual.h': '98244f16f94fe45de1e6226d5538ff00a96b616f',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
@@ -228,7 +228,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline11 beta' not in resource_text:
+    if '0.5.1 dline12 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -239,7 +239,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.11',
+        'core_pe_version': '0.5.1.12',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

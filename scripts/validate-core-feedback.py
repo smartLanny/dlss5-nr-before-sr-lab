@@ -204,6 +204,16 @@ int main(int argc,char **argv) {
     for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress after diagnostic\n";
     put(carrier_log,bridge_content);
     reshade::api::effect_runtime runtime;
+    {
+        ChainConfig frozen{};frozen.region_enabled=true;frozen.region_preview=3;
+        for(unsigned i=0;i<11;++i)frozen.region_gains[i]=.25f*float(i);
+        FeedbackSession region_request;
+        nr_core_feedback::AppendPictureConfig(region_request,frozen,true);
+        check(std::strstr(region_request.report,"requested.regionEnabled=1\n") &&
+              std::strstr(region_request.report,"requested.regionPreview=3\n") &&
+              std::strstr(region_request.report,"requested.regionGains=0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5\n"),
+              "all eleven region gains and preview serialize from the coherent supplied snapshot");
+    }
     g_command_state_evidence.available=true;g_command_state_evidence.sampled_at=GetTickCount64();
     g_command_state_evidence.reason="null-guard-awaiting-reset";g_command_state_evidence.token=42;
     g_command_state_evidence.sequence=3;g_command_state_evidence.guard_requested=true;

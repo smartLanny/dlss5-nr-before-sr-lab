@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$BaselineSource,
     [Parameter(Mandatory=$true)][string]$DirectionalBaselineSource,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$ReShadeDllPath,
     [switch]$RunWarp
 )
 # Focused acceptance of the configuration/wiring slice, not the full historical
@@ -54,7 +55,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline11') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline12') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
     if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
@@ -146,6 +147,10 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the dual device identity regression.' }
+        & python (Join-Path $PSScriptRoot 'validate-dual-device.py') --compiler $Compiler --reshade-dll $ReShadeDllPath --output (Join-Path $Output 'dual-device')
+        if ($LASTEXITCODE) { throw 'Actual ReShade dual device regression failed.' }
+        $Checks.Add('actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX')
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -DualGeneric
         $Checks.Add('dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained')
 
@@ -182,12 +187,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline11*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline11 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline12*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline12 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 11) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 12) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
