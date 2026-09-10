@@ -104,14 +104,14 @@ void EncodeCS(uint3 tid : SV_DispatchThreadID) {
 }
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float3 storedProxy = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 storedNeural = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    float3 storedNeural = LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;
     bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) && other;
 }
 void WriteCombined(uint2 coord) {
     StageCapture.Store4(a,
         asuint(ProxyColor.Load(int3(coord, 0))));
     StageCapture.Store4(b,
-        asuint(NeuralColor.Load(int3(coord, 0))));
+        asuint(LoadFinalNeuralStoredV2(int2(coord))));
 }
 )HLSL";
 NgxResult ProcessEvaluate() {

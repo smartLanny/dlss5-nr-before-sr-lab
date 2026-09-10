@@ -116,6 +116,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
     FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
         prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
+    FeedbackAppend(s,"%s.dual.timingConfig=%u\n%s.dual.currentConfig=%u\n",prefix,nr_dual_runtime::time_config.load(),prefix,g_config_generation.load());
     const char* timing_names[]={"NR1","Down","NR2","Combine","NativeSR","Chain","LowResidual"};
     for(unsigned i=0;i<7;++i)FeedbackAppend(s,"%s.dual.gpuMs.%s=last:%.9g,median:%.9g,p95:%.9g\n",prefix,timing_names[i],nr_dual_runtime::time_last[i].load(),nr_dual_runtime::time_median[i].load(),nr_dual_runtime::time_p95[i].load());
 #if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)

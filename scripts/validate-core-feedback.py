@@ -103,7 +103,7 @@ const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
 // Serialization seams: no secondary GPU/NGX successes are fabricated.
 namespace nr_dual_runtime {
-std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{0},second_height{0},fatal_result{0},time_samples{0};
+std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{0},second_height{0},fatal_result{0},time_samples{0},time_config{0};
 std::atomic<unsigned long long> second_creates{0},second_evaluations{0},second_completed{0},last_primary_instance{0},last_second_instance{0},last_parent_evaluation{0},time_warmup_samples{0};
 std::atomic<double> time_last[7]{},time_median[7]{},time_p95[7]{};
 }

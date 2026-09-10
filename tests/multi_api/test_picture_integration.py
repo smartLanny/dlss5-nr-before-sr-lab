@@ -120,9 +120,30 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_region_inputs.h',
             'src/nr_region_shader.h',
             'src/nr_region_runtime.inl',
+            'src/nr_dual_downsample.hlsl',
+            'src/nr_dual_embedded.hpp',
+            'src/nr_dual_math.hlsli',
+            'src/nr_dual_pass.hpp',
+            'src/nr_dual_residual.hlsl',
+            'src/nr_dual_resolve.hlsli',
+            'src/nr_dual_resolve_cached.hlsli',
+            'src/nr_dual_runtime.inl',
+            'src/nr_dual_spatial_d3d12.cpp',
+            'src/nr_dual_spatial_d3d12.hpp',
+            'src/nr_dual_ui.inl',
+            'src/nr_generic_residual.h',
+            'scripts/embed-dual-shaders.py',
+            'src/nr_dual_codec.inl',
+            'src/nr_dual_timing.inl',
+            'scripts/prepare-codec-artifacts.py',
+            'scripts/compile-codec-artifact.cpp',
+            'scripts/patch-format-access.py',
+            'scripts/patch-exposure-access.py',
+            'src/nr_dual_capture.inl',
+            'src/nr_dual_lifetime.hpp',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '8a711a10985da48f748eabe8c2241df1a5f123ca')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '79756634d03519f1fbc1181df9cf8846aeef9345')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a0f9ba73ab2cbe7d067676ee4cd90f455e67acef')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '3e7d6e4421550b657a82043439292dc8cb349b2d')
 
 if __name__ == '__main__': unittest.main()
