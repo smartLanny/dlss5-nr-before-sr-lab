@@ -80,18 +80,25 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-descriptor-provenance.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-provenance-cpu') --cpu-only
     if ($LASTEXITCODE) { throw 'Bounded descriptor provenance CPU gate failed.' }
     $Checks.Add('descriptor-provenance-cpu')
+    & python (Join-Path $PSScriptRoot 'validate-descriptor-alias.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-alias-runtime-cpu')
+    if ($LASTEXITCODE) { throw 'Proxy/native identity and descriptor-domain gate failed.' }
+    $Checks.Add('descriptor-alias-runtime-cpu')
     & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
     if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
     $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
     & python (Join-Path $PSScriptRoot 'validate-post-boundary.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'post-boundary-native')
     if ($LASTEXITCODE) { throw 'Scoped native post-boundary gate failed.' }
     $Checks.Add('production native boundary detours and immutable scoped window CPU')
+    $Checks.Add('production paused current-phase read-only boundary and historical-store isolation CPU')
     $ActivityProbe = Join-Path $Output 'ui-activity.exe'
     & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/ui_activity_test.cpp') -o $ActivityProbe
     if ($LASTEXITCODE) { throw 'UI activity probe compile failed.' }
     & $ActivityProbe
     if ($LASTEXITCODE) { throw 'UI activity probe failed.' }
     $Checks.Add('bounded UI activity alternating/stall/scope/reopen CPU gate')
+    & python (Join-Path $PSScriptRoot 'validate-ui-activity-receipt.py') --compiler $Compiler --source-root (Join-Path $Stage 'core') --output (Join-Path $Output 'ui-activity-receipt-runtime-cpu')
+    if ($LASTEXITCODE) { throw 'Actual UI observation and display receipt gate failed.' }
+    $Checks.Add('ui-activity-receipt-runtime-cpu')
     $ProbePolicy = Join-Path $Output 'probe-policy.exe'
     & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/probe_policy_test.cpp') -o $ProbePolicy
     if ($LASTEXITCODE) { throw 'Probe policy compile failed.' }
