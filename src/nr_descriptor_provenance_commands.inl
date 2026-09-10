@@ -92,8 +92,8 @@ void ObservePostBoundaryRtvBatch(ID3D12GraphicsCommandList *list,const nr_descri
         ObservePostBoundaryRtvDescriptor(list,nr_post_boundary::Kind::BindTargets,batch.views[i]);
 }
 void ObservePostBoundaryUavDescriptor(ID3D12GraphicsCommandList *list,ID3D12Resource *resource,
-        const nr_descriptor::Pair &pair,UINT count,const D3D12_RECT *rects) {
-    NrDescriptorObserveNativeClear(list,resource,pair);
+        const nr_descriptor::Pair &pair,const nr_descriptor::Pair &after,UINT count,const D3D12_RECT *rects) {
+    NrDescriptorObserveNativeClear(list,resource,pair,after,count,rects);
     if(!PostBoundaryRecordingActive())return;
     const auto target=PostBoundaryTarget();
     if(resource && reinterpret_cast<std::uint64_t>(resource)!=target)return;

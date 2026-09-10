@@ -26,6 +26,8 @@ STATE_CURRENT = '264fd84efa480d262e7bcaae19b5ecd4e0073e09'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
+    'src/nr_native_clear_request_runtime.inl': '5dfdd731e39f17ed32308750369037a94a6d731d',
+    'src/nr_native_clear_request.h': '8195a22b30c5f583fa24ad67ecdfd8bdd16947ba',
     'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
@@ -83,7 +85,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
     'src/nr_native_format_runtime.inl': '1fceb9545511a06f12a5d7bc162d7d9fb905dd4a',
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
-    'src/nr_post_boundary_native.inl': '83d97041e0b29a628967356f8e0cf8397ef57f53',
+    'src/nr_post_boundary_native.inl': '2c44059549d6ef78476f1b98432b4f42dea1dd0a',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
     'src/nr_resource_recovery_runtime.inl': '3349bc1cb33847cea0010147f4bc35fcf5bd068b',
     'src/nr_resource_recovery_semantics.inl': '63e362fbbd8c959f593d4e4288cde01426fb79de',

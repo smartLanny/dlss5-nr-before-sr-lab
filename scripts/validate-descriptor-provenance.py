@@ -14,6 +14,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 OVERLAYS = (
+    'nr_native_clear_request.h', 'nr_native_clear_request_runtime.inl',
     'nr_descriptor_provenance.h', 'nr_descriptor_provenance_runtime.inl',
     'nr_descriptor_provenance_hooks.inl', 'nr_descriptor_provenance_commands.inl',
     'nr_native_format_runtime.inl', 'nr_native_format_hooks.inl',

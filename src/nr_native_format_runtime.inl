@@ -1,3 +1,4 @@
+#include "nr_native_clear_request.h"
 // Included after the format adapter and before storage admission. The registry
 // lock covers value records only; all D3D12 calls occur outside it.
 const GUID kNrFormatLifetime = {0x61381092,0x6551,0x4f8e,{0xa1,0x35,0x63,0x71,0x20,0x5a,0x47,0x01}};
@@ -95,16 +96,20 @@ NrNativeFormatScope::~NrNativeFormatScope() {
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
 #include "nr_descriptor_provenance_runtime.inl"
 #endif
+#include "nr_native_clear_request_runtime.inl"
 template <class NativeEvaluate>
 NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
         ID3D12GraphicsCommandList* list, const NgxHandle* handle,
-        const NgxParams* params, void* callback, unsigned long long generation) {
+        const NgxParams* params, void* callback, unsigned long long generation,
+        nr_native_clear::Invocation* clear_invocation = nullptr) {
+    if(clear_invocation)*clear_invocation={};
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     NrPostBoundaryAliasScope list_alias(list);
 #endif
     NrNativeFormatScope scope(list, params, generation);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     NrDescriptorNativeUseScope descriptor_use(scope,list,generation);
+    NrNativeClearScope clear_scope(scope,list);
 #endif
 #if defined(NR_HAS_TIMING)
     NrTimingScope native_timing(nr_timing::Stage::NativeEvaluate);
@@ -120,6 +125,8 @@ NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
             scope.keys[1].feature,scope.keys[1].resource);
     }
 #endif
+    const auto clear_result=clear_scope.Finish(result==kNgxSuccess);
+    if(clear_invocation)*clear_invocation=clear_result;
 #endif
 #if defined(NR_HAS_TIMING)
     NrTimingNativeResult(static_cast<std::int32_t>(result));
@@ -151,6 +158,8 @@ struct NrResolvedColorView {
     D3D12_RESOURCE_DESC typed{};
     nr_native_format::Key key{};
     nr_native_format::Evidence evidence{};
+    nr_native_clear::Receipt clear_request{};
+    bool clear_source = false;
     nr_format_access::Plan plan{};
     nr_resource_semantics::Decision semantic{};
     PreSrStorageContract pre_storage = PreSrStorageContract::Unsupported;
@@ -168,7 +177,7 @@ struct NrFormatDiagnostic {
     unsigned long long feature = 0, device = 0, resource = 0, observed_call = 0;
     nr_format_access::Status status = nr_format_access::Status::AmbiguousType;
     nr_format_access::Provenance provenance = nr_format_access::Provenance::None;
-    bool available = false, coverage = false, conflict = false, native_failed = false;
+    bool available = false, coverage = false, conflict = false, native_failed = false, clear_source = false;
     unsigned flags = 0, width = 0, height = 0, arrays = 0, mips = 0, samples = 0;
     nr_native_format::View observed{};
     nr_resource_semantics::Decision semantic{};
@@ -204,6 +213,17 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
     request.observed_view = result.evidence.Resolved();
     request.observation_conflict = result.evidence.view.conflict;
     request.observation_stale = result.evidence.failed;
+    if(post_sr) {
+        result.clear_request=NrNativeClearCandidate(result.key,g_config_generation.load(std::memory_order_acquire));
+        if(result.clear_request) {
+            if(request.observed_view && request.observed_view!=result.clear_request.format)
+                request.observation_conflict=result.evidence.view.conflict=true;
+            else if(!request.observed_view && !request.observation_conflict && !request.observation_stale) {
+                request.observed_view=result.clear_request.format;
+                result.clear_source=true;
+            }
+        }
+    }
     request.lifecycle_known = static_cast<bool>(result.key);
     request.shape_valid = desc.Width && desc.Height &&
         desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
@@ -290,6 +310,7 @@ NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
     diagnostic.arrays = desc.DepthOrArraySize; diagnostic.mips = desc.MipLevels;
     diagnostic.samples = desc.SampleDesc.Count;
     diagnostic.observed = view.evidence.view;
+    if(view.clear_source)diagnostic.observed.Observe(view.clear_request.format);
     diagnostic.semantic = view.semantic;
     diagnostic.srv = view.plan.srv;
     diagnostic.uav = view.plan.uav;
@@ -297,7 +318,8 @@ NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
     diagnostic.feature = generation;
     diagnostic.device = view.key.device;
     diagnostic.resource = view.key.resource;
-    diagnostic.observed_call = view.evidence.last_call;
+    diagnostic.observed_call = view.clear_source ? view.clear_request.call : view.evidence.last_call;
+    diagnostic.clear_source = view.clear_source;
     diagnostic.status = view.plan.status;
     diagnostic.provenance = view.plan.provenance;
     diagnostic.coverage = NrFormatGetDevice(device).hooks;

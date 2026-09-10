@@ -3,6 +3,8 @@
 // Device init and descriptor hook publication are real CPU calls. Seeded command
 // Clear coverage/state are seam preconditions, not D3D installation/admission proof.
 #include <map>
+#include <thread>
+#include <functional>
 #include <vector>
 #include <array>
 #include <string>
@@ -150,11 +152,13 @@ void STDMETHODCALLTYPE ProxyCopy(ID3D12Device *,UINT count,D3D12_CPU_DESCRIPTOR_
     ++proxy_copies;
     NrDescriptorCopyDescriptorsSimple<0>(&native_device,count,Raw(destination),Raw(source),type);
 }
+std::function<void()> during_clear;
 void STDMETHODCALLTYPE DriverClear(ID3D12GraphicsCommandList *,D3D12_GPU_DESCRIPTOR_HANDLE,
         D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *value,const FLOAT *,UINT,const D3D12_RECT *) {
     const auto descriptor=driver_descriptors.at(cpu.ptr);
     Check(descriptor.resource==value&&descriptor.format==DXGI_FORMAT_R8G8B8A8_UNORM,
         "fake backend receives the correct raw Output UAV, no GPU involved");++driver_clears;
+    if(during_clear)during_clear();
 }
 void STDMETHODCALLTYPE ProxyClear(ID3D12GraphicsCommandList *,D3D12_GPU_DESCRIPTOR_HANDLE gpu,
         D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *value,const FLOAT *values,UINT count,const D3D12_RECT *rects) {
@@ -227,6 +231,96 @@ struct Params {
     }
     Params(){base.vtable=table;table[9]=reinterpret_cast<void *>(&Get);}
 };
+HRESULT STDMETHODCALLTYPE FormatSupport(ID3D12Device*,D3D12_FEATURE feature,void* data,UINT) {
+    if(feature!=D3D12_FEATURE_FORMAT_SUPPORT)return E_FAIL;
+    auto* support=static_cast<D3D12_FEATURE_DATA_FORMAT_SUPPORT*>(data);
+    support->Support1=D3D12_FORMAT_SUPPORT1_TEXTURE2D|D3D12_FORMAT_SUPPORT1_SHADER_LOAD|D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+    support->Support2=D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE;return S_OK;
+}
+void NativeClearRequests() {
+    Params params;NgxHandle handle{993};const FLOAT values[]={0,0,1,1};
+    device_table.CheckFeatureSupport=&FormatSupport;
+    const auto clear=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
+        return kNgxSuccess;
+    };
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800);
+    const auto resolved=NrResolveColorView(&native_device,&resource,resource_state.resource,800,true,0);
+    Check(static_cast<bool>(resolved),"cached native Clear request supplies typed R8 CPU semantics without synchronous CreateView");
+#if defined(NR_HAS_NATIVE_CLEAR_REQUEST)
+    Check(resolved.clear_source && resolved.plan.srv==28 && resolved.clear_request,
+        "cached Clear source is explicit and separate from synchronous CreateView");
+    Check(!NrFormatEvidence(resolved.key).Resolved(),"new CPU source never writes the existing CreateView ledger");
+    const auto prepared=resolved.clear_request;
+    nr_native_clear::Invocation fresh;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800,&fresh);
+    auto gate=[&](const nr_native_clear::Invocation& invocation) {
+        return NrNativeClearMayFinish(&native_list,&resource,800,28,prepared,invocation);
+    };
+    Check(gate(fresh),"exact next native call with the prepared format passes the production gate");
+    auto bad=fresh;bad.call++;Check(!gate(bad),"outer call ID must match the returned Clear declaration");
+    bad=fresh;bad.request.key.feature++;Check(!gate(bad),"another Feature generation cannot authorize post work");
+    bad=fresh;bad.request.key.device++;Check(!gate(bad),"another device cannot authorize post work");
+    bad=fresh;bad.request.key.resource++;Check(!gate(bad),"another semantic resource cannot authorize post work");
+    bad=fresh;bad.request.key.role=nr_native_format::Role::Color;Check(!gate(bad),"Color role cannot authorize Output work");
+    bad=fresh;bad.request.config++;Check(!gate(bad),"another config cannot authorize post work");
+    bad=fresh;bad.request.reset++;Check(!gate(bad),"another command-list reset cannot authorize post work");
+    bad=fresh;bad.request.list++;Check(!gate(bad),"another command-list token cannot authorize post work");
+    bad=fresh;bad.request.format=24;Check(!gate(bad),"changed current typed request rejects the prepared format");
+    bad=fresh;bad.request.unknown=true;Check(!gate(bad),"unknown current Clear rejects post work");
+    bad=fresh;bad.request.conflict=true;Check(!gate(bad),"conflicting current Clears reject post work");
+    bad=fresh;bad.request.overflow=true;Check(!gate(bad),"overflow cannot discard a conflicting omitted Clear");
+    bad=fresh;bad.request.success=false;Check(!gate(bad),"failed native call cannot authorize post work");
+    bad={prepared.call,prepared};Check(!gate(bad),"cached successful call cannot stand in for this native invocation");
+    // No context or slot exists here. The real function must reject before even
+    // dereferencing them, therefore before depth/snapshot/encode/create/writeback.
+    PostSrSubstitution blocked;blocked.prepared_clear_request=prepared;blocked.original_output=&resource;
+    FeatureRecord feature{};feature.generation=800;
+    Check(!FinishAfterSr(&native_list,&params.base,feature,blocked),
+        "production FinishAfterSr rejects missing fresh evidence before context access or first GPU command");
+    auto rewrite_cpu=[&] {
+        auto value=g_nr_descriptors.Cpu(cpu_state.cpu,0,nr_descriptor::Kind::Uav).view;
+        const auto write=g_nr_descriptors.BeginWrite(cpu_state.cpu,0,value);g_nr_descriptors.Finish(write);
+    };
+    during_clear=rewrite_cpu;
+    nr_native_clear::Invocation overwritten;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800,&overwritten);during_clear={};
+    Check(!overwritten.request && !gate(overwritten),"descriptor overwritten inside original Clear invalidates the pre/post receipt");
+    nr_native_clear::Invocation reused;
+    const auto reuse=[&](ID3D12GraphicsCommandList* list,const NgxHandle* h,const NgxParams* p,void* cb) {
+        clear(list,h,p,cb);rewrite_cpu();return kNgxSuccess;
+    };
+    NrCallNativeWithFormatObservation(reuse,&native_list,&handle,&params.base,nullptr,800,&reused);
+    Check(reused.request && gate(reused),"legal CPU descriptor reuse after Clear return preserves frozen CPU request semantics");
+    Check(!SnapshotNrDescriptorUse().after_native_valid,
+        "GPU revision diagnostics remain independent when frozen CPU request survives later reuse");
+    const auto empty=[](ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*){return kNgxSuccess;};
+    nr_native_clear::Invocation none;
+    NrCallNativeWithFormatObservation(empty,&native_list,&handle,&params.base,nullptr,800,&none);
+    Check(!none.request && !gate(none),"successful native call without Clear cannot reuse an earlier request");
+    Check(!NrNativeClearCandidate(prepared.key,prepared.config),"latest missing Clear invalidates the cached preparation candidate");
+    nr_native_clear::Invocation nested,outer;
+    const auto parent=[&](ID3D12GraphicsCommandList* list,const NgxHandle* h,const NgxParams* p,void* cb) {
+        NrCallNativeWithFormatObservation(clear,list,h,p,cb,801,&nested);return kNgxSuccess;
+    };
+    NrCallNativeWithFormatObservation(parent,&native_list,&handle,&params.base,nullptr,800,&outer);
+    Check(nested.request && nested.request.key.feature==801 && !outer.request,
+        "nested native invocation cannot teach the outer scope");
+    const auto conflict=resolved.clear_request;
+    nr_native_clear::Ledger<2> ledger;ledger.Commit(fresh.request);ledger.Commit(conflict);
+    Check(ledger.Find(conflict.key,conflict.config).call==fresh.call,
+        "older concurrent completion cannot replace a newer same-key receipt");
+    bool isolated[2]={};
+    auto worker=[&](unsigned index) {
+        NrNativeFormatScope format(nullptr,nullptr,0);
+        NrNativeClearScope scope(format,nullptr);
+        const auto* own=g_nr_native_clear_scope;
+        std::this_thread::yield();isolated[index]=(g_nr_native_clear_scope==own && own==&scope);
+    };
+    std::thread a(worker,0),b(worker,1);a.join();b.join();
+    Check(isolated[0] && isolated[1] && !g_nr_native_clear_scope,"concurrent CPU scopes retain independent TLS ownership");
+#endif
+}
 void LedgerEvents() {
     Params params;NgxHandle handle{992};
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R8G8B8A8_UNORM;uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
@@ -609,7 +703,7 @@ void Run() {
     Check(!NrFormatEvidence(NrFormatKey(&native_device,&resource,701,true)).Resolved()&&
           !NrFormatEvidence(NrFormatKey(&native_device,&resource,702,true)).Resolved(),
         "neither cached-use control nor successful proxy clear promotes diagnostics into the admission ledger");
-    LedgerEvents();DescriptorWindowRetirement();IdentityNegatives();
+    NativeClearRequests();LedgerEvents();DescriptorWindowRetirement();IdentityNegatives();
     std::printf("PASS %u assertions; full production TU; synthetic COM CPU only; D3D devices=0 GPU submits=0 NGX=0\n",checks);
 }
 }

@@ -232,11 +232,11 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             const auto& d = first ? formats.first_unknown[role] : formats.latest[role];
             FeedbackAppend(s, "%s.format.%s.%s=available:%d,physical:%u,srv:%u,uav:%u,"
                 "config:%u,feature:%llu,deviceId:%llu,resourceId:%llu,observedCall:%llu,"
-                "viewStatus:%s,provenance:%u,hookCoverage:%d,conflict:%d,nativeFailed:%d\n",
+                "viewStatus:%s,provenance:%u,hookCoverage:%d,conflict:%d,nativeFailed:%d,cpuClearSource:%d\n",
                 prefix, role ? "output" : "color", first ? "firstUnknown" : "latest",
                 d.available, d.physical, d.srv, d.uav, d.config, d.feature, d.device,
                 d.resource, d.observed_call, nr_format_access::StatusName(d.status),
-                static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed);
+                static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed, d.clear_source);
             if (!first && d.available) {
                 const auto& semantic = d.semantic;
                 FeedbackAppend(s, "%s.semantic.%s=storage:%u,flags:0x%X,shape:%ux%u,array:%u,mips:%u,samples:%u,"
@@ -244,7 +244,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
                     "reason:%s,definitive:%d,missingEvidence:%s,nextAction:%s\n",
                     prefix, role ? "Output" : "ColorInput", d.physical, d.flags, d.width, d.height,
                     d.arrays, d.mips, d.samples, semantic.access.srv, semantic.access.uav,
-                    nr_resource_semantics::SourceName(semantic.source),
+                    d.clear_source ? "NativeClearCpuRequest" : nr_resource_semantics::SourceName(semantic.source),
                     nr_resource_semantics::ContractName(semantic.contract),
                     d.device && d.resource && d.feature && !d.conflict && !d.native_failed,
                     nr_resource_semantics::VerdictName(semantic.verdict), semantic.reason,
@@ -267,8 +267,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             }
         }
     }
-    FeedbackAppend(s, "%s.format.coverage=admission observer: native Feature1 synchronous view creation only; "
-        "pre-existing/worker-thread views unobserved; no descriptor-address reuse; "
+    FeedbackAppend(s, "%s.format.coverage=admission: synchronous CreateView or current-call-gated NativeClearCpuRequest; "
+        "CPU request is not GPU descriptor proof; worker-thread requests unobserved; "
         "viewReady is not color/NR/game admission; provenance=0:none,1:typed,2:native-view,3:float-contract\n", prefix);
 #endif
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)

@@ -13,7 +13,7 @@ import os
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
-INPUTS=('src/nr_native_format.h','src/nr_native_format_runtime.inl',
+INPUTS=('src/nr_native_clear_request.h','src/nr_native_clear_request_runtime.inl','src/nr_descriptor_provenance.h','src/nr_native_format.h','src/nr_native_format_runtime.inl',
         'src/nr_native_format_hooks.inl','src/interop/nr_format_access.h',
         'src/nr_resource_semantics.h','src/nr_before_sr.cpp',
         'src/interop/nr_format_access_d3d12.inl')
