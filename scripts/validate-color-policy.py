@@ -127,6 +127,7 @@ namespace ImGui {
     }
 }
 void SettingsTooltip(const char*) {}
+void SettingsNote(const char* text) { ImGui::TextWrapped("%s",text); }
 void SettingsField(const char*) {} // Layout label; production policy/UI logic is extracted below.
 bool SettingsSliderFloat(const char*,const char* id,float* value,float minimum,
                          float maximum,const char* format) {
@@ -349,8 +350,14 @@ int main() {
           ImGui::text.find("region colour gains have no effect")!=std::string::npos &&
           slot.diagnostic_color_strength==0,"real non-unit-exposure HDR denies and explains region colour");
     ImGui::try_edits=true;
-    check(!DrawRegionColourStatus(next,false,changed) && changed && next.allow_unverified_hdr_color &&
-          slot.diagnostic_color_strength==0,"explicit region opt-in is pending until committed composition");
+    check(DrawRegionColourStatus(next,false,changed) && !changed && !next.allow_unverified_hdr_color &&
+          slot.diagnostic_color_strength==0,"region status does not implicitly grant HDR permission");
+    // The explicit permission now lives in Developer options; execute that
+    // actual production checkbox, then verify pending and committed policy.
+    HDR_PERMISSION_UI
+    check(changed && next.allow_unverified_hdr_color &&
+          !DrawRegionColourStatus(next,true,changed) && slot.diagnostic_color_strength==0,
+          "explicit developer opt-in is pending until committed composition");
     ImGui::try_edits=false; g_config=next; ++g_config_generation;
     DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
     changed=false; ImGui::text.clear();
@@ -366,6 +373,7 @@ int main() {
 }
 '''
 for marker, replacement in {
+    "HDR_PERMISSION_UI": next(line.strip() for line in ui_source.splitlines() if 'changed |= ImGui::Checkbox(ui("Allow experimental HDR colour"' in line),
     "COLOR_CONTRACT": definition(source, "struct ColorContract {", True),
     "UNITY_EXPOSURE": definition(source, "bool IsUnityExposureContract("),
     "CODEC_ENUM": definition(source, "enum class CodecColorMode", True),

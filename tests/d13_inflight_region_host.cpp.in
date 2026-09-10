@@ -1,0 +1,634 @@
+// D13 region regression: production Prepare -> Seal -> Dispatch on real
+// ReShade/WARP D3D12 resources.  The provider is absent; the region shader is
+// the production shader and all descriptor packets come from the production
+// nr_binding runtime.  A queue Wait fence holds several command lists in
+// flight so a same-input Seal must reuse an immutable packet while a changed
+// input takes another packet.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <d3dcompiler.h>
+#include <atomic>
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <new>
+#include <string>
+#include <vector>
+#include "nr_descriptor_plan.h"
+#include "nr_optional_layer_probe.h"
+
+template<class T> void ReleaseCom(T *&p) noexcept {
+    if (p != nullptr) p->lpVtbl->Release(p);
+    p = nullptr;
+}
+#define IUnknown_QueryInterface(p, i, o) (p)->lpVtbl->QueryInterface(p, i, o)
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+// @CORE_DEVICE_IDENTITY@
+#undef IUnknown_QueryInterface
+
+// The production inlines use the COBJMACROS spelling.  Keeping these wrappers
+// explicit makes the fixture compile with the official ReShade SDK ABI.
+#define ID3D12Resource_GetDevice(p, i, o) (p)->lpVtbl->GetDevice(p, i, o)
+#define ID3D12Resource_AddRef(p) (p)->lpVtbl->AddRef(p)
+#define ID3D12Device_AddRef(p) (p)->lpVtbl->AddRef(p)
+#define ID3D12Device_GetDescriptorHandleIncrementSize(p, t) (p)->lpVtbl->GetDescriptorHandleIncrementSize(p, t)
+#define ID3D12Device_CreateDescriptorHeap(p, d, i, o) (p)->lpVtbl->CreateDescriptorHeap(p, d, i, o)
+#define ID3D12Device_CreateShaderResourceView(p, r, d, h) (p)->lpVtbl->CreateShaderResourceView(p, r, d, h)
+#define ID3D12Device_CreateUnorderedAccessView(p, r, c, d, h) (p)->lpVtbl->CreateUnorderedAccessView(p, r, c, d, h)
+#define ID3D12Device_CreateCommittedResource(p, h, f, d, s, c, i, o) (p)->lpVtbl->CreateCommittedResource(p, h, f, d, s, c, i, o)
+#define ID3D12Device_CheckFeatureSupport(p, t, d, s) (p)->lpVtbl->CheckFeatureSupport(p, t, d, s)
+#define ID3D12GraphicsCommandList_GetPrivateData(p, g, s, d) (p)->lpVtbl->GetPrivateData(p, g, s, d)
+#define ID3D12GraphicsCommandList_SetPrivateData(p, g, s, v) (p)->lpVtbl->SetPrivateData(p, g, s, v)
+#define ID3D12GraphicsCommandList_ResourceBarrier(p, n, b) (p)->lpVtbl->ResourceBarrier(p, n, b)
+#define ID3D12GraphicsCommandList_SetDescriptorHeaps(p, n, h) (p)->lpVtbl->SetDescriptorHeaps(p, n, h)
+#define ID3D12GraphicsCommandList_SetComputeRootSignature(p, r) (p)->lpVtbl->SetComputeRootSignature(p, r)
+#define ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(p, i, h) (p)->lpVtbl->SetComputeRootDescriptorTable(p, i, h)
+#define ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(p, i, n, v, o) (p)->lpVtbl->SetComputeRoot32BitConstants(p, i, n, v, o)
+#define ID3D12GraphicsCommandList_SetPipelineState(p, s) (p)->lpVtbl->SetPipelineState(p, s)
+#define ID3D12GraphicsCommandList_Dispatch(p, x, y, z) (p)->lpVtbl->Dispatch(p, x, y, z)
+#define ID3D12GraphicsCommandList_CopyTextureRegion(p, d, x, y, z, s, b) (p)->lpVtbl->CopyTextureRegion(p, d, x, y, z, s, b)
+#define ID3D12GraphicsCommandList_Close(p) (p)->lpVtbl->Close(p)
+#define ID3D12CommandQueue_ExecuteCommandLists(p, n, l) (p)->lpVtbl->ExecuteCommandLists(p, n, l)
+#define ID3D12CommandQueue_Signal(p, f, v) (p)->lpVtbl->Signal(p, f, v)
+#define ID3D12CommandQueue_Wait(p, f, v) (p)->lpVtbl->Wait(p, f, v)
+#define ID3D12CommandQueue_GetDevice(p, i, o) (p)->lpVtbl->GetDevice(p, i, o)
+#define ID3D12Fence_GetCompletedValue(p) (p)->lpVtbl->GetCompletedValue(p)
+#define ID3D12Fence_SetEventOnCompletion(p, v, e) (p)->lpVtbl->SetEventOnCompletion(p, v, e)
+#define ID3D12Resource_Map(p, s, r, d) (p)->lpVtbl->Map(p, s, r, d)
+#define ID3D12Resource_Unmap(p, s, r) (p)->lpVtbl->Unmap(p, s, r)
+#define ID3D12Resource_SetName(p, n) (p)->lpVtbl->SetName(p, n)
+
+struct NrBindingPool;
+struct NrBindingPacket;
+struct LifecycleQueue {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+    unsigned long long identity = 0;
+};
+struct NrSlot {
+    NrBindingPacket *region_binding = nullptr;
+    NrBindingPacket *compose_binding = nullptr;
+    NrBindingPacket *dual_binding = nullptr;
+    ID3D12Resource *region_guide = nullptr;
+    ID3D12Resource *region_field = nullptr;
+    ID3D12Resource *region_inputs[4] = {};
+    ID3D12Resource *proxy = nullptr;
+    ID3D12Resource *neural = nullptr;
+    ID3D12DescriptorHeap *region_heap = nullptr;
+    ID3D12DescriptorHeap *heap = nullptr;
+    NrSlot *dual_selected = nullptr;
+    bool dual_reduced = false;
+    D3D12_RESOURCE_STATES region_guide_state = D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_STATES region_field_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long region_bytes = 0;
+    UINT region_constants[20] = {};
+    bool region_ready = false;
+    bool region_recorded = false;
+    unsigned int recording_command_lists = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
+};
+struct NrContext {
+    NrBindingPool *binding_pool = nullptr;
+    unsigned int recording_command_lists = 0;
+    unsigned long long pending_recording_token = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
+    bool lifecycle_dependencies_quarantined = false;
+};
+
+struct CommandListQueueMarker {
+    unsigned long long identity = 0;
+    unsigned int stable_submissions = 0;
+    unsigned int flags = 0;
+};
+constexpr unsigned int kQueueMarkerMigrated = 1u;
+constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
+constexpr std::size_t kLifecycleCommandListCount = 128;
+constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+struct LifecycleCommandList {
+    unsigned long long token = 0;
+    unsigned long long expected_queue_identity = 0;
+    NrSlot *slots[kLifecycleUsesPerCommandList] = {};
+    unsigned int slot_count = 0;
+    NrContext *contexts[kLifecycleUsesPerCommandList] = {};
+    unsigned int context_count = 0;
+    unsigned int in_flight_submissions = 0;
+    unsigned long long submission_count = 0;
+    unsigned int bound_transfer_count = 0;
+    unsigned int scoped_bound_transfer_count = 0;
+    unsigned long long transfer_scope_epoch = 0;
+    unsigned long long transfer_feature_generation = 0;
+    int transfer_mode = 0;
+    bool execution_attempted_without_proof = false;
+    bool detached = false;
+};
+
+// @CORE_LIFECYCLE_GUIDS@
+LifecycleCommandList g_lifecycle_command_lists[kLifecycleCommandListCount] = {};
+std::atomic<unsigned long long> g_lifecycle_token{1};
+std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
+std::atomic<bool> g_lifecycle_tracking_uncertain{false};
+std::atomic<unsigned long long> g_queue_contract_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
+enum class BypassReason { QueueAffinityUnverified, LifecycleIsolation };
+void SetBypassReason(BypassReason) {}
+void MarkLifecycleUncertain(const char *reason) {
+    std::fprintf(stderr, "LIFECYCLE UNCERTAIN: %s\n", reason ? reason : "unknown");
+    g_lifecycle_tracking_uncertain.store(true, std::memory_order_release);
+}
+void Log(const char *, ...) {}
+
+// @CORE_MUTATION_AND_LIFECYCLE@
+
+struct CodecState { ID3D12Device *device = nullptr; UINT descriptor_size = 0; };
+CodecState g_codec{};
+NrContext g_contexts[16] = {};
+
+// The region Seal only needs the consumer plan to pin the existing proxy and
+// neural resources. The production codec writer performs the same descriptor
+// description step; this fixture's environment adapter keeps those two views
+// explicit without compiling the full image-composition Core.
+void WriteCodecDescriptorSet(ID3D12Device *, const NrSlot &slot,
+                             ID3D12DescriptorHeap *,
+                             nr_binding::DescriptorSet *plan = nullptr) {
+    if (!plan) return;
+    plan->Srv(0, slot.proxy, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    plan->Srv(1, slot.neural, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    plan->Uav(8, slot.region_field, DXGI_FORMAT_R32G32B32A32_FLOAT);
+}
+
+#include "nr_binding_types.inl"
+#include "nr_binding_runtime.inl"
+
+struct NgxParams {
+    ID3D12Resource *normals = nullptr;
+    ID3D12Resource *specular = nullptr;
+    ID3D12Resource *hit = nullptr;
+    unsigned x = 0, y = 0;
+};
+struct NrGuideBinding {
+    struct Signature {
+        unsigned depth_width = 0, depth_height = 0;
+        unsigned depth_x = 0, depth_y = 0;
+        bool linear_depth = false;
+    } signature;
+    ID3D12Resource *depth = nullptr;
+};
+bool GetUInt(const NgxParams *params, const char *key, unsigned *value) {
+    if (!params || !key || !value) return false;
+    if (std::strstr(key, ".X") != nullptr) *value = params->x;
+    else if (std::strstr(key, ".Y") != nullptr) *value = params->y;
+    else return false;
+    return true;
+}
+bool GetResource(const NgxParams *params, const char *key,
+                 ID3D12Resource **value) {
+    if (!params || !key || !value) return false;
+    if (std::strcmp(key, "GBuffer.Normals") == 0) *value = params->normals;
+    else if (std::strcmp(key, "DLSS.Input.SpecularAlbedo") == 0)
+        *value = params->specular;
+    else if (std::strcmp(key, "DLSSD.SpecularHitDistance") == 0)
+        *value = params->hit;
+    else return false;
+    return *value != nullptr;
+}
+bool TextureContainsRegion(ID3D12Resource *resource, unsigned x, unsigned y,
+                           unsigned width, unsigned height) {
+    if (!resource) return false;
+    const auto desc = ID3D12Resource_GetDesc(resource);
+    return width && height && x <= desc.Width && y <= desc.Height &&
+           width <= desc.Width - x && height <= desc.Height - y;
+}
+bool CreateTexture(ID3D12Device *device, unsigned width, unsigned height,
+                   const wchar_t *name, ID3D12Resource **out,
+                   DXGI_FORMAT format) {
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC desc{}; desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width; desc.Height = height;
+    desc.DepthOrArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
+    desc.Format = format; desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    const auto result = ID3D12Device_CreateCommittedResource(
+        device, &heap, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_COMMON, nullptr, IID_ID3D12Resource,
+        reinterpret_cast<void **>(out));
+    if (FAILED(result) || !*out) return false;
+    if (name) ID3D12Resource_SetName(*out, name);
+    return true;
+}
+bool FitsExtraResourcePeak(const NrSlot &slot, UINT64 bytes) {
+    constexpr UINT64 budget = 64ull << 20;
+    return bytes && bytes <= budget - slot.region_bytes;
+}
+constexpr UINT64 kExtraSlotBudget = 64ull << 20;
+UINT64 g_extra_allocated_bytes = 0;
+bool IsSameRrDepthDeviceForRegion(ID3D12Device *a, ID3D12Device *b) {
+    return IsSameRrDepthDevice(a, b);
+}
+
+struct RegionConfig { unsigned region_version = 1; bool region_enabled = false; bool generic_residual = false; };
+RegionConfig g_config{};
+
+void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+    if (before == after) return;
+    D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                          before, after};
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+void UavBarrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource) {
+    D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = resource;
+    ID3D12GraphicsCommandList_ResourceBarrier(list, 1, &barrier);
+}
+#include "nr_region_runtime.inl"
+
+struct Recording {
+    ID3D12CommandAllocator *allocator = nullptr;
+    ID3D12GraphicsCommandList *list = nullptr;
+};
+struct QueueFixture {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+    unsigned long long next_fence = 1;
+};
+Recording MakeRecording(ID3D12Device *device) {
+    Recording r{};
+    HRESULT hr = ID3D12Device_CreateCommandAllocator(
+        device, D3D12_COMMAND_LIST_TYPE_DIRECT, IID_ID3D12CommandAllocator,
+        reinterpret_cast<void **>(&r.allocator));
+    if (FAILED(hr)) { std::fprintf(stderr, "FAIL region allocator\n"); std::exit(2); }
+    hr = ID3D12Device_CreateCommandList(
+        device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, r.allocator, nullptr,
+        IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&r.list));
+    if (FAILED(hr)) { std::fprintf(stderr, "FAIL region command list\n"); std::exit(2); }
+    return r;
+}
+void Check(bool ok, const char *message) {
+    if (!ok) { std::fprintf(stderr, "FAIL %s\n", message); std::exit(1); }
+}
+void HR(HRESULT hr, const char *message) {
+    if (FAILED(hr)) { std::fprintf(stderr, "FAIL %s hr=%08lx\n", message, static_cast<unsigned long>(hr)); std::exit(2); }
+}
+void WaitFence(ID3D12Fence *fence, unsigned long long value, DWORD timeout,
+               const char *message) {
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr); Check(event != nullptr, "region event");
+    HR(ID3D12Fence_SetEventOnCompletion(fence, value, event), "region event arm");
+    Check(WaitForSingleObject(event, timeout) == WAIT_OBJECT_0, message);
+    CloseHandle(event);
+}
+unsigned long long Submit(QueueFixture &queue, Recording &recording) {
+    ID3D12CommandList *list = reinterpret_cast<ID3D12CommandList *>(recording.list);
+    ID3D12CommandQueue_ExecuteCommandLists(queue.queue, 1, &list);
+    const auto value = queue.next_fence++;
+    HR(ID3D12CommandQueue_Signal(queue.queue, queue.fence, value), "region signal");
+    return value;
+}
+void SetStableMarker(ID3D12GraphicsCommandList *list, unsigned long long identity) {
+    CommandListQueueMarker marker{identity, kRequiredStableQueueSubmissions, 0};
+    HR(ID3D12GraphicsCommandList_SetPrivateData(
+           list, kLastSubmissionQueueGuid, sizeof(marker), &marker),
+       "region queue marker");
+}
+void Commit(NrContext &context, NrBindingPacket &packet, LifecycleQueue &queue,
+            unsigned long long fence) {
+    context.pending_recording_token = 0;
+    context.last_submission_queue = &queue;
+    context.completion_fence_value = fence;
+    context.awaiting_fence_signal = false;
+    packet.lease.last_submission_queue = &queue;
+    packet.lease.completion_fence_value = fence;
+    packet.lease.awaiting_fence_signal = false;
+}
+void ResetFixtureLeases(NrContext &context) {
+    if (context.binding_pool) {
+        for (auto &packet : context.binding_pool->packets) {
+            packet.lease.recording_command_lists = 0;
+            packet.lease.awaiting_fence_signal = false;
+        }
+    }
+    context.recording_command_lists = 0;
+    context.pending_recording_token = 0;
+}
+
+ID3D12Resource *UploadTexture(QueueFixture &queue, ID3D12Device *device,
+                               unsigned width, unsigned height, DXGI_FORMAT format,
+                               unsigned bytes_per_pixel,
+                               const std::vector<unsigned char> &data) {
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{}; desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width; desc.Height = height;
+    desc.DepthOrArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
+    desc.Format = format;
+    ID3D12Resource *texture = nullptr;
+    HR(ID3D12Device_CreateCommittedResource(
+           device, &heap, D3D12_HEAP_FLAG_NONE, &desc,
+           D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_ID3D12Resource,
+           reinterpret_cast<void **>(&texture)), "region upload texture");
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{}; UINT64 total = 0;
+    device->lpVtbl->GetCopyableFootprints(device, &desc, 0, 1, 0,
+                                          &footprint, nullptr, nullptr, &total);
+    D3D12_RESOURCE_DESC buffer{}; buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = total; buffer.Height = buffer.DepthOrArraySize = buffer.MipLevels = 1;
+    buffer.SampleDesc.Count = 1; buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    ID3D12Resource *upload = nullptr;
+    HR(ID3D12Device_CreateCommittedResource(
+           device, &heap, D3D12_HEAP_FLAG_NONE, &buffer,
+           D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_ID3D12Resource,
+           reinterpret_cast<void **>(&upload)), "region upload buffer");
+    void *mapped = nullptr; const D3D12_RANGE empty{0, 0};
+    HR(ID3D12Resource_Map(upload, 0, &empty, &mapped), "region upload map");
+    std::memset(mapped, 0, static_cast<std::size_t>(total));
+    for (unsigned y = 0; y < height; ++y)
+        std::memcpy(static_cast<unsigned char *>(mapped) + footprint.Offset +
+                        y * footprint.Footprint.RowPitch,
+                    data.data() + y * width * bytes_per_pixel,
+                    width * bytes_per_pixel);
+    ID3D12Resource_Unmap(upload, 0, &empty);
+    auto recording = MakeRecording(device);
+    D3D12_TEXTURE_COPY_LOCATION dst{}; dst.pResource = texture;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = upload;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint = footprint;
+    ID3D12GraphicsCommandList_CopyTextureRegion(recording.list, &dst, 0, 0, 0, &src, nullptr);
+    Transition(recording.list, texture, D3D12_RESOURCE_STATE_COPY_DEST,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    HR(ID3D12GraphicsCommandList_Close(recording.list), "region upload close");
+    const auto fence = Submit(queue, recording);
+    WaitFence(queue.fence, fence, 10000, "region upload completion");
+    ReleaseCom(upload); ReleaseCom(recording.list); ReleaseCom(recording.allocator);
+    return texture;
+}
+
+std::vector<float> Readback(QueueFixture &queue, ID3D12Device *device,
+                            ID3D12Resource *resource) {
+    const auto desc = ID3D12Resource_GetDesc(resource);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{}; UINT rows = 0; UINT64 row_bytes = 0, total = 0;
+    device->lpVtbl->GetCopyableFootprints(device, &desc, 0, 1, 0,
+                                          &footprint, &rows, &row_bytes, &total);
+    D3D12_RESOURCE_DESC buffer{}; buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = total; buffer.Height = buffer.DepthOrArraySize = buffer.MipLevels = 1;
+    buffer.SampleDesc.Count = 1; buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_READBACK;
+    ID3D12Resource *readback = nullptr;
+    HR(ID3D12Device_CreateCommittedResource(
+           device, &heap, D3D12_HEAP_FLAG_NONE, &buffer,
+           D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_ID3D12Resource,
+           reinterpret_cast<void **>(&readback)), "region readback buffer");
+    auto recording = MakeRecording(device);
+    Transition(recording.list, resource,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION dst{}; dst.pResource = readback;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint = footprint;
+    D3D12_TEXTURE_COPY_LOCATION src{}; src.pResource = resource;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    ID3D12GraphicsCommandList_CopyTextureRegion(recording.list, &dst, 0, 0, 0, &src, nullptr);
+    HR(ID3D12GraphicsCommandList_Close(recording.list), "region readback close");
+    const auto fence = Submit(queue, recording);
+    WaitFence(queue.fence, fence, 10000, "region readback completion");
+    void *mapped = nullptr; const D3D12_RANGE read{0, static_cast<SIZE_T>(total)};
+    HR(ID3D12Resource_Map(readback, 0, &read, &mapped), "region readback map");
+    std::vector<float> result(static_cast<std::size_t>(desc.Width) * desc.Height * 4);
+    for (UINT y = 0; y < desc.Height; ++y)
+        std::memcpy(result.data() + static_cast<std::size_t>(y) * desc.Width * 4,
+                    static_cast<unsigned char *>(mapped) + footprint.Offset +
+                        y * footprint.Footprint.RowPitch,
+                    static_cast<std::size_t>(desc.Width) * 16);
+    const D3D12_RANGE empty{0, 0}; ID3D12Resource_Unmap(readback, 0, &empty);
+    ReleaseCom(readback); ReleaseCom(recording.list); ReleaseCom(recording.allocator);
+    return result;
+}
+
+template<class T> std::vector<unsigned char> Bytes(const std::vector<T> &v) {
+    std::vector<unsigned char> result(v.size() * sizeof(T));
+    if (!result.empty()) std::memcpy(result.data(), v.data(), result.size());
+    return result;
+}
+void PutFloat(std::vector<unsigned char> &bytes, std::size_t offset, float value) {
+    std::memcpy(bytes.data() + offset, &value, sizeof(value));
+}
+
+int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0); setvbuf(stderr, nullptr, _IONBF, 0);
+    std::printf("D13 region production host; ReShade=real; WARP=real; NGX=none; NVIDIA=0; game=0\n");
+    IDXGIFactory4 *factory = nullptr; IDXGIAdapter *warp = nullptr;
+    HR(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "region factory");
+    HR(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter,
+                                     reinterpret_cast<void **>(&warp)), "region WARP");
+    ID3D12Device *proxy = nullptr;
+    HR(D3D12CreateDevice(reinterpret_cast<IUnknown *>(warp), D3D_FEATURE_LEVEL_11_0,
+                         IID_ID3D12Device, reinterpret_cast<void **>(&proxy)), "region proxy");
+    IUnknown *unwrapped = nullptr;
+    HR(proxy->lpVtbl->QueryInterface(proxy, kRrDepthUnwrappedObject,
+                                     reinterpret_cast<void **>(&unwrapped)), "region unwrap");
+    ID3D12Device *device = nullptr;
+    HR(unwrapped->lpVtbl->QueryInterface(unwrapped, IID_ID3D12Device,
+                                         reinterpret_cast<void **>(&device)), "region native");
+    ReleaseCom(unwrapped);
+    Check(proxy != device && IsSameRrDepthDevice(proxy, device),
+          "region ReShade proxy/native identity");
+    g_codec.device = device;
+    g_codec.descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(
+        device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    QueueFixture queue{}; D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    HR(ID3D12Device_CreateCommandQueue(device, &queue_desc, IID_ID3D12CommandQueue,
+                                       reinterpret_cast<void **>(&queue.queue)), "region queue");
+    HR(ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, IID_ID3D12Fence,
+                                reinterpret_cast<void **>(&queue.fence)), "region fence");
+    ID3D12Fence *gate = nullptr;
+    HR(ID3D12Device_CreateFence(device, 0, D3D12_FENCE_FLAG_NONE, IID_ID3D12Fence,
+                                reinterpret_cast<void **>(&gate)), "region gate");
+
+    constexpr unsigned width = 32, height = 24, physical_width = width + 3,
+                       physical_height = height + 2, origin_x = 2, origin_y = 1;
+    std::vector<unsigned char> depth(static_cast<std::size_t>(physical_width) * physical_height * 8);
+    for (unsigned y = 0; y < physical_height; ++y) for (unsigned x = 0; x < physical_width; ++x) {
+        const auto p = (static_cast<std::size_t>(y) * physical_width + x) * 8;
+        PutFloat(depth, p, .9f); const std::uint32_t pad = 0xA5A5A5A5u;
+        std::memcpy(depth.data() + p + 4, &pad, sizeof(pad));
+    }
+    for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x)
+        PutFloat(depth, (static_cast<std::size_t>(y + origin_y) * physical_width + x + origin_x) * 8, .4f);
+    std::vector<float> normals(static_cast<std::size_t>(physical_width) * physical_height * 4, 0.f);
+    std::vector<float> specular(static_cast<std::size_t>(physical_width) * physical_height * 4, 0.f);
+    std::vector<float> hit(static_cast<std::size_t>(physical_width) * physical_height, 0.f);
+    for (unsigned y = 0; y < height; ++y) for (unsigned x = 0; x < width; ++x) {
+        const auto p = static_cast<std::size_t>(y + origin_y) * physical_width + x + origin_x;
+        normals[p * 4 + 2] = 1.f; normals[p * 4 + 3] = 1.f;
+        specular[p * 4 + 0] = specular[p * 4 + 1] = specular[p * 4 + 2] = .2f;
+        specular[p * 4 + 3] = 1.f; hit[p] = 4.f;
+    }
+    std::vector<std::uint16_t> proxy_half(static_cast<std::size_t>(width) * height * 4, 0x3400);
+    std::vector<std::uint16_t> neural_half(static_cast<std::size_t>(width) * height * 4, 0x3800);
+    auto *depth_resource = UploadTexture(queue, device, physical_width, physical_height,
+                                         DXGI_FORMAT_R32G8X24_TYPELESS, 8, depth);
+    auto *normals_resource = UploadTexture(queue, device, physical_width, physical_height,
+                                           DXGI_FORMAT_R32G32B32A32_FLOAT, 16, Bytes(normals));
+    auto *specular_resource = UploadTexture(queue, device, physical_width, physical_height,
+                                            DXGI_FORMAT_R32G32B32A32_FLOAT, 16, Bytes(specular));
+    auto *hit_resource = UploadTexture(queue, device, physical_width, physical_height,
+                                       DXGI_FORMAT_R32_FLOAT, 4, Bytes(hit));
+    auto *hit_changed = UploadTexture(queue, device, physical_width, physical_height,
+                                      DXGI_FORMAT_R32_FLOAT, 4, Bytes(hit));
+    auto *proxy_resource = UploadTexture(queue, device, width, height,
+                                         DXGI_FORMAT_R16G16B16A16_FLOAT, 8, Bytes(proxy_half));
+    auto *neural_resource = UploadTexture(queue, device, width, height,
+                                          DXGI_FORMAT_R16G16B16A16_FLOAT, 8, Bytes(neural_half));
+
+    Check(nr_regions::View(DXGI_FORMAT_R32G8X24_TYPELESS, 0) ==
+              DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS,
+          "R32G8X24 typeless maps to R32 float X24 SRV");
+    Check(nr_regions::View(DXGI_FORMAT_D32_FLOAT_S8X24_UINT, 0) ==
+              DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS,
+          "D32 S8 X24 maps to R32 float X24 SRV");
+
+    NrSlot slot{}; slot.proxy = proxy_resource; slot.neural = neural_resource;
+    NrContext context{}; NgxParams params{};
+    params.normals = normals_resource; params.specular = specular_resource;
+    params.hit = hit_resource; params.x = origin_x; params.y = origin_y;
+    NrGuideBinding guides{}; guides.depth = depth_resource;
+    guides.signature.depth_width = width; guides.signature.depth_height = height;
+    guides.signature.depth_x = origin_x; guides.signature.depth_y = origin_y;
+    g_config.region_version = 1; g_config.generic_residual = false; g_config.region_enabled = true;
+    Check(nr_regions::Prepare(device, slot, &params, guides, width, height, true, true),
+          "region Prepare with X24 depth and all optional guides");
+    HR(ID3D12CommandQueue_Wait(queue.queue, gate, 1), "hold region queue");
+    LifecycleQueue lifecycle{queue.queue, queue.fence, 7001};
+    auto frame1 = MakeRecording(device); SetStableMarker(frame1.list, 7001);
+    Check(nr_regions::Seal(device, frame1.list, context, slot), "region Seal frame 1");
+    auto *packet1 = slot.region_binding;
+    Check(packet1 != nullptr && packet1->heaps[nr_binding::Region] != nullptr,
+          "region Seal creates production region descriptor heap");
+    nr_regions::Dispatch(frame1.list, slot, false); nr_regions::Dispatch(frame1.list, slot, true);
+    HR(ID3D12GraphicsCommandList_Close(frame1.list), "region frame 1 close");
+    auto fence = Submit(queue, frame1); Commit(context, *packet1, lifecycle, fence);
+
+    auto frame2 = MakeRecording(device); SetStableMarker(frame2.list, 7001);
+    Check(nr_regions::Prepare(device, slot, &params, guides, width, height, true, true),
+          "region Prepare same input while frame 1 is in flight");
+    Check(nr_regions::Seal(device, frame2.list, context, slot), "region Seal frame 2");
+    auto *packet2 = slot.region_binding;
+    Check(packet2 == packet1, "same input reuses immutable region packet on ordered queue");
+    nr_regions::Dispatch(frame2.list, slot, false); nr_regions::Dispatch(frame2.list, slot, true);
+    HR(ID3D12GraphicsCommandList_Close(frame2.list), "region frame 2 close");
+    fence = Submit(queue, frame2); Commit(context, *packet2, lifecycle, fence);
+
+    auto changed_params = params; changed_params.hit = hit_changed;
+    auto frame3 = MakeRecording(device); SetStableMarker(frame3.list, 7001);
+    Check(nr_regions::Prepare(device, slot, &changed_params, guides, width, height, true, true),
+          "region Prepare changed hit input while frames are in flight");
+    Check(nr_regions::Seal(device, frame3.list, context, slot), "region Seal changed input");
+    auto *packet3 = slot.region_binding;
+    Check(packet3 != nullptr && packet3 != packet1,
+          "changed input selects a different free immutable region packet");
+    Check(packet3->heaps[nr_binding::Region] != packet1->heaps[nr_binding::Region],
+          "changed input uses a distinct region descriptor heap");
+    nr_regions::Dispatch(frame3.list, slot, false); nr_regions::Dispatch(frame3.list, slot, true);
+    HR(ID3D12GraphicsCommandList_Close(frame3.list), "region frame 3 close");
+    fence = Submit(queue, frame3); Commit(context, *packet3, lifecycle, fence);
+    Check(queue.fence->lpVtbl->GetCompletedValue(queue.fence) < fence,
+          "three region command lists remain in flight behind queue Wait");
+    Check(!CanMutateSlotLocked(packet1->lease),
+          "old mutation gate rejects the region packet while exact fence is pending");
+    Check(context.recording_command_lists == 3,
+          "production RecordNrUseLocked pins three region command lists");
+    std::printf("IN FLIGHT: region packets same=%d changed=%d fence=%llu complete=%llu\n",
+                packet2 == packet1 ? 1 : 0, packet3 != packet1 ? 1 : 0,
+                fence, static_cast<unsigned long long>(queue.fence->lpVtbl->GetCompletedValue(queue.fence)));
+    // Signal the gate from the CPU. A queue-side signal would itself sit
+    // behind the Wait and deadlock the deliberately blocked submission.
+    HR(gate->lpVtbl->Signal(gate, 1), "release region queue");
+    WaitFence(queue.fence, fence, 30000, "region queued completion");
+    Check(queue.fence->lpVtbl->GetCompletedValue(queue.fence) >= fence,
+          "region exact fence completed");
+    ResetFixtureLeases(context);
+    auto pixels = Readback(queue, device, slot.region_field);
+    const auto center = (static_cast<std::size_t>(height / 2) * width + width / 2) * 4;
+    Check(std::fabs(pixels[center + 2] - .4f) < .0001f,
+          "X24 depth shader load keeps the real depth value through padded viewport");
+    Check(nr_regions::status.load() == 3,
+          "all optional inputs report reflection-capable status");
+    std::printf("X24 READBACK: depth=%.6f padding=0xA5A5A5A5 status=%u\n",
+                static_cast<double>(pixels[center + 2]), nr_regions::status.load());
+
+    // Missing optional guide combinations are run after exact retirement.
+    // Every call still goes through production Prepare -> Seal -> Dispatch.
+    struct MissingCase { const char *name; ID3D12Resource *normals; ID3D12Resource *specular; ID3D12Resource *hit; unsigned flags; unsigned status; };
+    const MissingCase cases[] = {
+        {"depth-only", nullptr, nullptr, nullptr, 1u, 2u},
+        {"depth-normals", normals_resource, nullptr, nullptr, 3u, 2u},
+        {"depth-reflection", nullptr, specular_resource, hit_resource, 13u, 3u},
+        {"all-guides", normals_resource, specular_resource, hit_resource, 15u, 3u},
+    };
+    for (const auto &test : cases) {
+        NgxParams current{}; current.normals = test.normals; current.specular = test.specular;
+        current.hit = test.hit; current.x = origin_x; current.y = origin_y;
+        auto recording = MakeRecording(device); SetStableMarker(recording.list, 7001);
+        Check(nr_regions::Prepare(device, slot, &current, guides, width, height, true, true), test.name);
+        Check(nr_regions::Seal(device, recording.list, context, slot), "missing case Seal");
+        Check(slot.region_binding != nullptr, "missing case packet");
+        nr_regions::Dispatch(recording.list, slot, false); nr_regions::Dispatch(recording.list, slot, true);
+        Check(slot.region_constants[6] == test.flags, "missing optional guide flags degrade explicitly");
+        Check(nr_regions::status.load() == test.status, "missing optional guide status degrade");
+        HR(ID3D12GraphicsCommandList_Close(recording.list), "missing case close");
+        fence = Submit(queue, recording); Commit(context, *slot.region_binding, lifecycle, fence);
+        WaitFence(queue.fence, fence, 30000, "missing case completion");
+        ResetFixtureLeases(context);
+        std::printf("MISSING: %s flags=%u status=%u\n", test.name,
+                    slot.region_constants[6], nr_regions::status.load());
+        ReleaseCom(recording.list); ReleaseCom(recording.allocator);
+    }
+
+    // Restore all guides and run once more after the degradation cases. This
+    // proves the same resources recover after packet churn and exact retirement.
+    auto restored = MakeRecording(device); SetStableMarker(restored.list, 7001);
+    Check(nr_regions::Prepare(device, slot, &params, guides, width, height, true, true),
+          "restore all guide inputs");
+    Check(nr_regions::Seal(device, restored.list, context, slot), "restore Seal");
+    nr_regions::Dispatch(restored.list, slot, false); nr_regions::Dispatch(restored.list, slot, true);
+    Check(slot.region_constants[6] == 15u && nr_regions::status.load() == 3,
+          "restored guide inputs become reflection-capable again");
+    HR(ID3D12GraphicsCommandList_Close(restored.list), "restore close");
+    fence = Submit(queue, restored); Commit(context, *slot.region_binding, lifecycle, fence);
+    WaitFence(queue.fence, fence, 30000, "restore completion"); ResetFixtureLeases(context);
+    ReleaseCom(restored.list); ReleaseCom(restored.allocator);
+
+    if (context.binding_pool) {
+        for (auto &packet : context.binding_pool->packets) if (packet.valid) DropBindingPacket(packet);
+        Check(CanDestroyBindingsLocked(context), "all region packet leases retired");
+    }
+    DestroyBindings(context);
+    for (auto &resource : slot.region_inputs) ReleaseCom(resource);
+    ReleaseCom(slot.region_field); ReleaseCom(slot.region_guide);
+    g_extra_allocated_bytes = 0;
+    ReleaseCom(depth_resource); ReleaseCom(normals_resource); ReleaseCom(specular_resource);
+    ReleaseCom(hit_resource); ReleaseCom(hit_changed); ReleaseCom(proxy_resource); ReleaseCom(neural_resource);
+    ReleaseCom(nr_regions::build); ReleaseCom(nr_regions::snapshot); ReleaseCom(nr_regions::root); ReleaseCom(nr_regions::owner);
+    ReleaseCom(gate); ReleaseCom(queue.fence); ReleaseCom(queue.queue);
+    ReleaseCom(device); ReleaseCom(proxy); ReleaseCom(warp); ReleaseCom(factory);
+    std::printf("PASS D13 production region Prepare/Seal/Dispatch WARP; X24 readback; queue in-flight; missing-guide degradation; no game/NVIDIA inference\n");
+    return 0;
+}

@@ -104,6 +104,80 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
 }
 #endif
 
+// Serialize the paired NR2 observation in one locked read.  Current callers
+// invoke this helper without g_chain_cs; the AlreadyLocked variants remain
+// available for any future serializer that already owns that lock.
+void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
+    const auto dual_snapshot = nr_dual_status_runtime::SnapshotUiAndSecondary();
+    const auto &observation = dual_snapshot.ui;
+    const auto &secondary_identity = dual_snapshot.secondary;
+    FeedbackAppend(s,
+        "%s.dual.snapshot.state=%s\n%s.dual.snapshot.stateCode=%u\n"
+        "%s.dual.snapshot.eligiblePrimary=%llu\n"
+        "%s.dual.snapshot.secondaryEvaluate=%llu\n"
+        "%s.dual.snapshot.warmupDiscarded=%llu\n"
+        "%s.dual.snapshot.finalAdopted=%llu\n"
+        "%s.dual.snapshot.processingAgeMs=%llu\n"
+        "%s.dual.snapshot.noAdoptionAgeMs=%llu\n"
+        "%s.dual.snapshot.windowStartMs=%llu\n"
+        "%s.dual.snapshot.config=%u\n"
+        "%s.dual.snapshot.routeId=%llu\n"
+        "%s.dual.snapshot.routeValid=%d\n"
+        "%s.dual.snapshot.fatal=0x%08X\n",
+        prefix, nr_dual_observation::UiStateName(observation.state),
+        prefix, static_cast<unsigned>(observation.state),
+        prefix, static_cast<unsigned long long>(observation.counts.eligible_primary),
+        prefix, static_cast<unsigned long long>(observation.counts.secondary_evaluate_success),
+        prefix, static_cast<unsigned long long>(observation.counts.warmup_discarded),
+        prefix, static_cast<unsigned long long>(observation.counts.final_adopted),
+        prefix, static_cast<unsigned long long>(observation.processing_age_ms),
+        prefix, static_cast<unsigned long long>(observation.no_adoption_age_ms),
+        prefix, static_cast<unsigned long long>(observation.window_start_ms),
+        prefix, observation.config_generation,
+        prefix, static_cast<unsigned long long>(observation.route.id),
+        prefix, observation.route.valid ? 1 : 0,
+        prefix, observation.fatal_code);
+    FeedbackAppend(s,
+        "%s.dual.secondaryIdentity.valid=%d\n"
+        "%s.dual.secondaryIdentity.routeId=%llu\n"
+        "%s.dual.secondaryIdentity.routeValid=%d\n"
+        "%s.dual.secondaryIdentity.instance=%llu\n"
+        "%s.dual.secondaryIdentity.featureGeneration=%llu\n"
+        "%s.dual.secondaryIdentity.config=%u\n"
+        "%s.dual.secondaryIdentity.evaluation=%u\n"
+        "%s.dual.secondaryIdentity.sinceReset=%u\n"
+        "%s.dual.secondaryIdentity.extent=%ux%u\n"
+        "%s.dual.secondaryIdentity.warmedUp=%d\n"
+        "%s.dual.secondaryIdentity.tuning.intensity=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.localTone=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.localStructure=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.skinStructure=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.autoMask=%d\n"
+        "%s.dual.secondaryIdentity.tuning.style=%u\n"
+        "%s.dual.secondaryIdentity.tuning.uiCorrection=%d\n"
+        "%s.dual.secondaryIdentity.tuning.jitterMode=%u\n"
+        "%s.dual.secondaryIdentity.tuning.inputFilter=%u\n",
+        prefix, secondary_identity.valid ? 1 : 0,
+        prefix, static_cast<unsigned long long>(secondary_identity.route.id),
+        prefix, secondary_identity.route.valid ? 1 : 0,
+        prefix, static_cast<unsigned long long>(secondary_identity.instance_id),
+        prefix, static_cast<unsigned long long>(secondary_identity.feature_generation),
+        prefix, secondary_identity.config_generation,
+        prefix, secondary_identity.evaluation,
+        prefix, secondary_identity.since_reset,
+        prefix, secondary_identity.width, secondary_identity.height,
+        prefix, secondary_identity.warmed_up ? 1 : 0,
+        prefix, static_cast<double>(secondary_identity.tuning.intensity),
+        prefix, static_cast<double>(secondary_identity.tuning.local_tone),
+        prefix, static_cast<double>(secondary_identity.tuning.local_structure),
+        prefix, static_cast<double>(secondary_identity.tuning.skin_structure),
+        prefix, secondary_identity.tuning.auto_mask ? 1 : 0,
+        prefix, secondary_identity.tuning.style,
+        prefix, secondary_identity.tuning.ui_correction ? 1 : 0,
+        prefix, static_cast<unsigned>(secondary_identity.tuning.jitter_mode),
+        prefix, secondary_identity.tuning.input_filter);
+}
+
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     FeedbackAppend(s,"%s.dual.statusLegend=0:off,1:primary-warmup,2:secondary-warmup,3:create-pending,4:recorded,5:guides,6:resources-budget,7:queue,8:slot,9:fatal,10:device-identity,11:pipeline,12:resource-contract\n",prefix);
     FeedbackAppend(s,"%s.dual.status=%u\n%s.dual.primary=%ux%u\n%s.dual.secondary=%ux%u\n"
@@ -115,6 +189,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,nr_dual_runtime::second_creates.load(),prefix,nr_dual_runtime::second_evaluations.load(),prefix,nr_dual_runtime::second_completed.load(),
         prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
         prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
+    FeedbackAppendDualSnapshot(s, prefix);
     FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
         prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
     FeedbackAppend(s,"%s.dual.timingConfig=%u\n%s.dual.currentConfig=%u\n",prefix,nr_dual_runtime::time_config.load(),prefix,g_config_generation.load());

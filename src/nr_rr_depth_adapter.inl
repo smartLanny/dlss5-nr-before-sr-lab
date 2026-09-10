@@ -126,10 +126,10 @@ bool EnsureRrDepthPipeline(ID3D12Device *device) {
     g_codec.rr_depth_root=root;g_codec.rr_depth_pipeline=pipeline;return true;
 }
 
-bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding &guides) {
+bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding &guides, bool immutable=false) {
     if (!guides.signature.linear_depth) return true;
     const auto &s=guides.signature;
-    if (!CanMutateSlotLocked(slot)) return RejectRrDepth(RrDepthReject::SlotBusy);
+    if (!immutable && !CanMutateSlotLocked(slot)) return RejectRrDepth(RrDepthReject::SlotBusy);
     if (!EnsureRrDepthPipeline(device)) return RejectRrDepth(RrDepthReject::Pipeline);
     ID3D12Device *source_device=nullptr;
     const HRESULT source_hr=ID3D12Resource_GetDevice(guides.depth,IID_ID3D12Device,
@@ -145,6 +145,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
         !(support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)) return RejectRrDepth(RrDepthReject::InputSupport);
     const auto previous=slot.rr_depth?ID3D12Resource_GetDesc(slot.rr_depth):D3D12_RESOURCE_DESC{};
     if (!slot.rr_depth || previous.Width!=s.depth_width || previous.Height!=s.depth_height) {
+        if(!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))return RejectRrDepth(RrDepthReject::SlotBusy);
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         desc.Width=s.depth_width;desc.Height=s.depth_height;
         desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
@@ -168,6 +169,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
     }
     const auto out=ID3D12Resource_GetDesc(slot.rr_depth);
     if (out.Width!=s.depth_width || out.Height!=s.depth_height || !slot.rr_depth_heap) return RejectRrDepth(RrDepthReject::SlotShape);
+    if(!immutable) {
     auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.rr_depth_heap);
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=static_cast<DXGI_FORMAT>(s.depth_format);
     srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -175,6 +177,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
     cpu.ptr+=g_codec.descriptor_size;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R32_FLOAT;uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
     ID3D12Device_CreateUnorderedAccessView(device,slot.rr_depth,nullptr,&uav,cpu);
+    }
     if (slot.rr_depth_source!=guides.depth) {
         ID3D12Resource_AddRef(guides.depth);ReleaseCom(slot.rr_depth_source);slot.rr_depth_source=guides.depth;
     }
@@ -185,17 +188,18 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
 bool DispatchRrDepth(ID3D12GraphicsCommandList *list, NrSlot &slot,const NrGuideBinding &guides) {
     const auto &s=guides.signature;
     if (!s.linear_depth) return true;
-    if (!slot.rr_depth || !slot.rr_depth_heap || slot.rr_depth_source!=guides.depth ||
+    auto* heap=slot.compose_binding&&slot.compose_binding->heaps[nr_binding::Depth]?slot.compose_binding->heaps[nr_binding::Depth]:slot.rr_depth_heap;
+    if (!slot.rr_depth || !heap || slot.rr_depth_source!=guides.depth ||
         !g_codec.rr_depth_pipeline || !g_codec.rr_depth_root) return RejectRrDepth(RrDepthReject::DispatchBinding);
     struct Constants { UINT width,height,x,y;float a,b,far_depth,pad; };
     const Constants constants{s.depth_width,s.depth_height,s.depth_x,s.depth_y,
         s.depth_projection_a,s.depth_projection_b,s.depth_inverted?0.f:1.f,0};
     Transition(list,slot.rr_depth,slot.rr_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ID3D12DescriptorHeap *heaps[]={slot.rr_depth_heap};
+    ID3D12DescriptorHeap *heaps[]={heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(list,g_codec.rr_depth_root);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.rr_depth_heap));
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,8,&constants,0);
     ID3D12GraphicsCommandList_SetPipelineState(list,g_codec.rr_depth_pipeline);
     ID3D12GraphicsCommandList_Dispatch(list,(s.depth_width+7)/8,(s.depth_height+7)/8,1);

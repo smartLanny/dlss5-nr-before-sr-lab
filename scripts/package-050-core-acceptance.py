@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline12'
+VERSION = 'beta0.5-dline13'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -57,7 +57,10 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             or manifest['integration'].get('source_commit') != commit
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
-    required = {'dual policy admission/history and independent matched-residual numeric oracle',
+    required = {'validate-retirement-return.py',
+                'NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts',
+                'actual queued immutable bindings, bounded capacity, cross-queue/device negatives and recovery; no NVIDIA NGX',
+                'dual policy admission/history and independent matched-residual numeric oracle',
                 'actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX',
                 'dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained',
                 'canonical pinned full-source staging', 'validate-work-config.py',
@@ -118,13 +121,13 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline12 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline13 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE12_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE13_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     face_assets = {}
     receipt = json.loads(checked_file(binary_root, 'face-backend.json', result['face_backend_receipt_sha256']))
     if receipt['enabled'] != result['face_backend_enabled']:

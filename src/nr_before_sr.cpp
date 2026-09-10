@@ -45,6 +45,7 @@
 #include "nr_face_worker.h"
 #include "nr_dual_spatial_d3d12.hpp"
 #include "nr_dual_lifetime.hpp"
+#include "nr_descriptor_plan.h"
 #if NR_CODEC_PRECOMPILED
 #include "../build/nr_codec_precompiled.h"
 #endif
@@ -66,11 +67,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline12";
+constexpr const char *kAddonVersion = "beta0.5-dline13";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline12";
+constexpr const char *kBuildIdentity = "beta0.5-dline13";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -898,7 +899,7 @@ struct ChainConfig {
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     unsigned region_version=1;
     unsigned nr_passes=1;
-    unsigned nr_second_numerator=1,nr_second_denominator=1;
+    unsigned nr_second_numerator=1,nr_second_denominator=2;
     bool generic_residual=false;
     float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
     bool region_enabled=false;
@@ -1398,7 +1399,7 @@ void NormalizeConfig(ChainConfig &config) {
     nr_generic::Normalize(config);
     if(config.nr_passes!=2)config.nr_passes=1;
     auto dual_scale=nr_dual::Reduced({config.nr_second_numerator,config.nr_second_denominator});
-    if(!nr_dual::ValidScale(dual_scale))dual_scale={1,1};
+    if(!nr_dual::ValidScale(dual_scale))dual_scale={1,2};
     config.nr_second_numerator=dual_scale.numerator;config.nr_second_denominator=dual_scale.denominator;
     if(config.region_version!=1)config.region_enabled=false;
     for(float& gain:config.region_gains)gain=std::clamp(FiniteOr(gain,1.f),0.f,4.f);
@@ -1567,7 +1568,7 @@ void ReloadConfig(bool force = false) {
     next.region_version=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionCompositionVersion",1,g_ini_path);
     next.nr_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRPasses",1,g_ini_path);
     next.nr_second_numerator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleNumerator",1,g_ini_path);
-    next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",1,g_ini_path);
+    next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",2,g_ini_path);
     next.generic_residual=GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualExperiment",0,g_ini_path)!=0;
     for(unsigned i=0;i<5;i++){wchar_t key[48];swprintf_s(key,L"GenericResidualGain%u",i);next.generic_gains[i]=ReadIniFloat(key,1.f);}
     next.region_enabled=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionComposition",0,g_ini_path)!=0;
@@ -4703,7 +4704,12 @@ struct NrStageCapture {
 };
 
 struct NrContext;
+struct NrBindingPacket;
+struct NrBindingPool;
 struct NrSlot {
+    NrBindingPacket* region_binding=nullptr;
+    NrBindingPacket* compose_binding=nullptr;
+    NrBindingPacket* dual_binding=nullptr;
     ID3D12QueryHeap* dual_time_heap=nullptr;
     ID3D12Resource* dual_time_readback=nullptr;
     LifecycleQueue* dual_time_queue=nullptr;
@@ -4840,6 +4846,7 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 }
 
 struct NrContext {
+    NrBindingPool* binding_pool=nullptr;
     bool dual_last_visible=false;
     unsigned layer_index=0;
     unsigned long long parent_instance_id=0,parent_input_epoch=0;
@@ -4921,6 +4928,7 @@ struct NrContext {
     NrSlot slots[8] = {};
 };
 
+#include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
 
 #include "nr_jitter_status.inl"
@@ -4962,7 +4970,8 @@ constexpr GUID kLastSubmissionQueueGuid = {
     0x2f90ef4a, 0x3aa3, 0x4de5,
     {0xb5, 0x27, 0x91, 0x52, 0x31, 0xe2, 0x8c, 0x6a}};
 constexpr std::size_t kLifecycleCommandListCount = 128;
-constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+// Retain the previous 16 texture uses plus their immutable descriptor leases.
+constexpr std::size_t kLifecycleUsesPerCommandList = 32;
 constexpr std::size_t kLifecycleQueueCount = 8;
 
 struct CommandListQueueMarker {
@@ -5006,7 +5015,7 @@ struct LifecycleQueue {
 
 constexpr std::size_t kLifecycleBatchRecords =
     kLifecycleCommandListCount;
-constexpr std::size_t kLifecycleBatchSlots = 16 * 8;
+constexpr std::size_t kLifecycleBatchSlots = 16 * (8 + nr_binding::kPackets);
 
 struct SubmissionBatch {
     LifecycleQueue *queue_state = nullptr;
@@ -5014,7 +5023,7 @@ struct SubmissionBatch {
     unsigned int record_count = 0;
     NrSlot *slots[kLifecycleBatchSlots] = {};
     unsigned int slot_count = 0;
-    NrContext *contexts[kLifecycleBatchSlots] = {};
+    NrContext *contexts[16] = {};
     unsigned int context_count = 0;
     unsigned long long fence_value = 0;
     unsigned int bound_transfer_count = 0;
@@ -5102,6 +5111,9 @@ bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
 }
 
 bool CanMutateSlotLocked (const NrSlot& slot);
+bool CanDestroyBindingsLocked(const NrContext& context);
+void DestroyBindings(NrContext& context);
+bool InvalidateSlotBindingsLocked(const NrSlot& slot);
 bool CanDestroyContextLocked (const NrContext& context);
 bool CanRetireDualSlot(void* user) {
     const auto* slot=static_cast<const NrSlot*>(user);
@@ -5196,6 +5208,7 @@ void DestroyContext(NrContext &context) {
         }
     }
     for(auto& guide:context.dual_create_guides)ReleaseCom(guide);
+    DestroyBindings(context);
     for (auto &slot : context.slots) DestroySlot(slot);
     context = {};
 }
@@ -5244,7 +5257,7 @@ bool CanDestroyContextLocked(const NrContext &context) {
     for (const auto &slot : context.slots) {
         if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
     }
-    return true;
+    return CanDestroyBindingsLocked(context);
 }
 
 namespace nr_dual_runtime {void CollectTiming(NrSlot&);}
@@ -5494,6 +5507,10 @@ void CollectRetiredContextsLocked() {
     for (auto &context : g_contexts) {
         if (context.sr_handle != nullptr && context.retired &&
             CanDestroyContextLocked(context)) {
+            bool bindings_retired=true;
+            for(const auto& slot:context.slots)
+                if(!InvalidateSlotBindingsLocked(slot)){bindings_retired=false;break;}
+            if(!bindings_retired)continue;
             NrContext *pending = nullptr;
             for (auto &candidate : g_pending_destroy_contexts) {
                 if (candidate.sr_handle == nullptr) {
@@ -6855,6 +6872,7 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+#include "nr_binding_runtime.inl"
 #include "nr_codec_descriptors.inl"
 
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
@@ -7025,8 +7043,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
 
 bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
                        ID3D12Resource *motion, unsigned int width,
-                       unsigned int height) {
-    if (device == nullptr || slot.heap == nullptr || motion == nullptr ||
+                       unsigned int height, bool immutable=false) {
+    if (device == nullptr || (!immutable && slot.heap == nullptr) || motion == nullptr ||
         width == 0 || height == 0) return false;
     const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
     if ((motion_desc.Format != DXGI_FORMAT_R16G16_FLOAT &&
@@ -7048,15 +7066,17 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
     }
     const bool mutates_descriptors =
         slot.motion_proxy == nullptr || slot.motion_source != motion;
-    if (mutates_descriptors && !CanMutateSlotLocked(slot)) {
+    if (mutates_descriptors && (!immutable || !slot.motion_proxy) && !CanMutateSlotLocked(slot)) {
         Log("Motion descriptor change deferred because its previous GPU use "
             "has not completed; original SR retained.");
         return false;
     }
     if (slot.motion_proxy == nullptr) {
+        if (!InvalidateSlotBindingsLocked(slot))return false;
         if (!CreateTexture(device, width, height, L"NRChain.MotionProxy",
                            &slot.motion_proxy, DXGI_FORMAT_R16G16_FLOAT))
             return false;
+        if(!immutable) {
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
@@ -7066,11 +7086,13 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(
             device, slot.motion_proxy, nullptr, &uav, cpu);
+        }
     }
     if (slot.motion_source != motion) {
         ID3D12Resource_AddRef(motion);
         ReleaseCom(slot.motion_source);
         slot.motion_source = motion;
+        if(!immutable) {
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 3;
@@ -7080,6 +7102,7 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srv.Texture2D.MipLevels = 1;
         ID3D12Device_CreateShaderResourceView(device, motion, &srv, cpu);
+        }
     }
     return true;
 }
@@ -7108,7 +7131,7 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
     }
     // No descriptor mutation on a recorded/in-flight slot. Wait for the
     // existing retirement contract; absence of this optional plane keeps A.
-    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) ||
+    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) || !InvalidateSlotBindingsLocked(slot) ||
         (color_variant ? g_codec.color_edit_field_pipeline_failed
                        : g_codec.edit_field_pipeline_failed)) return false;
     ID3D12PipelineState *&field_pipeline = color_variant
@@ -7179,7 +7202,7 @@ bool EnsureEditRestore(ID3D12Device *device, NrSlot &slot, UINT width, UINT heig
         const auto d=ID3D12Resource_GetDesc(slot.edit_horizontal);
         return d.Width==width && d.Height==height && g_codec.restore_edit_horizontal;
     }
-    if (slot.edit_horizontal_allocation_failed || !CanMutateSlotLocked(slot) ||
+    if (slot.edit_horizontal_allocation_failed || !CanMutateSlotLocked(slot) || !InvalidateSlotBindingsLocked(slot) ||
         g_codec.edit_restore_pipeline_failed) return false;
     if (!g_codec.restore_edit_horizontal) {
         ID3DBlob *code=CompileCodecShader("RestoreEditHorizontalCS"); HRESULT hr=E_FAIL;
@@ -7225,7 +7248,7 @@ bool EnsureLanczosInput(ID3D12Device *device,NrSlot &slot,unsigned int nw,unsign
         if (d.Width==nw && d.Height==rh) return true;
     }
     if (slot.lanczos_allocation_failed || g_codec.lanczos_pipeline_failed ||
-        !CanMutateSlotLocked(slot)) return false;
+        (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))) return false;
     if (!g_codec.lanczos_horizontal || !g_codec.lanczos_vertical) {
         ID3DBlob *horizontal=CompileCodecShader("LanczosHorizontalCS");
         ID3DBlob *vertical=CompileCodecShader("LanczosVerticalCS");
@@ -7289,7 +7312,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                         int feature_create_flags = 0) {
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
-    if (!CanMutateSlotLocked(slot)) return false;
+    if (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot)) return false;
 
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
@@ -7740,7 +7763,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_f8_gpu.DiscardUnrecorded(f8_capture.slot);
         nr_f8::RawReady(f8_capture.ticket,f8_info,nullptr,0,false);f8_armed=false;
     }
-    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:(slot.dual_selected?slot.dual_selected->dual_consumer_heap:(any_combine && slot.face_mask && slot.face_codec_heap?slot.face_codec_heap:slot.heap));
+    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:(slot.dual_selected&&slot.dual_binding?slot.dual_binding->heaps[nr_binding::Consumer]:(any_combine && slot.face_mask && slot.face_codec_heap?slot.face_codec_heap:(slot.compose_binding?slot.compose_binding->heaps[nr_binding::Consumer]:slot.heap)));
     ID3D12DescriptorHeap *heaps[] = {selected_heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
@@ -7930,11 +7953,12 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
                             unsigned int source_height,
                             unsigned int source_base_x,
                             unsigned int source_base_y) {
-    ID3D12DescriptorHeap *heaps[] = {slot.heap};
+    auto* heap=slot.compose_binding&&slot.compose_binding->heaps[nr_binding::Codec]?slot.compose_binding->heaps[nr_binding::Codec]:slot.heap;
+    ID3D12DescriptorHeap *heaps[] = {heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
     const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
     const CodecConstants constants = {
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
@@ -9252,6 +9276,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    if(guides.signature.resample_motion && !EnsureMotionProxy(device,*slot,guides.motion,width,height)) {
+        ReleaseCom(device);return substitution;
+    }
+    nr_regions::Seal(device,command_list,*context,*slot);
     auto dual_prepared=nr_dual_runtime::Prepare(device,command_list,*context,*slot,sr_params,feature,
         render_width,render_height,color,color_x,color_y,pre_sr_color_mode);
     bool lifecycle_recorded = false;
@@ -9369,6 +9397,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     nr_face_runtime::Begin(command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y);
+    nr_dual_runtime::Seal(command_list,*slot,dual_prepared);
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,*context,*slot,guides,color_contract,
         render_width,render_height,color_x,color_y,0,0);
@@ -9776,6 +9805,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Seal(device,command_list,*context,*slot);
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
@@ -9992,6 +10022,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     nr_face_runtime::Begin(command_list,context,slot,substitution.guides,feature,width,height,0,0);
+    nr_dual_runtime::Seal(command_list,slot,substitution.dual_prepared);
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,context,slot,substitution.guides,color_contract,
         width,height,0,0,substitution.output_base_x,substitution.output_base_y);
@@ -13407,13 +13438,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline12 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline13 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline12 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline13 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -55,7 +55,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline12') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline13') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
     if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
@@ -67,8 +67,14 @@ try {
     & $DualPolicy
     if($LASTEXITCODE){throw 'Dual policy admission/opaque failure contract failed.'}
     $Checks.Add('dual policy admission/history and independent matched-residual numeric oracle')
+    & python (Join-Path $Root 'tests/test_nr_dual_observation.py') --compiler $Compiler
+    if($LASTEXITCODE){throw 'NR2 current observation/defaults/two-layer model parameter contract failed.'}
+    & python (Join-Path $Root 'tests/test_d13_ui_compile.py')
+    if($LASTEXITCODE){throw 'Actual dual quick/detail UI compilation failed.'}
+    $Checks.Add('NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts')
 
-    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
+
+    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-retirement-return.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
             & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler --negative-control
         } else {
@@ -151,6 +157,10 @@ try {
         & python (Join-Path $PSScriptRoot 'validate-dual-device.py') --compiler $Compiler --reshade-dll $ReShadeDllPath --output (Join-Path $Output 'dual-device')
         if ($LASTEXITCODE) { throw 'Actual ReShade dual device regression failed.' }
         $Checks.Add('actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX')
+        & python (Join-Path $PSScriptRoot 'validate-dual-inflight.py') --compiler $Compiler --reshade-dll $ReShadeDllPath --output (Join-Path $Output 'dual-inflight')
+        if($LASTEXITCODE){throw 'Actual queued descriptor reuse/retirement/negative controls failed.'}
+        $Checks.Add('actual queued immutable bindings, bounded capacity, cross-queue/device negatives and recovery; no NVIDIA NGX')
+
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -DualGeneric
         $Checks.Add('dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained')
 
@@ -187,12 +197,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline12*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline12 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline13*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline13 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 12) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 13) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

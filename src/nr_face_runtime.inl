@@ -178,7 +178,7 @@ void Commit(NrSlot& slot,const NrGuideBinding& guides) {
 }
 void DrawUi(ChainConfig& next,bool& changed) {
     const bool zh=UseChineseUi();
-    ImGui::SeparatorText(zh?"独立人脸保护（测试）":"Independent face protection (test)");
+    ImGui::SeparatorText(zh?"独立人脸保护（实验）":"Independent face protection (experimental)");
     if(!NR_FACE_BACKEND) {
         ImGui::TextWrapped("%s",zh?"此构建未包含识别后端；人脸保护不可用。":"This build has no detection backend; face protection is unavailable.");return;
     }

@@ -29,28 +29,31 @@ bool Ensure(ID3D12Device* device) {
 }
 DXGI_FORMAT View(DXGI_FORMAT f,unsigned i) {
  if(i==0){switch(f){case DXGI_FORMAT_R32_TYPELESS:case DXGI_FORMAT_D32_FLOAT:return DXGI_FORMAT_R32_FLOAT;
+  case DXGI_FORMAT_R32G8X24_TYPELESS:case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
   case DXGI_FORMAT_R24G8_TYPELESS:case DXGI_FORMAT_D24_UNORM_S8_UINT:return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
   case DXGI_FORMAT_R16_TYPELESS:case DXGI_FORMAT_D16_UNORM:return DXGI_FORMAT_R16_UNORM;default:break;}}
- if(i==0||i==3){if(f==DXGI_FORMAT_R32_FLOAT||f==DXGI_FORMAT_R16_FLOAT|| (i==0&&f==DXGI_FORMAT_R16_UNORM)|| (i==0&&f==DXGI_FORMAT_R24_UNORM_X8_TYPELESS))return f;}
+ if(i==0||i==3){if(f==DXGI_FORMAT_R32_FLOAT||f==DXGI_FORMAT_R16_FLOAT|| (i==0&&f==DXGI_FORMAT_R16_UNORM)|| (i==0&&f==DXGI_FORMAT_R24_UNORM_X8_TYPELESS)|| (i==0&&f==DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS))return f;}
  else if(f==DXGI_FORMAT_R16G16B16A16_FLOAT||f==DXGI_FORMAT_R32G32B32A32_FLOAT||f==DXGI_FORMAT_R32G32B32_FLOAT)return f;
  return DXGI_FORMAT_UNKNOWN;
 }
-void WriteDescriptors(ID3D12Device* device,const NrSlot& slot,ID3D12DescriptorHeap* heap,ID3D12Resource* neural,ID3D12Resource* delta) {
+void WriteDescriptors(ID3D12Device* device,const NrSlot& slot,ID3D12DescriptorHeap* heap,ID3D12Resource* neural,ID3D12Resource* delta,nr_binding::DescriptorSet* plan=nullptr) {
  auto at=[&](unsigned i){auto h=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);h.ptr+=SIZE_T(i)*g_codec.descriptor_size;return h;};
- auto srv=[&](unsigned i,ID3D12Resource* r,DXGI_FORMAT f){D3D12_SHADER_RESOURCE_VIEW_DESC d{};d.Format=f;d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;ID3D12Device_CreateShaderResourceView(device,r,&d,at(i));};
+ auto srv=[&](unsigned i,ID3D12Resource* r,DXGI_FORMAT f){if(plan){plan->Srv(i,r,f);return;}D3D12_SHADER_RESOURCE_VIEW_DESC d{};d.Format=f;d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;ID3D12Device_CreateShaderResourceView(device,r,&d,at(i));};
  for(unsigned i=0;i<4;++i){auto* input=slot.region_inputs[i];srv(i,input,input?View(ID3D12Resource_GetDesc(input).Format,i):DXGI_FORMAT_R32G32B32A32_FLOAT);}
  srv(4,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(5,neural,DXGI_FORMAT_R16G16B16A16_FLOAT);
  srv(6,slot.region_guide,DXGI_FORMAT_R32G32B32A32_FLOAT);srv(7,delta,DXGI_FORMAT_R32G32B32A32_FLOAT);
- for(unsigned i=0;i<2;++i){D3D12_UNORDERED_ACCESS_VIEW_DESC d{};d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;ID3D12Device_CreateUnorderedAccessView(device,i?slot.region_field:slot.region_guide,nullptr,&d,at(8+i));}
+ for(unsigned i=0;i<2;++i){if(plan){plan->Uav(8+i,i?slot.region_field:slot.region_guide,DXGI_FORMAT_R32G32B32A32_FLOAT);continue;}D3D12_UNORDERED_ACCESS_VIEW_DESC d{};d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;ID3D12Device_CreateUnorderedAccessView(device,i?slot.region_field:slot.region_guide,nullptr,&d,at(8+i));}
 }
-// Called only while the existing NrSlot mutation gate still permits descriptor
-// changes. Retained inputs are released by the same exact-fence slot retirement.
+// Per-frame inputs/constants are resolved here; immutable GPU tables are sealed
+// after all optional allocations. Only plane replacement needs an idle slot.
 bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
              const NrGuideBinding& guides,unsigned mw,unsigned mh,bool rr,bool encoded) {
+ slot.region_binding=nullptr;slot.compose_binding=nullptr;
+ slot.dual_binding=nullptr;slot.dual_selected=nullptr;slot.dual_reduced=false;
  slot.region_recorded=false;slot.region_ready=false;status.store(0);
  if(g_config.generic_residual || g_config.region_version!=1 || !g_config.region_enabled)return false;
  status.store(4); // Requested, but resources/input contract are not available yet.
- if(!CanMutateSlotLocked(slot) || !Ensure(device))return false;
+ if(!Ensure(device))return false;
  const unsigned rw=guides.signature.depth_width,rh=guides.signature.depth_height;
  if(!rw||!rh||!mw||!mh)return false;
  const unsigned longest=std::max(mw,mh),limit=std::min(longest,640u);
@@ -58,6 +61,7 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
  const unsigned h=std::max(1u,static_cast<unsigned>(static_cast<UINT64>(mh)*limit/longest));
  bool resize=!slot.region_field||ID3D12Resource_GetDesc(slot.region_field).Width!=w||ID3D12Resource_GetDesc(slot.region_field).Height!=h;
  if(resize){
+  if(!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))return false;
   D3D12_RESOURCE_DESC d={};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
   const UINT64 one=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d).SizeInBytes;
   if(one>kExtraSlotBudget/2||!FitsExtraResourcePeak(slot,one*2))return false;
@@ -67,9 +71,6 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
   slot.region_guide=a;slot.region_field=b;slot.region_bytes=2*one;g_extra_allocated_bytes+=slot.region_bytes;
   slot.region_guide_state=slot.region_field_state=D3D12_RESOURCE_STATE_COMMON;
  }
- if(!slot.region_heap){D3D12_DESCRIPTOR_HEAP_DESC d={};d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;d.NumDescriptors=10;d.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-  if(FAILED(ID3D12Device_CreateDescriptorHeap(device,&d,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&slot.region_heap))))return false;}
- auto at=[&](unsigned i){auto h=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.region_heap);h.ptr+=SIZE_T(i)*g_codec.descriptor_size;return h;};
  UINT* c=slot.region_constants;std::fill(c,c+20,0u);c[0]=w;c[1]=h;c[2]=mw;c[3]=mh;c[4]=rw;c[5]=rh;c[7]=encoded?1:0;
  if(guides.signature.linear_depth)c[6]|=16;
  const unsigned layers[4]={0,3,6,8};
@@ -87,21 +88,27 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
    if(!valid)r=nullptr;}
   if(r){ID3D12Resource_AddRef(r);c[6]|=1u<<i;c[8+2*i]=x;c[9+2*i]=y;}
   ReleaseCom(slot.region_inputs[i]);slot.region_inputs[i]=r;
-  D3D12_SHADER_RESOURCE_VIEW_DESC d={};d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;
-  d.Format=r?format:DXGI_FORMAT_R32G32B32A32_FLOAT;ID3D12Device_CreateShaderResourceView(device,r,&d,at(i));
+
  }
- WriteDescriptors(device,slot,slot.region_heap,slot.neural,nullptr);
- // Only the newly introduced descriptor is changed. Existing recorded heaps
- // (including post snapshot/F8/face) are separately reconstructed when needed.
- auto field=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);field.ptr+=SIZE_T(kCodecRegionSrvIndex)*g_codec.descriptor_size;
- D3D12_SHADER_RESOURCE_VIEW_DESC d={};d.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;
- ID3D12Device_CreateShaderResourceView(device,slot.region_field,&d,field);slot.region_ready=true;return true;
+ slot.region_ready=true;return true;
 }
+bool Seal(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot) {
+ if(!slot.region_ready)return true;
+ nr_binding::Plan plan{};plan.primary_owner=&slot;
+ WriteDescriptors(device,slot,nullptr,slot.neural,nullptr,&plan.heaps[nr_binding::Region]);
+ WriteCodecDescriptorSet(device,slot,nullptr,&plan.heaps[nr_binding::Consumer]);
+ auto* packet=AcquireBindingPacket(device,list,context,plan);
+ if(!packet){slot.region_ready=false;status.store(4);return false;}
+ slot.region_binding=slot.compose_binding=packet;return true;
+}
+
 void Dispatch(ID3D12GraphicsCommandList* cmd,NrSlot& slot,bool field){
  if(!slot.region_ready)return;
+ auto* packet=field&&slot.dual_selected?slot.dual_binding:slot.region_binding;
+ if(!packet||!packet->heaps[nr_binding::Region])return;
  auto resource=field?slot.region_field:slot.region_guide;auto& state=field?slot.region_field_state:slot.region_guide_state;
  Transition(cmd,resource,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
- auto* heap=field&&slot.dual_selected?slot.dual_selected->dual_region_heap:slot.region_heap;
+ auto* heap=packet->heaps[nr_binding::Region];
  ID3D12GraphicsCommandList_SetDescriptorHeaps(cmd,1,&heap);ID3D12GraphicsCommandList_SetComputeRootSignature(cmd,root);
  ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(cmd,0,ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
  ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(cmd,1,20,slot.region_constants,0);ID3D12GraphicsCommandList_SetPipelineState(cmd,field?build:snapshot);

@@ -12,7 +12,6 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     bool &changed,bool &apply_discrete_edit) {
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn) { return zh?cn:en; };
-    SettingsSection(ui("Light and detail (candidate)","光影与细节（候选）"));
     if (!before_sr)
         SettingsNote(ui("Light controls work after SR, including automatic post processing with supported RR. If NR cannot run, saved requests do not change the picture.",
             "后置光影控制也适用于已支持的 RR 自动后置。NR 无法运行时，设置仍会保留，但不会改变画面。"));
@@ -21,8 +20,8 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
             "本候选已接入前置光影控制。NR 被旁路时，请求保留但效果不应用。100% 保留原有对应成分；这不是材质或人脸识别。"));
 
     const unsigned modes[]={nr_light_style::WholeLightDark,nr_light_style::DetailLayers};
-    const char *mode_labels[]={ui("Whole light/dark###light-mode-option","完整亮暗###light-mode-option"),
-        ui("Detail layers###light-mode-option","细节分层###light-mode-option")};
+    const char *mode_labels[]={ui("All light/dark changes###light-mode-option","全部亮暗变化###light-mode-option"),
+        ui("Fine changes only###light-mode-option","仅细小变化###light-mode-option")};
     const float mode_width=std::max(1.f,(SettingsContentWidth()-ImGui::GetStyle().ItemSpacing.x)/2.f);
     ImGui::PushID("nr-light-control-mode");
     for (unsigned option=0;option<2;++option) {
@@ -40,10 +39,10 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     ImGui::PopID();
     const bool whole_light=next.light_control_mode==nr_light_style::WholeLightDark;
     SettingsNote(whole_light
-        ? ui("Bright and dark gains cover all model changes in that direction. Advanced controls adjust their broad part. Dark at 0% removes added model darkening. This does not identify reflections or faces.",
-            "亮部、暗部增强分别控制该方向的全部模型改动；高级选项再调整其中的大范围部分。暗部设为 0% 可去掉模型新增压暗。这不是反射或人脸识别。")
-        : ui("Detail layers retain the previous controls: reflection and dark structure affect only the fine part of the model changes.",
-            "细节分层保留此前的控制方式：反射增强、暗部结构只影响模型改动中的细节部分。"));
+        ? ui("All light/dark changes covers both broad and fine model edits in each direction. It can include glow or reflections; it does not identify materials or faces.",
+            "全部亮暗变化同时覆盖大范围和细小的模型改动，可能包含辉光或反光；它不识别材质或人脸。")
+        : ui("Fine changes only keeps the previous detail mode: reflection and dark structure affect only fine model edits, while broad changes remain separate.",
+            "仅细小变化保留原有细节模式：反射和暗部结构只影响细小模型改动，大范围改动仍单独保留。"));
     bool manual=false;
     manual|=LightStylePercent(whole_light ? ui("Bright enhancement","亮部增强（含反射）")
         : ui("Reflection enhancement","反射增强"),

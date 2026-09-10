@@ -9,6 +9,8 @@ class UiRefreshContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ui = (ROOT / "src" / "nr_settings_ui.inl").read_text(encoding="utf-8")
+        cls.dual = (ROOT / "src" / "nr_dual_ui.inl").read_text(encoding="utf-8")
+        cls.light = (ROOT / "src" / "nr_light_style_ui.inl").read_text(encoding="utf-8")
         cls.post = (ROOT / "src" / "interop" / "nr_post_ui.inl").read_text(encoding="utf-8")
         cls.render = (ROOT / "src" / "interop" / "nr_render_control.inl").read_text(encoding="utf-8")
         cls.notices = (ROOT / "src" / "nr_settings_notices_ui.inl").read_text(encoding="utf-8")
@@ -54,12 +56,13 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn("nr_f8::Comparison::Protection", self.ui)
         self.assertNotIn("nr_f8::Comparison::Jitter", self.ui)
 
-    def test_layout_keeps_only_developer_options_collapsible(self):
+    def test_layout_groups_brand_light_and_developer_details(self):
         self.assertIn('kSettingsOverlayName[] = "装机宅DLSS 5"', self.ui)
         self.assertIn('"交流群（二群）：392308850"', self.ui)
         self.assertIn('CollapsingHeader(ui("Developer options", "开发者选项"))', self.ui)
-        self.assertNotIn('"Experimental###nr-experimental"', self.ui)
-        self.assertNotIn('CollapsingHeader(ui("Advanced picture controls"', self.ui)
+        self.assertIn('CollapsingHeader(ui("About and links", "作者与链接"))', self.ui)
+        self.assertIn('CollapsingHeader(ui("Light adjustment", "光影微调"))', self.ui)
+        self.assertIn('CollapsingHeader(ui("Algorithm comparisons", "算法对照"))', self.ui)
         self.assertIn('SettingsSection(ui("Advanced picture controls"', self.ui)
         self.assertIn("ImGui::SameLine();", self.ui)
         self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
@@ -125,8 +128,8 @@ class UiRefreshContract(unittest.TestCase):
     def test_labels_separate_overall_effect_from_tone_follow(self):
         self.assertIn('ui("Extra enhancement", "额外增强")', self.ui)
         self.assertIn('ui("AI colour amount", "AI 色彩强度")', self.ui)
-        self.assertIn("including visible brightness and detail", self.ui)
-        self.assertIn("only hue and saturation", self.ui)
+        self.assertIn("amplify its final brightness and detail changes", self.ui)
+        self.assertIn("Controls only NR hue and saturation follow", self.ui)
         self.assertIn("If the model changes only luminance, this may have little effect.", self.ui)
         self.assertIn("Applies after releasing the slider.", self.ui)
 
@@ -144,12 +147,12 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f)', control)
         self.assertIn('next.transfer_strength = next.post_transfer_strength = effect_strength;', control)
         self.assertNotIn('NR_HAS_DETAIL_STABILITY', control)
-        self.assertIn('1 为原量（默认），更高值只放大；想减弱效果，请调低模型强度。', control)
+        self.assertIn('1 = 原量（默认）。', control)
 
     def test_face_controls_keep_model_meaning_without_claiming_composition_isolation(self):
         self.assertIn('"##nr-skin-detail", &next.skin_structure, 0.f, 2.f', self.ui)
-        self.assertIn('额外增强目前尚未避开模型识别的人脸区域', self.ui)
-        self.assertIn('设为 0 也不会恢复整张脸的原图', self.ui)
+        self.assertIn('设为 0 也不会恢复整张脸原图', self.ui)
+        self.assertIn('Both AI passes use these model face parameters', self.ui)
         reset = (ROOT / 'src' / 'nr_model_controls.h').read_text(encoding='utf-8')
         self.assertNotIn('transfer_strength', reset)
         self.assertIn('保留额外增强、光影控制', self.ui)
@@ -193,6 +196,62 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("including native post-SR and RR-forced post-SR",
                       self.ui)
         self.assertIn("not guaranteed face detection", self.ui)
+
+    def test_d13_common_controls_keep_precision_and_face_order(self):
+        self.assertIn('"Enhance first, then upscale###route-option", "先增强，后放大###route-option"', self.ui)
+        self.assertIn('"Upscale first, then enhance###route-option", "先放大，后增强###route-option"', self.ui)
+        picture_start = self.ui.index('if (ImGui::BeginTabItem(ui("Picture###nr-picture"')
+        feedback_start = self.ui.index('if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics"')
+        picture = self.ui[picture_start:feedback_start]
+        markers = [
+            'ui("Enable (F6)", "启用（F6）")',
+            'ui("Restore default picture settings", "一键恢复默认画质")',
+            'ui("Picture style", "画面风格")',
+            'ui("Processing mode", "处理模式")',
+            '"##nr-processing-precision"',
+            'nr_dual_runtime::DrawQuickUi(next,changed,apply_discrete_edit,has_pending);',
+            '"##nr-model-strength"',
+            '"##nr-strength-amplification"',
+            'DrawColorControls(next, has_pending, changed);',
+            'ui("Face adjustment", "人脸调节")',
+        ]
+        positions = [picture.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        dual_start = picture.index('nr_dual_runtime::DrawQuickUi')
+        model_start = picture.index('SettingsSection(ui("Model controls"')
+        dual = picture[dual_start:model_start]
+        self.assertIn('25.f,100.f', self.dual)
+        self.assertIn('"50%###dual-scale-50"', self.dual)
+        self.assertIn('"75%###dual-scale-75"', self.dual)
+        self.assertIn('"100%###dual-scale-100"', self.dual)
+        self.assertIn('next.nr_second_numerator=2;next.nr_second_denominator=3;', self.dual)
+        self.assertIn('nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);', self.ui[feedback_start:])
+
+    def test_d13_dual_status_uses_current_snapshot_and_hides_pending_observation(self):
+        self.assertIn('nr_dual_status_runtime::SnapshotUi()', self.dual)
+        self.assertIn('has_pending || changed', self.dual)
+        self.assertIn('Current window (up to 500 ms):', self.dual)
+        self.assertIn('eligible_primary', self.dual)
+        self.assertIn('secondary_evaluate_success', self.dual)
+        self.assertIn('warmup_discarded', self.dual)
+        self.assertIn('final_adopted', self.dual)
+        details = self.dual[self.dual.index('void DrawDetailsUi'):
+                            self.dual.index('// Compatibility wrapper')]
+        self.assertNotIn('second_evaluations.load', details)
+        self.assertIn('Settings pending:', details)
+
+    def test_d13_light_method_is_single_selector_and_hides_unverified_reflection(self):
+        self.assertIn('next.generic_residual ? 2u : next.region_enabled ? 1u : 0u', self.ui)
+        self.assertIn('"Normal light/dark\\0Engine regions (experimental)\\0Generic layers (experimental)\\0"', self.ui)
+        self.assertIn('"普通亮暗\\0引擎分区（实验）\\0通用分层（实验）\\0"', self.ui)
+        region = self.ui[self.ui.index('} else if (light_method == 1u) {'):
+                        self.ui.index('} else {\n        DrawLightStyleControls', self.ui.index('} else if (light_method == 1u) {'))]
+        self.assertIn('for(unsigned i=0;i<4;i++)', region)
+        self.assertIn('if (regionStatus == 3u)', region)
+        self.assertIn('游戏未提供反射区域数据', region)
+        self.assertIn('nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);', self.ui)
+        self.assertIn('全部亮暗变化###light-mode-option', self.light)
+        self.assertIn('仅细小变化###light-mode-option', self.light)
 
 
 if __name__ == "__main__":

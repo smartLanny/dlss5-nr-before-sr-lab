@@ -1,0 +1,522 @@
+// D13: production immutable descriptor lease fixture.
+//
+// The binding functions and the lifecycle admission functions are injected
+// verbatim by scripts/validate-dual-inflight.py.  This translation unit only
+// supplies the small Windows/D3D12 environment needed to run those functions:
+// real command-list private data, real queue fences, and a real ReShade device
+// proxy.  The provider callback is a deliberately marked stub; no NVIDIA
+// inference is attempted.
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <atomic>
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <new>
+#include <string>
+#include <vector>
+#include "nr_descriptor_plan.h"
+
+template<class T> void ReleaseCom(T *&p) noexcept { if (p) { p->Release(); p = nullptr; } }
+#define IUnknown_QueryInterface(p, i, o) (p)->QueryInterface(i, o)
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+// @CORE_DEVICE_IDENTITY@
+#undef IUnknown_QueryInterface
+
+#define ID3D12Resource_GetDevice(p, i, o) (p)->GetDevice(i, o)
+#define ID3D12Resource_AddRef(p) (p)->AddRef()
+#define ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(p) (p)->GetCPUDescriptorHandleForHeapStart()
+#define ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(p) (p)->GetGPUDescriptorHandleForHeapStart()
+#define ID3D12Device_GetDescriptorHandleIncrementSize(p, t) (p)->GetDescriptorHandleIncrementSize(t)
+#define ID3D12Device_CreateDescriptorHeap(p, d, i, o) (p)->CreateDescriptorHeap(d, i, o)
+#define ID3D12Device_CreateShaderResourceView(p, r, d, h) (p)->CreateShaderResourceView(r, d, h)
+#define ID3D12Device_CreateUnorderedAccessView(p, r, c, d, h) (p)->CreateUnorderedAccessView(r, c, d, h)
+#define ID3D12GraphicsCommandList_GetPrivateData(p, g, s, d) (p)->GetPrivateData(g, s, d)
+#define ID3D12GraphicsCommandList_SetPrivateData(p, g, s, v) (p)->SetPrivateData(g, s, v)
+
+struct NrBindingPool;
+struct LifecycleQueue {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+    unsigned long long identity = 0;
+};
+struct NrSlot {
+    unsigned int recording_command_lists = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
+};
+struct NrContext {
+    NrBindingPool *binding_pool = nullptr;
+    unsigned int recording_command_lists = 0;
+    unsigned long long pending_recording_token = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
+    bool lifecycle_dependencies_quarantined = false;
+};
+
+struct CommandListQueueMarker {
+    unsigned long long identity = 0;
+    unsigned int stable_submissions = 0;
+    unsigned int flags = 0;
+};
+constexpr unsigned int kQueueMarkerMigrated = 1u;
+constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
+constexpr std::size_t kLifecycleCommandListCount = 128;
+constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+struct LifecycleCommandList {
+    unsigned long long token = 0;
+    unsigned long long expected_queue_identity = 0;
+    NrSlot *slots[kLifecycleUsesPerCommandList] = {};
+    unsigned int slot_count = 0;
+    NrContext *contexts[kLifecycleUsesPerCommandList] = {};
+    unsigned int context_count = 0;
+    unsigned int in_flight_submissions = 0;
+    unsigned long long submission_count = 0;
+    unsigned int bound_transfer_count = 0;
+    unsigned int scoped_bound_transfer_count = 0;
+    unsigned long long transfer_scope_epoch = 0;
+    unsigned long long transfer_feature_generation = 0;
+    int transfer_mode = 0;
+    bool execution_attempted_without_proof = false;
+    bool detached = false;
+};
+
+// @CORE_LIFECYCLE_GUIDS@
+LifecycleCommandList g_lifecycle_command_lists[kLifecycleCommandListCount] = {};
+std::atomic<unsigned long long> g_lifecycle_token{1};
+std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
+std::atomic<bool> g_lifecycle_tracking_uncertain{false};
+std::atomic<unsigned long long> g_queue_contract_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
+
+enum class BypassReason { QueueAffinityUnverified, LifecycleIsolation };
+void SetBypassReason(BypassReason) {}
+void MarkLifecycleUncertain(const char *reason) {
+    std::fprintf(stderr, "LIFECYCLE UNCERTAIN: %s\n", reason ? reason : "unknown");
+    g_lifecycle_tracking_uncertain.store(true, std::memory_order_release);
+}
+
+#define ID3D12Fence_GetCompletedValue(p) (p)->GetCompletedValue()
+// @CORE_MUTATION_AND_LIFECYCLE@
+#undef ID3D12Fence_GetCompletedValue
+
+struct CodecState { ID3D12Device *device = nullptr; };
+CodecState g_codec{};
+NrContext g_contexts[16] = {};
+#include "nr_binding_types.inl"
+#include "nr_binding_runtime.inl"
+
+void Check(bool ok, const char *message) {
+    if (!ok) { std::fprintf(stderr, "FAIL %s\n", message); std::exit(1); }
+}
+void HR(HRESULT result, const char *message) {
+    if (FAILED(result)) {
+        std::fprintf(stderr, "FAIL %s hr=%08lx\n", message,
+                     static_cast<unsigned long>(result));
+        std::exit(2);
+    }
+}
+
+struct Recording {
+    ID3D12CommandAllocator *allocator = nullptr;
+    ID3D12GraphicsCommandList *list = nullptr;
+};
+struct QueueFixture {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+    unsigned long long next_fence = 1;
+};
+
+Recording MakeRecording(ID3D12Device *device) {
+    Recording r{};
+    HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                      IID_PPV_ARGS(&r.allocator)),
+       "binding command allocator");
+    HR(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                 r.allocator, nullptr,
+                                 IID_PPV_ARGS(&r.list)),
+       "binding command list");
+    return r;
+}
+
+void SetStableMarker(ID3D12GraphicsCommandList *list,
+                     unsigned long long identity) {
+    CommandListQueueMarker marker{identity, kRequiredStableQueueSubmissions, 0};
+    HR(list->SetPrivateData(kLastSubmissionQueueGuid, sizeof(marker), &marker),
+       "stable queue marker");
+}
+
+void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+    if (before == after) return;
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter = after;
+    list->ResourceBarrier(1, &barrier);
+}
+
+void MakeTexture(ID3D12Device *device, unsigned width, unsigned height,
+                 DXGI_FORMAT format, ID3D12Resource **out) {
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width; desc.Height = height;
+    desc.DepthOrArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
+    desc.Format = format;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    HR(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                       D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                       IID_PPV_ARGS(out)),
+       "binding resource");
+}
+
+void RecordTag(ID3D12GraphicsCommandList *list, NrBindingPacket *packet,
+               ID3D12Resource *resource, float value) {
+    auto *heap = packet->heaps[nr_binding::Consumer];
+    Check(heap != nullptr, "consumer heap for tag");
+    ID3D12DescriptorHeap *heaps[] = {heap};
+    list->SetDescriptorHeaps(1, heaps);
+    Transition(list, resource, D3D12_RESOURCE_STATE_COMMON,
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    const float tag[4] = {value, value + .125f, value + .25f, 1.f};
+    list->ClearUnorderedAccessViewFloat(
+        heap->GetGPUDescriptorHandleForHeapStart(),
+        heap->GetCPUDescriptorHandleForHeapStart(), resource, tag, 0, nullptr);
+    Transition(list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+               D3D12_RESOURCE_STATE_COMMON);
+}
+
+void CommitRecordedUse(NrContext &context, NrBindingPacket &packet,
+                       LifecycleQueue &queue, unsigned long long fence) {
+    // This mirrors the existing Execute transaction's publication point. The
+    // command list marker and RecordNrUseLocked were real; this small adapter
+    // publishes the exact fence after the host's native Execute/Signal.
+    context.pending_recording_token = 0;
+    context.last_submission_queue = &queue;
+    context.completion_fence_value = fence;
+    context.awaiting_fence_signal = false;
+    packet.lease.last_submission_queue = &queue;
+    packet.lease.completion_fence_value = fence;
+    packet.lease.awaiting_fence_signal = false;
+}
+
+unsigned long long Submit(QueueFixture &queue, Recording &recording) {
+    ID3D12CommandList *lists[] = {recording.list};
+    queue.queue->ExecuteCommandLists(1, lists);
+    const auto fence = queue.next_fence++;
+    HR(queue.queue->Signal(queue.fence, fence), "binding retirement signal");
+    return fence;
+}
+
+void WaitFence(ID3D12Fence *fence, unsigned long long value, DWORD timeout,
+               const char *message) {
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    Check(event != nullptr, "binding completion event");
+    HR(fence->SetEventOnCompletion(value, event), "binding completion arm");
+    Check(WaitForSingleObject(event, timeout) == WAIT_OBJECT_0, message);
+    CloseHandle(event);
+}
+
+std::uint16_t ReadbackFirstHalf(QueueFixture &queue, ID3D12Resource *resource) {
+    ID3D12Device *device = nullptr;
+    HR(resource->GetDevice(IID_PPV_ARGS(&device)), "binding readback device");
+    const auto desc = resource->GetDesc();
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    UINT rows = 0; UINT64 row_bytes = 0; UINT64 total_bytes = 0;
+    device->GetCopyableFootprints(&desc, 0, 1, 0, &footprint, &rows,
+                                  &row_bytes, &total_bytes);
+    D3D12_RESOURCE_DESC buffer{};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = footprint.Offset +
+        UINT64(footprint.Footprint.RowPitch) * footprint.Footprint.Height;
+    buffer.Height = buffer.DepthOrArraySize = buffer.MipLevels = 1;
+    buffer.SampleDesc.Count = 1;
+    buffer.Format = DXGI_FORMAT_UNKNOWN;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_READBACK;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    ID3D12Resource *readback = nullptr;
+    HR(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
+                                       D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                       IID_PPV_ARGS(&readback)),
+       "binding readback buffer");
+    auto copy = MakeRecording(device);
+    Transition(copy.list, resource, D3D12_RESOURCE_STATE_COMMON,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION dst{};
+    dst.pResource = readback;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint = footprint;
+    D3D12_TEXTURE_COPY_LOCATION src{};
+    src.pResource = resource;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    copy.list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+    HR(copy.list->Close(), "binding readback close");
+    const auto fence = Submit(queue, copy);
+    WaitFence(queue.fence, fence, 10000, "binding readback completion");
+    void *mapped = nullptr;
+    const D3D12_RANGE range{footprint.Offset,
+                            footprint.Offset + sizeof(std::uint16_t)};
+    HR(readback->Map(0, &range, &mapped), "binding readback map");
+    const auto bits = *static_cast<const std::uint16_t *>(mapped);
+    const D3D12_RANGE empty{0, 0}; readback->Unmap(0, &empty);
+    ReleaseCom(readback); ReleaseCom(copy.list); ReleaseCom(copy.allocator);
+    ReleaseCom(device);
+    return bits;
+}
+
+int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    std::printf("D13 production BindingPacket host; ReShade=real; WARP=real; NGX=stub; NVIDIA=0; game=0\n");
+    IDXGIFactory4 *factory = nullptr;
+    HR(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "binding factory");
+    IDXGIAdapter *warp = nullptr;
+    HR(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "binding WARP adapter");
+    ID3D12Device *proxy = nullptr;
+    HR(D3D12CreateDevice(warp, D3D_FEATURE_LEVEL_11_0,
+                         IID_PPV_ARGS(&proxy)), "binding proxy device");
+    IUnknown *unwrapped = nullptr;
+    HR(proxy->QueryInterface(kRrDepthUnwrappedObject,
+                             reinterpret_cast<void **>(&unwrapped)),
+       "binding ReShade unwrap");
+    ID3D12Device *native = nullptr;
+    HR(unwrapped->QueryInterface(IID_PPV_ARGS(&native)),
+       "binding native device");
+    ReleaseCom(unwrapped);
+    Check(proxy != native && IsSameRrDepthDevice(proxy, native),
+          "binding ReShade proxy/native identity");
+    g_codec.device = native;
+
+    QueueFixture queue{};
+    D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    HR(native->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue.queue)),
+       "binding queue");
+    HR(native->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                           IID_PPV_ARGS(&queue.fence)), "binding fence");
+    ID3D12Fence *gate = nullptr;
+    HR(native->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)),
+       "binding gate");
+    HR(queue.queue->Wait(gate, 1), "hold actual GPU queue");
+    LifecycleQueue lifecycle{queue.queue, queue.fence, 7001};
+    NrContext context{};
+
+    ID3D12Resource *primary = nullptr, *output_a = nullptr, *output_b = nullptr;
+    MakeTexture(native, 64, 32, DXGI_FORMAT_R16G16B16A16_FLOAT, &primary);
+    MakeTexture(native, 64, 32, DXGI_FORMAT_R16G16B16A16_FLOAT, &output_a);
+    MakeTexture(native, 64, 32, DXGI_FORMAT_R16G16B16A16_FLOAT, &output_b);
+    int primary_owner = 1, secondary_owner_a = 2, secondary_owner_b = 3;
+    nr_binding::Plan plan_a{};
+    plan_a.primary_owner = &primary_owner;
+    plan_a.secondary_owner = &secondary_owner_a;
+    plan_a.heaps[nr_binding::Consumer].Uav(0, output_a,
+                                           DXGI_FORMAT_R16G16B16A16_FLOAT);
+    plan_a.heaps[nr_binding::Consumer].Srv(1, primary,
+                                           DXGI_FORMAT_R16G16B16A16_FLOAT);
+    auto plan_b = plan_a;
+    plan_b.secondary_owner = &secondary_owner_b;
+    plan_b.heaps[nr_binding::Consumer].views[0].resource = output_b;
+
+    auto first = MakeRecording(native); SetStableMarker(first.list, 7001);
+    auto *packet_a = AcquireBindingPacket(native, first.list, context, plan_a);
+    Check(packet_a != nullptr, "first production BindingPacket acquired");
+    const auto first_heap = packet_a->heaps[nr_binding::Consumer];
+    RecordTag(first.list, packet_a, output_a, 1.f);
+    HR(first.list->Close(), "first binding close");
+    auto fence = Submit(queue, first);
+    CommitRecordedUse(context, *packet_a, lifecycle, fence);
+
+    auto second = MakeRecording(native); SetStableMarker(second.list, 7001);
+    auto *packet_a_reuse = AcquireBindingPacket(native, second.list, context, plan_a);
+    Check(packet_a_reuse == packet_a,
+          "same descriptor fingerprint reuses the immutable packet in flight");
+    Check(packet_a_reuse->heaps[nr_binding::Consumer] == first_heap,
+          "same fingerprint keeps the same descriptor heap");
+    RecordTag(second.list, packet_a_reuse, output_a, 2.f);
+    HR(second.list->Close(), "second binding close");
+    fence = Submit(queue, second);
+    CommitRecordedUse(context, *packet_a_reuse, lifecycle, fence);
+
+    auto changed = MakeRecording(native); SetStableMarker(changed.list, 7001);
+    auto *packet_b = AcquireBindingPacket(native, changed.list, context, plan_b);
+    Check(packet_b != nullptr && packet_b != packet_a,
+          "changed descriptor fingerprint takes a different free packet");
+    Check(packet_b->heaps[nr_binding::Consumer] != first_heap,
+          "changed binding uses a different descriptor heap");
+    RecordTag(changed.list, packet_b, output_b, 7.f);
+    HR(changed.list->Close(), "changed binding close");
+    fence = Submit(queue, changed);
+    CommitRecordedUse(context, *packet_b, lifecycle, fence);
+
+    auto third = MakeRecording(native); SetStableMarker(third.list, 7001);
+    auto *packet_a_third = AcquireBindingPacket(native, third.list, context, plan_a);
+    Check(packet_a_third == packet_a,
+          "same A binding remains reusable after B is in flight");
+    RecordTag(third.list, packet_a_third, output_a, 3.f);
+    HR(third.list->Close(), "third binding close");
+    fence = Submit(queue, third);
+    CommitRecordedUse(context, *packet_a_third, lifecycle, fence);
+
+    Check(queue.fence->GetCompletedValue() < fence,
+          "actual queue completion is withheld by gate");
+    Check(!CanMutateSlotLocked(packet_a->lease),
+          "old CanMutate gate rejects the packet lease while in flight");
+    Check(packet_a->lease.recording_command_lists == 3 &&
+              packet_b->lease.recording_command_lists == 1,
+          "production RecordNrUseLocked pins every packet lease");
+    Check(context.recording_command_lists == 4,
+          "production RecordNrUseLocked retains all queued context users");
+    std::printf("IN FLIGHT: A/A/B/A packet=%p/%p/%p/%p fence=%llu complete=%llu\n",
+                static_cast<void *>(packet_a), static_cast<void *>(packet_a_reuse),
+                static_cast<void *>(packet_b), static_cast<void *>(packet_a_third),
+                fence, static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    // A second concrete queue with a different marker is rejected by the
+    // extracted production CanBeginContextUseLocked before a packet lease or
+    // descriptor heap can be acquired.
+    ID3D12CommandQueue *foreign_queue = nullptr;
+    HR(native->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&foreign_queue)),
+       "binding foreign queue");
+    auto foreign = MakeRecording(native); SetStableMarker(foreign.list, 8002);
+    const auto serial_before_queue = context.binding_pool
+        ? context.binding_pool->serial : 0;
+    auto *queue_rejected = AcquireBindingPacket(native, foreign.list, context, plan_a);
+    Check(queue_rejected == nullptr,
+          "different queue is rejected by production queue admission");
+    Check((context.binding_pool ? context.binding_pool->serial : 0) ==
+              serial_before_queue,
+          "different queue rejection does not mutate the binding pool");
+    HR(foreign.list->Close(), "foreign queue negative close");
+    ReleaseCom(foreign.list); ReleaseCom(foreign.allocator); ReleaseCom(foreign_queue);
+    std::printf("QUEUE NEGATIVE: marker=8002 rejected against queue=7001\n");
+
+    // Fill the bounded eight-packet pool with distinct live fingerprints.
+    std::array<ID3D12Resource *, 6> extra_outputs{};
+    std::array<int, 6> extra_owners{};
+    std::array<NrBindingPacket *, 6> extra_packets{};
+    std::array<Recording, 6> extra_recordings{};
+    for (unsigned i = 0; i < extra_outputs.size(); ++i) {
+        MakeTexture(native, 64, 32, DXGI_FORMAT_R16G16B16A16_FLOAT, &extra_outputs[i]);
+        extra_owners[i] = static_cast<int>(10 + i);
+        nr_binding::Plan extra_plan{};
+        extra_plan.primary_owner = &primary_owner;
+        extra_plan.secondary_owner = &extra_owners[i];
+        extra_plan.heaps[nr_binding::Consumer].Uav(
+            0, extra_outputs[i], DXGI_FORMAT_R16G16B16A16_FLOAT);
+        extra_plan.heaps[nr_binding::Consumer].Srv(
+            1, primary, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        extra_recordings[i] = MakeRecording(native);
+        SetStableMarker(extra_recordings[i].list, 7001);
+        extra_packets[i] = AcquireBindingPacket(
+            native, extra_recordings[i].list, context, extra_plan);
+        Check(extra_packets[i] != nullptr, "bounded packet pool admits packet %u");
+        RecordTag(extra_recordings[i].list, extra_packets[i], extra_outputs[i],
+                  static_cast<float>(10 + i));
+        HR(extra_recordings[i].list->Close(), "bounded packet close");
+        fence = Submit(queue, extra_recordings[i]);
+        CommitRecordedUse(context, *extra_packets[i], lifecycle, fence);
+    }
+    Check(context.binding_pool != nullptr, "binding pool exists");
+    unsigned valid_packets = 0;
+    for (const auto &packet : context.binding_pool->packets)
+        valid_packets += packet.valid ? 1u : 0u;
+    Check(valid_packets == nr_binding::kPackets,
+          "production binding pool is bounded to eight live packets");
+    std::printf("CAPACITY: valid_packets=%u bound=%u\n", valid_packets,
+                nr_binding::kPackets);
+
+    ID3D12Resource *overflow_output = nullptr;
+    MakeTexture(native, 64, 32, DXGI_FORMAT_R16G16B16A16_FLOAT, &overflow_output);
+    int overflow_owner = 99;
+    nr_binding::Plan overflow_plan{};
+    overflow_plan.primary_owner = &primary_owner;
+    overflow_plan.secondary_owner = &overflow_owner;
+    overflow_plan.heaps[nr_binding::Consumer].Uav(
+        0, overflow_output, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    auto overflow_recording = MakeRecording(native);
+    SetStableMarker(overflow_recording.list, 7001);
+    const auto serial_before_overflow = context.binding_pool->serial;
+    auto *overflow_packet = AcquireBindingPacket(
+        native, overflow_recording.list, context, overflow_plan);
+    Check(overflow_packet == nullptr && context.binding_pool->serial ==
+              serial_before_overflow,
+          "ninth in-flight fingerprint is rejected without heap allocation");
+    HR(overflow_recording.list->Close(), "overflow close");
+    ReleaseCom(overflow_recording.list); ReleaseCom(overflow_recording.allocator);
+    ReleaseCom(overflow_output);
+    std::printf("CAPACITY NEGATIVE: ninth in-flight fingerprint rejected\n");
+
+    // Unblock and prove the exact fence, then adapt the host Reset boundary by
+    // releasing the recorded-list lease counts. The packet itself remains the
+    // production object and must be reusable only after this retirement.
+    HR(gate->Signal(1), "release binding queue gate");
+    WaitFence(queue.fence, fence, 30000, "binding batch completion");
+    Check(queue.fence->GetCompletedValue() >= fence,
+          "binding batch exact fence completed");
+    for (auto &packet : context.binding_pool->packets) {
+        packet.lease.recording_command_lists = 0;
+        packet.lease.awaiting_fence_signal = false;
+    }
+    context.recording_command_lists = 0;
+    context.pending_recording_token = 0;
+    Check(CanMutateSlotLocked(packet_a->lease),
+          "packet lease becomes mutable after exact fence and reset");
+    std::printf("RETIREMENT: exact fence=%llu complete=%llu\n", fence,
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    auto restored = MakeRecording(native); SetStableMarker(restored.list, 7001);
+    auto *restored_packet = AcquireBindingPacket(native, restored.list, context, plan_a);
+    Check(restored_packet == packet_a,
+          "same A packet is recovered after exact retirement");
+    RecordTag(restored.list, restored_packet, output_a, 20.f);
+    HR(restored.list->Close(), "restored binding close");
+    fence = Submit(queue, restored);
+    CommitRecordedUse(context, *restored_packet, lifecycle, fence);
+    WaitFence(queue.fence, fence, 30000, "restored binding completion");
+    std::printf("RECOVERY: packet=%p fence=%llu complete=%llu\n",
+                static_cast<void *>(restored_packet), fence,
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    // Read the final tags after all resource writes. A=20 and B=7 are encoded
+    // by the real packet heaps; if the A heap had been overwritten by B, the A
+    // readback would not contain the restored A tag.
+    const auto a_bits = ReadbackFirstHalf(queue, output_a);
+    const auto b_bits = ReadbackFirstHalf(queue, output_b);
+    Check(a_bits == 0x4D00 && b_bits == 0x4700,
+          "A/B production descriptor heaps retain distinct output bindings");
+    std::printf("DESCRIPTORS: A=0x%04X B=0x%04X no in-flight overwrite\n",
+                static_cast<unsigned>(a_bits), static_cast<unsigned>(b_bits));
+
+    DropBindingPacket(*packet_a);
+    DropBindingPacket(*packet_b);
+    for (auto &packet : extra_packets) if (packet) DropBindingPacket(*packet);
+    Check(CanDestroyBindingsLocked(context),
+          "all packet leases are retired before pool destruction");
+    DestroyBindings(context);
+    for (auto &r : extra_recordings) { ReleaseCom(r.list); ReleaseCom(r.allocator); }
+    ReleaseCom(restored.list); ReleaseCom(restored.allocator);
+    ReleaseCom(third.list); ReleaseCom(third.allocator);
+    ReleaseCom(changed.list); ReleaseCom(changed.allocator);
+    ReleaseCom(second.list); ReleaseCom(second.allocator);
+    ReleaseCom(first.list); ReleaseCom(first.allocator);
+    ReleaseCom(output_b); ReleaseCom(output_a); ReleaseCom(primary);
+    ReleaseCom(gate); ReleaseCom(queue.fence); ReleaseCom(queue.queue);
+    ReleaseCom(native); ReleaseCom(proxy); ReleaseCom(warp); ReleaseCom(factory);
+    std::printf("PASS D13 production BindingPacket queued WARP fixture; NGX stub only; game=0; NVIDIA=0\n");
+    return 0;
+}

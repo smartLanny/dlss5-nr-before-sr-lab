@@ -128,8 +128,8 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        start = ui_source.index('        if (ImGui::Checkbox(ui("Face adjustment"')
-        end = ui_source.index('        changed |= ImGui::Checkbox(ui("UI correction"', start)
+        start = ui_source.index('    if (ImGui::Checkbox(ui("Face adjustment"')
+        end = ui_source.index('    if (ImGui::CollapsingHeader(ui("More model controls"', start)
         controls = ui_source[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;

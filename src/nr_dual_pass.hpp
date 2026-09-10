@@ -35,7 +35,9 @@ inline bool SameScale(Scale a, Scale b) noexcept {
 }
 struct Settings {
     std::uint32_t passes = 1; // Missing INI keys retain the existing single pass.
-    Scale secondary_scale{1, 1};
+    // NR2 remains opt-in; when enabled, a missing/reset precision is 50%.
+    // Keep this as a rational so exact 1/2, 2/3, etc. survive persistence.
+    Scale secondary_scale{1, 2};
 };
 inline bool ValidSettings(const Settings& s) noexcept {
     return (s.passes == 1 || s.passes == 2) && ValidScale(s.secondary_scale);

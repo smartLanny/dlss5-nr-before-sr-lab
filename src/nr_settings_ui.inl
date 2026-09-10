@@ -145,8 +145,8 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const char *labels[] = {
-        ui("Before: NR -> SR###route-option", "前置 NR → SR###route-option"),
-        ui("After: SR -> NR###route-option", "后置 SR → NR###route-option")};
+        ui("Enhance first, then upscale###route-option", "先增强，后放大###route-option"),
+        ui("Upscale first, then enhance###route-option", "先放大，后增强###route-option")};
     const float width = std::max(1.0f,
         (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
     bool changed = false;
@@ -168,10 +168,10 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_
             changed = true;
         }
         SettingsTooltip(option == 0 ? ui(
-            "AI rendering first, then game upscaling. Usually costs less. RR or a pre-SR compatibility issue can automatically select the right-hand route while retaining this preference.",
-            "先做 AI 渲染，再由游戏放大画面，通常更省性能。开启光线重建（RR）或前置画面暂不兼容时，会自动使用右侧后置模式，同时保留你的前置选择。") : ui(
-            "Game upscaling first, then AI rendering. Usually costs more. The highlight includes automatic RR and compatibility routes. When selectable, clicking also saves post-SR as your preference.",
-            "先由游戏放大画面，再做 AI 渲染，通常更耗性能。RR 或兼容回退时也会高亮此模式；可选择时主动点击，会把后置保存为你的选择。"));
+            "NR enhances the game's input before native SR upscaling. RR or a pre-SR compatibility guard can force the effective route to post-SR while retaining this preference.",
+            "AI 先处理游戏输入，再由原生 SR 放大。RR 或前置兼容保护可能强制实际路线改为后置，但会保留你的前置选择。") : ui(
+            "Native SR upscales first, then NR enhances the larger image. RR always uses this effective post-SR route; when selectable, clicking saves post-SR as your preference.",
+            "先由原生 SR 放大，再由 AI 处理更大画面。RR 实际总是采用后置路线；可选择时点击会保存后置偏好。"));
         ImGui::PopID();
     }
     if (rr_guarded) ImGui::EndDisabled();
@@ -256,24 +256,19 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 // pending or old sample cannot establish the current game's colour contract.
 bool DrawRegionColourStatus(ChainConfig &next, bool has_pending, bool &changed) {
     const bool zh = UseChineseUi();
+    (void)changed; // The HDR permission is edited once in Developer options.
     auto snapshot = SnapshotColorPolicy();
     if (snapshot.status != NrColorPolicyStatus::Bypassed &&
         (has_pending || changed || snapshot.mode != EffectivePictureMode(next.mode)))
         snapshot.status = NrColorPolicyStatus::Pending;
     const bool current = snapshot.status == NrColorPolicyStatus::Current;
     if (next.allow_unverified_hdr_color || (current &&
-        snapshot.policy.color_reason == NrColorReason::UnverifiedHdr)) {
-        if (ImGui::Checkbox(zh ? "允许实验 HDR 调色###region-hdr-colour" :
-                "Allow experimental HDR colour###region-hdr-colour", &next.allow_unverified_hdr_color)) {
-            changed = true;
-            snapshot.status = NrColorPolicyStatus::Pending;
-        }
-        SettingsTooltip(zh ? "与开发者选项是同一设置。允许在尚未确认的 HDR 输入上尝试 AI 颜色；出现偏色或闪烁时关闭。" :
-            "The same setting as Developer options. Allows AI colour on unverified HDR inputs; turn off if hue shifts or flicker appear.");
-    }
+        snapshot.policy.color_reason == NrColorReason::UnverifiedHdr))
+        SettingsNote(zh ? "如需尝试 HDR 调色，请在开发者选项中允许实验调色。" :
+            "Use Developer options to allow experimental HDR colour when needed.");
     if (next.color_strength <= 0.f) {
-        ImGui::TextWrapped("%s", zh ? "AI 色彩强度为 0，区域颜色倍率暂不生效。可在下方高级画质中提高 AI 色彩强度。" :
-            "AI colour amount is 0, so region colour gains have no effect. Raise AI colour amount under Advanced picture controls below.");
+        ImGui::TextWrapped("%s", zh ? "AI 色彩强度为 0，区域颜色倍率暂不生效；请先提高 AI 色彩强度。" :
+            "AI colour amount is 0, so region colour gains have no effect. Raise the AI colour amount first.");
         return true;
     }
     if (snapshot.status != NrColorPolicyStatus::Current) {
@@ -281,14 +276,42 @@ bool DrawRegionColourStatus(ChainConfig &next, bool has_pending, bool &changed) 
         return false;
     }
     if (!snapshot.policy.color_allowed) {
-        ImGui::TextWrapped("%s", zh ? "当前 HDR 策略暂停 AI 颜色：区域颜色倍率不生效，明暗调节仍可用。可用上方实验开关尝试调色。" :
-            "The current HDR policy pauses AI colour: region colour gains have no effect; luminance controls remain available. Use the experimental option above to try colour edits.");
+        ImGui::TextWrapped("%s", zh ? "当前 HDR 策略暂停 AI 颜色：区域颜色倍率不生效，明暗调节仍可用；可在开发者选项中允许实验调色后再试。" :
+            "The current HDR policy pauses AI colour: region colour gains have no effect; luminance controls remain available. Allow experimental HDR colour in Developer options to try it.");
         return true;
     }
     ImGui::TextWrapped("%s", snapshot.policy.color_reason == NrColorReason::ExperimentalUnverifiedHdr
-        ? (zh ? "区域颜色已获实验 HDR 许可；出现偏色或闪烁时关闭上方开关。" : "Region colour has experimental HDR permission; turn it off above if hue shifts or flicker appear.")
+        ? (zh ? "区域颜色已获实验 HDR 许可；出现偏色或闪烁时请在开发者选项中关闭。" : "Region colour has experimental HDR permission; turn it off in Developer options if hue shifts or flicker appear.")
         : (zh ? "区域颜色可用；实际变化取决于模型是否改变了该区域的颜色。" : "Region colour is available; visible changes depend on the model's colour edits in each region."));
     return false;
+}
+
+unsigned DrawLightAdjustmentMethodSelector(ChainConfig &next, bool &changed,
+    bool &apply_discrete_edit) {
+    const bool zh = UseChineseUi();
+    const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
+    // Generic residual has always had priority when both legacy flags were
+    // loaded from an INI. Keep that effective order while presenting one
+    // selector so a user cannot accidentally enable two methods.
+    unsigned method = next.generic_residual ? 2u : next.region_enabled ? 1u : 0u;
+    int selected = static_cast<int>(method);
+    SettingsField(ui("Light adjustment method", "光影调节方式"));
+    if (ImGui::Combo("##light-adjustment-method", &selected,
+            ui("Normal light/dark\0Engine regions (experimental)\0Generic layers (experimental)\0",
+               "普通亮暗\0引擎分区（实验）\0通用分层（实验）\0"))) {
+        const unsigned requested = static_cast<unsigned>(std::clamp(selected, 0, 2));
+        if (requested != method) {
+            next.generic_residual = requested == 2u;
+            next.region_enabled = requested == 1u;
+            changed = true;
+            apply_discrete_edit = true;
+            method = requested;
+        }
+    }
+    SettingsTooltip(ui(
+        "Choose one light adjustment method. Normal light/dark keeps the two legacy controls; Engine regions uses current engine guidance; Generic layers groups normalized RGB/HSL residuals. Saved values in the other methods remain available when you switch back.",
+        "选择一种光影调节方式。普通亮暗保留原有两套控制；引擎分区使用当前引擎导引；通用分层按归一化 RGB/HSL 改动分组。切换回来时，其他方式的已保存数值仍保留。"));
+    return method;
 }
 
 void DrawSimpleFeedbackControls() {
@@ -434,12 +457,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
         ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
     ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
-    ImGui::TextDisabled("%s | %s", kAddonVersion,
-                        use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
-    ImGui::TextDisabled("%s", kOfficialReleaseUrl);
-    ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
-    if (kChineseUi && !use_chinese_ui)
-        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
+    ImGui::TextDisabled("%s", kAddonVersion);
+    if (ImGui::CollapsingHeader(ui("About and links", "作者与链接"))) {
+        ImGui::TextDisabled("%s", use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
+        ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+        ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
+        if (kChineseUi && !use_chinese_ui)
+            ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
+    }
     // Keep controls stationary while live status text changes (#121).
     ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
     const auto activity=ReadUiActivity();
@@ -450,21 +475,20 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     } else ImGui::TextDisabled("%s", ui("Checking AI activity...", "正在检查 AI 是否开始处理……"));
     SettingsTooltip(ui("Recent process activity, not FPS or measured picture quality. Detailed counters are in F8.", "根据最近处理记录显示，不代表帧率或实测画质；完整诊断计数保留在 F8 报告。"));
     const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
-    if (live_reason == BypassReason::RuntimeUnavailable) {
-        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll from this OTA beside the addon (game directory is a fallback). F8 TXT distinguishes file-absent from Win32 126 dependency-missing.",
-            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，把本 OTA 配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁（游戏目录仅作回退）。F8 TXT 会区分文件缺失与 Win32 126 依赖缺失。"));
-    } else if (live_reason == BypassReason::CodecUnavailable) {
-        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
-            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
-    }
+    if (live_reason == BypassReason::RuntimeUnavailable)
+        ImGui::TextWrapped("%s", ui("NR runtime is unavailable. Install the matching NR files beside the add-on, then use F8 if it still fails.",
+            "NR 运行库不可用。请把配套 NR 文件放在插件旁；仍失败时按 F8 反馈。"));
+    else if (live_reason == BypassReason::CodecUnavailable)
+        ImGui::TextWrapped("%s", ui("NR composition is unavailable; native output is preserved. Save F8 for the reason.",
+            "NR 合成不可用，已保留原生输出。请按 F8 保存原因。"));
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
     if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
         ImGui::TextWrapped("%s", ui(
-            "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
-            "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
+            "This window uses Direct3D 11. Switch the game to Direct3D 12 and install the D3D12 Full Add-on.",
+            "当前使用 Direct3D 11。请把游戏切换到 Direct3D 12，并安装 D3D12 Full Add-on。"));
     else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)
-        ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
-            "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
+        ImGui::TextWrapped("%s", ui("Native game SR. Enable the add-on and raise Extra enhancement to compare NR.",
+            "当前为游戏原生 SR。请启用插件并提高“额外增强”进行对比。"));
     else if (reason == BypassReason::RayReconstructionGuard) {
         DrawPostRouteStatus();
     }
@@ -473,45 +497,32 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "另一个 NR 插件正在运行。请先关闭它的 NR 效果，再使用本插件。"));
     else if (reason == BypassReason::GenericRenoDxConflict)
         ImGui::TextWrapped("%s", ui(
-            "Duplicate NR plugin detected: remove renodx-dlss5.addon64 and restart the game.",
-            "检测到重复 NR 插件：请删除 renodx-dlss5.addon64，然后重启游戏。"));
+            "A duplicate NR add-on is active. Remove renodx-dlss5.addon64 and restart the game.",
+            "检测到重复 NR 插件。请删除 renodx-dlss5.addon64，然后重启游戏。"));
     else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling)
-        ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in the game settings.",
+        ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in game settings.",
             "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
-    else if (reason == BypassReason::ModuleObserverUncertain) {
-        ImGui::TextWrapped("%s", ui(
-            "DLSS lifecycle observation is incomplete. NR stays off to protect SR/RR and any existing FG/MFG. F8 includes the first hook failure; changing NR strength cannot repair this.",
-            "DLSS 生命周期观察不完整，NR 已安全旁路以保护原生 SR/RR 和现有 FG/MFG。F8 会保留首次 Hook 失败；调高强度不能解决此问题。"));
-        const auto failure = SnapshotNgxHookFailure();
-        if (failure.available)
-            ImGui::TextWrapped(ui("First hook failure (historical): %s / %s", "首次 Hook 失败（历史记录）：%s / %s"),
-                failure.operation, failure.entry);
-    }
+    else if (reason == BypassReason::ModuleObserverUncertain)
+        ImGui::TextWrapped("%s", ui("DLSS lifecycle is not confirmed, so NR stays off to protect SR/RR. Save F8 for details.",
+            "DLSS 生命周期尚未确认，NR 已关闭以保护原生 SR/RR。请按 F8 查看详情。"));
     else if (reason == BypassReason::CommandStateUnverified) {
-        const auto evidence = SnapshotCommandStateEvidence();
         ImGui::TextWrapped("%s", ui(
-            "The command list is not yet safe for NR insertion. Native SR is preserved. The last carrier decision below is an observation, not a compatibility guarantee.",
-            "当前命令列表尚未满足 NR 安全插入条件，已保留原生 SR。下方是最近一次载体判断，不代表已通过游戏兼容验证。"));
-        if (evidence.available)
-            ImGui::TextWrapped(ui("Last reason: %s | guard requested/covered/reset: %d/%d/%d | age: %llu ms",
-                "最近原因：%s | 观察请求/覆盖/新重置：%d/%d/%d | 距今：%llu 毫秒"),
-                evidence.reason, evidence.guard_requested ? 1 : 0, evidence.guard_covered ? 1 : 0,
-                evidence.fresh_reset ? 1 : 0, GetTickCount64() - evidence.sampled_at);
-        ImGui::TextWrapped("%s", ui("Use F8 for the structured state report; do not disable safety guards.",
-            "按 F8 获取结构化状态报告；请勿通过关闭安全保护强行启用。"));
+            "The command list is not ready for NR insertion; native SR is preserved. Save F8 for the recorded state.",
+            "当前命令列表尚未满足 NR 插入条件，已保留原生 SR。请按 F8 保存记录。"));
     }
-    else if (reason != BypassReason::None)
-        ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and collect feedback with F8.",
-            "NR 当前已跳过（%s）。请保留问题场景，按 F8 收集反馈。"), BypassReasonName(reason));
+    else if (reason != BypassReason::None && reason != BypassReason::RuntimeUnavailable &&
+        reason != BypassReason::CodecUnavailable)
+        ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and save F8.",
+            "NR 当前已跳过（%s）。请保留场景并按 F8 保存反馈。"), BypassReasonName(reason));
     else
-        ImGui::TextWrapped("%s", ui("NR path available. Compare the picture with F6; submitted work is shown in diagnostics.",
-            "NR 链路可用。按 F6 对比画面，实际提交状态可在诊断中查看。"));
+        ImGui::TextWrapped("%s", ui("NR path is available. Use F6 to compare the picture.",
+            "NR 链路可用。请按 F6 对比画面。"));
 
 
     if (next.identity_use_original)
         ImGui::TextWrapped("%s", ui(
-            "Diagnostic identity mode is ON: NR may run, but its picture is deliberately discarded. Turn off 'Run NR but discard its picture' to compare the effect.",
-            "诊断原图模式已开启：NR 可以运行，但效果会被主动丢弃。请关闭兼容性选项中的“运行 NR 但丢弃其画面”再对比。"));
+            "Diagnostic identity mode is ON; NR output is discarded. Turn it off to compare the effect.",
+            "诊断原图模式已开启，NR 效果被丢弃。请关闭后再对比。"));
     if (g_config_persistence_failed.load())
         ImGui::TextWrapped("%s", ui("Settings cannot be saved. Check that the plugin folder is writable.",
             "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
@@ -541,7 +552,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0.2 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0.2，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
-    SettingsField(ui("Style", "风格"));
+    SettingsField(ui("Picture style", "画面风格"));
     const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
         ui("Natural###style-option", "自然###style-option"),
         ui("Cinematic###style-option", "电影###style-option")};
@@ -568,7 +579,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     ImGui::PopID();
 
-    SettingsSection(ui("Processing", "处理方式"));
+    SettingsSection(ui("Processing order", "处理顺序"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const bool compatibility_post = !rr_guarded && next.mode == 2 &&
         compatibility_snapshot.recent && compatibility_snapshot.effective_mode == 1;
@@ -597,7 +608,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
             g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
     precision = std::clamp(precision, 50.0f, 100.0f);
-    if (SettingsSliderFloat(ui("NR rendering scale", "NR 渲染比例"),
+    if (SettingsSliderFloat(ui("AI rendering precision", "AI 渲染精度"),
             "##nr-processing-precision", &precision, 50.0f, 100.0f, "%.0f%%")) {
         if (effective_post) {
             post_precision = precision;
@@ -625,112 +636,129 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    SettingsSection(ui("Model details", "模型细节"));
-        if (ImGui::Button(ui("Reset model controls###nr-model-reset", "恢复模型基准###nr-model-reset"))) {
-            nr_model_controls::Reset(next);
-            pending_model_action = nr_model_controls::Action::Reset;
+    // Keep the second scale immediately beside the first scale. The dual UI
+    // reports only a short state here; measurements and F7 belong to feedback.
+    nr_dual_runtime::DrawQuickUi(next,changed,apply_discrete_edit,has_pending);
+
+    SettingsSection(ui("Model controls", "模型控制"));
+    if (ImGui::Button(ui("Reset model controls###nr-model-reset", "恢复模型基准###nr-model-reset"))) {
+        nr_model_controls::Reset(next);
+        pending_model_action = nr_model_controls::Action::Reset;
+        changed = true;
+        apply_discrete_edit = true;
+    }
+    SettingsTooltip(ui("Restores the model controls to their baseline values and leaves route, colour, light and scale requests unchanged.",
+        "恢复模型控制基准，保留额外增强、光影控制、处理路线、颜色与工作比例。"));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(has_pending || changed || !model_undo.Available(current.generation));
+    if (ImGui::Button(ui("Undo model reset###nr-model-undo", "撤销模型基准###nr-model-undo")) &&
+        model_undo.Restore(next, current.generation)) {
+        pending_model_action = nr_model_controls::Action::Undo;
+        changed = true;
+        apply_discrete_edit = true;
+    }
+    ImGui::EndDisabled();
+    SettingsTooltip(ui("Restores the seven model controls saved by the last committed model reset. Any later settings change invalidates this snapshot.",
+        "恢复最近一次模型基准操作保存的七项模型设置；后续配置改变后，此快照失效。"));
+    changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
+        "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
+    SettingsTooltip(ui("Tunes the model itself; 1.2 is recommended. Extra enhancement controls the final mix separately.",
+        "控制 AI 生成画面时的处理力度，推荐 1.2；额外增强另行控制最终混合。"));
+    if (next.intensity != 1.2f) {
+        ImGui::TextDisabled("%s", ui("Recommended model strength is 1.2; your saved value is shown above.",
+            "推荐模型强度为 1.2；上方显示的是已保存的设置。"));
+        if (ImGui::Button(ui("Restore model strength 1.2 only###nr-model-default", "仅恢复模型强度 1.2###nr-model-default"))) {
+            next.intensity = 1.2f;
             changed = true;
             apply_discrete_edit = true;
         }
-        SettingsTooltip(ui("Restores model strength 1.2, local contrast and overall detail 1, Default style and UI correction. Enables Face adjustment at strength 0 to compare model-control combinations. Face recognition and the visible result depend on the model. Keeps extra enhancement, light controls, processing route, colour and working resolution.",
-            "恢复模型强度 1.2、局部明暗和整体细节 1、默认风格与界面保护，并开启人脸调节、强度设为 0，用于排查模型参数组合。人脸识别和实际效果取决于模型。保留额外增强、光影控制、处理路线、颜色与工作比例。"));
-        ImGui::SameLine();
-        ImGui::BeginDisabled(has_pending || changed || !model_undo.Available(current.generation));
-        if (ImGui::Button(ui("Undo model reset###nr-model-undo", "撤销模型基准###nr-model-undo")) &&
-            model_undo.Restore(next, current.generation)) {
-            pending_model_action = nr_model_controls::Action::Undo;
-            changed = true;
-            apply_discrete_edit = true;
-        }
-        ImGui::EndDisabled();
-        SettingsTooltip(ui("Restores the seven model controls saved by the last committed model reset. Any later settings change invalidates this snapshot.",
-            "恢复最近一次模型基准操作保存的七项模型设置；后续配置改变后，此快照失效。"));
-        changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
-            "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Tunes the model itself; recommended 1.2. Extra enhancement controls the final mix separately. Higher values may look less natural.",
-            "控制 AI 生成画面时的处理力度，推荐 1.2。调高可能改变更多细节，也可能更不自然。它与“额外增强”不同；调整后模型会短暂重新加载。"));
-        if (next.intensity != 1.2f) {
-            ImGui::TextDisabled("%s", ui("Recommended model strength is 1.2; your saved value is shown above.",
-                "推荐模型强度为 1.2；上方显示的是已保存的设置。"));
-            if (ImGui::Button(ui("Restore model strength 1.2 only###nr-model-default", "仅恢复模型强度 1.2###nr-model-default"))) {
-                next.intensity = 1.2f;
-                changed = true;
-                apply_discrete_edit = true;
-            }
-        }
-        float effect_strength = ActiveTransferStrength(next);
-        if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
-                "##nr-strength-amplification", &effect_strength,
-                1.0f, 4.0f, "%.2f")) {
-            // Only user edits use 1-4. Internal diagnostic zero keeps its native endpoint.
-            effect_strength = std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f);
-            next.transfer_strength = next.post_transfer_strength = effect_strength;
-            changed = true;
-        }
-        SettingsTooltip(ui("1 keeps the model's base amount and is the default. Higher values amplify its final changes, including visible brightness and detail, and may distort the picture. For a weaker effect, lower Model strength. AI colour amount separately controls only hue and saturation. Face adjustment remains a model control; extra enhancement does not yet exempt its recognised face region.",
-            "默认 1 保持模型原量；调高会放大最终明暗和细节变化，也可能失真。想减弱效果，请调低上方模型强度；颜色可用“AI 色彩强度”另外调整。人脸调节仍是模型内的独立设置，额外增强目前尚未避开模型识别的人脸区域。"));
-        SettingsNote(ui("1 = base amount (default); higher values amplify. Lower Model strength for a weaker effect.",
-            "1 为原量（默认），更高值只放大；想减弱效果，请调低模型强度。"));
+    }
+    float effect_strength = ActiveTransferStrength(next);
+    if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
+            "##nr-strength-amplification", &effect_strength, 1.0f, 4.0f, "%.2f")) {
+        // Only user edits use 1-4. Internal diagnostic zero keeps its native endpoint.
+        effect_strength = std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f);
+        next.transfer_strength = next.post_transfer_strength = effect_strength;
+        changed = true;
+    }
+    SettingsTooltip(ui("1 keeps the model's base amount. Higher values amplify its final brightness and detail changes and may look less natural; lower Model strength for a weaker model result.",
+        "1 保持模型原量；调高会放大最终明暗和细节，也可能失真。想减弱模型效果请调低模型强度。"));
+    SettingsNote(ui("1 = base amount (default).", "1 = 原量（默认）。"));
+
+    // Colour is a common control and stays before the model's face setting.
+    DrawColorControls(next, has_pending, changed);
+    if (ImGui::Checkbox(ui("Face adjustment", "人脸调节"), &next.auto_mask)) {
+        if (next.auto_mask && next.skin_structure < 0.f)
+            next.skin_structure = 0.f;
+        changed = true;
+    }
+    SettingsTooltip(ui("Both AI passes use these model face parameters. Recognition is decided by the model and input; this is not an independent face mask or exemption in the final composition.",
+        "两层 AI 都使用这组模型人脸参数。是否识别由模型和输入决定；它不是最终合成里的独立人脸遮罩或保护。"));
+    if (next.auto_mask) {
+        changed |= SettingsSliderFloat(ui("Face detail strength", "人脸细节强度"),
+            "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
+        SettingsTooltip(ui("Independent skin structure request while Face adjustment is enabled. A zero request does not restore the whole face because lighting, colour and final enhancement still apply.",
+            "开启人脸调节后控制已识别皮肤的细节。设为 0 也不会恢复整张脸原图，因为明暗、颜色和最终增强仍会作用于人脸。"));
+    } else {
+        SettingsNote(ui("Face detail follows Overall detail while Face adjustment is off.",
+            "关闭人脸调节时，人脸细节随整体细节变化。"));
+    }
+    if (ImGui::CollapsingHeader(ui("More model controls", "更多模型控制"))) {
         changed |= SettingsSliderFloat(ui("Local contrast", "局部明暗对比"),
             "##nr-local-tone", &next.local_tone, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "控制 AI 对相邻区域明暗差异的处理。调高通常对比更明显；不是屏幕亮度开关。"));
+        SettingsTooltip(ui("Changes local contrast inside the NR model; it is separate from final blend strength.",
+            "控制 AI 对相邻区域明暗差异的处理，和最终混合强度分开。"));
         changed |= SettingsSliderFloat(ui("Overall detail", "整体细节强度"),
             "##nr-local-structure", &next.local_structure, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Adjusts the model local structure parameter; stronger values can amplify unstable fine detail.", "控制 AI 对全画面纹理和轮廓的处理。调高通常细节更突出，过高也可能带来闪烁或不自然的纹理。"));
-        if (ImGui::Checkbox(ui("Face adjustment", "人脸调节"), &next.auto_mask)) {
-            if (next.auto_mask && next.skin_structure < 0.f)
-                next.skin_structure = 0.f;
-            changed = true;
-        }
-        SettingsTooltip(ui("Requests the model's built-in face/skin structure control, not a final-composition face exemption or a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "让 AI 单独调整它识别到的人脸细节。开启后可用下方滑块调整人脸细节；关闭后随整体细节一起变化。它不能锁定人脸，也不能保证每个角色都被识别。其他画质设置仍会影响人脸。"));
-        if (next.auto_mask) {
-            changed |= SettingsSliderFloat(ui("Face detail strength", "人脸细节强度"),
-                "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
-            SettingsTooltip(ui("Independent skin structure request while Face adjustment is enabled. Legacy negative values start at 0; existing nonnegative values are retained. This is not guaranteed face detection or a measured picture-strength value.", "控制 AI 对已识别皮肤的细节处理。数值越高通常越强调纹理；设为 0 也不会恢复整张脸的原图，因为整体明暗、颜色和效果强度仍会作用于人脸。调整后模型会短暂重新加载。"));
-        } else {
-            SettingsNote(ui("Enable Face adjustment to adjust face detail; currently follows Local structure.", "人脸当前随整体细节一起调整；开启上方选项后才使用独立强度。"));
-        }
-        changed |= ImGui::Checkbox(ui("UI correction", "文字与界面保护"), &next.ui_correction);
-        SettingsTooltip(ui("Requests the model UI-correction parameter with its unsigned type. This plugin does not supply a separate HUD mask here; preservation of text or HUD is not guaranteed. New installations enable it; existing explicit settings are kept.", "请求 AI 尽量保留文字和游戏界面的结构。建议开启，但不能保证所有字幕和界面元素都不变。"));
-        // END PRIMARY MODEL CONTROLS
+        SettingsTooltip(ui("Adjusts the model's local structure parameter; stronger values can amplify unstable fine detail.",
+            "控制 AI 对全画面纹理和轮廓的处理；调高可能放大不稳定的细节。"));
+    }
+    // END PRIMARY MODEL CONTROLS
 
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
         next.identity_use_original = false; changed = true;
     }
-    nr_dual_runtime::DrawUi(next,changed,apply_discrete_edit);
-    SettingsSection(ui("Generic residual comparison (experimental)", "通用分层对照（实验）"));
-    changed |= ImGui::Checkbox(ui("Magpie-style generic RGB / HSL controls", "Magpie 同类通用 RGB / HSL 控制"), &next.generic_residual);
-    SettingsNote(ui("Groups bright and dark model changes, without material masks. Uses D's normalized model domain and final protection; this is not an identical Magpie output. Turn it off to compare engine-guided controls.",
-        "按模型改动的亮暗方向分组，不识别材质。采用 D 的归一化模型域与最终保护，输出并非与 Magpie 完全相同。关闭此项即可对比引擎导引分区。"));
-    if(next.generic_residual) {
+    if (ImGui::CollapsingHeader(ui("Light adjustment", "光影微调"))) {
+    const unsigned light_method = DrawLightAdjustmentMethodSelector(next, changed, apply_discrete_edit);
+    if (light_method == 2u) {
+        SettingsNote(ui("Groups model residuals by luminance and colour without material masks. The engine-guided and legacy values remain saved for comparison.",
+            "按明暗和颜色对模型改动分组，不识别材质；引擎导引和原有数值仍会保存，方便切换对照。"));
         const char* en[]={"Total residual","Reflection / glow (bright RGB)","Shadow / structure (dark RGB)","Saturation change","Lightness change"};
         const char* cn[]={"总改动倍率","反射 / 辉光（通用亮变化）","阴影 / 结构（通用暗变化）","饱和度改动","明度改动"};
         for(unsigned i=0;i<5;i++){ImGui::PushID(static_cast<int>(i));changed |= SettingsSliderFloat(ui(en[i],cn[i]),"##generic-gain",&next.generic_gains[i],i==0?1.f:0.f,2.f,"%.2fx");ImGui::PopID();}
         SettingsNote(ui("Neutral gains preserve D's current NR image. Final extra enhancement and colour follow still apply; set them to 1x for comparison. Values outside the normalized model domain retain D's existing composition.",
             "全部 1 倍保留 D 当前 NR 画面。最终额外增强与颜色跟随仍生效，比较时建议设为 1 倍；超出归一化模型域的像素保留 D 原有合成。"));
         if(ImGui::Button(ui("Reset generic gains", "重置通用倍率"))){std::fill(next.generic_gains,next.generic_gains+5,1.f);changed=true;}
-    }
-    if(next.generic_residual) ImGui::BeginDisabled();
-    SettingsSection(ui("Fine region controls", "精细分区控制"));
-    changed |= ImGui::Checkbox(ui("Use engine-guided region controls", "使用引擎导引精细分区"), &next.region_enabled);
-    SettingsNote(ui("Choose regions from the original NR change; 1x keeps the current change, 0x removes it. Region gains replace the older five light controls. Model controls are unchanged.",
-        "按 NR 原始改动固定分区；1 倍保留当前改动，0 倍去除该区改动。启用后替代旧五项光效调节，模型参数不变。"));
-    if(next.region_enabled) {
+    } else if (light_method == 1u) {
+        SettingsNote(ui("Choose regions from the original NR change; 1x keeps the current change and 0x removes it. This keeps the older light values saved for comparison.",
+            "按 NR 原始改动固定分区；1 倍保留当前改动，0 倍去除该区改动。原有光影数值仍会保存，方便切换对照。"));
         SettingsNote(ui("Broad and fine describe the spatial extent of NR's luminance change. Same-direction neighbouring changes form broad regions; image edges and available depth/normals limit mixing across surfaces.",
             "宽窄按 NR 明暗改动的空间范围区分：周围也同向变化，归入宽范围；局部孤立变化，归入细节。原图边缘及可用深度、法线限制跨表面混合。"));
         const bool region_colour_disabled = DrawRegionColourStatus(next,has_pending,changed);
         const char* namesEn[]={"Broad brightening","Fine brightening","Broad darkening","Fine darkening","Engine specular region"};
         const char* namesZh[]={"宽范围增亮","细节增亮","宽范围压暗","细节压暗","引擎镜面区域"};
-        const unsigned regionStatus=nr_regions::status.load();
-        for(unsigned i=0;i<5;i++) {
+        const unsigned regionStatus=nr_regions::status.load(std::memory_order_acquire);
+        for(unsigned i=0;i<4;i++) {
             ImGui::PushID(static_cast<int>(i));ImGui::TextUnformatted(ui(namesEn[i],namesZh[i]));
-            if(i==4 && regionStatus!=3)ImGui::BeginDisabled();
             changed |= SettingsSliderFloat(ui("Luminance", "明暗"),"##region-luma",&next.region_gains[i*2],0.f,4.f,"%.2fx");
             ImGui::BeginDisabled(region_colour_disabled);
             changed |= SettingsSliderFloat(ui("Colour", "颜色"),"##region-colour",&next.region_gains[i*2+1],0.f,4.f,"%.2fx");
             ImGui::EndDisabled();
-            if(i==4 && regionStatus!=3)ImGui::EndDisabled();
             ImGui::PopID();
+        }
+        if (regionStatus == 3u) {
+            const unsigned i=4;
+            ImGui::PushID(static_cast<int>(i));ImGui::TextUnformatted(ui(namesEn[i],namesZh[i]));
+            changed |= SettingsSliderFloat(ui("Luminance", "明暗"),"##region-luma",&next.region_gains[i*2],0.f,4.f,"%.2fx");
+            ImGui::BeginDisabled(region_colour_disabled);
+            changed |= SettingsSliderFloat(ui("Colour", "颜色"),"##region-colour",&next.region_gains[i*2+1],0.f,4.f,"%.2fx");
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        } else {
+            // Do not expose controls whose guide is absent. In particular,
+            // image/depth availability is not evidence of a reflection mask.
+            SettingsNote(ui("The game did not provide reflection-region data.",
+                "游戏未提供反射区域数据"));
         }
         ImGui::BeginDisabled(region_colour_disabled);
         changed |= SettingsSliderFloat(ui("Colour-only changes", "纯颜色改动"),"##region-pure-colour",&next.region_gains[10],0.f,4.f,"%.2fx");
@@ -751,8 +779,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         DrawLightStyleControls(next,before_sr,current.generation,light_undo,
             has_pending,pending_light_undo,changed,apply_discrete_edit);
     }
-    if(next.generic_residual) ImGui::EndDisabled();
-    nr_face_runtime::DrawUi(next,changed);
+    }
     SettingsSection(ui("Advanced picture controls", "高级画质"));
 
 #if NR_HAS_DETAIL_STABILITY
@@ -773,8 +800,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         SettingsTooltip(ui("Available only before SR; it reduces transfer across strong local edges.",
             "仅在前置模式可用；用于减少强局部边缘两侧的效果串扰。"));
 #endif
-        ImGui::SeparatorText(ui("Colour and HDR", "色彩与 HDR"));
-        DrawColorControls(next, has_pending, changed);
+        ImGui::SeparatorText(ui("Advanced picture safeguards", "高级画质保护"));
         changed |= ImGui::Checkbox(ui("Highlight mapping", "高光映射"), &next.experimental_peak_shoulder);
         SettingsTooltip(ui("Unknown HDR defaults to luminance only. Storage, exposure and ownership safety remain active.",
             "改变强光送入 AI 前的压缩方式，尽量保留灯光、天空等亮部的层次。此项仍在验证，出现亮度异常时关闭；它不会替你开启游戏 HDR。"));
@@ -786,11 +812,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     changed |= ImGui::Checkbox(ui("Colour protection (default on)", "色彩保护（默认开启）"), &next.color_protection);
     SettingsTooltip(ui("Limits extra colour amplification when Extra enhancement exceeds 1, helping avoid overly strong colours. Recommended on. Turning it off only removes this colour limit; HDR and invalid-value protections remain.",
         "当“额外增强”超过 1 时，限制颜色被过度放大，减少颜色过浓的情况。建议保持开启；关闭仅取消这项限制，其他 HDR 和异常数值保护仍然有效。"));
+    changed |= ImGui::Checkbox(ui("UI correction", "文字与界面保护"), &next.ui_correction);
+    SettingsTooltip(ui("Requests the model's UI-correction parameter. It helps preserve text and HUD structure but does not provide a separate HUD mask. New installations enable it; existing explicit settings are kept.",
+        "请求 AI 尽量保留文字和游戏界面的结构，但不提供单独的 HUD 遮罩。新安装默认开启，已有显式设置保持不变。"));
+    if (ImGui::CollapsingHeader(ui("Algorithm comparisons", "算法对照"))) {
     changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
         "分开控制 AI 明暗与颜色（实验）"), &next.independent_chroma_composition);
-    SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
-        "前置和后置均可使用此候选。非零最终强度控制亮度，颜色跟随独立控制色度并使用共同颜色预算；最终强度为零仍关闭全部修改。关闭恢复原路线。HDR 颜色准入不变，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
-    ImGui::BeginDisabled(false);
+    SettingsTooltip(ui("Uses the shared candidate before or after SR. Final strength controls luminance while colour follow controls chroma; no extra model call. GPU cost and game quality await validation.",
+        "前置和后置均可使用此候选。最终强度控制明暗，颜色跟随控制色彩，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
     changed |= ImGui::Checkbox(ui("Low-grid luminance edit field (experimental)",
         "低分辨率亮度合成（实验）"), &next.low_grid_edit_field);
     SettingsTooltip(ui("Available before or after SR/RR with Colour follow zero; selects shared composition. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
@@ -818,7 +847,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "高强度颜色与亮度保护（默认开启）"), &next.high_strength_protection);
     SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
         "有效强度高于 1 时软限制额外明暗增强，SDR 参考剩余空间；适用于前置及可选的共用后置候选。旧前置同时软限制额外色彩，独立色度候选采用自己的颜色预算。不能修复 1 倍已经剪裁的结果，也不保证 4 倍画面稳定。"));
-    ImGui::EndDisabled();
     if (ImGui::CollapsingHeader(ui("Layered composition (one NR)", "分层强化（单次 NR）"))) {
         ImGui::BeginDisabled(!before_sr && !next.independent_chroma_composition);
         changed |= ImGui::Checkbox(ui("Enable layered composition", "启用分层强化"), &next.layered_enhancement);
@@ -837,6 +865,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "实验前置或共用后置候选的合成，不是多次运行模型。1 为中性，组合后的有效明暗强度最多 4。颜色跟随仍在 HDR 与颜色中独立控制。这不是人脸或材质遮罩，不能恢复模型没有的细节。不增加 NR 次数；实际 GPU 开销仍需测量。"));
         ImGui::EndDisabled();
     }
+    }
+    if (ImGui::CollapsingHeader(ui("Independent face protection (experimental)",
+            "独立人脸保护（实验）")))
+        nr_face_runtime::DrawUi(next, changed);
 #if NR_HAS_DETAIL_STABILITY
         int curve = static_cast<int>(next.proxy_curve);
         if (ImGui::Combo(ui("HDR mapping", "HDR 映射"), &curve,
@@ -906,6 +938,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),
             nullptr, feedback_tab_flags)) {
         DrawSimpleFeedbackControls();
+        nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);
         nr_replay::DrawUi();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();

@@ -381,7 +381,7 @@ def main():
     apply_settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
     assert 'ApplyLightStyleOverlay(next, expected_generation,' in apply_settings
     assert apply_settings.count('ApplyLightStyleOverlay(')==1
-    model_section=ui[ui.index('SettingsSection(ui("Model details"'):ui.index('// END PRIMARY MODEL CONTROLS')]
+    model_section=ui[ui.index('SettingsSection(ui("Model controls"'):ui.index('// END PRIMARY MODEL CONTROLS')]
     assert 'nr_model_controls::Reset(next);' in model_section
     assert 'Reset model controls###nr-model-reset' in model_section and '恢复模型基准###nr-model-reset' in model_section
     assert 'Undo model reset###nr-model-undo' in model_section and '撤销模型基准###nr-model-undo' in model_section

@@ -26,7 +26,7 @@ HARNESS = r'''
 #include <initializer_list>
 using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess=1;
-int checks=0,failures=0,depth=0,releases=0,destroys=0,slots=0;
+int checks=0,failures=0,depth=0,releases=0,destroys=0,slots=0,bindings=0,guide_releases=0;
 NgxResult release_result=1,destroy_result=1;
 std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 int g_nr_api_lock=0;
@@ -34,39 +34,41 @@ void check(bool ok,const char *name) {++checks;if(!ok){++failures;std::printf("F
 struct ScopedSrwExclusive {explicit ScopedSrwExclusive(int*){++depth;}~ScopedSrwExclusive(){--depth;}};
 struct NgxParams {} params;
 struct NrSlot {int value=7;};
-struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];};
+struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];void* dual_create_guides[2]{};};
 NgxResult release(void *entry,void *handle) {check(depth==1&&entry&&handle,"release serialized and callable");++releases;return release_result;}
 NgxResult destroy(NgxParams *p) {check(depth==1&&p,"parameter destroy serialized");++destroys;return destroy_result;}
 struct NrApi {bool initialized=true;void *signed_release=&params;NgxResult(*bridge_release)(void*,void*)=release;NgxResult(*destroy)(NgxParams*)=::destroy;} g_nr_api;
 void MarkLifecycleUncertain(const char*) {g_lifecycle_tracking_uncertain=true;}
 template<class... T> void Log(const char*,T...) {}
-void DestroySlot(NrSlot &s) {check(depth==0,"slot teardown outside provider lock");++slots;s.value=0;}
+template<class T> void ReleaseCom(T*& p) {if(p){++guide_releases;p=nullptr;}}
+void DestroyBindings(NrContext& c) {check(depth==0&&!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined,"binding tables retained until provider teardown succeeds");++bindings;}
+void DestroySlot(NrSlot &s) {check(depth==0&&bindings==1,"slot teardown follows binding retirement outside provider lock");++slots;s.value=0;}
 @ACTUAL@
-void reset() {check(depth==0,"provider lock unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=0;release_result=destroy_result=1;}
-NrContext live() {NrContext c;c.nr_handle=&params;c.params=&params;return c;}
+void reset() {check(depth==0,"provider lock unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=bindings=guide_releases=0;release_result=destroy_result=1;}
+NrContext live() {NrContext c;c.nr_handle=&params;c.params=&params;c.dual_create_guides[0]=c.dual_create_guides[1]=&params;return c;}
 int main() {
- reset();{auto c=live();DestroyContext(c);check(releases==1&&destroys==1&&slots==2,"successful retirement completes once");check(!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain,"success clears ownership");}
+ reset();{auto c=live();DestroyContext(c);check(releases==1&&destroys==1&&slots==2&&bindings==1&&guide_releases==2,"successful retirement completes once");check(!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain,"success clears ownership");}
  for(auto code:{0xBAD00000u,0xBAD00004u,0xBAD00007u,0xBAD0000Du}) {
    reset();release_result=code;auto c=live();DestroyContext(c);
-   check(releases==1&&destroys==0&&slots==0,"failed release retains dependent resources");
+   check(releases==1&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"failed release retains dependent resources");
    check(c.nr_handle==&params&&c.params==&params&&c.slots[0].value==7,"failed release preserves pointer closure");
    check(c.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain,"failed release latches quarantine");
-   DestroyContext(c);check(releases==1&&destroys==0&&slots==0,"failed context cannot reenter teardown");
-   auto second=live();DestroyContext(second);check(releases==1&&destroys==0&&slots==0,"quarantine blocks subsequent provider teardown");
+   DestroyContext(c);check(releases==1&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"failed context cannot reenter teardown");
+   auto second=live();DestroyContext(second);check(releases==1&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"quarantine blocks subsequent provider teardown");
  }
  for(int missing=0;missing<3;++missing) {
    reset();if(missing==0)g_nr_api.initialized=false;if(missing==1)g_nr_api.bridge_release=nullptr;if(missing==2)g_nr_api.signed_release=nullptr;
-   auto c=live();DestroyContext(c);check(releases==0&&destroys==0&&slots==0,"missing release entry retains dependencies");
+   auto c=live();DestroyContext(c);check(releases==0&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"missing release entry retains dependencies");
    check(c.nr_handle&&c.params&&c.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain,"missing release entry quarantines");
  }
  for(int missing=0;missing<2;++missing) {
    reset();destroy_result=0xBAD00000u;if(missing)g_nr_api.destroy=nullptr;
-   auto c=live();DestroyContext(c);check(releases==1&&destroys==(missing?0:1)&&slots==0,"parameter teardown failure retains slots");
+   auto c=live();DestroyContext(c);check(releases==1&&destroys==(missing?0:1)&&slots==0&&bindings==0&&guide_releases==0,"parameter teardown failure retains slots");
    check(!c.nr_handle&&c.params==&params&&c.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain,"parameter ownership retained after handle released");
    DestroyContext(c);check(releases==1&&destroys==(missing?0:1),"no parameter failure retry");
  }
- reset();{auto c=live();c.create_dependencies_quarantined=true;DestroyContext(c);check(releases==0&&destroys==0&&slots==0,"existing Create quarantine preserved");}
- reset();{auto c=live();g_lifecycle_tracking_uncertain=true;DestroyContext(c);check(releases==0&&destroys==0&&slots==0,"existing uncertain GPU lifetime preserved");}
+ reset();{auto c=live();c.create_dependencies_quarantined=true;DestroyContext(c);check(releases==0&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"existing Create quarantine preserved");}
+ reset();{auto c=live();g_lifecycle_tracking_uncertain=true;DestroyContext(c);check(releases==0&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"existing uncertain GPU lifetime preserved");}
  reset();{auto c=live();c.nr_handle=nullptr;DestroyContext(c);check(releases==0&&destroys==1&&slots==2,"parameter-only context still retires");}
  reset();{auto c=live();c.params=nullptr;DestroyContext(c);check(releases==1&&destroys==0&&slots==2,"handle-only context still retires");}
  check(depth==0,"final lock balance");

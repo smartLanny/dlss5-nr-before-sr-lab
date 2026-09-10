@@ -13,6 +13,7 @@ std::atomic<const NgxHandle*> fatal_carrier{nullptr};
 nr_dual::dx12::Pipelines* pipelines=nullptr;
 ID3D12Device* pipeline_device=nullptr;
 }
+#include "nr_dual_status_runtime.inl"
 #include "nr_dual_timing.inl"
 namespace nr_dual_runtime {
 struct Prepared {
@@ -35,7 +36,7 @@ void Unavailable(Status value,const std::string& reason) {
     }
     SetStatus(value);
 }
-void ClearSelection(NrSlot& slot){slot.dual_capture_index=nr_replay::Recorder::Invalid;slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
+void ClearSelection(NrSlot& slot){slot.dual_binding=nullptr;slot.dual_capture_index=nr_replay::Recorder::Invalid;slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
 template<class Slot> void InitializeSourceFormats(Slot& slot) {
     slot.source_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     // The production source adapter adds a separate typed SRV field. Both
@@ -43,12 +44,6 @@ template<class Slot> void InitializeSourceFormats(Slot& slot) {
     if constexpr(requires {slot.source_srv_format;})slot.source_srv_format=slot.source_format;
 }
 
-bool NewHeap(ID3D12Device* device,ID3D12DescriptorHeap** heap) {
-    if(*heap)return true;
-    D3D12_DESCRIPTOR_HEAP_DESC d{};d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    d.NumDescriptors=kCodecDescriptorCount;d.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    return SUCCEEDED(ID3D12Device_CreateDescriptorHeap(device,&d,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(heap)))&&*heap;
-}
 bool CreateCompleted(NrContext& context) {
     if(context.dual_create_completed)return true;
     // Zero fences and CPU Create success are deliberately insufficient.
@@ -106,7 +101,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     if(index>=8){SetStatus(Status::SlotPending);return {};}
     auto& slot=aux->slots[index];
     if(slot.key&&slot.key!=main.neural){aux->retired=true;SetStatus(Status::SlotPending);return {};}
-    if(!CanMutateSlotLocked(slot)){SetStatus(Status::SlotPending);return {};}
+    if(!slot.dual_spatial && (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))){SetStatus(Status::SlotPending);return {};}
     const auto domain=color_mode==CodecColorMode::ModelEncodedValueDomain ||
         ((feature.create_flags&1)==0 && color_mode==CodecColorMode::Automatic)
         ?nr_dual::ModelDomain::DirectValue:nr_dual::ModelDomain::SrgbProxy;
@@ -128,9 +123,6 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         InitializeSourceFormats(slot);
         slot.codec_color_mode=color_mode;
     }
-    if(!NewHeap(device,&slot.heap)||!NewHeap(device,&slot.dual_consumer_heap)){SetStatus(Status::ResourceBudget);return {};}
-    if(main.region_ready&&!NewHeap(device,&slot.dual_region_heap)){SetStatus(Status::ResourceBudget);return {};}
-    WriteCodecDescriptorSet(device,slot,slot.heap);
     if(guides.signature.resample_motion) {
         const bool allocate=!slot.motion_proxy;
         unsigned long long bytes=0;
@@ -139,10 +131,10 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
             bytes=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d).SizeInBytes;
             if(bytes>kDualSlotBudget-slot.dual_bytes || bytes>kDualTotalBudget-g_dual_allocated_bytes.load()){SetStatus(Status::ResourceBudget);return {};}
         }
-        if(!EnsureMotionProxy(device,slot,guides.motion,aux->width,aux->height)){SetStatus(Status::UnsupportedGuides);return {};}
+        if(!EnsureMotionProxy(device,slot,guides.motion,aux->width,aux->height,true)){SetStatus(Status::UnsupportedGuides);return {};}
         if(allocate){slot.dual_bytes+=bytes;g_dual_allocated_bytes.fetch_add(bytes);}
     }
-    if(!EnsureRrDepthSlot(device,slot,guides)){SetStatus(Status::UnsupportedGuides);return {};}
+    if(!EnsureRrDepthSlot(device,slot,guides,true)){SetStatus(Status::UnsupportedGuides);return {};}
     for(unsigned i=0;i<2;++i){auto* resource=i?guides.motion:guides.depth;
         if(slot.dual_guides[i]!=resource){ID3D12Resource_AddRef(resource);ReleaseCom(slot.dual_guides[i]);slot.dual_guides[i]=resource;}}
     if(!aux->params) {
@@ -157,6 +149,28 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     PrepareTiming(device,main);
     SetStatus(completed?Status::Preparing:Status::CreatePending);
     return {aux,&slot,plan,guides,completed};
+}
+
+// All descriptors are sealed before either layer's Evaluate. Run never
+// rewrites a heap after an opaque NGX call or an earlier GPU dispatch.
+void Seal(ID3D12GraphicsCommandList* list,NrSlot& main,Prepared& prepared) {
+    if(!prepared)return;
+    auto& slot=*prepared.slot;auto& aux=*prepared.context;
+    const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
+    const bool reduced=prepared.plan.path==nr_dual::Path::MatchedResidual;
+    nr_binding::Plan bindings{};bindings.primary_owner=&main;bindings.secondary_owner=&slot;
+    bindings.retained[0]=prepared.guides.depth;bindings.retained[1]=prepared.guides.motion;
+    WriteCodecDescriptorSet(g_codec.device,slot,nullptr,&bindings.heaps[nr_binding::Codec]);
+    WriteCodecDescriptorSet(g_codec.device,main,nullptr,&bindings.heaps[nr_binding::Consumer],&surfaces,reduced);
+    if(main.region_ready)nr_regions::WriteDescriptors(g_codec.device,main,nullptr,
+        reduced?main.neural:surfaces.output,reduced?surfaces.low_delta:nullptr,&bindings.heaps[nr_binding::Region]);
+    if(prepared.guides.signature.linear_depth) {
+        bindings.heaps[nr_binding::Depth].Srv(0,prepared.guides.depth,static_cast<DXGI_FORMAT>(prepared.guides.signature.depth_format));
+        bindings.heaps[nr_binding::Depth].Uav(1,slot.rr_depth,DXGI_FORMAT_R32_FLOAT);
+    }
+    auto* packet=AcquireBindingPacket(g_codec.device,list,aux,bindings);
+    if(!packet){prepared={};SetStatus(Status::SlotPending);return;}
+    main.dual_binding=packet;slot.compose_binding=packet;
 }
 
 NgxResult Fail(ID3D12GraphicsCommandList* list,NrContext& primary,NrContext& aux,NgxResult result,const char* stage) {
@@ -179,7 +193,16 @@ std::uint32_t Evaluate(void* user,ID3D12GraphicsCommandList* list,const void* fe
 }
 NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     Prepared& prepared,const FeatureRecord& feature,const ColorContract& color) {
-    if(!prepared)return 0;
+    struct Observation {
+        NrContext& primary;Prepared& prepared;bool evaluated=false,adopted=false,warmup=false;
+        ~Observation(){
+            nr_dual_status_runtime::RecordObservation(primary,prepared.context,
+                primary.successful_evaluations_since_reset>g_config.warmup_after_create,
+                evaluated,adopted,warmup);
+            if(evaluated&&prepared.context)nr_dual_status_runtime::CaptureSecondaryIdentity(*prepared.context);
+        }
+    } observation{primary,prepared};
+    if(!prepared||!main.dual_binding)return 0;
     auto& aux=*prepared.context;auto& slot=*prepared.slot;
     if(primary.diagnostic_reset_requested||primary.successful_evaluations_since_reset<=g_config.warmup_after_create){
         aux.dual_history.Invalidate();SetStatus(Status::PrimaryWarming);return 0;
@@ -230,18 +253,16 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     aux.reset_retry_pending=false;
     aux.dual_history.CommitSuccess(key,primary.evaluations);
     second_evaluations.fetch_add(1);last_primary_instance.store(primary.instance_id);last_second_instance.store(aux.instance_id);last_parent_evaluation.store(primary.evaluations);
-    if(aux.successful_evaluations_since_reset<=g_config.warmup_after_create){SetStatus(Status::Preparing);return 0;}
+    observation.evaluated=true;
+    if(aux.successful_evaluations_since_reset<=g_config.warmup_after_create){observation.warmup=true;SetStatus(Status::Preparing);return 0;}
     main.dual_selected=&slot;main.dual_reduced=attempt.selection==nr_dual::Selection::FusedResidual;
     main.dual_low_width=aux.width;main.dual_low_height=aux.height;main.dual_model_domain=static_cast<unsigned>(surfaces.domain);
-    // This distinct heap was allocated and proved free in Prepare. It has not
-    // been used by Encode/NR/downsample or any earlier dispatch of this recording.
-    WriteCodecDescriptorSet(g_codec.device,main,slot.dual_consumer_heap);
-    if(main.region_ready&&slot.dual_region_heap) {
-        nr_regions::WriteDescriptors(g_codec.device,main,slot.dual_region_heap,main.dual_reduced?main.neural:surfaces.output,main.dual_reduced?surfaces.low_delta:nullptr);
+    if(main.region_ready) {
         main.region_constants[16]=aux.width;main.region_constants[17]=aux.height;
         main.region_constants[18]=main.dual_reduced?1:0;main.region_constants[19]=main.dual_model_domain;
     }
     nr_dual_capture::Begin(list,primary,main,aux,slot,prepared.guides);
+    observation.adopted=true;
     SetStatus(Status::Active);
     if(aux.evaluations<=3||aux.evaluations%600==0)
         Log("[dual-nr] recorded parent=%llu:%u auxiliary=%llu:%u N1=%ux%u N2=%ux%u scale=%u/%u domain=%u phase=unknown final=%s; CPU Evaluate success, GPU completion pending.",primary.instance_id,primary.evaluations,aux.instance_id,aux.evaluations,primary.width,primary.height,aux.width,aux.height,prepared.plan.requested.numerator,prepared.plan.requested.denominator,main.dual_model_domain,main.dual_reduced?"fused-matched-residual":"direct-P2");

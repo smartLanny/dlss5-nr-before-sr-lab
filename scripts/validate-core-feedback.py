@@ -43,6 +43,7 @@ HARNESS = r'''
 #include <fstream>
 #include <memory>
 #include "nr_diagnostic_bundle.inl"
+#include "nr_dual_observation.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -107,9 +108,30 @@ std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{
 std::atomic<unsigned long long> second_creates{0},second_evaluations{0},second_completed{0},last_primary_instance{0},last_second_instance{0},last_parent_evaluation{0},time_warmup_samples{0};
 std::atomic<double> time_last[7]{},time_median[7]{},time_p95[7]{};
 }
+// The coordinator fixture supplies a coherent pair; it does not run NGX.
+// Keep the production FeedbackAppendActivity body intact while making its
+// new F8 snapshot read genuinely serializable in this CPU/Win32 harness.
+namespace nr_dual_status_runtime {
+struct SecondaryIdentity {
+    bool valid = false;
+    nr_dual_observation::Route route{};
+    unsigned long long instance_id = 0, feature_generation = 0;
+    unsigned config_generation = 0, evaluation = 0, since_reset = 0;
+    unsigned width = 0, height = 0;
+    bool warmed_up = false;
+    NrTuningSignature tuning{};
+};
+struct SnapshotPair {
+    nr_dual_observation::Snapshot ui{};
+    SecondaryIdentity secondary{};
+};
+SnapshotPair g_dual_snapshot{};
+SnapshotPair SnapshotUiAndSecondary() { return g_dual_snapshot; }
+}
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
 constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
+DUAL_SNAPSHOT
 ACTIVITY
 RELEVANT
 STRENGTH
@@ -401,6 +423,27 @@ int main(int argc,char **argv) {
     g_applied_nr_identity.tuning.auto_mask=true;g_applied_nr_identity.tuning.style=2;
     g_applied_nr_identity.tuning.ui_correction=true;g_applied_nr_identity.tuning.jitter_mode=NrJitterMode::Legacy;
     g_applied_nr_identity.tuning.input_filter=1;g_applied_nr_mode=1;
+    g_config.enabled=true;g_config.nr_passes=2;
+    nr_dual_status_runtime::g_dual_snapshot.ui.state=nr_dual_observation::UiState::Intermittent;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.eligible_primary=7;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.secondary_evaluate_success=8;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.warmup_discarded=2;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.final_adopted=6;
+    nr_dual_status_runtime::g_dual_snapshot.ui.processing_age_ms=31;
+    nr_dual_status_runtime::g_dual_snapshot.ui.no_adoption_age_ms=32;
+    nr_dual_status_runtime::g_dual_snapshot.ui.window_start_ms=900;
+    nr_dual_status_runtime::g_dual_snapshot.ui.config_generation=7;
+    nr_dual_status_runtime::g_dual_snapshot.ui.route={0x1234,true};
+    auto &secondary_snapshot=nr_dual_status_runtime::g_dual_snapshot.secondary;
+    secondary_snapshot.valid=true;secondary_snapshot.route={0x1234,true};
+    secondary_snapshot.instance_id=300;secondary_snapshot.feature_generation=55;
+    secondary_snapshot.config_generation=7;secondary_snapshot.evaluation=8;
+    secondary_snapshot.since_reset=5;secondary_snapshot.width=960;secondary_snapshot.height=540;
+    secondary_snapshot.warmed_up=true;secondary_snapshot.tuning.intensity=1.7f;
+    secondary_snapshot.tuning.local_tone=.8f;secondary_snapshot.tuning.local_structure=.72f;
+    secondary_snapshot.tuning.skin_structure=.65f;secondary_snapshot.tuning.auto_mask=true;
+    secondary_snapshot.tuning.style=2;secondary_snapshot.tuning.ui_correction=true;
+    secondary_snapshot.tuning.jitter_mode=NrJitterMode::Legacy;secondary_snapshot.tuning.input_filter=1;
     check(nr_f8::RequestCore(),"core request accepted after completed images");
     check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
     unsigned char requested_before[sizeof(g_config)];std::memcpy(requested_before,&g_config,sizeof(g_config));
@@ -429,6 +472,17 @@ int main(int argc,char **argv) {
         "applied.autoMask=1\n","applied.style=2\n","applied.uiCorrection=1\n","applied.jitterMode=0\n","applied.inputFilter=1\n",
         "requested.config=7\n","requested.mode=2\n","requested.style=1\n","requested.intensity=0.75\n","requested.color=0.875\n"})
         check(fresh_report.find(line)!=std::string::npos,"F8 exports frozen requested and complete historical tuning as distinct records");
+    for(const char *line:{"end.dual.snapshot.state=intermittent\n",
+        "end.dual.snapshot.eligiblePrimary=7\n","end.dual.snapshot.secondaryEvaluate=8\n",
+        "end.dual.snapshot.warmupDiscarded=2\n","end.dual.snapshot.finalAdopted=6\n",
+        "end.dual.snapshot.processingAgeMs=31\n","end.dual.snapshot.noAdoptionAgeMs=32\n",
+        "end.dual.snapshot.config=7\n",
+        "end.dual.snapshot.routeId=4660\n","end.dual.snapshot.routeValid=1\n",
+        "end.dual.secondaryIdentity.instance=300\n","end.dual.secondaryIdentity.config=7\n",
+        "end.dual.secondaryIdentity.evaluation=8\n","end.dual.secondaryIdentity.sinceReset=5\n",
+        "end.dual.secondaryIdentity.extent=960x540\n","end.dual.secondaryIdentity.warmedUp=1\n",
+        "end.dual.secondaryIdentity.tuning.autoMask=1\n","end.dual.secondaryIdentity.tuning.style=2\n"})
+        check(fresh_report.find(line)!=std::string::npos,"F8 exports the current paired dual snapshot and secondary identity");
     check(fresh_report.find("model tuning only, not D light composition or measured output")!=std::string::npos,
         "applied contract cannot claim actual D composition or visual quality");
     std::filesystem::copy_file(named,std::filesystem::path(output_root)/"applied-core.txt");
@@ -507,6 +561,7 @@ def main():
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
         'SESSION': definition(legacy, 'struct FeedbackSession', True),
         'APPEND': definition(legacy, 'void FeedbackAppend('),
+        'DUAL_SNAPSHOT': definition(legacy, 'void FeedbackAppendDualSnapshot('),
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
         'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),

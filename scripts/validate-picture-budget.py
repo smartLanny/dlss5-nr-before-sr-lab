@@ -99,11 +99,11 @@ int main(){
     model=ui.index('"Model strength"',precision)
     end=ui.index('// END PRIMARY MODEL CONTROLS',model)
     advanced=ui.index('"Advanced picture controls"',end)
-    amp=ui.index('"Overall NR effect"',advanced)
+    amp=ui.index('"Maximum luminance ratio"',advanced)
     unlock=ui.index('if (collecting) ImGui::EndDisabled();',amp)
     assert start<capture<mode<precision<model<end<advanced<amp<unlock
-    assert ui.count('"Face mask"')==1 and ui.count('"Model strength"')==1
-    assert 'ApplyOverlayConfig(pending, pending_generation)' in ui
+    assert ui.count('ui("Face adjustment"')==1 and ui.count('ui("Model strength"')==1
+    assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
     print('Real controls grouped under the same capture lock and configuration transaction.')
 
 if __name__=='__main__': main()
