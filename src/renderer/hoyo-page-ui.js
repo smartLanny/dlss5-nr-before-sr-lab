@@ -22,6 +22,18 @@
     const editor = () => editors.get(flow?.gameId);
     const editorBusy = () => editor()?.controller.getState().busy === true;
     const hasDraft = () => editor()?.controller.hasDraft() === true;
+    const feedback = scope.CompatibilityGamePage?.mountFeedback?.(host, api, () => ({
+      id: flow?.gameId || null, gameName: flow?.name,
+      visible: active && expanded && !disposed,
+      mountTarget: host.querySelector('.hoyo-current') || host,
+      busy: Boolean(busy || flow?.busy || editorBusy() || plan || editingApi),
+      contextKey: JSON.stringify([flow?.id, flow?.exePath, flow?.gameVersion, flow?.channel,
+        flow?.binding?.launcher?.id, flow?.session?.sessionId]),
+      status: error || flow?.error || flow?.installation?.error || flow?.phase === 'failed'
+        ? '遇到问题也能反馈，不必先完成安装或进入游戏。'
+        : flow?.phase === 'recovery' ? '可以先反馈问题，不会改动游戏或恢复记录。'
+        : '自动带入当前已知信息；准备就绪不等于已经在游戏里生效。'
+    }));
     const button = (action, label, primary = false, disabled = false) => `<button type="button" class="button ${primary ? 'primary' : 'subtle'}" data-hoyo-action="${action}"${disabled ? ' disabled' : ''}>${label}</button>`;
     const select = (field, label, rows, selected, placeholder) => `<label class="gp-field"><span>${label}</span><select data-hoyo-field="${field}"${busy ? ' disabled' : ''}>${placeholder ? `<option value="">${placeholder}</option>` : ''}${rows.map(row => `<option value="${esc(row.value)}"${String(selected ?? '') === String(row.value) ? ' selected' : ''}>${esc(row.label)}</option>`).join('')}</select></label>`;
     function stopPoll() { if (timer) clearTimeout(timer); timer = null; }
@@ -95,6 +107,7 @@
       const start = host.querySelector('[data-hoyo-action="start"]');
       if (start) { start.disabled = locked || !ready(); start.classList.toggle('primary', !locked); }
       for (const node of host.querySelectorAll('.hoyo-details [data-hoyo-action],.library-actions [data-hoyo-action]')) node.disabled = locked || busy || editingApi || node.closest('.hoyo-details') && waiting(flow?.phase) || node.dataset.hoyoAction === 'edit-api' && !['install', 'ready'].includes(flow?.phase);
+      feedback?.update();
     }
     function render() {
       if (disposed) return;
@@ -124,7 +137,7 @@
       let entry = editor();
       if (!entry) {
         const element = document.createElement('div'); element.className = 'hoyo-settings-host'; slot.append(element);
-        const id = flow.id, controller = scope.GamePageUi.mount(element, api, { hoyoSettingsOnly: true, onBack: closeSettings, onActionState: syncEditorActions, maintenanceContent: () => maintenance() + evidence(),
+        const id = flow.id, controller = scope.GamePageUi.mount(element, api, { hoyoSettingsOnly: true, compatibilityFeedbackOwned: Boolean(feedback), onBack: closeSettings, onActionState: syncEditorActions, maintenanceContent: () => maintenance() + evidence(),
           onChanged: async () => { try { const value = unwrap(await api.hoyoInspect(id)); if (selectedId === id) { accept(value); render(); } } catch (failure) { error = failure.message; render(); } } });
         entry = { element, controller }; editors.set(flow.gameId, entry);
         void controller.open(flow.gameId, 'overview', { game: { id: flow.gameId, name: flow.name, installed: true, chosen: { path: flow.exePath, apiResolution: { api: flow.api?.api } } } });
@@ -206,8 +219,8 @@
       }
     });
     render();
-    return { activate() { active = true; if (!games.length) return discover(); render(); schedule(); }, deactivate() { active = false; stopPoll(); },
-      refresh: discover, getState: () => ({ selectedId, flow, games, busy, error, plan, editingApi, currentWork, expanded }), dispose() { disposed = true; generation++; stopPoll(); for (const editor of editors.values()) editor.controller.dispose(); } };
+    return { activate() { active = true; if (!games.length) return discover(); render(); schedule(); }, deactivate() { active = false; stopPoll(); feedback?.update(); },
+      refresh: discover, getState: () => ({ selectedId, flow, games, busy, error, plan, editingApi, currentWork, expanded }), dispose() { disposed = true; generation++; stopPoll(); feedback?.dispose(); for (const editor of editors.values()) editor.controller.dispose(); } };
   }
   const api = { mount, verificationLabel };
   if (typeof module === 'object' && module.exports) module.exports = api; else scope.HoYoPageUi = api;

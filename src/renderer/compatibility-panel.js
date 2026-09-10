@@ -26,6 +26,7 @@
     function close() {
       generation++; surveyBusy = false; dropPreview();
       if (dialog.open) dialog.close();
+      if (typeof bridge.close === 'function') Promise.resolve().then(() => bridge.close()).catch(() => {});
       if (opener?.isConnected) opener.focus();
     }
     dialog.addEventListener('cancel', event => { if (surveyBusy) { event.preventDefault(); return; } event.preventDefault(); close(); });

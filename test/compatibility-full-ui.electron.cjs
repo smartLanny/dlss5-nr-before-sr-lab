@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { installMock } = require('./helpers/game-page-beta3-fixture.cjs');
 const { installHoYoMock, smokeHoYo } = require('./helpers/hoyo-page-fixture.cjs');
-const { installCompatibilityFeedbackMock, smokeCompatibilityNormal, smokeCompatibilityHoyo } = require('./helpers/compatibility-feedback-fixture.cjs');
+const { installCompatibilityFeedbackMock, smokeCompatibilityNormal, smokeCompatibilityHoyo, smokeCompatibilityHoyoUnready } = require('./helpers/compatibility-feedback-fixture.cjs');
 
 const mode = process.env.GAME_UI_HOYO === '1' ? 'hoyo' : 'normal';
 const fixturePaths = {
@@ -98,16 +98,26 @@ app.whenReady().then(async () => {
   fs.writeFileSync(preload, install, 'utf8');
   win = new BrowserWindow({ width: Number(process.env.GAME_UI_WIDTH) || 1100, height: Number(process.env.GAME_UI_HEIGHT) || 780,
     show: false, useContentSize: true, webPreferences: { preload, sandbox: true, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
+  const deadlineMs = Math.max(5000, Number(process.env.COMPATIBILITY_UI_DEADLINE_MS) || 45000);
+  let deadlineTimer;
+  const withDeadline = promise => Promise.race([promise, new Promise((resolve, reject) => {
+    deadlineTimer = setTimeout(() => reject(new Error(`Electron UI regression exceeded ${deadlineMs}ms`)), deadlineMs);
+  })]);
   try {
-    await win.loadFile(path.resolve(__dirname, '../src/renderer/index.html'));
-    let result;
-    if (mode === 'hoyo') {
-      const base = await win.webContents.executeJavaScript(`(${smokeHoYo.toString()})({ hoyoCapture: true })`);
-      const feedback = await win.webContents.executeJavaScript(`(${smokeCompatibilityHoyo.toString()})({ leaveSurveyOpen: true })`);
-      result = { ...base, ...feedback, baseAssertions: base.assertions };
-    } else {
-      result = await win.webContents.executeJavaScript(`(${smokeCompatibilityNormal.toString()})({ leaveSurveyOpen: true })`);
-    }
+    const run = async () => {
+      await win.loadFile(path.resolve(__dirname, '../src/renderer/index.html'));
+      let result;
+      if (mode === 'hoyo') {
+        const unready = await win.webContents.executeJavaScript(`(${smokeCompatibilityHoyoUnready.toString()})({})`);
+        const base = await win.webContents.executeJavaScript(`(${smokeHoYo.toString()})({ hoyoCapture: true })`);
+        const feedback = await win.webContents.executeJavaScript(`(${smokeCompatibilityHoyo.toString()})({ leaveSurveyOpen: true })`);
+        result = { ...base, ...feedback, baseAssertions: base.assertions, unreadyAssertions: unready.assertions };
+      } else {
+        result = await win.webContents.executeJavaScript(`(${smokeCompatibilityNormal.toString()})({ leaveSurveyOpen: true })`);
+      }
+      return result;
+    };
+    let result = await withDeadline(run()); clearTimeout(deadlineTimer);
     const screenshot = process.argv[2];
     if (screenshot) {
       fs.mkdirSync(path.dirname(path.resolve(screenshot)), { recursive: true });

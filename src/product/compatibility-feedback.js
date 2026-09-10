@@ -53,11 +53,14 @@ function snapshotInput(data, modules, environment, version, build) {
       version: layout.version || game.addonVersion || null, nrOwner: components.some(c => c.id === 'xiaofeng-core') ? 'xiaofeng-core' : null,
       providerQuality: source === 'native' ? 'native' : source === 'feeder' ? 'synthetic' : 'unknown' } };
 }
-function contextIdentity(data, input, native) {
+function contextIdentity(data, input, native, unavailable = []) {
   return digest({ gameId: data.gameId, exe: data.layout?.exe || data.game?.executable || data.game?.chosen?.path || null,
     bindingId: data.layout?.bindingId || null, recipe: input.recipe, components: input.components,
-    configuration: input.configuration, historical: native?.historical === true, nativeSessionId: UUID.test(native?.sessionId || '') ? native.sessionId : null,
-    nativeTargetExe: identityPath(native?.targetExe), requestedAt: native?.requestedAt || null });
+    configuration: input.configuration, unavailable,
+    gameIdentity: input.game, layoutIdentity: { mode: data.layout?.mode, loadingMode: data.layout?.loadingMode,
+      activeConfigPath: data.layout?.activeConfigPath, runtimeDir: data.layout?.runtimeDir }, historical: native?.historical === true, nativeSessionId: UUID.test(native?.sessionId || '') ? native.sessionId : null,
+    nativeTargetExe: identityPath(native?.targetExe),
+    requestedAt: native?.requestedAt || null });
 }
 function verificationObservations(verification, snapshot, native, observedAt) {
   if (!native || native.historical || native.sessionId !== snapshot.sessionId || !native.process ||
@@ -86,17 +89,23 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
   }
   async function facts(id, knownEnvironment) {
     if (typeof id !== 'string' || !id || id.length > 200) fail('目标游戏无效', 'COMPATIBILITY_TARGET');
-    // Component ownership is optional feedback metadata. A guarded owner
-    // service may reject when its receipt is unreadable; preserve manual
-    // feedback and leave technical stages unknown in that case.
-    const moduleList = Promise.resolve().then(() => modules(id)).then(rows => ({
-      rows: Array.isArray(rows) ? rows : [], available: Array.isArray(rows)
-    })).catch(() => ({ rows: [], available: false }));
-    const [data, native, moduleState] = await Promise.all([assessment.assess(id, { sections: ['installation', 'enhancements'] }), sessions.inspect(id), moduleList]);
+    const optional = async (fn, code, fallback, valid = () => true) => {
+      try {
+        const value = await fn();
+        return valid(value) ? { value, unavailable: null } : { value: fallback, unavailable: code };
+      } catch { return { value: fallback, unavailable: code }; }
+    };
+    const [data, sessionResult, moduleResult] = await Promise.all([
+      assessment.assess(id, { sections: ['installation', 'enhancements'] }),
+      optional(() => sessions.inspect(id), 'SESSION_RECORD_UNAVAILABLE', null),
+      optional(() => modules(id), 'COMPONENT_INVENTORY_UNAVAILABLE', [], Array.isArray)
+    ]);
     if (data.gameId !== id) fail('检查结果属于另一游戏', 'COMPATIBILITY_TARGET');
-    const input = snapshotInput(data, moduleState.rows, knownEnvironment || await inventory(), managerVersion, managerBuild);
-    return { data, native, input, modulesAvailable: moduleState.available,
-      identity: digest({ context: contextIdentity(data, input, native), modulesAvailable: moduleState.available }) };
+    const native = sessionResult.value;
+    const unavailable = [sessionResult.unavailable, moduleResult.unavailable,
+      data.failures?.length ? 'ASSESSMENT_PARTIAL' : null].filter(Boolean).sort();
+    const input = snapshotInput(data, moduleResult.value, knownEnvironment || await inventory(), managerVersion, managerBuild);
+    return { data, native, input, unavailable, identity: contextIdentity(data, input, native, unavailable) };
   }
   async function captureLaunch(id, native, controls = {}) {
     const generation = (captureGenerations.get(id) || 0) + 1;
@@ -105,7 +114,7 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
     if (disposed || cancelled() || !UUID.test(native?.sessionId || '') || !Number.isFinite(Date.parse(native.requestedAt))) return;
     const f = await facts(id);
     if (disposed || cancelled() || captureGenerations.get(id) !== generation) return;
-    if (!f.modulesAvailable) { launchSnapshots.delete(id); return; }
+    if (f.unavailable.length) { launchSnapshots.delete(id); return; }
     if (!samePath(native.targetExe, f.data.layout?.exe || f.data.game?.executable || f.data.game?.chosen?.path) ||
         !samePath(native.targetExe, f.native?.targetExe) || f.native?.sessionId !== native.sessionId || f.native.historical) return;
     const snapshot = createSession({ ...f.input, contextSource: 'launch-snapshot' },
@@ -130,12 +139,12 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
       for (const [key, c] of contexts) if (now().getTime() - c.created > 15 * 60 * 1000) { c.service.dispose(); contexts.delete(key); }
       if (contexts.size >= 8) fail('请先关闭旧反馈窗口', 'COMPATIBILITY_LIMIT');
       const frozen = launchSnapshots.get(id), f = await facts(id, frozen?.snapshot.environment);
-      const matched = frozen && frozen.identity === f.identity && f.native?.sessionId === frozen.snapshot.sessionId && !f.native.historical;
+      const matched = !f.unavailable.length && frozen && frozen.identity === f.identity && f.native?.sessionId === frozen.snapshot.sessionId && !f.native.historical;
       // A changed/manual context needs a fresh inventory, not the prior launch's driver snapshot.
       if (!matched && frozen) f.input.environment = await inventory();
       const snapshot = matched ? frozen.snapshot : createSession({ ...f.input, parentSessionId: f.native?.sessionId }, { now });
       const token = randomUUID();
-      const c = { id, identity: f.identity, snapshot, created: now().getTime(), busy: false, closeRequested: false };
+      const c = { id, identity: f.identity, snapshot, unavailable: f.unavailable, created: now().getTime(), busy: false, closeRequested: false };
       const validateCurrent = async () => {
         const current = await facts(id, snapshot.environment);
         if (current.identity !== c.identity) fail('配套、设置或启动会话已经变化，请重新打开反馈', 'SESSION_CHANGED');
@@ -143,8 +152,12 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
       };
       c.service = createFeedbackService({ getSession: validateCurrent, now,
         getEvidence: async () => {
-          const [data, native] = await Promise.all([assessment.assess(id, { sections: ['diagnostics'] }), sessions.inspect(id)]);
-          return { observations: verificationObservations(data.verification, snapshot, native, now().toISOString()) };
+          let data, native;
+          try { [data, native] = await Promise.all([assessment.assess(id, { sections: ['diagnostics'] }), sessions.inspect(id)]); }
+          catch { return { observations: [], limitations: [...c.unavailable, 'RUNTIME_INSPECTION_UNAVAILABLE'] }; }
+          if (data.gameId !== id) fail('运行检查属于另一游戏', 'COMPATIBILITY_TARGET');
+          return { observations: verificationObservations(data.verification, snapshot, native, now().toISOString()),
+            limitations: c.unavailable };
         },
         collectLogs: async () => {
           const report = await collectReport(id, { includePaths: false });
@@ -154,7 +167,7 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
       contexts.set(token, c);
       return { token, contextKey: snapshot.sessionId, game: snapshot.game.name, recipe: snapshot.recipe.name,
         contextSource: snapshot.contextSource,
-        contextNote: matched ? '本次启动前配套快照。技术状态与体验评价分别记录。' : !f.modulesAvailable ?
+        contextNote: matched ? '本次启动前配套快照。技术状态与体验评价分别记录。' : f.unavailable.includes('COMPONENT_INVENTORY_UNAVAILABLE') ?
           '组件清单暂不可读：仅记录当前配置，技术状态保持未知。' :
           '未取得匹配的启动前快照：仅记录当前配置，不会把它当成上次游玩的确切配套。',
         driverInventory: snapshot.environment.gpus.map(row => ({ name: row.name, driver: row.driverDisplay || row.driverRaw })),

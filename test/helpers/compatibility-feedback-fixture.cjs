@@ -173,7 +173,8 @@ async function smokeCompatibilityHoyo({ leaveSurveyOpen = true } = {}) {
   const workspace = () => document.getElementById('hoyoWorkspace');
   const card = id => workspace()?.querySelector(`[data-hoyo-card="${id}"]`);
   const settings = () => workspace()?.querySelector('.hoyo-settings-host');
-  const feedbackButton = () => settings()?.querySelector('.cx-panel .cx-actions button:last-child');
+  const feedbackHost = () => workspace()?.querySelector('.hoyo-current');
+  const feedbackButton = () => feedbackHost()?.querySelector('.cx-panel .cx-actions button:last-child');
   const dialog = () => document.querySelector('.cx-dialog[open]') || document.querySelector('.cx-dialog');
   const choose = (name, value) => { const input = dialog()?.querySelector(`[name="${name}"][value="${value}"]`); assert(input, 'HoYo feedback choice exists'); input.click(); };
   const fill = () => {
@@ -183,9 +184,9 @@ async function smokeCompatibilityHoyo({ leaveSurveyOpen = true } = {}) {
   };
   const openCard = async id => { const toggle = card(id)?.querySelector(`[data-hoyo-toggle="${id}"]`); assert(toggle, 'HoYo client toggle exists'); toggle.click(); await until(() => card(id)?.classList.contains('expanded'), 'HoYo client ' + id); };
   const controller = () => settings()?.__gpController;
-  await until(() => card('client-one')?.classList.contains('expanded') && settings()?.querySelector('.cx-panel'), 'HoYo production settings');
+  await until(() => card('client-one')?.classList.contains('expanded') && feedbackHost()?.querySelector('.cx-panel') && settings(), 'HoYo production settings');
   assert(settings().querySelectorAll('[role="tab"]').length === 2 && !settings().querySelector('[data-gp-action="launch"]'), 'HoYo reuses the two-tab GamePageUi editor without a second launch action');
-  assert(settings().querySelectorAll('.cx-panel').length === 1 && settings().querySelectorAll('.cx-panel .cx-actions .cx-button').length === 1, 'HoYo settings have one feedback operation');
+  assert(!settings().querySelector('.cx-panel') && feedbackHost()?.querySelectorAll('.cx-panel').length === 1 && feedbackHost()?.querySelectorAll('.cx-panel .cx-actions .cx-button').length === 1, 'HoYo outer workflow owns one feedback operation');
   const intensity = settings().querySelector('[data-gp-field="Intensity"]'); assert(intensity, 'HoYo NR intensity exists'); intensity.focus();
   intensity.value = '0.8'; intensity.dispatchEvent(new Event('input', { bubbles: true }));
   await until(() => controller().getState().draft.nr?.Intensity === .8, 'HoYo NR draft');
@@ -211,9 +212,9 @@ async function smokeCompatibilityHoyo({ leaveSurveyOpen = true } = {}) {
   assert(feedback.calls.some(row => row[0] === 'close' && row[1] === switchToken), 'HoYo client switch closes the old feedback context');
   const stale = await window.manager.previewCompatibilityFeedback(switchToken, { ratings: {}, includeLogs: false });
   assert(stale?.ok === false, 'HoYo old token cannot cross clients');
-  await openCard('client-one'); await until(() => settings()?.querySelector('.cx-panel'), 'HoYo first client reattach');
+  await openCard('client-one'); await until(() => feedbackHost()?.querySelector('.cx-panel') && settings(), 'HoYo first client reattach');
   const idle = mock.calls.length + feedback.calls.length; await delay(1200); assert(mock.calls.length + feedback.calls.length === idle, 'idle HoYo ready page does not poll');
-  assert(workspace().querySelectorAll('.game-card.expanded').length === 1 && settings().querySelectorAll('.cx-panel').length === 1, 'HoYo keeps one selected card and one feedback panel');
+  assert(workspace().querySelectorAll('.game-card.expanded').length === 1 && workspace().querySelectorAll('.cx-panel').length === 1, 'HoYo keeps one selected card and one feedback panel');
   if (leaveSurveyOpen) {
     feedbackButton().click(); await until(() => dialog()?.open, 'HoYo final survey');
     const primary = dialog().querySelector('.cx-footer .cx-primary'), rect = primary?.getBoundingClientRect();
@@ -222,5 +223,36 @@ async function smokeCompatibilityHoyo({ leaveSurveyOpen = true } = {}) {
   return { scope: 'production renderer + HoYoPageUi + shared GamePageUi + feedback IPC', assertions, feedbackCalls: feedback.calls.length, previews: feedback.previewCount, saves: feedback.saveCount };
 }
 
+async function smokeCompatibilityHoyoUnready() {
+  const mock = window.__hoyoMock;
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let assertions = 0;
+  const assert = (value, message) => { assertions++; if (!value) throw Error(message); };
+  const until = async (predicate, label, timeout = 7000) => {
+    const start = performance.now();
+    while (performance.now() - start < timeout) { if (predicate()) return; await delay(20); }
+    throw Error('compatibility HoYo unready UI timeout: ' + label);
+  };
+  const workspace = () => document.getElementById('hoyoWorkspace');
+  const current = () => workspace()?.querySelector('.hoyo-current');
+  const panel = () => current()?.querySelector('.cx-panel');
+  const report = () => panel()?.querySelector('.cx-actions button:last-child');
+  await until(() => document.querySelector('[data-view="hoyo"]'), 'HoYo navigation');
+  document.querySelector('[data-view="hoyo"]').click();
+  await until(() => panel() && report(), 'uninstalled HoYo feedback entry');
+  assert(!workspace().querySelector('.hoyo-settings-host') && !report().disabled, 'uninstalled HoYo client exposes feedback before installation');
+  report().click(); await until(() => document.querySelector('.cx-dialog[open]'), 'uninstalled HoYo feedback dialog');
+  document.querySelector('.cx-dialog[open] .cx-footer .cx-quiet').click(); await until(() => !document.querySelector('.cx-dialog[open]'), 'uninstalled HoYo feedback cancel');
+  mock.flow.phase = 'failed'; mock.flow.nextAction = 'inspect'; mock.flow.error = { code: 'FIXTURE_FAILED', message: '受控失败状态' };
+  const inspect = current()?.querySelector('[data-hoyo-action="inspect"]'); assert(inspect && !inspect.disabled, 'failed HoYo client exposes recheck'); inspect.click();
+  await until(() => current()?.querySelector('.cx-panel') && current()?.querySelector('.cx-panel .cx-status')?.textContent.includes('遇到问题'), 'failed HoYo feedback entry');
+  assert(!current().querySelector('.hoyo-settings-host') && !current().querySelector('.cx-panel .cx-actions button:last-child').disabled, 'failed HoYo client keeps feedback reachable');
+  mock.flow.phase = 'binding'; mock.flow.nextAction = 'bind'; mock.flow.error = null;
+  current()?.querySelector('[data-hoyo-action="inspect"]')?.click();
+  await until(() => current()?.querySelector('[data-hoyo-action="bind"]'), 'reset HoYo binding state');
+  return { scope: 'production HoYo outer feedback before install and during failure', assertions };
+}
+
 module.exports.smokeCompatibilityNormal = smokeCompatibilityNormal;
 module.exports.smokeCompatibilityHoyo = smokeCompatibilityHoyo;
+module.exports.smokeCompatibilityHoyoUnready = smokeCompatibilityHoyoUnready;
