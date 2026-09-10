@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import re
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,11 +70,19 @@ def main() -> None:
         'submitted-retirement', 'submitted-retirement-polling', 'retirement-timeout', 'retirement-guards', 'post-output', 'boundary-callbacks']
     results = []
     for case in cases:
-        result = run([str(binary), case], case, 30)
+        # post-output contains 27 complete GPU/readback scenes plus cold shader
+        # setup. Both the old and current Core approach the former 30s budget.
+        # Keep a bounded correctness timeout without changing any assertion;
+        # the smaller queue cases retain their original 30s deadline.
+        timeout = 90 if case == 'post-output' else 30
+        started = time.perf_counter()
+        result = run([str(binary), case], case, timeout)
+        elapsed = time.perf_counter()-started
         print(result.stdout.strip())
         expected = (result.returncode == 41 and 'FAIL ONE_SHOT_RETIRED_ADMISSION' in result.stdout
                     if args.old_policy_negative else result.returncode == 0)
-        results.append({'case': case, 'exit_code': result.returncode, 'expected_result': expected})
+        results.append({'case': case, 'exit_code': result.returncode, 'expected_result': expected,
+                        'elapsed_seconds': elapsed, 'timeout_seconds': timeout})
         if not expected:
             raise RuntimeError(f'Queue retirement case failed: {case}, exit={result.returncode}')
     if any(hashlib.sha256(path.read_bytes()).hexdigest()!=digest for path,digest in fixture_inputs.items()):

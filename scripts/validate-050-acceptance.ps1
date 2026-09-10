@@ -233,10 +233,12 @@ try {
     $CoreBuild = Join-Path $Stage 'core/build'
     $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.8*.addon64')
     if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.8 Core artifacts.' }
+    $ExpectedPeVersion = [Version]$Manifest.integration.core_pe_version
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 4 -or $Version.FileBuildPart -ne 7 -or $Version.FilePrivatePart -ne 12) { throw 'Wrong numeric PE version.' }
+            $ActualPeVersion = [Version]::new($Version.FileMajorPart,$Version.FileMinorPart,$Version.FileBuildPart,$Version.FilePrivatePart)
+            if ($ActualPeVersion -ne $ExpectedPeVersion) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
