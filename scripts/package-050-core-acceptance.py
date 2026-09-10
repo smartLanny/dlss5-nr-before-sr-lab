@@ -57,7 +57,9 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             or manifest['integration'].get('source_commit') != commit
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
-    required = {'canonical pinned full-source staging', 'validate-work-config.py',
+    required = {'dual policy admission/history and independent matched-residual numeric oracle',
+                'dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained',
+                'canonical pinned full-source staging', 'validate-work-config.py',
                 'face tracker exact lifetime WARP and optional native CPU worker',
                 'independent face C1 and original endpoints production WARP',
                 'independent face production C1 negative control',
@@ -121,7 +123,7 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE10_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE11_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     face_assets = {}
     receipt = json.loads(checked_file(binary_root, 'face-backend.json', result['face_backend_receipt_sha256']))
     if receipt['enabled'] != result['face_backend_enabled']:

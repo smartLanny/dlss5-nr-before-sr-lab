@@ -63,7 +63,7 @@ std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0
                     [str(exe)], capture_output=True, text=True, timeout=10,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("PASS 50", result.stdout)
+                self.assertIn("PASS 52", result.stdout)
 
 
 if __name__ == "__main__":

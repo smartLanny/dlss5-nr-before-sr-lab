@@ -64,7 +64,7 @@ enum class Fault {
     Native, UncertainAfter, OtherOwnerAfter, RrDisabled, MasterDisabled, LockBusy,
     OwnershipBusy, Nested, NullList, NullParams, NoGeneration, FeatureUncertain,
     LifecycleUncertain, OtherOwnerBefore, ZeroStrength, IdentityZero,
-    BeforeAndNative
+    BeforeAndNative, OpaqueSecond
 };
 Fault fault = Fault::None;
 unsigned native_calls=0, scope_calls=0, prepare_calls=0, finish_calls=0, restores=0, quarantines=0;
@@ -107,9 +107,12 @@ struct NativeCommandStateScope {
         ++restores; active=false;
         if (before) before_live=false; else after_live=false;
     }
+    void AbandonAfterOpaqueFailure(){active=false;if(before)before_live=false;else after_live=false;}
     ~NativeCommandStateScope() { Restore(); }
 };
-struct PostSrSubstitution { bool active=false; };
+int dual_test_slot=0;
+namespace nr_dual_runtime {void Stamp(ID3D12GraphicsCommandList*,int&,unsigned){}}
+struct PostSrSubstitution { bool active=false;int* slot=&dual_test_slot;NgxResult fatal_recording=0; };
 PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList*, const NgxHandle*, const NgxParams*, const FeatureRecord&) {
     Require(before_live && native_calls==0,"prepare must run before native RR");
     ++prepare_calls;
@@ -125,9 +128,10 @@ FeatureRecord FindFeature(const NgxHandle* handle) {
     return {fault==Fault::Handle ? nullptr : handle, fault==Fault::Feature ? 1 : 13,
             fault==Fault::Generation ? 8u : 7u};
 }
-bool FinishAfterSr(ID3D12GraphicsCommandList*, const NgxParams*, const FeatureRecord&, PostSrSubstitution&) {
+bool FinishAfterSr(ID3D12GraphicsCommandList*, const NgxParams*, const FeatureRecord&, PostSrSubstitution& prepared) {
     Require(after_live && native_calls==1,"finish must run after native RR");
     ++finish_calls;
+    if(fault==Fault::OpaqueSecond){prepared.fatal_recording=-99;return false;}
     return fault!=Fault::Finish;
 }
 void QuarantineAbortedRrTransactionLocked(ID3D12GraphicsCommandList*) { ++quarantines; }
@@ -169,6 +173,7 @@ struct Case {
 };
 int main() {
     const Case cases[] = {
+        {Fault::OpaqueSecond,"opaque second NR failure",0,0,0,1,0,0,0,0,2,1,1,1,1},
         {Fault::None,"success",0,0,0,0,0,1,0,0,2,1,1,2,1},
         {Fault::BeforeState,"before state rejected",1,0,0,0,0,0,0,0,1,0,0,0,1},
         {Fault::Prepare,"preparation declined",0,1,0,0,0,0,0,0,1,1,0,1,1},
@@ -214,7 +219,7 @@ int main() {
             const auto result=ProcessRrPost(Original, fault==Fault::NullList ? nullptr : &list,
                 &handle, fault==Fault::NullParams ? nullptr : &params, nullptr,feature);
             Require(native_calls==1,"native RR must always be called once");
-            Require(result==(fault==Fault::Native || fault==Fault::BeforeAndNative ? -7 : 1),"native status changed");
+            Require(result==(fault==Fault::OpaqueSecond ? -99 : fault==Fault::Native || fault==Fault::BeforeAndNative ? -7 : 1),"native status changed");
             Require(params.output_sentinel==12345,"native output parameter changed");
             Require(g_config.mode==requested_mode,"user mode rewritten");
             Require(!lock_held && !before_live && !after_live,"scope or lock left active");
@@ -242,5 +247,5 @@ int main() {
             "different-or-unproven-device", "F8 depth reject reason changed");
     Require(Value(depth_feedback,"depthAdapter.proxyDeviceMatches","depth") == 7,
             "F8 proxy-device match count missing or changed");
-    std::cout<<"PASS 50 RR diagnostic/control-flow cases (test doubles; no D3D12/NGX/game execution)\n";
+    std::cout<<"PASS 52 RR diagnostic/control-flow cases (test doubles; no D3D12/NGX/game execution)\n";
 }

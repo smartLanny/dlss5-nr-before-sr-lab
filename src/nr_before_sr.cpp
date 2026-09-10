@@ -5100,8 +5100,8 @@ bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
         new_bytes <= kExtraTotalBudget - g_extra_allocated_bytes;
 }
 
-bool CanMutateSlotLocked(const NrSlot& slot);
-bool CanDestroyContextLocked(const NrContext& context);
+bool CanMutateSlotLocked (const NrSlot& slot);
+bool CanDestroyContextLocked (const NrContext& context);
 bool CanRetireDualSlot(void* user) {
     const auto* slot=static_cast<const NrSlot*>(user);
     return slot && slot->dual_owner && !slot->dual_owner->nr_handle && !slot->dual_owner->params &&
@@ -7878,6 +7878,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         constants.region_flags=32u;
     }
     if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
+        kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
+    if(any_combine)nr_dual_capture::recorder.Composition(slot.dual_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OLD = '0542d143584a8eb56364a54c2ad8daae46fcc9c3'
 ADAPTER = '035040cc833053f938afbcdb99521a48551ee5e1'
 D10_ADAPTER = 'f1093ac98eb2069a85194908e93aa7765139441f'
+D11_ADAPTER = 'dd9606498e5283d859999a234db1302f2da87adb'
 AREA = '00e7eecadbb08278fe664c23297d7ca8068776b5'
 PATCH_PATH = 'scripts/patch-post-compat.py'
 AREA_PATH = 'src/interop/nr_post_area.hlsl'
@@ -33,11 +34,17 @@ def shader_transform(data: bytes) -> bytes:
 def verify_contents(base_pin: str, candidate_pin: str, base: bytes, candidate: bytes,
                     base_area: bytes, candidate_area: bytes) -> None:
     if base_pin != candidate_pin and (base_pin, candidate_pin) not in {
-            (OLD, ADAPTER), (OLD, D10_ADAPTER), (ADAPTER, D10_ADAPTER)}:
+            (OLD, ADAPTER), (OLD, D10_ADAPTER), (ADAPTER, D10_ADAPTER),
+            (OLD,D11_ADAPTER),(ADAPTER,D11_ADAPTER),(D10_ADAPTER,D11_ADAPTER)}:
         raise ValueError('Unreviewed post transformation pair')
     if blob_id(base) != base_pin or blob_id(candidate) != candidate_pin:
         raise ValueError('Post transformation bytes do not match their pins')
-    if shader_transform(base) != shader_transform(candidate):
+    # D11 redirects exactly the two raw NR fetch forms through the fused
+    # accessor. Normalize only the reviewed pinned adapter, never arbitrary code.
+    comparison=candidate
+    if candidate_pin==D11_ADAPTER:
+        comparison=candidate.replace(b'LoadFinalNeuralStoredV2(int2(tid.xy))',b'NeuralColor.Load(int3(tid.xy, 0))').replace(b'LoadFinalNeuralStoredV2(int2(coord))',b'NeuralColor.Load(int3(coord, 0))')
+    if shader_transform(base) != shader_transform(comparison):
         raise ValueError('Post shader transformation changed')
     if blob_id(base_area) != AREA or blob_id(candidate_area) != AREA:
         raise ValueError('Post area helper changed')
@@ -60,6 +67,9 @@ def negative_controls() -> None:
     d10=git('show',D10_ADAPTER)
     verify_contents(OLD,D10_ADAPTER,base,d10,area,area)
     verify_contents(ADAPTER,D10_ADAPTER,candidate,d10,area,area)
+    d11=git('show',D11_ADAPTER)
+    verify_contents(OLD,D11_ADAPTER,base,d11,area,area)
+    verify_contents(D10_ADAPTER,D11_ADAPTER,d10,d11,area,area)
     cases = [
         (ADAPTER, OLD, candidate, base, area, area),
         (OLD, '0' * 40, base, candidate, area, area),

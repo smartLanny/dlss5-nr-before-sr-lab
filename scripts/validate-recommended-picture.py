@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 FIELDS = {
+ 'nr_passes':'NRPasses','nr_second_numerator':'NRSecondScaleNumerator','nr_second_denominator':'NRSecondScaleDenominator','generic_residual':'GenericResidualExperiment',
  'mode':'Mode', 'identity_use_original':'IdentityUseOriginalColor',
  'transfer_strength':'TransferStrength', 'post_transfer_strength':'PostTransferStrength',
  'work_mode':'WorkMode', 'custom_work_scale':'CustomWorkScale',
@@ -106,6 +107,9 @@ def main():
   expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
+ for index in range(5):
+  dirty.append(f'c.generic_gains[{index}]=2.f;')
+  checks.append(f'check(c.generic_gains[{index}]==1.f,"neutral generic gain {index}");')
  assert re.search(r'float\s+region_gains\[11\]',struct)
  for index in range(11):
   assert values[f'RegionGain{index}']=='1.0'

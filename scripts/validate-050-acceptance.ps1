@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -56,6 +56,17 @@ try {
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline11') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
+    & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
+    if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
+    & python (Join-Path $Root 'tests/test_nr_dual_reference_math.py')
+    if($LASTEXITCODE){throw 'Dual matched residual numeric oracle failed.'}
+    $DualPolicy=Join-Path $Output 'dual-policy.exe'
+    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror (Join-Path $Root 'tests/nr_dual_policy_test.cpp') -o $DualPolicy
+    if($LASTEXITCODE){throw 'Dual policy compile failed.'}
+    & $DualPolicy
+    if($LASTEXITCODE){throw 'Dual policy admission/opaque failure contract failed.'}
+    $Checks.Add('dual policy admission/history and independent matched-residual numeric oracle')
+
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
             & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler --negative-control
@@ -135,6 +146,9 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -DualGeneric
+        $Checks.Add('dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained')
+
         & (Join-Path $PSScriptRoot 'validate-replay.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'replay')
         $Checks.Add('full-input replay actual WARP capture and independent reader; isolated model lab compile')
         & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --compiler $Compiler --gpu

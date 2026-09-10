@@ -188,12 +188,16 @@ constexpr NgxResult kNgxFailure = 0x801;
 enum class BypassReason {{ LifecycleIsolation = 1 }};
 
 struct FeatureRecord {{ int feature_id = 1; unsigned long long generation = 1; }};
+struct NrSlot {{}};
+namespace nr_dual_runtime {{void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned){{}} void ResolveTiming(ID3D12GraphicsCommandList*,NrSlot&,bool){{}}}}
 struct Substitution {{
+    NgxResult fatal_recording=0;NrSlot* timing_slot=nullptr;
     bool active = false;
     bool compatibility_fallback = false;
     nr_pre_fallback::Cause fallback_cause = nr_pre_fallback::Cause::None;
 }};
 struct PostSrSubstitution {{
+    NgxResult fatal_recording=0;NrSlot* slot=nullptr;
     bool active = false;
     bool redirected_output = false;
 }};
@@ -250,6 +254,7 @@ struct NativeCommandStateScope {{
     explicit NativeCommandStateScope(ID3D12GraphicsCommandList* list)
         : active(g_after_state_active), command_list(list) {{}}
     void Restore() {{ ++g_restore_calls; }}
+    void AbandonAfterOpaqueFailure() {{active=false;}}
 }};
 struct StubTransaction {{
     bool transaction_aborted() const {{ return false; }}
@@ -313,6 +318,14 @@ int main() {{
           g_native_calls == 1 && g_finish_calls == 0 &&
           g_compat_fallback_attempts.load() == 0,
           "pre-active-post-ineligible");
+
+    reset();g_before.fatal_recording=kNgxFailure;
+    result=ProcessRoute(&command,&handle,&params,callback);
+    check(result==kNgxFailure&&!g_native_calls&&!g_prepare_after_calls&&!g_restore_calls,"opaque pre failure records no native SR or state restoration");
+    reset();g_before.compatibility_fallback=true;g_before.fallback_cause=nr_pre_fallback::Cause::InputStorage;
+    g_after.active=true;g_after_admitted=true;g_after.fatal_recording=kNgxFailure;g_finish_result=false;
+    result=ProcessRoute(&command,&handle,&params,callback);
+    check(result==kNgxFailure&&g_native_calls==1&&g_finish_calls==1&&g_restore_calls==3,"opaque post failure never retries native SR or restores GPU command state");
 
     // Unknown or unclassified failures are not repaired by another NR pass.
     for (unsigned cause : {{0u, 6u, 0xffffffffu}}) {{

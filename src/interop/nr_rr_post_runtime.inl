@@ -57,7 +57,8 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     } else nr_post_settings::rr_before_state_rejected.fetch_add(1,std::memory_order_relaxed);
     if(prepared.active) nr_post_settings::last_rr_stage.store(1,std::memory_order_relaxed);
     // Exactly one original RR invocation on EVERY branch. Its HRESULT/status
-    // is returned unchanged; NR failure never retries an already run denoiser.
+    // is retained on ordinary declines. An opaque NR2 failure returns its fatal
+    // status after quarantine; it never retries an already run denoiser.
     if(prepared.active){nr_dual_runtime::Stamp(before.command_list,*prepared.slot,10);nr_dual_runtime::Stamp(before.command_list,*prepared.slot,8);}
     const NgxResult native_result=original(command_list,handle,params,callback);
     if(prepared.active)nr_dual_runtime::Stamp(before.command_list,*prepared.slot,9);

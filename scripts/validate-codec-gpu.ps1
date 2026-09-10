@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions, [switch]$DualGeneric)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -162,6 +162,10 @@ if($FaceProtection) {
     $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--face-protection")==0){ValidateFaceComposition(gpu);return 0;}')
     if($FaceNegativeControl) {$harness=$harness.Replace('if((FaceOptions&2u)!=0u) {','if(false) {')}
 } elseif($FaceNegativeControl) {throw 'Face negative control requires FaceProtection.'}
+if($DualGeneric) {
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',(Get-Content -LiteralPath (Join-Path $projectRoot 'tests/dual_generic_gpu.inl') -Raw -Encoding UTF8))
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--dual-generic")==0){ValidateGenericComposition(gpu);ValidateDualSpatial(gpu);return 0;}')
+}
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
 $writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
 $writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw -Encoding UTF8
@@ -202,6 +206,7 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
+if($DualGeneric){& $binary '--dual-generic';if($LASTEXITCODE){throw 'Dual NR/generic GPU contract failed.'};return}
 if($Regions){& $binary '--regions';if($LASTEXITCODE){throw 'Region compositor GPU contract failed.'};return}
 if($FaceProtection) {
     $faceOutput = & $binary '--face-protection' 2>&1
