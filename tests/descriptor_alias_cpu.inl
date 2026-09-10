@@ -483,6 +483,31 @@ void IdentityNegatives() {
           !g_nr_descriptors.Cpu(cpu_state.cpu,0)&&!g_nr_descriptors.Cpu(proxy_cpu_state.cpu,0),
         "heap retirement removes the native CPU domain without leaving any guessed virtual domain");
 }
+void InactiveClearDoesNotWaitForRegistry() {
+    Check(!g_nr_descriptor_active_call&&!PostBoundaryRecordingActive(),
+        "idle Clear regression runs with both observation scopes inactive");
+    HANDLE complete=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    Check(complete!=nullptr,"idle Clear completion event created");
+    const auto clears=driver_clears,reads=private_reads;
+    AcquireSRWLockExclusive(&g_command_state_lock);
+    HANDLE worker=CreateThread(nullptr,0,[](void *event)->DWORD {
+        const FLOAT values[]={0,0,1,1};
+        PostHookClearUnorderedAccessViewFloat<0>(&native_list,GpuBase(&native_gpu),CpuBase(&native_cpu),
+            &resource,values,0,nullptr);
+        SetEvent(static_cast<HANDLE>(event));return 0;
+    },complete,0,nullptr);
+    const auto while_locked=worker?WaitForSingleObject(complete,1000):WAIT_FAILED;
+    // Always release the lock before reporting failure. The old Snapshot path
+    // must finish and fail this test, rather than leave a hung test process.
+    ReleaseSRWLockExclusive(&g_command_state_lock);
+    const auto joined=worker?WaitForSingleObject(worker,5000):WAIT_FAILED;
+    if(worker)CloseHandle(worker);
+    CloseHandle(complete);
+    Check(worker&&joined==WAIT_OBJECT_0,"idle Clear worker terminates after controlled lock release");
+    Check(while_locked==WAIT_OBJECT_0,"inactive Clear finishes while another thread owns the command registry lock");
+    Check(driver_clears==clears+1&&private_reads==reads,
+        "inactive Clear forwards the original once without any private-data lookup");
+}
 void Run() {
     Initialize();
     const auto failures=g_nr_descriptor_lifetime_failures.load();
@@ -567,6 +592,7 @@ void Run() {
           proxy_use.matches==1&&proxy_use.observed_typed==28&&proxy_use.native_success&&proxy_use.after_native_valid,
         "proxy native call yields exactly one known canonical Output clear without guessing its virtual handle");
     Check(driver_clears==2,"each original native/proxy call reaches the fake backend exactly once");
+    InactiveClearDoesNotWaitForRegistry();
     const auto before=g_nr_descriptors.SnapshotCounters();const auto copies_before=driver_copies;
     NrDescriptorCopyDescriptorsSimple<1>(&proxy_device,1,CpuBase(&proxy_gpu),CpuBase(&proxy_cpu),D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
     const auto after=g_nr_descriptors.SnapshotCounters();
