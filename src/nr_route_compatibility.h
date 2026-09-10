@@ -13,6 +13,7 @@ enum class State { None, PreBlocked, TryingPost, LockedPost, PostBlocked };
 struct Scope {
     std::uint64_t device = 0, feature = 0, config = 0, color = 0, output = 0;
     unsigned requested = 0;
+    bool lifetime_known = false;
     // Exact values, not a hash: descriptors, native view evidence, regions and
     // live exposure/guide identities. Re-observation call counters are absent.
     std::array<std::uint64_t, 48> contract{};
@@ -22,7 +23,8 @@ struct Scope {
 };
 inline bool operator==(const Scope& a, const Scope& b) noexcept {
     return a.device == b.device && a.feature == b.feature && a.config == b.config &&
-        a.color == b.color && a.output == b.output && a.requested == b.requested && a.contract == b.contract;
+        a.color == b.color && a.output == b.output && a.requested == b.requested &&
+        a.lifetime_known == b.lifetime_known && a.contract == b.contract;
 }
 inline const char* Name(State value) noexcept {
     switch (value) {
@@ -58,6 +60,9 @@ inline const char* Notice(const Snapshot& s, bool rr, bool chinese) noexcept {
         "RR selects RR -> NR automatically; your front preference is retained. The displayed result still needs checking; please save F8.";
     if (!s.current || s.state == State::None) return "";
     if (s.scope.requested != 2 && s.state != State::PostBlocked) return "";
+    if (s.post_verified && s.pre_definitive && !s.scope.lifetime_known) return chinese ?
+        "后置执行与写回已有验证，但当前资源的生命周期证据不足，尚未锁定兼容路线；请按 F8 反馈。" :
+        "Post execution/storage are verified, but current resource lifetime coverage is incomplete. The compatibility route is not locked; please save F8.";
     if (s.locked) return chinese ?
         "当前输入合同已确认不支持前置 NR，已固定兼容后置 SR → NR；原设置已保留。执行与写回已验证，最终画面待确认，请按 F8 反馈。" :
         "The current input contract rejects pre-SR NR. SR -> NR is locked for this scope; your preference is retained. Execution/storage are verified, final visuals are not. Please save F8.";
@@ -95,7 +100,7 @@ class Policy {
             token.key.resource_generation == s.output && token.key.subresource == 0;
     }
     void UpdateState() noexcept {
-        value_.locked = value_.current && value_.scope.requested == 2 && value_.pre_rejected &&
+        value_.locked = value_.current && value_.scope.lifetime_known && value_.scope.requested == 2 && value_.pre_rejected &&
             value_.pre_definitive && value_.post_verified && !blocked_;
         value_.state = value_.locked ? State::LockedPost :
             blocked_ && value_.post_attempted ? State::PostBlocked :

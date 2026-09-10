@@ -18,10 +18,10 @@
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
     const auto route=SnapshotNrRoute();
     const auto u=[](std::uint64_t value){return static_cast<unsigned long long>(value);};
-    FeedbackAppend(s,"%s.compat.route=state:%s,current:%d,locked:%d,requested:%u,selected:%u,frame:%llu,scopeFirstFrame:%llu,device:%llu,feature:%llu,config:%llu,color:%llu,output:%llu,attempted:%d,admitted:%d,recorded:%d,submitted:%d,verified:%d,preDefinitive:%d,pre:%s,post:%s,invalidated:%s\n",
+    FeedbackAppend(s,"%s.compat.route=state:%s,current:%d,locked:%d,requested:%u,selected:%u,frame:%llu,scopeFirstFrame:%llu,device:%llu,feature:%llu,config:%llu,color:%llu,output:%llu,lifetimeKnown:%d,attempted:%d,admitted:%d,recorded:%d,submitted:%d,verified:%d,preDefinitive:%d,pre:%s,post:%s,invalidated:%s\n",
         prefix,nr_route::Name(route.state),route.current,route.locked,route.scope.requested,
         route.locked?1u:route.scope.requested,u(route.frame),u(route.first_frame),u(route.scope.device),
-        u(route.scope.feature),u(route.scope.config),u(route.scope.color),u(route.scope.output),
+        u(route.scope.feature),u(route.scope.config),u(route.scope.color),u(route.scope.output),route.scope.lifetime_known,
         route.post_attempted,route.post_admitted,route.post_recorded,route.post_submitted,route.post_verified,
         route.pre_definitive,route.pre_reason,route.post_reason,route.invalidation);
     FeedbackAppend(s,"%s.compat.routeProof=attempt:%llu,tokenFrame:%llu,proofAttempt:%llu,proofFrame:%llu,window:%llu/%llu,descriptor:%d,storage:%d; submitted is this token, verified is its exact scope window; final visuals unverified\n",

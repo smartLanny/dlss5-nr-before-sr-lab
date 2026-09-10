@@ -11,6 +11,7 @@
 #include "nr_native_format.h"
 #include "nr_compatibility_verdict.h"
 #define NR_HAS_ROUTE_COMPATIBILITY 1
+#define NR_HAS_DESCRIPTOR_PROVENANCE 1
 namespace nr_recovery = nr_resource_recovery;
 using NgxResult = unsigned;
 struct Desc {
@@ -27,10 +28,13 @@ struct NgxParams {
     ID3D12Resource* color=nullptr; ID3D12Resource* output=nullptr;
     float exposure=1;
     unsigned x=0;
+    ID3D12Resource* depth=nullptr; ID3D12Resource* motion=nullptr; ID3D12Resource* exposure_texture=nullptr;
 };
 struct FeatureRecord { int feature_id=1,create_flags=1; bool create_flags_known=true; unsigned long long generation=7; };
 bool GetResource(const NgxParams* p,const char* name,ID3D12Resource** value) {
-    *value=!std::strcmp(name,"Color")?p->color:!std::strcmp(name,"Output")?p->output:nullptr;
+    *value=!std::strcmp(name,"Color")?p->color:!std::strcmp(name,"Output")?p->output:
+        !std::strcmp(name,"Depth")?p->depth:!std::strcmp(name,"MotionVectors")?p->motion:
+        !std::strcmp(name,"ExposureTexture")?p->exposure_texture:nullptr;
     return *value!=nullptr;
 }
 bool GetUInt(const NgxParams* p,const char* name,unsigned* value) {
@@ -56,6 +60,12 @@ const char* BypassReasonName(BypassReason value) {
 struct RecoverySnapshot { std::uint64_t frame=0; nr_compatibility_verdict::Input input{}; nr_recovery::Key key{}; } g_nr_recovery_snapshot;
 struct RecoveryCarrier { nr_recovery::Scope scopes[2]{}; RecoverySnapshot snapshot; } recovery_carrier;
 RecoveryCarrier* g_nr_recovery_carrier=&recovery_carrier;
+bool lifetime_receipts=true;
+unsigned lifetime_tracked=0;
+bool NrDescriptorTrackRouteResource(ID3D12Resource* resource,std::uint64_t device,std::uint64_t semantic) {
+    if(resource) lifetime_tracked |= resource->identity==30?1u:resource->identity==40?2u:4u;
+    return lifetime_receipts && resource && device==19 && resource->identity==semantic;
+}
 nr_recovery::Scope g_nr_recovery_scopes[4]{};
 SRWLOCK g_nr_recovery_lock=SRWLOCK_INIT;
 nr_recovery::Ledger<16,32,4> g_nr_recovery;
@@ -96,6 +106,7 @@ void Reset() {
     recovery_carrier.scopes[1]={19,19,1,7,9,1};
     pre_calls=post_gate_calls=native_calls=nr_calls=0;
     pre_definitive=post_admissible=writeback=native_success=nr_success=true;
+    lifetime_receipts=true;lifetime_tracked=0;
     last_token={};
 }
 nr_resource_semantics::Decision PreDecision() {
@@ -192,7 +203,7 @@ void HappyAndRejects() {
 }
 void ScopeControls() {
     Reset();Frame(1);Frame(2);Frame(3);const auto good=SnapshotNrRoute();
-    for(unsigned field=0;field<54;++field) {
+    for(unsigned field=0;field<55;++field) {
         nr_route::Policy policy;policy.Begin(good.scope,1);policy.PreRejected(true,"known-pre-contract");
         policy.AttemptPost();policy.AdmitPost(good.proof_token);policy.RecordedPost(true);
         policy.Begin(good.scope,3);policy.Refresh(good.proof_token,good.proof);
@@ -200,7 +211,8 @@ void ScopeControls() {
         auto changed=good.scope;
         if(field==0)++changed.device;else if(field==1)++changed.feature;else if(field==2)++changed.config;
         else if(field==3)++changed.color;else if(field==4)++changed.output;else if(field==5)changed.requested=1;
-        else ++changed.contract[field-6];
+        else if(field==6)changed.lifetime_known=false;
+        else ++changed.contract[field-7];
         policy.Begin(changed,4);policy.PreRejected(true,"known-pre-contract");policy.AttemptPost();
         policy.AdmitPost(good.proof_token);policy.Refresh(good.proof_token,good.proof);
         Check(!policy.Read().locked,"SCOPE_ORACLE: every resource/config/view/region/exposure field change rejects the old proof");
@@ -250,8 +262,35 @@ void SemanticVerdict() {
     decision.definitive=true;decision.reason="prior-interpretation-validation-failed";
     Check(!nr_route::DefinitivePreSemantic(decision),"shared/model validation failure is not PRE contract incompatibility");
 }
+void RetirementCallbacks() {
+    for(unsigned role=0;role!=6;++role) {
+        Reset();ID3D12Resource guide{50};
+        if(role==3)params.depth=&guide;else if(role==4)params.motion=&guide;else if(role==5)params.exposure_texture=&guide;
+        Frame(1);Frame(2);Frame(3);
+        Check(SnapshotNrRoute().locked,"retirement control begins with a verified lock");
+        Check(lifetime_tracked==(role>=3?7u:3u),"every current main and present guide resource requests a shared lifetime receipt");
+        NrRouteRetireResource(0);NrRouteRetireResource(900);NrRouteRetireDevice(900);
+        Check(SnapshotNrRoute().locked,"unrelated and absent lifetime IDs do not invalidate the current route");
+        if(role==0)NrRouteRetireResource(color.identity);
+        else if(role==1)NrRouteRetireResource(output.identity);
+        else if(role==2)NrRouteRetireDevice(19);
+        else NrRouteRetireResource(guide.identity);
+        NrRouteRefreshProof(last_token);
+        const auto retired=SnapshotNrRoute();
+        Check(!retired.current&&!retired.locked&&!retired.post_verified,
+              "LIFETIME_ORACLE: current Color/Output/device/guide retirement immediately revokes without another Evaluate");
+        Check(std::string_view(retired.invalidation)==(role==2?"device-retired":"resource-retired"),
+              "retirement reason remains explicit after old proof arrives");
+    }
+    Reset();lifetime_receipts=false;Frame(1);Frame(2);Frame(3);
+    const auto unavailable=SnapshotNrRoute();
+    Check(unavailable.post_verified&&!unavailable.scope.lifetime_known&&!unavailable.locked,
+          "LIFETIME_COVERAGE_ORACLE: absent notifier receipts prevent a route lock without blocking POST execution");
+    Check(std::string_view(nr_route::Notice(unavailable,false,true)).find("生命周期证据不足")!=std::string_view::npos,
+          "missing lifetime coverage remains explicit in the notice");
+}
 int main() {
-    HappyAndRejects();ScopeControls();SemanticVerdict();
+    HappyAndRejects();ScopeControls();SemanticVerdict();RetirementCallbacks();
     std::printf("ROUTE_CPU %s checks=%u failures=%u; production route gate/runtime/recovery producers/F8, real Win32 value locks; API/NR facts scripted; no GPU/game\n",
         failures?"FAIL":"PASS",checks,failures);
     return failures?41:0;

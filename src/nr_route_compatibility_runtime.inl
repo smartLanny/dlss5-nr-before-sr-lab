@@ -21,6 +21,21 @@ void NrRouteRetireFeature(unsigned long long generation) {
     if (g_nr_route.Read().scope.feature == generation) g_nr_route.Invalidate("feature-retired");
     ReleaseSRWLockExclusive(&g_nr_route_lock);
 }
+void NrRouteRetireResource(std::uint64_t identity) {
+    if (!identity) return;
+    AcquireSRWLockExclusive(&g_nr_route_lock);
+    const auto scope = g_nr_route.Read().scope;
+    if (scope.color == identity || scope.output == identity ||
+        scope.contract[36] == identity || scope.contract[37] == identity || scope.contract[38] == identity)
+        g_nr_route.Invalidate("resource-retired");
+    ReleaseSRWLockExclusive(&g_nr_route_lock);
+}
+void NrRouteRetireDevice(std::uint64_t identity) {
+    if (!identity) return;
+    AcquireSRWLockExclusive(&g_nr_route_lock);
+    if (g_nr_route.Read().scope.device == identity) g_nr_route.Invalidate("device-retired");
+    ReleaseSRWLockExclusive(&g_nr_route_lock);
+}
 void NrRouteRefreshProof(const nr_recovery::Token& token) {
     if (!token || token.key.scope.mode != 1 || token.key.role != 1) return;
     AcquireSRWLockShared(&g_nr_recovery_lock);
@@ -64,6 +79,12 @@ nr_route::Scope NrRouteScope(const NgxParams* params, const FeatureRecord& featu
     ID3D12Resource* resources[2]{};
     GetResource(params, "Color", &resources[0]); GetResource(params, "Output", &resources[1]);
     key.color = NrFormatResourceIdentity(resources[0]); key.output = NrFormatResourceIdentity(resources[1]);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    // Reuse the descriptor observer's metadata-only lifetime notifications.
+    // These calls are outside the route lock and do not own game resources.
+    key.lifetime_known = NrDescriptorTrackRouteResource(resources[0], key.device, key.color) &&
+        NrDescriptorTrackRouteResource(resources[1], key.device, key.output);
+#endif
     for (unsigned role = 0; role != 2; ++role) {
         if (!resources[role]) continue;
         const auto desc = ID3D12Resource_GetDesc(resources[role]);
@@ -92,7 +113,13 @@ nr_route::Scope NrRouteScope(const NgxParams* params, const FeatureRecord& featu
     const char* guides[] = {"Depth", "MotionVectors", "ExposureTexture"};
     for (unsigned i = 0; i != 3; ++i) {
         ID3D12Resource* resource = nullptr;
-        if (GetResource(params, guides[i], &resource)) key.contract[36 + i] = NrFormatResourceIdentity(resource);
+        if (GetResource(params, guides[i], &resource)) {
+            key.contract[36 + i] = NrFormatResourceIdentity(resource);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+            if (resource && !NrDescriptorTrackRouteResource(resource, key.device, key.contract[36 + i]))
+                key.lifetime_known = false;
+#endif
+        }
     }
     const char* scalars[] = {"DLSS.Pre.Exposure", "DLSS.Exposure.Scale", "MV.Scale.X", "MV.Scale.Y"};
     for (unsigned i = 0; i != 4; ++i) {
