@@ -4,3 +4,5 @@ resources/fg-mfgunlock/LICENSE -text
 resources/fg-mfgunlock/README.md -text
 # Preserve the exact asset bytes pinned by the legacy runtime manifest.
 resources/legacy-runtime/** -text
+# The shipped helper metadata also pins the raw source digest.
+src/native/load-helper.cpp -text
