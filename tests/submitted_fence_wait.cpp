@@ -284,6 +284,17 @@ int main() {
     Immediate(); Delayed(false, false, nr_timing::WaitMode::Event); Delayed(false, true, nr_timing::WaitMode::Event);
     Delayed(true, false, nr_timing::WaitMode::Event); Delayed(false, false, nr_timing::WaitMode::Polling);
     RegistrationRace(); TimeoutLateAndOtherTarget(); Removed(); Timing();
+    NrTimingSetProbePolicy(2,20);
+    {
+        NrTimingCarrierScope frame;frame.Begin(2200,2,5,1,3);
+        NrTimingSetResource(3,12,12,1,5);NrTimingSetTarget(12,12,0);
+        NrTimingOutputTransitionsRecorded();
+    }
+    const auto state_only=Snapshot();
+    Check(state_only.probe.mode==2 && state_only.probe.phase==20 && state_only.recent_count==1 &&
+          (state_only.recent[0].detail.flags & nr_timing::OutputTransitionsOnly)!=0 &&
+          !(state_only.recent[0].detail.flags & (nr_timing::ProbeDispatched|nr_timing::DeltaStatsRecorded|nr_timing::ReadbackMapped)),
+          "state-only barrier receipt has its own phase and cannot masquerade as sampling or readback");
     std::printf("SUBMITTED_FENCE_CPU %s checks=%u failures=%u; real Win32 events/QPC, CPU fence callback fixture, no GPU/device/NGX\n",
                 failures ? "FAIL" : "PASS", checks, failures);
     return failures ? 41 : 0;

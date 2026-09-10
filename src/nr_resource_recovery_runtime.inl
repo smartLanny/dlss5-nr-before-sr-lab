@@ -235,14 +235,15 @@ void NrRecoveryRetireSlot(NrSlot& slot, bool safe) {
     g_nr_recovery.RetireInactiveResource(slot.recovery_token.key, {true, true, true});
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
 }
-bool NrRecoveryNeedsProbe(const NrSlot& slot) {
+bool NrRecoveryNeedsProbe(const NrSlot& slot, unsigned comparison_only_probes=0) {
     if (!slot.recovery_token) return false;
     AcquireSRWLockShared(&g_nr_recovery_lock);
     const auto proof = g_nr_recovery.Read(slot.recovery_token.key, slot.recovery_token.signature);
     ReleaseSRWLockShared(&g_nr_recovery_lock);
     // At most four extra sparse probes for this slot/interpretation; no extra
     // model calls. The regular periodic sample remains the fallback.
-    return !proof.writeback_verified && proof.state != nr_recovery::State::Latched && slot.recovery_probe_count < 4;
+    return !proof.writeback_verified && proof.state != nr_recovery::State::Latched &&
+        slot.recovery_probe_count < 4 && comparison_only_probes < 4-slot.recovery_probe_count;
 }
 bool NrRecoveryMayRecord(const NrSlot& slot) {
     if (!slot.recovery_token) return true;

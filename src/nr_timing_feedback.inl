@@ -70,7 +70,7 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
             static_cast<unsigned>(d.wait_registration),u(r.started_ticks),u(r.duration_ticks),r.clock_known,
             u(origin.epoch),u(origin.probe.phase),u(origin.wait.phase),u(origin.frame),u(origin.feature),u(origin.config),origin.mode);
     }
-    FeedbackAppend(session,"%s.timing.flagKey=1:carrier-known,2:resource-known,4:command-observed,8:NR-returned,16:native-returned,32:reset-bound,64:probe-dispatched,128:carrier-finished,256:readback-mapped,512:readback-origin-known,1024:exposure-reset-pending,2048:mixed-readback-origins,4096:delta-stats-recorded,8192:target-known,16384:API-returned,32768:API-result-known\n"
+    FeedbackAppend(session,"%s.timing.flagKey=1:carrier-known,2:resource-known,4:command-observed,8:NR-returned,16:native-returned,32:reset-bound,64:probe-dispatched,128:carrier-finished,256:readback-mapped,512:readback-origin-known,1024:exposure-reset-pending,2048:mixed-readback-origins,4096:delta-stats-recorded,8192:target-known,16384:API-returned,32768:API-result-known,65536:output-state-transitions-only\n"
         "%s.timing.resetReasonKey=1:first-create,2:game-reset,4:history-changed,8:color-contract,16:guide-changed,32:retry-pending,64:exposure-readback\n"
         "%s.timing.waitMethodKey=0:polling,1:event,2:polling-fallback,3:event-then-polling,4:not-waited\n"
         "%s.timing.waitFallbackKey=0:none,1:event-create,2:event-reset,3:registration,4:earlier-registration,5:wait-failed\n"

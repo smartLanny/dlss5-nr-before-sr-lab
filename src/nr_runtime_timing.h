@@ -17,7 +17,7 @@ enum Flag : unsigned {
     ReadbackMapped = 256u, ReadbackOriginKnown = 512u,
     ExposureResetPending = 1024u, MixedReadbackOrigins = 2048u,
     DeltaStatsRecorded = 4096u, TargetKnown = 8192u,
-    ApiReturned = 16384u, ApiResultKnown = 32768u
+    ApiReturned = 16384u, ApiResultKnown = 32768u, OutputTransitionsOnly = 65536u
 };
 enum ResetReason : unsigned {
     FirstCreate = 1u, GameReset = 2u, HistoryChanged = 4u,

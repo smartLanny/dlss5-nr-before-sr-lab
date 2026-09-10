@@ -16,11 +16,18 @@ int main() {
     Check(control.Read().phase==2 && !control.Read().AutomaticSampling(),"pause has distinct phase");
     Check(recording.phase==1 && recording.AutomaticSampling(),"pending recording retains its old identity");
     Check(!control.Change(static_cast<Mode>(9)) && control.Read().phase==2,"unknown policy is rejected");
+    Check(control.Change(Mode::OutputTransitionsOnly),"state-only comparison accepted");
+    Check(control.Read().phase==3 && control.Read().OutputTransitionsOnly() &&
+          control.Read().ScheduleCheckpoint() && !control.Read().AutomaticSampling(),
+          "state-only comparison schedules barriers without enabling automatic reads");
+    Check(!control.Change(Mode::OutputTransitionsOnly) && control.Read().phase==3,"state-only reread preserves phase");
+    Check(!control.Change(static_cast<Mode>(3)),"unused packed mode is rejected");
+    Control concurrent;
     std::atomic<bool> done{false};
-    std::thread writer([&]{for(unsigned i=0;i<20000;++i)control.Change(i%2?Mode::Paused:Mode::Normal);done.store(true);});
+    std::thread writer([&]{for(unsigned i=0;i<20000;++i)concurrent.Change(static_cast<Mode>((i+1)%3));done.store(true);});
     while(!done.load()){
-        const auto snapshot=control.Read();
-        Check((snapshot.phase&1)==static_cast<unsigned>(snapshot.AutomaticSampling()),
+        const auto snapshot=concurrent.Read();
+        Check((snapshot.phase-1)%3==static_cast<unsigned>(snapshot.mode),
               "concurrent feedback cannot pair mode with a different phase");
     }
     writer.join();

@@ -24,7 +24,7 @@ void NrTimingIncrement(std::uint64_t& value, std::uint64_t amount = 1) {
     else value += amount;
 }
 void NrTimingSetPolicy(bool probe, unsigned mode, std::uint64_t phase) {
-    if (mode > 1) return;
+    if (mode > (probe ? 2u : 1u)) return;
     AcquireSRWLockExclusive(&g_nr_timing_lock);
     auto next_probe = g_nr_timing.probe, next_wait = g_nr_timing.wait;
     auto& next = probe ? next_probe : next_wait;
@@ -269,6 +269,9 @@ nr_timing::Identity NrTimingProbeDispatched() {
 nr_timing::Identity NrTimingDiagnosticRecorded() {
     if (g_nr_timing_carrier) g_nr_timing_carrier->detail.flags |= nr_timing::DeltaStatsRecorded;
     return NrTimingCurrentIdentity();
+}
+void NrTimingOutputTransitionsRecorded() {
+    if (g_nr_timing_carrier) g_nr_timing_carrier->detail.flags |= nr_timing::OutputTransitionsOnly;
 }
 void NrTimingReadbackOrigin(const nr_timing::Identity& origin, bool mapped, bool exposure_pending) {
     if (auto* frame = g_nr_timing_carrier) {

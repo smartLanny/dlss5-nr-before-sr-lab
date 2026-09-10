@@ -722,11 +722,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         SettingsSection(ui("Flicker comparison", "闪烁对照"));
         int probe_mode = static_cast<int>(NrProbePolicySnapshot().mode);
         if (ImGui::Combo(ui("Automatic diagnostic sampling", "自动诊断采样"), &probe_mode,
-                ui("Normal sampling\0Pause sampling\0", "正常采样\0暂停采样\0")))
+                ui("Normal sampling\0Pause sampling\0Output state transitions only\0", "正常采样\0暂停采样\0仅切换输出状态\0")))
             SetNrProbePolicy(static_cast<nr_probe_policy::Mode>(probe_mode));
         ImGui::TextWrapped("%s", ui(
             "This session only. NR keeps processing. Switching does not save settings or reset model history. Compare the same scene without taking image captures; already submitted readbacks may still finish. F8 text remains available.",
             "仅本次运行有效，NR 继续处理。切换不保存设置、不重置模型历史。请在同一场景对比，期间不要进行图像采集；此前已提交的读回仍会完成。仍可按 F8 获取文字反馈。"));
+        if (probe_mode==static_cast<int>(nr_probe_policy::Mode::OutputTransitionsOnly))
+            ImGui::TextWrapped("%s",ui(
+                "At diagnostic checkpoints, keep only the output UAV/read-state/UAV barrier sequence. No new automatic sample shader or readback is recorded. Compare flicker and visible enhancement separately; this does not certify a picture fix.",
+                "在诊断采样点仅保留输出状态切换，不新增自动采样着色器或读回。请分别记录是否闪烁、增强是否持续可见；该对照不代表画面已修复。"));
 #if NR_HAS_TIMING
         SettingsSection(ui("Stutter comparison", "卡顿对照"));
         const auto timing_policy=NrTimingPolicySnapshot();

@@ -303,6 +303,13 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.probeControl.note=automatic GPU samples including recovery probes only; explicit image captures remain independent; pending samples keep original phase; mode change is not a config generation or model reset\n",
         prefix,static_cast<unsigned long long>(probe_policy.phase),
         prefix,nr_probe_policy::Name(probe_policy.mode),prefix,prefix,prefix);
+    const auto transition=SnapshotNrOutputTransitionEvidence();
+    FeedbackAppend(s,"%s.probeControl.stateOnly=phase:%llu,current:%d,count:%u,frame:%llu,config:%u,feature:%llu,mode:%u,target:%llu,before:%u,readState:%u,after:%u\n"
+        "%s.probeControl.stateOnlyMeaning=recorded output barriers only; no new diagnostic shader/clear/readback or recovery proof; same bounded checkpoints, pending old readbacks remain independent; not submitted or displayed-pixel proof\n",
+        prefix,static_cast<unsigned long long>(transition.phase),transition.phase==probe_policy.phase?1:0,
+        transition.count,static_cast<unsigned long long>(transition.frame),transition.config,
+        static_cast<unsigned long long>(transition.feature),transition.mode,static_cast<unsigned long long>(transition.target),
+        transition.before,transition.read_state,transition.after,prefix);
 #endif
     const auto stored=SnapshotPostStoreEvidence();
 #if NR_HAS_TIMING

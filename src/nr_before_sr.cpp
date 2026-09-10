@@ -892,11 +892,27 @@ ChainConfig g_config = {};
 ULONGLONG g_config_read_tick = 0;
 CRITICAL_SECTION g_chain_cs;
 nr_probe_policy::Control g_nr_probe_policy;
+struct NrOutputTransitionEvidence {
+    std::uint64_t phase=1, frame=0, feature=0, target=0;
+    unsigned config=0, mode=0, count=0, before=0, read_state=0, after=0;
+};
+SRWLOCK g_nr_output_transition_lock=SRWLOCK_INIT;
+NrOutputTransitionEvidence g_nr_output_transition_evidence;
+NrOutputTransitionEvidence SnapshotNrOutputTransitionEvidence() {
+    AcquireSRWLockShared(&g_nr_output_transition_lock);
+    const auto value=g_nr_output_transition_evidence;
+    ReleaseSRWLockShared(&g_nr_output_transition_lock);
+    return value;
+}
 nr_probe_policy::Snapshot NrProbePolicySnapshot() { return g_nr_probe_policy.Read(); }
 void SetNrProbePolicy(nr_probe_policy::Mode mode) {
     EnterCriticalSection(&g_chain_cs);
     if (g_nr_probe_policy.Change(mode)) {
         const auto policy = NrProbePolicySnapshot();
+        AcquireSRWLockExclusive(&g_nr_output_transition_lock);
+        g_nr_output_transition_evidence={};
+        g_nr_output_transition_evidence.phase=policy.phase;
+        ReleaseSRWLockExclusive(&g_nr_output_transition_lock);
 #if NR_HAS_TIMING
         NrTimingSetProbePolicy(static_cast<unsigned>(policy.mode),policy.phase);
 #endif
@@ -4183,6 +4199,8 @@ struct NrSlot {
     nr_resource_recovery::Token recovery_token{};
     nr_resource_recovery::Target recovery_target{};
     unsigned recovery_probe_count = 0;
+    unsigned output_transition_probe_count = 0;
+    std::uint64_t output_transition_phase = 0;
     NrCaptureParams capture_params = {};
     NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
@@ -7433,8 +7451,13 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
     // one periodic checkpoint. One-shot stage capture remains immediate.
     const unsigned int current_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool should_sample_delta = NrProbePolicySnapshot().AutomaticSampling() &&
-        (NrRecoveryNeedsProbe(slot) || context.evaluations < 3 ||
+    const auto policy=NrProbePolicySnapshot();
+    if (slot.output_transition_phase!=policy.phase) {
+        slot.output_transition_phase=policy.phase;
+        slot.output_transition_probe_count=0;
+    }
+    const bool should_sample_delta = policy.ScheduleCheckpoint() &&
+        (NrRecoveryNeedsProbe(slot,policy.OutputTransitionsOnly()?slot.output_transition_probe_count:0) || context.evaluations < 3 ||
         context.config_generation != current_generation ||
         (context.evaluations % 120) == 0);
     if (should_sample_delta && !slot.delta_stats_pending &&
@@ -7542,17 +7565,21 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const auto probe_policy = NrProbePolicySnapshot();
-    const bool capture_delta = probe_policy.AutomaticSampling() && any_combine &&
+    const bool checkpoint_ready = any_combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
-    const bool probe_post_store = capture_delta && slot.snapshots_native_output &&
+    const bool capture_delta = probe_policy.AutomaticSampling() && checkpoint_ready;
+    const bool post_store_target = checkpoint_ready && slot.snapshots_native_output &&
         g_config.mode == 1 && slot.snapshot_heap != nullptr && g_codec.post_store_probe != nullptr &&
         ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
-    const bool probe_pre_store = capture_delta && !slot.snapshots_native_output &&
+    const bool pre_store_target = checkpoint_ready && !slot.snapshots_native_output &&
         slot.owns_result && g_config.mode == 2 && slot.pre_store_probe_heap != nullptr &&
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT && g_codec.post_store_probe != nullptr &&
         ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
+    const bool probe_post_store = capture_delta && post_store_target;
+    const bool probe_pre_store = capture_delta && pre_store_target;
+    const bool transition_only = probe_policy.OutputTransitionsOnly() && (post_store_target || pre_store_target);
     unsigned int source_flags = hdr_input ? 0u : 1u;
     if (color_mode == CodecColorMode::LinearSdr)
         source_flags = 16u;
@@ -7767,6 +7794,34 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.stage_capture.pending = true;
         slot.stage_capture.armed = false;
         RetireStageCaptureOwnerLocked(slot);
+    }
+    if (transition_only) {
+        // Same target barrier round trip as a sampled frame, without the
+        // diagnostic clear, shader reads/atomics, descriptor change or copy.
+        // This is an explicit comparison mode, never a recovery readback.
+        const auto before=slot.result_state;
+        UavBarrier(command_list,slot.result);
+        Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(command_list,slot.result,slot.result_state,before);
+        const auto target=NrFormatResourceIdentity(slot.result);
+        AcquireSRWLockExclusive(&g_nr_output_transition_lock);
+        auto& evidence=g_nr_output_transition_evidence;
+        if (evidence.phase==probe_policy.phase) {
+            if(evidence.count!=UINT_MAX)++evidence.count;
+            evidence.frame=slot.diagnostic_identity.frame_id;
+            evidence.config=g_config_generation.load(std::memory_order_relaxed);
+            evidence.feature=slot.diagnostic_feature_generation;
+            evidence.target=target;evidence.mode=g_config.mode;
+            evidence.before=static_cast<unsigned>(before);
+            evidence.read_state=static_cast<unsigned>(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            evidence.after=static_cast<unsigned>(slot.result_state);
+        }
+        ReleaseSRWLockExclusive(&g_nr_output_transition_lock);
+        if(slot.output_transition_probe_count!=UINT_MAX)++slot.output_transition_probe_count;
+        slot.delta_stats_capture_armed=false;
+#if defined(NR_HAS_TIMING)
+        NrTimingOutputTransitionsRecorded();
+#endif
     }
     if (probe_post_store || probe_pre_store) {
         // Read the stored target while the same slot/recording owns it. Only
