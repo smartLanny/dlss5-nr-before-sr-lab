@@ -17,6 +17,12 @@ void DrawUi(ChainConfig& next,bool& changed,bool& discrete) {
     const char* en[]={"Off","Primary warming","Secondary warming","Waiting for Create completion","Two NR passes recorded","Guides unavailable; single NR retained","Resources unavailable; single NR retained","Waiting for ordered queue","Waiting for reusable resources","Secondary failure; restart required"};
     ImGui::TextWrapped("%s",zh?cn[static_cast<unsigned>(value)]:en[static_cast<unsigned>(value)]);
     ImGui::TextWrapped(zh?"实际尺寸：%u × %u → %u × %u；第二层成功录制 %llu 次。":"Actual sizes: %u x %u -> %u x %u; secondary recordings: %llu.",primary_width.load(),primary_height.load(),second_width.load(),second_height.load(),second_evaluations.load());
+    ImGui::TextWrapped(zh?"辅助纹理：%.1f MiB（全池上限 1024 MiB；不含模型内部显存）。":"Auxiliary textures: %.1f MiB (pool limit 1024 MiB; excludes model internals).",double(g_dual_allocated_bytes.load())/(1024*1024));
+    const unsigned count=time_samples.load(std::memory_order_acquire);
+    if(count) {
+        ImGui::TextWrapped(zh?"GPU 稳定样本 %u：链路中位 %.2f ms / P95 %.2f ms；第二层 %.2f ms。":"Stable GPU samples %u: chain median %.2f ms / P95 %.2f ms; NR2 %.2f ms.",count,time_median[5].load(),time_p95[5].load(),time_median[2].load());
+        SettingsNote(zh?"此处只计 NR 与 SR 链路，不代表游戏整帧耗时；切换后的暖机不纳入稳定窗口。":"This measures the NR/SR chain, not the whole game frame; switch warmup is excluded.");
+    }
     if(value==Status::UnsupportedGuides||value==Status::ResourceBudget||value==Status::Failed)
         SettingsNote(zh?"请用 F8 上传反馈；画质和性能需在游戏中对比。":"Use F8 to upload feedback; compare quality and performance in the game.");
 }

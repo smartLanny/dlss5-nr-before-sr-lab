@@ -130,6 +130,13 @@ $DualObject=Join-Path $Objects 'nr_dual_spatial_d3d12.o'
 if($LASTEXITCODE){throw 'Second NR spatial module compilation failed.'}
 $ObjectFiles += $DualObject
 
+$CodecCompiler=Join-Path $Build 'compile-codec-artifact.exe'
+& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' (Join-Path $PSScriptRoot 'compile-codec-artifact.cpp') '-ld3dcompiler' '-o' $CodecCompiler
+if($LASTEXITCODE){throw 'Codec artifact compiler build failed.'}
+& python (Join-Path $PSScriptRoot 'prepare-codec-artifacts.py') --source (Join-Path $ProjectRoot 'src/nr_before_sr.cpp') --compiler $CodecCompiler --output $Build --workers 2
+if($LASTEXITCODE){throw 'Frozen shader artifact generation failed.'}
+$Common += '-DNR_CODEC_PRECOMPILED=1'
+
 $BridgeSource = Join-Path $ProjectRoot 'src\nrchain_nvngx.cpp'
 $BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
 & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject

@@ -44,6 +44,9 @@
 #include "nr_pre_fallback.h"
 #include "nr_face_worker.h"
 #include "nr_dual_spatial_d3d12.hpp"
+#if NR_CODEC_PRECOMPILED
+#include "../build/nr_codec_precompiled.h"
+#endif
 #ifndef NR_FACE_BACKEND
 #define NR_FACE_BACKEND 0
 #endif
@@ -2365,6 +2368,12 @@ constexpr UINT kCodecRootConstantCount = 60;
 static_assert(kCodecRootConstantCount+1<=64,"D3D12 root DWORD budget");
 
 const char kCodecShader[] = R"HLSL(
+#ifndef NR_DUAL_REDUCED
+#define NR_DUAL_REDUCED 0
+#endif
+#ifndef NR_DUAL_DOMAIN
+#define NR_DUAL_DOMAIN 0
+#endif
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
 // shoulder only to highlights. Composition is a conservative source-domain
 // delta graft: the game HDR image remains the base and only the model's change
@@ -2822,22 +2831,28 @@ float3 NRDualEncode(float3 v, uint domain) {
 // L1/L2 remain intact for NGX history and capture. This accessor still fuses
 // restoration into the existing final read; it adds no N1 write or new SR.
 float4 NRDualFinalStored(int2 pixel,uint2 mainSize,uint2 lowSize,uint domain) {
+    const bool legal=all(mainSize!=0)&&all(lowSize!=0)&&domain<=1;
+    mainSize=max(mainSize,1u);lowSize=max(lowSize,1u);
     pixel=clamp(pixel,0,int2(mainSize)-1);
     float4 primary=NR_DUAL_MAIN.Load(int3(pixel,0));
-    if(!NRDualFinite(primary.rgb)||any(lowSize==0)||domain>1)return primary;
     float2 pos=(float2(pixel)+.5)*float2(lowSize)/float2(mainSize)-.5;
     int2 base=int2(floor(pos));float2 f=frac(pos);
-    float3 delta=0;bool valid=true;
-    [unroll] for(uint i=0;i<4;i++) {
-        int2 o=int2(i&1u,i>>1);float weight=(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
-        if(weight<=0)continue;
-        float4 tap=NR_DUAL_DELTA.Load(int3(clamp(base+o,0,int2(lowSize)-1),0));
-        if(tap.a!=1||!all(isfinite(tap.rgb))){valid=false;continue;}
-        delta+=weight*tap.rgb;
-    }
-    if(!valid||all(delta==0))return primary;
+    // Explicit four taps keep SM5's inliner from expanding an unrolled loop at
+    // every existing neighbourhood read. Invalid values are selected away
+    // before multiplication, so zero-weight invalid taps remain harmless.
+    int2 upper=int2(lowSize)-1;
+    float4 a=NR_DUAL_DELTA.Load(int3(clamp(base,0,upper),0));
+    float4 b=NR_DUAL_DELTA.Load(int3(clamp(base+int2(1,0),0,upper),0));
+    float4 c=NR_DUAL_DELTA.Load(int3(clamp(base+int2(0,1),0,upper),0));
+    float4 d=NR_DUAL_DELTA.Load(int3(clamp(base+int2(1,1),0,upper),0));
+    bool av=a.a==1&&all(isfinite(a.rgb)),bv=b.a==1&&all(isfinite(b.rgb));
+    bool cv=c.a==1&&all(isfinite(c.rgb)),dv=d.a==1&&all(isfinite(d.rgb));
+    float wa=(1-f.x)*(1-f.y),wb=f.x*(1-f.y),wc=(1-f.x)*f.y,wd=f.x*f.y;
+    float3 delta=wa*(av?a.rgb:0)+wb*(bv?b.rgb:0)+wc*(cv?c.rgb:0)+wd*(dv?d.rgb:0);
+    bool valid=legal&&NRDualFinite(primary.rgb)&&(wa<=0||av)&&(wb<=0||bv)&&(wc<=0||cv)&&(wd<=0||dv);
     float3 result=NRDualEncode(NRDualDecode(primary.rgb,domain)+delta,domain);
-    return NRDualFinite(result)?float4(result,primary.a):primary;
+    const bool apply=valid&&any(delta!=0)&&NRDualFinite(result);
+    return float4(apply?result:primary.rgb,primary.a);
 }
 #endif
 
@@ -2862,8 +2877,9 @@ float3 GenericRgbV1(float3 hsl) {
 float4 LoadFinalNeuralStoredV2(int2 p) {
     p=clamp(p,int2(0,0),int2(max(ModelWidth,1u),max(ModelHeight,1u))-1);
     float4 answer=NeuralColor.Load(int3(p,0));
-    [branch] if(DualResidualEnabled!=0u)
-        answer=NRDualFinalStored(p,uint2(ModelWidth,ModelHeight),DualLowSize,DualModelDomain);
+#if NR_DUAL_REDUCED
+    answer=NRDualFinalStored(p,uint2(ModelWidth,ModelHeight),DualLowSize,NR_DUAL_DOMAIN);
+#endif
     return answer;
 }
 float4 ApplyGenericStoredV1(float3 original,float4 answer) {
@@ -4033,7 +4049,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float2 center = float2(tid.xy) + 0.5;
     float3 proxy = SampleProxyLinearV2(center);
     float3 neural = SampleNeuralLinearV2(center);
-    [branch] if((RegionFlags&32u)!=0u) {
+    [branch] if((RegionFlags&32u)!=0u && (RegionWideBrightLuma!=1 || RegionWideBrightColor!=1 || RegionFineBrightLuma!=1 || RegionFineBrightColor!=1 || RegionWideDarkLuma!=1)) {
         float3 pStored=(Passthrough&1u)!=0u?proxy:LinearToSRGB(proxy);
         float3 nStored=(Passthrough&1u)!=0u?neural:LinearToSRGB(neural);
         nStored=ApplyGenericStoredV1(pStored,float4(nStored,1)).rgb;
@@ -4363,10 +4379,17 @@ void ResampleMotionCS(uint3 tid : SV_DispatchThreadID) {
 }
 )HLSL";
 
-ID3DBlob *CompileCodecShader(const char *entry, bool face = false) {
+ID3DBlob *CompileCodecShader(const char *entry, bool face = false, int dual_domain = -1) {
     ID3DBlob *shader = nullptr;
     ID3DBlob *errors = nullptr;
-    const D3D_SHADER_MACRO macros[]={{"NR_FACE_SHADER_ENABLE",face?"1":"0"},{nullptr,nullptr}};
+#if NR_CODEC_PRECOMPILED
+    const auto artifact=nr_codec_precompiled::Find(entry,face,dual_domain);
+    if(!artifact.data||!artifact.size){Log("Missing embedded codec shader: %s face=%d dual=%d",entry,face?1:0,dual_domain);return nullptr;}
+    if(FAILED(D3DCreateBlob(artifact.size,&shader))||!shader)return nullptr;
+    std::memcpy(ID3D10Blob_GetBufferPointer(shader),artifact.data,artifact.size);return shader;
+#else
+    const D3D_SHADER_MACRO macros[]={{"NR_FACE_SHADER_ENABLE",face?"1":"0"},
+        {"NR_DUAL_REDUCED",dual_domain>=0?"1":"0"},{"NR_DUAL_DOMAIN",dual_domain==1?"1":"0"},{nullptr,nullptr}};
     const HRESULT hr = D3DCompile(
         kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", macros,
         nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
@@ -4380,6 +4403,7 @@ ID3DBlob *CompileCodecShader(const char *entry, bool face = false) {
     }
     ReleaseCom(errors);
     return SUCCEEDED(hr) ? shader : nullptr;
+#endif
 }
 
 // Only an explicit experimental face request initializes these variants.
@@ -4679,10 +4703,17 @@ struct NrStageCapture {
 
 struct NrContext;
 struct NrSlot {
+    ID3D12QueryHeap* dual_time_heap=nullptr;
+    ID3D12Resource* dual_time_readback=nullptr;
+    LifecycleQueue* dual_time_queue=nullptr;
+    unsigned long long dual_time_token=0,dual_time_fence=0;
+    unsigned dual_time_mask=0,dual_time_generation=0;
+    bool dual_time_active=false,dual_time_pending=false,dual_time_stable=false,dual_time_reduced=false;
     NrContext* dual_owner=nullptr;
     ID3D12Resource* dual_guides[2]={};
     nr_dual::dx12::SpatialSlot* dual_spatial=nullptr;
     ID3D12DescriptorHeap* dual_consumer_heap=nullptr;
+    ID3D12DescriptorHeap* dual_region_heap=nullptr;
     unsigned long long dual_bytes=0;
     // Main slot selects only a successfully recorded current second answer.
     NrSlot* dual_selected=nullptr;
@@ -4692,7 +4723,7 @@ struct NrSlot {
     ID3D12DescriptorHeap *region_heap=nullptr;
     D3D12_RESOURCE_STATES region_guide_state=D3D12_RESOURCE_STATE_COMMON,region_field_state=D3D12_RESOURCE_STATE_COMMON;
     unsigned long long region_bytes=0;
-    UINT region_constants[16]={};
+    UINT region_constants[20]={};
     bool region_ready=false,region_recorded=false;
     unsigned replay_capture_index=nr_replay::kFrames;
     NrCaptureParams capture_params = {};
@@ -4807,6 +4838,7 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 }
 
 struct NrContext {
+    bool dual_last_visible=false;
     unsigned layer_index=0;
     unsigned long long parent_instance_id=0,parent_input_epoch=0;
     bool dual_create_completed=false;
@@ -5077,7 +5109,8 @@ constexpr unsigned long long kDualSlotBudget=256ull*1024*1024,kDualTotalBudget=1
 void DestroySlot(NrSlot &slot) {
     if(slot.dual_spatial && !nr_dual::dx12::DestroySpatialSlotAfterRetirement(slot.dual_spatial,CanRetireDualSlot,&slot))return;
     g_dual_allocated_bytes.fetch_sub(slot.dual_bytes);
-    ReleaseCom(slot.dual_consumer_heap);
+    ReleaseCom(slot.dual_time_heap);ReleaseCom(slot.dual_time_readback);
+    ReleaseCom(slot.dual_consumer_heap);ReleaseCom(slot.dual_region_heap);
     for(auto& guide:slot.dual_guides)ReleaseCom(guide);
     DestroyStageCapture(slot);
     ReleaseCom(slot.delta_stats_readback);
@@ -5210,7 +5243,9 @@ bool CanDestroyContextLocked(const NrContext &context) {
     return true;
 }
 
+namespace nr_dual_runtime {void CollectTiming(NrSlot&);}
 void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
+    nr_dual_runtime::CollectTiming(slot);
     CollectStageCaptureLocked(slot);
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
@@ -6434,6 +6469,12 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         slot->awaiting_fence_signal = false;
+        if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
+            const auto* record=batch.records[r];
+            if(record&&record->token==slot->dual_time_token) {
+                slot->dual_time_queue=queue_state;slot->dual_time_fence=batch.fence_value;break;
+            }
+        }
     }
     for (unsigned int i = 0; i < batch.record_count; ++i) {
         LifecycleCommandList *record = batch.records[i];
@@ -7560,6 +7601,7 @@ static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 static_assert(offsetof(CodecConstants, light_broad) == 35 * sizeof(UINT));
 static_assert(offsetof(CodecConstants, light_preview) == 40 * sizeof(UINT));
 
+namespace nr_dual_runtime {ID3D12PipelineState* CodecPipeline(ID3D12PipelineState*,bool,unsigned);}
 void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    ID3D12PipelineState *pipeline, unsigned int width,
                    unsigned int height, const ColorContract &color_contract,
@@ -7836,6 +7878,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12PipelineState* selected_pipeline=pipeline;
     if(constants.face_options&1u)selected_pipeline=v2_combine?g_codec.combine_v2_face:g_codec.combine_face;
+    if(slot.dual_selected&&slot.dual_reduced)selected_pipeline=nr_dual_runtime::CodecPipeline(selected_pipeline,(constants.face_options&1u)!=0u,slot.dual_model_domain);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, selected_pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8,
@@ -8843,6 +8886,8 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
 struct Substitution {
     bool active = false;
     NgxResult fatal_recording=0;
+    NrSlot* timing_slot=nullptr;
+    bool reset_substituted=false;int original_reset=0;
     // Set only at pre-SR input admission, before any NR call or GPU command.
     bool compatibility_fallback = false;
     nr_pre_fallback::Cause fallback_cause = nr_pre_fallback::Cause::None;
@@ -9237,6 +9282,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_dual_runtime::Stamp(command_list,*slot,10);
     nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
@@ -9315,6 +9361,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,*context,*slot,guides,color_contract,
         render_width,render_height,color_x,color_y,0,0);
+    nr_dual_runtime::Stamp(command_list,*slot,0);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -9322,6 +9369,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             g_nr_api.signed_evaluate, command_list, context->nr_handle,
             context->params, nullptr);
     }
+    nr_dual_runtime::Stamp(command_list,*slot,1);
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
             Log("signed feature 18 evaluate failed: 0x%08X (%s)",
@@ -9362,6 +9410,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,*context,*slot,dual_prepared,feature,color_contract);
     if(substitution.fatal_recording)return substitution;
+    nr_dual_runtime::Stamp(command_list,*slot,6);
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (edit_field_ready) {
@@ -9399,10 +9448,22 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
+    nr_dual_runtime::Stamp(command_list,*slot,7);
     replay.Finish(command_list,*context,*slot,false);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
     substitution.original_color = color;
+    substitution.timing_slot=slot;
+    const bool dual_visible=slot->dual_selected!=nullptr;
+    if(context->dual_last_visible!=dual_visible) {
+        int original_reset=0;
+        if(GetInt(sr_params,"Reset",&original_reset)) {
+            substitution.original_reset=original_reset;substitution.reset_substituted=true;
+            SetInt(substitution.params,"Reset",1);
+        }
+        Log("[dual-nr] visible chain switch %u->%u; native SR one-shot Reset=%s; original parameter restored after the call.",context->dual_last_visible?2:1,dual_visible?2:1,substitution.reset_substituted?"forwarded":"unavailable");
+        context->dual_last_visible=dual_visible;
+    }
     substitution.base_x = color_x;
     substitution.base_y = color_y;
     SetResource(substitution.params, "Color", slot->result);
@@ -9418,6 +9479,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
 void RestoreSubstitution(Substitution &substitution) {
     if (!substitution.active || substitution.params == nullptr) return;
+    if(substitution.reset_substituted){SetInt(substitution.params,"Reset",substitution.original_reset);substitution.reset_substituted=false;}
     SetResource(substitution.params, "Color", substitution.original_color);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.X", substitution.base_x);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.Y", substitution.base_y);
@@ -9829,6 +9891,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     (void)sr_params;
     NrContext &context = *substitution.context;
     NrSlot &slot = *substitution.slot;
+    struct TimingEnd {
+        ID3D12GraphicsCommandList* list;NrSlot& slot;bool visible=false;
+        ~TimingEnd(){nr_dual_runtime::ResolveTiming(list,slot,visible);}
+    } timing{command_list,slot};
     const unsigned int width = substitution.width;
     const unsigned int height = substitution.height;
     // Use the exact scalar exposure snapshot captured before the game's SR
@@ -9917,6 +9983,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     nr_replay::Attempt replay;
     replay.index=nr_replay::Begin(command_list,context,slot,substitution.guides,color_contract,
         width,height,0,0,substitution.output_base_x,substitution.output_base_y);
+    nr_dual_runtime::Stamp(command_list,slot,0);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -9924,6 +9991,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             g_nr_api.signed_evaluate, command_list, context.nr_handle,
             context.params, nullptr);
     }
+    nr_dual_runtime::Stamp(command_list,slot,1);
     if (evaluated != kNgxSuccess) {
         if (evaluated == 0xBAD00001u) {
             g_post_sr_runtime_rejected.store(true, std::memory_order_relaxed);
@@ -9968,6 +10036,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,context,slot,substitution.dual_prepared,feature,color_contract);
     if(substitution.fatal_recording)return false;
+    nr_dual_runtime::Stamp(command_list,slot,6);
     const bool post_color_field=g_config.low_grid_color_edit_field;
     const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
     const DXGI_FORMAT post_field_format=post_color_field?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
@@ -10002,6 +10071,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     replay.Finish(command_list,context,slot,false);
     SetBypassReason(BypassReason::None);
+    nr_dual_runtime::Stamp(command_list,slot,7);timing.visible=true;
     return true;
 }
 
@@ -10963,7 +11033,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return original(command_list, handle, params, callback);
     }
+    NrSlot* timed=before_sr.active?before_sr.timing_slot:after_sr.active?after_sr.slot:nullptr;
+    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);nr_dual_runtime::Stamp(before_state.command_list,*timed,8);}
     NgxResult result = original(command_list, handle, params, callback);
+    if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);if(before_sr.active)nr_dual_runtime::ResolveTiming(before_state.command_list,*timed,result==kNgxSuccess);}
     const bool used_before_sr = before_sr.active;
     const bool used_after_sr = after_sr.active;
     bool retried_original_color = false;
@@ -11013,6 +11086,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                     ++g_compat_fallback_recorded;
                 if(after_sr.fatal_recording){
                     after_state.AbandonAfterOpaqueFailure();
+                    before_state.AbandonAfterOpaqueFailure();
                     LeaveCriticalSection(&g_chain_cs);rr_transaction.Release();return after_sr.fatal_recording;
                 }
                 after_state.Restore();

@@ -18,6 +18,11 @@ def main():
     if core.count(begin)!=1 or core.count(end)!=1:raise ValueError('Actual production shader marker missing/duplicated')
     body='#define NR_DUAL_MAIN NeuralColor\n#define NR_DUAL_LOW_IN DualLowInput\n#define NR_DUAL_LOW_OUT DualLowOutput\n#define NR_DUAL_DELTA DualLowValidity\n'+resolve+'\n'
     outputs[path]=core.split(begin)[0]+begin+body+end+core.split(end)[1]
+    region=src/'nr_region_shader.h';region_text=region.read_text(encoding='utf-8')
+    begin='// DUAL_REGION_EMBEDDED_BEGIN\n';end='// DUAL_REGION_EMBEDDED_END'
+    if region_text.count(begin)!=1 or region_text.count(end)!=1:raise ValueError('Region shader marker missing/duplicated')
+    region_body='#define NR_DUAL_MAIN Neural\n#define NR_DUAL_DELTA DualDelta\n'+resolve+'\n'
+    outputs[region]=region_text.split(begin)[0]+begin+region_body+end+region_text.split(end)[1]
     for path,expected in outputs.items():
         if a.check:
             if path.read_text(encoding='utf-8')!=expected:raise ValueError('Embedded shader differs: '+path.name)

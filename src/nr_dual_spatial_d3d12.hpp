@@ -17,6 +17,7 @@ struct SpatialSlot;
 // NRChain bridge and native parameter factory. Do not load another NR provider.
 using EvaluateFn = std::uint32_t (*)(void* user, ID3D12GraphicsCommandList* list,
                                     const void* feature, const void* params);
+using TimestampFn = void (*)(void* user,ID3D12GraphicsCommandList* list,unsigned query);
 using RetiredFn = bool (*)(void* user); // Core's exact-fence AND recording-ref retirement predicate.
 
 struct Surfaces {
@@ -56,7 +57,8 @@ bool RecordCreationInputs(Pipelines* pipelines, SpatialSlot* slot,
 Attempt RecordSecond(Pipelines* pipelines, SpatialSlot* slot,
                      ID3D12GraphicsCommandList* list, std::uint32_t& primary_state,
                      const Plan& plan, const Admission& admission,
-                     EvaluateFn evaluate, void* evaluate_user);
+                     EvaluateFn evaluate, void* evaluate_user,
+                     TimestampFn timestamp=nullptr,void* timestamp_user=nullptr);
 
 // Retirement proof is mandatory even before RecordSecond: external NGX Create
 // may already reference the exported surfaces. No destructor releases GPU objects.

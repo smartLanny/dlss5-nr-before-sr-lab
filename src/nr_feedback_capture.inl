@@ -105,6 +105,19 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
 #endif
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    FeedbackAppend(s,"%s.dual.status=%u\n%s.dual.primary=%ux%u\n%s.dual.secondary=%ux%u\n"
+        "%s.dual.createCalls=%llu\n%s.dual.evaluateSuccess=%llu\n%s.dual.completedStableSamples=%llu\n"
+        "%s.dual.parentInstance=%llu\n%s.dual.secondaryInstance=%llu\n%s.dual.parentEvaluation=%llu\n"
+        "%s.dual.textureBytes=%llu\n%s.dual.textureBudget=%llu\n%s.dual.fatal=0x%08X\n"
+        "%s.dual.scope=independent observed counters; no game/FG frame inference; texture bytes exclude opaque NGX allocations\n",
+        prefix,static_cast<unsigned>(nr_dual_runtime::status.load()),prefix,nr_dual_runtime::primary_width.load(),nr_dual_runtime::primary_height.load(),prefix,nr_dual_runtime::second_width.load(),nr_dual_runtime::second_height.load(),
+        prefix,nr_dual_runtime::second_creates.load(),prefix,nr_dual_runtime::second_evaluations.load(),prefix,nr_dual_runtime::second_completed.load(),
+        prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
+        prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
+    FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
+        prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
+    const char* timing_names[]={"NR1","Down","NR2","Combine","NativeSR","Chain","LowResidual"};
+    for(unsigned i=0;i<7;++i)FeedbackAppend(s,"%s.dual.gpuMs.%s=last:%.9g,median:%.9g,p95:%.9g\n",prefix,timing_names[i],nr_dual_runtime::time_last[i].load(),nr_dual_runtime::time_median[i].load(),nr_dual_runtime::time_p95[i].load());
 #if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)
     const auto load = SnapshotRuntimeLoadEvidence();
     FeedbackAppend(s, "%s.runtime.available=%d\n%s.runtime.stage=%s\n%s.runtime.ageMs=%llu\n"

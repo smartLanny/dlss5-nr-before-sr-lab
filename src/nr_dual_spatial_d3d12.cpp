@@ -277,10 +277,12 @@ bool RecordCreationInputs(Pipelines* p,SpatialSlot* s,ID3D12GraphicsCommandList*
 
 Attempt RecordSecond(Pipelines* p, SpatialSlot* s, ID3D12GraphicsCommandList* list,
                      std::uint32_t& primary_state, const Plan& plan, const Admission& a,
-                     EvaluateFn evaluate, void* user) {
+                     EvaluateFn evaluate, void* user,TimestampFn timestamp,void* timestamp_user) {
     struct Backend {
         Pipelines* p; SpatialSlot* s; ID3D12GraphicsCommandList* list;
         std::uint32_t& primary_state; const Admission& a; EvaluateFn evaluate; void* user;
+        TimestampFn timestamp;void* timestamp_user;
+        void Clock(unsigned q){if(timestamp)timestamp(timestamp_user,list,q);}
         bool PreviouslyPoisoned() const {
             return (p && p->poisoned) || (s && s->poisoned);
         }
@@ -295,13 +297,13 @@ Attempt RecordSecond(Pipelines* p, SpatialSlot* s, ID3D12GraphicsCommandList* li
                 (plan.path != Path::MatchedResidual || (s->low_input && s->valid && s->down_heap && s->delta && s->delta_heap && p->residual));
         }
         void MarkRecorded() { s->recorded = true; p->recorded = true; }
-        void RecordDownsample() { RecordInput(p,s,list,primary_state); }
+        void RecordDownsample() { Clock(2);RecordInput(p,s,list,primary_state);Clock(3); }
         void PrepareOutputForEvaluate() {
             MarkRecorded();
             if (s->plan.path == Path::DirectSecond) Barrier(list, s->primary, primary_state, ReadState);
             Barrier(list, s->second, s->second_state, WriteState);
         }
-        std::uint32_t EvaluateOnce() { return evaluate(user, list, a.secondary_feature, a.secondary_params); }
+        std::uint32_t EvaluateOnce() { Clock(4);auto r=evaluate(user,list,a.secondary_feature,a.secondary_params);if(r==1u)Clock(5);return r; }
         void PoisonWithoutFurtherGpuCommands(std::uint32_t r) {
             s->poisoned = true; s->failure_result = r;
             p->poisoned = true; p->failure_result = r;
@@ -309,15 +311,16 @@ Attempt RecordSecond(Pipelines* p, SpatialSlot* s, ID3D12GraphicsCommandList* li
         void MakeOutputReadable() {
             Barrier(list, s->second, s->second_state, ReadState);
             if(s->plan.path==Path::MatchedResidual) {
+                Clock(12);
                 Barrier(list,s->delta,s->delta_state,WriteState);
                 list->SetDescriptorHeaps(1,&s->delta_heap);list->SetComputeRootSignature(p->root);
                 list->SetComputeRootDescriptorTable(0,s->delta_heap->GetGPUDescriptorHandleForHeapStart());
                 const std::uint32_t c[8]={s->plan.secondary.width,s->plan.secondary.height,std::uint32_t(s->domain),0,0,0,0,0};
                 list->SetComputeRoot32BitConstants(1,8,c,0);list->SetPipelineState(p->residual);
-                list->Dispatch((c[0]+7)/8,(c[1]+7)/8,1);Barrier(list,s->delta,s->delta_state,ReadState);
+                list->Dispatch((c[0]+7)/8,(c[1]+7)/8,1);Barrier(list,s->delta,s->delta_state,ReadState);Clock(13);
             }
         }
-    } backend{p, s, list, primary_state, a, evaluate, user};
+    } backend{p, s, list, primary_state, a, evaluate, user,timestamp,timestamp_user};
     return RecordPreparedSecond(plan, a, backend);
 }
 

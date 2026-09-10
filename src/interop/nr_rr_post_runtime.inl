@@ -58,7 +58,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     if(prepared.active) nr_post_settings::last_rr_stage.store(1,std::memory_order_relaxed);
     // Exactly one original RR invocation on EVERY branch. Its HRESULT/status
     // is returned unchanged; NR failure never retries an already run denoiser.
+    if(prepared.active){nr_dual_runtime::Stamp(before.command_list,*prepared.slot,10);nr_dual_runtime::Stamp(before.command_list,*prepared.slot,8);}
     const NgxResult native_result=original(command_list,handle,params,callback);
+    if(prepared.active)nr_dual_runtime::Stamp(before.command_list,*prepared.slot,9);
     const auto after_feature=FindFeature(handle);
     const bool uncertain=g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
@@ -74,7 +76,10 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
                 nr_post_settings::rr_finish_declined.fetch_add(1,std::memory_order_relaxed);
                 nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
             }
-            if(prepared.fatal_recording){after.AbandonAfterOpaqueFailure();return prepared.fatal_recording;}
+            if(prepared.fatal_recording){
+                after.AbandonAfterOpaqueFailure();before.AbandonAfterOpaqueFailure();
+                LeaveCriticalSection(&g_chain_cs);ownership.Release();return prepared.fatal_recording;
+            }
             after.Restore();
         } else {
             nr_post_settings::rr_after_state_rejected.fetch_add(1,std::memory_order_relaxed);

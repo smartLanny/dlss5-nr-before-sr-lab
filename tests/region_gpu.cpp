@@ -7,11 +7,11 @@
 #undef main
 struct NrSlot {
  ID3D12Resource *region_guide=nullptr,*region_field=nullptr,*region_inputs[4]={},*proxy=nullptr,*neural=nullptr;
- ID3D12DescriptorHeap *region_heap=nullptr,*heap=nullptr;
+ ID3D12DescriptorHeap *region_heap=nullptr,*heap=nullptr,*dual_region_heap=nullptr;NrSlot* dual_selected=nullptr;
  D3D12_RESOURCE_STATES region_guide_state=D3D12_RESOURCE_STATE_COMMON,region_field_state=D3D12_RESOURCE_STATE_COMMON;
- unsigned long long region_bytes=0;UINT region_constants[16]={};bool region_ready=false,region_recorded=false;
+ unsigned long long region_bytes=0;UINT region_constants[20]={};bool region_ready=false,region_recorded=false;
 };
-struct {unsigned region_version=1;bool region_enabled=false;}g_config;
+struct {unsigned region_version=1;bool region_enabled=false,generic_residual=false;}g_config;
 struct {UINT descriptor_size=0;}g_codec;
 constexpr UINT kCodecRegionSrvIndex=9;
 constexpr UINT64 kExtraSlotBudget=64ull<<20;

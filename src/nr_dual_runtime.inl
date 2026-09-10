@@ -1,3 +1,4 @@
+#include "nr_dual_codec.inl"
 // Included after the actual Core guide/NGX/lifetime/codec declarations.
 namespace nr_dual_runtime {
 enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending, Active,
@@ -10,6 +11,9 @@ std::atomic<NgxResult> fatal_result{0};
 std::atomic<const NgxHandle*> fatal_carrier{nullptr};
 nr_dual::dx12::Pipelines* pipelines=nullptr;
 ID3D12Device* pipeline_device=nullptr;
+}
+#include "nr_dual_timing.inl"
+namespace nr_dual_runtime {
 struct Prepared {
     NrContext* context=nullptr;
     NrSlot* slot=nullptr;
@@ -49,6 +53,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
     unsigned x,unsigned y,CodecColorMode color_mode) {
     ClearSelection(main);
+    if(CanMutateSlotLocked(main)){CollectTiming(main);main.dual_time_active=false;}
     if(g_config.nr_passes!=2){SetStatus(Status::Off);return {};}
     if(fatal_result.load()){SetStatus(Status::Failed);return {};}
     if(!primary.nr_handle||!primary.instance_id||g_config.identity_use_original||
@@ -90,6 +95,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     const auto domain=color_mode==CodecColorMode::ModelEncodedValueDomain ||
         ((feature.create_flags&1)==0 && color_mode==CodecColorMode::Automatic)
         ?nr_dual::ModelDomain::DirectValue:nr_dual::ModelDomain::SrgbProxy;
+    if(plan.path==nr_dual::Path::MatchedResidual && !EnsureCodecSet(static_cast<unsigned>(domain),g_config.face_protection||g_config.face_preview)){SetStatus(Status::ResourceBudget);return {};}
     if(!slot.dual_spatial) {
         const auto available=g_dual_allocated_bytes.load()<kDualTotalBudget?
             std::min(kDualSlotBudget,kDualTotalBudget-g_dual_allocated_bytes.load()):0ull;
@@ -106,6 +112,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         slot.codec_color_mode=color_mode;
     }
     if(!NewHeap(device,&slot.heap)||!NewHeap(device,&slot.dual_consumer_heap)){SetStatus(Status::ResourceBudget);return {};}
+    if(main.region_ready&&!NewHeap(device,&slot.dual_region_heap)){SetStatus(Status::ResourceBudget);return {};}
     WriteCodecDescriptorSet(device,slot,slot.heap);
     if(guides.signature.resample_motion) {
         const bool allocate=!slot.motion_proxy;
@@ -130,6 +137,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         aux->lifecycle_dependencies_quarantined=true;primary.lifecycle_dependencies_quarantined=true;
         MarkLifecycleUncertain("Independent NR layer identity aliased the primary");SetStatus(Status::Failed);return {};
     }
+    PrepareTiming(device,main);
     SetStatus(completed?Status::Preparing:Status::CreatePending);
     return {aux,&slot,plan,guides,completed};
 }
@@ -195,7 +203,7 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     admission.dependencies_pinned=primary.pending_recording_token!=0&&primary.pending_recording_token==aux.pending_recording_token&&main.recording_command_lists!=0&&slot.recording_command_lists!=0;
     admission.current_inputs_and_guides_bound=slot.proxy==surfaces.input&&slot.neural==surfaces.output&&
         slot.capture_params.depth_width==g.depth_width&&slot.capture_params.mv_width==g.motion_bound_width;
-    const auto attempt=nr_dual::dx12::RecordSecond(pipelines,slot.dual_spatial,list,state,prepared.plan,admission,Evaluate,&aux);
+    const auto attempt=nr_dual::dx12::RecordSecond(pipelines,slot.dual_spatial,list,state,prepared.plan,admission,Evaluate,&aux,Clock,&main);
     main.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
     if(attempt.selection==nr_dual::Selection::NoneAfterOpaqueFailure)return Fail(list,primary,aux,attempt.ngx_result,"Evaluate");
     if(!attempt.HasSecond()){aux.dual_history.Invalidate();SetStatus(Status::QueuePending);return 0;}
@@ -211,6 +219,11 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     // This distinct heap was allocated and proved free in Prepare. It has not
     // been used by Encode/NR/downsample or any earlier dispatch of this recording.
     WriteCodecDescriptorSet(g_codec.device,main,slot.dual_consumer_heap);
+    if(main.region_ready&&slot.dual_region_heap) {
+        nr_regions::WriteDescriptors(g_codec.device,main,slot.dual_region_heap,main.dual_reduced?main.neural:surfaces.output,main.dual_reduced?surfaces.low_delta:nullptr);
+        main.region_constants[16]=aux.width;main.region_constants[17]=aux.height;
+        main.region_constants[18]=main.dual_reduced?1:0;main.region_constants[19]=main.dual_model_domain;
+    }
     SetStatus(Status::Active);
     if(aux.evaluations<=3||aux.evaluations%600==0)
         Log("[dual-nr] recorded parent=%llu:%u auxiliary=%llu:%u N1=%ux%u N2=%ux%u scale=%u/%u domain=%u phase=unknown final=%s; CPU Evaluate success, GPU completion pending.",primary.instance_id,primary.evaluations,aux.instance_id,aux.evaluations,primary.width,primary.height,aux.width,aux.height,prepared.plan.requested.numerator,prepared.plan.requested.denominator,main.dual_model_domain,main.dual_reduced?"fused-matched-residual":"direct-P2");

@@ -3,6 +3,11 @@
 void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool valid) {
     FeedbackAppend(s, "requested.pictureSnapshotValid=%d\n", valid ? 1 : 0);
     if (!valid) return; // A busy snapshot must not report constructor defaults as facts.
+    FeedbackAppend(s,"requested.nrPasses=%u\nrequested.nrSecondScale=%u/%u\n"
+        "requested.genericResidual=%d\nrequested.genericGains=%.9g,%.9g,%.9g,%.9g,%.9g\n"
+        "requested.genericContract=normalized model-domain directional RGB and relative HSL; D final protection retained; not material masks\n",
+        config.nr_passes,config.nr_second_numerator,config.nr_second_denominator,config.generic_residual?1:0,
+        static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]));
     FeedbackAppend(s,
         "requested.highStrengthProtection=%d\nrequested.layeredEnhancement=%d\n"
         "requested.layerTone=%.9g\nrequested.layerStructure=%.9g\n"
