@@ -721,7 +721,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::BeginDisabled(collecting);
         SettingsSection(ui("Flicker comparison", "闪烁对照"));
         int probe_mode = static_cast<int>(NrProbePolicySnapshot().mode);
-        if (ImGui::Combo(ui("Automatic diagnostic sampling", "自动诊断采样"), &probe_mode,
+        if (ImGui::Combo(ui("Automatic GPU sampling", "自动诊断采样"), &probe_mode,
                 ui("Normal sampling\0Pause sampling\0Output state transitions only\0", "正常采样\0暂停采样\0仅切换输出状态\0")))
             SetNrProbePolicy(static_cast<nr_probe_policy::Mode>(probe_mode));
         ImGui::TextWrapped("%s", ui(
