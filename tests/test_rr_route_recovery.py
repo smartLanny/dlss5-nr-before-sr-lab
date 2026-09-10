@@ -233,6 +233,7 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*,
 constexpr NgxResult kProbeSuccess = 0x1234;
 constexpr NgxResult kNativeResult = 0x5678;
 constexpr NgxResult kNgxSuccess = 1;
+#include "nr_native_clear_request.h"
 // Keep the actual one-call native wrapper; observer storage is a dependency seam.
 struct NrNativeFormatScope {{
     NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
@@ -357,6 +358,7 @@ int main() {{
                     "-static",
                     "-static-libgcc",
                     "-static-libstdc++",
+                    "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
                     str(exe_path),
@@ -425,6 +427,7 @@ int main() {{
                     "-static",
                     "-static-libgcc",
                     "-static-libstdc++",
+                    "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
                     str(exe_path),
@@ -677,7 +680,7 @@ int main() {{
 
     def test_post_native_abort_quarantines_before_finish(self):
         """Verify the latch checkpoint cannot run FinishAfterSr on an aborted call."""
-        native = "NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);"
+        native = "NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation,"
         native_pos = self.process.index(native)
         after_native = self.process[native_pos:]
         restore_color = after_native.index("RestoreSubstitution(before_sr);")

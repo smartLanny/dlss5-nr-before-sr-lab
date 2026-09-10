@@ -183,6 +183,7 @@ class CompatibilityRoute(unittest.TestCase):
 #include <cstdarg>
 #include <cstdlib>
 #include <iostream>
+#include "nr_native_clear_request.h"
 
 struct ID3D12GraphicsCommandList {{}};
 struct NgxHandle {{ int id = 1; }};
@@ -209,6 +210,8 @@ struct Substitution {{
 struct PostSrSubstitution {{
     bool active = false;
     bool redirected_output = false;
+    nr_native_clear::Receipt prepared_clear_request;
+    nr_native_clear::Invocation current_clear_request;
 }};
 struct ChainConfig {{
     bool enabled = true;
@@ -380,6 +383,7 @@ int main() {{
                     "-static",
                     "-static-libgcc",
                     "-static-libstdc++",
+                    "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
                     str(exe_path),
