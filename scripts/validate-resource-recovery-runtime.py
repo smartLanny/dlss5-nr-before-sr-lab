@@ -75,7 +75,8 @@ def main() -> None:
     fixture_name = 'resource_recovery_snapshot_harness.inl' if args.snapshot_cpu else 'resource_recovery_runtime_harness.inl'
     fixture = (ROOT / 'tests' / fixture_name).read_bytes()
     helper_names = () if args.snapshot_cpu else ('queue_retirement_harness.cpp', 'post_output_harness.inl',
-                    'native_color_view_harness.inl', 'pre_store_probe_harness.inl', 'store_quantization_harness.inl')
+                    'native_color_view_harness.inl', 'pre_store_probe_harness.inl', 'store_quantization_harness.inl',
+                    'store_interval_shader.h')
     helpers = {name: (helpers_root / 'tests' / name).read_bytes() for name in helper_names}
     minhook = stable_tree(helpers_root / 'third_party/minhook')
     if any((helpers_root / 'tests' / name).read_bytes() != data for name, data in helpers.items()):
@@ -150,7 +151,7 @@ def main() -> None:
 
     c_compiler = compiler.with_name(compiler.name.replace('clang++', 'clang'))
     common = ['-O1', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64', '-ffunction-sections', '-fdata-sections',
-              '-I' + str(minhook_snapshot / 'include'), '-I' + str(reshade / 'include'),
+              '-I' + str(minhook_snapshot / 'include'), '-I' + str(output / 'original-helpers'), '-I' + str(reshade / 'include'),
               '-I' + str(reshade / 'deps/imgui')]
 
     def run(command: list[str], label: str, timeout: int = 180, warp: bool = False) -> subprocess.CompletedProcess:
