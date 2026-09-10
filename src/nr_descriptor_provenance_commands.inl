@@ -1,6 +1,7 @@
 // Command identity uses the exact forwarded lifetime token. No descriptor GPU
 // memory, virtual-address bit pattern, or shader-table inference is involved.
 bool NrDescriptorObserveCommandLayer(ID3D12GraphicsCommandList *list) {
+    if(!g_nr_descriptor_active_call && !PostBoundaryRecordingActive())return false;
     const auto identity=SnapshotPostBoundaryList(list);
     if(!identity.known && PostBoundaryRecordingActive())
         MarkPostBoundaryObservationGap(nr_post_boundary::IdentityUnknown);
