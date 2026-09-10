@@ -5,12 +5,12 @@
 #endif
 
 #if NR_UI_CHINESE
-#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 0.4.7beta-corefix.3"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-0.4.7beta-corefix.3-@野生的装机宅-Bilibili.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 0.4.7beta-corefix.4"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-0.4.7beta-corefix.4-@野生的装机宅-Bilibili.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI渲染完美链路"
 #else
-#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-corefix.3"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-0.4.7beta-corefix.3-@野生的装机宅-Bilibili.en.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-corefix.4"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-0.4.7beta-corefix.4-@野生的装机宅-Bilibili.en.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI Rendering Perfect Chain"
 #endif
 
@@ -33,11 +33,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "@野生的装机宅 Bilibili\0"
             VALUE "FileDescription", NR_FILE_DESCRIPTION "\0"
-            VALUE "FileVersion", "0.4.7beta-corefix.3\0"
+            VALUE "FileVersion", "0.4.7beta-corefix.4\0"
             VALUE "InternalName", "DLSS5-NR-Before-SR\0"
             VALUE "OriginalFilename", NR_ORIGINAL_FILENAME "\0"
             VALUE "ProductName", NR_PRODUCT_NAME "\0"
-            VALUE "ProductVersion", "0.4.7beta-corefix.3\0"
+            VALUE "ProductVersion", "0.4.7beta-corefix.4\0"
             VALUE "Comments", "Author: @野生的装机宅 Bilibili | Official releases: https://space.bilibili.com/941799 | No unauthorized rebranding or modified redistribution\0"
             VALUE "LegalCopyright", "Copyright (c) @野生的装机宅 Bilibili\0"
         END
