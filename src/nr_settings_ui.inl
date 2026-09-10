@@ -62,6 +62,7 @@ void SettingsNote(const char *text) {
 }
 
 #include "nr_light_style_ui.inl"
+#include "nr_dual_ui.inl"
 #include "nr_face_diagnostic_ui.inl"
 #include "nr_face_region_selection.inl"
 #include "nr_settings_notices_ui.inl"
@@ -657,6 +658,20 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
         next.identity_use_original = false; changed = true;
     }
+    nr_dual_runtime::DrawUi(next,changed,apply_discrete_edit);
+    SettingsSection(ui("Generic residual comparison (experimental)", "通用分层对照（实验）"));
+    changed |= ImGui::Checkbox(ui("Magpie-style generic RGB / HSL controls", "Magpie 同类通用 RGB / HSL 控制"), &next.generic_residual);
+    SettingsNote(ui("Groups bright and dark model changes, without material masks. Uses D's normalized model domain and final protection; this is not an identical Magpie output. Turn it off to compare engine-guided controls.",
+        "按模型改动的亮暗方向分组，不识别材质。采用 D 的归一化模型域与最终保护，输出并非与 Magpie 完全相同。关闭此项即可对比引擎导引分区。"));
+    if(next.generic_residual) {
+        const char* en[]={"Total residual","Reflection / glow (bright RGB)","Shadow / structure (dark RGB)","Saturation change","Lightness change"};
+        const char* cn[]={"总改动倍率","反射 / 辉光（通用亮变化）","阴影 / 结构（通用暗变化）","饱和度改动","明度改动"};
+        for(unsigned i=0;i<5;i++){ImGui::PushID(static_cast<int>(i));changed |= SettingsSliderFloat(ui(en[i],cn[i]),"##generic-gain",&next.generic_gains[i],i==0?1.f:0.f,2.f,"%.2fx");ImGui::PopID();}
+        SettingsNote(ui("Neutral gains preserve D's current NR image. Final extra enhancement and colour follow still apply; set them to 1x for comparison. Values outside the normalized model domain retain D's existing composition.",
+            "全部 1 倍保留 D 当前 NR 画面。最终额外增强与颜色跟随仍生效，比较时建议设为 1 倍；超出归一化模型域的像素保留 D 原有合成。"));
+        if(ImGui::Button(ui("Reset generic gains", "重置通用倍率"))){std::fill(next.generic_gains,next.generic_gains+5,1.f);changed=true;}
+    }
+    if(next.generic_residual) ImGui::BeginDisabled();
     SettingsSection(ui("Fine region controls", "精细分区控制"));
     changed |= ImGui::Checkbox(ui("Use engine-guided region controls", "使用引擎导引精细分区"), &next.region_enabled);
     SettingsNote(ui("Choose regions from the original NR change; 1x keeps the current change, 0x removes it. Region gains replace the older five light controls. Model controls are unchanged.",
@@ -690,6 +705,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         DrawLightStyleControls(next,before_sr,current.generation,light_undo,
             has_pending,pending_light_undo,changed,apply_discrete_edit);
     }
+    if(next.generic_residual) ImGui::EndDisabled();
     nr_face_runtime::DrawUi(next,changed);
     SettingsSection(ui("Advanced picture controls", "高级画质"));
 

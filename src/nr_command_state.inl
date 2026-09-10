@@ -1543,6 +1543,11 @@ struct NativeCommandStateScope {
         Restore();
         if (saved != nullptr) { ReleaseNativeCommandState(*saved); delete saved; }
     }
+    void AbandonAfterOpaqueFailure() {
+        // Keep every saved COM reference in the quarantined recording closure.
+        // No restore command or GPU-dependent release follows an opaque error.
+        active=false;saved=nullptr;
+    }
     void Restore() {
         if (!active) return;
         // Every additional NR/codec command uses this same native interface.

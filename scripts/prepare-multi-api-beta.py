@@ -14,15 +14,15 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline10'
-DISPLAY_VERSION = '0.5-dline10'
+VERSION = 'beta0.5-dline11'
+DISPLAY_VERSION = '0.5-dline11'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = '3063ae9e44090f3ce3b4e1ccc9816824896c2a20'
+STATE_CURRENT = '2bd60573a9d7e2d44c4463161aaa0e2ddfa52db6'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
 REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
@@ -31,30 +31,30 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 INTEGRATION_CORE_PINS = {
     'src/nr_feedback_picture.inl': 'cb9c146bd78a6aca13c457d4a7802295c36be3b4',
-    'config/nr_before_sr.ini': '22114614ae05ffe4919f13eb70ed5e4d620b4de1',
-    'scripts/patch-post-compat.py': 'f1093ac98eb2069a85194908e93aa7765139441f',
-    'src/nr_codec_descriptors.inl': '023639e7956d993efa1e280ab7f0644be525461f',
+    'config/nr_before_sr.ini': '051b53e85b17a85f1efa59963506378bd208c0ef',
+    'scripts/patch-post-compat.py': 'dd9606498e5283d859999a234db1302f2da87adb',
+    'src/nr_codec_descriptors.inl': 'd60b15f55438a9cddeedbaa809cbbde4630dfe4d',
     'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'aa5d2df96d9e7683da024098a074558efa94c09c',
-    'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
-    'src/nr_feedback_capture.inl': '5e70b51324c3d7a494716d3b11aa8e8a3b5c4c16',
+    'src/nr_command_state.inl': '2bd60573a9d7e2d44c4463161aaa0e2ddfa52db6',
+    'src/nr_feedback_capture.inl': 'f9a15242779a4ac88f386c75012787f961b30503',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '8a711a10985da48f748eabe8c2241df1a5f123ca',
-    'src/nr_before_sr.cpp': 'ceef52c6e158c6a56cfddac7ae06fa4f8a6a4d40',
-    'src/nr_recommended_picture.inl': '167c5edb30a83cf6ed22e08e14535a39e1c8d553',
+    'src/nr_settings_ui.inl': '79756634d03519f1fbc1181df9cf8846aeef9345',
+    'src/nr_before_sr.cpp': '7126df64c6c35bfae684a2567f181a2418da1ee7',
+    'src/nr_recommended_picture.inl': '39a9d0083c37f6d8377091f40aa7b598a732ef69',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': 'e4e33f12a09da449de59adc650a30da725d4fe37',
+    'src/nr_before_sr.rc': '6785d69d5029cc11ddf0f8297906da55fd460910',
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'a0f9ba73ab2cbe7d067676ee4cd90f455e67acef',
+    'scripts/build.ps1': '60711f8ea970c80191e2268067cdab12094b1ec5',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
     'src/interop/nr_post_feedback.inl': '43d4dbdb6755c123f491952bdce50755294385c6',
-    'src/interop/nr_rr_post_runtime.inl': '6f8c98ca7943233f57e10276dbe9943631c9dd05',
+    'src/interop/nr_rr_post_runtime.inl': '7eb52b8df6263bd3427f4a6940e608b52383f96f',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/nr_f8_stream.inl': 'd5c8144c4ee0b0a519df694a0e82823f4b0fdc1a',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
@@ -93,7 +93,20 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_runtime.inl': '42f4bf9253c7267f2173d8fe2955b0cd313b8967',
     'src/nr_region_inputs.h': 'd7ad0d6479d7acf2cd18f4c859093986f5cfacb5',
     'src/nr_region_shader.h': 'e6d387dcd58e56f9b1283f963763f8902cfe4616',
-    'src/nr_region_runtime.inl': '3e95f31842e811d508aa747d829af0068b954cd6',
+    'src/nr_region_runtime.inl': 'e7953d35ed87d92f70910e678d7542bc499102cd',
+    'src/nr_dual_downsample.hlsl': 'd930d3c881f6bbc940a30ab000a638d799ac2287',
+    'src/nr_dual_embedded.hpp': '0eb3836e79802d42e9d62136f779ae11388d6107',
+    'src/nr_dual_math.hlsli': '252fa37b70640f31b47828170b666240cfc630fe',
+    'src/nr_dual_pass.hpp': '62e7ec88bea4613b01e2bdc561c68973580ccdf2',
+    'src/nr_dual_residual.hlsl': '545307f5dff6c461ce6830e09cc35695b4861cd0',
+    'src/nr_dual_resolve.hlsli': 'dfd746ca6bcc7faab5a2f22c224dcaa26ed3781d',
+    'src/nr_dual_resolve_cached.hlsli': '2c5dc3c24d854361c39ffc57635e883195a52944',
+    'src/nr_dual_runtime.inl': 'e58b4200f27df2a03f908d90d8182fa94483af13',
+    'src/nr_dual_spatial_d3d12.cpp': 'a17b05a6903565af33975a5a35224ead28a55fa5',
+    'src/nr_dual_spatial_d3d12.hpp': '9fd7e5921c54bbe23448b0309ba16fa27454c247',
+    'src/nr_dual_ui.inl': '14648b7be42b9140c2cc0d45ef3053183d472962',
+    'src/nr_generic_residual.h': '98244f16f94fe45de1e6226d5538ff00a96b616f',
+    'scripts/embed-dual-shaders.py': '451e305137124e78426f067fd6ab1fe681dc67d2',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -203,7 +216,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline10 beta' not in resource_text:
+    if '0.5.1 dline11 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -214,7 +227,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.10',
+        'core_pe_version': '0.5.1.11',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

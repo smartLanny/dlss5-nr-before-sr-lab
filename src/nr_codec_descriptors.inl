@@ -13,7 +13,11 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
         ID3D12Device_CreateUnorderedAccessView(device,resource,nullptr,&d,at(i)); };
     srv(0,slot.source,slot.source_format);
     srv(1,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);
-    srv(2,slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    const auto dual=slot.dual_selected?nr_dual::dx12::GetSurfaces(slot.dual_selected->dual_spatial):nr_dual::dx12::Surfaces{};
+    srv(2,slot.dual_selected&&!slot.dual_reduced?dual.output:slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(10,slot.dual_reduced?dual.input:nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(11,slot.dual_reduced?dual.output:nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(12,slot.dual_reduced?dual.low_delta:nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);
     srv(3,slot.motion_source,slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT);
     srv(4,slot.exposure_source,slot.exposure_source?ID3D12Resource_GetDesc(slot.exposure_source).Format:DXGI_FORMAT_R32_FLOAT);
     const DXGI_FORMAT edit_field_format = slot.edit_field

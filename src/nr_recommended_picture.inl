@@ -16,6 +16,8 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.color_protection = true;
     next.layered_enhancement = false;
     next.independent_chroma_composition = false;
+    next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=1;
+    next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
     next.region_version=1;next.region_enabled=false;next.region_preview=0;
     std::fill(next.region_gains,next.region_gains+11,1.f);
     next.face_protection_version=1;next.face_protection=false;next.face_extra_cap=true;

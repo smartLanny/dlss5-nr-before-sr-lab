@@ -679,6 +679,14 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
             config.light_style_version,config.light_preset,config.light_control_mode,static_cast<double>(config.light_broad),
             static_cast<double>(config.light_dark),static_cast<double>(config.light_reflection),
             static_cast<double>(config.light_structure),static_cast<double>(config.light_glow),config.light_preview);
+        FeedbackAppend(*s,"dualNR.request=%u\ndualNR.scale=%u/%u\ndualNR.status=%u\ndualNR.primary=%ux%u\ndualNR.secondary=%ux%u\n"
+            "dualNR.createCalls=%llu\ndualNR.evaluateSuccess=%llu\ndualNR.parentInstance=%llu\ndualNR.secondaryInstance=%llu\ndualNR.parentEvaluation=%llu\n"
+            "dualNR.fatal=0x%08X\ndualNR.phase=unknown; no fabricated zero jitter\ndualNR.scope=NR2 counts are additional model evaluations, not game/FG frames\n"
+            "genericResidual.request=%u\ngenericResidual.gains=%.6g,%.6g,%.6g,%.6g,%.6g\ngenericResidual.domain=D normalized model storage; final D protection retained\n",
+            config.nr_passes,config.nr_second_numerator,config.nr_second_denominator,static_cast<unsigned>(nr_dual_runtime::status.load()),
+            nr_dual_runtime::primary_width.load(),nr_dual_runtime::primary_height.load(),nr_dual_runtime::second_width.load(),nr_dual_runtime::second_height.load(),
+            nr_dual_runtime::second_creates.load(),nr_dual_runtime::second_evaluations.load(),nr_dual_runtime::last_primary_instance.load(),nr_dual_runtime::last_second_instance.load(),nr_dual_runtime::last_parent_evaluation.load(),
+            nr_dual_runtime::fatal_result.load(),config.generic_residual?1:0,static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]));
         FeedbackAppendActivity(*s, "start");
         const char *stage_block = FeedbackStageBlockReason(config);
         // RequestStageCapture uses atomics and Log only, never g_chain_cs.

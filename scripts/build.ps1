@@ -124,6 +124,12 @@ foreach ($faceName in @('nr_face_detector', 'nr_face_worker')) {
     activation='Opt-in; assets loaded only by asynchronous worker; no game quality or 5% performance qualification'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Build 'face-backend.json') -Encoding utf8
 
+$DualSource=Join-Path $ProjectRoot 'src/nr_dual_spatial_d3d12.cpp'
+$DualObject=Join-Path $Objects 'nr_dual_spatial_d3d12.o'
+& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $DualSource '-o' $DualObject
+if($LASTEXITCODE){throw 'Second NR spatial module compilation failed.'}
+$ObjectFiles += $DualObject
+
 $BridgeSource = Join-Path $ProjectRoot 'src\nrchain_nvngx.cpp'
 $BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
 & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject
@@ -140,7 +146,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline10-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline11-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -149,7 +155,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline10-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline11-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()

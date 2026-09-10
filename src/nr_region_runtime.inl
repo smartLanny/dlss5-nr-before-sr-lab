@@ -40,7 +40,7 @@ DXGI_FORMAT View(DXGI_FORMAT f,unsigned i) {
 bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
              const NrGuideBinding& guides,unsigned mw,unsigned mh,bool rr,bool encoded) {
  slot.region_recorded=false;slot.region_ready=false;status.store(0);
- if(g_config.region_version!=1 || !g_config.region_enabled)return false;
+ if(g_config.generic_residual || g_config.region_version!=1 || !g_config.region_enabled)return false;
  status.store(4); // Requested, but resources/input contract are not available yet.
  if(!CanMutateSlotLocked(slot) || !Ensure(device))return false;
  const unsigned rw=guides.signature.depth_width,rh=guides.signature.depth_height;

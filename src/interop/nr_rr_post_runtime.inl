@@ -74,6 +74,7 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
                 nr_post_settings::rr_finish_declined.fetch_add(1,std::memory_order_relaxed);
                 nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
             }
+            if(prepared.fatal_recording){after.AbandonAfterOpaqueFailure();return prepared.fatal_recording;}
             after.Restore();
         } else {
             nr_post_settings::rr_after_state_rejected.fetch_add(1,std::memory_order_relaxed);

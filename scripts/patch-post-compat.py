@@ -228,9 +228,9 @@ def patch_core(text: str) -> str:
             '    const bool scaled = ModelWidth != Width || ModelHeight != Height;\n'
             '    float3 storedProxy = scaled ? SampleProxyStoredV2(float2(tid.xy)+0.5)\n'
             '        : ProxyColor.Load(int3(tid.xy, 0)).rgb;')
-        s=once(s,'    float3 storedNeural = NeuralColor.Load(int3(tid.xy, 0)).rgb;',
+        s=once(s,'    float3 storedNeural = LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;',
             '    float3 storedNeural = scaled ? SampleNeuralStoredV2(float2(tid.xy)+0.5)\n'
-            '        : NeuralColor.Load(int3(tid.xy, 0)).rgb;')
+            '        : LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;')
         return once(s,'    bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&',
             '    bool finiteInputs = (!scaled || ModelNeighborhoodFiniteV2(float2(tid.xy)+0.5)) &&\n'
             '        all(storedOriginal.rgb == storedOriginal.rgb) &&')
@@ -240,9 +240,9 @@ def patch_core(text: str) -> str:
             'asuint((ModelWidth == Width && ModelHeight == Height)\n'
             '            ? ProxyColor.Load(int3(coord, 0))\n'
             '            : float4(SampleProxyStoredV2(float2(coord)+0.5),1.0)));')
-        return once(s,'asuint(NeuralColor.Load(int3(coord, 0))));',
+        return once(s,'asuint(LoadFinalNeuralStoredV2(int2(coord))));',
             'asuint((ModelWidth == Width && ModelHeight == Height)\n'
-            '            ? NeuralColor.Load(int3(coord, 0))\n'
+            '            ? LoadFinalNeuralStoredV2(int2(coord))\n'
             '            : float4(SampleNeuralStoredV2(float2(coord)+0.5),1.0)));')
     text=edit(text,'void WriteCombined(',capture)
 
