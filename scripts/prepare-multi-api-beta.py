@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the renamed 0.4.7beta-corefix.2 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-corefix.3 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-corefix.2'
-DISPLAY_VERSION = '0.4.7beta-corefix.2'
+VERSION = '0.4.7beta-corefix.3'
+DISPLAY_VERSION = '0.4.7beta-corefix.3'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -26,13 +26,13 @@ STATE_CURRENT = '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_timing_feedback.inl': 'a903a218ed4f77f2f866b6e4ed427c0619d170cc',
+    'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
-    'src/nr_runtime_timing.inl': '6bd19322b13ec87100a7712c791d2ed8a9d12e1d',
-    'src/nr_runtime_timing.h': 'acf83d810dba1eda543efc9065158e29432e6337',
+    'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
+    'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_config_policy_runtime.inl': 'e53599a24745bf8addc051b9a85387909931e2eb',
     'src/nr_config_policy.h': '7a01d6c3e35f732b8e62e0264822f03f4385c155',
-    'src/nr_probe_policy.h': '94bb3fb5ceaa07dd2ba451e3ed90c8f6ca5b0c85',
+    'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
     'src/nr_post_boundary.h': '1e057ac71967bf08490f321ddd81c77d81ef5196',
     'src/nr_post_boundary_runtime.inl': '2232e3d9336eaa382786f7c214b2109e5fb95b13',
     'src/nr_ui_activity.h': 'd647d17104c1b5d00ac2769dabde71abfc9ff59f',
@@ -48,21 +48,21 @@ INTEGRATION_CORE_PINS = {
     'scripts/patch-post-compat.py': 'dbf671d5a5f7f8f0edc4e16ba5400fb7fd16dab5',
     'src/nr_codec_descriptors.inl': 'dd468d234a417d41d5db0630a1bff1b97eef16a5',
     'src/nr_feedback_core.inl': '7c61aafa4687613452075334f50e9bb695020313',
-    'src/nr_feedback_text.h': '2412ab7ceb45c2e352dcbff26847a3dc637451e2',
+    'src/nr_feedback_text.h': '6f3711a2d7be284e40d961fb5eb1632ddd92147e',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44',
-    'src/nr_feedback_capture.inl': '3ccb4bcf2d0f027368b772ad7888afe1805de91e',
+    'src/nr_feedback_capture.inl': 'd8e6c4a737f623d554d1efc5d1f38425460491ff',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': 'e6149ddee77203de664ddfabb097f7fdbe178fde',
-    'src/nr_before_sr.cpp': '9d8c5688347152beba1da919996b2e044ae5ac36',
+    'src/nr_settings_ui.inl': '7f4df8fc074a25d64c59321c0642bfa111181614',
+    'src/nr_before_sr.cpp': 'e5966720df9952f3484e9a30df6e1a20571845fc',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': 'd8b28b0b14d34b080f7075ca77d5472443584214',
+    'src/nr_before_sr.rc': '009d8a408f2c13c6f9af353360f9006a6069f576',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'b16ac3a227db31acfc5411f617413653a5d31524',
+    'scripts/build.ps1': 'dfe34270569cd110e6cf7bd5a058331d49b3e77a',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -85,7 +85,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
     'src/nr_post_boundary_native.inl': '8056887db195253da07017112602989a6e69bd38',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
-    'src/nr_resource_recovery_runtime.inl': 'b00c0f5b567990176262529af512946f28ed7264',
+    'src/nr_resource_recovery_runtime.inl': '1ed155266d36d7c7ddff6ad5fc76c05581b78f60',
     'src/nr_resource_recovery_semantics.inl': 'dfd5c9a3e961e4e212486b7ec204c4b407167d01',
     'src/nr_resource_semantics.h': '81874dae21f36985d6b78a9b7e738f2c1d251f99',
 }
@@ -197,7 +197,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.7beta-corefix.2' not in resource_text:
+    if '0.4.7beta-corefix.3' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
