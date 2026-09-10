@@ -44,10 +44,88 @@ bool Field(const std::string &line, const std::string &key, const std::string &v
 }
 std::string U(std::uint64_t value) { return std::to_string(value); }
 
+void SeedRouteAndDescriptorEvidence() {
+    constexpr auto wide = std::numeric_limits<std::uint64_t>::max();
+    constexpr auto word = std::numeric_limits<unsigned>::max();
+    // Exercise the real recovery ledger and route policy. No snapshot or
+    // serializer replacement can manufacture a verified route in this test.
+    nr_route::Scope route;
+    route.device = wide - 3; route.feature = wide - 4; route.config = word;
+    route.color = wide - 5; route.output = wide - 6;
+    route.requested = 2; route.lifetime_known = true;
+    route.contract.fill(wide);
+    nr_recovery::Key key{{route.device, route.device, 1, route.feature, route.config, 1},
+                         route.output, route.output, 0, 1};
+    nr_recovery::ViewSignature signature{word, word, word, wide};
+    nr_recovery::Token token;
+    g_nr_recovery.Resolve(key, signature, nr_recovery::SemanticState::Exact);
+    for (unsigned i = 0; i < 3; ++i) {
+        const auto frame = wide - 2 + i;
+        const auto carrier = g_nr_recovery.ObserveCarrier(key.scope, key.role, frame);
+        token = g_nr_recovery.Begin(key, signature, carrier);
+        Check(static_cast<bool>(token), "FULL_CORE_F8_ROUTE_REAL_TOKEN");
+        g_nr_route.Begin(route, frame);
+        g_nr_route.PreRejected(true, "native-view-lifetime-or-evaluate-invalid");
+        g_nr_route.AttemptPost(); g_nr_route.AdmitPost(token);
+        for (const auto stage : {nr_recovery::Stage::Descriptor, nr_recovery::Stage::NrEvaluate,
+                nr_recovery::Stage::NativeSrEvaluate, nr_recovery::Stage::TransferRecorded,
+                nr_recovery::Stage::Submitted}) {
+            Check(g_nr_recovery.Record(token, stage, true, 1), "FULL_CORE_F8_ROUTE_REAL_STAGE");
+            g_nr_route.Stage(token, stage, true);
+        }
+        g_nr_route.RecordedPost(true);
+        Check(g_nr_recovery.RecordWriteback(token, {route.output, route.output, 0, true, true, true, 1}),
+              "FULL_CORE_F8_ROUTE_REAL_WRITEBACK");
+        g_nr_recovery.EndCarrier(key.scope, key.role, carrier, true);
+        g_nr_route.Refresh(token, g_nr_recovery.Read(key, signature));
+    }
+    g_nr_recovery_snapshot = {};
+    g_nr_recovery_snapshot.key = key; g_nr_recovery_snapshot.signature = signature;
+    g_nr_recovery_snapshot.frame = wide;
+    g_nr_recovery_snapshot.input.current = {true, word, route.feature, 2, 1};
+    Check(SnapshotNrRoute().locked, "FULL_CORE_F8_ROUTE_REAL_VERIFIED_WINDOW");
+
+    // Populate the actual bounded registry through its public value API. All
+    // 8192 retained slots and all six inventory groups are represented.
+    const nr_descriptor::Resource resource{wide - 10, wide - 11, wide - 12};
+    g_nr_descriptors.ObserveResource(resource);
+    const nr_descriptor::Heap heap{wide - 13, resource.device, wide - 14, 100000, 0, 8192, 1, 0, false};
+    Check(g_nr_descriptors.ObserveHeap(heap), "FULL_CORE_F8_DESCRIPTOR_REAL_HEAP");
+    for (unsigned i = 0; i < 8192; ++i) {
+        nr_descriptor::View view;
+        view.resource = resource; view.kind = static_cast<nr_descriptor::Kind>(1 + (i % 6) % 3);
+        view.format = word - i % 6; view.mip = view.plane = view.width = view.height = word;
+        view.known = true;
+        g_nr_descriptors.Finish(g_nr_descriptors.BeginWrite(heap.cpu + i, 0, view));
+    }
+    const auto inventory = g_nr_descriptors.ResourceInventory(resource.id);
+    Check(inventory.slots == 8192 && inventory.count == 6 && inventory.unknown_shapes == 8192,
+          "FULL_CORE_F8_DESCRIPTOR_MAX_INVENTORY");
+    // Producer record values deliberately stress formatting, and do not claim
+    // that these synthetic descriptor revisions correspond to GPU objects.
+    nr_descriptor::NativeUse use;
+    use.call = use.config = use.feature = use.carrier = use.semantic_resource = wide;
+    use.device = resource.device; use.resource = resource.id;
+    use.list = use.reset = use.queue = use.submission = wide;
+    use.clear_calls = use.matches = use.unknown = use.other_resources = use.other_lists = use.observed_typed = word;
+    use.submission_index = use.submission_count = word; use.count = 4;
+    use.hooks_ready = use.identity_known = use.finished = use.native_success = use.after_native_valid = true;
+    use.submission_seen = use.at_submit_valid = use.execute_returned = use.replayed = true;
+    use.conflict = use.overflow = true; use.reason = nr_descriptor::Reason::RevisionChanged;
+    for (auto &pair : use.pairs) {
+        pair.reason = nr_descriptor::Reason::None;
+        pair.cpu.stamp = pair.gpu.stamp = {wide, wide, wide, word};
+        pair.cpu.view.format = pair.cpu.view.mip = pair.cpu.view.plane = word;
+    }
+    g_nr_descriptor_next_call = wide;
+    g_nr_descriptor_uses[wide % 64] = use;
+    g_nr_descriptor_lifetime_failures = wide;
+}
+
 void SeedBoundedEvidence(nr_probe_policy::Snapshot probe) {
     constexpr auto wide = std::numeric_limits<unsigned long long>::max();
     constexpr auto word = std::numeric_limits<unsigned int>::max();
-    g_config.enabled = true; g_config.mode = 2; g_config_generation = 7;
+    g_config.enabled = true; g_config.mode = 2; g_config_generation = word;
     g_enabled_fast = true; g_requested_mode_fast = 2;
     g_pipeline_stats_generation = g_pipeline_stats_epoch = 41;
     g_pipeline_stats_mode = 2;
@@ -129,7 +207,7 @@ void SeedBoundedEvidence(nr_probe_policy::Snapshot probe) {
 
     g_post_store_evidence = {};
     auto &stored = g_post_store_evidence;
-    stored.mode = 1; stored.frame = stored.feature_generation = wide; stored.config = 7;
+    stored.mode = 1; stored.frame = stored.feature_generation = wide; stored.config = word;
     stored.samples = stored.expected_samples = stored.changed = stored.expected_changed = stored.invalid = word;
     stored.before_hash = stored.expected_hash = stored.actual_hash = word;
     stored.expected_mean = stored.actual_mean = stored.expected_max = stored.actual_max = std::numeric_limits<float>::max();
@@ -142,6 +220,9 @@ void SeedBoundedEvidence(nr_probe_policy::Snapshot probe) {
     window.trace = stored.boundary_trace_id; window.frame = stored.frame;
     window.feature = stored.feature_generation; window.config = stored.config;
     window.origin_queue = window.origin_submission = wide; window.origin_submitted = true;
+    window.origin_submission_index = window.origin_submission_count = word;
+    window.other_rtv_binds = window.other_rtv_clears = word;
+    window.native.other_rtv_binds = window.native.other_rtv_clears = word;
     window.close = nr_post_boundary::Close::Present;
     window.barriers = window.read_barriers = window.write_barriers = word;
     window.copy_reads = window.copy_writes = window.render_target_binds = word;
@@ -157,15 +238,16 @@ void SeedBoundedEvidence(nr_probe_policy::Snapshot probe) {
     boundary.list.token = boundary.list.reset = boundary.order = boundary.queue = boundary.submission = wide;
     boundary.before = boundary.after = boundary.sync_before = boundary.sync_after = boundary.access_before = boundary.access_after = wide;
     boundary.flags = word;
+    boundary.submission_index = boundary.submission_count = word;
+    boundary.descriptor_resource = boundary.descriptor_revision = wide;
+    boundary.descriptor_format = boundary.clear_rect_count = boundary.clear_kind = word;
+    for (auto &value : boundary.clear_bounds) value = std::numeric_limits<std::int32_t>::min();
     for (auto &value : boundary.subresources) value = word;
     boundary.list.known = boundary.target_known = boundary.reads = boundary.writes = boundary.submitted = true;
     for (auto &value : window.events) value = boundary;
     for (auto &value : window.native.events) value = boundary;
     g_post_boundary_current = {}; g_post_boundary_history[0] = window; g_post_boundary_history_next = 1;
-    // Keep the production recovery ledger empty. Its actual unavailable proof
-    // must be serialized; no fake SnapshotNrRecoveryDetails override is used.
-    g_nr_recovery_snapshot = {};
-    g_nr_recovery_snapshot.input.current = {true, 7, 41, 2, 2};
+    SeedRouteAndDescriptorEvidence();
 }
 
 void SeedTiming(const nr_timing::Identity &old_origin, bool missing_clock) {
@@ -449,6 +531,32 @@ std::string WorkerEquivalent() {
     return BudgetLines(body, 8192, "fixture.workerPadding");
 }
 
+void CheckExpandedEvidence(const std::string &report, const char *prefix) {
+    const auto key = std::string(prefix);
+    Check(Field(Value(report, key + ".compat.route"), "locked", "1") &&
+          Field(Value(report, key + ".compat.route"), "verified", "1"), "FULL_CORE_F8_ROUTE_SERIALIZED");
+    Check(Field(Value(report, key + ".descriptor.outputCache"), "observedSlots", "8192") &&
+          Field(Value(report, key + ".descriptor.outputCache"), "formatGroups", "6"),
+          "FULL_CORE_F8_DESCRIPTOR_INVENTORY_SERIALIZED");
+    Check(Field(Value(report, key + ".descriptor.nativeUse"), "OutputClearCalls", "4294967295") &&
+          Field(Value(report, key + ".descriptor.revisions"), "arrayCount", "4294967295"),
+          "FULL_CORE_F8_DESCRIPTOR_WIDE_RECORD_SERIALIZED");
+    if (std::strcmp(prefix, "end") == 0) {
+        for (unsigned i = 0; i < 4; ++i)
+            Check(!Value(report, key + ".descriptor.nativePair." + U(i)).empty(), "FULL_CORE_F8_DESCRIPTOR_ALL_PAIRS");
+        for (const auto phase : {"native", "following"}) {
+            const unsigned count = std::strcmp(phase, "native") == 0 ? 6 : 12;
+            for (unsigned i = 0; i < count; ++i) {
+                const auto line = Value(report, key + ".post.boundary." + phase + "." + U(i));
+                Check(line.find("position:4294967295/4294967295") != std::string::npos &&
+                      line.find("descriptor:18446744073709551615/18446744073709551615/4294967295") != std::string::npos &&
+                      line.find("clear:4294967295/4294967295/-2147483648/-2147483648/-2147483648/-2147483648") != std::string::npos,
+                      "FULL_CORE_F8_DESCRIPTOR_ALL_BOUNDARY_EVENTS");
+            }
+        }
+    }
+}
+
 int Run(const std::filesystem::path &directory, bool missing_clock) {
     std::filesystem::create_directories(directory);
     InitializeCriticalSection(&g_chain_cs);
@@ -474,10 +582,18 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     origin.frame = 991; origin.feature = 992; origin.config = 993; origin.mode = 1;
     SeedTiming(origin, missing_clock);
     auto start = std::make_unique<nr_timing::Snapshot>(); SnapshotNrTiming(*start);
+    // Private registry counters, recovery ordinals and failure-only identities
+    // cannot be set to UINT64_MAX through public APIs in a bounded CPU test.
+    // Their remaining decimal widths plus the alternate failure fields are
+    // conservatively covered by a separate 2 KiB allowance per snapshot.
+    const auto numeric_width_allowance = BudgetLines("fixture.privateNumericWidthAllowance=2048\n", 2048,
+                                                     "fixture.privateNumericWidth");
     FeedbackAppend(activity, "format=full-core-f8-timing-test\nfixture.language=时序诊断，暂停不改写历史。\n");
+    FeedbackAppend(activity, "%s", numeric_width_allowance.c_str());
     FeedbackAppendActivity(activity, "start");
     const auto start_bytes = activity.report_used;
     CheckTiming(activity.report, "start", *start, missing_clock);
+    CheckExpandedEvidence(activity.report, "start");
     Check(Value(activity.report, "start.store.pre.probePhaseCurrent") == "1" &&
           Value(activity.report, "start.store.post.probePhaseCurrent") == "1", "FULL_CORE_F8_INITIAL_PROBE_PHASE");
     FillTimeline(activity);
@@ -500,6 +616,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(worker_equivalent.size() == 8192 && nr_bundle::ValidUtf8(worker_equivalent.c_str()),
           "FULL_CORE_F8_WORKER_EQUIVALENT_BUDGET");
     const auto append_end = [&](FeedbackSession &target) {
+        FeedbackAppend(target, "%s", numeric_width_allowance.c_str());
         FeedbackAppendActivity(target, "end");
         FeedbackAppendCommandHistory(target);
         FeedbackAppend(target, "%s", worker_equivalent.c_str());
@@ -516,6 +633,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(!activity.report_truncated && activity.report_used < sizeof(activity.report) - nr_feedback_limits::kFinalStatusReserveBytes,
           "FULL_CORE_F8_CAPACITY");
     CheckTiming(activity.report, "end", *end, missing_clock);
+    CheckExpandedEvidence(activity.report, "end");
     Check(Value(activity.report, "end.probeControl.mode") == "paused" &&
           Value(activity.report, "end.probeControl.phase") == U(end_probe.phase), "FULL_CORE_F8_PROBE_CONTROL_END");
     for (const char *route : {"pre", "post"}) {
