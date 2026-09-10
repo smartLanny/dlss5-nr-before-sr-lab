@@ -31,6 +31,7 @@ let runtimeVerification = null;
 let gameAssessment = null;
 let verificationRecords = null;
 let currentHardware = null;
+let compatibilityFeedback = null;
 let windowWatch = null;
 let failureVisible = false;
 let quitting = false;
@@ -534,6 +535,11 @@ function registerIpc() {
     return result.filePath;
   });
   call('feedback-build', (id, options = {}) => collectSessionFeedback(id, options));
+  call('compatibility-open', id => compatibilityFeedback.open(id));
+  call('compatibility-preview', (token, request) => compatibilityFeedback.preview(token, request));
+  call('compatibility-save', (token, request) => compatibilityFeedback.save(token, request));
+  call('compatibility-discard', (token, previewId) => compatibilityFeedback.discard(token, previewId));
+  call('compatibility-close', token => compatibilityFeedback.close(token));
 
   ipcMain.on('window-minimize', () => win && win.minimize());
   ipcMain.on('window-close', () => win && win.close());
@@ -644,7 +650,14 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
         return { exe: mode.exe, launchMode: mode.effective, steamAppId: mode.steamAppId, steamRoot: mode.steamRoot,
         ...(layout.loadingMode === 'helper' ? { helper: { gameId: id } } : {}) }; },
       launchDirect: id => service.launch(id), launchHoYo: (id, _target, controls) => hoyoLauncher.launch(service.getLayout(id), controls),
-      beforeLaunch: async (id, session) => { await service.prepareRuntimeLaunch(id, session); return runtimeVerification.prepare(id, session); },
+      beforeLaunch: async (id, session) => {
+        await service.prepareRuntimeLaunch(id, session);
+        const result = await runtimeVerification.prepare(id, session);
+        // Optional local feedback metadata must never prevent the existing launch.
+        try { await compatibilityFeedback?.captureLaunch(id, session); }
+        catch (error) { startup.log('compatibility-snapshot-unavailable', { code: error.code || 'UNAVAILABLE' }); }
+        return result;
+      },
       onGameMatched: async (id, session) => { await service.recordRuntimeLaunch(id, session); return runtimeVerification.matched(id, session); },
       emit: async session => {
         if (hoyoWorker && workerControls) await workerControls.publish({ session: { ...session, elevated: true }, checkedAt: new Date().toISOString() });
@@ -671,6 +684,21 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
     gameAssessment = require('./src/product/game-assessment').createGameAssessment({ service, settings: launchSettings, coordinator: launchCoordinator,
       environment, operations: operationPlans, launches: launchSessions, verification: runtimeVerification, launchMode: inspectLaunchMode,
       hardware: () => currentHardware, helper: loadingHelper, records: verificationRecords, components: componentAssessment });
+    if (!worker) compatibilityFeedback = require('./src/product/compatibility-feedback').createCompatibilityFeedback({
+      assessment: gameAssessment, sessions: launchSessions,
+      modules: async id => [...await service.gameModuleManifest(id), ...await fgComponents.ownedModuleManifest(id)],
+      collectReport: collectSessionFeedback, managerVersion: app.getVersion(),
+      writePackage: async ({ filename, bytes }) => {
+        const selected = await dialog.showSaveDialog(win, { title: '保存兼容反馈包',
+          defaultPath: path.join(app.getPath('downloads'), filename), filters: [{ name: '兼容反馈包', extensions: ['zip'] }] });
+        if (selected.canceled || !selected.filePath) return { cancelled: true };
+        await require('./src/product/launch-safety').noLinks(selected.filePath);
+        const handle = await fs.promises.open(selected.filePath, 'wx');
+        try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+        try { shell.showItemInFolder(selected.filePath); } catch {}
+        return { saved: true };
+      }
+    });
     if (!worker) operationElevation = createOperationElevation({ userData, plans: operationPlans, processInfo: process, appPath: __dirname,
       packaged: app.isPackaged, runPowerShell, log: startup.log });
     if (!worker) hoyoWorkflow = require('./src/product/hoyo-workflow').createHoYoWorkflow({ userData, service,
@@ -747,6 +775,6 @@ async function startApplication() {
     registerIpc();
     createWindow();
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { startup.log('app-quitting'); void launchSessions?.dispose(); service?.dispose?.(); });
+  app.on('before-quit', () => { startup.log('app-quitting'); void launchSessions?.dispose(); compatibilityFeedback?.dispose(); service?.dispose?.(); });
 }
 void startApplication().catch(error => startupFailure('管理器初始化失败', error));
