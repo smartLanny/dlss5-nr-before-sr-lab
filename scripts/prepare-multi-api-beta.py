@@ -22,7 +22,7 @@ PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'f7af44852dd6c2b39da215b027eaf3f524e06024'
+STATE_CURRENT = '264fd84efa480d262e7bcaae19b5ecd4e0073e09'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
@@ -33,8 +33,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_config_policy_runtime.inl': 'e53599a24745bf8addc051b9a85387909931e2eb',
     'src/nr_config_policy.h': '7a01d6c3e35f732b8e62e0264822f03f4385c155',
     'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
-    'src/nr_post_boundary.h': '251373107c30133e8bdd1145ffb777cf78db0561',
-    'src/nr_post_boundary_runtime.inl': '03853cd399f969d2d958038be7dfd60495bc793e',
+    'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
+    'src/nr_post_boundary_runtime.inl': '6fd85eb0ecd0a74259e6554d0939abae95283f7e',
     'src/nr_ui_activity.h': '87c3ebf0f915a86daf365315103e1bc8be7be264',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_f8_stream.inl': '8bf90f5ee2e32566428ee07c8fd9ac80491eeac7',
@@ -51,18 +51,18 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_text.h': '190575570f49b4b5108f3b68d7b8ab055a9a26c9',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
-    'src/nr_command_state.inl': 'f7af44852dd6c2b39da215b027eaf3f524e06024',
-    'src/nr_feedback_capture.inl': 'd271c02695a459e4138f0cfb4702ae48a2cd8032',
+    'src/nr_command_state.inl': '264fd84efa480d262e7bcaae19b5ecd4e0073e09',
+    'src/nr_feedback_capture.inl': 'dd6ea7822bc0dc9a0812114be1716176f0279849',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42',
-    'src/nr_before_sr.cpp': 'df92c5477e0017ca91d9a13dca492da3665a8b1c',
+    'src/nr_before_sr.cpp': 'e49f2c685afd27c395d8c3486f67f7122584c1ec',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '07e5d60947f02e43ee8e193b20863486f15529b8',
+    'src/nr_before_sr.rc': '442a72c1b30da7c0985156a689dd52bb267e850f',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '49dbf55c200a86614b389b2bfe02a8642733fab4',
+    'scripts/build.ps1': '9523a3de930307ead68faf2274f2aa3fb643f988',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
@@ -81,7 +81,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
     'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
-    'src/nr_native_format_runtime.inl': '027206fd191816eb22f9171047860c0b4e68fe9b',
+    'src/nr_native_format_runtime.inl': '1fceb9545511a06f12a5d7bc162d7d9fb905dd4a',
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
     'src/nr_post_boundary_native.inl': '83d97041e0b29a628967356f8e0cf8397ef57f53',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
@@ -90,10 +90,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_resource_semantics.h': '81874dae21f36985d6b78a9b7e738f2c1d251f99',
     'src/nr_route_compatibility.h': '3e7006e48ea39639bb9a3ea59a6abe5414f9f377',
     'src/nr_route_compatibility_runtime.inl': '7c3b93dc457f896087d179d7d6b9ffe04ff907ad',
-    'src/nr_descriptor_provenance.h': '4e9471d5ecf056d15d6474b9b7a5d042991f08af',
-    'src/nr_descriptor_provenance_runtime.inl': 'b19093c8c38eeaecf7cf9147f597687c97fd6d0f',
+    'src/nr_descriptor_provenance.h': '44235c61e9d0eea0f170310b2e14e77241e6ad35',
+    'src/nr_descriptor_provenance_runtime.inl': '1abea4c557d04f638d64af4fef7d7d123aaba20d',
     'src/nr_descriptor_provenance_hooks.inl': 'b41f5cf49f1fee1136b638078715e44c2410d124',
-    'src/nr_descriptor_provenance_commands.inl': '821c2f07079b677b47043d0df0259a75ffd3b0c6',
+    'src/nr_descriptor_provenance_commands.inl': 'c8329581a6bd32dd74fc15600a1d11ce3c4808e4',
     'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
     'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
 }
