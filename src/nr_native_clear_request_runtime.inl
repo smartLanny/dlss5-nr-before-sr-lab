@@ -56,9 +56,8 @@ void NrObserveNativeClearRequest(ID3D12GraphicsCommandList* list,ID3D12Resource*
     const auto output=g_nr_descriptors.ResourceAt(r.resource_address);
     if(!identity.known || identity.token!=r.list || identity.reset!=r.reset || identity.address!=r.list_address ||
        !output || output.id!=r.resource || output.device!=r.key.device) {r.unknown=true;return;}
-    const bool full=count==0 || (count==1 && rects && rects[0].left==0 && rects[0].top==0 &&
-        rects[0].right==static_cast<LONG>(r.width) && rects[0].bottom==static_cast<LONG>(r.height));
-    r.Observe(before,after,full);
+    (void)count;(void)rects; // Rect coverage is diagnostic; the typed view is unchanged.
+    r.Observe(before,after);
 }
 bool NrNativeClearMayFinish(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,
         unsigned long long generation,unsigned format,const nr_native_clear::Receipt& prepared,
@@ -70,7 +69,10 @@ bool NrNativeClearMayFinish(ID3D12GraphicsCommandList* list,ID3D12Resource* reso
     ID3D12Device_Release(device);
     const auto identity=SnapshotPostBoundaryList(list);
     const auto target=g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(resource));
-    return identity.known && target && target.id==current.request.resource && target.device==key.device &&
+    const auto synchronous=NrFormatEvidence(key);
+    return !synchronous.failed && !synchronous.view.conflict &&
+        (!synchronous.Resolved() || synchronous.Resolved()==format) &&
+        identity.known && target && target.id==current.request.resource && target.device==key.device &&
         nr_native_clear::Admit(prepared,current,key,g_config_generation.load(std::memory_order_acquire),
             identity.token,identity.reset,identity.address,format);
 }

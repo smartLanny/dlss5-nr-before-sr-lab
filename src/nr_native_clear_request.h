@@ -19,7 +19,7 @@ struct Receipt {
             list && list_address && resource && resource_address && identity && shape &&
             format && clears && !unknown && !conflict && !overflow && finished && success;
     }
-    void Observe(const nr_descriptor::Pair& before,const nr_descriptor::Pair& after,bool full_clear) {
+    void Observe(const nr_descriptor::Pair& before,const nr_descriptor::Pair& after) {
         if(++clears>4)overflow=true;
         const auto same=[](const nr_descriptor::Receipt& a,const nr_descriptor::Receipt& b) {
             return a && b && a.stamp.heap==b.stamp.heap && a.stamp.index==b.stamp.index &&
@@ -27,7 +27,7 @@ struct Receipt {
                 a.shader_visible==b.shader_visible && nr_descriptor::SameView(a.view,b.view);
         };
         if(!before || !after || !same(before.cpu,after.cpu) || !same(before.gpu,after.gpu) ||
-           before.cpu.shader_visible || !before.gpu.shader_visible || !full_clear ||
+           before.cpu.shader_visible || !before.gpu.shader_visible ||
            !nr_descriptor::SameView(before.cpu.view,before.gpu.view) ||
            before.cpu.view.resource.device!=key.device || before.cpu.view.resource.id!=resource ||
            before.cpu.view.resource.address!=resource_address ||

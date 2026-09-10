@@ -153,8 +153,13 @@ void STDMETHODCALLTYPE ProxyCopy(ID3D12Device *,UINT count,D3D12_CPU_DESCRIPTOR_
     NrDescriptorCopyDescriptorsSimple<0>(&native_device,count,Raw(destination),Raw(source),type);
 }
 std::function<void()> during_clear;
-void STDMETHODCALLTYPE DriverClear(ID3D12GraphicsCommandList *,D3D12_GPU_DESCRIPTOR_HANDLE,
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *value,const FLOAT *,UINT,const D3D12_RECT *) {
+struct ClearArguments {
+    ID3D12GraphicsCommandList* list=nullptr;D3D12_GPU_DESCRIPTOR_HANDLE gpu{};D3D12_CPU_DESCRIPTOR_HANDLE cpu{};
+    ID3D12Resource* resource=nullptr;const FLOAT* values=nullptr;UINT count=0;const D3D12_RECT* rects=nullptr;
+} last_clear;
+void STDMETHODCALLTYPE DriverClear(ID3D12GraphicsCommandList *list,D3D12_GPU_DESCRIPTOR_HANDLE gpu,
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *value,const FLOAT *values,UINT count,const D3D12_RECT *rects) {
+    last_clear={list,gpu,cpu,value,values,count,rects};
     const auto descriptor=driver_descriptors.at(cpu.ptr);
     Check(descriptor.resource==value&&descriptor.format==DXGI_FORMAT_R8G8B8A8_UNORM,
         "fake backend receives the correct raw Output UAV, no GPU involved");++driver_clears;
@@ -244,13 +249,21 @@ void NativeClearRequests() {
         PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
         return kNgxSuccess;
     };
+    const auto calls_before=driver_clears;
     NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800);
+    Check(driver_clears==calls_before+1 && last_clear.list==&native_list &&
+        last_clear.gpu.ptr==gpu_state.gpu && last_clear.cpu.ptr==cpu_state.cpu && last_clear.resource==&resource &&
+        last_clear.values==values && last_clear.count==0 && !last_clear.rects,
+        "Clear observer preserves all original arguments and forwards the backend exactly once");
     const auto resolved=NrResolveColorView(&native_device,&resource,resource_state.resource,800,true,0);
     Check(static_cast<bool>(resolved),"cached native Clear request supplies typed R8 CPU semantics without synchronous CreateView");
 #if defined(NR_HAS_NATIVE_CLEAR_REQUEST)
     Check(resolved.clear_source && resolved.plan.srv==28 && resolved.clear_request,
         "cached Clear source is explicit and separate from synchronous CreateView");
     Check(!NrFormatEvidence(resolved.key).Resolved(),"new CPU source never writes the existing CreateView ledger");
+    auto typed=resource_state.resource;typed.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    const auto exact=NrResolveColorView(&native_device,&resource,typed,800,true,0);
+    Check(exact && !exact.clear_source,"existing typed-resource resolution does not acquire a Clear dependency");
     const auto prepared=resolved.clear_request;
     nr_native_clear::Invocation fresh;
     NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800,&fresh);
@@ -258,6 +271,9 @@ void NativeClearRequests() {
         return NrNativeClearMayFinish(&native_list,&resource,800,28,prepared,invocation);
     };
     Check(gate(fresh),"exact next native call with the prepared format passes the production gate");
+    g_config_generation.fetch_add(1);
+    Check(!gate(fresh),"production gate rereads the current config after native return");
+    g_config_generation.fetch_sub(1);
     auto bad=fresh;bad.call++;Check(!gate(bad),"outer call ID must match the returned Clear declaration");
     bad=fresh;bad.request.key.feature++;Check(!gate(bad),"another Feature generation cannot authorize post work");
     bad=fresh;bad.request.key.device++;Check(!gate(bad),"another device cannot authorize post work");
@@ -306,6 +322,60 @@ void NativeClearRequests() {
     NrCallNativeWithFormatObservation(parent,&native_list,&handle,&params.base,nullptr,800,&outer);
     Check(nested.request && nested.request.key.feature==801 && !outer.request,
         "nested native invocation cannot teach the outer scope");
+    nr_native_clear::Invocation partial;
+    const auto rectangle=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        const D3D12_RECT rect{0,0,8,12};
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,1,&rect);
+        Check(last_clear.count==1 && last_clear.rects==&rect && last_clear.values==values,
+            "partial Clear rectangle and value pointers are forwarded unchanged");
+        return kNgxSuccess;
+    };
+    NrCallNativeWithFormatObservation(rectangle,&native_list,&handle,&params.base,nullptr,802,&partial);
+    Check(partial.request && partial.request.format==28,"partial rectangle still declares the same typed UAV without proving full Output coverage");
+    nr_native_clear::Invocation overflow;
+    const auto many=[&](ID3D12GraphicsCommandList* list,const NgxHandle* h,const NgxParams* p,void* cb) {
+        for(unsigned i=0;i<5;++i)clear(list,h,p,cb);return kNgxSuccess;
+    };
+    NrCallNativeWithFormatObservation(many,&native_list,&handle,&params.base,nullptr,803,&overflow);
+    Check(!overflow.request && overflow.request.overflow && overflow.request.clears==5,
+        "actual fifth Clear produces explicit bounded-overflow rejection");
+    nr_native_clear::Invocation failed;
+    const auto failing=[&](ID3D12GraphicsCommandList* list,const NgxHandle* h,const NgxParams* p,void* cb) {
+        clear(list,h,p,cb);return static_cast<NgxResult>(0xBAD);
+    };
+    const auto before_failed=driver_clears;
+    const auto failed_result=NrCallNativeWithFormatObservation(failing,&native_list,&handle,&params.base,nullptr,804,&failed);
+    Check(!failed.request && !failed.request.success && failed_result==0xBAD && driver_clears==before_failed+1,
+        "failed native Evaluate preserves its exact result and one Clear but cannot publish a candidate");
+    auto pair=g_nr_descriptors.UavPair(device_identity,g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(&resource)),
+        g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_gpu)).id,gpu_state.gpu,cpu_state.cpu);
+    auto model=prepared;model.finished=false;model.success=false;model.clears=0;model.format=0;
+    const auto good=model;
+    for(unsigned field=0;field<8;++field) {
+        model=good;auto changed=pair;
+        auto& stamp=field<4?changed.cpu.stamp:changed.gpu.stamp;
+        switch(field%4){case 0:++stamp.heap;break;case 1:++stamp.index;break;case 2:++stamp.revision;break;default:++stamp.epoch;}
+        model.Observe(pair,changed);
+        Check(model.unknown,"each CPU/GPU heap, index, revision and epoch must match before and after Clear");
+    }
+    model=good;auto changed=pair;changed.cpu.view.format=changed.gpu.view.format=30;
+    model.Observe(pair,pair);model.Observe(changed,changed);
+    Check(model.conflict,"two stable but different typed Clear requests conflict");
+    model=good;changed=pair;changed.reason=nr_descriptor::Reason::SlotUnknown;
+    model.Observe(pair,pair);model.Observe(changed,changed);
+    Check(model.unknown,"a later unknown pair invalidates a previously known Clear in the same scope");
+    auto conflicting_call=[&](ID3D12GraphicsCommandList* list,const NgxHandle* h,const NgxParams* p,void* cb) {
+        clear(list,h,p,cb);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R8G8B8A8_UINT;uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+        auto spare=CpuBase(&native_cpu);spare.ptr+=32;
+        NrFormatCreateUav<0>(&native_device,&resource,nullptr,&uav,spare);return kNgxSuccess;
+    };
+    nr_native_clear::Invocation sync_conflict;
+    NrCallNativeWithFormatObservation(conflicting_call,&native_list,&handle,&params.base,nullptr,800,&sync_conflict);
+    Check(sync_conflict.request && !gate(sync_conflict),
+        "current native CreateView conflicting with a frozen Clear rejects before post commands");
+    Check(!NrResolveColorView(&native_device,&resource,resource_state.resource,800,true,0),
+        "conflicting synchronous and Clear sources also reject the next preparation");
     const auto conflict=resolved.clear_request;
     nr_native_clear::Ledger<2> ledger;ledger.Commit(fresh.request);ledger.Commit(conflict);
     Check(ledger.Find(conflict.key,conflict.config).call==fresh.call,
@@ -314,11 +384,18 @@ void NativeClearRequests() {
     auto worker=[&](unsigned index) {
         NrNativeFormatScope format(nullptr,nullptr,0);
         NrNativeClearScope scope(format,nullptr);
+        scope.request=good;scope.request.key.feature=9000+index;scope.request.call=9000+index;
         const auto* own=g_nr_native_clear_scope;
-        std::this_thread::yield();isolated[index]=(g_nr_native_clear_scope==own && own==&scope);
+        std::this_thread::yield();
+        NrObserveNativeClearRequest(&native_list,&resource,pair,pair,0,nullptr);
+        const bool own_scope=(g_nr_native_clear_scope==own && own==&scope);
+        const auto invocation=scope.Finish(true);
+        const auto published=NrNativeClearCandidate(scope.request.key,scope.request.config);
+        isolated[index]=own_scope && invocation.request && published &&
+            published.key.feature==9000+index && published.call==9000+index;
     };
     std::thread a(worker,0),b(worker,1);a.join();b.join();
-    Check(isolated[0] && isolated[1] && !g_nr_native_clear_scope,"concurrent CPU scopes retain independent TLS ownership");
+    Check(isolated[0] && isolated[1] && !g_nr_native_clear_scope,"concurrent production CPU callbacks publish only their own TLS invocation and key");
 #endif
 }
 void LedgerEvents() {

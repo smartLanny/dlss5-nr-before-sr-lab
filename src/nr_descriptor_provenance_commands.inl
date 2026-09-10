@@ -3,6 +3,8 @@
 bool NrDescriptorObserveCommandLayer(ID3D12GraphicsCommandList *list) {
     if(!g_nr_descriptor_active_call && !PostBoundaryRecordingActive())return false;
     const auto identity=SnapshotPostBoundaryList(list);
+    if(!identity.known && g_nr_native_clear_scope)
+        g_nr_native_clear_scope->request.unknown=true;
     if(!identity.known && PostBoundaryRecordingActive())
         MarkPostBoundaryObservationGap(nr_post_boundary::IdentityUnknown);
     return identity.known && identity.address==reinterpret_cast<std::uint64_t>(list);

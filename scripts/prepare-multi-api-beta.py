@@ -26,8 +26,8 @@ STATE_CURRENT = '264fd84efa480d262e7bcaae19b5ecd4e0073e09'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_native_clear_request_runtime.inl': '5dfdd731e39f17ed32308750369037a94a6d731d',
-    'src/nr_native_clear_request.h': '8195a22b30c5f583fa24ad67ecdfd8bdd16947ba',
+    'src/nr_native_clear_request_runtime.inl': 'ae6c38de5c23bdbabdfeed18d270b3421aac259e',
+    'src/nr_native_clear_request.h': 'ee96a22fdeea549ddeb0a90d63b17e5cc8ed547b',
     'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',

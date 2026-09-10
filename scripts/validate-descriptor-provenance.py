@@ -43,7 +43,7 @@ def main():
         raise SystemExit('Preserve earlier descriptor evidence; choose a fresh output directory.')
     out.mkdir(parents=True)
     compiler = args.compiler.resolve(strict=True)
-    record = {'schema': 1, 'scope': 'production descriptor provenance and read-only native use evidence',
+    record = {'schema': 1, 'scope': 'production descriptor provenance and native Clear CPU request semantics',
               'component_overlay': bool(args.overlay_root), 'compiler_sha256': sha(compiler),
               'cpu_exit': None, 'warp_exit': None, 'gpu_executed': False,
               'nvidia_nr': False, 'game_verified': False, 'admission_changed': False}
@@ -113,6 +113,8 @@ def main():
     def save():
         (out/'result.json').write_text(json.dumps(record, indent=2)+'\n', encoding='utf-8')
 
+    record['admission_changed'] = (snapshot/'nr_native_clear_request.h').is_file()
+    record['native_clear_request_is_gpu_proof'] = False
     cpu = out/'descriptor-cpu.exe'
     code = run([compiler, '-std=c++20', '-Wall', '-Wextra', '-Werror', '-O1', '-static', '-pthread',
                 '-I'+str(snapshot.parent), out/'descriptor-cpu.cpp', '-o', cpu], 'compile-cpu')
