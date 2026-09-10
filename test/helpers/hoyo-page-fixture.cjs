@@ -88,7 +88,23 @@ async function smokeHoYo(options = {}) {
   assert(settings().querySelectorAll('[role="tab"]').length === 2 && !gpButton('launch') && !gpButton('prepare') && !settings().querySelector('[data-gp-field="loadingBackend"]'), 'HoYo settings show NR and hotkeys without another installer or launch action');
   assert(settings().closest('.game-detail.gp-inline') && !settings().closest('.gp-modal') && button('start').closest('.game-card-head') && button('start').getBoundingClientRect().top < settings().getBoundingClientRect().top, 'the common editor expands in the card with launch above the draft actions');
   assert([...settings().querySelectorAll('[role="tab"]')].map(row => row.textContent).join('|') === '安装与画面|高级与维护', 'the supported tabs use the ordinary page vocabulary');
+  const currentStatus = () => settings().querySelector('.gp-apply-bar [role="status"] strong').textContent;
+  const setLaunchRecord = async (status, historical) => {
+    gp.assessments['fixture-hoyo'].launch.session = status ? { gameId: 'fixture-hoyo', status, historical } : null;
+    await settings().__gpController.refresh(true);
+  };
+  for (const status of ['failed', 'waiting-enhancement']) {
+    await setLaunchRecord(status, true);
+    assert(currentStatus() === '设置已就绪' && host().querySelector('.game-card.expanded [data-hoyo-status]').textContent === '已准备，可以启动', 'a historical ' + status + ' record cannot override the ready card or current operation status');
+    assert(settings().__gpController.getState().data.launch.session.status === status && settings().__gpController.getState().data.launch.session.historical === true, 'historical ' + status + ' remains available to diagnostics and historical-session guards');
+  }
+  await setLaunchRecord('waiting-enhancement', false);
+  assert(currentStatus() === '游戏已启动，增强待确认', 'a current waiting session still describes the active launch');
+  await setLaunchRecord('failed', false);
+  assert(currentStatus() === '本次启动失败', 'a current failed session remains visible in the operation bar');
   const input = settings().querySelector('[data-gp-field="Intensity"]'); input.value = '0.75'; input.dispatchEvent(new Event('input', { bubbles: true }));
+  assert(currentStatus() === '1 组修改待应用', 'a dirty draft retains priority over the current launch failure');
+  await setLaunchRecord(null, false);
   assert(button('start').disabled && !button('start').classList.contains('primary') && primary().length === 1 && primary()[0] === gpButton('preview'), 'a dirty inline editor owns the only primary action and disables the header launch');
   assert(host().querySelector('.game-card.expanded [data-hoyo-status]').textContent === '有修改待应用', 'a pending draft cannot keep claiming that the client can launch');
   host().querySelector('[data-hoyo-toggle]').click(); assert(!settings() && button('start').disabled, 'collapsing keeps a draft and cannot enable launch');
