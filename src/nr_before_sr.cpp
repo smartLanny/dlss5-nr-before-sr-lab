@@ -7312,7 +7312,8 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                         int feature_create_flags = 0) {
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
-    if (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot)) return false;
+    if (!CanMutateSlotLocked(slot)) return false;
+    if (!InvalidateSlotBindingsLocked(slot)) return false;
 
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);

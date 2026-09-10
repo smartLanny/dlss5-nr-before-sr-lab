@@ -42,7 +42,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_capture.inl': '8b4b795584d17c6c278e0cd8aeb2585693ae1690',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '2f99494872033bfd4b776f2064e3623bb3c51fa1',
-    'src/nr_before_sr.cpp': 'e71f37a11ab3e39cacb43612804c0d89539accd2',
+    'src/nr_before_sr.cpp': '76c9838e67229a89c4c654c3905a41cd9b1ecef5',
     'src/nr_recommended_picture.inl': 'ebcff741a538e4272874ca5a1d10b875cc9f129f',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'src/nr_before_sr.rc': 'bc797de4f02533b2a6cf0eb9bee7306253f4520e',
