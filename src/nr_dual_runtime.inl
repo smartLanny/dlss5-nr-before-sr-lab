@@ -20,6 +20,12 @@ struct Prepared {
 };
 void SetStatus(Status value){status.store(value,std::memory_order_relaxed);}
 void ClearSelection(NrSlot& slot){slot.dual_selected=nullptr;slot.dual_reduced=false;slot.dual_low_width=slot.dual_low_height=0;}
+template<class Slot> void InitializeSourceFormats(Slot& slot) {
+    slot.source_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    // The production source adapter adds a separate typed SRV field. Both
+    // source shapes use the same ordinary FP16 auxiliary allocation.
+    if constexpr(requires {slot.source_srv_format;})slot.source_srv_format=slot.source_format;
+}
 
 bool NewHeap(ID3D12Device* device,ID3D12DescriptorHeap** heap) {
     if(*heap)return true;
@@ -96,7 +102,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         slot.key=main.neural;slot.source=main.neural;ID3D12Resource_AddRef(slot.source);
         slot.proxy=surfaces.input;ID3D12Resource_AddRef(slot.proxy);
         slot.neural=surfaces.output;ID3D12Resource_AddRef(slot.neural);
-        slot.source_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+        InitializeSourceFormats(slot);
         slot.codec_color_mode=color_mode;
     }
     if(!NewHeap(device,&slot.heap)||!NewHeap(device,&slot.dual_consumer_heap)){SetStatus(Status::ResourceBudget);return {};}

@@ -99,6 +99,13 @@ def patch_core(text: str) -> str:
             '            static_cast<unsigned int>(slot.source_srv_format));')
         s = once(s, 'IsNativeSceneColorFormat(slot.source_format)',
                        'NrIsFloatSceneStorage(slot.source_format)')
+        if 'CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1' in s:
+            # D11 removed the obsolete positional descriptor writes. The
+            # final descriptor adapter already selects source_srv_format.
+            once(s, '    // CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1',
+                    '    // CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1')
+            return once(s, '    WriteCodecDescriptorSet(device, slot, slot.heap);',
+                           '    WriteCodecDescriptorSet(device, slot, slot.heap);')
         return once(s, '    srv.Format = slot.source_format;',
                        '    srv.Format = slot.source_srv_format;')
     text = edit_block(text, 'bool CreateSlot(', create_slot)

@@ -6944,6 +6944,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     stats_uav.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;
     ID3D12Device_CreateUnorderedAccessView(device,slot.delta_stats,nullptr,&stats_uav,
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.stats_clear_heap));
+    // CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1
     WriteCodecDescriptorSet(device, slot, slot.heap);
     BindStageCaptureDescriptor(slot, nullptr, 0);
     if (slot.snapshots_native_output &&
