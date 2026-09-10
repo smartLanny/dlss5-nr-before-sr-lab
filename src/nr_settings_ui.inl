@@ -676,7 +676,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed |= SettingsSliderFloat(ui("Colour-only changes", "纯颜色改动"),"##region-pure-colour",&next.region_gains[10],0.f,4.f,"%.2fx");
         SettingsNote(ui("Colour gains refine the current colour-follow amount. Specular guidance identifies edits on reflective surfaces; it is not a separately rendered reflection image.",
             "颜色倍率以当前颜色跟随量为基础。镜面导引限定反射表面上的模型改动，并非引擎独立渲染的反射图层。"));
-        SettingsNote(regionStatus==3?ui("Engine depth and specular guidance connected.","引擎镜面导引已接入。"):
+        SettingsNote(regionStatus==4?ui("Region resources unavailable; existing NR composition retained.","分区资源暂不可用；保留现有 NR 合成。"):
+            regionStatus==3?ui("Engine depth and specular guidance connected.","引擎镜面导引已接入。"):
             regionStatus==2?ui("Depth guidance connected; specular inputs unavailable.","深度导引已接入；未提供可用镜面导引。"):
             regionStatus==1?ui("Image edges only; engine guidance unavailable.","当前仅使用图像边缘；引擎导引不可用。"):
             ui("Waiting for a supported NR frame.","等待可用 NR 帧。"));

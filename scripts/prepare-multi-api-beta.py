@@ -41,8 +41,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
     'src/nr_feedback_capture.inl': '5e70b51324c3d7a494716d3b11aa8e8a3b5c4c16',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': 'abfd128a469a474f5b0128ade90243605ddc6fba',
-    'src/nr_before_sr.cpp': '91930955372ac0203f9e2a371d518202c5331604',
+    'src/nr_settings_ui.inl': '8a711a10985da48f748eabe8c2241df1a5f123ca',
+    'src/nr_before_sr.cpp': '68262ee41014165822558c87d148f7499f2f7215',
     'src/nr_recommended_picture.inl': '167c5edb30a83cf6ed22e08e14535a39e1c8d553',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'src/nr_before_sr.rc': 'e4e33f12a09da449de59adc650a30da725d4fe37',
@@ -93,7 +93,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_runtime.inl': '42f4bf9253c7267f2173d8fe2955b0cd313b8967',
     'src/nr_region_inputs.h': 'd7ad0d6479d7acf2cd18f4c859093986f5cfacb5',
     'src/nr_region_shader.h': 'e6d387dcd58e56f9b1283f963763f8902cfe4616',
-    'src/nr_region_runtime.inl': '5328d800718cf6f1be21324907b26a221a894db5',
+    'src/nr_region_runtime.inl': '3e95f31842e811d508aa747d829af0068b954cd6',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',

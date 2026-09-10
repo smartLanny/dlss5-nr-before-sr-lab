@@ -121,7 +121,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_region_shader.h',
             'src/nr_region_runtime.inl',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'abfd128a469a474f5b0128ade90243605ddc6fba')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '8a711a10985da48f748eabe8c2241df1a5f123ca')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a0f9ba73ab2cbe7d067676ee4cd90f455e67acef')
 

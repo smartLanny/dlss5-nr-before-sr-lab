@@ -10,6 +10,7 @@ void TestGpuGroupBoundary() {
     gpu.TextureState(neural,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);gpu.TextureState(output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     gpu.Srv(0,source.resource.p);gpu.Srv(1,proxy.resource.p);gpu.Srv(2,neural.resource.p);gpu.Srv(3,nullptr);gpu.Srv(kCodecExposureSrvIndex,nullptr);
     gpu.Srv(kCodecEditFieldSrvIndex,nullptr);gpu.Srv(kCodecEditRestoreSrvIndex,nullptr);gpu.Srv(kCodecLanczosSrvIndex,nullptr);
+    gpu.Srv(kCodecFaceSrvIndex,nullptr);gpu.Srv(kCodecRegionSrvIndex,nullptr);
     gpu.UavTexture(kCodecEditFieldUavIndex,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);gpu.UavTexture(kCodecEditRestoreUavIndex,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecSrvCount,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);gpu.UavTexture(kCodecResultUavIndex,output.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecMotionUavIndex,nullptr,DXGI_FORMAT_R32G32_FLOAT);gpu.UavBuffer(kCodecStatsUavIndex,nullptr,0);gpu.UavBuffer(kCodecCaptureUavIndex,nullptr,0);
@@ -71,6 +72,7 @@ void TestGpuPipeline() {
         gpu.TextureState(neural,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);gpu.TextureState(output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         gpu.Srv(0,source.resource.p);gpu.Srv(1,proxy.resource.p);gpu.Srv(2,neural.resource.p);gpu.Srv(3,nullptr);gpu.Srv(kCodecExposureSrvIndex,nullptr);
         gpu.Srv(kCodecEditFieldSrvIndex,nullptr);gpu.Srv(kCodecEditRestoreSrvIndex,nullptr);gpu.Srv(kCodecLanczosSrvIndex,nullptr);
+    gpu.Srv(kCodecFaceSrvIndex,nullptr);gpu.Srv(kCodecRegionSrvIndex,nullptr);
         gpu.UavTexture(kCodecEditFieldUavIndex,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);gpu.UavTexture(kCodecEditRestoreUavIndex,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);
         gpu.UavTexture(kCodecSrvCount,nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);gpu.UavTexture(kCodecResultUavIndex,output.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
         gpu.UavTexture(kCodecMotionUavIndex,nullptr,DXGI_FORMAT_R32G32_FLOAT);gpu.UavBuffer(kCodecStatsUavIndex,nullptr,0);gpu.UavBuffer(kCodecCaptureUavIndex,nullptr,0);

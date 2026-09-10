@@ -36,5 +36,14 @@ void ValidateRegionComposition(Gpu& gpu) {
    const auto& p=result.output[(y+1)*20+x+2];Require(std::abs(p.x-.2f)<.00003f&&std::abs(p.y-.2f)<.00003f&&std::abs(p.z-.2f)<.00003f,"REGION_PARTITION_CONSERVATION");}
   ++scenarios;
  }
+ for(bool before:{false,true}) {
+  RegionCase r;r.flags=1;std::fill(r.gains,r.gains+11,0.f);
+  auto run=[&](RegionCase c){return Run(gpu,16,12,0,1,1,42,before,8,6,{},0,{},1,{1,1,1,1},true,1,{}, {},c);};
+  auto base=run({}),controlled=run(r);
+  const UINT edge=(3+1)*20+3+2,flat=(2+1)*20+2+2;
+  Require(std::memcmp(&base.output[edge],&controlled.output[edge],sizeof(Float4))==0,"REGION_FULL_SOURCE_EDGE_REJECTS_LOW_GRID_BLEED");
+  Require(std::abs(controlled.output[flat].x-.2f)<.00003f,"REGION_FULL_SOURCE_EDGE_DOES_NOT_DISABLE_FLAT_NEIGHBOUR");
+  ++scenarios;
+ }
  std::printf("PASS region composition WARP: %u scenarios, pre/post x five domains x 100/75/50 grids, per-group luma/colour, neutral/outside identity, gain-independent preview and conserved soft boundaries.\n",scenarios);
 }

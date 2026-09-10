@@ -3521,8 +3521,17 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    float regionReferenceLuma=proxyLuma;
+    if((RegionFlags&1u)!=0u){
+        // Match this route's original EncodeCS contract at the full-resolution
+        // source pixel. No extra source texture load and no NR-dependent edge.
+        float3 reference=(modelEncodedInput||linearSdrStorage||srgbSdrStorage)?original:
+            pqEncodedHdr?PqSourceToModelLinear(max(storedOriginal.rgb,0.0.xxx)):
+            HdrSourceToModelLinear(max(storedOriginal.rgb,0.0.xxx));
+        regionReferenceLuma=max(dot(reference,kLuma),0);
+    }
     RegionSelectionV1 regions=SelectRegionV1(float2(tid.xy)+.5,
-        log2(max(neuralLuma,1.0/4096)/max(proxyLuma,1.0/4096)),max(proxyLuma,0));
+        log2(max(neuralLuma,1.0/4096)/max(proxyLuma,1.0/4096)),regionReferenceLuma);
     float2 regionGain=RegionGainV1(regions);
     if((RegionFlags&14u)!=0u){WriteCombined(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
     const float lightOriginalEdit = lightStyleActive
@@ -3941,7 +3950,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
-    RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,proxyLuma);
+    RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,fullProxyLuma);
     float2 regionGain=RegionGainV1(regions);
     if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
     if ((Passthrough & 8192u) != 0u) {

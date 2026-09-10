@@ -511,11 +511,12 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         }
         if(variant==35) std::fill(original.begin(),original.end(),Float4{1e-8f,1e-8f,1e-8f,.625f});
     }
-    if(variant==40 || variant==41) {
+    if(variant==40 || variant==41 || variant==42) {
         std::fill(original.begin(),original.end(),Float4{.2f,.2f,.2f,.625f});
         std::fill(proxy.begin(),proxy.end(),Float4{.2f,.2f,.2f,.75f});
-        std::fill(neural.begin(),neural.end(),variant==40?Float4{.3f,.25f,.2f,.875f}:Float4{.13f,.16f,.2f,.875f});
+        std::fill(neural.begin(),neural.end(),variant!=41?Float4{.3f,.25f,.2f,.875f}:Float4{.13f,.16f,.2f,.875f});
     }
+    if(variant==42) original[5*source_width+6]={.8f,.8f,.8f,.625f};
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
