@@ -5,8 +5,14 @@ CommandStateHookFamily g_nr_format_srv_hooks, g_nr_format_uav_hooks;
 template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateSrv(ID3D12Device* device,
         ID3D12Resource* resource, const D3D12_SHADER_RESOURCE_VIEW_DESC* desc,
         D3D12_CPU_DESCRIPTOR_HANDLE destination) {
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    const auto descriptor_write=NrDescriptorBeginSrv(device,resource,desc,destination);
+#endif
     using Fn = decltype(ID3D12DeviceVtbl::CreateShaderResourceView);
     reinterpret_cast<Fn>(g_nr_format_srv_hooks.originals[I])(device, resource, desc, destination);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    g_nr_descriptors.Finish(descriptor_write);
+#endif
     auto* scope = g_nr_native_format_scope;
     if (!scope || scope->device != device || resource != scope->resources[0] || !resource) return;
     const bool valid = desc && desc->ViewDimension == D3D12_SRV_DIMENSION_TEXTURE2D &&
@@ -19,8 +25,14 @@ template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateSrv(ID3D12Device* dev
 template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateUav(ID3D12Device* device,
         ID3D12Resource* resource, ID3D12Resource* counter,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC* desc, D3D12_CPU_DESCRIPTOR_HANDLE destination) {
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    const auto descriptor_write=NrDescriptorBeginUav(device,resource,counter,desc,destination);
+#endif
     using Fn = decltype(ID3D12DeviceVtbl::CreateUnorderedAccessView);
     reinterpret_cast<Fn>(g_nr_format_uav_hooks.originals[I])(device, resource, counter, desc, destination);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    g_nr_descriptors.Finish(descriptor_write);
+#endif
     auto* scope = g_nr_native_format_scope;
     if (!scope || scope->device != device || resource != scope->resources[1] || !resource) return;
     const bool valid = !counter && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_TEXTURE2D &&
@@ -46,6 +58,13 @@ bool EnsureNrNativeFormatHooks(ID3D12Device* device) {
     return receipt.hooks;
 }
 void OnNrFormatInitDevice(reshade::api::device* device) {
-    if (device && device->get_api() == reshade::api::device_api::d3d12)
+    if (device && device->get_api() == reshade::api::device_api::d3d12) {
         EnsureNrNativeFormatHooks(reinterpret_cast<ID3D12Device*>(device->get_native()));
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        EnsureNrDescriptorHooks(reinterpret_cast<ID3D12Device*>(device->get_native()));
+#endif
+    }
 }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+#include "nr_descriptor_provenance_hooks.inl"
+#endif

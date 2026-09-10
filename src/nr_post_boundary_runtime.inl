@@ -5,6 +5,10 @@ extern thread_local bool g_inside_ngx_evaluate;
 SRWLOCK g_post_boundary_lock=SRWLOCK_INIT;
 std::atomic<std::uint64_t> g_post_boundary_resource{0};
 std::atomic<std::uint64_t> g_post_boundary_device{0};
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+std::atomic<std::uint64_t> g_post_boundary_descriptor_resource{0};
+std::uint64_t NrDescriptorResourceToken(std::uint64_t);
+#endif
 nr_post_boundary::Window g_post_boundary_current;
 nr_post_boundary::Window g_post_boundary_history[nr_post_boundary::kHistory];
 unsigned g_post_boundary_history_next=0;
@@ -30,6 +34,9 @@ void ClosePostBoundaryLocked(nr_post_boundary::Close reason) {
     // cannot mutate a historical frame, even when the numeric resource survives.
     g_post_boundary_resource.store(0,std::memory_order_release);
     g_post_boundary_device.store(0,std::memory_order_release);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    g_post_boundary_descriptor_resource.store(0,std::memory_order_release);
+#endif
     g_post_boundary_current={};
 }
 bool PostBoundaryWindowCurrentLocked() {
@@ -48,12 +55,15 @@ struct NrNativeOutputTraceScope;
 thread_local NrNativeOutputTraceScope *g_native_output_trace=nullptr;
 struct NrNativeOutputTraceScope {
     NrNativeOutputTraceScope *previous=nullptr;
-    std::uint64_t resource=0,native_list=0;
+    std::uint64_t resource=0,native_list=0,descriptor_resource=0;
     bool active=false;
     nr_post_boundary::Native evidence;
     NrNativeOutputTraceScope(ID3D12Resource *output,ID3D12GraphicsCommandList *list,unsigned coverage=0) {
         if(!output||!list)return;
         resource=reinterpret_cast<std::uint64_t>(output);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+        descriptor_resource=NrDescriptorResourceToken(resource);
+#endif
         native_list=reinterpret_cast<std::uint64_t>(list);
         evidence.list=SnapshotPostBoundaryList(list);
         evidence.coverage=coverage;
@@ -124,6 +134,24 @@ void MarkPostBoundaryObservationGap(unsigned gap) {
     if(PostBoundaryWindowCurrentLocked())g_post_boundary_current.coverage|=gap;
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }
+void ObservePostBoundaryOtherRtv(const nr_post_boundary::List &list,nr_post_boundary::Kind kind) {
+    using namespace nr_post_boundary;
+    if(g_native_output_trace) {
+        if(list.address==g_native_output_trace->native_list) {
+            auto &native=g_native_output_trace->evidence;
+            if(kind==Kind::ClearRtv)Increment(native.other_rtv_clears);
+            else Increment(native.other_rtv_binds);
+        }
+        return;
+    }
+    if(g_inside_ngx_evaluate || !g_post_boundary_resource.load(std::memory_order_acquire))return;
+    AcquireSRWLockExclusive(&g_post_boundary_lock);
+    if(PostBoundaryWindowCurrentLocked() && g_post_boundary_current.KnowsList(list)) {
+        if(kind==Kind::ClearRtv)Increment(g_post_boundary_current.other_rtv_clears);
+        else Increment(g_post_boundary_current.other_rtv_binds);
+    }
+    ReleaseSRWLockExclusive(&g_post_boundary_lock);
+}
 void RetirePostBoundaryBeforeEvaluate() {
     if(!g_post_boundary_resource.load(std::memory_order_acquire))return;
     AcquireSRWLockExclusive(&g_post_boundary_lock);
@@ -131,7 +159,7 @@ void RetirePostBoundaryBeforeEvaluate() {
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }
 void ObservePostBoundarySubmission(const nr_post_boundary::List &list,std::uint64_t queue,
-        std::uint64_t submission) {
+        std::uint64_t submission,unsigned index=0,unsigned total=0) {
     if(!g_post_boundary_resource.load(std::memory_order_acquire))return;
     AcquireSRWLockExclusive(&g_post_boundary_lock);
     if(PostBoundaryWindowCurrentLocked()) {
@@ -142,13 +170,21 @@ void ObservePostBoundarySubmission(const nr_post_boundary::List &list,std::uint6
         };
         if(same(window.native.list)) {
             if(window.origin_submitted)window.coverage|=nr_post_boundary::SubmissionUnknown;
-            else {window.origin_submitted=true;window.origin_queue=queue;window.origin_submission=submission;}
+            else {window.origin_submitted=true;window.origin_queue=queue;window.origin_submission=submission;
+                window.origin_submission_index=index;window.origin_submission_count=total;}
+        }
+        for(unsigned i=0;i<window.native.count;++i)if(same(window.native.events[i].list)) {
+            auto &event=window.native.events[i];
+            if(event.submitted){window.coverage|=nr_post_boundary::SubmissionUnknown;continue;}
+            event.submitted=true;event.queue=queue;event.submission=submission;
+            event.submission_index=index;event.submission_count=total;
         }
         for(unsigned i=0;i<window.count;++i)if(same(window.events[i].list)) {
             // Re-execution is observable but not an ordering proof. Keep the
             // first Execute receipt rather than silently replacing its identity.
             if(window.events[i].submitted){window.coverage|=nr_post_boundary::SubmissionUnknown;continue;}
             window.events[i].submitted=true;window.events[i].queue=queue;window.events[i].submission=submission;
+            window.events[i].submission_index=index;window.events[i].submission_count=total;
         }
         if(!list.known||!queue)window.coverage|=nr_post_boundary::SubmissionUnknown;
     }
@@ -157,6 +193,9 @@ void ObservePostBoundarySubmission(const nr_post_boundary::List &list,std::uint6
 std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundary::Native &native,
         const NrDiagnosticIdentity &identity,unsigned long long feature,std::uint64_t device=0) {
     if(!resource||!identity.frame_id)return 0;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    const auto descriptor_resource=NrDescriptorResourceToken(reinterpret_cast<std::uint64_t>(resource));
+#endif
     AcquireSRWLockExclusive(&g_post_boundary_lock);
     if(g_post_boundary_current.frame)ClosePostBoundaryLocked(nr_post_boundary::Close::Superseded);
     g_post_boundary_current={};
@@ -170,6 +209,10 @@ std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundar
     g_post_boundary_current.tick=GetTickCount64();
     g_post_boundary_device.store(device,std::memory_order_release);
     g_post_boundary_resource.store(reinterpret_cast<std::uint64_t>(resource),std::memory_order_release);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    g_post_boundary_current.descriptor_resource=descriptor_resource;
+    g_post_boundary_descriptor_resource.store(descriptor_resource,std::memory_order_release);
+#endif
     const auto trace=g_post_boundary_current.trace;
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
     return trace;
@@ -182,6 +225,17 @@ void ForgetPostBoundary(std::uint64_t resource) {
     }
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+void ForgetPostBoundaryDescriptorResource(std::uint64_t address,std::uint64_t identity) {
+    if(!identity || g_post_boundary_resource.load(std::memory_order_acquire)!=address ||
+       g_post_boundary_descriptor_resource.load(std::memory_order_acquire)!=identity)return;
+    AcquireSRWLockExclusive(&g_post_boundary_lock);
+    if(g_post_boundary_resource.load(std::memory_order_relaxed)==address &&
+       g_post_boundary_current.descriptor_resource==identity)
+        ClosePostBoundaryLocked(nr_post_boundary::Close::ResourceRetired);
+    ReleaseSRWLockExclusive(&g_post_boundary_lock);
+}
+#endif
 void ObserveFollowingOutputBarrier(std::uint64_t resource,unsigned before,unsigned after) {
     if(!resource||g_post_boundary_resource.load(std::memory_order_acquire)!=resource)return;
     AcquireSRWLockExclusive(&g_post_boundary_lock);

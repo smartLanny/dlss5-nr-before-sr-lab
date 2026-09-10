@@ -264,9 +264,48 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             }
         }
     }
-    FeedbackAppend(s, "%s.format.coverage=native Feature1 synchronous view creation only; "
+    FeedbackAppend(s, "%s.format.coverage=admission observer: native Feature1 synchronous view creation only; "
         "pre-existing/worker-thread views unobserved; no descriptor-address reuse; "
         "viewReady is not color/NR/game admission; provenance=0:none,1:typed,2:native-view,3:float-contract\n", prefix);
+#endif
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    const auto descriptor_use=SnapshotNrDescriptorUse();
+    const auto descriptor_counts=g_nr_descriptors.SnapshotCounters();
+    const auto descriptor_inventory=g_nr_descriptors.ResourceInventory(descriptor_use.resource);
+    const char *descriptor_reason=!descriptor_use.call?"no-native-call-observed":
+        !descriptor_use.hooks_ready?"descriptor-observer-hook-incomplete":
+        !descriptor_use.identity_known?"current-output-or-list-lifetime-unknown":
+        !descriptor_use.clear_calls?"no-matching-explicit-UAV-clear-observed":nr_descriptor::ReasonName(descriptor_use.reason);
+    FeedbackAppend(s,"%s.descriptor.nativeUse=call:%llu,config:%llu,currentConfig:%d,feature:%llu,carrier:%llu,device:%llu,resource:%llu,semanticResource:%llu,list:%llu,reset:%llu,hooks:%d,identity:%d,finished:%d,nativeSuccess:%d,OutputClearCalls:%u,paired:%u,unknown:%u,otherResources:%u,otherLists:%u,observedTyped:%u,conflict:%d,overflow:%d,reason:%s\n",
+        prefix,descriptor_use.call,descriptor_use.config,descriptor_use.config==g_config_generation.load(),
+        descriptor_use.feature,descriptor_use.carrier,descriptor_use.device,descriptor_use.resource,descriptor_use.semantic_resource,
+        descriptor_use.list,descriptor_use.reset,descriptor_use.hooks_ready,descriptor_use.identity_known,
+        descriptor_use.finished,descriptor_use.native_success,descriptor_use.clear_calls,descriptor_use.matches,descriptor_use.unknown,
+        descriptor_use.other_resources,descriptor_use.other_lists,descriptor_use.observed_typed,descriptor_use.conflict,descriptor_use.overflow,descriptor_reason);
+    FeedbackAppend(s,"%s.descriptor.revisions=afterNativeValid:%d,executeEntryObserved:%d,atExecuteEntryValid:%d,executeReturned:%d,queue:%llu,submission:%llu,arrayIndex:%u,arrayCount:%u,replayObserved:%d,current:%d\n",
+        prefix,descriptor_use.after_native_valid,descriptor_use.submission_seen,descriptor_use.at_submit_valid,descriptor_use.execute_returned,
+        descriptor_use.queue,descriptor_use.submission,descriptor_use.submission_index,descriptor_use.submission_count,
+        descriptor_use.replayed,descriptor_use.RevisionsCurrent(g_nr_descriptors));
+    FeedbackAppend(s,"%s.descriptor.registry=writes:%llu,copies:%llu,unknownWrites:%llu,overlaps:%llu,evictions:%llu,invalidations:%llu,resourceRetirements:%llu,heapRetirements:%llu,lifetimeFailures:%llu\n",
+        prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
+        descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
+        g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed));
+    FeedbackAppend(s,"%s.descriptor.outputCache=resource:%llu,device:%llu,lifetimeKnown:%d,observedSlots:%u,srv:%u,uav:%u,rtv:%u,unknownShapeOrType:%u,formatGroups:%u,truncated:%d; cached-only-not-use; kind/format/count=",
+        prefix,descriptor_inventory.resource,descriptor_inventory.device,descriptor_inventory.lifetime_known,
+        descriptor_inventory.slots,descriptor_inventory.srv,descriptor_inventory.uav,descriptor_inventory.rtv,
+        descriptor_inventory.unknown_shapes,descriptor_inventory.count,descriptor_inventory.overflow);
+    for(unsigned i=0;i<descriptor_inventory.count;++i)
+        FeedbackAppend(s,"%s%u/%u/%u",i?",":"",static_cast<unsigned>(descriptor_inventory.formats[i].kind),
+            descriptor_inventory.formats[i].format,descriptor_inventory.formats[i].count);
+    FeedbackAppend(s,"; kind1:SRV,2:UAV,3:RTV; only current tracked slots, absence does not prove no native descriptor\n");
+    if(std::strcmp(prefix,"end")==0)for(unsigned i=0;i<descriptor_use.count;++i) {
+        const auto &pair=descriptor_use.pairs[i];
+        FeedbackAppend(s,"%s.descriptor.nativePair.%u=format:%u,mip:%u,plane:%u,cpuHeap:%llu,cpuSlot:%u,cpuRevision:%llu,gpuHeap:%llu,gpuSlot:%u,gpuRevision:%llu,current:%d\n",
+            prefix,i,pair.cpu.view.format,pair.cpu.view.mip,pair.cpu.view.plane,
+            pair.cpu.stamp.heap,pair.cpu.stamp.index,pair.cpu.stamp.revision,
+            pair.gpu.stamp.heap,pair.gpu.stamp.index,pair.gpu.stamp.revision,g_nr_descriptors.Current(pair));
+    }
+    FeedbackAppend(s,"%s.descriptor.coverage=read-only cached descriptor provenance; tracked creation/copy/overwrite and object lifetimes; explicit native Output UAV clear requires matching CPU/nonvisible and GPU/current-bound-heap views; no root-table/bindless shader-use decoding; observedTyped never enters selectedTyped or the admission ledger; Execute entry/return is not GPU execution or final pixels\n",prefix);
 #endif
 #if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)
     const auto load = SnapshotRuntimeLoadEvidence();
@@ -434,18 +473,24 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.post.boundary.exactFollowing=%u\n%s.post.boundary.unknownOperations=%u\n"
         "%s.post.boundary.nativeDropped=%u\n%s.post.boundary.followingDropped=%u\n"
         "%s.post.boundary.originSubmission=%d,%llu,%llu\n"
+        "%s.post.boundary.originArrayPosition=%u,%u\n"
         "%s.post.boundary.coverageKey=1:legacy,2:enhanced,4:enhanced-unavailable,8:base-operations,16:hook-missing,32:interface-unknown,64:list-identity-unknown,128:event-loss,256:opaque,512:target-unknown,1024:submission-unknown\n",
         prefix,boundary.trace,prefix,boundary.trace!=0,prefix,boundary.frame&&boundary.config==g_config_generation.load(),
         prefix,nr_post_boundary::CloseName(boundary.close),prefix,boundary.native.exact_matches,prefix,boundary.native.exact_other_lists,
         prefix,boundary.native.exact_global,prefix,boundary.native.unknown_operations,prefix,boundary.native.coverage,prefix,boundary.coverage,
         prefix,boundary.exact_following,prefix,boundary.unknown_operations,prefix,boundary.native.dropped,prefix,boundary.dropped,
-        prefix,boundary.origin_submitted,boundary.origin_queue,boundary.origin_submission,prefix);
+        prefix,boundary.origin_submitted,boundary.origin_queue,boundary.origin_submission,
+        prefix,boundary.origin_submission_index,boundary.origin_submission_count,prefix);
+    FeedbackAppend(s,"%s.post.boundary.knownOtherRtv=nativeBind:%u,nativeClear:%u,followingBind:%u,followingClear:%u; scope=observed native/origin/following lists; excluded from Output events\n",
+        prefix,boundary.native.other_rtv_binds,boundary.native.other_rtv_clears,boundary.other_rtv_binds,boundary.other_rtv_clears);
     const auto append_boundary_event=[&](const char *phase,unsigned index,const nr_post_boundary::Event &e) {
-        FeedbackAppend(s,"%s.post.boundary.%s.%u=k:%u,src:%u,list:%llu,reset:%llu,id:%d,seq:%llu,target:%d,rw:%d/%d,ba:%llX/%llX,f:%X,sub:%u/%u/%u/%u/%u/%u,sync:%llX/%llX,access:%llX/%llX,submit:%d/%llu/%llu\n",
+        FeedbackAppend(s,"%s.post.boundary.%s.%u=k:%u,src:%u,list:%llu,reset:%llu,id:%d,seq:%llu,target:%d,rw:%d/%d,ba:%llX/%llX,f:%X,sub:%u/%u/%u/%u/%u/%u,sync:%llX/%llX,access:%llX/%llX,submit:%d/%llu/%llu,position:%u/%u,descriptor:%llu/%llu/%u,clear:%u/%u/%d/%d/%d/%d\n",
             prefix,phase,index,static_cast<unsigned>(e.kind),static_cast<unsigned>(e.source),e.list.token,e.list.reset,e.list.known,
             e.order,e.target_known,e.reads,e.writes,e.before,e.after,e.flags,
             e.subresources[0],e.subresources[1],e.subresources[2],e.subresources[3],e.subresources[4],e.subresources[5],
-            e.sync_before,e.sync_after,e.access_before,e.access_after,e.submitted,e.queue,e.submission);
+            e.sync_before,e.sync_after,e.access_before,e.access_after,e.submitted,e.queue,e.submission,
+            e.submission_index,e.submission_count,e.descriptor_resource,e.descriptor_revision,e.descriptor_format,
+            e.clear_kind,e.clear_rect_count,e.clear_bounds[0],e.clear_bounds[1],e.clear_bounds[2],e.clear_bounds[3]);
     };
     // Keep room for the rest of the F8 metadata. Start carries coherent summary
     // identities; the final matched window carries the full bounded event list.
@@ -455,7 +500,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         for(unsigned i=0;i<boundary.count;++i)append_boundary_event("following",i,boundary.events[i]);
     }
     FeedbackAppend(s,"%s.post.boundary.eventExport=%s\n",prefix,export_events?"final-paired-window":"summary-only; full events in end window");
-    if(export_events)FeedbackAppend(s,"%s.post.boundary.eventKey=1:transition,2:UAV,3:aliasing,4:enhanced-texture,5:enhanced-global,6:enhanced-buffer,7:copy,8:copy-region,9:UAV-clear,10:RT-clear,11:draw,12:indexed-draw,13:dispatch,14:RT-bind,15:opaque,16:resolve,17:discard; src1:native,src2:ReShade; target=0 unknown; submit is CPU Execute return, cross-queue order unknown; native methods cover installed carrier implementations; ray/mesh/render-pass/descriptor-indirect targets not decoded\n",prefix);
+    if(export_events)FeedbackAppend(s,"%s.post.boundary.eventKey=1:transition,2:UAV,3:aliasing,4:enhanced-texture,5:enhanced-global,6:enhanced-buffer,7:copy,8:copy-region,9:UAV-clear,10:RT-clear,11:draw,12:indexed-draw,13:dispatch,14:RT-bind,15:opaque,16:resolve,17:discard; src1:native,src2:ReShade; target=0 unknown; position=index/count in one actual Execute array; descriptor=resource-lifetime/revision/format; clear=kind/count/left/top/right/bottom, kind0:unknown,1:full-view,2:one-rect,3:rect-envelope-not-union; submit is CPU Execute return, cross-queue order and consumed pixels unknown; ray/mesh/render-pass/descriptor-indirect targets not decoded\n",prefix);
 #endif
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
