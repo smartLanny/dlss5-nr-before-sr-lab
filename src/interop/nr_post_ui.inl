@@ -23,6 +23,11 @@ OverlayApplyResult ApplyPictureReset(ChainConfig next, unsigned expected_generat
 }
 
 void DrawGenericCompatibilityStatus() {
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    const auto snapshot=SnapshotNrRoute();
+    const auto text=nr_route::Notice(snapshot,IsRayReconstructionRouteObserved(),UseChineseUi());
+    if (*text) ImGui::TextWrapped("%s",text);
+#else
     const auto snapshot=SnapshotColorPolicy();
     const bool recorded=snapshot.status==NrColorPolicyStatus::Current && snapshot.mode==1;
     ImGui::TextWrapped("%s",UseChineseUi() ? (recorded ?
@@ -30,6 +35,7 @@ void DrawGenericCompatibilityStatus() {
         "正在尝试兼容处理：SR → NR，暂未确认 NR 生效。原设置已保留；持续无效时请按 F8。") : (recorded ?
         "Compatibility fallback: SR -> NR recently recorded. Your NR -> SR preference is retained. Please save an F8 report." :
         "Trying compatibility fallback: SR -> NR; NR processing is not confirmed. Your preference is retained. Save F8 if this persists."));
+#endif
 }
 
 // RR observation selects a route; only recent, matching NR activity describes

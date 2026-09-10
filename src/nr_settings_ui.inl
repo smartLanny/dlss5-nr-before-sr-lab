@@ -60,7 +60,7 @@ void SettingsNote(const char *text) {
     ImGui::PopStyleColor();
 }
 
-bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
+bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, bool compatible_post_locked = false) {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const char *labels[] = {
@@ -69,20 +69,21 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
     const float width = std::max(1.0f,
         (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
     bool changed = false;
+    const bool mode_guarded = rr_guarded || compatible_post_locked;
     ImGui::PushID("nr-processing-mode");
-    if (rr_guarded) ImGui::BeginDisabled();
+    if (mode_guarded) ImGui::BeginDisabled();
     for (int option = 0; option < 2; ++option) {
         if (option != 0) ImGui::SameLine();
         ImGui::PushID(option);
         const int requested_mode = option == 0 ? 2 : 1;
-        const int shown_mode = rr_guarded ? 1 : next.mode;
+        const int shown_mode = mode_guarded ? 1 : next.mode;
         const bool selected = shown_mode == requested_mode;
         if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
             ImGui::GetStyleColorVec4(ImGuiCol_Header));
         const bool clicked = ImGui::Button(labels[option],
             ImVec2(width, ImGui::GetFrameHeight() * 1.25f));
         if (selected) ImGui::PopStyleColor();
-        if (clicked && !rr_guarded && !selected) {
+        if (clicked && !mode_guarded && !selected) {
             next.mode = requested_mode;
             changed = true;
         }
@@ -93,7 +94,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
             "先由游戏放大画面，再做 AI 渲染，通常更耗性能。光线重建（RR）开启时自动使用此模式；关闭 RR 后恢复你自己的选择。"));
         ImGui::PopID();
     }
-    if (rr_guarded) ImGui::EndDisabled();
+    if (mode_guarded) ImGui::EndDisabled();
     ImGui::PopID();
     return changed;
 }
@@ -390,7 +391,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (kChineseUi && !use_chinese_ui)
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     // Keep controls stationary while live status text changes (#121).
-    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
+    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.25f), true);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    if (current.config.enabled && ActiveTransferStrength(current.config)>0.000001f)
+        DrawGenericCompatibilityStatus();
+#endif
     DrawNrActivityStatus(runtime,current.config,current.generation);
 
 
@@ -426,14 +431,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0，并开启色彩保护。关闭实验性 NR 抖动传递，保留 F6 总开关和其他游戏兼容设置。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
+    const bool compatibility_post = !rr_guarded && next.mode==2 && IsCompatibilityPostObserved();
     SettingsField(ui("Processing mode", "处理模式"));
-    if (DrawProcessingModeBlocks(next, rr_guarded)) {
+    if (DrawProcessingModeBlocks(next, rr_guarded, compatibility_post)) {
         changed = true;
         apply_discrete_edit = true;
     }
     if (rr_guarded) DrawPostRouteStatus();
-    const bool compatibility_post = !rr_guarded && next.mode==2 && IsCompatibilityPostObserved();
-    if (compatibility_post) DrawGenericCompatibilityStatus();
     const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;
 #if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;

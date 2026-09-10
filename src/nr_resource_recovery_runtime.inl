@@ -71,6 +71,9 @@ void NrRecoveryForgetPreviousWaitingLocked(const nr_recovery::Key& key) {
     if (vacant) *vacant = key;
 }
 void NrRecoveryRetireFeature(unsigned long long generation) {
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteRetireFeature(generation);
+#endif
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     for (auto& scope : g_nr_recovery_scopes) if (scope.device && scope.feature_generation == generation) {
         g_nr_recovery.RetireScope(scope); scope = {};
@@ -153,8 +156,7 @@ void NrObserveCompatibilityBypass(BypassReason reason) {
         auto& input = frame->snapshot.input;
         if (reason == BypassReason::None) { input.first_block = {}; return; }
         if (!input.first_block.unresolved)
-            input.first_block = {true, true, input.current, BypassReasonName(reason),
-                ClassifyReason(BypassReasonName(reason)).known};
+            input.first_block = CurrentResourceBlock(input.current, BypassReasonName(reason), input.resource);
         return;
     }
     // Early process guards have no classified resource identity. Export their
@@ -200,6 +202,9 @@ void NrRecoveryRecord(const nr_recovery::Token& token, nr_recovery::Stage stage,
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     g_nr_recovery.Record(token, stage, success, static_cast<std::int32_t>(result));
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    NrRouteRecoveryStage(token, stage, success);
+#endif
 }
 void NrRecoveryDescriptorProgrammed(const NrSlot& slot, ID3D12DescriptorHeap* heap) {
     if (heap != slot.heap) return;
