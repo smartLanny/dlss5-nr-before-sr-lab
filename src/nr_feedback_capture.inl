@@ -239,7 +239,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         exposure_semantic.semantic.missing_evidence, exposure_semantic.semantic.next_action);
 #endif
 #if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
+#if defined(NR_HAS_NATIVE_CLEAR_REQUEST)
     FeedbackAppendNativeClearGate(s,prefix);
+#endif
     const auto formats = SnapshotNrFormatDiagnostics();
     for (unsigned role = 0; role != 2; ++role) {
         for (unsigned first = 0; first != 2; ++first) {
