@@ -158,6 +158,20 @@ void CompleteKeysAndPools() {
         "GPU eviction is charged only at real GPU capacity and only to that pool");
     Check(split.Gpu(gpu.gpu+15*32,0).view.format==28,"GPU copy after repeated turnover still resolves its retained CPU source");
 
+    Registry<2,2,2,2> lru;lru.ObserveResource(output);lru.ObserveHeap(cpu);lru.ObserveHeap(gpu);
+    w=lru.BeginWrite(cpu.cpu,0,MakeView());lru.Finish(w);const auto hot=lru.Cpu(cpu.cpu,0);
+    w=lru.BeginWrite(cpu.cpu+32,0,MakeView());lru.Finish(w);const auto cold=lru.Cpu(cpu.cpu+32,0);
+    w=lru.BeginCopy(gpu.cpu,cpu.cpu,0);lru.Finish(w);
+    w=lru.BeginWrite(cpu.cpu+64,0,MakeView());lru.Finish(w);
+    Check(lru.Current(hot)&&!lru.Current(cold),"successful Copy use keeps a long-lived CPU source ahead of an unused newer descriptor");
+    const auto cold_cpu=lru.Cpu(cpu.cpu+64,0),hot_gpu=lru.Gpu(gpu.gpu,0);
+    w=lru.BeginWrite(gpu.cpu+32,0,MakeView());lru.Finish(w);const auto cold_gpu=lru.Gpu(gpu.gpu+32,0);
+    Check(static_cast<bool>(lru.UavPair(7,output,gpu.id,gpu.gpu,cpu.cpu)),"explicit Clear pair can refresh both completed pools");
+    w=lru.BeginWrite(cpu.cpu+96,0,MakeView());lru.Finish(w);
+    w=lru.BeginWrite(gpu.cpu+64,0,MakeView());lru.Finish(w);
+    Check(lru.Current(hot)&&lru.Current(hot_gpu)&&!lru.Current(cold_cpu)&&!lru.Current(cold_gpu),
+        "matched explicit UAV use refreshes both CPU and GPU LRU without retaining unrelated slots");
+
     Registry<1,2,2,2> heap_full;heap_full.ObserveResource(output);heap_full.ObserveHeap(cpu);
     w=heap_full.BeginWrite(cpu.cpu,0,MakeView());heap_full.Finish(w);const auto before=heap_full.Cpu(cpu.cpu,0);
     Heap overlap=cpu;overlap.id=99;overlap.address+=1;
@@ -177,6 +191,18 @@ void CompleteKeysAndPools() {
     Check(resource_counts.active==1&&resource_counts.capacity==1&&resource_counts.drops==1&&!resource_counts.evictions&&resource_counts.coverage_lost,
         "resource capacity loss is separate from actual retirement");
 
+    Registry<2,4,4,4> ambiguous;ambiguous.ObserveResource(output);ambiguous.ObserveHeap(cpu);
+    w=ambiguous.BeginWrite(cpu.cpu,0,MakeView());ambiguous.Finish(w);const auto unique=ambiguous.Cpu(cpu.cpu,0);
+    ambiguous.ObserveResource({9,7,output.address});
+    Check(!ambiguous.Current(unique),"second live token at the same address revokes the old receipt");
+    w=ambiguous.BeginWrite(cpu.cpu,0,MakeView());ambiguous.Finish(w);
+    Check(!ambiguous.Cpu(cpu.cpu,0),"new write cannot authorize an ambiguous live resource address");
+    ambiguous.RetireResource(9);w=ambiguous.BeginWrite(cpu.cpu,0,MakeView());ambiguous.Finish(w);
+    Check(!ambiguous.Current(unique)&&!ambiguous.Cpu(cpu.cpu,0),"retirement after address ambiguity cannot resurrect a stale interpretation");
+    const auto ambiguity_counts=ambiguous.SnapshotCounters().resources;
+    Check(ambiguity_counts.ambiguities==1&&!ambiguity_counts.drops&&ambiguity_counts.coverage_lost,
+        "live-address ambiguity is counted separately from capacity drops");
+
     Registry<2,2,1,1> pending;pending.ObserveResource(output);pending.ObserveHeap(cpu);
     const auto a=pending.BeginWrite(cpu.cpu,0,MakeView());
     const auto lost=pending.BeginWrite(cpu.cpu+32,0,MakeView());pending.Finish(lost);
@@ -187,6 +213,15 @@ void CompleteKeysAndPools() {
     Check(!pending.Cpu(cpu.cpu,0),"writes overlapping across global invalidation remain unknown");
     w=pending.BeginWrite(cpu.cpu,0,MakeView());pending.Finish(w);
     Check(static_cast<bool>(pending.Cpu(cpu.cpu,0)),"all pre-invalidation pending writers retire without stranding the slot");
+
+    LiveTable<Resource,32> churn;
+    for(unsigned i=1;i<=32;++i)Check(churn.Insert({i,7,static_cast<Id>(i)*32}),"live table fills its object capacity with spare index buckets");
+    for(unsigned i=1;i<=512;++i) {
+        Check(churn.Erase(i),"retirement removes the exact live key despite repaired collisions");
+        Check(!churn.Find(i)&&churn.Insert({i+32,7,static_cast<Id>(i+32)*32}),"high-occupancy deletion reuses capacity without tombstones");
+    }
+    Check(churn.active==32&&!churn.Insert({9999,7,0xffff}),"live-object cap remains exact even with spare index buckets");
+    for(unsigned i=513;i<=544;++i)Check(churn.Find(i)!=nullptr,"every retained key survives repeated high-occupancy deletion");
 }
 void ConcurrentWrites() {
     TestRegistry registry;Seed(registry);

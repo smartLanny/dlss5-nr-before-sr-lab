@@ -294,8 +294,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
         g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed));
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
-        FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,coverageLost:%d\n",
-            prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.coverage_lost);
+        FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
+            prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);
     };
     descriptor_pool("heaps",descriptor_counts.heaps);descriptor_pool("resources",descriptor_counts.resources);
     descriptor_pool("cpuSlots",descriptor_counts.cpu_slots);descriptor_pool("gpuSlots",descriptor_counts.gpu_slots);
