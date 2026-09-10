@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHoYoWorkflow } = require('../src/product/hoyo-workflow');
 const { emptyVerification } = require('../src/product/runtime-verification');
+const { HOYO_RECIPE, HOYO_CLIENTS, launcherRequest, fingerprint } = require('../src/product/hoyoshade-profiles');
 const copy = value => structuredClone(value);
 const failed = (code, message = code) => Object.assign(new Error(message), { code });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
@@ -22,6 +23,15 @@ function fixture(t, overrides = {}) {
     launchers: [{ ...hyp, matched: true, channel: 'cn' }], automaticBinding: { family: 'zzz', channel: 'cn', launcher: { kind: hyp.kind, path: hyp.path } }, evidence: [], warnings: [] };
   const calls = [], state = { games: [], session: null, deployment: { installed: false, ready: false }, pending: { pending: false },
     deploymentError: null, applyError: null, recoverError: null, api: 'dx11', discovery: { games: [discovered], launchers: [hyp, starward], warnings: [] }, plans: new Map(), nextPlan: 0 };
+  function installedState(api = state.api, selection = discovered.automaticBinding) {
+    const client = HOYO_CLIENTS.find(row => row.family === selection.family && row.channel === selection.channel);
+    const launcher = state.discovery.launchers.find(row => row.path === selection.launcher.path && row.kind === selection.launcher.kind);
+    const body = { version: 1, recipeId: HOYO_RECIPE.id, sourceCommit: HOYO_RECIPE.sourceCommit, family: client.family, channel: client.channel,
+      releaseCategory: 'public', inputRoute: 'native', exePath: exe, exeSha256: discovered.exeSha256, architecture: 64,
+      launcher: { ...launcherRequest(client, launcher), sha256: launcher.sha256 } };
+    const hoyoProfile = { ...body, bindingId: fingerprint(body) };
+    return { installed: true, ready: true, loadingBackend: 'hoyoshade', api, hoyoProfile, launcher: hoyoProfile.launcher, bindingId: hoyoProfile.bindingId };
+  }
   const service = {
     async listGames() { return copy(state.games); },
     async addManualSelection(input) { calls.push(['register', copy(input)]); state.games.push({ id: 'game-' + (state.games.length + 1), name: input.name, dir: input.root, chosen: { path: input.executable } }); return copy(state.games); },
@@ -35,7 +45,7 @@ function fixture(t, overrides = {}) {
     async inspect(id) { calls.push(['pending', id]); return copy(state.pending); },
     async preview(gameId, request) { const n = ++state.nextPlan, plan = { gameId, planId: 'plan-' + n, fingerprint: String(n).repeat(64), request: copy(request), changes: [], blockers: [] }; calls.push(['preview', gameId, request]); state.plans.set(plan.planId, plan); return copy(plan); },
     async loadPlan(planId, fingerprint) { calls.push(['loadPlan', planId, fingerprint]); const plan = state.plans.get(planId); if (!plan || plan.fingerprint !== fingerprint) throw failed('OPERATION_PLAN_CHANGED'); return copy(plan); },
-    async apply(planId, consent) { calls.push(['apply', planId, consent]); if (state.applyError) throw state.applyError; const plan = state.plans.get(planId); state.deployment = plan.request.uninstall ? { installed: false, ready: false } : { installed: true, ready: true, loadingBackend: 'hoyoshade', api: plan.request.api || state.deployment.api }; },
+    async apply(planId, consent) { calls.push(['apply', planId, consent]); if (state.applyError) throw state.applyError; const plan = state.plans.get(planId); state.deployment = plan.request.uninstall ? { installed: false, ready: false } : installedState(plan.request.api || state.deployment.api, plan.request.hoyo || discovered.automaticBinding); },
     async recover(id) { calls.push(['recover', id]); if (state.recoverError) throw state.recoverError; state.pending = { pending: false }; },
     async assertReady(id) { calls.push(['assertReady', id]); if (state.readyGate) await state.readyGate.promise; }
   };
@@ -53,8 +63,8 @@ function fixture(t, overrides = {}) {
     async launch(id) { calls.push(['launch', id]); if (state.launchImpl) return state.launchImpl(id); },
     async elevatedApply(id, planId, consent) { calls.push(['elevatedApply', id, planId]); return operations.apply(planId, consent); },
     async beforeMutation(id) { calls.push(['beforeMutation', id]); }, ...overrides };
-  return { root, userData, exe, hyp, starward, discovered, state, calls, dependencies, create: () => createHoYoWorkflow(dependencies),
-    async ready(flow) { await flow.discover(); state.deployment = { installed: true, ready: true, loadingBackend: 'hoyoshade', api: state.api }; },
+  return { root, userData, exe, hyp, starward, discovered, state, calls, dependencies, installedState, create: () => createHoYoWorkflow(dependencies),
+    async ready(flow) { await flow.discover(); state.deployment = installedState(); },
     count(name) { return calls.filter(row => row[0] === name).length; } };
 }
 
@@ -103,7 +113,7 @@ test('installation errors and deployment inspection failures never yield ready; 
   const result = await flow.apply('client-zzz', plan.planId, { confirm: true, fingerprint: plan.fingerprint });
   assert.equal(result.phase, 'failed'); assert.equal(result.installation.ready, false); assert.equal(result.error.code, 'INSTALL_FAILED');
   assert.equal((await flow.inspect('client-zzz')).error.code, 'INSTALL_FAILED');
-  f.state.deployment = { installed: true, ready: true, loadingBackend: 'hoyoshade' }; f.state.deploymentError = failed('RECEIPT_UNREADABLE');
+  f.state.deployment = f.installedState(); f.state.deploymentError = failed('RECEIPT_UNREADABLE');
   const unreadable = await flow.inspect('client-zzz', { retry: true }); assert.equal(unreadable.installation.ready, false); assert.equal(unreadable.phase, 'recovery');
   f.state.deploymentError = null; assert.equal((await flow.inspect('client-zzz', { retry: true })).phase, 'ready');
 });
@@ -208,7 +218,7 @@ test('simultaneous start requests can delegate the launch only once, including s
 
 test('preflight failure releases the start reservation and no launch can skip a required binding step', async t => {
   const f = fixture(t), flow = f.create(); await f.ready(flow);
-  await flow.pickLauncher('client-zzz', f.starward.path);
+  await flow.pickLauncher('client-zzz', f.hyp.path);
   await assert.rejects(flow.start('client-zzz'), { code: 'HOYO_NOT_READY' }); assert.equal(f.count('launch'), 0);
   await flow.bind('client-zzz', {});
   f.dependencies.operations.assertReady = async () => { throw failed('PENDING_WRITE'); };
@@ -246,4 +256,39 @@ test('returning the preference to the installed API restores readiness without r
   assert.equal((await flow.bind('client-zzz', { api: 'dx12' })).phase, 'install');
   const reverted = await flow.bind('client-zzz', { api: 'dx11' });
   assert.equal(reverted.phase, 'ready'); assert.equal(reverted.error, null); assert.deepEqual(f.state.deployment, installed); assert.equal(f.count('apply'), 0);
+});
+
+test('confirmed launcher and channel changes require applying a new binding while preserving the active profile', async t => {
+  const f = fixture(t), flow = f.create(); await f.ready(flow); const installed = copy(f.state.deployment);
+  const changed = await flow.bind('client-zzz', { channel: 'bilibili', launcherId: 'starward' });
+  assert.equal(changed.installation.bindingChangePending, true); assert.equal(changed.installation.ready, false);
+  assert.equal(changed.phase, 'install'); assert.equal(changed.nextAction, 'preview-install'); assert.equal(changed.error, null);
+  assert.deepEqual(f.state.deployment, installed); assert.equal(f.count('apply'), 0);
+  await assert.rejects(flow.start('client-zzz'), { code: 'HOYO_NOT_READY' });
+  const plan = await flow.preview('client-zzz'); assert.equal(plan.request.hoyo.channel, 'bilibili'); assert.equal(plan.request.hoyo.launcher.path, f.starward.path);
+  const applied = await flow.apply('client-zzz', plan.planId, { confirm: true, fingerprint: plan.fingerprint });
+  assert.equal(applied.phase, 'ready'); assert.equal(applied.installation.bindingChangePending, false);
+  assert.equal(f.state.deployment.hoyoProfile.channel, 'bilibili'); assert.equal(f.state.deployment.launcher.path, f.starward.path);
+});
+
+test('a changed launcher hash and a different installed binding identity cannot remain ready', async t => {
+  const f = fixture(t), flow = f.create(); await f.ready(flow);
+  f.hyp.sha256 = 'd'.repeat(64);
+  const changed = await flow.bind('client-zzz', { launcherId: f.hyp.id });
+  assert.equal(changed.phase, 'install'); assert.equal(changed.installation.bindingChangePending, true);
+  f.state.deployment = f.installedState(); assert.equal((await flow.inspect('client-zzz')).phase, 'ready');
+  f.state.deployment.bindingId = 'f'.repeat(64);
+  const inconsistent = await flow.inspect('client-zzz'); assert.equal(inconsistent.installation.ready, false); assert.equal(inconsistent.installation.bindingChangePending, true);
+});
+
+test('reconfirmed file identity can replace its stale binding but cannot hide other deployment blockers', async t => {
+  const f = fixture(t), flow = f.create(); await f.ready(flow);
+  f.hyp.sha256 = 'd'.repeat(64); f.state.deployment.ready = false;
+  f.state.deployment.blockers = ['游戏或启动器已更新，请重新确认客户端绑定。'];
+  await flow.pickLauncher('client-zzz', f.hyp.path);
+  assert.equal((await flow.inspect('client-zzz')).phase, 'failed', 'an unconfirmed updated executable is not sufficient to replace the old binding');
+  const confirmed = await flow.bind('client-zzz', { launcherId: f.hyp.id });
+  assert.equal(confirmed.phase, 'install'); assert.equal(confirmed.error, null); assert.equal(confirmed.installation.ready, false);
+  f.state.deployment.blockers.push('Core 组件摘要发生变化，未接管未知文件。');
+  const blocked = await flow.inspect('client-zzz'); assert.equal(blocked.phase, 'failed'); assert.match(blocked.error.message, /Core 组件摘要/);
 });

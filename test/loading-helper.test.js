@@ -58,6 +58,16 @@ test('configuration hashing preserves the UTF-8 BOM and rejects invalid bytes', 
   assert.equal((await f.prepare()).configHash, sha(f.configPath)); fs.writeFileSync(f.configPath, Buffer.from([0xff]));
   await assert.rejects(f.prepare(), { code: 'HELPER_CONFIG_INVALID' });
 });
+
+test('cancellation during helper identity revalidation prevents process creation', async t => {
+  let f, hold = false, cancelled = false, entered, release;
+  const checking = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  f = fixture(t, { getLayout: async () => { if (hold) { entered(); await gate; } return f.layout; } });
+  const session = await f.prepare(); hold = true;
+  const rejected = assert.rejects(f.helper.start(session, { cancelled: () => cancelled }), { code: 'LAUNCH_CANCELLED' });
+  await checking; cancelled = true; release(); await rejected;
+  assert.equal(f.children.length, 0); assert.equal(session.state, 'prepared');
+});
 test('Ready accepts split UTF-8 and final Attached output after exit but before close', async t => {
   const f = fixture(t), session = await f.prepare(), { promise } = await f.started(session);
   const bytes = Buffer.from(JSON.stringify(f.event(session)) + '\n'), index = bytes.indexOf(Buffer.from('中文')) + 1;

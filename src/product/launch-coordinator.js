@@ -1,6 +1,7 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
+const { assertLaunchNotCancelled } = require('./launch-safety');
 
 function createLaunchCoordinator({ service, settings, legacySrModel, guards, components, launchGame, explicitApply = false }) {
   let queue = Promise.resolve();
@@ -42,10 +43,12 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     };
     return wrapped;
   }
-  async function launch(id) {
+  async function launch(id, controls) {
+    assertLaunchNotCancelled(controls);
     await settings.assertReady(id);
     await service.validateLaunch(id);
     await closed(id);
+    assertLaunchNotCancelled(controls);
     if (components) {
       const migration = await components.inspectMigration?.(id);
       if (migration?.fileRecoveryPending) throw Object.assign(new Error('补帧组件文件操作尚未完成，请先恢复再启动游戏。'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
@@ -61,13 +64,16 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
           : '帧生成组件尚未就绪，请先在 FG 区域准备兼容组件或处理提示。'), { code: 'SETTINGS_COMPONENTS_NOT_READY' });
       }
     }
+    assertLaunchNotCancelled(controls);
     const launchSettings = await settings.beforeLaunch(id);
     const failure = launchSettings.find(row => row.applied !== true && row.skipped !== true);
     if (failure) throw await launchFailure(id, Object.assign(new Error(failure.reason || '启动设置应用失败，未启动游戏。'),
       { code: failure.code || 'SETTINGS_APPLY_FAILED' }), 'launch-settings', launchSettings);
     let srModel = null;
     try {
+      assertLaunchNotCancelled(controls);
       if (!await settings.hasSrRequest(id)) {
+        assertLaunchNotCancelled(controls);
         if (explicitApply) {
           const legacy = await legacySrModel.migrationInfo(id);
           if (legacy.configured || legacy.baselineCaptured) throw Object.assign(new Error('此游戏仍有旧版 SR 选择，请先在增强设置中预览并应用或恢复；启动不会自动写入旧设置。'), { code: 'SETTINGS_LEGACY_APPLY_REQUIRED' });
@@ -81,7 +87,8 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
       // Keep already completed FG/SR outcomes visible in both cases.
       throw await launchFailure(id, error, 'legacy-sr', launchSettings);
     }
-    try { return { launched: await (launchGame || service.launch)(id), srModel, launchSettings }; }
+    assertLaunchNotCancelled(controls);
+    try { return { launched: await (launchGame || service.launch)(id, controls), srModel, launchSettings }; }
     catch (error) { throw await launchFailure(id, error, 'process-spawn', launchSettings); }
   }
   async function restoreForUninstall(id) {

@@ -2,7 +2,7 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile, spawn } = require('node:child_process');
-const { noLinks, digestFile } = require('./launch-safety');
+const { noLinks, digestFile, assertLaunchNotCancelled } = require('./launch-safety');
 const { validHoYoProfile } = require('./hoyoshade-profiles');
 const fail = (code, message) => { throw Object.assign(new Error(message), { code: 'HOYO_LAUNCH_' + code }); };
 const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
@@ -41,18 +41,21 @@ function createHoYoLauncher({ broker, readProtocol = readStarwardProtocol, isAdm
       helper: { gameId: layout.gameId, adapter: 'hoyoshade', bindingId: layout.bindingId }, loadingBackend: 'hoyoshade', elevatedTarget,
       launchInstruction: launcher.kind === 'hoyoplay' ? '加载助手已就绪，请在 HoYoPlay 中点击此游戏的启动按钮。' : '正在通过已绑定的 Starward 启动当前游戏。' };
   }
-  async function launch(layout) {
+  async function launch(layout, controls) {
+    assertLaunchNotCancelled(controls);
     const target = await resolve(layout);
+    assertLaunchNotCancelled(controls);
     const args = target.launchMode === 'starward' ? [target.launcher.uri] : [];
     if (target.elevatedTarget) {
       if (!isAdministrator || await isAdministrator() !== true) fail('PRIVILEGE', '此米哈游客户端需要本次管理员加载助手。');
+      assertLaunchNotCancelled(controls);
       // This branch runs only inside the authenticated, one-shot HoYo worker.
       // It opens the bound launcher and never substitutes the game EXE.
       await new Promise((resolve, reject) => {
         const child = spawnLauncher(target.launcher.path, args, { cwd: path.dirname(target.launcher.path), windowsHide: false, stdio: 'ignore' });
         child.once('error', reject); child.once('spawn', () => { child.unref(); resolve(); });
       });
-    } else await broker.launch({ exe: target.launcher.path, args, cwd: path.dirname(target.launcher.path) });
+    } else await broker.launch({ exe: target.launcher.path, args, cwd: path.dirname(target.launcher.path) }, controls);
     return target;
   }
   return { resolve, launch };

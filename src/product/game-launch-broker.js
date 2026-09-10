@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const pe = require('../core/pe');
-const { noLinks } = require('./launch-safety');
+const { noLinks, assertLaunchNotCancelled } = require('./launch-safety');
 
 const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT = 8000;
@@ -161,12 +161,15 @@ function createGameLaunchBroker(options = {}) {
     if (level === 'requireAdministrator' || level === 'highestAvailable') fail('GAME_LAUNCH_REQUIRES_ELEVATION', '该游戏明确要求管理员权限，不能用 Vulkan 用户 layer 路线启动。', { level });
     return { ...(await call({ op: 'inspect', exe })), exe, bitness, executionLevel: level };
   }
-  async function launch(input) {
+  async function launch(input, controls) {
+    assertLaunchNotCancelled(controls);
     const checked = await inspect(input), args = validateArgs(input.args), env = validateEnvironment(input.env);
+    assertLaunchNotCancelled(controls);
     const cwd = input.cwd === undefined ? path.dirname(checked.exe) : localAbsolute(input.cwd, '工作目录');
     let stat; try { stat = fs.statSync(cwd); } catch { fail('GAME_LAUNCH_CWD_INVALID', '游戏工作目录不存在。'); }
     if (!stat.isDirectory()) fail('GAME_LAUNCH_CWD_INVALID', '游戏工作目录无效。');
     await noLinks(cwd);
+    assertLaunchNotCancelled(controls);
     const result = await call({ op: 'launch', exe: checked.exe, args, env, cwd, expected: { userSid: checked.userSid, sessionId: checked.sessionId, shellPid: checked.shellPid } });
     if (!Number.isInteger(result.pid) || result.pid <= 0 || result.userSid !== checked.userSid || result.sessionId !== checked.sessionId)
       fail('GAME_LAUNCH_TOKEN_MISMATCH', '新游戏进程的普通权限 token 读回不一致。');

@@ -2,7 +2,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { noLinks, digestFile, atomicJson } = require('./launch-safety');
+const { noLinks, digestFile, atomicJson, assertLaunchNotCancelled } = require('./launch-safety');
 const { createOperationElevation, locations, hash } = require('./operation-elevation');
 const { executionLevel } = require('./game-launch-broker');
 const { validHoYoProfile } = require('./hoyoshade-profiles');
@@ -77,7 +77,11 @@ async function runHoYoRuntime({ plan, sessions, verification, processes, control
     finally { timerBusy = false; }
   }, 1000);
   try {
-    let session = await sessions.start(plan.gameId);
+    if (await controls.cancelled() || !await controls.parentAlive()) {
+      cancelling = true;
+      return { applied: true, gamePreserved: true, monitoringEnded: true, cancelled: true, runtimeVerified: false };
+    }
+    let session = await sessions.start(plan.gameId, { cancelled: () => cancelling });
     const deadline = now() + 12 * 60 * 60000;
     while (!cancelling && now() < deadline) {
       session = await sessions.inspect(plan.gameId);
@@ -112,8 +116,9 @@ function createHoYoElevatedSessions({ userData, plans, normal, getLayout, proces
       state.started = true; state.resolve(structuredClone(state.session));
     }
   }
-  async function start(id) {
-    if (!needsHoYoElevation(getLayout(id))) return normal.start(id);
+  async function start(id, controls) {
+    assertLaunchNotCancelled(controls);
+    if (!needsHoYoElevation(getLayout(id))) return normal.start(id, controls);
     if (active.has(id)) {
       const running = active.get(id);
       if (running.session) return structuredClone(running.session);
@@ -125,17 +130,21 @@ function createHoYoElevatedSessions({ userData, plans, normal, getLayout, proces
     try {
       plan = await plans.preview(id);
       if (state.cancelRequested) fail('CANCELLED', '已取消本次管理员加载。');
+      assertLaunchNotCancelled(controls);
     } catch (error) { if (active.get(id) === state) active.delete(id); throw error; }
     state.exe = plan.exe;
     const promise = new Promise((resolve, reject) => { state.resolve = resolve; state.reject = reject; });
     const elevated = elevationFactory({ ...rest, userData: namespace(userData), plans, processInfo, appPath, packaged, runPowerShell,
       workerFlag: '--hoyo-launch-worker', timeoutMs: 12 * 60 * 60000 + 120000, pollMs: 1000,
+      cancelled: () => state.cancelRequested || controls?.cancelled?.(),
+      onReserved: async info => { state.dispatch = info; if (state.cancelRequested || controls?.cancelled?.()) await cancel(id); },
       onDispatched: async info => { state.dispatch = info; if (state.cancelRequested) await cancel(id); }, onProgress: progress => notify(state, progress) });
     state.finished = Promise.resolve().then(async () => {
       const previous = await elevated.inspect();
       if (previous.active && previous.canRecover) await elevated.recover();
       else if (previous.active) fail('BUSY', '原米哈游加载工作进程尚未结束，请稍后再试。');
       if (state.cancelRequested) fail('CANCELLED', '已取消本次管理员加载。');
+      assertLaunchNotCancelled(controls);
       return elevated.apply(id, plan.planId, { confirm: true, fingerprint: plan.fingerprint });
     }).then(result => {
       if (!state.started) state.reject(Object.assign(Error('专用助手结束前未确认游戏启动。'), { code: 'HOYO_ELEVATION_NOT_STARTED' }));

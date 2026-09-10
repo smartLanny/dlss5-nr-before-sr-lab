@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { noLinks, atomicJson } = require('./launch-safety');
+const { noLinks, atomicJson, assertLaunchNotCancelled } = require('./launch-safety');
 const { same } = require('./game-processes');
 const fail = (code, message, details) => { throw Object.assign(new Error(message), { code, details }); };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -31,9 +31,11 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
     // visible, and require live process identity for new runtime observations.
     return { ...row, historical: true };
   }
-  async function start(id) {
+  async function start(id, controls) {
+    assertLaunchNotCancelled(controls);
     if (active.has(id)) fail('LAUNCH_BUSY', '该游戏正在启动，请等待或取消本次等待。');
     const target = await game(id);
+    assertLaunchNotCancelled(controls);
     if (!target || !path.isAbsolute(target.exe || '') || !['steam', 'exe', 'hoyoplay', 'starward'].includes(target.launchMode)) fail('LAUNCH_TARGET', '没有可验证的启动入口。');
     const hoyo = ['hoyoplay', 'starward'].includes(target.launchMode);
     if (hoyo && (!target.helper || !launchHoYo)) fail('LAUNCH_HELPER_UNAVAILABLE', '米哈游路线需要已绑定的启动器和加载助手。');
@@ -41,46 +43,50 @@ function createLaunchSessions({ userData, game, broker, processes, helper = null
       requestedAt: new Date(now()).toISOString(), status: 'preflight', helper: { status: target.helper ? 'starting' : 'not-applicable' },
       process: null, cleanup: { status: 'not-needed' }, runtimeVerified: false };
     sessions.set(id, row); active.set(id, row); row._cancelled = false;
+    const cancellation = { cancelled: () => row._cancelled || controls?.cancelled?.() };
     let helperSession;
     try {
       await beforeLaunch(id, { sessionId: row.sessionId, targetExe: row.targetExe, requestedAt: row.requestedAt }); await noLinks(target.exe);
       if ((await processes.find(target.exe)).length) fail('LAUNCH_GAME_RUNNING', '游戏已在运行，请先退出再启动。');
+      assertLaunchNotCancelled(cancellation);
       await save(row, 'preflight');
       if (target.helper) {
         if (!helper) fail('LAUNCH_HELPER_UNAVAILABLE', '此路线需要兼容加载助手，当前没有已核验的适配器。');
         await save(row, 'waiting-helper');
+        assertLaunchNotCancelled(cancellation);
         helperSession = await helper.prepare({ ...target.helper, gameId: id, sessionId: row.sessionId, targetExe: row.targetExe });
         row._helperSession = helperSession;
-        const ready = await helper.start(helperSession, { cancelled: () => row._cancelled });
+        assertLaunchNotCancelled(cancellation);
+        const ready = await helper.start(helperSession, cancellation);
         if (!ready || ready.sessionId !== row.sessionId || !same(ready.targetExe, row.targetExe) || ready.configHash !== helperSession.configHash)
           fail('LAUNCH_HELPER_IDENTITY', '助手就绪事件与本次游戏或配置不一致，已停止启动。');
         row.helper = { status: 'ready', sessionId: ready.sessionId, targetExe: row.targetExe, configHash: ready.configHash, helperPid: ready.helperPid,
           readyAt: new Date(now()).toISOString() };
       }
-      if (row._cancelled) fail('LAUNCH_CANCELLED', '已取消本次启动等待。');
+      assertLaunchNotCancelled(cancellation);
       await save(row, 'request-sending');
       if (helperSession && helper.alive && !await helper.alive(helperSession)) fail('LAUNCH_HELPER_EXITED', '助手已在发送启动请求前退出，已停止本次启动。');
-      if (row._cancelled) fail('LAUNCH_CANCELLED', '已取消本次启动等待。');
+      assertLaunchNotCancelled(cancellation);
       if (hoyo) {
         row._launchRequested = true;
         // The adapter revalidates the bound EXE, launcher and protocol after
         // helper Ready, immediately before issuing the launch request.
-        const launched = await launchHoYo(id, target);
+        const launched = await launchHoYo(id, target, cancellation);
         row.launchInstruction = launched.launchInstruction;
       } else if (row.mode === 'steam') {
         if (!/^\d{1,10}$/.test(String(target.steamAppId || '')) || !path.isAbsolute(target.steamRoot || '')) fail('LAUNCH_STEAM_UNVERIFIED', '没有与游戏安装记录匹配的 Steam AppID。');
         const steamExe = path.join(target.steamRoot, 'steam.exe');
         row._launchRequested = true;
-        await broker.launch({ exe: steamExe, args: ['-applaunch', String(target.steamAppId)], cwd: target.steamRoot });
+        await broker.launch({ exe: steamExe, args: ['-applaunch', String(target.steamAppId)], cwd: target.steamRoot }, cancellation);
       } else {
         row._launchRequested = true;
         if (launchDirect) await launchDirect(id);
-        else await broker.launch({ exe: target.exe, args: target.args || [], cwd: path.dirname(target.exe) });
+        else await broker.launch({ exe: target.exe, args: target.args || [], cwd: path.dirname(target.exe) }, cancellation);
       }
       await save(row, row.mode === 'steam' || hoyo ? 'waiting-launcher' : 'waiting-game');
       const deadline = now() + (hoyo ? hoyoTimeoutMs : timeoutMs), requested = Date.parse(row.requestedAt);
       while (now() <= deadline) {
-        if (row._cancelled) fail('LAUNCH_CANCELLED', '已取消等待；已发送的启动请求不会撤回，也不会结束游戏。');
+        if (cancellation.cancelled()) fail('LAUNCH_CANCELLED', '已取消等待；已发送的启动请求不会撤回，也不会结束游戏。');
         const found = (await processes.find(target.exe)).filter(item => Date.parse(item.startedAt) >= requested - 1000);
         if (found.length > 1) fail('LAUNCH_AMBIGUOUS_PROCESS', '出现多个匹配的游戏进程，无法确认本次目标。');
         if (found.length === 1) {

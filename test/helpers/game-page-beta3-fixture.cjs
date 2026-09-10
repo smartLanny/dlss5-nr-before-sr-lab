@@ -192,7 +192,7 @@ async function smoke() {
   await open('fixture-dx9'); await until(() => state().loaded.includes('installation'), 'DX9 Feeder assessment');
   assert(state().data.game.supported === false && state().data.game.chosen.bitness === 32 && field('route', 'version').value === 'fixture-dx9-x86-on12', 'old unsupported marker does not suppress an available DX9 x86 Feeder package');
   await preview('prepare');
-  assert(mock.plan.request.route === 'feeder' && mock.plan.request.api === 'auto' && mock.plan.request.version === undefined, 'DX9 x86 card reaches managed Feeder preview');
+  assert(mock.plan.request.route === 'feeder' && mock.plan.request.api === 'auto' && mock.plan.request.version === 'fixture-dx9-x86-on12', 'DX9 x86 card reaches managed Feeder preview');
   click('modal-cancel'); discard(); click('back');
   const openAt = performance.now(); await open('fixture');
   assert(performance.now() - openAt < 500, 'five-second installation check must not delay inline expansion');
@@ -395,7 +395,7 @@ async function smoke() {
   await until(() => count('assess') > beforeAutomaticRefresh && mock.pending === 0 && state().loaded.includes('installation'), 'explicit automatic API refresh');
   assert(field('route', 'api').value === 'auto' && state().data.api.effectiveApi === 'dx12', 'explicit recheck does not convert automatic API back to manual');
   await scenario('游戏目录默认安装 · UI fixture', value => { value.game.installed = false; }); await tab('overview'); await preview('prepare');
-  assert(mock.plan.request.api === 'auto' && mock.plan.request.version === undefined && mock.plan.request.deployment === 'local' && mock.plan.request.loadingMode === undefined, 'prepare preserves automatic API and local default without inventing an explicit version'); click('modal-cancel'); discard();
+  assert(mock.plan.request.api === 'auto' && mock.plan.request.version === '0.4.7beta' && mock.plan.request.deployment === 'local' && mock.plan.request.loadingMode === undefined, 'prepare preserves automatic API and local layout while binding the displayed Core'); click('modal-cancel'); discard();
   await tab('maintenance'); set('component', 'bridge', 'nigos-1.4.11-nr'); await tab('overview');
   assert(field('route', 'version').value === '0.4.7beta', 'advanced bridge choice does not appear as a second Core'); await preview();
   assert(JSON.stringify(mock.plan.request) === JSON.stringify({ components: { bridge: 'nigos-1.4.11-nr' } }), 'bridge version is an independent component request and leaves Core identity implicit'); click('modal-cancel'); discard();
@@ -405,7 +405,7 @@ async function smoke() {
       value.game[route] = { installed: false, available: true, selectionAvailable: true, packageId, coreVersion: route + '-core' };
       value.layout.source = route; value.layout.mode = value.deployment.mode = route === 'vulkan' ? 'external' : 'local'; });
     await tab('overview'); assert(field('route', 'version').disabled && field('route', 'version').value === packageId && field('route', 'version').options.length === 1, 'fixed route exposes only its package');
-    await preview('prepare'); assert(mock.plan.request.route === route && mock.plan.request.api === 'auto' && mock.plan.request.version === undefined && mock.plan.request.loadingMode === undefined, 'fixed route follows automatic detection without sending an implicit Core or helper choice'); click('modal-cancel'); discard();
+    await preview('prepare'); assert(mock.plan.request.route === route && mock.plan.request.api === 'auto' && mock.plan.request.version === packageId && mock.plan.request.loadingMode === undefined, 'fixed route follows automatic detection and sends its fixed package without a native Core or helper choice'); click('modal-cancel'); discard();
     await tab('maintenance'); assert(field('route', 'deployment').disabled && field('route', 'loadingMode').disabled, 'fixed route blocks unrelated layout and helper choices');
   }
 
@@ -482,9 +482,9 @@ async function smoke() {
   }); await tab('overview');
   assert(field('route', 'version').value === 'fixture-feeder-dx11', 'automatic DX11 selects its complete Feeder package');
   set('route', 'api', 'dx10'); assert(field('route', 'version').value === 'fixture-feeder-dx10', 'DX10 selection changes only to a matching Feeder package');
-  await preview(); assert(mock.plan.request.route === 'feeder' && mock.plan.request.api === 'dx10' && !mock.plan.request.version, 'matching Feeder selection is resolved by API without inventing an explicit version'); click('modal-cancel'); discard();
+  await preview(); assert(mock.plan.request.route === 'feeder' && mock.plan.request.api === 'dx10' && mock.plan.request.version === 'fixture-feeder-dx10', 'matching Feeder selection submits the displayed API-specific package'); click('modal-cancel'); discard();
   await tab('maintenance'); set('input-route', 'route', 'native'); await preview();
-  assert(mock.plan.request.route === 'native' && !mock.plan.request.version, 'explicit native input remains a route request for production eligibility to validate'); click('modal-cancel'); discard();
+  assert(mock.plan.request.route === 'native' && mock.plan.request.version === '0.4.7beta', 'explicit native input binds the displayed Core for production eligibility to validate'); click('modal-cancel'); discard();
 
   await open('fixture-hoyo'); await until(() => state().loaded.includes('installation'), 'HoYo client assessment');
   assert(field('route', 'loadingBackend').value === 'local' && !field('hoyo', 'channel'), 'HoYo clients retain ordinary loading as the initial visible choice');
@@ -497,7 +497,7 @@ async function smoke() {
   await tab('maintenance');
   assert(field('route', 'deployment').disabled && field('route', 'deployment').value === 'external' && field('route', 'loadingMode').disabled && field('route', 'loadingMode').value === 'helper' && !field('route', 'proxyEntry'), 'HoYo external helper controls do not expose a conflicting proxy entry');
   await preview();
-  assert(mock.plan.request.loadingBackend === 'hoyoshade' && mock.plan.request.route === 'feeder' && mock.plan.request.version === undefined && JSON.stringify(mock.plan.request.hoyo) === JSON.stringify({ family: 'starrail', channel: 'bilibili', launcher: { kind: 'starward', path: mock.selectedLauncher } }), 'HoYo preview preserves family, public channel, launcher type and program path');
+  assert(mock.plan.request.loadingBackend === 'hoyoshade' && mock.plan.request.route === 'feeder' && mock.plan.request.version === 'fixture-feeder-dx11-x64' && JSON.stringify(mock.plan.request.hoyo) === JSON.stringify({ family: 'starrail', channel: 'bilibili', launcher: { kind: 'starward', path: mock.selectedLauncher } }), 'HoYo preview preserves family, public channel, launcher type and program path');
   click('modal-cancel'); discard(); await tab('overview');
   assert(field('route', 'loadingBackend').value === 'local' && !field('hoyo', 'kind'), 'discard restores the ordinary HoYo loading choice');
   await open('fixture');

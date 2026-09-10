@@ -619,7 +619,7 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
     preparation = require('./src/product/game-preparation').createGamePreparation({ userData, service, settings: launchSettings, components: fgComponents, fgWorkflow,
       assertClosed: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)) });
     launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards,
-      components: fgComponents, explicitApply: true, launchGame: id => launchSessions.start(id) });
+      components: fgComponents, explicitApply: true, launchGame: (id, controls) => launchSessions.start(id, controls) });
     environment = require('./src/product/game-environment').createGameEnvironment({ gameDirectory: id => service.gameDirectory(id),
       gameExecutable: id => service.gameExecutable(id), guards: installGuards });
     const processes = require('./src/product/game-processes').createGameProcesses();
@@ -643,7 +643,7 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
         if (layout.loadingBackend === 'hoyoshade') return hoyoLauncher.resolve(layout);
         return { exe: mode.exe, launchMode: mode.effective, steamAppId: mode.steamAppId, steamRoot: mode.steamRoot,
         ...(layout.loadingMode === 'helper' ? { helper: { gameId: id } } : {}) }; },
-      launchDirect: id => service.launch(id), launchHoYo: id => hoyoLauncher.launch(service.getLayout(id)),
+      launchDirect: id => service.launch(id), launchHoYo: (id, _target, controls) => hoyoLauncher.launch(service.getLayout(id), controls),
       beforeLaunch: async (id, session) => { await service.prepareRuntimeLaunch(id, session); return runtimeVerification.prepare(id, session); },
       onGameMatched: async (id, session) => { await service.recordRuntimeLaunch(id, session); return runtimeVerification.matched(id, session); },
       emit: async session => {
@@ -675,7 +675,7 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
       packaged: app.isPackaged, runPowerShell, log: startup.log });
     if (!worker) hoyoWorkflow = require('./src/product/hoyo-workflow').createHoYoWorkflow({ userData, service,
       operations: operationPlans, launches: launchSessions, verification: runtimeVerification,
-      launch: id => launchCoordinator.serialize(() => launchCoordinator.launch(id)),
+      launch: (id, controls) => launchCoordinator.serialize(() => launchCoordinator.launch(id, controls)),
       elevatedApply: (id, planId, consent) => operationElevation.apply(id, planId, consent),
       beforeMutation: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)),
       requiresElevation: async plan => {

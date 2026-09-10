@@ -37,3 +37,4 @@ resources/legacy-runtime/**/*.addon32
 resources/legacy-runtime/**/*.addon64
 scripts/__pycache__/
 dist-beta3*/
+dist-beta4*/

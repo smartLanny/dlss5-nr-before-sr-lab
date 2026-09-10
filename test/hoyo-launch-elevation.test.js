@@ -183,6 +183,25 @@ test('cancellation requested while UAC dispatch is pending is retained for the e
   assert.equal(fs.existsSync(cancelFile), true, 'a cancelled UAC wait must not become an uncancelled helper after dispatch');
 });
 
+test('ordinary HoYo sessions receive the same cancellation token and an already cancelled request cannot create a UAC plan', async t => {
+  const f = fixture(t, 'asInvoker'); let received, previews = 0, cancelled = false;
+  const controls = { cancelled: () => cancelled };
+  const sessions = createHoYoElevatedSessions({ userData: f.userData, getLayout: () => f.layout,
+    plans: { preview: async () => { previews++; } }, normal: { start: async (_id, value) => { received = value; return {}; } } });
+  await sessions.start('zzz', controls); assert.equal(received, controls);
+  cancelled = true;
+  await assert.rejects(sessions.start('zzz', controls), { code: 'LAUNCH_CANCELLED' }); assert.equal(previews, 0);
+});
+
+test('HoYo cancellation can write its bound request before the UAC child is announced', async t => {
+  const f = fixture(t), w = wrapped(f, { autoDispatch: false }), { options } = await w.begin();
+  await options.onReserved(w.dispatched);
+  await w.sessions.cancel('zzz');
+  const cancel = JSON.parse(fs.readFileSync(locations(namespace(f.userData), w.dispatched.nonce).cancel, 'utf8'));
+  assert.deepEqual(cancel, { version: 1, nonce: w.dispatched.nonce, requestHash: w.dispatched.requestHash, cancel: true });
+  assert.equal(options.cancelled(), true); assert.deepEqual(w.called.normal, []);
+});
+
 for (const mode of ['game', 'exe', 'invalid-session']) test(`administrator progress rejects a mismatched ${mode} identity before accepting a launch`, async t => {
   const f = fixture(t), w = wrapped(f), { options } = await w.begin(), row = w.row();
   if (mode === 'game') row.gameId = 'another-game';
@@ -250,13 +269,21 @@ test('runtime monitoring publishes strict current-session observations and clear
 });
 
 for (const mode of ['cancel', 'parent-exit']) test(`runtime ${mode} while waiting requests helper cancellation and preserves the game`, async t => {
-  t.mock.timers.enable({ apis: ['setInterval'] }); const f = runtimeFixture(), started = deferred();
-  f.options.sessions.start = async () => { f.calls.push(['start', 'zzz']); return started.promise; };
+  t.mock.timers.enable({ apis: ['setInterval'] }); const f = runtimeFixture(), started = deferred(), entered = deferred();
+  f.options.sessions.start = async () => { f.calls.push(['start', 'zzz']); entered.resolve(); return started.promise; };
+  const running = runHoYoRuntime(f.options); await entered.promise;
   if (mode === 'cancel') f.options.controls.cancelled = async () => true; else f.options.controls.parentAlive = async () => false;
-  const running = runHoYoRuntime(f.options); t.mock.timers.tick(1000); await turn(); started.resolve(f.row);
+  t.mock.timers.tick(1000); await turn(); started.resolve(f.row);
   const result = await running;
   assert.equal(result.cancelled, true); assert.equal(result.gamePreserved, true); assert.equal(f.events.length, 0);
   assert.deepEqual(f.calls, [['start', 'zzz'], ['cancel-helper', 'zzz'], ['dispose-helper']]);
+});
+
+test('a HoYo worker observes a cancellation recorded before its first session and creates no helper or launch', async () => {
+  const f = runtimeFixture(); f.options.controls.cancelled = async () => true;
+  const result = await runHoYoRuntime(f.options);
+  assert.equal(result.cancelled, true); assert.equal(result.gamePreserved, true);
+  assert.deepEqual(f.calls, [['dispose-helper']]); assert.equal(f.events.length, 0);
 });
 
 test('a cancellation during a verification read cannot publish a new passed NR observation afterward', async t => {

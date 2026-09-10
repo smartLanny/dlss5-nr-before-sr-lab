@@ -436,7 +436,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const { api, routed } = deploymentApi(game, request.api || 'auto');
     if (inputRoute === 'native') requireNoFeeder(game);
     requireKnownVulkanOwnership(game);
-    const version = request.version || gameLayout(game).version || readManifest(game.dir)?.payloadVersion || selectedVersionForGame(routed);
+    const version = inputRoute === 'native'
+      ? request.version || gameLayout(game).version || readManifest(game.dir)?.payloadVersion || readBundle(payloadDir).defaultVersion
+      : null;
     const nativePayload = selectedPayload(routed, inputRoute === 'native' ? version : null, request.components);
     const payload = inputRoute === 'native' ? nativePayload : { reshade: nativePayload.reshade };
     const profile = await hoyo.preview(routed, { hoyo: request.hoyo, inputRoute, api, version: inputRoute === 'native' ? version : undefined,

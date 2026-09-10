@@ -2,7 +2,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { noLinks, atomicJson } = require('./launch-safety');
+const { noLinks, atomicJson, assertLaunchNotCancelled } = require('./launch-safety');
 const { HOYO_CLIENTS, validHoYoProfile } = require('./hoyoshade-profiles');
 const { emptyVerification } = require('./runtime-verification');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
@@ -21,7 +21,7 @@ async function readRecord(file) {
 
 function createHoYoWorkflow({ userData, service, operations, launches, verification, launch, elevatedApply,
   requiresElevation = async () => false, discovery: suppliedDiscovery, discoveryOptions = {}, beforeMutation = async () => {} }) {
-  const file = path.join(userData, 'hoyo-bindings.json'), clients = new Map(), errors = new Map(), starts = new Map(), starting = new Set(), installs = new Map(), acknowledged = new Map();
+  const file = path.join(userData, 'hoyo-bindings.json'), clients = new Map(), errors = new Map(), starts = new Map(), starting = new Map(), installs = new Map(), acknowledged = new Map();
   let launchers = [], warnings = [];
   async function saved() {
     const value = await readRecord(file);
@@ -124,11 +124,21 @@ function createHoYoWorkflow({ userData, service, operations, launches, verificat
     const needsRecovery = Boolean(pending?.pending || deployment?.needsRecovery || deployment?.pending || !deployment && error);
     const installed = Boolean(deployment?.loadingBackend === 'hoyoshade' && deployment.installed === true);
     const apiChangePending = installed && ['dx11', 'dx12'].includes(binding.api?.api) && binding.api.api !== deployment.api;
-    const ready = installed && deployment.ready === true && !apiChangePending && !needsRecovery && !error;
-    if (installed && !ready && !error && deployment.blockers?.length) error = { code: 'HOYO_DEPLOYMENT_NOT_READY', message: deployment.blockers.map(item => item.message || item).join('；') };
+    const installedBinding = deployment?.hoyoProfile, installedLauncher = deployment?.launcher || installedBinding?.launcher;
+    const bindingChangePending = installed && (!validHoYoProfile(installedBinding, row.exePath) ||
+      installedBinding.exeSha256 !== row.exeSha256 || deployment.bindingId !== installedBinding.bindingId ||
+      binding.family !== installedBinding.family || binding.channel !== installedBinding.channel ||
+      binding.launcher?.kind !== installedLauncher?.kind || !same(binding.launcher?.path, installedLauncher?.path) ||
+      binding.launcher?.sha256 !== installedLauncher?.sha256);
+    const ready = installed && deployment.ready === true && !apiChangePending && !bindingChangePending && !needsRecovery && !error;
+    // A newly verified preference can replace the old game's/launcher's hash
+    // through a fresh owner plan. Other ownership or file failures stay visible.
+    const blockers = (deployment?.blockers || []).filter(item => !(bindingChangePending && binding.confirmed &&
+      item === '游戏或启动器已更新，请重新确认客户端绑定。'));
+    if (installed && !ready && !error && blockers.length) error = { code: 'HOYO_DEPLOYMENT_NOT_READY', message: blockers.map(item => item.message || item).join('；') };
     const verified = await (session && !session.historical ? verification.assess(row.gameId, session) : Promise.resolve(emptyVerification(null, null)))
       .catch(cause => ({ ...emptyVerification(null, null), nr: { status: 'unverified', detail: cause.message } }));
-    let phase = !binding.confirmed || !choice || !binding.launcher ? 'binding' : !['dx11', 'dx12'].includes(selectedApi?.api) ? 'api' : apiChangePending ? 'install' : installed ? ready ? 'ready' : 'failed' : 'install';
+    let phase = !binding.confirmed || !choice || !binding.launcher ? 'binding' : !['dx11', 'dx12'].includes(selectedApi?.api) ? 'api' : apiChangePending || bindingChangePending ? 'install' : installed ? ready ? 'ready' : 'failed' : 'install';
     if ((starts.has(id) || starting.has(id)) && !active && !options.preparingStart) phase = 'waiting-helper';
     if (active) phase = ['preflight', 'waiting-helper', 'request-sending'].includes(session.status) ? 'waiting-helper' :
       ['waiting-launcher', 'waiting-game'].includes(session.status) ? session.status : session.process ? 'running' : phase;
@@ -143,7 +153,7 @@ function createHoYoWorkflow({ userData, service, operations, launches, verificat
         evidence: selectedApi?.evidence || seed.scan?.chosen?.apiAssessment?.evidence || [] },
       binding: { status: binding.confirmed ? 'confirmed' : binding.launcher ? 'needs-confirmation' : 'missing', launcher: binding.launcher,
         launchers: launcherChoices(row), channels: channels.map(({ channel, channelLabel }) => ({ channel, channelLabel })) },
-      installation: { installed, ready: ready && !error, needsRecovery, error, apiChangePending, installedApi: deployment?.api || null, hasRecord: Boolean(deployment?.installed || needsRecovery) },
+      installation: { installed, ready: ready && !error, needsRecovery, error, apiChangePending, bindingChangePending, installedApi: deployment?.api || null, hasRecord: Boolean(deployment?.installed || needsRecovery) },
       phase, nextAction, session, verification: Object.fromEntries(Object.entries(verified).map(([name, value]) => [name, { ...value, state: value?.status || 'unverified' }])),
       error, busy: false, evidence: row.evidence || [], warnings: row.warnings || [] };
   }
@@ -213,19 +223,30 @@ function createHoYoWorkflow({ userData, service, operations, launches, verificat
   async function start(id) {
     const row = target(id);
     if (starting.has(id) || starts.has(id)) fail('LAUNCH_BUSY', '本次启动仍在等待，请先取消等待再修改配置。');
-    starting.add(id);
+    const request = { cancelled: false }, controls = { cancelled: () => request.cancelled };
+    starting.set(id, request);
     try {
       await assertIdle(row, true);
+      assertLaunchNotCancelled(controls);
       const flow = await inspect(id, { force: true, preparingStart: true });
+      assertLaunchNotCancelled(controls);
       if (!flow.installation.ready || !['ready', 'failed'].includes(flow.phase)) fail('NOT_READY', flow.error?.message || '配置尚未就绪，请完成当前步骤。');
-      await operations.assertReady(row.gameId); errors.delete(id);
-      const work = Promise.resolve().then(() => launch(row.gameId)).catch(cause => { errors.set(id, issue(cause)); })
-        .finally(() => { starts.delete(id); });
-      starts.set(id, work);
+      await operations.assertReady(row.gameId); assertLaunchNotCancelled(controls); errors.delete(id);
+      request.work = Promise.resolve().then(() => { assertLaunchNotCancelled(controls); return launch(row.gameId, controls); })
+        .catch(cause => { if (!request.cancelled) errors.set(id, issue(cause)); })
+        .finally(() => { if (starts.get(id) === request) starts.delete(id); });
+      starts.set(id, request);
       return { ...flow, error: null, phase: 'waiting-helper', nextAction: 'wait' };
-    } finally { starting.delete(id); }
+    } finally { if (starting.get(id) === request) starting.delete(id); }
   }
-  async function cancel(id) { const row = target(id); await launches.cancel(row.gameId); return inspect(id, { clearError: false }); }
+  async function cancel(id) {
+    const row = target(id), request = starting.get(id) || starts.get(id);
+    if (request) request.cancelled = true;
+    await launches.cancel(row.gameId);
+    if (starting.get(id) === request) starting.delete(id);
+    if (starts.get(id) === request) starts.delete(id);
+    return inspect(id, { clearError: false });
+  }
   return { discover, inspect, bind, pickGame, pickLauncher, preview, apply, recover, start, cancel };
 }
 module.exports = { createHoYoWorkflow };

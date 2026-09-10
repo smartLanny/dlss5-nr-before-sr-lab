@@ -77,7 +77,7 @@
     }
     function installRequest() {
       const route = specialRoute();
-      return { ...draft, api: selected('api', data.game.apiOverride || data.defaults?.api || 'auto'), ...(route ? { route } : {
+      return { ...draft, version: currentVersion(), api: selected('api', data.game.apiOverride || data.defaults?.api || 'auto'), ...(route ? { route } : {
         deployment: deploymentMode(), ...(deploymentMode() === 'external' ? { loadingMode: selected('loadingMode', data.layout?.loadingMode || data.defaults?.loadingMode || 'proxy') } : {}) }) };
     }
     function apiBlocked(request = draft) {

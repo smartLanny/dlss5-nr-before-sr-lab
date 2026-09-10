@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const physicalFs = process.versions.electron ? require('original-fs').promises : fs;
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { noLinks, digestFile, atomicJson } = require('./launch-safety');
+const { noLinks, digestFile, atomicJson, assertLaunchNotCancelled } = require('./launch-safety');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const HASH = /^[a-f0-9]{64}$/;
@@ -137,7 +137,7 @@ async function applicationIdentity({ execPath, appPath }) {
 function createOperationElevation({ userData, plans, processInfo = process, appPath, packaged = true, runPowerShell,
   inspectProcess = createWindowsProcessInspector(runPowerShell), getApplication = () => applicationIdentity({ execPath: processInfo.execPath, appPath }),
   now = Date.now, sleep = delay, timeoutMs = 10 * 60000, pollMs = 250, log = () => {},
-  workerFlag = '--operation-worker', onProgress = null, onDispatched = null }) {
+  workerFlag = '--operation-worker', onProgress = null, onReserved = null, onDispatched = null, cancelled = null }) {
   if (!['--operation-worker', '--hoyo-launch-worker'].includes(workerFlag)) fail('WORKER', '不支持的管理员工作类型。');
   const base = locations(userData); let busy = false;
   async function inspect() {
@@ -164,6 +164,8 @@ function createOperationElevation({ userData, plans, processInfo = process, appP
     return { recovered: true, needsDomainRecovery: true, message: '一次性工作进程已结束，请先恢复未完成操作，再重新预览。' };
   }
   async function apply(gameId, planId, consent = {}) {
+    const assertNotCancelled = () => assertLaunchNotCancelled({ cancelled });
+    assertNotCancelled();
     if (processInfo.platform !== 'win32') fail('PLATFORM', '一次性管理员操作仅支持 Windows。');
     if (consent.confirm !== true || !UUID.test(planId || '') || !HASH.test(consent.fingerprint || '') ||
         Object.keys(consent).some(key => !['confirm', 'fingerprint', 'allowAntiCheat'].includes(key))) fail('CONSENT', '请从具体变更预览中明确选择本次管理员应用。');
@@ -171,16 +173,20 @@ function createOperationElevation({ userData, plans, processInfo = process, appP
     let request, requestHash, child = null, lockCreated = false, responseVerified = false;
     try {
       const plan = await plans.loadPlan(planId, consent.fingerprint);
+      assertNotCancelled();
       if (plan.gameId !== gameId || plan.fingerprint !== consent.fingerprint || plan.blockers?.length || plan.expiresAt <= now()) fail('PLAN', '当前操作预览不属于所选游戏、已过期或仍有阻断项。');
       const target = { exe: plan.exe, exeHash: plan.before?.exeSha256 };
       if (!path.isAbsolute(target.exe || '') || !HASH.test(target.exeHash || '')) fail('TARGET', '操作预览缺少真实游戏程序身份。');
       const parent = await inspectProcess(processInfo.pid), application = await getApplication();
+      assertNotCancelled();
       if (!processIdentity(parent) || !samePath(parent.executable, application.execPath)) fail('PARENT', '无法确认当前普通界面进程身份。');
       request = { version: 1, nonce: crypto.randomUUID(), planId, fingerprint: consent.fingerprint, gameId, target, parent, application,
         createdAt: now(), expiresAt: Math.min(plan.expiresAt, now() + 120000), allowAntiCheat: consent.allowAntiCheat === true };
       requestHash = hash(request); const files = locations(userData, request.nonce);
       await writeNew(base.lock, { version: 1, nonce: request.nonce, requestHash, parent, child: null, state: 'reserved' }); lockCreated = true;
       await writeNew(files.request, request);
+      if (onReserved) await onReserved({ gameId, nonce: request.nonce, requestHash });
+      assertNotCancelled();
       const args = [...(packaged ? [] : [appPath]), `${workerFlag}=${request.nonce}`, `--operation-request-hash=${requestHash}`];
       // Fixed trusted executable and worker arguments only. No shell fragments,
       // arbitrary JSON steps, inherited debug flags or portable-wrapper restart.
@@ -227,7 +233,7 @@ function createOperationElevation({ userData, plans, processInfo = process, appP
       fail('TIMEOUT', '工作进程尚未返回结果。已保留操作锁和恢复记录，不会重复执行。', { needsRecovery: true });
     } catch (error) {
       log('operation-elevation-failed', { code: error.code, message: error.message, nonce: request?.nonce });
-      if (String(error.code || '').startsWith('OPERATION_ELEVATION_')) throw error;
+      if (error.code === 'LAUNCH_CANCELLED' || String(error.code || '').startsWith('OPERATION_ELEVATION_')) throw error;
       fail('START_FAILED', '未能完成本次管理员操作，原窗口已保留。若已开始写入，请先恢复，再重新预览。', { cause: { code: error.code, message: error.message }, needsRecovery: true });
     } finally {
       if (lockCreated) {

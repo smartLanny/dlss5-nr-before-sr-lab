@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
 const { spawn } = require('node:child_process');
 const pe = require('../core/pe');
-const { noLinks, inside, digestFile } = require('./launch-safety');
+const { noLinks, inside, digestFile, assertLaunchNotCancelled } = require('./launch-safety');
 const { addonValues } = require('./reshade-layout');
 const { same } = require('./game-processes');
 const { INSTALLED_NAMES } = require('./constants');
@@ -127,6 +127,7 @@ function createLoadingHelper(options) {
       event.configHash === session.configHash && event.helperPid === session.child?.pid && (event.elevatedTarget === true) === session.elevatedTarget;
   }
   async function start(session, controls = {}) {
+    assertLaunchNotCancelled(controls);
     if (!sessions.has(session) || session.state !== 'prepared') fail('SESSION', '助手会话无效。');
     // Revalidate immediately before spawn. Ready is accepted solely from this
     // child's private pipe and must carry every bound identity.
@@ -138,6 +139,7 @@ function createLoadingHelper(options) {
     const allowed = await inspectModules({ directory: session.directory, configPath: session.configPath, modules, api: session.api, inputRoute: session.inputRoute, getBitness });
     if (await digestFile(session.executable) !== session.helperSha256 || await digestFile(session.targetExe) !== session.targetHash || !allowed.ready || allowed.configHash !== session.configHash)
       fail('IDENTITY_CHANGED', '助手、目标程序或配置在就绪前改变。');
+    assertLaunchNotCancelled(controls);
     const args = ['--session', session.sessionId, '--target', session.targetExe, '--target-sha', session.targetHash,
       '--loader', session.loaderPath, '--loader-sha', session.loaderHash, '--config', session.configPath, '--config-sha', session.configHash, '--timeout', String(session.waitTimeoutMs)];
     if (session.elevatedTarget) args.push('--elevated-target', '1');

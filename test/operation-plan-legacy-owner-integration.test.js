@@ -46,8 +46,8 @@ function runtimeFixture(root, pe, loader) {
   for (const loadingBackend of ['local', 'hoyoshade']) lock.restorableRecipeFingerprints.push(runtime.load({ api: 'dx11', architecture: 'x64', hardwareFamily: 'RTX50', loadingBackend }).fingerprint);
   return runtime;
 }
-async function jointFixture(t, mode, { existingHotkey = true } = {}) {
-  return fixture(t, { api: 'dx11', family: 'RTX50', noDlss: true, exeName: mode === 'hoyoshade' ? 'YuanShen.exe' : 'Game.exe',
+async function jointFixture(t, mode, { existingHotkey = true, nativeIntegration = false } = {}) {
+  return fixture(t, { api: 'dx11', family: 'RTX50', noDlss: !nativeIntegration, exeName: mode === 'hoyoshade' ? 'YuanShen.exe' : 'Game.exe',
     specialSetup: async ({ root, userData, resourcesPath, hardware, guards, pe, gameRoot, exeDir, exe }) => {
       const loader = fs.readFileSync(path.join(PROJECT, 'payload/nr-before-sr/fixed/RTX50/ReShade64.dll'));
       const payload = path.join(resourcesPath, 'payload/nr-before-sr');
@@ -204,4 +204,64 @@ test('historical launch sessions after a real HoYo restore do not resolve the in
   const plan = await flow.preview(current.id, 'install'); assert.deepEqual(plan.blockers, []);
   assert.equal(plan.gameId, f.id); assert.equal(plan.request.hoyo.launcher.path, f.special.launcher);
   assert.deepEqual(fs.readFileSync(receiptFile), receiptBytes, 'discovery and preview preserve the restored receipt');
+});
+
+test('new native HoYo previews use the bundle default while explicit selections and installed Core pins take priority', async t => {
+  const f = await jointFixture(t, 'hoyoshade', { nativeIntegration: true });
+  const bundleFile = path.join(f.payload, 'bundle.json'), bundle = JSON.parse(fs.readFileSync(bundleFile));
+  bundle.defaultVersion = 'fixture-core-2'; put(bundleFile, JSON.stringify(bundle));
+  await f.service.store.write({ addonVersion: 'fixture-core-1' });
+  const request = { route: 'native', api: 'dx12', loadingBackend: 'hoyoshade',
+    hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: f.special.launcher } } };
+  const fresh = await stablePreview(f, request);
+  assert.equal(fresh.request.version, undefined); assert.equal(fresh.resolved.version, 'fixture-core-2'); assert.equal(fresh.deployment.version, 'fixture-core-2');
+  assert.equal(fs.existsSync(path.join(f.gameRoot, PROFILE_RECEIPT)), false, 'preview does not install the new default');
+  const explicit = await stablePreview(f, { ...request, version: 'fixture-core-1' });
+  assert.equal(explicit.resolved.version, 'fixture-core-1'); await f.plans.apply(explicit.planId, confirm(explicit));
+  await f.service.store.write({ addonVersion: 'fixture-core-2' });
+  const pinned = await stablePreview(f, request);
+  assert.equal(f.service.getLayout(f.id).version, 'fixture-core-1'); assert.equal(pinned.resolved.version, 'fixture-core-1');
+  assert.equal(pinned.deployment.version, 'fixture-core-1'); assert.equal(pinned.request.version, undefined);
+});
+
+test('a confirmed HoYo launcher change reaches the actual launch adapter only after applying a new profile', async t => {
+  const f = await jointFixture(t, 'hoyoshade');
+  const request = { route: 'feeder', api: 'dx11', loadingBackend: 'hoyoshade',
+    hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: f.special.launcher } } };
+  const initialPlan = await stablePreview(f, request); await f.plans.apply(initialPlan.planId, confirm(initialPlan));
+  const oldLayout = f.service.getLayout(f.id), oldReceipt = fs.readFileSync(path.join(f.gameRoot, PROFILE_RECEIPT));
+  const nextLauncher = path.join(f.root, 'Starward', 'Starward.exe'); put(nextLauncher, peBytes('inert replacement launcher'));
+  const adapter = createHoYoLauncher({ broker: {}, readProtocol: async () => ({ enabled: true, command: `"${nextLauncher}" "%1"` }) });
+  assert.equal((await adapter.resolve(oldLayout)).launcher.path, f.special.launcher);
+  const discovery = createHoYoDiscovery({ appData: path.join(f.root, 'no-appdata'), programFiles: [], readRegistry: async () => ({}),
+    knownGames: () => f.service.listGames(), savedBindings: [oldLayout.hoyoProfile], knownLaunchers: [{ kind: 'starward', path: nextLauncher }] });
+  let launched = null, finishLaunch;
+  const launchCompleted = new Promise(resolve => { finishLaunch = resolve; });
+  const flow = createHoYoWorkflow({ userData: f.userData, service: f.service, operations: f.plans, discovery,
+    launches: { inspect: async () => null }, verification: { assess: async () => emptyVerification(null, null) },
+    launch: async id => { launched = await adapter.resolve(f.service.getLayout(id)); finishLaunch(); } });
+  const current = (await flow.discover()).games[0], picked = await flow.pickLauncher(current.id, nextLauncher);
+  const bound = await flow.bind(current.id, { launcherId: picked.binding.launcher.id });
+  assert.equal(bound.phase, 'install'); assert.equal(bound.installation.bindingChangePending, true); assert.equal(bound.installation.ready, false);
+  await assert.rejects(flow.start(current.id), { code: 'HOYO_NOT_READY' }); assert.equal(launched, null);
+  assert.deepEqual(fs.readFileSync(path.join(f.gameRoot, PROFILE_RECEIPT)), oldReceipt);
+  assert.equal((await adapter.resolve(f.service.getLayout(f.id))).launcher.path, f.special.launcher, 'the installed profile remains unchanged before Apply');
+  const nextPlan = await flow.preview(current.id, 'install'); assert.deepEqual(nextPlan.blockers, []);
+  assert.equal(nextPlan.deployment.route, 'feeder'); assert.equal(nextPlan.deployment.version, initialPlan.deployment.version, 'rebinding keeps the Feeder package id');
+  const applied = await flow.apply(current.id, nextPlan.planId, confirm(nextPlan));
+  assert.equal(applied.phase, 'ready'); assert.equal(applied.installation.bindingChangePending, false);
+  const resolved = await adapter.resolve(f.service.getLayout(f.id));
+  assert.equal(resolved.launcher.path, nextLauncher); assert.equal(resolved.launchMode, 'starward'); assert.equal(resolved.launcher.gameBiz, 'hk4e_cn');
+  const beforeUpdateReceipt = fs.readFileSync(path.join(f.gameRoot, PROFILE_RECEIPT));
+  fs.appendFileSync(nextLauncher, 'verified same-path launcher update');
+  await assert.rejects(adapter.resolve(f.service.getLayout(f.id)), { code: 'HOYO_LAUNCH_CHANGED' });
+  const updated = await flow.bind(current.id, { launcherId: applied.binding.launcher.id });
+  assert.equal(updated.phase, 'install'); assert.equal(updated.error, null); assert.equal(updated.installation.bindingChangePending, true);
+  assert.deepEqual(fs.readFileSync(path.join(f.gameRoot, PROFILE_RECEIPT)), beforeUpdateReceipt, 'reconfirming updated bytes does not rewrite the installed profile');
+  const updatePlan = await flow.preview(current.id, 'install'); assert.deepEqual(updatePlan.blockers, []);
+  const updatedApplied = await flow.apply(current.id, updatePlan.planId, confirm(updatePlan));
+  assert.equal(updatedApplied.phase, 'ready'); assert.equal(updatedApplied.installation.bindingChangePending, false);
+  assert.equal((await adapter.resolve(f.service.getLayout(f.id))).launcher.sha256, sha(fs.readFileSync(nextLauncher)));
+  await flow.start(current.id); await launchCompleted;
+  assert.equal(launched.launcher.path, nextLauncher); assert.equal(launched.launchMode, 'starward');
 });

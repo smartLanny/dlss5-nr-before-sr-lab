@@ -7,6 +7,9 @@ function fail(code, message, details) {
   throw Object.assign(new Error(message), { code, details });
 }
 function sha256(data) { return crypto.createHash('sha256').update(data).digest('hex'); }
+function assertLaunchNotCancelled(controls) {
+  if (controls?.cancelled?.()) fail('LAUNCH_CANCELLED', '已取消本次启动等待。');
+}
 function inside(parent, child) {
   const rel = path.relative(path.resolve(parent), path.resolve(child));
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
@@ -42,4 +45,4 @@ async function atomicJson(file, value) {
     if (created) await fs.unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; });
   }
 }
-module.exports = { fail, sha256, inside, noLinks, digestFile, atomicJson };
+module.exports = { fail, sha256, inside, noLinks, digestFile, atomicJson, assertLaunchNotCancelled };

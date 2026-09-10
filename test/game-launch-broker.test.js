@@ -58,6 +58,16 @@ test('inspect proves a non-elevated shell identity through structured JSON stdin
   assert.equal(invocation.options.maxOutputBytes, 64 * 1024);
 });
 
+test('cancellation during ordinary-token inspection prevents the later launch request', async t => {
+  let cancelled = false; const operations = [];
+  const f = fake(t, async (_file, _args, options) => {
+    operations.push(JSON.parse(options.input).op); cancelled = true;
+    return { code: 0, stdout: JSON.stringify(response()), stderr: '' };
+  });
+  await assert.rejects(f.broker.launch({ exe: f.exe }, { cancelled: () => cancelled }), { code: 'LAUNCH_CANCELLED' });
+  assert.deepEqual(operations, ['inspect']);
+});
+
 test('launch passes only approved Vulkan environment and verifies the second token result', async t => {
   const requests = [];
   const f = fake(t, async (_file, _args, options) => {

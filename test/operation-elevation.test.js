@@ -80,6 +80,28 @@ test('a UAC cancellation does not apply or retry and leaves no blocking reservat
   assert.equal(f.state.applied, 0); assert.equal((await f.broker.inspect()).active, false);
 });
 
+test('a cancelled launch token stops a slow plan reload before requesting UAC', async t => {
+  let cancelled = false, release, entered;
+  const gate = new Promise(resolve => { release = resolve; }), loading = new Promise(resolve => { entered = resolve; });
+  const f = await fixture(t, { cancelled: () => cancelled }), load = f.plans.loadPlan;
+  f.plans.loadPlan = async (...args) => { entered(); await gate; return load(...args); };
+  const pending = f.broker.apply('game', planId, { confirm: true, fingerprint });
+  const rejected = assert.rejects(pending, { code: 'LAUNCH_CANCELLED' });
+  await loading; cancelled = true; release(); await rejected;
+  assert.equal(f.state.launchCommands.length, 0); assert.equal(f.state.applied, 0);
+  assert.equal((await f.broker.inspect()).active, false);
+});
+
+test('a cancellation reservation is published before UAC and cancelling it releases only this unlaunched lock', async t => {
+  let cancelled = false, reserved;
+  const f = await fixture(t, { cancelled: () => cancelled, onReserved: async value => { reserved = value; cancelled = true; } });
+  await assert.rejects(f.broker.apply('game', planId, { confirm: true, fingerprint }), { code: 'LAUNCH_CANCELLED' });
+  const request = JSON.parse(await fs.readFile(locations(f.root, reserved.nonce).request, 'utf8'));
+  assert.equal(reserved.gameId, 'game'); assert.equal(reserved.requestHash, hash(request));
+  assert.equal(f.state.launchCommands.length, 0); assert.equal(f.state.applied, 0);
+  assert.equal((await f.broker.inspect()).active, false);
+});
+
 test('a worker publishing its result between the response read and process exit keeps the real outcome', async t => {
   for (const ok of [true, false]) {
     const f = await fixture(t); let childReads = 0;
