@@ -141,7 +141,8 @@ def main():
                 print(f'PASS negative control {name}: {run.stderr.strip()}')
     assert 'const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;' in source
     assert 'const bool light_style_post_supported = pipeline == g_codec.combine;' in source
-    assert source.index('const bool light_style_supported') < source.index('if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;')
+    assert source.index('const bool light_style_supported') < source.index('if (independent_chroma || low_grid_color || (low_grid_luma && pipeline==g_codec.combine)) pipeline = g_codec.combine_v2;')
+    assert 'const bool light_style_active = !g_config.region_enabled && light_style_supported && light_style_requested;' in source
     assert '(light_style_active ? 262144u : 0u)' in source
     assert 'const float lightOriginalEdit = logRatio;' in source
     assert source.index('const float lightOriginalEdit') < source.index('logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);')

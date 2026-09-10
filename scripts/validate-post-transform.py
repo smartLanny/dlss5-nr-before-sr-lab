@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OLD = '0542d143584a8eb56364a54c2ad8daae46fcc9c3'
 ADAPTER = '035040cc833053f938afbcdb99521a48551ee5e1'
+D10_ADAPTER = 'f1093ac98eb2069a85194908e93aa7765139441f'
 AREA = '00e7eecadbb08278fe664c23297d7ca8068776b5'
 PATCH_PATH = 'scripts/patch-post-compat.py'
 AREA_PATH = 'src/interop/nr_post_area.hlsl'
@@ -31,7 +32,8 @@ def shader_transform(data: bytes) -> bytes:
 
 def verify_contents(base_pin: str, candidate_pin: str, base: bytes, candidate: bytes,
                     base_area: bytes, candidate_area: bytes) -> None:
-    if base_pin != candidate_pin and (base_pin, candidate_pin) != (OLD, ADAPTER):
+    if base_pin != candidate_pin and (base_pin, candidate_pin) not in {
+            (OLD, ADAPTER), (OLD, D10_ADAPTER), (ADAPTER, D10_ADAPTER)}:
         raise ValueError('Unreviewed post transformation pair')
     if blob_id(base) != base_pin or blob_id(candidate) != candidate_pin:
         raise ValueError('Post transformation bytes do not match their pins')
@@ -55,6 +57,9 @@ def negative_controls() -> None:
     base, candidate, area = git('show', OLD), git('show', ADAPTER), git('show', AREA)
     verify_contents(OLD, OLD, base, base, area, area)
     verify_contents(OLD, ADAPTER, base, candidate, area, area)
+    d10=git('show',D10_ADAPTER)
+    verify_contents(OLD,D10_ADAPTER,base,d10,area,area)
+    verify_contents(ADAPTER,D10_ADAPTER,candidate,d10,area,area)
     cases = [
         (ADAPTER, OLD, candidate, base, area, area),
         (OLD, '0' * 40, base, candidate, area, area),
@@ -69,7 +74,7 @@ def negative_controls() -> None:
         raise AssertionError('Unsafe post transformation was admitted')
     if shader_transform(base) != shader_transform(candidate):
         raise AssertionError('Reviewed route-only changes modified shader transformation')
-    print('Post transform provenance: same-pin and audited adapter pair accepted; 4 unsafe cases rejected.')
+    print('Post transform provenance: same-pin and audited D1/0.4.7/D10 host adapter pairs accepted; unchanged shader transform and 4 unsafe cases rejected.')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

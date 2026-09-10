@@ -59,6 +59,11 @@ static float2 PostLightEditTapV1(float2,float){return {tapEdit,1.f};}
 static float TransferStrength=1, MaxLumaRatio=4, LightingLock=0;
 static float LightBroad=1, LightDark=1, LightReflection=1, LightStructure=1, LightGlow=0;
 static unsigned Passthrough=0;
+// This oracle isolates the legacy light controls. New regions/face endpoints
+// are independently exercised by their production WARP suites.
+static const float2 regionGain{1,1};
+static constexpr float faceMask=0,FaceOriginalLuma=0;
+static constexpr unsigned FaceOptions=0;
 '''
 
 TESTS = r'''
@@ -152,7 +157,8 @@ def main():
     # production lighting and final luma statements are compiled unchanged.
     body = body.replace('float2(tid.xy) + 0.5','float2(0.0, 0.0)')
     shade = 'float ShadePostLuma(float proxyLuma,float neuralLuma,float sourceLuma,bool lightStyleActive){\n'+body+'\nreturn lumaRatio;\n}\n'
-    production = PREFIX+common+post_helper+mean+shade+TESTS
+    face_helper=definition(source,'float FaceEditV1(')
+    production = PREFIX+face_helper+common+post_helper+mean+shade+TESTS
     variants = [('production',production)]
     if args.negative_control:
         variants += [
@@ -186,19 +192,29 @@ def main():
         after=combine[combine.index(start):combine.index(end,combine.index(start))]
         if start=='    // Full colour following':
             after=after[:after.index('    if (lightStylePreview)')]
+            # Exact optional insertions have their own WARP endpoint oracles.
+            # Their removal must recover the old colour transfer statements.
+            for addition in (
+                '        if(regionGain.y!=1)channelRatio=clamp(1+(channelRatio-1)*regionGain.y,(1/maxRatio).xxx,maxRatio.xxx);\n',
+                '        if(faceMask>0)channelRatio=1+FaceChromaV1(channelRatio-1,\n'
+                '            clamp(1+relativeChannelDelta,(1/maxRatio).xxx,maxRatio.xxx)-1,faceMask);\n',
+            ):
+                assert after.count(addition)==1
+                after=after.replace(addition,'')
         assert before==after,(start,'legacy colour/exposure/protection statements changed')
     v2 = definition(source,'void CombineV2CS(')
     selected = 'SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, '
     assert v2.count(selected)==1, 'expected only the explicit directional selector in V2'
-    v2 = v2.replace(selected, 'LightStyleStrengthV1(')
-    assert v2==definition(baseline,'void CombineV2CS('),'shared V2 post keeps its original log compositor apart from the exact selector'
-    original_dispatch=definition(baseline,'void DispatchCodec(')
+    old_v2=definition(baseline,'void CombineV2CS(')
+    start='    float modelProxyTargetLuma';end='    float3 result = lumaOnly;'
+    assert v2[v2.index(start):v2.index(end)]==old_v2[old_v2.index(start):old_v2.index(end)],'full-resolution HDR source-energy and luminance limits preserved'
+    assert v2.index('if(regionGain.x!=1)')<v2.index('if(faceMask>0)poweredLog=')<v2.index(start)
     dispatch=definition(source,'void DispatchCodec(')
-    route_start='    const bool independent_chroma ='
-    route_end='    const bool v2_combine ='
-    assert dispatch[dispatch.index(route_start):dispatch.index(route_end)]==original_dispatch[original_dispatch.index(route_start):original_dispatch.index(route_end)],'D must not select a different colour/composition route'
+    assert 'const bool low_grid_luma = g_config.low_grid_edit_field && g_config.color_strength<=0.000001f && slot.edit_field_recorded;' in dispatch
+    assert 'if (independent_chroma || low_grid_color || (low_grid_luma && pipeline==g_codec.combine)) pipeline = g_codec.combine_v2;' in dispatch
+    assert 'region_enabled' not in dispatch[dispatch.index('const bool independent_chroma ='):dispatch.index('const bool v2_combine =')],'region gains must not silently switch compositor'
     assert 'const bool light_style_post_supported = pipeline == g_codec.combine;' in dispatch
-    print('PASS frozen legacy decode/normalizer/lighting/colour/storage, unchanged V2 and opt-in routing')
+    print('PASS frozen legacy decode/normalizer/lighting/colour/storage, V2 HDR source energy, final face order and explicit post-field routing; full off/neutral pixels checked by WARP')
 
 
 if __name__=='__main__': main()

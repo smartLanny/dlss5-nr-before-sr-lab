@@ -151,8 +151,12 @@ def main() -> None:
         raise ValueError("Directional declaration or exact pre/post call count changed")
     restored, count = re.subn(DIRECTIONAL, "", shader, flags=re.S)
     restored = restored.replace(DECLARATION, "").replace(CALL, "LightStyleStrengthV1(")
-    if count != 1 or restored != old_shader:
-        raise ValueError("Changes outside the new helper and its two calls modified the frozen D4 shader")
+    # D10 appends independent region/face composition. Preserve the D4 scalar
+    # helper contracts exactly; the full shader's off/neutral pixels are also
+    # compared with frozen generated D4 by the existing WARP gate.
+    if count != 1 or any(section(restored, name) != section(old_shader, name)
+                         for name in ("FOUR_REGION_SCALAR", "POST_LIGHT_SCALAR")):
+        raise ValueError("D4 light scalar contracts changed outside the directional helper")
     common = section(source, "FOUR_REGION_SCALAR")
     directional = section(source, "DIRECTIONAL_LIGHT_SCALAR")
     post = section(source, "POST_LIGHT_SCALAR")
@@ -198,13 +202,13 @@ def main() -> None:
             else:
                 print(f"PASS compiled negative control {name}: {run.stderr.strip()}")
             runs.append({"name": name, "returncode": run.returncode, "stdout": run.stdout, "stderr": run.stderr})
-    print("PASS whole shader reduces exactly to frozen D4 after removing only the selector addition")
+    print("PASS light scalar sections reduce exactly to frozen D4 after removing the selector; full off/neutral shader pixels require the separate WARP gate")
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         result = {"schema": "nr-directional-light-scalar-v1", "success": True,
                   "baseline_commit": BASELINE, "shader_sha256": hashlib.sha256(shader.encode()).hexdigest(),
                   "gpu_or_game_verified": False, "hdr_pixels_verified": False,
-                  "legacy_shader_exact_after_removing_addition": True, "runs": runs}
+                  "legacy_scalar_sections_exact_after_removing_selector": True, "runs": runs}
         with args.output.open("x", encoding="utf-8") as out:
             json.dump(result, out, indent=2)
             out.write("\n")

@@ -14,7 +14,8 @@ param(
     [string]$ExpectedSdkCommit = '4a50d1eddace85734871d91792ff214f13f66c01',
     [string]$ExpectedVersion = 'beta0.5-dline10',
     [string]$ExpectedPeVersion = '0.5.1.10',
-    [ValidateSet(0,1)][int]$LightControlMode = 1
+    [ValidateSet(0,1)][int]$LightControlMode = 1,
+    [switch]$Regions
 )
 
 # Real hidden-host integration, not a game or preset-click simulation. Generated
@@ -36,6 +37,7 @@ $report = [ordered]@{
     nvidia_feature18_verified = $false; game_verified = $false
     visual_review_required = $true; frames = 0; overlay_events = 0
     fixture_light_control_mode = $LightControlMode
+    fixture_regions = [bool]$Regions
 }
 function Hash([string]$path) { return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
 function Resolve-File([string]$path) {
@@ -158,6 +160,7 @@ CustomWorkScale=1
 '@ | Set-Content -LiteralPath (Join-Path $run 'nr_before_sr.ini') -Encoding utf8
     $iniPath = Join-Path $run 'nr_before_sr.ini'
     Add-Content -LiteralPath $iniPath -Value ('LightControlMode=' + $LightControlMode) -Encoding utf8
+    if($Regions){Add-Content -LiteralPath $iniPath -Value "RegionCompositionVersion=1`nRegionComposition=1" -Encoding utf8}
     $iniBefore = Hash $iniPath
     $child = Start-Process -FilePath (Join-Path $run 'menu-host.exe') -WorkingDirectory $run -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $run 'host.log') -RedirectStandardError (Join-Path $run 'host.err.log')
