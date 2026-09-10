@@ -55,7 +55,7 @@ class PictureIntegration(unittest.TestCase):
                 load.assert_not_called()
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
-        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_descriptor_provenance_commands.inl', 'src/nr_descriptor_provenance_hooks.inl', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_route_compatibility_runtime.inl', 'src/nr_route_compatibility.h', 'src/nr_post_boundary.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_ui_activity.h', 'src/nr_imgui_abi.h', 'src/nr_f8_stream.inl', 'src/nr_native_command_record.inl', 'src/nr_command_creation_observer.inl', 'src/nr_rr_depth_projection.h', 'src/nr_rr_depth_shader.h', 'src/nr_rr_depth_adapter.inl', 'src/nr_guide_contract.h', 'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
+        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_ui_activity_feedback.inl', 'src/nr_ui_activity_runtime.inl', 'src/nr_descriptor_provenance_commands.inl', 'src/nr_descriptor_provenance_hooks.inl', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_route_compatibility_runtime.inl', 'src/nr_route_compatibility.h', 'src/nr_post_boundary.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_ui_activity.h', 'src/nr_imgui_abi.h', 'src/nr_f8_stream.inl', 'src/nr_native_command_record.inl', 'src/nr_command_creation_observer.inl', 'src/nr_rr_depth_projection.h', 'src/nr_rr_depth_shader.h', 'src/nr_rr_depth_adapter.inl', 'src/nr_guide_contract.h', 'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
             'src/interop/nr_post_settings.inl', 'src/interop/nr_post_ui.inl',
             'src/interop/nr_post_feedback.inl', 'src/interop/nr_rr_post_runtime.inl',
             'src/interop/nr_rr_depth_evidence.inl',
@@ -71,8 +71,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_resource_recovery.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_resource_recovery_semantics.inl',
             'src/nr_compatibility_runtime.inl', 'src/nr_compatibility_verdict.h', 'src/nr_compatibility_verdict_feedback.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'f1f0f80ee39aee5c70aea13b17f94c270780efb1')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '635c88603b97a0f5b9ab69501146d3971972d3d1')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'dfe34270569cd110e6cf7bd5a058331d49b3e77a')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '49dbf55c200a86614b389b2bfe02a8642733fab4')
 
 if __name__ == '__main__': unittest.main()

@@ -119,7 +119,7 @@ try {
     $Checks.Add('actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU')
     & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output 'full-feedback-timing')
     if ($LASTEXITCODE) { throw 'Full assembled Core timing/probe F8 writer gate failed.' }
-    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption')) {
+    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption','omit-end-ui-receipt','redact-ui-decimals')) {
         & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output "full-feedback-$Control") --negative-control $Control
         if ($LASTEXITCODE) { throw "Full Core F8 negative control failed: $Control" }
     }
