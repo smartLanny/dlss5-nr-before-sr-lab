@@ -128,8 +128,8 @@ def package(build: Path, output: Path) -> dict:
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX3_ACCEPTANCE.zh-CN.md').read_bytes()
-    english_guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX3_ACCEPTANCE.en.md').read_bytes()
+    guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX4_ACCEPTANCE.zh-CN.md').read_bytes()
+    english_guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX4_ACCEPTANCE.en.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
