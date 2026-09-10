@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,6 +27,15 @@ def main() -> None:
     c_compiler = compiler.with_name(compiler.name.replace('clang++', 'clang'))
     source = args.source.resolve(strict=True)
     fixture = ROOT/'tests/queue_retirement_harness.cpp'
+    fixture_inputs = {}
+    def bind_fixture(path):
+        if path in fixture_inputs: return
+        data=path.read_bytes()
+        fixture_inputs[path]=hashlib.sha256(data).hexdigest()
+        for name in re.findall(r'^#include "([^"]+)"',data.decode('utf-8-sig'),re.M):
+            dependency=path.parent/name
+            if dependency.is_file(): bind_fixture(dependency)
+    bind_fixture(fixture)
     wrapper = out/'queue-core.cpp'
     wrapper.write_text(f'#include "{source.as_posix()}"\n#include "{fixture.as_posix()}"\n', encoding='utf-8')
     common = ['-O1', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
@@ -66,8 +76,11 @@ def main() -> None:
         results.append({'case': case, 'exit_code': result.returncode, 'expected_result': expected})
         if not expected:
             raise RuntimeError(f'Queue retirement case failed: {case}, exit={result.returncode}')
+    if any(hashlib.sha256(path.read_bytes()).hexdigest()!=digest for path,digest in fixture_inputs.items()):
+        raise RuntimeError('Fixture inputs changed during validation; do not promote this run.')
     evidence = {'source': str(source), 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                 'fixture_sha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
+                'fixture_inputs_sha256': {str(path.relative_to(ROOT)):digest for path,digest in fixture_inputs.items()},
                 'old_policy_negative': args.old_policy_negative, 'cases': results,
                 'production_translation_unit': True, 'warp': True, 'nvidia_nr': False}
     (out/'result.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')

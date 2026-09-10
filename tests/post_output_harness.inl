@@ -47,7 +47,7 @@ std::vector<unsigned char> ReadTexture(queue_test::Fixture&f,ID3D12Resource *r,D
 // implementation while counting the API operations emitted by DispatchCodec.
 struct CodecApiCalls {
     ID3D12GraphicsCommandList *list; ID3D12Resource *target;
-    const ID3D12GraphicsCommandListVtbl *original;
+    decltype(ID3D12GraphicsCommandList::lpVtbl) original;
     ID3D12GraphicsCommandListVtbl table;
     unsigned dispatches=0, clears=0, copies=0, target_transitions=0, target_uavs=0;
     inline static thread_local CodecApiCalls *active=nullptr;
