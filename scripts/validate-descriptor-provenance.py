@@ -117,6 +117,9 @@ def main():
         raise SystemExit('Shared WARP fixture boundary changed.')
     helpers = queue_text.split(anchor, 1)[0]+'\n} // namespace queue_test\n'
     fixture = ROOT/'tests/descriptor_provenance_warp.inl'
+    device_adapter = ROOT/'tests/native_observer_device.inl'
+    shutil.copyfile(device_adapter, out/device_adapter.name)
+    record['device_adapter_sha256'] = sha(device_adapter)
     (out/'fixture.inl').write_text(helpers+fixture.read_text(encoding='utf-8'), encoding='utf-8')
     record['warp_fixture_sha256'] = sha(fixture)
     record['queue_helpers_sha256'] = sha(queue)

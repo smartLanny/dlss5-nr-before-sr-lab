@@ -24,7 +24,7 @@ template<unsigned I> void STDMETHODCALLTYPE NrDescriptorCreateRtv(ID3D12Device *
 }
 template<unsigned I> void STDMETHODCALLTYPE NrDescriptorCreateCbv(ID3D12Device *device,
         const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc,D3D12_CPU_DESCRIPTOR_HANDLE destination) {
-    const auto write=NrDescriptorDeviceCoverage(device).ready?
+    const auto write=NrDescriptorObserveDeviceLayer(device)?
         g_nr_descriptors.BeginWrite(destination.ptr,0,{}):nr_descriptor::Write{};
     using Fn=decltype(ID3D12DeviceVtbl::CreateConstantBufferView);
     reinterpret_cast<Fn>(g_descriptor_cbv_hooks.originals[I])(device,desc,destination);
@@ -54,13 +54,18 @@ NR_DESCRIPTOR_DETOURS(CopyDescriptors);
 NR_DESCRIPTOR_DETOURS(CopyDescriptorsSimple);
 #undef NR_DESCRIPTOR_DETOURS
 std::mutex g_nr_descriptor_publication_mutex;
-bool EnsureNrDescriptorHooks(ID3D12Device *device) {
+bool EnsureNrDescriptorHooks(ID3D12Device *device,bool canonical_native) {
     if(!device)return false;
     std::lock_guard guard(g_nr_descriptor_publication_mutex);
     const auto existing=NrDescriptorDeviceCoverage(device);
-    if(existing.device)return existing.ready;
+    if(existing.device && existing.native_address)
+        return existing.ready && (!canonical_native || existing.native_address==reinterpret_cast<nr_descriptor::Id>(device));
+    // A proxy's shared ready bit is not proof that its vtable sees raw handles.
+    // The init-device callback identifies the actual native observation layer.
+    if(!canonical_native)return false;
     const auto format=NrFormatGetDevice(device);
     NrDescriptorDeviceStatus status;status.device=format.identity;
+    status.native_address=reinterpret_cast<nr_descriptor::Id>(device);
     if(!format.identity || !format.hooks)return false;
     if(!NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(device),NrDescriptorObject::Device,format.identity))return false;
     CommandStateHookRequest requests[]={

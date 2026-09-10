@@ -10,8 +10,7 @@ static_assert(offsetof(D3D12_TEXTURE_BARRIER,Subresources)==32);
 nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *native) {
     nr_post_boundary::List result;result.address=reinterpret_cast<std::uint64_t>(native);
     if(!native)return result;
-    // Same registry/epoch contract as MutateNativeCommandState. No QI/private
-    // data or owner dereference on a recording hook, including unrelated lists.
+    // Preserve the native fast path: recording hooks read only value records.
     thread_local ID3D12GraphicsCommandList *last_native=nullptr;
     thread_local std::uint64_t last_epoch=0;
     thread_local CommandStateRecord *last_record=nullptr;
@@ -22,15 +21,93 @@ nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *nativ
         for(auto &entry:g_command_states)if(entry.native==native && entry.token) {last_record=&entry;break;}
         last_native=native;last_epoch=epoch;
     }
-    if(last_record && last_record->native==native && last_record->token && last_record->lifetime_ready) {
-        result.token=last_record->token;
-        result.reset=last_record->native_resets;
-        result.device=last_record->meta_contract.device_identity;
+    const auto *record=last_record;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    // Proxy mappings are cold-verified, bounded by an actual original call,
+    // and invalidated by record retirement/replacement. Never read COM here.
+    unsigned alias_depth=0;
+    if(!record)for(auto *alias=g_nr_post_boundary_alias_scope;alias && alias_depth++<16;alias=alias->parent) {
+        if(alias->original!=result.address)continue;
+        if(alias->epoch!=epoch || !alias->identity.known)break;
+        const auto *candidate=FindCommandStateTokenLocked(alias->identity.token);
+        if(candidate && reinterpret_cast<std::uint64_t>(candidate->native)==alias->identity.address &&
+           candidate->native_resets==alias->identity.reset && candidate->meta_contract.device_identity==alias->identity.device)
+            record=candidate;
+        break;
+    }
+#endif
+    if(record && record->native && record->lifetime_ready) {
+        result.address=reinterpret_cast<std::uint64_t>(record->native);
+        result.token=record->token;
+        result.reset=record->native_resets;
+        result.device=record->meta_contract.device_identity;
         result.known=result.device!=0;
     }
     ReleaseSRWLockShared(&g_command_state_lock);
     return result;
 }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+nr_post_boundary::List ResolvePostBoundaryListForObservation(ID3D12GraphicsCommandList *list) {
+    nr_post_boundary::List result;result.address=reinterpret_cast<std::uint64_t>(list);
+    if(!list)return result;
+    // Exact original pointer, exact attached lifetime interface, current record.
+    // Only this cold boundary may call private data/GetDevice for an alias.
+    const auto token=ReadCommandStateToken(list);
+    IUnknown *object=nullptr;UINT bytes=sizeof(object);
+    if(!token || FAILED(ID3D12GraphicsCommandList_GetPrivateData(list,kNativeCommandLifetime,&bytes,&object)) ||
+       bytes!=sizeof(object) || !object)return result;
+    const auto *life=reinterpret_cast<const NativeCommandLifetime *>(object);
+    const bool attached=object->lpVtbl==&kNativeCommandLifetimeVtable && life->armed && life->token==token && life->native;
+    if(attached) {
+        ID3D12Device *device=nullptr,*native_device=nullptr;
+        std::uint64_t device_identity=0;
+        if(SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(list,IID_ID3D12Device,reinterpret_cast<void **>(&device))) && device) {
+            CommandStateMetaContract meta;UINT meta_bytes=sizeof(meta);
+            if(SUCCEEDED(ID3D12Device_GetPrivateData(device,kCommandStateMetaContract,&meta_bytes,&meta)) &&
+               meta_bytes==sizeof(meta))device_identity=meta.device_identity;
+            bool same=false;
+            if(SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(life->native,IID_ID3D12Device,
+                    reinterpret_cast<void **>(&native_device))) && native_device) {
+                same=device==native_device;
+                if(!same) {
+                    // Command-state and native-format IDs are separate domains.
+                    // Match command metadata only after an exact COM lifetime
+                    // proof connects the two current device interfaces.
+                    const auto format_device=NrFormatDeviceIdentity(device);
+                    const auto descriptor_life=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(device),
+                        NrDescriptorObject::Device,format_device);
+                    same=format_device && format_device==NrFormatDeviceIdentity(native_device) && descriptor_life &&
+                        descriptor_life==NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(native_device),
+                            NrDescriptorObject::Device,format_device);
+                }
+                ID3D12Device_Release(native_device);
+            }
+            if(!same)device_identity=0;
+            ID3D12Device_Release(device);
+        }
+        AcquireSRWLockShared(&g_command_state_lock);
+        const auto *record=FindCommandStateTokenLocked(token);
+        if(record && record->native==life->native && record->native_created && record->lifetime_ready &&
+           device_identity && record->meta_contract.device_identity==device_identity) {
+            result={reinterpret_cast<std::uint64_t>(record->native),record->token,record->native_resets,device_identity,true};
+        }
+        ReleaseSRWLockShared(&g_command_state_lock);
+    }
+    IUnknown_Release(object);return result;
+}
+NrPostBoundaryAliasScope::NrPostBoundaryAliasScope(ID3D12GraphicsCommandList *list) {
+    parent=g_nr_post_boundary_alias_scope;original=reinterpret_cast<std::uint64_t>(list);
+    // Depth is bounded without a persistent alias-address cache. An excessive
+    // nested call simply has no alias evidence; its original still runs once.
+    unsigned depth=0;for(auto *outer=parent;outer;outer=outer->parent)if(++depth>=16)break;
+    const auto before=g_command_state_epoch.load(std::memory_order_acquire);
+    if(depth<16)identity=ResolvePostBoundaryListForObservation(list);
+    epoch=g_command_state_epoch.load(std::memory_order_acquire);
+    if(before!=epoch)identity.known=false;
+    g_nr_post_boundary_alias_scope=this;
+}
+NrPostBoundaryAliasScope::~NrPostBoundaryAliasScope(){g_nr_post_boundary_alias_scope=parent;}
+#endif
 std::uint64_t PostBoundaryTarget() {
     return g_native_output_trace ? g_native_output_trace->resource :
         g_post_boundary_resource.load(std::memory_order_acquire);
@@ -163,10 +240,11 @@ NR_POST_NATIVE_HOOK(CopyTextureRegion,(ID3D12GraphicsCommandList *list,const D3D
     template<unsigned I> void STDMETHODCALLTYPE PostHook##NAME(ID3D12GraphicsCommandList *list, \
             D3D12_GPU_DESCRIPTOR_HANDLE gpu,D3D12_CPU_DESCRIPTOR_HANDLE cpu,ID3D12Resource *resource, \
             const VALUE values[4],UINT count,const D3D12_RECT *rects) { \
-        const auto descriptors=NrDescriptorCaptureUav(list,gpu,cpu,resource); \
+        const bool observe=NrDescriptorObserveCommandLayer(list); \
+        const auto descriptors=observe?NrDescriptorCaptureUav(list,gpu,cpu,resource):nr_descriptor::Pair{}; \
         using Fn=decltype(ID3D12GraphicsCommandListVtbl::NAME); \
         reinterpret_cast<Fn>(g_post_hook_##NAME.originals[I])(list,gpu,cpu,resource,values,count,rects); \
-        ObservePostBoundaryUavDescriptor(list,resource,descriptors,count,rects); \
+        if(observe)ObservePostBoundaryUavDescriptor(list,resource,descriptors,count,rects); \
     } \
     void *const g_post_detours_##NAME[4]={reinterpret_cast<void *>(&PostHook##NAME<0>), \
         reinterpret_cast<void *>(&PostHook##NAME<1>),reinterpret_cast<void *>(&PostHook##NAME<2>),reinterpret_cast<void *>(&PostHook##NAME<3>)};
@@ -176,10 +254,11 @@ NR_DESCRIPTOR_CLEAR_UAV(ClearUnorderedAccessViewFloat,FLOAT)
 CommandStateHookFamily g_post_hook_ClearRenderTargetView;
 template<unsigned I> void STDMETHODCALLTYPE PostHookClearRenderTargetView(ID3D12GraphicsCommandList *list,
         D3D12_CPU_DESCRIPTOR_HANDLE cpu,const FLOAT values[4],UINT count,const D3D12_RECT *rects) {
-    const auto descriptor=NrDescriptorCaptureRtv(cpu);
+    const bool observe=NrDescriptorObserveCommandLayer(list);
+    const auto descriptor=observe?NrDescriptorCaptureRtv(cpu):nr_descriptor::Receipt{};
     using Fn=decltype(ID3D12GraphicsCommandListVtbl::ClearRenderTargetView);
     reinterpret_cast<Fn>(g_post_hook_ClearRenderTargetView.originals[I])(list,cpu,values,count,rects);
-    ObservePostBoundaryRtvDescriptor(list,nr_post_boundary::Kind::ClearRtv,descriptor,count,rects);
+    if(observe)ObservePostBoundaryRtvDescriptor(list,nr_post_boundary::Kind::ClearRtv,descriptor,count,rects);
 }
 void *const g_post_detours_ClearRenderTargetView[4]={reinterpret_cast<void *>(&PostHookClearRenderTargetView<0>),
     reinterpret_cast<void *>(&PostHookClearRenderTargetView<1>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<2>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<3>)};

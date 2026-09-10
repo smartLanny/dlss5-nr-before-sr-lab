@@ -2,6 +2,7 @@
 // Only the NGX callback is a scripted success containing real ClearUAV calls.
 // No NVIDIA library, game, NR model, or permission/admission override is used.
 #include <vector>
+#include "native_observer_device.inl"
 namespace descriptor_warp_test {
 using queue_test::Check;
 using queue_test::Hr;
@@ -51,6 +52,9 @@ void Rtv(queue_test::Fixture &f,ID3D12Resource *resource,D3D12_CPU_DESCRIPTOR_HA
     ID3D12Device_CreateRenderTargetView(f.device,resource,&desc,destination);
 }
 void InstallCommandObservation(queue_test::Fixture &f) {
+    reshade::api::NativeObserverTestDevice owner(f.device);
+    OnNrFormatInitDevice(&owner);
+    Check(NrDescriptorObserveDeviceLayer(f.device),"actual init-device callback registers canonical native collector");
     // Actual capability receipts and actual native Create/setter hooks, matching
     // the existing runtime harness bootstrap. No state is marked known here.
     CommandStateMetaContract meta;ID3D12Device5 *extended=nullptr;

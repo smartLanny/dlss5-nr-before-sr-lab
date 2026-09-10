@@ -66,9 +66,10 @@ nr_descriptor::Id NrDescriptorObjectIdentity(ID3D12Object *object,NrDescriptorOb
     IUnknown *existing=nullptr;UINT bytes=sizeof(existing);
     if(SUCCEEDED(ID3D12Object_GetPrivateData(object,kNrDescriptorLifetime,&bytes,&existing)) &&
        bytes==sizeof(existing) && existing) {
+        // The AddRef'd interface is attached to this COM lifetime. Wrappers may
+        // forward it while exposing a different object address and CPU domain.
         const auto *receipt=reinterpret_cast<const NrDescriptorLifetime *>(existing);
-        const auto id=receipt->armed && receipt->kind==kind && receipt->device==device &&
-            receipt->address==reinterpret_cast<nr_descriptor::Id>(object) &&
+        const auto id=existing->lpVtbl==&kNrDescriptorLifetimeVtable && receipt->armed && receipt->kind==kind && receipt->device==device &&
             (kind!=NrDescriptorObject::Resource || receipt->semantic_resource==semantic_resource)?receipt->id:0;
         IUnknown_Release(existing);return id;
     }
@@ -85,19 +86,27 @@ nr_descriptor::Id NrDescriptorObjectIdentity(ID3D12Object *object,NrDescriptorOb
     if(!id)g_nr_descriptor_lifetime_failures.fetch_add(1,std::memory_order_relaxed);
     return id;
 }
-struct NrDescriptorDeviceStatus { nr_descriptor::Id device=0;bool ready=false; };
+struct NrDescriptorDeviceStatus {
+    nr_descriptor::Id device=0;
+    bool ready=false;
+    // Only the ReShade init callback's documented get_native() can name this
+    // collector. Shared private data does not certify another interface layer.
+    nr_descriptor::Id native_address=0;
+};
 NrDescriptorDeviceStatus NrDescriptorDeviceCoverage(ID3D12Device *device) {
     NrDescriptorDeviceStatus result;UINT bytes=sizeof(result);
     if(!device || FAILED(ID3D12Device_GetPrivateData(device,kNrDescriptorDeviceHooks,&bytes,&result)) ||
        bytes!=sizeof(result))return {};
     return result;
 }
+bool NrDescriptorObserveDeviceLayer(ID3D12Device *device) {
+    const auto coverage=NrDescriptorDeviceCoverage(device);
+    return coverage.ready && coverage.native_address==reinterpret_cast<nr_descriptor::Id>(device);
+}
 nr_descriptor::Resource NrDescriptorTrackResource(ID3D12Device *device,ID3D12Resource *resource) {
     if(!device || !resource)return {};
     const auto device_id=NrFormatDeviceIdentity(device);
     if(!device_id)return {};
-    const auto tracked=g_nr_descriptors.ResourceAt(reinterpret_cast<nr_descriptor::Id>(resource));
-    if(tracked)return tracked.device==device_id?tracked:nr_descriptor::Resource{};
     ID3D12Device *owner=nullptr;
     if(FAILED(ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void **>(&owner))) || !owner)return {};
     const bool same=NrFormatDeviceIdentity(owner)==device_id;
@@ -107,7 +116,8 @@ nr_descriptor::Resource NrDescriptorTrackResource(ID3D12Device *device,ID3D12Res
     if(!semantic_resource)return {};
     const auto id=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(resource),NrDescriptorObject::Resource,device_id,semantic_resource);
     const nr_descriptor::Resource value{id,device_id,reinterpret_cast<nr_descriptor::Id>(resource)};
-    if(value)g_nr_descriptors.ObserveResource(value);
+    // Identity checks never publish a possibly short-lived wrapper address.
+    // Only an actual canonical native CreateView event records that index.
     return value;
 }
 bool NrDescriptorTrackRouteResource(ID3D12Resource *resource,std::uint64_t semantic_device,
@@ -119,12 +129,16 @@ bool NrDescriptorTrackRouteResource(ID3D12Resource *resource,std::uint64_t seman
     if(ready)ready=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(device),NrDescriptorObject::Device,semantic_device)!=0;
     const auto identity=ready?NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(resource),
         NrDescriptorObject::Resource,semantic_device,semantic_resource):0;
-    if(identity)g_nr_descriptors.ObserveResource({identity,semantic_device,reinterpret_cast<std::uint64_t>(resource)});
     ID3D12Device_Release(device);return identity!=0;
 }
 void NrDescriptorTrackHeap(ID3D12Device *device,ID3D12DescriptorHeap *heap) {
     const auto coverage=NrDescriptorDeviceCoverage(device);
-    if(!heap || !coverage.ready)return;
+    if(!heap || !NrDescriptorObserveDeviceLayer(device))return;
+    ID3D12Device *owner=nullptr;
+    if(FAILED(ID3D12DescriptorHeap_GetDevice(heap,IID_ID3D12Device,reinterpret_cast<void **>(&owner))) || !owner)return;
+    const bool same_device=NrFormatDeviceIdentity(owner)==coverage.device;
+    ID3D12Device_Release(owner);
+    if(!same_device)return;
     const auto desc=ID3D12DescriptorHeap_GetDesc(heap);
     if(desc.Type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && desc.Type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV)return;
     const auto id=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(heap),NrDescriptorObject::Heap,coverage.device);
@@ -143,6 +157,7 @@ nr_descriptor::View NrDescriptorView(ID3D12Device *device,ID3D12Resource *resour
     view.resource=NrDescriptorTrackResource(device,resource);
     view.known=static_cast<bool>(view.resource);
     if(!view.known)return view;
+    if(NrDescriptorObserveDeviceLayer(device))g_nr_descriptors.ObserveResource(view.resource);
     const auto desc=ID3D12Resource_GetDesc(resource);
     view.format=format;view.mip=mip;view.plane=plane;
     view.typed=format && !nr_format_access::IsTypeless(format) && nr_format_access::LegalView(static_cast<unsigned>(desc.Format),format);
@@ -156,7 +171,7 @@ nr_descriptor::View NrDescriptorView(ID3D12Device *device,ID3D12Resource *resour
 }
 nr_descriptor::Write NrDescriptorBeginSrv(ID3D12Device *device,ID3D12Resource *resource,
         const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,D3D12_CPU_DESCRIPTOR_HANDLE cpu) {
-    if(!NrDescriptorDeviceCoverage(device).ready)return {};
+    if(!NrDescriptorObserveDeviceLayer(device))return {};
     const bool shape=desc && desc->ViewDimension==D3D12_SRV_DIMENSION_TEXTURE2D &&
         desc->Shader4ComponentMapping==D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING &&
         desc->Texture2D.MipLevels==1 && desc->Texture2D.ResourceMinLODClamp==0;
@@ -166,7 +181,7 @@ nr_descriptor::Write NrDescriptorBeginSrv(ID3D12Device *device,ID3D12Resource *r
 }
 nr_descriptor::Write NrDescriptorBeginUav(ID3D12Device *device,ID3D12Resource *resource,ID3D12Resource *counter,
         const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc,D3D12_CPU_DESCRIPTOR_HANDLE cpu) {
-    if(!NrDescriptorDeviceCoverage(device).ready)return {};
+    if(!NrDescriptorObserveDeviceLayer(device))return {};
     const bool shape=!counter && desc && desc->ViewDimension==D3D12_UAV_DIMENSION_TEXTURE2D;
     const auto view=NrDescriptorView(device,resource,nr_descriptor::Kind::Uav,desc?desc->Format:0,
         shape?desc->Texture2D.MipSlice:0,shape?desc->Texture2D.PlaneSlice:0,shape);
@@ -174,7 +189,7 @@ nr_descriptor::Write NrDescriptorBeginUav(ID3D12Device *device,ID3D12Resource *r
 }
 nr_descriptor::Write NrDescriptorBeginRtv(ID3D12Device *device,ID3D12Resource *resource,
         const D3D12_RENDER_TARGET_VIEW_DESC *desc,D3D12_CPU_DESCRIPTOR_HANDLE cpu) {
-    if(!NrDescriptorDeviceCoverage(device).ready)return {};
+    if(!NrDescriptorObserveDeviceLayer(device))return {};
     const bool shape=desc && desc->ViewDimension==D3D12_RTV_DIMENSION_TEXTURE2D;
     const auto view=NrDescriptorView(device,resource,nr_descriptor::Kind::Rtv,desc?desc->Format:0,
         shape?desc->Texture2D.MipSlice:0,shape?desc->Texture2D.PlaneSlice:0,shape);
@@ -191,7 +206,7 @@ struct NrDescriptorCopy {
 std::unique_ptr<NrDescriptorCopy> NrDescriptorBeginCopy(ID3D12Device *device,UINT destinations,
         const D3D12_CPU_DESCRIPTOR_HANDLE *destination,const UINT *destination_sizes,UINT sources,
         const D3D12_CPU_DESCRIPTOR_HANDLE *source,const UINT *source_sizes,D3D12_DESCRIPTOR_HEAP_TYPE type) {
-    if(!NrDescriptorDeviceCoverage(device).ready || (type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV))return {};
+    if(!NrDescriptorObserveDeviceLayer(device) || (type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV))return {};
     if(destinations>64 || sources>64 || (destinations&&!destination) || (sources&&!source)) {
         g_nr_descriptors.Invalidate();return {};
     }
@@ -220,9 +235,39 @@ std::unique_ptr<NrDescriptorCopy> NrDescriptorBeginCopy(ID3D12Device *device,UIN
     }
     return copy;
 }
-bool EnsureNrDescriptorHooks(ID3D12Device *);
+bool NrDescriptorFormatScopeMatches(const NrNativeFormatScope &scope,unsigned role,
+        ID3D12Device *device,ID3D12Resource *resource) {
+    // Device interface aliases are supported. A resource alias is not proof
+    // that the resource passed to the later native codec can be unwrapped.
+    if(!device || !resource || scope.resources[role]!=resource)return false;
+    // Preserve the original exact-interface path even if optional provenance
+    // capacity/publication is unavailable. Only aliases need the extra proof.
+    if(scope.device==device && scope.resources[role]==resource)return true;
+    const auto key=scope.keys[role];
+    if(!key.device || NrFormatDeviceIdentity(device)!=key.device)return false;
+    const auto life=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(device),NrDescriptorObject::Device,key.device);
+    if(!life || life!=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(scope.device),NrDescriptorObject::Device,key.device))return false;
+    const auto value=NrDescriptorTrackResource(device,resource);
+    const auto expected_semantic=NrFormatResourceIdentity(scope.resources[role]);
+    const auto expected=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(scope.resources[role]),
+        NrDescriptorObject::Resource,key.device,expected_semantic);
+    return value && expected && value.id==expected &&
+        NrFormatResourceIdentity(resource)==key.resource;
+}
+bool EnsureNrDescriptorHooks(ID3D12Device *,bool canonical_native=false);
 bool EnsureNrDescriptorCommandHooks(ID3D12GraphicsCommandList *);
 bool NrDescriptorCommandHooksReady(ID3D12GraphicsCommandList *);
+nr_post_boundary::List ResolvePostBoundaryListForObservation(ID3D12GraphicsCommandList *);
+// Only the current original API call may lend its cold-verified alias to hooks.
+// No owning graphics reference, heap allocation, or address cache survives it.
+struct NrPostBoundaryAliasScope {
+    NrPostBoundaryAliasScope *parent=nullptr;
+    std::uint64_t original=0,epoch=0;
+    nr_post_boundary::List identity;
+    explicit NrPostBoundaryAliasScope(ID3D12GraphicsCommandList *);
+    ~NrPostBoundaryAliasScope();
+};
+thread_local NrPostBoundaryAliasScope *g_nr_post_boundary_alias_scope=nullptr;
 std::mutex g_nr_descriptor_use_mutex;
 nr_descriptor::NativeUse g_nr_descriptor_uses[64];
 std::uint64_t g_nr_descriptor_next_call=0;
@@ -235,7 +280,8 @@ struct NrDescriptorNativeUseScope {
         previous=g_nr_descriptor_active_call;g_nr_descriptor_active_call=0;
         const auto identity=SnapshotPostBoundaryList(list);
         const auto output=NrDescriptorTrackResource(format.device,format.resources[1]);
-        const bool ready=NrDescriptorDeviceCoverage(format.device).ready && NrDescriptorCommandHooksReady(list);
+        const bool ready=NrDescriptorDeviceCoverage(format.device).ready && identity.known &&
+            NrDescriptorCommandHooksReady(reinterpret_cast<ID3D12GraphicsCommandList *>(identity.address));
         std::lock_guard guard(g_nr_descriptor_use_mutex);
         call=++g_nr_descriptor_next_call;
         auto &entry=g_nr_descriptor_uses[call%64];entry={};entry.call=call;
@@ -262,11 +308,16 @@ void NrDescriptorObserveNativeClear(ID3D12GraphicsCommandList *list,ID3D12Resour
         const nr_descriptor::Pair &pair) {
     const auto call=g_nr_descriptor_active_call;
     if(!call)return;
+    const auto identity=SnapshotPostBoundaryList(list);
+    const auto output=g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(resource));
     std::lock_guard guard(g_nr_descriptor_use_mutex);
     auto &entry=g_nr_descriptor_uses[call%64];
     if(entry.call!=call || entry.finished)return;
-    if(entry.list_address!=reinterpret_cast<std::uint64_t>(list)){++entry.other_lists;return;}
-    if(entry.resource_address!=reinterpret_cast<std::uint64_t>(resource)){++entry.other_resources;return;}
+    if(!identity.known || entry.list_address!=identity.address || entry.list!=identity.token || entry.reset!=identity.reset) {
+        ++entry.other_lists;return;
+    }
+    if(entry.resource_address!=reinterpret_cast<std::uint64_t>(resource) &&
+       (!output || entry.resource!=output.id || entry.device!=output.device)){++entry.other_resources;return;}
     entry.Observe(pair);
 }
 void NrDescriptorObserveSubmission(const nr_post_boundary::List &list,std::uint64_t queue,

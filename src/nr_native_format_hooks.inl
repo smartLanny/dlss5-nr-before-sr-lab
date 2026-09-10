@@ -14,7 +14,11 @@ template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateSrv(ID3D12Device* dev
     g_nr_descriptors.Finish(descriptor_write);
 #endif
     auto* scope = g_nr_native_format_scope;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    if (!scope || !NrDescriptorFormatScopeMatches(*scope,0,device,resource)) return;
+#else
     if (!scope || scope->device != device || resource != scope->resources[0] || !resource) return;
+#endif
     const bool valid = desc && desc->ViewDimension == D3D12_SRV_DIMENSION_TEXTURE2D &&
         desc->Shader4ComponentMapping == D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING &&
         desc->Texture2D.MostDetailedMip == 0 &&
@@ -34,7 +38,11 @@ template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateUav(ID3D12Device* dev
     g_nr_descriptors.Finish(descriptor_write);
 #endif
     auto* scope = g_nr_native_format_scope;
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    if (!scope || !NrDescriptorFormatScopeMatches(*scope,1,device,resource)) return;
+#else
     if (!scope || scope->device != device || resource != scope->resources[1] || !resource) return;
+#endif
     const bool valid = !counter && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_TEXTURE2D &&
         desc->Texture2D.MipSlice == 0 && desc->Texture2D.PlaneSlice == 0;
     scope->views[1].Observe(desc ? static_cast<unsigned>(desc->Format) : 0, valid);
@@ -61,7 +69,7 @@ void OnNrFormatInitDevice(reshade::api::device* device) {
     if (device && device->get_api() == reshade::api::device_api::d3d12) {
         EnsureNrNativeFormatHooks(reinterpret_cast<ID3D12Device*>(device->get_native()));
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
-        EnsureNrDescriptorHooks(reinterpret_cast<ID3D12Device*>(device->get_native()));
+        EnsureNrDescriptorHooks(reinterpret_cast<ID3D12Device*>(device->get_native()),true);
 #endif
     }
 }
