@@ -93,7 +93,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance.h': '4e9471d5ecf056d15d6474b9b7a5d042991f08af',
     'src/nr_descriptor_provenance_runtime.inl': 'b19093c8c38eeaecf7cf9147f597687c97fd6d0f',
     'src/nr_descriptor_provenance_hooks.inl': 'b41f5cf49f1fee1136b638078715e44c2410d124',
-    'src/nr_descriptor_provenance_commands.inl': 'a934d7c0afcde346aaaffd77f2637c81b877c496',
+    'src/nr_descriptor_provenance_commands.inl': '821c2f07079b677b47043d0df0259a75ffd3b0c6',
     'src/nr_ui_activity_runtime.inl': '585503da5ca79b5d22aedccb32528dd22b8f1830',
     'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
 }
