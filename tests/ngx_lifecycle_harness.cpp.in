@@ -1,0 +1,289 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdarg>
+#include <cstring>
+#include <iterator>
+#include <thread>
+#include <functional>
+#include <string>
+#include <vector>
+using NgxResult = unsigned int;
+constexpr NgxResult kNgxSuccess = 1, kNgxFeatureNotFound = 2;
+struct NgxHandle { unsigned int id = 0; };
+struct ID3D12GraphicsCommandList { unsigned int device = 1; };
+struct NgxParams { unsigned int width = 1920, height = 1080, out_width = 3840, out_height = 2160; int flags = 0; };
+// Recovery is outside this focused lifecycle gate. Keep its actual admission
+// and retirement call sites intact while supplying no evidence or side effects.
+struct NrRecoveryCarrierScope {
+    NrRecoveryCarrierScope(ID3D12GraphicsCommandList *, unsigned long long) {}
+};
+void NrRecoveryRetireFeature(unsigned long long) {}
+void NrPrepareFormatObservation(ID3D12GraphicsCommandList *) {}
+namespace nr_post_settings {
+struct Snapshot { bool rr=false; };
+Snapshot Read() { return {}; } // This lifecycle fixture records no RR rendering.
+}
+using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **);
+using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, const NgxHandle *, const NgxParams *, void *);
+using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+// @TYPES@
+unsigned int checks = 0, plugin_attempts = 0, native_evals = 0, native_releases = 0;
+void Check(bool ok, const char *label) { ++checks; if (!ok) { std::fprintf(stderr, "%s\n", label); std::exit(1); } }
+template <class... T> void Log(const char *, T...) {}
+void DumpCreate(const NgxParams *) {}
+const char *FeatureName(int) { return "fixture"; }
+const char *ResultName(NgxResult) { return "fixture"; }
+bool GetUInt(const NgxParams *p, const char *key, unsigned int *out) {
+    if (!p) return false;
+    if (!std::strcmp(key,"Width")) *out = p->width;
+    else if (!std::strcmp(key,"Height")) *out = p->height;
+    else if (!std::strcmp(key,"OutWidth")) *out = p->out_width;
+    else if (!std::strcmp(key,"OutHeight")) *out = p->out_height;
+    else return false;
+    return true;
+}
+bool GetInt(const NgxParams *p, const char *key, int *out) {
+    if (!p) return false;
+    *out = !std::strcmp(key,"DLSS.Feature.Create.Flags") ? p->flags : 0; return true;
+}
+std::atomic<unsigned long long> g_module_observer_epoch{0};
+std::atomic<unsigned int> g_history_generation{1};
+std::atomic<bool> g_module_observer_gap_detected{false};
+std::atomic<int> g_module_observer_fault{static_cast<int>(ModuleObserverFault::None)};
+std::atomic<bool> g_enabled_fast{true}, g_shortfuse_nr_enabled{false}, g_generic_renodx_conflict{false};
+std::atomic<bool> g_evaluate_target_overflow{false}, g_core_unknown_handle_guard{true};
+std::atomic<bool> g_module_rescan_in_progress{false}, g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_process_latched{false};
+std::atomic<unsigned int> g_wrapper_create_entries{0}, g_core_create_entries{0}, g_dlssd_create_entries{0};
+std::atomic<unsigned int> g_wrapper_calls{0}, g_core_calls{0}, g_dlssd_evaluate_calls{0};
+std::atomic<unsigned long long> g_all_evaluations{0},g_rr_passthrough_evaluations{0};
+std::atomic<int> g_last_carrier_feature{-1};
+std::atomic<bool> g_rr_guard_was_active{false};
+thread_local unsigned int g_create_hook_depth = 0, g_release_hook_depth = 0;
+thread_local bool g_inside_ngx_evaluate = false;
+BypassReason bypass = BypassReason::None;
+void SetBypassReason(BypassReason r) { bypass = r; }
+bool LatchGenericRenoDxConflictIfLoaded() { return g_generic_renodx_conflict.load(); }
+void PreflightFeature1LifecycleModules() {}
+bool IsUpscalingCarrierFeature(int id) { return id == 1; }
+CRITICAL_SECTION g_chain_cs;
+std::vector<const NgxHandle *> retired;
+struct FakeNrContext { const NgxHandle *sr_handle=nullptr; unsigned long long feature_generation=0; bool retired=false; };
+FakeNrContext g_contexts[4];
+void MarkLifecycleUncertain(const char*) { g_lifecycle_tracking_uncertain=true; }
+void RetireContextForHandle(const NgxHandle *h) { retired.push_back(h); }
+// @DECLARATIONS@
+bool OtherNrOwnerActive();
+BypassReason OtherNrOwnerBypassReason();
+NgxResult HookCoreCreate(ID3D12GraphicsCommandList *,int,NgxParams *,NgxHandle **);
+NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *,int,NgxParams *,NgxHandle **);
+NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *,const NgxHandle *,const NgxParams *,void *);
+NgxResult HookCoreRelease(NgxHandle *);
+void FinishFeature1CreateObservation(bool,NgxResult,const NgxHandle *,unsigned long long,const char *);
+NgxHandle outer_handle{1}, inner_handle{2}, other_handle{3}, unknown_handle{4};
+ID3D12GraphicsCommandList list, different_list;
+NgxParams params;
+bool create_fails = false, outer_fails = false, null_create = false, alias_pointer = false, nested_create = false, cross_list = false;
+bool nested_release = false, nested_evaluate = false, second_child = false, release_recreates = false;
+int child_feature = 1;
+NgxResult release_result = kNgxSuccess;
+std::function<void()> on_create, on_evaluate;
+NgxResult NativeCreate(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **out) {
+    if (on_create) on_create();
+    if (out) *out = null_create ? nullptr : (alias_pointer ? &outer_handle : &inner_handle);
+    return create_fails ? 0xBAD : kNgxSuccess;
+}
+NgxResult NativeWrapperCreate(ID3D12GraphicsCommandList *l,int id,NgxParams *p,NgxHandle **out) {
+    if (nested_create) {
+        NgxHandle *inner = nullptr;
+        const auto result = HookCoreCreate(cross_list ? &different_list : l,child_feature,p,&inner);
+        Check(result == kNgxSuccess, "native inner Create result preserved");
+        if (second_child) {
+            auto previous = alias_pointer; alias_pointer = true;
+            HookDlssdCreate(l, id, p, &inner); alias_pointer = previous;
+        }
+    }
+    if (out) *out = null_create ? nullptr : &outer_handle;
+    return create_fails || outer_fails ? 0xBAD : kNgxSuccess;
+}
+NgxResult NativeEvaluate(ID3D12GraphicsCommandList *l,const NgxHandle *h,const NgxParams *p,void *c) {
+    if (nested_evaluate && h == &outer_handle) return HookCoreEvaluate(l,&inner_handle,p,c);
+    if (on_evaluate) on_evaluate();
+    ++native_evals; return 0xCAFE;
+}
+NgxResult NativeRelease(NgxHandle *h) {
+    if (nested_release && h == &outer_handle) HookCoreRelease(&inner_handle);
+    ++native_releases;
+    if (release_recreates) {
+        release_recreates = false;
+        ForgetObservedFeature(h, FindFeature(h).generation);
+        RememberFeature(h, 1, &params);
+    }
+    return release_result;
+}
+CreateFeatureFn g_original_create=NativeWrapperCreate,g_original_core_create=NativeCreate,g_original_dlssd_create=NativeCreate;
+EvaluateFeatureFn g_original_evaluate=NativeEvaluate,g_original_evaluate_c=NativeEvaluate,g_original_core_evaluate=NativeEvaluate,g_original_dlssd_evaluate=NativeEvaluate;
+ReleaseFeatureFn g_original_release=NativeRelease,g_original_core_release=NativeRelease,g_original_dlssd_release=NativeRelease;
+// @PROCESS@
+// @HOOKS@
+struct FeedbackSession { std::string report; };
+void FeedbackAppend(FeedbackSession &s,const char *format,...) {
+    char bytes[2048]; va_list args; va_start(args,format); std::vsnprintf(bytes,sizeof(bytes),format,args); va_end(args); s.report += bytes;
+}
+// @FEEDBACK@
+
+FeatureRecord At(NgxLayer layer,const NgxHandle *h) { ScopedNgxLayer scope(layer); return FindFeature(h); }
+unsigned int Live() { unsigned int n=0; for(const auto&r:g_features) if(r.handle) ++n; return n; }
+void Reset() {
+    Check(g_rr_ownership_gate_owner == 0 && g_rr_ownership_gate_depth == 0 &&
+          g_ngx_create == nullptr && g_private_nr_call == nullptr, "scopes restored");
+    for(auto&r:g_features)r={};
+    for(auto&r:g_unknown_ngx_tokens)r={};
+    for(auto&r:g_ngx_context_retirements)r={};
+    for(auto&r:g_contexts)r={};
+    g_ngx_pending_retirement_count=0;g_lifecycle_tracking_uncertain=false;
+    g_ngx_lifecycle_evidence={};
+    g_external_nr_handles=0;g_external_nr_creates=0;g_external_nr_evaluations=0;
+    g_feature_tracking_uncertain=false;g_module_observer_gap_detected=false;
+    g_module_observer_fault=static_cast<int>(ModuleObserverFault::None);g_module_observer_epoch=0;
+    g_live_rr_handles=0;g_rr_create_in_progress=0;g_feature1_create_in_progress=0;
+    g_feature1_create_entries=0;g_feature1_successful_creates=0;
+    g_enabled_fast=true;g_generic_renodx_conflict=false;g_shortfuse_nr_enabled=false;
+    native_evals=native_releases=plugin_attempts=0;retired.clear();
+    create_fails=outer_fails=null_create=alias_pointer=nested_create=cross_list=false;
+    nested_release=nested_evaluate=second_child=release_recreates=false;
+    release_result=kNgxSuccess;child_feature=1;on_create={};on_evaluate={};
+}
+int main() {
+    InitializeCriticalSection(&g_chain_cs);
+    Reset(); nested_create=true; NgxHandle *h=nullptr;
+    Check(HookCreate(&list,1,&params,&h)==kNgxSuccess && h==&outer_handle,"native outer Create unchanged");
+    Check(Live()==2 && At(NgxLayer::Core,&inner_handle).handle,"INNER_CREATE_OBSERVED");
+    const auto a=At(NgxLayer::Dlss,h), b=At(NgxLayer::Core,&inner_handle);
+    Check(a.generation==b.generation && b.context_handle==h && !a.pending && !b.pending,"unique same-list same-feature alias proven");
+    Check(g_feature1_successful_creates==1 && g_feature1_create_in_progress==0,"one outer SR Create count");
+    Check(HookCoreEvaluate(&list,&inner_handle,&params,nullptr)==0xCAFE && native_evals==1 && plugin_attempts==1 && !g_feature_tracking_uncertain,"direct core alias reaches native once and known admission");
+    nested_evaluate=true; native_evals=plugin_attempts=0;
+    Check(HookEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==1 && plugin_attempts==1,"nested Evaluate only one plugin admission");
+    g_contexts[0]={h,a.generation,false};
+    nested_release=true;
+    Check(HookRelease(h)==kNgxSuccess && Live()==0 && native_releases==2,"both observed Release layers retired");
+    Check(g_ngx_pending_retirement_count==1 && !g_contexts[0].retired,"Release queues one canonical retirement without the chain lock");
+    EnterCriticalSection(&g_chain_cs);DrainNgxFeatureRetirementsLocked();LeaveCriticalSection(&g_chain_cs);
+    Check(g_contexts[0].retired && g_ngx_pending_retirement_count==0,"actual collector retires matching canonical generation");
+    g_contexts[0]={h,a.generation+1,false};
+    QueueNgxContextRetirement(h,a.generation);DrainNgxFeatureRetirementsLocked();
+    Check(!g_contexts[0].retired,"old generation retirement cannot retire reused context");
+
+    Reset(); HookCoreEvaluate(&list,&unknown_handle,&params,nullptr);
+    Check(g_module_observer_gap_detected && g_feature_tracking_uncertain && native_evals==1 && plugin_attempts==0,"UNKNOWN_REMAINS_CLOSED");
+    const auto first=SnapshotNgxLifecycleEvidence();
+    Check(first.frozen && first.fault_count && first.first_fault[first.fault_count-1].handle_token!=0,"unknown first fault has anonymous token");
+    for(int i=0;i<40;++i) HookCoreEvaluate(&list,&other_handle,&params,nullptr);
+    const auto later=SnapshotNgxLifecycleEvidence();
+    Check(later.fault_count==first.fault_count && later.first_fault[0].sequence==first.first_fault[0].sequence && later.recent_count<=16,"first fault immutable and bounded");
+    FeedbackSession feedback; FeedbackAppendNgxLifecycle(feedback);
+    Check(feedback.report.find("ngxLifecycle.firstFaultFrozen=1")!=std::string::npos && feedback.report.find("[address]")==std::string::npos,"production F8 emits bounded anonymous evidence");
+
+    for(bool same_pointer:{false,true}) {
+        Reset();nested_create=true;alias_pointer=same_pointer;
+        HookCreate(&list,1,&params,&h);
+        Check(Live()==2 && !g_feature_tracking_uncertain,"same or distinct raw pointer recorded by layer");
+    }
+    for(int variant=0;variant<3;++variant) {
+        Reset();nested_create=true;cross_list=variant==0;child_feature=variant==1?11:1;second_child=variant==2;
+        HookCreate(&list,1,&params,&h);
+        Check(At(NgxLayer::Dlss,h).generation!=At(NgxLayer::Core,&inner_handle).generation,"different list/feature or ambiguous siblings not merged");
+        Check(!g_feature_tracking_uncertain,"unmerged observed lifetimes remain known");
+    }
+    Reset(); create_fails=true; h=&outer_handle; HookCoreCreate(&list,1,&params,&h);
+    Check(!Live() && !g_feature_tracking_uncertain,"failed Create not registered as live");
+    Reset(); null_create=true;HookCoreCreate(&list,1,&params,&h);
+    Check(!Live() && !g_feature_tracking_uncertain,"null Create not registered");
+    Reset();nested_create=true;outer_fails=true;HookCreate(&list,1,&params,&h);
+    Check(Live()==1 && At(NgxLayer::Core,&inner_handle).pending && g_feature_tracking_uncertain,"successful inner lifetime retained after failed outer Create");
+    Reset();nested_create=true;HookCreate(&list,1,&params,&h);HookCoreRelease(&inner_handle);
+    Check(Live()==1 && At(NgxLayer::Dlss,h).retiring,"partial Release keeps remaining alias native-only");
+    HookEvaluate(&list,h,&params,nullptr);Check(plugin_attempts==0,"retiring alias cannot start new NR");
+    Reset(); on_create=[]{g_module_observer_epoch=2;};HookCoreCreate(&list,1,&params,&h);
+    Check(g_feature_tracking_uncertain && At(NgxLayer::Core,h).pending,"Create overlapping observer remains closed");
+
+    Reset(); const auto before_external_history=g_history_generation.load(); HookCoreCreate(&list,18,&params,&h);
+    Check(g_external_nr_handles==1 && OtherNrOwnerActive(),"external Feature18 held after Create");
+    Check(g_history_generation>before_external_history,"external NR invalidates both pre/post private history before future recovery");
+    const auto ext=h; HookCreate(&list,1,&params,&h);
+    HookEvaluate(&list,h,&params,nullptr);
+    Check(plugin_attempts==0 && g_external_nr_handles==1,"idle external owner blocks fresh NR");
+    Check(HookCoreEvaluate(&list,ext,&params,nullptr)==0xCAFE && g_external_nr_evaluations==1,"external Evaluate returns original result");
+    HookCoreRelease(const_cast<NgxHandle*>(ext));
+    Check(!OtherNrOwnerActive() && !g_feature_tracking_uncertain,"explicit external Release clears only proven owner");
+    HookEvaluate(&list,h,&params,nullptr);Check(plugin_attempts==1,"SR admission after complete external Release");
+    Reset();alias_pointer=true;HookCoreCreate(&list,18,&params,&h);HookDlssdCreate(&list,18,&params,&h);
+    Check(g_external_nr_handles==2,"same raw address in independent providers is not merged");
+    HookCoreRelease(h);Check(g_external_nr_handles==1,"one provider Release retains another provider owner");
+    HookDlssdRelease(h);Check(g_external_nr_handles==0,"all observed external owners explicitly released");
+
+    Reset(); {
+        ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
+        ScopedNgxCreate bridge(NgxLayer::PrivateBridge,&list,18,&params);
+        HookCoreCreate(&list,18,&params,&h); bridge.Finish(kNgxSuccess,&outer_handle,&params);
+    }
+    Check(Live()==2 && !OtherNrOwnerActive() && At(NgxLayer::Core,h).owner==NgxOwner::PrivateNr,"explicit private bridge and inner18 are not external owner");
+    { ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,&outer_handle);
+      Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xCAFE,"private Evaluate passthrough"); }
+    { ScopedPrivateNrCall private_call(PrivateNrOperation::Release,&outer_handle);
+      HookCoreRelease(h); ScopedNgxLayer bridge(NgxLayer::PrivateBridge);
+      ForgetObservedFeature(&outer_handle,FindFeature(&outer_handle).generation); }
+    Check(!Live() && !g_feature_tracking_uncertain && retired.empty(),"private retirement callback never acquires chain or reports unknown");
+    Reset(); {
+        ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
+        ScopedNgxCreate bridge(NgxLayer::PrivateBridge,&list,18,&params);
+        HookCoreCreate(&different_list,18,&params,&h);bridge.Finish(kNgxSuccess,&outer_handle,&params);
+    }
+    Check(!g_feature_tracking_uncertain && At(NgxLayer::Core,h).owner==NgxOwner::PrivateNr &&
+          At(NgxLayer::Core,h).generation!=At(NgxLayer::PrivateBridge,&outer_handle).generation,
+          "private API origin is distinct from proof that two layer handles alias");
+    Reset(); {ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,&unknown_handle);HookCoreCreate(&list,18,&params,&h);}
+    Check(g_feature_tracking_uncertain && At(NgxLayer::Core,h).owner==NgxOwner::Uncertain,"unproven private call handle cannot claim ownership");
+
+    Reset(); { ScopedRrOwnershipGate active(true,true,true); HookCoreCreate(&list,18,&params,&h);
+      Check(active.transaction_aborted() && g_feature_tracking_uncertain && g_external_nr_handles==1,"nested external Create aborts private transaction without swallowing native"); }
+    Reset(); std::atomic<bool> entered{false},done{false};
+    std::thread owner([&]{ScopedRrOwnershipGate active(true,true,true);entered=true;while(!done.load())std::this_thread::yield();});
+    while(!entered.load()) std::this_thread::yield();
+    HookCoreCreate(&list,18,&params,&h);done=true;owner.join();
+    Check(g_feature_tracking_uncertain && g_external_nr_handles==1,"concurrent external Create try-gate preserves owner without blocking");
+    Reset();HookCoreCreate(&list,1,&params,&h);const auto released=h;
+    entered=false;done=false;
+    std::thread rendering([&]{ScopedRrOwnershipGate active(true,true,true);EnterCriticalSection(&g_chain_cs);entered=true;while(!done.load())std::this_thread::yield();LeaveCriticalSection(&g_chain_cs);});
+    while(!entered.load())std::this_thread::yield();
+    Check(HookCoreRelease(released)==kNgxSuccess,"native Release returns while other thread owns gate and chain");
+    done=true;rendering.join();
+    Check(g_feature_tracking_uncertain && g_ngx_pending_retirement_count==1,"busy Release queued retirement and aborted active transaction without deadlock");
+    Reset();HookCoreCreate(&list,18,&params,&h);
+    { ScopedRrOwnershipGate active(true,true,true);HookCoreEvaluate(&list,h,&params,nullptr);
+      Check(active.transaction_aborted() && native_evals==1,"nested external Evaluate aborts private transaction and remains native once"); }
+
+    Reset();HookCoreCreate(&list,18,&params,&h);release_result=0xBAD;
+    Check(HookCoreRelease(h)==0xBAD && g_external_nr_handles==1 && g_feature_tracking_uncertain,"failed external Release retains owner and native status");
+    Reset();HookCoreCreate(&list,1,&params,&h);release_result=kNgxFeatureNotFound;
+    Check(HookCoreRelease(h)==kNgxFeatureNotFound && !Live(),"FeatureNotFound retires observed layer");
+    HookCoreCreate(&list,1,&params,&h);const auto gen=At(NgxLayer::Core,h).generation;
+    release_recreates=true;release_result=kNgxSuccess;HookCoreRelease(h);
+    Check(At(NgxLayer::Core,h).generation!=gen && At(NgxLayer::Core,h).handle,"old Release completion cannot erase reused generation");
+
+    Reset();for(int i=0;i<65;++i){static NgxHandle handles[65];ScopedNgxLayer l(NgxLayer::Core);RememberFeature(&handles[i],11,&params);}
+    Check(Live()==64 && g_feature_tracking_uncertain,"registry overflow remains closed");
+    Reset();g_enabled_fast=false;HookCoreEvaluate(&list,&unknown_handle,&params,nullptr);
+    Check(g_feature_tracking_uncertain && native_evals==1,"disabled still records genuine unknown ownership gap");
+    Reset();g_generic_renodx_conflict=true;HookCoreCreate(&list,1,&params,&h);HookCoreEvaluate(&list,h,&params,nullptr);
+    Check(!Live() && native_evals==1 && !g_feature_tracking_uncertain,"generic owner native conflict policy preserved");
+    Reset();g_shortfuse_nr_enabled=true;HookCoreEvaluate(&list,&unknown_handle,&params,nullptr);
+    Check(!g_feature_tracking_uncertain && native_evals==1,"ShortFuse native owner policy preserved");
+    Reset();HookCoreCreate(&list,13,&params,&h);HookCoreEvaluate(&list,h,&params,nullptr);
+    Check(g_live_rr_handles==1 && plugin_attempts==0 && g_rr_passthrough_evaluations>0,"native RR remains correctly classified");
+    DeleteCriticalSection(&g_chain_cs);
+    std::printf("PASS production NGX hooks/registry/gate/F8: %u checks; real Win32 locks, fake native runtime; no GPU/game claim\n",checks);
+}

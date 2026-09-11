@@ -162,8 +162,15 @@ int main() {
     contract.pre_exposure = 1; contract.exposure_scale = 0.5f;
     Check(!Admit(contract, false, true), "HDR R8 rejects non-unity exposure scale");
     contract.exposure_scale = 1; contract.exposure_texture = &typed_object;
-    Check(!Admit(contract, false, true) && !Admit(contract, true, true),
-          "live exposure texture prevents bounded R8 admission");
+    Check(!Admit(contract, false, true), "HDR R8 still rejects a live exposure transform");
+    Check(Admit(contract, true, true), "declared LDR ignores HDR-only exposure texture");
+    Check(contract.exposure_texture == &typed_object,
+          "LDR eligibility does not mutate the native exposure parameter");
+    contract.pre_exposure = 2;
+    Check(!Admit(contract, true, true), "LDR rejects explicit non-unity pre-exposure");
+    contract.pre_exposure = 1; contract.exposure_scale = .5f;
+    Check(!Admit(contract, true, true), "LDR rejects explicit non-unity exposure scale");
+    contract.exposure_scale = 1;
     Reset();
     Check(Admit(ReadColorContract(&params), false, true),
           "explicit raw unity scalars retain HDR R8 admission");

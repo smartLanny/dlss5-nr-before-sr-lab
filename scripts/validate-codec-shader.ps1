@@ -54,7 +54,14 @@ public static class NativeD3DCompiler {
 }
 
 $failed = @()
-foreach ($entryPoint in @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')) {
+$entryPoints = @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')
+if ($sourceText.Contains('void ProbePostStoreCS(')) { $entryPoints += 'ProbePostStoreCS' }
+if ($sourceText.Contains('void BuildEditFieldCS(')) { $entryPoints += 'BuildEditFieldCS' }
+if ($sourceText.Contains('void RestoreEditHorizontalCS(')) { $entryPoints += 'RestoreEditHorizontalCS' }
+if ($sourceText.Contains('void RestoreEditReferenceCS(')) { $entryPoints += 'RestoreEditReferenceCS' }
+if ($sourceText.Contains('void BuildColorEditFieldCS(')) { $entryPoints += 'BuildColorEditFieldCS' }
+if ($sourceText.Contains('void LanczosHorizontalCS(')) { $entryPoints += @('LanczosHorizontalCS','LanczosVerticalCS') }
+foreach ($entryPoint in $entryPoints) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero
     $result = [NativeD3DCompiler]::D3DCompile(

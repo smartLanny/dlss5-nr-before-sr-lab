@@ -28,6 +28,9 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (args.source or root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
 has_guides = "const NrGuideSignature &requested_guides" in source
+# The complete post adapter inserts this execution module together with its
+# post work-raster guide conversion; the shared policy header exists in base too.
+has_post_work_raster = '#include "interop/nr_rr_post_runtime.inl"' in source
 guide_include = '#include "nr_guide_contract.h"' if has_guides else ""
 guide_fields = "NrGuideSignature guide_storage_signature{}; NrGuideHistory guide_history{};" if has_guides else ""
 guide_arg = ", guides" if has_guides else ""
@@ -44,10 +47,11 @@ harness = r'''
 #include <climits>
 #include <cstring>
 GUIDE_INCLUDE
+constexpr bool kPostWorkRaster = POST_WORK_RASTER;
 struct NgxHandle { unsigned id; };
 enum class CodecColorMode : unsigned { Automatic, LinearSdr, ModelEncodedValueDomain };
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
-struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; } g_config;
+struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; } g_config;
 TUNING
 CURRENT_TUNING
 SAME_TUNING
@@ -112,6 +116,7 @@ int main() {
 '''
 replacements = {
     "GUIDE_INCLUDE": guide_include,
+    "POST_WORK_RASTER": "true" if has_post_work_raster else "false",
     "JITTER_TYPES": jitter_types,
     "GUIDE_FIELDS": guide_fields,
     "GUIDE_DECL": "NrGuideSignature guides{};" if has_guides else "",
@@ -236,7 +241,21 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     check(ResolveNrGuideBinding(&params,feature,1,3840,2160,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"post-SR full-resolution motion resolves");
     check(!resolved.signature.resample_motion && resolved.signature.motion_bound_width==3840 && !(resolved.signature.normalized_create_flags&2),"post-SR full-res MV contract keeps original binding");
     feature.create_flags=2; motion.desc={1920,1080,34}; resolved={};
-    check(ResolveNrGuideBinding(&params,feature,1,3840,2160,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved) && (resolved.signature.normalized_create_flags&2),"post-SR low-res MV relationship is computed before creation");
+    check(ResolveNrGuideBinding(&params,feature,1,3840,2160,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"post-SR low-res motion resolves before creation");
+    if constexpr (kPostWorkRaster) {
+        check(resolved.signature.resample_motion && resolved.signature.motion_source_width==1920 &&
+              resolved.signature.motion_source_height==1080 && resolved.signature.motion_bound_width==3840 &&
+              resolved.signature.motion_bound_height==2160 && !(resolved.signature.normalized_create_flags&2),
+              "staged post work raster binds resampled full-size motion and clears MVLowRes");
+        check(resolved.signature.motion_scale_x==-4 && resolved.signature.motion_scale_y==8,
+              "staged post displacement converts from render pixels to work pixels");
+    } else {
+        check(!resolved.signature.resample_motion && resolved.signature.motion_bound_width==1920 &&
+              resolved.signature.motion_bound_height==1080 && (resolved.signature.normalized_create_flags&2),
+              "base post path retains the original low-res MV relationship before creation");
+        check(resolved.signature.motion_scale_x==-2 && resolved.signature.motion_scale_y==4,
+              "base post path retains original displacement units");
+    }
     params.scale_x=0; params.scale_y=NAN; params.has_jitter_x=false; params.has_jitter_y=false; resolved={};
     feature.create_flags=3;
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::ModelEncodedValueDomain,resolved),"bounded-R8 guide contract resolves");

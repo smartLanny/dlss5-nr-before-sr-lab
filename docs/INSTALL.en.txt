@@ -1,10 +1,12 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.3 Community Beta
+beta0.5-dev4 experimental candidate, not a Release. Back up the old version. See docs/BETA_0_5_DEVELOPMENT.md and the PR for validation limits.
+
+DLSS 5 AI Rendering Perfect Chain beta0.5-dev4 Community Beta
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
 First installation
 
-New installations start with final effect strength 1.2, colour follow 0.75, and the model HUD/text-protection parameter enabled. The slider is the actual request with no hidden multiplier. Explicit existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
+New installations start with one NR pass, final effect strength 1.0, pre-SR NR work at 100% (N=R), colour follow 1.0, and the model HUD/text-protection parameter enabled. The sliders are the actual requests with no hidden multiplier. Explicit valid existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
 
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 
@@ -21,7 +23,7 @@ Collect-Crash-Feedback.cmd
 collect-crash-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.4.3 in the ReShade addon panel.
+Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.5-dev4 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 

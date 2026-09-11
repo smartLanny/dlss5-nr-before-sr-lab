@@ -18,9 +18,12 @@ def replace_definition(text, signature, fn):
     return edit(text,signature,fn)
 
 def patch_core(text: str) -> str:
-    text=once(text,'#include "MinHook.h"','#include "MinHook.h"\n#include "interop/nr_post_compat.h"')
-    text=once(text,'struct NrApi {','#include "interop/nr_post_settings.inl"\n\nstruct NrApi {')
-    text=once(text,'    PollNgxLifecycleModules(false);','    PollNgxLifecycleModules(false);\n    nr_post_settings::Poll();')
+    if '#include "interop/nr_post_compat.h"' not in text:
+        text=once(text,'#include "MinHook.h"','#include "MinHook.h"\n#include "interop/nr_post_compat.h"')
+    if '#include "interop/nr_post_settings.inl"' not in text:
+        text=once(text,'struct NrApi {','#include "interop/nr_post_settings.inl"\n\nstruct NrApi {')
+    if '    nr_post_settings::Poll();' not in text:
+        text=once(text,'    PollNgxLifecycleModules(false);','    PollNgxLifecycleModules(false);\n    nr_post_settings::Poll();')
     text=once(text,'#include "nr_settings_ui.inl"','#include "interop/nr_post_ui.inl"\n#include "nr_settings_ui.inl"')
     # DLSSD depth interpretation is declared at Create, not inferred from R32.
     text=edit(text,'struct FeatureRecord {',lambda s:once(s,'    int create_flags = 0;',
@@ -131,12 +134,12 @@ def patch_core(text: str) -> str:
         '    unsigned int height = 0;\n    unsigned int work_width = 0, work_height = 0;'))
 
     def prepare(s):
-        s=once(s,'!g_config.enabled || g_config.mode != 1 || feature.feature_id != 1 ||',
-            '!g_config.enabled || !nr_post_compat::IsPost(feature.feature_id, g_config.mode, nr_post_settings::Read().rr) ||')
+        s=once(s,'!((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1)',
+            '!(nr_post_compat::IsPost(feature.feature_id, g_config.mode, nr_post_settings::Read().rr) || (compatibility_fallback && g_config.mode == 2 && feature.feature_id == 1))')
         s=once(s,'    ID3D12Resource *output = nullptr;',
-            '    if (feature.feature_id == 13 && feature.rr_depth_type != 1) {\n'
+            '    if (feature.feature_id == 13 && feature.rr_depth_type != 1 && feature.rr_depth_type != 0) {\n'
             '        static unsigned depth_declines = 0;\n'
-            '        if (++depth_declines <= 3) Log("RR post depth type=%d needs an explicit linear/projection adapter; native RR retained. F8 TXT for BUG feedback.", feature.rr_depth_type);\n'
+            '        if (++depth_declines <= 3) Log("RR post depth type=%d has an unknown depth declaration; native RR retained. F8 TXT for BUG feedback.", feature.rr_depth_type);\n'
             '        SetBypassReason(BypassReason::RayReconstructionGuard);\n'
             '        return substitution;\n'
             '    }\n'
@@ -169,6 +172,8 @@ def patch_core(text: str) -> str:
         ReleaseCom(device); return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);''')
+        if s.count('guides.signature.resample_motion ? guides.motion : nullptr') != 1:
+            raise ValueError('post slot selector must receive the required Motion binding')
         s=once(s,'    substitution.height = height;',
             '    substitution.height = height;\n    substitution.work_width = work_width;\n    substitution.work_height = work_height;')
         return s
@@ -240,7 +245,7 @@ def patch_core(text: str) -> str:
     text=edit(text,'void WriteCombined(',capture)
 
     text=once(text,'NgxResult ProcessEvaluate(',
-        '#include "interop/nr_rr_post_runtime.inl"\n\nNgxResult ProcessEvaluate(')
+        '#include "interop/nr_rr_depth_evidence.inl"\n#include "interop/nr_rr_post_runtime.inl"\n\nNgxResult ProcessEvaluate(')
     def process(s):
         # Replace only the exact old RR branch; all Feature1/RR exclusion and
         # resource/queue checks below it remain unchanged.
@@ -260,12 +265,10 @@ def patch_core(text: str) -> str:
 def patch_diagnostics(text: str) -> str:
     # The original panel treats any historical RR handle as permanent bypass.
     # Only an actual guard reason means that in the post-compatible runtime.
-    text=once(text,'    } else if (rr_protected ||\n               bypass_reason == BypassReason::RayReconstructionGuard) {',
-        '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     text=once(text,'    } else if (rr_protected) {',
         '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     start=text.index('        ImGui::Text(ui("Perfect chain:')
-    end=text.index('\n    if (generic_renodx_conflict) {',start)
+    end=text.index('\n    if (ImGui::CollapsingHeader(ui("Per-evaluation details"',start)
     text=text[:start]+'''        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
                        "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
                     width, height, nr_render_width, nr_render_height,
@@ -305,12 +308,32 @@ def patch_diagnostics(text: str) -> str:
     return text
 
 def patch_ui(text: str) -> str:
+    # The refreshed base UI already owns the effective-route slider and RR
+    # protection presentation. Keep generation idempotent instead of layering
+    # the historical post placeholder transform over those controls.
+    refreshed = '    const bool rr_guarded = IsRayReconstructionRouteObserved();'
+    if refreshed in text:
+        for required in (
+                '"##nr-processing-precision", &precision, 50.0f, 100.0f',
+                'DrawSimpleFeedbackControls();',
+                'nr_f8::TakeSettingsFeedbackPageRequest()',
+                '"Feedback and diagnostics###nr-feedback-diagnostics"',
+                '"Developer options", "开发者选项"'):
+            if text.count(required) != 1:
+                raise PatchError(f'refreshed UI contract missing or duplicated: {required}')
+        for removed in ('"Experimental###nr-experimental"',
+                        '"Diagnostics###nr-diagnostics"',
+                        'NR_HAS_F8_SEQUENCE'):
+            if removed in text:
+                raise PatchError(f'refreshed UI retains removed tab: {removed}')
+        return text
+
     # Preserve #134's actual main-panel model controls and front precision
     # logic. Replace only its unimplemented post placeholder, in place.
     text=once(text,'    const bool before_sr = next.mode == 2;',
         '    const bool before_sr = next.mode == 2;\n'
         '    const bool effective_post = !before_sr ||\n'
-        '        (g_live_rr_handles.load(std::memory_order_acquire)!=0 && nr_post_settings::Read().rr);\n'
+        '        ShouldGuardFeature1ForRayReconstruction();\n'
         '    if (effective_post) {\n'
         '        DrawPostResolutionControl();\n'
         '    } else {')
@@ -331,8 +354,11 @@ def patch_ui(text: str) -> str:
 def patch_descriptors(text: str) -> str:
     # Main/snapshot/F7 descriptor rebuilds must retain the same typed view as
     # the first dispatch; physical TYPELESS is never a legal texture SRV.
-    text=once(text,'srv(0,slot.source,slot.source_format);',
-        'srv(0,slot.source,slot.source_srv_format);')
+    if 'srv(0,slot.source,slot.source_format);' in text:
+        text=once(text,'srv(0,slot.source,slot.source_format);',
+            'srv(0,slot.source,slot.source_srv_format);')
+    elif text.count('srv(0,slot.source,slot.source_srv_format);') != 1:
+        raise ValueError('Missing unique resolved source SRV writer')
     return once(text,
         'slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT',
         'slot.motion_source?NrMotionReadFormat(ID3D12Resource_GetDesc(slot.motion_source).Format):DXGI_FORMAT_R16G16_FLOAT')

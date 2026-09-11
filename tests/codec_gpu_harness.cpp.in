@@ -20,6 +20,7 @@
 
 // @PRODUCTION_DESCRIPTOR_CONSTANTS@
 // @PRODUCTION_SHADER@
+// @MAINTENANCE_SHADER@
 // @PRODUCTION_CONSTANTS@
 
 void Require(bool value, const char *message) {
@@ -52,7 +53,7 @@ struct Float4 { float x, y, z, w; };
 static_assert(sizeof(Float4) == 16);
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * 4);
 static_assert(kCodecCaptureUavIndex == kCodecSrvCount + 4);
-static_assert(kCodecDescriptorCount == kCodecCaptureUavIndex + 1);
+static_assert(kCodecDescriptorCount == kCodecLanczosUavIndex + 1);
 
 struct Texture {
     Com<ID3D12Resource> resource;
@@ -73,12 +74,17 @@ struct Gpu {
     Com<ID3D12RootSignature> root;
     Com<ID3D12PipelineState> pipeline;
     Com<ID3D12PipelineState> v2_pipeline;
+    Com<ID3D12PipelineState> edit_pipeline;
+    Com<ID3D12PipelineState> restore_pipeline, restore_reference_pipeline;
+    Com<ID3D12PipelineState> color_edit_pipeline;
+    const char *shader_text = nullptr;
     Com<ID3D12DescriptorHeap> heap;
     UINT increment = 0;
     UINT64 submitted = 0;
     HANDLE completion = nullptr;
 
-    Gpu() {
+    Gpu(const char *shader_source = kCodecShader) {
+        shader_text = shader_source;
         Com<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
             debug->EnableDebugLayer();
@@ -92,6 +98,12 @@ struct Gpu {
         if (SUCCEEDED(result)) {
             std::puts("GPU codec validation adapter: D3D12 WARP");
         } else {
+            char warp_only[2]{};
+            const bool require_warp = GetEnvironmentVariableA(
+                "NR_VALIDATION_WARP_ONLY", warp_only, sizeof(warp_only)) == 1 &&
+                warp_only[0] == '1';
+            Require(!require_warp,
+                    "WARP-only validation requested but WARP creation failed; hardware fallback disabled");
             for (UINT index = 0; device.p == nullptr; ++index) {
                 Com<IDXGIAdapter1> adapter;
                 if (factory->EnumAdapters1(index, &adapter.p) == DXGI_ERROR_NOT_FOUND)
@@ -130,7 +142,7 @@ struct Gpu {
         increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
 
         Com<ID3DBlob> shader, errors;
-        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+        result = D3DCompile(shader_source, std::strlen(shader_source),
             "production-codec", nullptr, nullptr, "CombineCS", "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader.p, &errors.p);
         if (FAILED(result) && errors.p != nullptr)
@@ -178,7 +190,7 @@ struct Gpu {
               IID_ID3D12PipelineState, pipeline.address()), "Create compute pipeline");
 
         Com<ID3DBlob> v2_shader, v2_errors;
-        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+        result = D3DCompile(shader_source, std::strlen(shader_source),
             "production-codec-v2", nullptr, nullptr, "CombineV2CS", "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &v2_shader.p, &v2_errors.p);
         if (FAILED(result) && v2_errors.p != nullptr)
@@ -270,9 +282,46 @@ struct Gpu {
         Barrier(texture.resource.p, texture.state, state);
         texture.state = state;
     }
-    void Srv(UINT index, ID3D12Resource *resource) {
+    Texture EmptyEditField(UINT width, UINT height, DXGI_FORMAT format=DXGI_FORMAT_R32G32_FLOAT) {
+        Texture texture; texture.width=width; texture.height=height;
+        D3D12_HEAP_PROPERTIES props{}; props.Type=D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC desc{}; desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+        desc.Format=format; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        Check(device->CreateCommittedResource(&props,D3D12_HEAP_FLAG_NONE,&desc,texture.state,nullptr,
+            IID_ID3D12Resource,texture.resource.address()),"Create real edit field");
+        UINT64 bytes=0; device->GetCopyableFootprints(&desc,0,1,0,&texture.footprint,nullptr,nullptr,&bytes);
+        texture.readback=Buffer(bytes,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_FLAG_NONE,D3D12_RESOURCE_STATE_COPY_DEST);
+        return texture;
+    }
+    void EnsureEditPipeline(bool color) {
+        Com<ID3D12PipelineState> &pipeline=color?color_edit_pipeline:edit_pipeline;
+        if(pipeline.p) return;
+        Com<ID3DBlob> code,errors;
+        const HRESULT hr=D3DCompile(shader_text,std::strlen(shader_text),"production-edit-field",nullptr,nullptr,
+            color?"BuildColorEditFieldCS":"BuildEditFieldCS","cs_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code.p,&errors.p);
+        if(FAILED(hr)&&errors.p) std::fprintf(stderr,"%s\n",static_cast<const char*>(errors->GetBufferPointer()));
+        Check(hr,"Compile actual edit-field builder");
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=root.p;
+        desc.CS={code->GetBufferPointer(),code->GetBufferSize()};
+        Check(device->CreateComputePipelineState(&desc,IID_ID3D12PipelineState,pipeline.address()),"Create edit pipeline");
+    }
+    void EnsureRestorePipeline(bool reference=false) {
+        auto &pipeline=reference?restore_reference_pipeline:restore_pipeline;
+        if(pipeline.p) return;
+        Com<ID3DBlob> code,errors;
+        const HRESULT hr=D3DCompile(shader_text,std::strlen(shader_text),"production-edit-restore",nullptr,nullptr,
+            reference?"RestoreEditReferenceCS":"RestoreEditHorizontalCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code.p,&errors.p);
+        if(FAILED(hr)&&errors.p) std::fprintf(stderr,"%s\n",static_cast<const char*>(errors->GetBufferPointer()));
+        Check(hr,"Compile edit restoration");
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=root.p;
+        desc.CS={code->GetBufferPointer(),code->GetBufferSize()};
+        Check(device->CreateComputePipelineState(&desc,IID_ID3D12PipelineState,pipeline.address()),"Create restore pipeline");
+    }
+    void Srv(UINT index, ID3D12Resource *resource, DXGI_FORMAT format=DXGI_FORMAT_R32G32B32A32_FLOAT) {
         D3D12_SHADER_RESOURCE_VIEW_DESC view{};
-        view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        view.Format = format;
         view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         view.Texture2D.MipLevels = 1;
@@ -346,7 +395,10 @@ struct Gpu {
 // @PRODUCTION_DESCRIPTOR_TESTS@
 
 struct RunResult {
+    std::vector<float> edit_field;
+    std::vector<std::uint16_t> horizontal_half;
     std::vector<Float4> output;
+    std::vector<Float4> original, proxy, neural;
     std::vector<std::uint32_t> capture;
 };
 
@@ -363,7 +415,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false, float requested_color = -1.f) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -393,6 +445,55 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
             const auto &p = proxy[y*model_width+x];
             neural[y*model_width+x] = {p.x*gain,p.y*gain,p.z*gain,1.0f};
         }
+    }
+    if (variant == 8) {
+        for (UINT y = 0; y < model_height; ++y)
+            for (UINT x = 0; x < model_width; ++x) {
+                proxy[y * model_width + x] = {0.5f, 0.5f, 0.5f, 1.0f};
+                const float gain = x >= 7 && x <= 8 && y >= 7 && y <= 8
+                    ? 0.9f : 0.5f;
+                neural[y * model_width + x] = {
+                    0.5f * gain, 0.5f * gain, 0.5f * gain, 1.0f};
+            }
+    }
+    if (variant == 12) {
+        std::fill(original.begin(), original.end(), Float4{0.60f, 0.55f, 0.50f, 0.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{0.60f, 0.55f, 0.50f, 0.75f});
+        std::fill(neural.begin(), neural.end(), Float4{0.84f, 0.77f, 0.70f, 0.875f});
+    }
+    if (variant == 13)
+        std::fill(original.begin(), original.end(), Float4{8.0f, 4.0f, 2.0f, 0.625f});
+    if (variant == 14) {
+        std::fill(original.begin(), original.end(), Float4{0.22f, 0.32f, 0.14f, 0.625f});
+        std::fill(neural.begin(), neural.end(), Float4{0.45f, 0.40f, 0.25f, 0.875f});
+    }
+    if (variant == 15) {
+        std::fill(original.begin(), original.end(), Float4{.60f,.55f,.50f,.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{.60f,.55f,.50f,.75f});
+        std::fill(neural.begin(), neural.end(), Float4{.42f,.385f,.35f,.875f});
+    }
+    if (variant == 16) {
+        std::fill(original.begin(),original.end(),Float4{.00008f,.00008f,.00008f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{.0003f,.0003f,.0003f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{.00045f,.00045f,.00045f,.875f});
+    }
+    if (variant >= 20 && variant <= 24) {
+        for(UINT y=0;y<model_height;++y) for(UINT x=0;x<model_width;++x) {
+            const float edit=variant==20?.25f:variant==21?float(x)/model_width-.5f:
+                variant==22?(x==model_width/2 && y==model_height/2?1.f:0.f):
+                variant==23?(x>=model_width/2?.5f:-.5f):((x+y)&1u?.5f:-.5f);
+            proxy[y*model_width+x]={.2f,.2f,.2f,.75f};
+            const float n=.2f*std::exp2(edit);neural[y*model_width+x]={n,n,n,.875f};
+        }
+    }
+    if (variant == 17) {
+        std::fill(proxy.begin(),proxy.end(),Float4{1e-8f,2e-8f,1e-8f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{2e-8f,1e-8f,3e-8f,.875f});
+    }
+    if (variant == 18) {
+        std::fill(original.begin(),original.end(),Float4{8.f,4.f,2.f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{1000.f,20.f,2.f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{2.f,20.f,1000.f,.875f});
     }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
@@ -429,6 +530,23 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(2, neural_texture.resource.p);
     gpu.Srv(3, nullptr);
     gpu.Srv(kCodecExposureSrvIndex, (flags & 64u) ? exposure_texture.resource.p : nullptr);
+    Texture edit_texture;
+    const bool use_edit_field=(flags & 8192u)!=0u;
+    const bool color_edit_field=(flags & 32768u)!=0u;
+    const bool catmull=(flags&16384u)!=0u, nonfused=(flags&131072u)!=0u;
+    Require(!color_edit_field || use_edit_field,"Colour field requires its luma/valid field bit");
+    Require(!color_edit_field || !catmull,"Colour field and colour-zero Catmull are separate candidates");
+    const DXGI_FORMAT edit_format=color_edit_field
+        ?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+    if(use_edit_field) edit_texture=gpu.EmptyEditField(model_width,model_height,edit_format);
+    gpu.Srv(kCodecEditFieldSrvIndex,edit_texture.resource.p,edit_format);
+    gpu.UavTexture(kCodecEditFieldUavIndex,edit_texture.resource.p,edit_format);
+    Texture horizontal, reference_field;
+    if(catmull) horizontal=gpu.EmptyEditField(width,model_height,DXGI_FORMAT_R16G16_FLOAT);
+    gpu.Srv(kCodecEditRestoreSrvIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
+    gpu.UavTexture(kCodecEditRestoreUavIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
+    gpu.Srv(kCodecLanczosSrvIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    gpu.UavTexture(kCodecLanczosUavIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
                    DXGI_FORMAT_R32G32B32A32_FLOAT);
@@ -437,27 +555,101 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.UavBuffer(kCodecCaptureUavIndex, stride == 0 ? nullptr : capture.p, stage_bytes);
     const float transfer_strength = requested_strength >= 0.f ? requested_strength : variant == 2 ? 0.0f
         : (variant == 5 ? 8.0f : 0.8f);
-    const float color_strength = variant == 5 ? 2.0f : 0.25f;
+    const float color_strength = requested_color >= 0.f ? requested_color : variant == 5 ? 2.0f : 0.25f;
     const float max_luma_ratio = variant == 5 ? 16.0f : 2.0f;
     const float frame_confidence = variant == 4 ? 0.0f : 1.0f;
-    const CodecConstants constants = {width, height, 1.0f,
+    CodecConstants constants = {width, height, 1.0f,
         transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
         sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
         width, height, model_width, model_height,
         0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
+    constants.layer_tone = layers.x; constants.layer_structure = layers.y;
+    constants.layer_bright = layers.z; constants.layer_shadow = layers.w;
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
     gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
     gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &constants, 0);
+    if(use_edit_field) {
+        Require(v2 && (color_edit_field || color_strength==0.f),
+                "Luma EditField fixture requires pre-SR and colour zero");
+        gpu.EnsureEditPipeline(color_edit_field);
+        gpu.TextureState(edit_texture,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        gpu.list->SetPipelineState(color_edit_field
+            ?gpu.color_edit_pipeline.p:gpu.edit_pipeline.p);
+        gpu.list->Dispatch((model_width+7)/8,(model_height+7)/8,1);
+        D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.UAV.pResource=edit_texture.resource.p;gpu.list->ResourceBarrier(1,&barrier);
+        gpu.TextureState(edit_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        if(catmull) {
+            gpu.EnsureRestorePipeline();
+            gpu.TextureState(horizontal,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            gpu.list->SetPipelineState(gpu.restore_pipeline.p);
+            gpu.list->Dispatch((width+7)/8,(model_height+7)/8,1);
+            barrier.UAV.pResource=horizontal.resource.p;gpu.list->ResourceBarrier(1,&barrier);
+            gpu.TextureState(horizontal,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            if(nonfused) {
+                // Fence completion before rewriting a descriptor used by the preceding list.
+                gpu.Execute();
+                reference_field=gpu.EmptyEditField(width,height);
+                gpu.UavTexture(kCodecEditRestoreUavIndex,reference_field.resource.p,DXGI_FORMAT_R32G32_FLOAT);
+                gpu.TextureState(reference_field,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                gpu.EnsureRestorePipeline(true);
+                gpu.list->SetDescriptorHeaps(1,heaps);gpu.list->SetComputeRootSignature(gpu.root.p);
+                gpu.list->SetComputeRootDescriptorTable(0,gpu.heap->GetGPUDescriptorHandleForHeapStart());
+                constants.passthrough=flags&~131072u;
+                gpu.list->SetComputeRoot32BitConstants(1,kCodecRootConstantCount,&constants,0);
+                gpu.list->SetPipelineState(gpu.restore_reference_pipeline.p);
+                gpu.list->Dispatch((width+7)/8,(height+7)/8,1);
+                barrier.UAV.pResource=reference_field.resource.p;gpu.list->ResourceBarrier(1,&barrier);
+                gpu.TextureState(reference_field,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                gpu.Execute();
+                gpu.Srv(kCodecEditRestoreSrvIndex,reference_field.resource.p,DXGI_FORMAT_R32G32_FLOAT);
+                gpu.UavTexture(kCodecEditRestoreUavIndex,nullptr,DXGI_FORMAT_R16G16_FLOAT);
+                gpu.list->SetDescriptorHeaps(1,heaps);gpu.list->SetComputeRootSignature(gpu.root.p);
+                gpu.list->SetComputeRootDescriptorTable(0,gpu.heap->GetGPUDescriptorHandleForHeapStart());
+                constants.passthrough=flags;
+                gpu.list->SetComputeRoot32BitConstants(1,kCodecRootConstantCount,&constants,0);
+            }
+        }
+    }
     gpu.list->SetPipelineState(v2 ? gpu.v2_pipeline.p : gpu.pipeline.p);
     gpu.list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
     gpu.Barrier(capture.p, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_COPY_SOURCE);
     gpu.list->CopyBufferRegion(capture_readback.p, 0, capture.p, 0, allocation_bytes);
     gpu.ReadTexture(output_texture);
+    if(use_edit_field) gpu.ReadTexture(edit_texture);
+    if(catmull) gpu.ReadTexture(horizontal);
+    if (read_model_planes) {
+        gpu.ReadTexture(source_texture);
+        gpu.ReadTexture(proxy_texture);
+        gpu.ReadTexture(neural_texture);
+    }
     gpu.Execute();
     RunResult result;
+    if(catmull) {
+        void *read=nullptr;Check(horizontal.readback->Map(0,nullptr,&read),"Map actual FP16 horizontal field");
+        result.horizontal_half.resize(width*model_height*2);
+        for(UINT y=0;y<model_height;++y) std::memcpy(result.horizontal_half.data()+y*width*2,
+            static_cast<const std::uint8_t*>(read)+horizontal.footprint.Offset+y*horizontal.footprint.Footprint.RowPitch,
+            width*2*sizeof(std::uint16_t));
+        horizontal.readback->Unmap(0,nullptr);
+    }
+    if(use_edit_field) {
+        void *read=nullptr;Check(edit_texture.readback->Map(0,nullptr,&read),"Map actual edit field");
+        const UINT components=color_edit_field?4u:2u;
+        result.edit_field.resize(model_width*model_height*components);
+        for(UINT y=0;y<model_height;++y) std::memcpy(result.edit_field.data()+y*model_width*components,
+            static_cast<const std::uint8_t*>(read)+edit_texture.footprint.Offset+y*edit_texture.footprint.Footprint.RowPitch,
+            model_width*components*sizeof(float));
+        edit_texture.readback->Unmap(0,nullptr);
+    }
+    if (read_model_planes) {
+        result.original = gpu.TexturePixels(source_texture);
+        result.proxy = gpu.TexturePixels(proxy_texture);
+        result.neural = gpu.TexturePixels(neural_texture);
+    }
     result.output = gpu.TexturePixels(output_texture);
     Check(capture_readback->Map(0, nullptr, &mapped), "Map capture values");
     result.capture.resize(allocation_bytes / 4);
@@ -521,6 +713,29 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                         ? source_y * model_width + source_x : 0;
                 Float4 expected_proxy = proxy[model_index];
         Float4 expected_neural = neural[model_index];
+        const bool patterned_scaled = v2 && variant == 6 &&
+            (model_width != width || model_height != height);
+        if (patterned_scaled) {
+            Require((flags & 1u) != 0u,
+                "Patterned capture oracle currently requires the explicit model-value domain");
+            const double mx = (static_cast<double>(source_x)+0.5)*model_width/width-0.5;
+            const double my = (static_cast<double>(source_y)+0.5)*model_height/height-0.5;
+            const int ix = static_cast<int>(std::floor(mx));
+            const int iy = static_cast<int>(std::floor(my));
+            const double fx = mx-ix, fy = my-iy;
+            const auto sample = [&](const std::vector<Float4> &pixels) {
+                double r=0.0,g=0.0,b=0.0;
+                for (int oy=0;oy<2;++oy) for (int ox=0;ox<2;++ox) {
+                    const int x0=std::clamp(ix+ox,0,static_cast<int>(model_width)-1);
+                    const int y0=std::clamp(iy+oy,0,static_cast<int>(model_height)-1);
+                    const double weight=(ox?fx:1.0-fx)*(oy?fy:1.0-fy);
+                    const auto &p=pixels[static_cast<UINT>(y0)*model_width+static_cast<UINT>(x0)];
+                    r+=weight*p.x;g+=weight*p.y;b+=weight*p.z;
+                }
+                return Float4{static_cast<float>(r),static_cast<float>(g),static_cast<float>(b),1.0f};
+            };
+            expected_proxy=sample(proxy);expected_neural=sample(neural);
+        }
         // V2 model planes are deliberately opaque. Original and
         // composited planes still preserve the game's alpha.
         if (v2) {
@@ -534,7 +749,15 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                     &result.output[(source_y + dy) * output_width + source_x + dx]};
                 for (UINT stage = 0; stage < 4; ++stage) {
                     const auto *words = result.capture.data() + stage * plane_words + (y*capture_width+x)*4;
-                    if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
+                    if (patterned_scaled && (stage == 1 || stage == 2)) {
+                        Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
+                        // Double analytic interpolation versus SM5 float coordinates/FMA.
+                        // Only these two reconstructed model planes need this tolerance.
+                        Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
+                                std::abs(actual.y-expected[stage]->y)<0.000002f &&
+                                std::abs(actual.z-expected[stage]->z)<0.000002f && actual.w==1.0f,
+                                "Patterned scaled model capture differs from independent bilinear oracle");
+                    } else if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
                         // V2 interpolates in linear space then encodes again; source/output remain exact.
                         Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
                         Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
@@ -552,12 +775,22 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     return result;
 }
 
-int main() {
+// @V3_BOOST_TESTS@
+// @LAYER_TESTS@
+// @COMPOSITION_CONTRACT_TESTS@
+
+int main(int argc, char **argv) {
     try {
         Gpu gpu;
+        // @COMPOSITION_CONTRACT_ENTRY@
+// @MAINTENANCE_COMPARISON@
+        const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
+        const bool layer_negative = argc == 2 && std::strcmp(argv[1], "--layer-negative-control") == 0;
+        Require(argc == 1 || negative_control || layer_negative, "Unknown codec harness argument");
         ValidateProductionDescriptors(gpu);
         ValidateMotionResampleFormats(gpu);
-        unsigned int scenarios = 0;
+        unsigned int scenarios = ValidateHighStrengthV3(gpu, negative_control);
+        scenarios += ValidateLayeredComposition(gpu, layer_negative);
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
                 const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);
@@ -673,6 +906,23 @@ int main() {
             Require(std::abs(uniform_off.output[i].x-uniform_on.output[i].x)<0.00001f,
                     "Detail stability changed a uniform model edit");
         scenarios += 2;
+        // At 50% model resolution, a mildly dark bilinear centre surrounded
+        // by a stronger residual must not be darkened further by the spatial
+        // stabilizer. This exercises the production shader on WARP.
+        const auto scaled_detail_off = Run(
+            gpu, 32, 32, 0, 1, 1u, 8, true, 16, 16, {}, 0.0f, {}, 1.0f);
+        const auto scaled_detail_on = Run(
+            gpu, 32, 32, 0, 1, 1u, 8, true, 16, 16, {}, 1.0f, {}, 1.0f);
+        constexpr UINT scaled_output_width = 32 + 2 + 2;
+        const Float4 &scaled_off = scaled_detail_off.output[
+            (16 + 1) * scaled_output_width + (15 + 2)];
+        const Float4 &scaled_on = scaled_detail_on.output[
+            (16 + 1) * scaled_output_width + (15 + 2)];
+        Require(scaled_on.x >= scaled_off.x - 0.0001f &&
+                    scaled_on.y >= scaled_off.y - 0.0001f &&
+                    scaled_on.z >= scaled_off.z - 0.0001f,
+                "Detail stability amplified a 50%-grid dark centre residual");
+        ++scenarios;
         // Exercise the production CombineCS path numerically. The neural
         // fixture has a positive residual, so increasing the transfer scalar
         // must increase the composed luminance; 1.2 must remain distinct from

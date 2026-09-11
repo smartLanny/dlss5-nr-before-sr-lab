@@ -1,3 +1,35 @@
+# DLSS5 0.4.7beta
+
+当前候选按维护者要求由已过测的beta0.5-dev16改名为 **0.4.7beta**。
+本次只统一版本标识、文件名与包说明，画质算法、双路线菜单和默认设置保持一致。
+当前来源与验证见 [交接入口](docs/interop/CURRENT_STATUS.md)，
+使用说明见 [0.4.7beta测试包](docs/testing/CORE_047BETA_ACCEPTANCE.zh-CN.md)。
+
+以下保留历史开发记录，其旧版本名称对应当时的提交和测试包。
+
+---
+
+# beta0.5-dev4 experimental layered composition
+
+单次 NR 分层强化与最终强度 0–4；并非 PR26 的多次模型推理。默认分层关闭，游戏与性能仍待验证。
+
+开发、回退、真实范围：[BETA_0_5_LAYERS.md](docs/BETA_0_5_LAYERS.md)。
+
+---
+
+以下是历史 dev1 / 0.4 基线说明，不代表当前候选的新功能：
+
+# beta0.5-dev1 experimental development branch
+
+当前分支是基于完整 **beta0.4.3r3** 的 **0.5 开发候选**，不是新的正式 Release。
+首批加入可关闭的高强度保护；低分辨率 EditField / Lanczos2 / Catmull 尚在后续分阶段任务中。
+开发、验证、回退和持续合入 0.4.4 的规则：[BETA_0_5_DEVELOPMENT.md](docs/BETA_0_5_DEVELOPMENT.md)。
+当前验证状态请查看该提交的 Actions，不将 WARP 通过等同于游戏实测。
+
+---
+
+## 继承的 0.4 稳定线说明（历史基线，版本链接不代表本候选）
+
 # DLSS5 NR-Before-SR Lab
 
 当前版本 **[0.4.5-DX11-兼容增强](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-dx11-compat)**：中文精简OTA及配套安装器。唯一持续Addon开发分支为 `main`，fix2/兼容增强/反馈稳定性修复已整合，33个已合入临时远端分支已清理。历史dev3 Release保持原样。本地和云端都从 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
@@ -20,7 +52,7 @@ Exact binary source is identified by the package source-manifest.json, not the l
 
 This is a research project, not an NVIDIA product or an official joint DLSS NR/SR implementation. NVIDIA, DLSS and GeForce are trademarks of their respective owners.
 
-Project author: **@野生的装机宅 Bilibili**, official channel https://space.bilibili.com/941799. Author identity remains embedded in the binaries and UI. See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for restrictions on unauthorized automated builds, rebranding and redistribution.
+Project author: **@野生的装机宅 Bilibili**, official channel https://space.bilibili.com/941799. User discussion QQ group 2: **392308850**. Author identity remains embedded in the binaries and UI. See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for restrictions on unauthorized automated builds, rebranding and redistribution.
 
 ## Repository boundary
 

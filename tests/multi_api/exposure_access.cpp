@@ -7,7 +7,7 @@
 #include <initializer_list>
 using HRESULT = std::int32_t;
 constexpr HRESULT E_INVALIDARG = static_cast<HRESULT>(0x80070057u);
-constexpr HRESULT E_FAIL = static_cast<HRESULT>(0x80004005u);
+[[maybe_unused]] constexpr HRESULT E_FAIL = static_cast<HRESULT>(0x80004005u);
 #define SUCCEEDED(x) ((x) >= 0)
 enum DXGI_FORMAT {
     DXGI_FORMAT_UNKNOWN=0, DXGI_FORMAT_R32G32B32A32_TYPELESS=1,
@@ -16,7 +16,9 @@ enum DXGI_FORMAT {
     DXGI_FORMAT_R16G16B16A16_FLOAT=10, DXGI_FORMAT_R32G32_TYPELESS=15,
     DXGI_FORMAT_R32G32_FLOAT=16, DXGI_FORMAT_R16G16_TYPELESS=33,
     DXGI_FORMAT_R16G16_FLOAT=34, DXGI_FORMAT_R32_TYPELESS=39,
-    DXGI_FORMAT_R32_FLOAT=41, DXGI_FORMAT_R16_TYPELESS=53, DXGI_FORMAT_R16_FLOAT=54, DXGI_FORMAT_FORCE_UINT=0xffffffffu
+    DXGI_FORMAT_R32_FLOAT=41, DXGI_FORMAT_R16_TYPELESS=53, DXGI_FORMAT_R16_FLOAT=54,
+    DXGI_FORMAT_R8_TYPELESS=60, DXGI_FORMAT_R8_UNORM=61,
+    DXGI_FORMAT_R8_UINT=62, DXGI_FORMAT_R8_SNORM=63, DXGI_FORMAT_FORCE_UINT=0xffffffffu
 };
 constexpr unsigned D3D12_RESOURCE_DIMENSION_TEXTURE2D=3;
 constexpr unsigned D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE=8;
@@ -52,8 +54,17 @@ HRESULT ID3D12Device_CheckFeatureSupport(ID3D12Device *device, unsigned kind,
 }
 #include "src/interop/nr_exposure_access_d3d12.inl"
 int main() {
+#ifdef NR_EXPOSURE_R8_ONLY
+    // Run unchanged against the old helper for a runtime negative control.
+    D3D12_RESOURCE_DESC desc; desc.Format=DXGI_FORMAT_R8_UNORM;
+    ID3D12Device device;
+    CHECK(NrResolveExposureAccess(&device,desc).allowed());
+    CHECK(device.queried==DXGI_FORMAT_R8_UNORM);
+    std::puts("typed R8_UNORM exposure admitted through production adapter");
+    return 0;
+#else
     const unsigned mappings[][2]={{53,54},{54,54},{33,34},{34,34},{9,10},{10,10},
-        {39,41},{41,41},{15,16},{16,16},{5,6},{6,6},{1,2},{2,2}};
+        {39,41},{41,41},{15,16},{16,16},{5,6},{6,6},{1,2},{2,2},{61,61}};
     for (unsigned i=0;i<192;++i) {
         unsigned wanted=0;
         for (auto &pair:mappings) if(pair[0]==i) wanted=pair[1];
@@ -64,6 +75,7 @@ int main() {
             const auto result=NrResolveExposureAccess(&device,desc);
             CHECK(result.allowed()==(wanted!=0 && bits==0x120 && SUCCEEDED(hr)));
             CHECK(device.calls==(wanted?1u:0u));
+            CHECK(result.query_attempted==(device.calls!=0));
             if(wanted) { CHECK(static_cast<unsigned>(device.queried)==wanted); CHECK(result.query_result==hr); }
             CHECK(std::strlen(NrExposureAccessReasonName(result.reason))!=0);
         }
@@ -82,12 +94,16 @@ int main() {
             case 6: d.SampleDesc.Count=4; break;
             case 7: d.Flags=8; break;
             }
-            CHECK(!NrResolveExposureAccess(&dev,d).allowed()); CHECK(dev.calls==0);
+            const auto rejected=NrResolveExposureAccess(&dev,d);
+            CHECK(!rejected.allowed()); CHECK(dev.calls==0);
+            CHECK(!rejected.query_attempted);
         }
         ID3D12Device dev;
-        CHECK(!NrResolveExposureAccess(nullptr,good).allowed());
+        const auto missing=NrResolveExposureAccess(nullptr,good);
+        CHECK(!missing.allowed()); CHECK(!missing.query_attempted);
         CHECK(NrResolveExposureAccess(&dev,good).allowed());
         CHECK(dev.calls==1); // No hidden double-query / fallback.
     }
     std::printf("%u production exposure view/capability assertions passed (CPU seam; no GPU)\n", checks);
+#endif
 }

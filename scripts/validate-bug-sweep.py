@@ -125,18 +125,19 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        marker = '        SettingsTooltip(ui("Adjusts the model local structure parameter;'
-        start = ui_source.index(";\n", ui_source.index(marker)) + 2
-        end = ui_source.index("        // END PRIMARY MODEL CONTROLS", start)
+        start = ui_source.index('        if (ImGui::Checkbox(ui("Face adjustment"')
+        end = ui_source.index('        changed |= ImGui::Checkbox(ui("UI correction"', start)
         controls = ui_source[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;
 float slider_value = -100.f;
 void SettingsTooltip(const char *) {}
+void SettingsField(const char *) {} // Layout only; controls below remain production code.
+void SettingsNote(const char *) {}
 namespace ImGui {
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Face mask" || text == "人脸遮罩") {
+    if (text == "Face adjustment" || text == "人脸调节") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
@@ -149,6 +150,9 @@ bool SliderFloat(const char *, float *value, float lo, float hi, const char *) {
     return false;
 }
 void TextDisabled(const char *, ...) {}
+}
+bool SettingsSliderFloat(const char *label, const char *, float *value, float lo, float hi, const char *format) {
+    return ImGui::SliderFloat(label, value, lo, hi, format);
 }
 bool DrawFaceControls(ChainConfig &next, bool chinese) {
     bool changed = false;
@@ -179,18 +183,30 @@ int main() {
 '''.replace("CONTROLS", controls))
 
     def test_lighting_protection_is_only_attenuation(self) -> None:
-        block = definition(source, "if (LightingLock > 0.000001)")
+        block = definition(source, "if (LightingLock > 0.000001")
         self.run_cpp("lighting-lock", r'''
 float clamp(double x, double a, double b) { return static_cast<float>(std::clamp(x, a, b)); }
 float max(double a, double b) { return static_cast<float>(std::max(a, b)); }
 float min(double a, double b) { return static_cast<float>(std::min(a, b)); }
 float saturate(float x) { return clamp(x, 0, 1); }
 float lerp(float a, float b, float t) { return a + (b-a)*t; }
-struct float2 { float x, y; float2(float a, float b) : x(a), y(b) {} };
+struct float2 {
+    float x, y; float2(float a, float b) : x(a), y(b) {}
+    float2& operator+=(float2 b) { x+=b.x; y+=b.y; return *this; }
+};
 float2 operator+(float2 a, float2 b) { return {a.x+b.x, a.y+b.y}; }
 float2 operator-(float2 a, float2 b) { return {a.x-b.x, a.y-b.y}; }
-float taps[4];
+float2 operator*(float a, float2 b) { return {a*b.x, a*b.y}; }
+float taps[4], weights[4] = {1,1,1,1};
+bool layeredActive = false;
+float LayerTone = 1.f, LayerStructure = 1.f, layerMean = 0.f;
 float ModelLumaRatioV2(float2 p) { return taps[p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3]; }
+// The actual luma-guidance helper is covered by test_lighting_edge_weights.py.
+// This older oracle isolates the final attenuation bound for arbitrary weights.
+float2 ModelLightingTapV2(float2 p, float) {
+    const unsigned i=p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3;
+    return {taps[i]*weights[i],weights[i]};
+}
 float apply(float logRatio, float rawLog, float LightingLock) {
     const float proxyLuma = 1.f, neuralLuma = std::exp2(rawLog);
     const float2 center(0, 0);
@@ -213,7 +229,14 @@ int main() {
     for (int i = 0; i < 10000; ++i) {
         const float raw = log(rng), residual = raw * unit(rng);
         for (float &t : taps) t = std::exp2(log(rng));
-        const float result = apply(residual, raw, unit(rng));
+        for (float &w : weights) w = unit(rng);
+        layeredActive = (i & 1) != 0;
+        LayerTone = (i % 3) == 0 ? .5f : 1.f;
+        LayerStructure = (i % 3) == 0 ? 1.5f : 1.f;
+        const float lock = unit(rng);
+        const float result = apply(residual, raw, lock);
+        if (layeredActive)
+            check(apply(residual, raw, 0.f) == residual, "layer-only neighborhood never applies lighting attenuation");
         check(std::isfinite(result), "finite output");
         check(result >= std::min(residual, 0.f)-1e-6f && result <= std::max(residual, 0.f)+1e-6f,
               "lock never reverses or amplifies even an already stabilized residual");
@@ -224,7 +247,10 @@ int main() {
 '''.replace("BLOCK", block))
 
     def test_native_hook_enable_failure_retries_its_own_trampoline(self) -> None:
-        functions = definition(source, "bool EnsureNativeQueueExecuteHook(") + "\n" + definition(source, "bool EnsureNativeCommandListResetHook(")
+        functions = "\n".join(definition(source, marker) for marker in (
+            "bool EnsureNativeQueueExecuteHook(",
+            "bool EnsureNativeCommandListResetHookForNative(",
+            "bool EnsureNativeCommandListResetHook("))
         self.run_cpp("native-hook-retry", r'''
 #include <cstdint>
 #include <vector>

@@ -10,6 +10,10 @@ import argparse
 from pathlib import Path
 import subprocess
 import tempfile
+import struct
+import zlib
+import zipfile
+import json
 
 
 def definition(source: str, marker: str, trailing_semicolon: bool = False) -> str:
@@ -36,7 +40,13 @@ root = Path(__file__).resolve().parents[1]
 source = (args.source or root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
 sequence = (root / "src/nr_f8_sequence.inl").read_text(encoding="utf-8-sig")
 
+reload = definition(source, "void ReloadConfig(")
+reload_prefix = reload[:reload.index("    // Snapshot existence")]
 parts = {
+    "RELOAD_ENTRY": reload_prefix,
+    "CONFIG_SNAPSHOT": definition(source, "ChainConfig SnapshotConfig("),
+    "OVERLAY_SNAPSHOT_TYPE": enum_or_struct(source, "struct OverlayConfigSnapshot"),
+    "OVERLAY_SNAPSHOT": definition(source, "OverlayConfigSnapshot SnapshotOverlayConfig("),
     "CHAIN_CONFIG": enum_or_struct(source, "struct ChainConfig"),
     "TUNING_SIGNATURE": enum_or_struct(source, "struct NrTuningSignature"),
     "DIAGNOSTIC_IDENTITY": enum_or_struct(source, "struct NrDiagnosticIdentity"),
@@ -76,11 +86,30 @@ if args.gpu:
     harness=harness[:start]+harness[end:]
     start=harness.index("int main(")
     harness=harness[:start]+(root/"tests/f8_gpu_integration.inl").read_text(encoding="utf-8")+"\n"+harness[start:]
-    harness=harness.replace("TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();","TestGpuPipeline();")
+    harness=harness.replace("TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();","TestGpuPipeline();")
 out = root / ("test-output/f8-gpu-v4" if args.gpu else "test-output/f8-controller-v4")
 out.mkdir(parents=True, exist_ok=True)
 cpp, exe = out / "controller.cpp", out / "controller.exe"
 cpp.write_text(harness, encoding="utf-8")
+# A complete 4K PNG supplied at the runtime screenshot boundary. The archive
+# must retain these exact bytes; this does not emulate a real game renderer.
+def png_chunk(tag, data):
+    return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data))
+row = b'\0' + bytes((x * 17) % 256 for x in range(3840 * 3))
+native_png = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB',3840,2160,8,2,0,0,0)) + png_chunk(b'IDAT',zlib.compress(row * 2160)) + png_chunk(b'IEND',b'')
+(out/'native-display.png').write_bytes(native_png)
 subprocess.run([args.compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)]+(["-ld3d12","-ldxgi","-ld3dcompiler","-ldxguid"] if args.gpu else []), check=True)
 subprocess.run([str(exe), str(out)], check=True)
+latest = max(out.glob('run-*'), key=lambda p:p.stat().st_mtime_ns)
+for groups in (1,7):
+    for skin in (0,2):
+        with zipfile.ZipFile(latest/f'fullscreen-{groups}-{skin}.zip') as archive:
+            images=[n for n in archive.namelist() if n.startswith('groups/') and n.endswith('/display.png')]
+            assert len(images)==groups and not any(n.endswith('.f8c') for n in archive.namelist())
+            for i in range(groups):
+                assert archive.read(f'groups/{i}/display.png') == native_png
+                settings=json.loads(archive.read(f'groups/{i}/settings.json'))
+                assert settings['requested']['skin']==skin and settings['actual']['skin']==skin
+                assert settings['actual']['autoMask']==1
+print('Full-screen archives: 16 complete 3840 x 2160 PNGs byte-identical; face 0/2 recorded; no raw ROI planes PASS')
 print("F8 controller: production Present/callback/readback/stream/restore/ZIP PASS; " + ("real WARP shader/ring/fence, synthetic NR input" if args.gpu else "GPU/NGX are seams"))

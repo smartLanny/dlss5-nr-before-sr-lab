@@ -21,7 +21,7 @@ def definition(text: str, marker: str) -> str:
     return text[start:end]
 
 
-def run(compiler: str, name: str, code: str) -> None:
+def run(compiler: str, name: str, code: str, expected_failure: str | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='nr044-') as td:
         src = Path(td) / (name + '.cpp')
         exe = Path(td) / (name + ('.exe' if os.name == 'nt' else ''))
@@ -29,7 +29,15 @@ def run(compiler: str, name: str, code: str) -> None:
         flags = ['-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror']
         if os.name == 'nt': flags.append('-static')
         subprocess.run([compiler, *flags, str(src), '-o', str(exe)], check=True)
-        subprocess.run([str(exe)], check=True)
+        if expected_failure is None:
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            print(result.stdout + result.stderr, end='')
+            result.check_returncode()
+        else:
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            if result.returncode != 1 or result.stderr.strip() != expected_failure:
+                raise RuntimeError('Negative control did not reject the exact forwarding defect: ' + result.stderr)
+            print('PASS old NULL-forward negative control rejected by ' + expected_failure)
 
 COMMON = r'''
 #include <atomic>
@@ -55,12 +63,19 @@ std::atomic<unsigned> g_wrapper_calls{0},g_core_calls{0},g_dlssd_evaluate_calls{
 bool g_inside_ngx_evaluate=false,other_owner=false;
 int unknowns=0,native_calls=0;
 enum class BypassReason {ShortFuseOwnsNr}; enum class ModuleObserverFault {UnknownEvaluate};
+enum class NgxLayer {Dlss,Core,Dlssd}; enum class NgxOwner {Game,ExternalNr};
+enum class PrivateNrOperation {Evaluate};
+struct ScopedNgxLayer { explicit ScopedNgxLayer(NgxLayer){} };
+struct ScopedRrOwnershipGate { ScopedRrOwnershipGate(bool,bool,bool){} bool is_nested(){return false;} bool acquisition_failed(){return false;} };
+void LatchNestedRrOwnershipChange(const char*){} void LatchConcurrentRrOwnershipChange(const char*){}
+void ObserveNgxEvaluate(const NgxHandle*){}
+bool IsPrivateNrEntry(PrivateNrOperation,const NgxHandle*){return false;}
 void SetBypassReason(BypassReason) {}
 bool LatchGenericRenoDxConflictIfLoaded() {return false;}
 bool OtherNrOwnerActive() {return other_owner;}
 void ObserveNullEvaluateHandle(const char*) {}
 void LatchUnknownFeatureHandle(const char*,const char*,ModuleObserverFault) {++unknowns;}
-struct Feature { const NgxHandle* handle; };
+struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; };
 Feature FindFeature(const NgxHandle* h) {return {h==&public_handle?h:nullptr};}
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle* h) {return h&&!g_inside_ngx_evaluate&&!FindFeature(h).handle;}
 template<class... T> void Log(const char*,T...) {}
@@ -103,8 +118,67 @@ int main() {
 '''.replace('ACTUAL', actual)
 
 
+def blend_pointer(source: str, negative: bool = False) -> str:
+    # Compile the exact maintained helper and explicit four-slot detour. The
+    # former research macro is superseded, never duplicated in production.
+    family = definition(source, 'struct CommandStateHookFamily {') + ';'
+    helper = definition(source, 'const FLOAT *CommandStateBlendFactorValues(')
+    begin = source.index('CommandStateHookFamily g_state_OMSetBlendFactor;')
+    invoke = source[begin:source.index('NR_STATE_HOOK(OMSetStencilRef,', begin)]
+    if negative:
+        old = '(command_list, effective)'
+        assert invoke.count(old) == 1
+        invoke = invoke.replace(old, '(command_list, values)')
+    return COMMON + r'''
+#define STDMETHODCALLTYPE
+using FLOAT=float;
+struct ID3D12GraphicsCommandList {};
+struct ID3D12GraphicsCommandListVtbl {
+    void (*OMSetBlendFactor)(ID3D12GraphicsCommandList *,const FLOAT *);
+};
+constexpr unsigned kDynamicBlend=8;
+struct NativeCommandState {struct {FLOAT blend[4]={};unsigned recorded=0;}dynamic;};
+NativeCommandState observed;
+const FLOAT *forwarded=nullptr;
+unsigned native_calls=0, mutations=0;
+void Original(ID3D12GraphicsCommandList *,const FLOAT *v) {forwarded=v;++native_calls;}
+template<class F> void MutateNativeCommandState(ID3D12GraphicsCommandList *,F mutation) {
+    check(native_calls==mutations+1,"original runs once before shadow update");
+    mutation(observed);++mutations;
+}
+''' + family + '\n' + helper + '\n' + invoke + r'''
+int main() {
+    ID3D12GraphicsCommandList list;
+    const FLOAT unity[4]={1,1,1,1};
+    const FLOAT explicit_values[4]={.25f,.5f,.75f,1.f};
+    const FLOAT unusual[4]={-1.f,2.f,std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN()};
+    for(unsigned i=0;i<4;++i) {
+        g_state_OMSetBlendFactor.originals[i]=reinterpret_cast<void*>(&Original);
+        auto call=reinterpret_cast<decltype(ID3D12GraphicsCommandListVtbl::OMSetBlendFactor)>(g_state_detours_OMSetBlendFactor[i]);
+        for(const FLOAT *input:{explicit_values,unusual,static_cast<const FLOAT*>(nullptr)}) {
+            observed={};native_calls=mutations=0;forwarded=nullptr;
+            call(&list,input);
+            if (!forwarded) {std::fputs("BLEND_NULL_FORWARD_ORACLE\n",stderr);return 1;}
+            const FLOAT *expected=input?input:unity;
+            check(native_calls==1 && mutations==1,"exactly one forward and mutation");
+            check(input ? forwarded==input : std::memcmp(forwarded,unity,sizeof(unity))==0,
+                  "explicit pointer retained; NULL expands to D3D12 unity before trampoline");
+            check(std::memcmp(observed.dynamic.blend,expected,sizeof(unity))==0,
+                  "shadow has bit-identical values, including non-finite input");
+            check(observed.dynamic.recorded==kDynamicBlend,"only blend domain recorded");
+        }
+    }
+    return finish("production blend detours and NULL canonicalization");
+}
+'''
+
+
 def raster(source: str) -> str:
-    actual = definition(source, 'bool CanAutoRestoreRasterNull(')
+    # The boolean wrapper delegates to the same production reason predicate;
+    # extract that dependency too, rather than replacing it with a test stub.
+    helper = definition(source, 'bool CommandStateBlendFactorAdmissible(')
+    actual = definition(source, 'const char *RasterNullRejectionReason(') + '\n'
+    actual += definition(source, 'bool CanAutoRestoreRasterNull(')
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
 constexpr float D3D12_VIEWPORT_BOUNDS_MIN=-32768.f,D3D12_VIEWPORT_BOUNDS_MAX=32767.f;
@@ -116,6 +190,7 @@ struct NativeCommandState {
  void *pipeline=nullptr,*raytracing_pipeline=nullptr,*rtv_cache=nullptr,*dsv_cache=nullptr;UINT unknown_domains=0;
  struct {UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
 };
+HELPER
 ACTUAL
 int main() {
  NativeCommandState s;s.dynamic.viewports[0]={0,0,1920,1080,0,1};s.dynamic.scissors[0]={1,2,1919,1079};
@@ -139,9 +214,26 @@ int main() {
  {auto t=s;t.dynamic.scissors[0].right=-1;check(!CanAutoRestoreRasterNull(t),"inverted scissor rejected");}
  {auto t=s;t.dynamic.recorded=0;check(!CanAutoRestoreRasterNull(t),"pristine route remains distinct");}
  {auto t=s;t.dynamic.recorded=kDynamicBlend;check(CanAutoRestoreRasterNull(t),"blend-only reset subset admitted");}
- for(float bad:{-1.f,1.01f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
-   auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=bad;check(!CanAutoRestoreRasterNull(t),"unbounded or nonfinite blend rejected");
+ for(unsigned lane=0;lane<4;++lane) {
+   for(float ok:{-0.f,-1.f,-2.f,-3.f,1.01f,2.f,std::numeric_limits<float>::max(),
+                 std::numeric_limits<float>::lowest(),std::numeric_limits<float>::denorm_min(),
+                 -std::numeric_limits<float>::denorm_min()}) {
+     auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[lane]=ok;
+     float before[4];std::memcpy(before,t.dynamic.blend,sizeof(before));
+     check(CanAutoRestoreRasterNull(t),"finite out-of-unit blend admitted");
+     check(std::memcmp(before,t.dynamic.blend,sizeof(before))==0,"admission preserves observed blend bits");
+   }
+   for(float bad:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity(),
+                  -std::numeric_limits<float>::infinity()}) {
+     auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[lane]=bad;
+     check(!CanAutoRestoreRasterNull(t),"nonfinite blend rejected in every lane");
+   }
  }
+ {auto t=s;t.dynamic.recorded=kDynamicBlend;
+  const float observed[4]={-0.f,-1.f,-2.f,-3.f};
+  std::memcpy(t.dynamic.blend,observed,sizeof(observed));
+  check(CanAutoRestoreRasterNull(t),"issue99 dev3 simultaneous four-factor state admitted");
+  check(std::memcmp(observed,t.dynamic.blend,sizeof(observed))==0,"issue99 sample not clamped");}
  {auto t=s;t.dynamic.recorded=0x46;check(CanAutoRestoreRasterNull(t),"empty target set restores");
   t.dynamic.target_count=1;check(!CanAutoRestoreRasterNull(t),"raw RTV rejected");
   t.rtv_cache=&s;t.dynamic.contiguous_targets=true;t.dynamic.targets[0].ptr=1;
@@ -152,7 +244,7 @@ int main() {
   t.dynamic.target_count=8;t.dynamic.contiguous_targets=false;check(!CanAutoRestoreRasterNull(t),"cache contiguous"); }
  return finish("actual bounded null-raster policy");
 }
-'''.replace('ACTUAL',actual)
+'''.replace('HELPER', helper).replace('ACTUAL', actual)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
@@ -165,8 +257,16 @@ if __name__=='__main__':
     if not a.forwarding_only:
         cs=(ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
         run(compiler,'null-raster',raster(cs))
-        assert 'if (record == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
+        run(compiler,'blend-pointer',blend_pointer(cs))
+        run(compiler,'blend-pointer-negative',blend_pointer(cs, True), 'BLEND_NULL_FORWARD_ORACLE')
+        assert 'if (record == nullptr || record->owner == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
-        assert 'next.mode = 1; next.enabled = true; next.identity_use_original = false;' in ui
+        route = definition(ui, 'bool DrawProcessingModeBlocks(')
+        assert 'const int requested_mode = option == 0 ? 2 : 1;' in route
+        assert 'const bool mode_guarded = rr_guarded || compatible_post_locked;' in route
+        assert 'const int shown_mode = mode_guarded ? 1 : next.mode;' in route
+        assert 'if (clicked && !mode_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
+        assert 'if (mode_guarded) ImGui::BeginDisabled();' in route
+        assert 'if (mode_guarded) ImGui::EndDisabled();' in route
         print('PASS sticky registration / visible comparison integration')

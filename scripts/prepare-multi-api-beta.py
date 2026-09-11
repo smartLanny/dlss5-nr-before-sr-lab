@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.5 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-corefix.8 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,32 +14,92 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-dx11-compat'
-DISPLAY_VERSION = '0.4.5-DX11-兼容增强'
+VERSION = '0.4.7beta-corefix.8'
+DISPLAY_VERSION = '0.4.7beta-corefix.8'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'ca61df92bb2d8c689648b12a35e7e1835d294748'
+STATE_CURRENT = '264fd84efa480d262e7bcaae19b5ecd4e0073e09'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
-REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
+REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_feedback_core.inl': 'a14c75fb3ecf96f4d1e59a5aadda9d181dfae879',
-    'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
-    'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': '08b9da7342466382e95904b0ca585ce93c92ee43',
-    'src/nr_command_state.inl': STATE_CURRENT,
-    'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
-    'src/nr_settings_ui.inl': 'e18d389d952e9ccb97ba81704b1aed76333f0c2d',
-    'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
-    'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
-    'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
-    'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
+    'src/nr_motion_slot_selection.h': '5d0e46d101f215de144b36c739d83d8e1a28003a',
+    'src/nr_native_clear_request_runtime.inl': '941b43e88203bb96866b7f918df87dcf7cde1466',
+    'src/nr_native_clear_request.h': 'f3c68953f94cfbe339d41fb9f0cea189c2d6eb0e',
+    'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
+    'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
+    'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
+    'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
+    'src/nr_config_policy_runtime.inl': 'e53599a24745bf8addc051b9a85387909931e2eb',
+    'src/nr_config_policy.h': '7a01d6c3e35f732b8e62e0264822f03f4385c155',
+    'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
+    'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
+    'src/nr_post_boundary_runtime.inl': '6fd85eb0ecd0a74259e6554d0939abae95283f7e',
+    'src/nr_ui_activity.h': '87c3ebf0f915a86daf365315103e1bc8be7be264',
+    'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
+    'src/nr_f8_stream.inl': '8bf90f5ee2e32566428ee07c8fd9ac80491eeac7',
+    'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',
+    'src/nr_rr_depth_adapter.inl': 'b606205e654bdcc9107a7266e71af23724377a86',
+    'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
+    'src/nr_rr_depth_projection.h': '8cb9c11b7750935f425e6c1dc2d6786fa804c9ad',
+    'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
+    'src/nr_native_command_record.inl': '91b4cf6b2c77396b464b2e28ae0093efd5558a68',
+    'config/nr_before_sr.ini': 'a3c0d7f94b663a6b9b341e0ae9fec3b3ffc898d2',
+    'scripts/patch-post-compat.py': '20d8e05ff2ecfaeeef672ab5769c47380f9f0a96',
+    'src/nr_codec_descriptors.inl': 'a1e80da0149d5ff33411b705aa77a79b05922db6',
+    'src/nr_feedback_core.inl': '7c61aafa4687613452075334f50e9bb695020313',
+    'src/nr_feedback_text.h': '597dc9b3fa4abbd4d694fb42117a125df84bf1b9',
+    'src/nr_feedback_single_text.h': '75dd661ad4d1a22a0c8c9741802853a12717710e',
+    'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
+    'src/nr_command_state.inl': '264fd84efa480d262e7bcaae19b5ecd4e0073e09',
+    'src/nr_feedback_capture.inl': 'ac78d43ef87c92c2c7817e31ad761e94254e3af7',
+    'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
+    'src/nr_settings_ui.inl': 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42',
+    'src/nr_before_sr.cpp': 'e679149b39582f3376227cc72a1d2d0bc9649c49',
+    'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
+    'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
+    'src/nr_before_sr.rc': '40512f8a4bbb86958013e232ee6dfa50aa8ec4aa',
+    'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
+    'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'a3ba1f85da395602c83039b1542cc04db4ca9207',
+    'scripts/build.ps1': '64034bcb783ae556b58c1006315d7d3cec804b51',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
+    'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
+    'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
+    'src/interop/nr_post_feedback.inl': '7f933d86d9a2d0d9f30fe74c4b6be7c6865bba70',
+    'src/interop/nr_rr_post_runtime.inl': '23c7ddd0348e0db8438ba17323b2ba4de6db2090',
+    'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
+    'scripts/patch-exposure-access.py': '6edb4379bb65e26f7928c0c0f598b18aa87857c7',
+    'scripts/patch-format-access.py': '8d9e6c59470516045253a55cede7965ac3dd0f9f',
+    'src/interop/nr_exposure_access_d3d12.inl': 'bb75d0d5294fd96f20e5419f7a9e8d7a74d9fa39',
+    'src/nr_compatibility_runtime.inl': '92e8f7c8b32c06c3de5aa8772d52077a4271af31',
+    'src/nr_compatibility_verdict.h': 'd49019e6078e4237ff65207f56f5dca3fda0048e',
+    'src/nr_compatibility_verdict_feedback.inl': 'e2d233a67c8a7aa6e3aefc99cce596e57e730da3',
+    'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
+    'src/nr_exposure_semantic_evidence.inl': '405c6e41036bfcc9ac088541cbc9e61831ad7a13',
+    'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
+    'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
+    'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
+    'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
+    'src/nr_native_format_runtime.inl': 'f249e545f5dc1bc6def1bfbcece7407f777cbb64',
+    'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
+    'src/nr_post_boundary_native.inl': '2c44059549d6ef78476f1b98432b4f42dea1dd0a',
+    'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
+    'src/nr_resource_recovery_runtime.inl': '3349bc1cb33847cea0010147f4bc35fcf5bd068b',
+    'src/nr_resource_recovery_semantics.inl': '63e362fbbd8c959f593d4e4288cde01426fb79de',
+    'src/nr_resource_semantics.h': '81874dae21f36985d6b78a9b7e738f2c1d251f99',
+    'src/nr_route_compatibility.h': '3e7006e48ea39639bb9a3ea59a6abe5414f9f377',
+    'src/nr_route_compatibility_runtime.inl': '7c3b93dc457f896087d179d7d6b9ffe04ff907ad',
+    'src/nr_descriptor_provenance.h': 'a8f64d2adab785c1b4fc2fd426d315fdadb6247c',
+    'src/nr_descriptor_provenance_runtime.inl': '73b6a25f23ea6b6198db6f3ad46f97b37c48d982',
+    'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
+    'src/nr_descriptor_provenance_commands.inl': '29a3f47109ad04899b5f4b48788827bf2c497106',
+    'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
+    'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
+    'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -77,7 +137,7 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    m.VERSION = 'beta0.4.5-fix2'
+    m.VERSION = VERSION
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -119,7 +179,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         encoding='utf-8', newline='\n')
     names = stage / 'core/src/interop/nr_deployment_names.h'
     text = names.read_text(encoding='utf-8')
-    old = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
+    old = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
     if text.count(old) != 1:
         raise ValueError('Companion identity anchor changed')
     names.write_text(text.replace(old,
@@ -147,10 +209,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.5-fix2 beta' not in resource_text:
+    if '0.4.7beta-corefix.8' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 DX11 compatibility beta')
-                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,104'),
+    rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
@@ -159,6 +220,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
+        'core_pe_version': '0.4.7.13',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -170,20 +232,24 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'feedback': 'F8 single TXT; F7 optional paired archive',
         'post_feedback': 'requested state and sampled RR counters; not GPU completion; same TXT',
         'blend_feedback': 'four observed native blend factors from the same locked state sample; explicit unobserved/unavailable',
-        'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
-        'exposure_path': '1x1 mip0 final-scale red channel; typed R16/R32 FLOAT-family view and actual device ShaderLoad; no source UAV requirement',
+        'format_path': 'Exact typed/native view -> unique explicit contract and successful device capability -> ambiguous native fallback; physical storage and typed access reported separately',
+        'exposure_path': '1x1 mip0 final-scale red; typed R8_UNORM or established R16/R32 FLOAT-family reads with actual Texture2D/ShaderLoad proof; queryAttempted distinguishes missing query from driver failure; no source UAV',
+        'resource_recovery': 'same-process normal-carrier retry only after semantics resolve; real descriptor writer, NR/native results, matching Execute and sparse actual stored-value read; failed interpretation latched until genuinely new evidence/lifetime',
+        'compatibility_verdict': 'scoped current first block, retained failure and matching attempt/proof; technical proof requires three correlated carriers; final Present visual remains unobserved without separate F7 proof',
+        'native_observer': 'layered Create/Evaluate/Release identity; external Feature18 ownership distinct from private NR; gaps remain fail-closed',
+        'post_boundary': 'immutable scoped probe window with native barrier/write/submit evidence; no inferred final-screen write or automatic state rewrite',
         'optional_inventory_blocks_on_failure': False,
         'vulkan_native': 'disabled: submit synchronization not implemented',
         'synthetic_legacy': 'not integrated',
         'carrier_filename': CARRIER_NAME,
         'carrier_completion': 'actual GPU progress before DX11 copyback; 500ms frame timeout quarantines resources until restart; no CPU completion signal',
         'carrier_faults': 'NGX hardware exceptions propagate; ordinary error codes retain native fallback',
-        'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
+        'rr_post': 'Feature13 native output; hardware depth or current standard ViewSpace projection converted privately; same NR core; game pending',
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
-        'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',
+        'rr_linear_depth': 'positive view-Z standard perspective to private R32 HW depth; matrix-derived inversion; unknown projection stays native with F8',
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
-        'mfg_scope': 'deferred by owner; not a gate for this compatibility development round',
+        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this Core candidate adds no FG backend',
         'game_validation': 'owner will test final batch; old BG3 result retained separately',
     }
     manifest['files'] = file_hashes(stage)
@@ -210,7 +276,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
             raise ValueError('Source changed during generation')
         if output.exists():
             raise ValueError('Output appeared during generation')
-        stage.rename(output)
+        m.legacy.publish_stage(stage, output)
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)

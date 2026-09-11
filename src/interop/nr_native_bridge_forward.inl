@@ -1,12 +1,16 @@
     // Opt-in integration: retain the existing native hook/parameter ABI, but
     // use this call's queued CopyResource as evidence, never last-frame health.
     EnterCriticalSection(&g_bridge_cs);
+    // Observe the off switch before consumer discovery or private-device
+    // bootstrap. BridgeFrame's later config check cannot undo initialization.
+    CfgReload();
+    const bool bridge_requested = g_cfg.source != CFG_SRC_OFF;
     g_eval_handle = handle;
     const auto history_key = reinterpret_cast<std::uintptr_t>(handle);
     int original_reset = 0;
     const bool reset_known = p->Get("Reset", &original_reset) == NGX_SUCCESS &&
                              (original_reset == 0 || original_reset == 1);
-    const bool consumer_on = nr_native_bridge_client::AllowsFrame(false);
+    const bool consumer_on = bridge_requested && nr_native_bridge_client::AllowsFrame(false);
     const bool fast = consumer_on && g_nr_native_history.Admit(history_key, reset_known) &&
                       BridgeWillDeliver();
     auto native = [&]() -> NVSDK_NGX_Result {
@@ -33,7 +37,8 @@
     }
     // Opening a private device is one-off bootstrap work. Per-frame copies and
     // evaluation are separately gated by the consumer's actual master switch.
-    if (g_cfg.stage >= 1 && InterlockedCompareExchange(&g_probe_done, 1, 0) == 0) {
+    if (bridge_requested && g_cfg.stage >= 1 &&
+        InterlockedCompareExchange(&g_probe_done, 1, 0) == 0) {
         ID3D11Device* dev = nullptr;
         ctx->GetDevice(&dev);
         if (dev) { BridgeInitSession(dev, ctx); dev->Release(); }

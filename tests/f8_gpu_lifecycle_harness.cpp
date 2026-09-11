@@ -5,6 +5,8 @@
 
 namespace {
 using namespace nr_f8_gpu;
+static_assert(kGroupCount == 7 && kMaxRoiSide == 512,
+              "share matrix capacity and 512 ROI are part of the capture contract");
 
 void Check(bool value, const char *message) {
     if (!value) {

@@ -65,7 +65,7 @@ def main():
   assert 'constexpr float maximum_strength = 8.0f;' not in ui
   assert 'std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f' in text
   assert '&next.intensity, 0.f, 2.f' in ui
-  assert 'TransferStrength=1.20' in ini and 'PostTransferStrength=1.20' in ini
+  assert 'TransferStrength=1.00' in ini and 'PostTransferStrength=1.00' in ini
   assert '8 extreme/diagnostic' not in ini
   # Follow the real production variable and functions, not guessed aliases.
   reload=definition(text,'void ReloadConfig(')

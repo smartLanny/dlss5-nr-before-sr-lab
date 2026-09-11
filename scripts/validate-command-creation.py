@@ -24,6 +24,8 @@ using D3D12_COMMAND_LIST_FLAGS=unsigned;
 struct ID3D12CommandAllocator{};struct ID3D12PipelineState{};
 struct CommandCreationInfo{UINT64 serial=0,tick=0,device_identity=0;unsigned method=0;UINT node_mask=0,flags=0;bool initial_pso=false;};
 struct CommandStateMetaContract{bool known=false;UINT initialization_dirty=0,execution_dirty=0;UINT64 device_identity=0;};
+struct ID3D12GraphicsCommandList;
+bool RegisterCreatedCommandStateList(ID3D12GraphicsCommandList*,const CommandStateMetaContract&,const CommandCreationInfo&){return true;}
 struct ID3D12Device;using ID3D12Device4=ID3D12Device;
 struct ID3D12GraphicsCommandList {CommandCreationInfo receipt;unsigned adds=0,releases=0;bool qi_fail=false,set_fail=false;};
 using IUnknown=ID3D12GraphicsCommandList;
@@ -45,6 +47,7 @@ bool PublishCommandStateHooks(CommandStateHookRequest*,unsigned){++publications;
 HRESULT Original(ID3D12Device*,UINT,D3D12_COMMAND_LIST_TYPE,ID3D12CommandAllocator*,ID3D12PipelineState*,REFIID,void**out){++original_calls;if(SUCCEEDED(original_result)&&out)*out=&list;return original_result;}
 HRESULT Original1(ID3D12Device4*,UINT,D3D12_COMMAND_LIST_TYPE,D3D12_COMMAND_LIST_FLAGS,REFIID,void**out){++original_calls;if(SUCCEEDED(original_result)&&out)*out=&list;return original_result;}
 int checks=0,failures=0;void check(bool ok,const char*m){++checks;if(!ok){++failures;std::printf("FAIL: %s\n",m);}}
+void ObserveCommandFirstRecording(ID3D12GraphicsCommandList*,const CommandCreationInfo&) {}
 '''
 MAIN=r'''
 int main(){

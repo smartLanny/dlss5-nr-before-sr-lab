@@ -23,7 +23,7 @@ def main():
  policy=(ROOT/'src/nr_color_policy.inl').read_text(encoding='utf-8-sig').split('enum class NrColorPolicyStatus')[0]
  ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
  assert 'ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,' in cpp
- assert 'if (color_follow_changed) next.allow_unverified_hdr_color = next.color_strength > 0.0f;' in ui
+ assert 'if (color_follow_changed) next.allow_unverified_hdr_color' not in ui
  assert 'next.allow_unverified_hdr_color = false;' in (ROOT/'src/nr_recommended_picture.inl').read_text()
  if args.negative_control:
   old=definition(policy,'void ApplyRequestedUnverifiedHdrColor(')

@@ -1,5 +1,20 @@
 # Known limitations
 
+## NTE face control: known defect, investigation paused (2026-09-08)
+
+[Issue #162](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/162)
+remains open at the owner's request. Face adjustment has no clear independent
+visual effect in NTE in current 0.5 and the tested 0.4.6 rollback, including RR off.
+CP2077 reportedly responds to the same control. The game/model/integration cause
+is unresolved; this is not a proven 0.5 regression. Investigation and face-specific
+retest requests are paused. Post-route face darkening is recorded separately;
+earlier residual/lighting fixes do not establish that face adjustment is fixed.
+See [dev10 handoff](interop/DEV10_FULLSCREEN_20260908.md).
+
+dev10 F7 uses original-resolution display screenshots. A complete capture means
+the requested screenshots and records were saved, not that NR or face segmentation
+was proven to execute. It does not contain internal GPU planes or same-frame A/B.
+
 ## r3 diagnostic scope
 
 The optional raw-stage capture stops at composition. In NR→SR it does not read
@@ -48,8 +63,10 @@ queue submission. The native submit hook pins the matching slot before the real
 queue before allowing descriptor rebinding or object destruction. Feature 18's
 context is tracked with the slots: several recorded command lists may overlap
 when each list's last observed native queue matches the context queue. The
-actual queue is checked again at submission. A new/unknown list first remains
-native to establish affinity; an unresolved queue change is not bridged with a
+actual queue is checked again at submission. In the independent DS1 candidate,
+a new/unknown list may instead begin after exact context/resource retirement;
+this completed-dependency proof is checked again at actual submission. It stays
+native while a prior dependency is unfinished. An unresolved queue change is not bridged with a
 private GPU Wait and is failed closed. A failed signal, an unprovable hook state,
 or an ambiguous
 submission is conservatively quarantined until process exit. This still needs current-build
@@ -64,9 +81,10 @@ commands already in that list. The candidate quarantines future work and reports
 the mismatch. A universal solution requires independently recorded plugin
 command lists or a proven queue/ownership contract.
 
-Accordingly, this candidate requires a title to reset/re-record the temporal
-DLSS command list and to keep that list on one stable D3D12 direct queue. The
-first observations remain native while affinity is established. Replaying a
+Overlapping evaluations still require stable per-list D3D12 direct-queue history.
+The independent DS1 candidate also handles newly created one-recording lists
+when the complete previous dependency set has retired, without inventing queue
+history or allowing migrated/corrupt markers to relearn. Replaying a
 closed list containing temporal Feature 18 work without a successful Reset, or
 submitting it on a different queue, is unsupported and latches lifecycle
 isolation. This precondition is why the build remains a candidate even after

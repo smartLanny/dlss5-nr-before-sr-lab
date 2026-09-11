@@ -19,9 +19,10 @@ def main():
     hooks=[]
     for marker in ('NgxResult HookRelease(', 'NgxResult HookCoreRelease(', 'NgxResult HookDlssdRelease('):
         a,b=parser.block(source,marker);body=source[a:b]
-        assert body.count('feature.feature_id == 1 || feature.feature_id == 13')==1
+        retirement_guard = '        if (feature.feature_id == 1 || feature.feature_id == 13) {'
+        assert body.count(retirement_guard)==1
         if args.negative_control:
-            body=body.replace('feature.feature_id == 1 || feature.feature_id == 13','feature.feature_id == 1')
+            body=body.replace(retirement_guard,'        if (feature.feature_id == 1) {')
         hooks.append(body)
     prefix=r'''
 #include <atomic>
@@ -30,7 +31,10 @@ def main():
 #include <initializer_list>
 using NgxResult=unsigned; struct NgxHandle{};
 constexpr unsigned kNgxSuccess=1,kNgxFeatureNotFound=2;
-struct FeatureRecord { NgxHandle*handle; int feature_id; } record;
+enum class NgxLayer {Dlss,Core,Dlssd}; enum class NgxOwner {Game,ExternalNr};
+struct ScopedNgxLayer { explicit ScopedNgxLayer(NgxLayer){} };
+struct FeatureRecord { NgxHandle*handle; int feature_id; NgxOwner owner=NgxOwner::Game; NgxHandle*context_handle=nullptr; unsigned long long generation=1; } record;
+void ObserveNgxRelease(const NgxHandle*){}
 unsigned g_release_hook_depth=0,calls=0,retired=0,forgotten=0;int g_chain_cs=0,locks=0;
 NgxResult native_result=0;
 std::atomic<bool> g_shortfuse_nr_enabled{false},g_feature_tracking_uncertain{false};
@@ -43,8 +47,8 @@ void LatchConcurrentRrOwnershipChange(const char*){}
 void LatchRrOwnershipUncertain(const char*,const char*){}
 struct ScopedRrOwnershipGate { ScopedRrOwnershipGate(bool,bool,bool){} bool is_nested(){return false;} bool acquisition_failed(){return false;} };
 void EnterCriticalSection(int*){++locks;} void LeaveCriticalSection(int*){--locks;}
-void RetireContextForHandle(NgxHandle*){if(locks!=1)std::abort();++retired;}
-void ForgetFeature(NgxHandle*){++forgotten;}
+void QueueNgxContextRetirement(NgxHandle*,unsigned long long){if(locks)std::abort();++retired;}
+void ForgetObservedFeature(NgxHandle*,unsigned long long){++forgotten;}
 template<class...T>void Log(const char*,T...){}
 const char*FeatureName(int){return "fixture";} const char*ResultName(unsigned){return "fixture";}
 NgxResult NativeRelease(NgxHandle*){++calls;return native_result;}
@@ -54,11 +58,11 @@ auto g_original_release=NativeRelease,g_original_core_release=NativeRelease,g_or
 int main(){unsigned checks=0;NgxHandle h;
  for(auto hook:{HookRelease,HookCoreRelease,HookDlssdRelease})
  for(int feature:{1,13,18}) for(unsigned result:{1u,2u,3u}) for(unsigned nested:{0u,1u}){
-  record={&h,feature};native_result=result;g_release_hook_depth=nested;
+  record={&h,feature};record.context_handle=&h;native_result=result;g_release_hook_depth=nested;
   calls=retired=forgotten=0;locks=0;
   auto returned=hook(&h);bool success=result==1||result==2;
-  bool expected=!nested&&success&&(feature==1||feature==13);
-  if(returned!=result||calls!=1||retired!=unsigned(expected)||forgotten!=unsigned(!nested&&success)||locks||g_release_hook_depth!=nested){
+  bool expected=success&&(feature==1||feature==13);
+  if(returned!=result||calls!=1||retired!=unsigned(expected)||forgotten!=unsigned(success)||locks||g_release_hook_depth!=nested){
     std::fprintf(stderr,"FAIL RR retirement feature=%d result=%u nested=%u retired=%u expected=%u\n",feature,result,nested,retired,unsigned(expected));return 1;}
   ++checks;
  }

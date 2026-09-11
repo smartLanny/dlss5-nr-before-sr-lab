@@ -23,7 +23,7 @@ class PictureIntegration(unittest.TestCase):
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
     def test_all_three_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137))
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -55,12 +55,25 @@ class PictureIntegration(unittest.TestCase):
                 load.assert_not_called()
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
-        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
+        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_native_clear_request.h', 'src/nr_native_clear_request_runtime.inl', 'src/nr_store_comparison.h', 'src/nr_ui_activity_feedback.inl', 'src/nr_ui_activity_runtime.inl', 'src/nr_descriptor_provenance_commands.inl', 'src/nr_descriptor_provenance_hooks.inl', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_route_compatibility_runtime.inl', 'src/nr_route_compatibility.h', 'src/nr_post_boundary.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_ui_activity.h', 'src/nr_imgui_abi.h', 'src/nr_f8_stream.inl', 'src/nr_native_command_record.inl', 'src/nr_command_creation_observer.inl', 'src/nr_rr_depth_projection.h', 'src/nr_rr_depth_shader.h', 'src/nr_rr_depth_adapter.inl', 'src/nr_guide_contract.h', 'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
+            'src/nr_motion_slot_selection.h',
+            'src/interop/nr_post_settings.inl', 'src/interop/nr_post_ui.inl',
+            'src/interop/nr_post_feedback.inl', 'src/interop/nr_rr_post_runtime.inl',
+            'src/interop/nr_rr_depth_evidence.inl',
+            'src/nr_codec_descriptors.inl', 'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
             'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
-            'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
-            'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'e18d389d952e9ccb97ba81704b1aed76333f0c2d')
+            'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc',
+            'src/nr_config_policy.h', 'src/nr_config_policy_runtime.inl', 'src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl', 'src/nr_submitted_fence_wait.inl', 'src/nr_timing_feedback.inl', 'src/nr_probe_policy.h', 'src/nr_recommended_picture.inl', 'src/nr_work_config.h', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
+            'src/interop/nr_exposure_access_d3d12.inl', 'src/nr_exposure_semantic_evidence.inl',
+            'scripts/patch-exposure-access.py', 'scripts/patch-format-access.py',
+            'src/nr_feedback_limits.h', 'src/nr_diagnostic_bundle.inl', 'src/nr_feedback_report.inl',
+            'src/nr_native_format.h', 'src/nr_native_format_hooks.inl', 'src/nr_native_format_runtime.inl',
+            'src/nr_ngx_lifecycle.inl', 'src/nr_post_boundary_native.inl', 'src/nr_resource_semantics.h',
+            'src/nr_resource_recovery.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_resource_recovery_semantics.inl',
+            'src/nr_compatibility_runtime.inl', 'src/nr_compatibility_verdict.h', 'src/nr_compatibility_verdict_feedback.inl',
+            'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a3ba1f85da395602c83039b1542cc04db4ca9207')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '64034bcb783ae556b58c1006315d7d3cec804b51')
 
 if __name__ == '__main__': unittest.main()

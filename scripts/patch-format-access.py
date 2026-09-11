@@ -57,6 +57,35 @@ def edit_block(text: str, signature: str, edit) -> str:
 
 
 def patch_core(text: str) -> str:
+    if '#define NR_HAS_NATIVE_FORMAT_OBSERVER 1' in text:
+        # The current source owns the complete adapter and native view path.
+        # Validate its production seams instead of applying the historical
+        # FLOAT-only substitutions twice. Repeated staging is still rejected.
+        required = (
+            '#include "interop/nr_format_access.h"',
+            '#include "interop/nr_format_access_d3d12.inl"',
+            '#include "nr_native_format_runtime.inl"',
+            '#include "nr_native_format_hooks.inl"',
+            'DXGI_FORMAT source_srv_format = DXGI_FORMAT_UNKNOWN;',
+            'DXGI_FORMAT result_srv_format = DXGI_FORMAT_UNKNOWN;',
+            'const auto color_view = NrResolveColorViewFromList(',
+            'const auto output_view = NrResolveColorViewFromList(',
+            'const auto current_view = NrResolveColorView(',
+        )
+        for anchor in required:
+            if text.count(anchor) != 1:
+                raise ValueError(f'Native format integration seam changed: {anchor}')
+        for signature in ('bool CreateSlot(', 'bool RebindSlotExternal('):
+            a, b = block(text, signature)
+            definition = text[a:b]
+            if definition.count('const auto external_view = NrResolveColorView(') != 1:
+                raise ValueError(f'Native format admission missing: {signature}')
+            if 'srv.Format = slot.source_format;' in definition:
+                raise ValueError(f'Physical storage used as SRV: {signature}')
+        if '#define NR_NATIVE_FORMAT_STAGED 1' in text:
+            raise ValueError('Native format source already staged')
+        return once(text, '#define NR_HAS_NATIVE_FORMAT_OBSERVER 1',
+                    '#define NR_HAS_NATIVE_FORMAT_OBSERVER 1\n#define NR_NATIVE_FORMAT_STAGED 1')
     # Preserve all shader math, mode selection, NGX/Reset tracking and lifetime
     # code. This deliberately overlaps none of PR #132's producer/collector files.
     text = once(text, '#include "MinHook.h"',

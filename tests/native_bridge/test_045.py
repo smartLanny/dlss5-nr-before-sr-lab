@@ -13,7 +13,7 @@ class Source045(unittest.TestCase):
     def setUp(self):
         # The canonical integration explicitly adapts the historical library
         # to reviewed fix2 source; retain its old standalone pins unchanged.
-        version = patch.object(m, 'VERSION', 'beta0.4.5-fix2')
+        version = patch.object(m, 'VERSION', 'beta0.5-dev4')
         version.start()
         self.addCleanup(version.stop)
 
@@ -41,7 +41,13 @@ class Source045(unittest.TestCase):
         self.assertIn("RestoreRecommendedPictureSettings", result)
         self.assertIn("maximum_strength = 4.0f", result)
         self.assertNotIn("Switch the game to Direct3D 12", result)
-        self.assertLess(result.index("const bool collecting = nr_f8::IsActive()"), result.index("DrawRenderControl();"))
+        developer = result.index('"Developer options", "开发者选项"')
+        observed = result.index('"Observed game render scale", "游戏真实渲染比例"')
+        self.assertLess(developer, result.index("DrawRenderControl();"))
+        self.assertLess(result.index("DrawRenderControl();"), observed)
+        self.assertNotIn('"Experimental###nr-experimental"', result)
+        self.assertIn("nr_f8::TakeSettingsFeedbackPageRequest()", result)
+        self.assertNotIn("D3D12 game render scale is read-only here", result)
 
     def test_build_and_protected_state(self):
         build = (ROOT / "scripts/build.ps1").read_text(encoding="utf-8")

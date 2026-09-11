@@ -1,5 +1,24 @@
 # Shared local and cloud handoff
 
+The owner renamed the current tested dev16 Core candidate to `0.4.7beta` on
+2026-09-09. This changes the current product label, not its historical source
+line or the integration/release permissions below. Preserve earlier version
+names in historical evidence. Continue this handoff from the latest isolated
+candidate branch; do not infer a merge into `main` or stable 0.4 from the rename.
+
+## Shared-mechanism compatibility fixes
+
+Treat game names as reproduction and regression-test entry points, not as the
+architecture boundary. Fix shared rendering, command-list, queue, resource,
+format or lifetime contracts once so all titles with that contract benefit.
+Do not accumulate per-game branches, allowlists or guessed engine exceptions
+when the evidence identifies a common mechanism. Use mechanism names for new
+modules, tests and integration PRs; preserve the exact historical identity of
+an already-running owner test artifact. Keep independent installer packaging
+moving while a separate compatibility mechanism is under investigation.
+
+For this 0.5 research successor (#168), the sole research target is `next/0.5`. Temporary research PRs target it and must not feed algorithms into `main` or stable 0.4. Maintenance-only instructions below describe that separate line. Read the current 0.5 section first.
+
 Read `docs/interop/CURRENT_STATUS.md` first for the current candidate, supported routes, validation boundaries, and owner handoff state. The sole continuing development branch is `main`. The former compatibility integration branch (PR #133) and maintenance branches are historical integration inputs; start temporary work branches from current `origin/main` and merge them back. Preserve separate unfinished 0.5, Feeder and Manager experiments until explicitly integrated.
 
 Verify the remote HEAD and the candidate's `source-manifest.json` / `validation.json` before citing a commit or test result. Chat history and old roadmap checkboxes are historical context, not proof of current source or a successful build. Do not repeat migration work already present in the ancestry.

@@ -3,6 +3,7 @@ This does not simulate a game, ImGui, Win32 persistence or NVIDIA runtime.
 """
 from pathlib import Path
 import argparse
+from contextlib import nullcontext
 import configparser
 import os
 import re
@@ -16,6 +17,13 @@ FIELDS = {
  'work_mode':'WorkMode', 'custom_work_scale':'CustomWorkScale',
  'lighting_lock':'LightingLock', 'edge_guard':'EdgeGuard',
  'detail_stability':'DetailStability', 'motion_stability':'MotionStability',
+ 'high_strength_protection':'HighStrengthProtection', 'color_protection':'ColorProtection',
+ 'layered_enhancement':'LayeredEnhancement',
+ 'independent_chroma_composition':'IndependentChromaComposition',
+ 'low_grid_edit_field':'LowGridEditField', 'catmull_edit_restore':'CatmullRomEditRestore',
+ 'low_grid_color_edit_field':'LowGridColorEditField', 'nr_input_filter':'NRInputFilter',
+ 'layer_tone':'LayerTone', 'layer_structure':'LayerStructure',
+ 'layer_bright':'LayerBright', 'layer_shadow':'LayerShadow',
  'proxy_curve':'ProxyCurve', 'allow_unverified_hdr_color':'AllowUnverifiedHdrColor',
  'suppress_reset_frame':'SuppressResetFrame', 'color_strength':'ColorStrength',
  'max_luma_ratio':'MaxLumaRatio', 'preserve_lighting':'PreserveLighting',
@@ -23,9 +31,16 @@ FIELDS = {
  'warmup_after_create':'WarmupAfterCreate', 'retry_original_on_sr_failure':'RetryOriginalOnSRFailure',
  'intensity':'Intensity', 'local_tone':'LocalToneStrength',
  'local_structure':'LocalStructureStrength', 'skin_structure':'SkinStructureStrength',
- 'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection',
+ 'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection', 'jitter_mode':'JitterMode',
 }
-PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
+PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch'}
+# These are deliberate recommendation contracts, independent of an accidentally
+# stale shipped INI.  The reset is the exact N=R/default work path, with the
+# current model recommendation and the protection gate enabled.
+RECOMMENDED_OVERRIDES={
+ 'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
+ 'color_protection':'1', 'lighting_lock':'0.0', 'jitter_mode':'0',
+}
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
 def definition(text,marker):
@@ -43,7 +58,8 @@ def check_wiring(cpp,ui,helper):
  assert 'changed = true;' in draw[call:call+100]
  assert 'ApplyOverlayConfig(pending, pending_generation)' in draw
  apply=definition(cpp,'bool ApplyConfig(')
- assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
+ published=apply.index('g_config = next;')
+ assert apply.index('NormalizeConfig(next);') < published < apply.index('SaveConfig(g_config)',published)
  assert 'SameHistoryConfig(next, g_config)' in apply
  overlay=definition(cpp,'OverlayApplyResult ApplyOverlayConfig(')
  assert 'expected_generation' in overlay and 'nr_f8::g_config_hold' in overlay
@@ -57,6 +73,8 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1])
  p.add_argument('--compiler',default=os.environ.get('CXX','g++'))
+ p.add_argument('--build-dir',type=Path,
+                help='Use an existing private build directory instead of system temp')
  p.add_argument('--negative-control',action='store_true');a=p.parse_args();root=a.root
  cpp=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
  ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
@@ -72,7 +90,8 @@ def main():
   helper=helper.replace(marker,'next.color_strength = 0.5f;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
-  number=values[key];expected=f'static_cast<decltype(c.{field})>({number})'
+  number=values[key];recommended=RECOMMENDED_OVERRIDES.get(field,number)
+  expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
  code=r'''#include <cstdio>
@@ -82,13 +101,15 @@ int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
 '''+struct+'\n'+helper+'\nint main(){\n'
  code+='for(bool enabled:{false,true})for(int encoding:{0,1,2}){ChainConfig c;\n'+'\n'.join(dirty)+'\n'
- code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.jitter_mode=NrJitterMode::Legacy;c.perf_epoch=777;\n'
+ code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.perf_epoch=777;\n'
  code+='for(int repeat=0;repeat<2;++repeat){RestoreRecommendedPictureSettings(c);\n'+'\n'.join(checks)+'\n'
- code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.jitter_mode==NrJitterMode::Legacy&&c.perf_epoch==777,"master and provider contracts preserved");\n'
+ code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.perf_epoch==777,"master and provider contracts preserved");\n'
  code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')
- with tempfile.TemporaryDirectory(prefix='nr-recommended-') as td:
+ context=(nullcontext(str(a.build_dir.resolve())) if a.build_dir else
+          tempfile.TemporaryDirectory(prefix='nr-recommended-'))
+ with context as td:
   src=Path(td)/'test.cpp';exe=Path(td)/('test.exe' if os.name=='nt' else 'test');src.write_text(code,encoding='utf-8')
   flags=['-std=c++20','-O0','-Wall','-Wextra','-Werror']+(['-static'] if os.name=='nt' else [])
   subprocess.run([compiler,*flags,str(src),'-o',str(exe)],check=True)

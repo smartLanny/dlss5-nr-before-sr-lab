@@ -32,7 +32,9 @@ def main():
     assert re.search(r'^Intensity=1\.0$',ini,re.M)
     assert 'AllowUnverifiedHdrColor=0' in ini
     model=definition(ui,'        if (next.intensity != 1.0f) {')
-    advanced=definition(ui,'    if (ImGui::CollapsingHeader(ui("Advanced picture controls"')
+    advanced_start=ui.index('    SettingsSection(ui("Advanced picture controls"')
+    advanced_end=ui.index('        if (ImGui::CollapsingHeader(ui("Developer options"',advanced_start)
+    advanced=ui[advanced_start:advanced_end]
     assert advanced.count('DrawColorControls(next, has_pending, changed);')==1
     assert ui.count('DrawColorControls(next, has_pending, changed);')==1
     assert '"HDR and colour"' not in ui

@@ -46,6 +46,17 @@ bool RebindSlotExternal() {
 }
 '''
 class Patches(unittest.TestCase):
+    def test_current_native_source_is_verified_and_staged_once(self):
+        source=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+        result=m.patch_core(source)
+        self.assertIn('#define NR_NATIVE_FORMAT_STAGED 1',result)
+        self.assertEqual(result.replace('\n#define NR_NATIVE_FORMAT_STAGED 1',''),source)
+        with self.assertRaises(ValueError): m.patch_core(result)
+        for anchor in ('#include "nr_native_format_runtime.inl"',
+                       'const auto color_view = NrResolveColorViewFromList(',
+                       'const auto output_view = NrResolveColorViewFromList(',
+                       'DXGI_FORMAT result_srv_format = DXGI_FORMAT_UNKNOWN;'):
+            with self.assertRaises(ValueError): m.patch_core(source.replace(anchor,'/* missing seam */'))
     def test_complete_minimal_edit(self):
         result=m.patch_core(FIXTURE)
         self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),2)
@@ -73,7 +84,7 @@ class Patches(unittest.TestCase):
         import hashlib
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        self.assertEqual(digest,'e2c5ff0facc80b84c1bea29df05974f87b910429')
+        self.assertEqual(digest,'06018f0d4aa7d6df035c9aec0ecefe63fb69a1de')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

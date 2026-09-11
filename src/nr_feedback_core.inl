@@ -7,6 +7,7 @@
 namespace nr_core_feedback {
 #define NR_HAS_CORE_TEXT_REPORT 1
 #include "nr_feedback_report.inl"
+#include "nr_feedback_picture.inl"
 struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
@@ -26,6 +27,9 @@ std::shared_ptr<const std::string> g_full_report; // g_feedback_lock
 wchar_t g_report_path[1024] = {};
 DWORD g_report_error = ERROR_SUCCESS;
 bool g_report_complete = false;
+enum class ReportClipboardStatus : unsigned { Idle, Pending, Copied, Failed };
+std::atomic<ReportClipboardStatus> g_report_clipboard_status{ReportClipboardStatus::Idle};
+bool g_report_path_copy_claimed = false; // g_feedback_lock
 PairSnapshot g_pair{}; // g_feedback_lock
 char g_reason[160] = {}; // g_feedback_lock
 char g_submission[nr_feedback_ticket::kCapacity] = {}; // same session, g_feedback_lock
@@ -49,7 +53,9 @@ bool Request(bool archive_requested = false) {
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
     g_pair.archive_requested = archive_requested;
-    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS; g_report_complete = false;
+    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS;
+    g_report_complete = false; g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(ReportClipboardStatus::Idle,std::memory_order_release);
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
         GetCurrentProcessId(), GetTickCount64(), ++g_serial);
@@ -92,6 +98,9 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
     g_report_error = text ? text->error : ERROR_SUCCESS;
     g_report_complete = text && text->text && text->complete;
     if (text && text->text) nr_bundle::CopyPath(g_report_path, text->path.c_str());
+    g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(text && text->text && g_report_path[0]
+        ? ReportClipboardStatus::Pending : ReportClipboardStatus::Idle,std::memory_order_release);
     nr_bundle::CopyPath(g_feedback_last_zip, result.zip_path);
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
@@ -102,6 +111,30 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
         (!text || !text->text ? 5u : text->complete ? 3u : 4u);
     g_feedback_status.store(status, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+bool TakeReportPathForClipboard(wchar_t (&path)[1024]) {
+    path[0] = 0;
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    const bool ready = g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+        !g_report_path_copy_claimed && g_report_path[0];
+    if (ready) {
+        nr_bundle::CopyPath(path, g_report_path);
+        g_report_path_copy_claimed = true;
+    }
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+    return ready;
+}
+void SetReportClipboardResult(const wchar_t *path,bool copied) {
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    if(path && g_report_path_copy_claimed &&
+       g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+       std::wcscmp(path,g_report_path)==0)
+        g_report_clipboard_status.store(copied?ReportClipboardStatus::Copied:
+            ReportClipboardStatus::Failed,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+ReportClipboardStatus GetReportClipboardStatus() {
+    return g_report_clipboard_status.load(std::memory_order_acquire);
 }
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;
@@ -333,12 +366,21 @@ void Modules(FeedbackSession &s) {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
     MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
     unsigned count = 0;
+    std::size_t inventory_bytes = 0;
     if (snapshot.value == INVALID_HANDLE_VALUE) { FeedbackAppend(s, "modules.status=unavailable\n"); return; }
     for (BOOL more = Module32FirstW(snapshot.value, &entry); more; more = Module32NextW(snapshot.value, &entry)) {
         if (!FeedbackModuleRelevant(entry.szModule)) continue;
         if (count == 32) { FeedbackAppend(s, "modules.truncated=1\n"); break; }
         char name[1024] = {}; WideToUtf8(entry.szModule, name, sizeof(name));
         const auto safe = nr_feedback_text::Sanitize(name);
+        // File-name inventory is optional. Keep the four named runtime-file
+        // fingerprints and final collection status available even when many
+        // unrelated add-ons have long UTF-8 names. Do not cut a UTF-8 name.
+        if (safe.size() + 32 > nr_feedback_limits::kModuleInventoryBytes - inventory_bytes) {
+            FeedbackAppend(s, "modules.truncated=1\nmodules.reason=name-byte-budget\n");
+            break;
+        }
+        inventory_bytes += safe.size() + 32;
         FeedbackAppend(s, "module.%u=%s\n", count++, safe.c_str());
     }
     FeedbackAppend(s, "modules.contract=name inventory plus bounded loaded-file fingerprints; no module bytes or process addresses exported\n");
@@ -472,6 +514,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         session->archive_requested ? "f7-paired-archive" : "single-txt",
         local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond, local.wMilliseconds,
         utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
+    AppendPictureConfig(s, config, session->snapshot_ok);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;

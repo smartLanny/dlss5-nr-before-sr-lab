@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly, [switch]$FirstRecordingOnly, [switch]$FirstRecordingNegativeControl, [switch]$BuildOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
@@ -6,15 +6,24 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $production = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
 $production = $production.Replace('#include "nr_command_pool_observation.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_pool_observation.inl') -Raw))
 $production = $production.Replace('#include "nr_command_creation_observer.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_creation_observer.inl') -Raw))
+$production = $production.Replace('#include "nr_native_command_record.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_native_command_record.inl') -Raw))
 if ($PoolNegativeControl) {
     $needle='PrimeCommandListBeforeResetLocked(*record, native);' # Removes both pre-notification and native-result recovery to reproduce old lazy-only policy
     if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
     $production=$production.Replace($needle,'(void)0; // exact old lazy-only defect')
 }
+if ($FirstRecordingNegativeControl) {
+    $needle='record->state->first_recording_observed = true;'
+    if (!$production.Contains($needle)) { throw 'First-recording negative anchor missing' }
+    $production=$production.Replace($needle,'record->state->first_recording_observed = false; // old no-first-recording baseline')
+}
 $main = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
+# Both callbacks in the actual route coordinator must use the resolved native
+# interface captured by before_state, including a locked compatibility route.
 foreach ($expression in @(
-    'Substitution before_sr = PrepareBeforeSr\(\s*before_state.command_list,',
-    'PostSrSubstitution after_sr = PrepareAfterSr\(\s*before_state.command_list,',
+    'const auto prepare_before = \[&\]\s*\{\s*return PrepareBeforeSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature\);\s*\};',
+    'const bool compatibility_fallback = nr_route::Prepare\(\s*before_sr,\s*after_sr,\s*\[\]\s*\{\s*return NrRoutePostLocked\(\);\s*\},\s*prepare_before,\s*can_fallback,\s*observe_fallback,\s*\[&\]\(bool fallback\)\s*\{',
+    'auto prepared = PrepareAfterSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature,\s*fallback\);[\s\S]*?return prepared;\s*\}\);',
     'before_state.Restore\(\);\s*if \(!before_sr.active && !after_sr.active\)',
     'NativeCommandStateScope after_state\(command_list\);[\s\S]*?FinishAfterSr\(after_state.command_list,',
     'const HRESULT result = original\(command_list, allocator, initial_state\);\s*OnCommandStateResetResult\(command_list, result, initial_state\);'
@@ -26,6 +35,13 @@ $harness = $harness.Replace('// @PRODUCTION_COMMAND_STATE@', $production)
 $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_null_native.inl') -Raw
 $pristine = (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_pool_native.inl') -Raw) + "`n" + $pristine
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
+$harness = $harness.Replace('// @NATIVE_RECORD_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\native_command_record.inl') -Raw))
+$harness = $harness.Replace('// @FIRST_RECORDING_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\first_recording_native.inl') -Raw))
+# Preserve existing checkpoints if a native test process terminates before flushing.
+# This affects the test executable only, never the extracted production source.
+$entry = 'int main(int argc, char **argv) {'
+if ([regex]::Matches($harness, [regex]::Escape($entry)).Count -ne 1) { throw 'Test entry anchor missing.' }
+$harness = $harness.Replace($entry, $entry + "`n    std::setvbuf(stdout, nullptr, _IONBF, 0);`n    std::setvbuf(stderr, nullptr, _IONBF, 0);`n")
 $build = Join-Path $projectRoot 'build\command-state-native-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'command_state_native.cpp'
@@ -43,23 +59,63 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+if ($BuildOnly) { Write-Output "Built only: $binary"; exit 0 }
+if ($FirstRecordingOnly -or $FirstRecordingNegativeControl) {
+    $output=& $binary '--first-recording' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --first-recording exit=$code"
+    if ($FirstRecordingNegativeControl) {
+        if ($code -ne 41 -or ($output -join "`n") -notmatch 'FIRST_RECORDING_NATIVE_ORACLE') { throw 'Wrong first-recording negative failure' }
+        Write-Output 'Negative control passed: no Create-boundary baseline misses the first carrier.'
+    } elseif ($code -ne 0) { throw "First-recording gate failed (exit=$code)." }
+    exit 0
+}
+if ($NativeRecordOnly) {
+    $output=& $binary '--native-record' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --native-record exit=$code"
+    if ($code -ne 0) { throw "Native record gate failed (exit=$code)." }
+    exit 0
+}
 if ($PoolNegativeControl) {
     $output=& $binary '--pristine-null' 2>&1
     $code=$LASTEXITCODE
     $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --pristine-null (pool negative) exit=$code"
     if ($code -ne 41 -or ($output -join "`n") -notmatch 'POOL_FIRST_CAPTURE_ORACLE') { throw 'Wrong pool negative failure' }
     Write-Output 'Negative control passed: old lazy-only observation misses first carrier.'
     exit 0
 }
-& $binary '--pristine-null'
-
-if ($LASTEXITCODE -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
-& $binary '--pristine-null-negative'
-if ($LASTEXITCODE -ne 42) { throw 'Pristine-null negative control did not detect the deliberately omitted restore.' }
-& $binary '--default-enabled'
-if ($LASTEXITCODE -ne 0) { throw 'Default-enabled command-state startup validation failed.' }
-& $binary
-if ($LASTEXITCODE -ne 0) { throw 'Native command-state validation failed.' }
+# Route native stdout/stderr through the host so the acceptance transcript
+# retains every assertion, including failures. Store the real exit code before
+# formatting; failure predicates below are unchanged.
+$output=& $binary '--pristine-null' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --pristine-null exit=$code"
+if ($code -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
+$output=& $binary '--pristine-null-negative' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --pristine-null-negative exit=$code"
+if ($code -ne 42) { throw "Pristine-null negative control did not detect the deliberately omitted restore (exit=$code)." }
+$output=& $binary '--default-enabled' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --default-enabled exit=$code"
+if ($code -ne 0) { throw "Default-enabled command-state startup validation failed (exit=$code)." }
+$output=& $binary 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate default exit=$code"
+if ($code -ne 0) { throw "Native command-state validation failed (exit=$code)." }
+$output=& $binary '--native-record' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --native-record exit=$code"
+if ($code -ne 0) { throw "Native record lifecycle validation failed (exit=$code)." }
 $stackFiles = Get-ChildItem -LiteralPath $build -Filter '*.su'
 $critical = @()
 foreach ($stackFile in $stackFiles) {
