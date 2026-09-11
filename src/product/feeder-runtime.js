@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { noLinks, inside } = require('./launch-safety');
+const { hashRegularFile, deploymentHashLimit } = require('./streamed-file-digest');
 const packageLock = require('./feeder-package-lock');
 const peDefault = require('../core/pe');
 
@@ -53,15 +54,11 @@ function validateRecipe(recipe, lock = packageLock) {
   return recipe;
 }
 async function fileDigest(file) {
-  await noLinks(file);
-  let stat; try { stat = await fsp.lstat(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-  if (!stat.isFile() || stat.nlink > 1 || stat.size > 768 * 1024 * 1024) fail('FEEDER_FILE_CHANGED', 'Feeder 文件不是安全的普通文件。', { file: path.basename(file) });
-  const hash = crypto.createHash('sha256');
-  for await (const bytes of fs.createReadStream(file)) hash.update(bytes);
-  await noLinks(file);
-  const after = await fsp.stat(file);
-  if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) fail('FEEDER_FILE_CHANGED', 'Feeder 文件在校验期间发生变化。');
-  return hash.digest('hex');
+  // Game identities and component payloads have different size budgets.
+  // Recipe per-file/total limits below remain unchanged.
+  return hashRegularFile(file, { assertPath: noLinks, maxBytes: deploymentHashLimit(file),
+    fail: (code, message, details) => fail(code === 'FILE_TOO_LARGE' ? 'FEEDER_FILE_TOO_LARGE' : 'FEEDER_FILE_CHANGED',
+      message, { ...details, file: path.basename(file) }) });
 }
 function resolveFile(root, target) {
   if (!relative(target)) fail('FEEDER_PATH_INVALID', 'Feeder 文件路径无效。');

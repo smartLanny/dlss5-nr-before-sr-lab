@@ -326,10 +326,16 @@ function createLegacyService(options = {}) {
     const layout = await layoutFor(game, request, recipe); await noLinks(layout.runtimeDir); await noLinks(layout.addonDirectory); await noLinks(layout.activeConfigPath);
     await assertNoOtherOwner(t, layout);
     if (old && fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(old.layout))) fail('LAYOUT_CHANGED', '共享加载布局已变更，请先恢复原 Feeder 配套。');
-    const level = layout.source === 'hoyoshade-profile' ? require('./game-launch-broker').executionLevel(t.exe) : null;
-    const needsHoYoElevation = ['requireAdministrator', 'highestAvailable'].includes(level);
-    const launch = needsHoYoElevation ? { launchable: true, elevated: true } : await getBroker().inspect({ exe: t.exe });
-    if (launch?.launchable !== true || launch.elevated !== false && !needsHoYoElevation) fail('LAUNCH', '尚不能确认此 EXE 的已支持启动方式，未写入配套。');
+    // MGR#27: copying a local proxy/Feeder recipe is not a launch request.
+    // Target, PE bitness, closed-game, ownership and full-file identity checks
+    // remain mandatory. Actual startup still uses the ordinary-token broker.
+    // HoYo has a separate bound/elevated launch workflow; keep its preflight.
+    if (layout.source === 'hoyoshade-profile') {
+      const level = require('./game-launch-broker').executionLevel(t.exe);
+      const needsHoYoElevation = ['requireAdministrator', 'highestAvailable'].includes(level);
+      const launch = needsHoYoElevation ? { launchable: true, elevated: true } : await getBroker().inspect({ exe: t.exe });
+      if (launch?.launchable !== true || launch.elevated !== false && !needsHoYoElevation) fail('LAUNCH', '尚不能确认此 EXE 的已支持启动方式，未写入配套。');
+    }
     const projected = layout.projectedFiles || [], projectedConfig = layout.projectedConfig;
     if (projected.length > 256 || projected.some(row => !path.isAbsolute(row.path || '') || row.sha256 !== null && !HASH.test(row.sha256 || ''))) fail('LAYOUT', '共享配置预览文件无效。');
     const expectedBefore = async file => {
@@ -645,7 +651,8 @@ function createLegacyService(options = {}) {
           await plan.migration.guard({ afterIsolation: true, published: files.slice(0, i) });
         const staged = historyFile(plan.t, operation, `after/${i}.bin`);
         if (row.after !== null && await currentHash(staged) !== row.after) fail('PACKAGE_CHANGED', '准备文件在发布前变化。');
-        if (await currentHash(row.file) !== row.before || await currentHash(claim) !== null) fail('PLAN_CHANGED', '发布前文件变化。');
+        if (await currentHash(row.file) !== row.before) fail('PLAN_CHANGED', '发布前文件变化。');
+        if (await currentHash(claim) !== null) fail('PLAN_CHANGED', '发布前文件变化。');
         await fsp.mkdir(path.dirname(row.file), { recursive: true });
         if (row.before !== null) { await fsp.rename(row.file, claim); if (await currentHash(claim) !== row.before) fail('FILE_CHANGED', '原件在发布时变化，保留恢复记录。'); }
         if (row.after !== null) await copy(staged, row.file, fs.constants.COPYFILE_EXCL);
