@@ -1,4 +1,4 @@
-"""Fail-closed provenance for the one audited D1 -> 0.4.7 post-adapter pair."""
+"""Fail-closed provenance for the exact audited post-adapter revisions."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -11,6 +11,7 @@ OLD = '0542d143584a8eb56364a54c2ad8daae46fcc9c3'
 ADAPTER = '035040cc833053f938afbcdb99521a48551ee5e1'
 D10_ADAPTER = 'f1093ac98eb2069a85194908e93aa7765139441f'
 D11_ADAPTER = 'dd9606498e5283d859999a234db1302f2da87adb'
+D14_ADAPTER = 'd8f1bac7e50333c523e88414e6c93376c22891c2'
 AREA = '00e7eecadbb08278fe664c23297d7ca8068776b5'
 PATCH_PATH = 'scripts/patch-post-compat.py'
 AREA_PATH = 'src/interop/nr_post_area.hlsl'
@@ -35,16 +36,21 @@ def verify_contents(base_pin: str, candidate_pin: str, base: bytes, candidate: b
                     base_area: bytes, candidate_area: bytes) -> None:
     if base_pin != candidate_pin and (base_pin, candidate_pin) not in {
             (OLD, ADAPTER), (OLD, D10_ADAPTER), (ADAPTER, D10_ADAPTER),
-            (OLD,D11_ADAPTER),(ADAPTER,D11_ADAPTER),(D10_ADAPTER,D11_ADAPTER)}:
+            (OLD,D11_ADAPTER),(ADAPTER,D11_ADAPTER),(D10_ADAPTER,D11_ADAPTER),
+            (OLD,D14_ADAPTER),(ADAPTER,D14_ADAPTER),(D10_ADAPTER,D14_ADAPTER),
+            (D11_ADAPTER,D14_ADAPTER)}:
         raise ValueError('Unreviewed post transformation pair')
     if blob_id(base) != base_pin or blob_id(candidate) != candidate_pin:
         raise ValueError('Post transformation bytes do not match their pins')
-    # D11 redirects exactly the two raw NR fetch forms through the fused
-    # accessor. Normalize only the reviewed pinned adapter, never arbitrary code.
-    comparison=candidate
-    if candidate_pin==D11_ADAPTER:
-        comparison=candidate.replace(b'LoadFinalNeuralStoredV2(int2(tid.xy))',b'NeuralColor.Load(int3(tid.xy, 0))').replace(b'LoadFinalNeuralStoredV2(int2(coord))',b'NeuralColor.Load(int3(coord, 0))')
-    if shader_transform(base) != shader_transform(comparison):
+    # D11 redirects exactly two raw NR fetch forms through the fused accessor.
+    # D14's shader transform is byte-identical to D11; its changes are Motion
+    # binding validation, diagnostic anchors and the resolved SRV writer guard.
+    # Normalize only these exact pinned adapters, on either comparison side.
+    def normalized(pin: str, data: bytes) -> bytes:
+        if pin in {D11_ADAPTER, D14_ADAPTER}:
+            return data.replace(b'LoadFinalNeuralStoredV2(int2(tid.xy))',b'NeuralColor.Load(int3(tid.xy, 0))').replace(b'LoadFinalNeuralStoredV2(int2(coord))',b'NeuralColor.Load(int3(coord, 0))')
+        return data
+    if shader_transform(normalized(base_pin, base)) != shader_transform(normalized(candidate_pin, candidate)):
         raise ValueError('Post shader transformation changed')
     if blob_id(base_area) != AREA or blob_id(candidate_area) != AREA:
         raise ValueError('Post area helper changed')
@@ -70,11 +76,19 @@ def negative_controls() -> None:
     d11=git('show',D11_ADAPTER)
     verify_contents(OLD,D11_ADAPTER,base,d11,area,area)
     verify_contents(D10_ADAPTER,D11_ADAPTER,d10,d11,area,area)
+    d14=git('show',D14_ADAPTER)
+    for pin, content in ((OLD,base),(ADAPTER,candidate),(D10_ADAPTER,d10),
+                         (D11_ADAPTER,d11),(D14_ADAPTER,d14)):
+        verify_contents(pin,D14_ADAPTER,content,d14,area,area)
+    if shader_transform(d11) != shader_transform(d14):
+        raise AssertionError('D14 host-only adapter changes modified shader transformation')
     cases = [
         (ADAPTER, OLD, candidate, base, area, area),
         (OLD, '0' * 40, base, candidate, area, area),
         (OLD, ADAPTER, base, candidate + b'\n# changed', area, area),
         (OLD, ADAPTER, base, candidate, area, area + b'\n// changed'),
+        (D14_ADAPTER, D11_ADAPTER, d14, d11, area, area),
+        (OLD, D14_ADAPTER, base, d14 + b'\n# changed', area, area),
     ]
     for case in cases:
         try:
@@ -84,7 +98,7 @@ def negative_controls() -> None:
         raise AssertionError('Unsafe post transformation was admitted')
     if shader_transform(base) != shader_transform(candidate):
         raise AssertionError('Reviewed route-only changes modified shader transformation')
-    print('Post transform provenance: same-pin and audited D1/0.4.7/D10 host adapter pairs accepted; unchanged shader transform and 4 unsafe cases rejected.')
+    print('Post transform provenance: exact D1/0.4.7/D10/D11/D14 adapter pairs accepted; unchanged shader transform and 6 unsafe cases rejected.')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
