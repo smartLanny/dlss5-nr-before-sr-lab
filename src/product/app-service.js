@@ -358,7 +358,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         id, label: displayVersionLabel(row.label || id), notes: row.notes || '',
         source: store.read().payloadSourcePath ? 'external' : 'bundled', compatibility: row.compatibility || null,
         comparisonOnly: row.comparisonOnly === true, compatibilityEvidence: row.compatibilityEvidence || null,
-        ota: row.ota === true, addonOnly: false, ready: true, verification: 'metadata-only', deletable: false
+        ota: row.ota === true, addonOnly: row.coreUpdateOnly === true, coreUpdateOnly: row.coreUpdateOnly === true,
+        ready: true, verification: 'metadata-only', deletable: false
         })) };
       }
     } catch { catalogCache = null; }
@@ -439,7 +440,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const version = inputRoute === 'native'
       ? request.version || gameLayout(game).version || readManifest(game.dir)?.payloadVersion || readBundle(payloadDir).defaultVersion
       : null;
-    const nativePayload = selectedPayload(routed, inputRoute === 'native' ? version : null, request.components);
+    const nativePayload = inputRoute === 'native' && externalOwned(game) && addonUpdate(version)
+      ? await externalPayload(routed, version, request.components)
+      : selectedPayload(routed, inputRoute === 'native' ? version : null, request.components);
     const payload = inputRoute === 'native' ? nativePayload : { reshade: nativePayload.reshade };
     const profile = await hoyo.preview(routed, { hoyo: request.hoyo, inputRoute, api, version: inputRoute === 'native' ? version : undefined,
       payload, addonKeep: request.addonKeep, ...internal });
@@ -496,8 +499,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   function selectedPayload(game, requestedVersion = null, components = {}) {
     assertSourceIdentity();
     const choice = versionChoice(game, requestedVersion), version = choice.version;
-    if (/^imported-/i.test(version || '')) {
-      const imported = importedAddon(version), manifest = readManifest(game.dir);
+    const update = addonUpdate(version);
+    if (update || /^imported-/i.test(version || '')) {
+      const imported = update, manifest = readManifest(game.dir);
+      assertCoreUpdateTarget(game, imported);
       if (!imported || !manifest) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
       if (components.bridge) throw Object.assign(new Error('导入的 OTA 保留其桥接配套；独立切换需要选择已验证接口的内置 Core。'), { code: 'COMPONENT_BRIDGE_CORE' });
       const result = { version, versionInfo: { compatibility: imported.compatibility },
@@ -516,6 +521,33 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     result.replacement = choice.replacement;
     return require('./component-registry').selectNativeComponents(payloadDir, result, { api: classifyApi(game.scan?.chosen),
       bridgeId: components.bridge || (requestedVersion === '0.4.7beta-bg3-bridge1411' ? 'nigos-1.4.11-nr' : undefined), installedHash: installedBridgeHash(game) });
+  }
+
+  // Bundled acceptance cores use the existing addon-update transaction. They
+  // own only their matched Core/chain, never a game's INI or vendor runtime.
+  function addonUpdate(version) {
+    if (!version || /^imported-/i.test(version)) return importedAddon(version);
+    let entry;
+    try { entry = readBundle(payloadDir).versions?.[version]; }
+    catch { return null; } // Independent Vulkan/Feeder routes do not require this catalog.
+    if (entry?.coreUpdateOnly !== true) return null;
+    assertSourceIdentity();
+    const payload = requirePayload(payloadDir, (hardware = detectGpu()).family, version);
+    return { id: version, label: displayVersionLabel(entry.label || version), source: 'bundled',
+      notes: entry.notes || '', coreUpdateOnly: true, addonOnly: true, ota: true, ready: true,
+      compatibility: null, file: payload.addon.file, addonSha256: payload.addon.actual,
+      bridgeFile: payload.bridge.file, bridgeSha256: payload.bridge.actual, carrierFile: null,
+      versionInfo: { compatibility: null, coreUpdateOnly: true } };
+  }
+
+  function assertCoreUpdateTarget(game, update) {
+    if (!update?.coreUpdateOnly) return;
+    const manifest = readManifest(game.dir), layout = gameLayout(game);
+    const existing = layout.mode === 'external' ? layout.verified === true && !layout.needsRecovery : Boolean(manifest);
+    const installedApi = layout.mode === 'external' ? layout.api : manifest?.deploymentApi;
+    if (!existing || classifyApi(game.scan?.chosen) !== 'dx12' || installedApi !== 'dx12' ||
+        layout.hoyoProfile?.inputRoute === 'feeder' || feederOwned(game) || vulkanOwned(game))
+      throw appError('CORE_UPDATE_BASE_REQUIRED');
   }
 
   function importedAddon(version) {
@@ -581,7 +613,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
           source: store.read().payloadSourcePath ? 'external' : 'bundled',
           compatibility: item.compatibility || null,
           ota: Boolean(item.ota),
-          addonOnly: false,
+          addonOnly: item.coreUpdateOnly === true,
+          coreUpdateOnly: item.coreUpdateOnly === true,
+          comparisonOnly: item.comparisonOnly === true,
           ready: Boolean(item.variants && ['RTX40', 'RTX50'].some(family => item.variants[family] && item.variants[family].ready)),
           deletable: false
         }))
@@ -592,7 +626,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   function inspectGamePayload(game, requestedVersion = null) {
     const family = hardware.family;
     const choice = versionChoice(game, requestedVersion), version = choice.version;
-    const imported = importedAddon(version);
+    const imported = addonUpdate(version);
     if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
     if (!imported) {
       const payload = inspectCurrentPayload({
@@ -713,9 +747,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (vulkanOwned(game) || vulkanRoute(game)) return vulkan.install(game, options);
       const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
       const version = selectedVersionForGame(game, requestedVersion);
-      const imported = importedAddon(version);
+      const imported = addonUpdate(version);
       if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
       if (imported) {
+        assertCoreUpdateTarget(game, imported);
         await prepareExistingReframework(game, options);
         const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, addonPolicy: options.addonPolicy || await nativeAddonPolicy(game, null, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
         return prepareDetectedReframework(game, result);
@@ -799,7 +834,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const routed = { ...game, apiOverride: options.api,
       scan: { ...game.scan, chosen: { ...chosen, apiResolution: resolution }, componentSelection: { dx11Carrier: nextApi === 'dx11' } } };
     let payload = null;
-    const imported = /^imported-/.test(options.version) ? importedAddon(options.version) : null;
+    const imported = addonUpdate(options.version);
+    assertCoreUpdateTarget(routed, imported);
     if (nextApi === 'vulkan') {
       const info = vulkan.summary(routed);
       if (options.version !== info.packageId) throw Object.assign(new Error('所选 Core 不属于当前 Vulkan 配套，请核对 API 和配套版本后一起应用。'), { code: 'VULKAN_PACKAGE_MISMATCH' });
@@ -973,8 +1009,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function externalPayload(game, requested, components) {
     const state = await externalDeployment.inspect(game), version = requested || state.version;
-    const imported = importedAddon(version);
+    const imported = addonUpdate(version);
     if (!imported) return selectedPayload(game, version, components);
+    assertCoreUpdateTarget(game, imported);
+    if (imported.coreUpdateOnly && components?.bridge) throw Object.assign(new Error('此测试 Core 使用固定配套 nrchain，不能另选桥接。'), { code: 'COMPONENT_BRIDGE_CORE' });
     if (state.api === 'dx11' && (imported.compatibility !== 'dx11' || !imported.carrierFile || !imported.bridgeFile))
       throw appError('ERR_PAYLOAD_MISSING', { file: 'DX11 配套核心与桥接器' });
     const payload = { version: imported.id, versionInfo: { compatibility: imported.compatibility } };
@@ -984,7 +1022,18 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const expected = kind === 'addon' ? imported.addonSha256 : kind === 'bridge' ? imported.bridgeSha256 : kind === 'carrier' ? imported.carrierSha256 : null;
       payload[kind] = { file: provided || path.join(state.runtimeDir, current.name), actual: provided ? expected : current.sha256 };
     }
+    if (imported.coreUpdateOnly) {
+      for (const [kind, storedKind] of [['config', 'config'], ['reshade', 'loader']]) {
+        const current = state.files.find(row => row.kind === storedKind);
+        const file = current ? path.join(state.runtimeDir, current.name) : kind === 'reshade' ? state.proxyPaths?.[0] : null;
+        if (file && fs.existsSync(file)) payload[kind] = { file, actual: sha256(file), name: path.basename(file) };
+      }
+    }
     return payload;
+  }
+
+  function nrConfigVersion(game) {
+    return vulkanOwned(game) || feederOwned(game) ? '' : gameLayout(game).version || readManifest(game.dir)?.payloadVersion || '';
   }
   function deploymentApi(game, requested) {
     const chosen = game.scan?.chosen;
@@ -1806,8 +1855,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (externalOwned(game)) return refreshAfterMutation(await repairGame(game, { ...options, version }));
       requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) return refreshAfterMutation(await vulkan.install(game, { ...options, version }));
-      const imported = importedAddon(version);
+      const imported = addonUpdate(version);
       if (!imported) throw appError('ERR_ADDON_NOT_FOUND');
+      assertCoreUpdateTarget(game, imported);
       await prepareExistingReframework(game, options);
       const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, addonPolicy: await nativeAddonPolicy(game, null, options.addonKeep), allowAntiCheat: options && options.allowAntiCheat === true });
       return refreshAfterMutation(await prepareDetectedReframework(game, result));
@@ -1958,7 +2008,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       try {
         if (game.scan && game.scan.chosen && game.scan.chosen.path) {
           const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
-          if (fs.existsSync(file)) settings = readConfig(file);
+          if (fs.existsSync(file)) settings = readConfig(file, nrConfigVersion(game));
         }
       } catch {}
       try {
@@ -1981,13 +2031,13 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     readNrSettings: async id => {
       const game = findGame(id);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
-      return readConfig(file);
+      return readConfig(file, nrConfigVersion(game));
     },
     writeNrSettings: async (id, patch) => {
       const game = findGame(id);
       if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
-      return writeConfig(file, patch);
+      return writeConfig(file, patch, nrConfigVersion(game));
     },
     readGameHotkeys: async id => {
       const game = findGame(id);
@@ -2008,7 +2058,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const game = findGame(id);
       if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
-      const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
+      const version = nrConfigVersion(game), patch = defaultPatch(version);
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}
       if (!/^[ \t]*WorkMode\s*=/mi.test(current)) {
@@ -2016,13 +2066,13 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         delete patch.CustomWorkScale;
         patch.ColorStrength = 0;
       }
-      return writeConfig(file, patch);
+      return writeConfig(file, patch, version);
     },
     applyRecommended: async id => {
       const game = findGame(id);
       if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
-      const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
+      const version = nrConfigVersion(game), patch = defaultPatch(version);
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}
       if (!/^[ \t]*WorkMode\s*=/mi.test(current)) {
@@ -2030,7 +2080,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         delete patch.CustomWorkScale;
         patch.ColorStrength = 0;
       }
-      return writeConfig(file, patch);
+      return writeConfig(file, patch, version);
     }
   };
 }

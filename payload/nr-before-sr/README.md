@@ -48,3 +48,20 @@ node scripts/prepare-release-046-hotfix1.js <已核验的hotfix.1中文OTA解包
 默认 INI 两条最终倍率都为 1.00。已安装游戏的明确 INI 在升级/OTA 时保留；
 只有用户主动“恢复默认”时才同时写回 TransferStrength 和 PostTransferStrength=1。
 旧 0.4.6 和 0.4.5 槽保持原字节，新候选使用独立槽位，不改旧公开附件。
+
+## 0.5 D13 与 Corefix8 测试槽
+
+经来源、ZIP、Core、chain 和配置 blob 校验后，才可以把两套中文 Core 作为独立的内置更新候选写入：
+
+- `versions/0.5-dline13`：0.5 D13 中文 Core、该包自己的 `nrchain_nvngx.dll` 和 7abd235 源码提交中的 `config/nr_before_sr.ini`；
+- `versions/0.4.7beta-corefix.8`：0.4.7 Corefix8 中文 Core、该包自己的 `nrchain_nvngx.dll` 和 6949051 源码提交中的 `config/nr_before_sr.ini`。
+
+两个槽位都只面向已经安装的 D3D12 游戏更新，保留游戏已有 INI；没有 DX11 carrier，不改变 `defaultVersion`，也不能用于首次安装。两个槽位均会保留在普通 Core 版本列表中，名称带“测试”，并标记为 core-update-only。两个槽位的 chain 即使当前 SHA-256 相同，也必须和各自 Core 成套维护，不能把 0.5 与 0.4.7 的 Addon、配置或其它配套交叉复制。
+
+准备命令接受两个已核验的原始 ZIP 和一个包含对应源码提交的本地 Git 工作树：
+
+```powershell
+node scripts/prepare-beta7-core-catalog.js <0.5-D13-OTA.zip> <corefix8-zh-CN.zip> <git-repository>
+```
+
+脚本先验证固定 ZIP/Core/chain 哈希、ZIP 文件集合和两个源码提交的原始配置 blob，再检查目标槽位和 `bundle.json`；任一输入、配置或已有字节冲突都会在写盘前失败。成功后每个槽位包含 Core、chain、对应配置和 `core-import-receipt.json`，重复执行保持幂等。`bundle.json` 的两个 entry 使用 `compatibility: null`、`comparisonOnly: false`、`coreUpdateOnly: true`、`ota: true`，并记录来源提交、ZIP 哈希、Core/chain 哈希、配置 blob 路径和哈希。

@@ -35,7 +35,7 @@ function prepareCoreCatalog(input) {
   const hasR4Baseline = Object.hasOwn(bundle.versions,'0.3.3-dev-r4');
   for (const [id, entry] of Object.entries(bundle.versions)) {
     if (/^0\.2\./.test(id)) entry.label = `${id.match(/^0\.2\.\d+(?:\.\d+)?/)[0]}（历史兼容）`;
-    if (/^0\.4\./.test(id) && entry.comparisonOnly !== true) entry.label = id === '0.4.7beta' ? 'beta0.4.7' : `${id} · Beta`;
+    if (/^0\.4\./.test(id) && entry.comparisonOnly !== true && entry.coreUpdateOnly !== true) entry.label = id === '0.4.7beta' ? 'beta0.4.7' : `${id} · Beta`;
     if (/^0\.3\./.test(id)) {
       if (hasR4Baseline) entry.label = id === '0.3.3-dev-r4' ? '0.3.3.4 · 稳定兼容' : `${id} · 历史对照`;
       else {

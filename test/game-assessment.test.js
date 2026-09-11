@@ -50,6 +50,35 @@ test('installation uses the cached seed and metadata catalog without reading dia
   assert.equal(result.coreVersions[1].comparisonOnly, true); assert.deepEqual(result.coreVersions[1].compatibilityEvidence, f.catalog[1].compatibilityEvidence);
 });
 
+test('installation exposes lightweight launch readiness without requiring the full enhancement inspection', async () => {
+  const f = fixture();
+  f.options.coordinator.inspectLaunchReadiness = async () => ({ state: 'blocked', known: true, source: 'metadata', blockers: [
+    { domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧 SR 需要处理。', action: { kind: 'open-settings' } }
+  ], pending: [], requests: {}, legacy: { configured: true } });
+  const result = await f.assessment.assess('game', { sections: ['installation'] });
+  assert.equal(result.launch.readiness.state, 'blocked');
+  assert.equal(result.launch.readiness.blockers[0].action.kind, 'open-settings');
+  assert.equal(f.calls.includes('enhancements'), false);
+});
+
+test('enhancement inspection can refine an unknown launch readiness with readback evidence', async () => {
+  const f = fixture();
+  f.options.coordinator.inspectLaunchReadiness = async (_id, observed) => {
+    assert.deepEqual(observed.requests, {});
+    return { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {} };
+  };
+  const result = await f.assessment.assess('game', { sections: ['enhancements'] });
+  assert.equal(result.enhancements.launchReadiness.state, 'ready');
+});
+
+test('a historical failed launch record does not become the current launch blocker', async () => {
+  const f = fixture();
+  f.options.launches.inspect = async () => ({ sessionId: 'old', gameId: 'game', historical: true, status: 'failed', error: { code: 'OLD_FAILURE' } });
+  f.options.coordinator.inspectLaunchReadiness = async () => ({ state: 'ready', known: true, source: 'metadata', blockers: [], pending: [], requests: {} });
+  const result = await f.assessment.assess('game', { sections: ['installation'] });
+  assert.equal(result.launch.session.historical, true); assert.equal(result.launch.readiness.state, 'ready');
+});
+
 test('an unreadable deployment cannot promote stale inventory into installed or ready', async () => {
   const f = fixture(); f.game.installed = true; f.game.addonVersion = '0.4.7beta';
   f.service.getLayout = () => { throw Object.assign(new Error('original transaction mismatch'), { code: 'DEPLOYMENT_RECORD' }); };

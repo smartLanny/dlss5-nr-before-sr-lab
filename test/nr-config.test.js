@@ -103,3 +103,26 @@ test('recommended reset sets both final blend routes to one without confusing mo
   assert.equal(defaultPatch('0.4.7beta').ColorStrength, 1);
   assert.equal(defaultPatch('0.4.6-hotfix.1').Intensity, 1);
 });
+
+test('D13 edits obey its public ranges and preserve second-pass and lighting preferences', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-d13-ini-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'nr_before_sr.ini');
+  const original = '[NRBeforeSR]\r\nWorkMode=5\r\nCustomWorkScale=0.75\r\nTransferStrength=0.4\r\nPostTransferStrength=2\r\nNRPasses=2\r\nNRSecondScaleNumerator=2\r\nNRSecondScaleDenominator=3\r\nLightBroad=0.65\r\n';
+  fs.writeFileSync(file, original);
+  const current = readConfig(file, '0.5-dline13');
+  assert.equal(current.TransferStrength, 0.4, 'inspection retains explicit saved values until an edit');
+  assert.equal(current.limits.TransferStrength.min, 1);
+  assert.equal(fs.readFileSync(file, 'utf8'), original, 'reading never migrates the game config');
+  const edited = await writeConfig(file, { CustomWorkScale: 0.25, TransferStrength: 0, PostTransferStrength: 9 }, '0.5-dline13');
+  assert.equal(edited.CustomWorkScale, 0.5);
+  assert.equal(edited.TransferStrength, 1);
+  assert.equal(edited.PostTransferStrength, 4);
+  const { defaultPatch } = require('../src/product/nr-config');
+  const restored = await writeConfig(file, defaultPatch('0.5-dline13'), '0.5-dline13');
+  assert.equal(restored.Intensity, 1.2); assert.equal(restored.ColorStrength, 1);
+  assert.match(fs.readFileSync(file, 'utf8'), /NRPasses=2\r\nNRSecondScaleNumerator=2\r\nNRSecondScaleDenominator=3\r\nLightBroad=0.65/);
+  assert.equal(readConfig(file, '0.4.7beta-corefix.8').limits, undefined);
+  const legacy = parseSection(updateSection(original, { TransferStrength: 0.4 }, '0.4.7beta-corefix.8'));
+  assert.equal(legacy.TransferStrength, 0.4, 'Corefix8 keeps its own public range');
+});

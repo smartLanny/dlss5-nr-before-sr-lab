@@ -5,6 +5,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { prepareCoreCatalog } = require('../scripts/prepare-core-catalog');
+
+test('build preparation retains visible update-only candidate labels and the existing default', () => {
+  const candidates = {
+    '0.5-dline13': { label: '0.5 D13 · 测试', coreUpdateOnly: true, comparisonOnly: false, compatibility: null },
+    '0.4.7beta-corefix.8': { label: '0.4.7 Corefix8 · 测试', coreUpdateOnly: true, comparisonOnly: false, compatibility: null }
+  };
+  const { bundle } = prepareCoreCatalog({ version: 4, defaultVersion: '0.4.7beta', versions: { '0.4.7beta': {}, ...candidates } });
+  assert.equal(bundle.defaultVersion, '0.4.7beta');
+  for (const [id, entry] of Object.entries(candidates)) assert.deepEqual(bundle.versions[id], entry);
+  assert.deepEqual(prepareCoreCatalog(bundle).bundle, bundle);
+});
 const { verifyExecutable, parseArguments } = require('../scripts/verify-execution-level');
 
 function peFixture(level, is64 = false, encoding = 'utf8') {

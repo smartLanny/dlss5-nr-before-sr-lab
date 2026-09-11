@@ -77,6 +77,55 @@ test('a unique recorded client binds automatically and registers the game EXE on
   await flow.discover(); assert.equal(f.count('register'), 1);
 });
 
+test('installed HoYo inspection exposes metadata-only legacy SR readiness before the editor opens', async t => {
+  const seen = [];
+  const f = fixture(t, { inspectLaunchReadiness: async id => {
+    seen.push(id);
+    return { state: 'blocked', known: true, source: 'metadata', pending: [],
+      blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧 SR 设置需要先应用。', action: { kind: 'open-settings' } }] };
+  } });
+  const flow = f.create(); await f.ready(flow);
+  const result = await flow.inspect('client-zzz');
+  assert.deepEqual(seen, ['game-1']);
+  assert.equal(result.launchReadiness.state, 'blocked');
+  assert.equal(result.launchReadiness.blockers[0].code, 'SETTINGS_LEGACY_APPLY_REQUIRED');
+  assert.equal(result.launchReadiness.blockers[0].action.kind, 'open-settings');
+  assert.equal(result.phase, 'ready'); assert.equal(result.installation.ready, true);
+});
+
+test('installed managed HoYo flow reports ready when metadata readiness has no legacy blocker', async t => {
+  const f = fixture(t, { inspectLaunchReadiness: async () => ({ state: 'ready', known: true, source: 'metadata', pending: [], blockers: [] }) });
+  const flow = f.create(); await f.ready(flow);
+  const result = await flow.inspect('client-zzz');
+  assert.equal(result.launchReadiness.state, 'ready'); assert.deepEqual(result.launchReadiness.blockers, []);
+  assert.equal(result.phase, 'ready'); assert.equal(result.installation.ready, true);
+});
+
+test('metadata-only unknown readiness is surfaced without pretending the readiness check passed', async t => {
+  const f = fixture(t, { inspectLaunchReadiness: async () => ({ state: 'unknown', known: false, source: 'metadata', pending: [],
+    blockers: [{ domain: 'settings', code: 'SETTINGS_EVIDENCE_UNAVAILABLE', message: '启动设置暂时无法确认。', known: false, action: { kind: 'open-settings' } }] }) });
+  const flow = f.create(); await f.ready(flow);
+  const result = await flow.inspect('client-zzz');
+  assert.equal(result.launchReadiness.state, 'unknown'); assert.equal(result.launchReadiness.known, false);
+  assert.equal(result.launchReadiness.blockers[0].action.kind, 'open-settings');
+  assert.equal(result.phase, 'ready'); assert.equal(result.installation.ready, true);
+});
+
+test('readiness callback failure returns an actionable unknown state and keeps the old flow contract', async t => {
+  const f = fixture(t, { inspectLaunchReadiness: async () => { throw failed('SETTINGS_READINESS_IO', '启动设置元数据读取失败。'); } });
+  const flow = f.create(); await f.ready(flow);
+  const result = await flow.inspect('client-zzz');
+  assert.equal(result.launchReadiness.state, 'unknown'); assert.equal(result.launchReadiness.known, false);
+  assert.equal(result.launchReadiness.blockers[0].code, 'SETTINGS_READINESS_IO');
+  assert.equal(result.launchReadiness.blockers[0].action.kind, 'open-settings');
+  assert.equal(result.phase, 'ready'); assert.equal(result.installation.ready, true);
+});
+
+test('legacy fixtures without a readiness callback keep the original response shape', async t => {
+  const f = fixture(t), flow = f.create(); await f.ready(flow);
+  assert.equal(Object.hasOwn(await flow.inspect('client-zzz'), 'launchReadiness'), false);
+});
+
 test('manual launcher, channel and API survive recreation and take precedence over automatic defaults', async t => {
   const f = fixture(t), first = f.create(); await first.discover();
   const bound = await first.bind('client-zzz', { channel: 'bilibili', launcherId: 'starward', api: 'dx12' });

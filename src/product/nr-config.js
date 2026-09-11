@@ -7,11 +7,21 @@ const { appError } = require('./errors');
 
 const SECTION = 'NRBeforeSR';
 
+function configLimits(version = '') {
+  return version === '0.5-dline13' ? {
+    CustomWorkScale: { min: 0.5, max: 1 },
+    TransferStrength: { min: 1, max: 4 },
+    PostTransferStrength: { min: 1, max: 4 }
+  } : null;
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function normalizeValue(key, value) {
+function normalizeValue(key, value, version = '') {
+  const limit = configLimits(version)?.[key];
+  if (limit) value = clamp(Number(value) || 0, limit.min, limit.max);
   if (key === 'Enabled' || key === 'AutoMask' || key === 'UICorrection') return value ? 1 : 0;
   if (key === 'Mode') return Number(value) === 1 ? 1 : 2;
   if (key === 'WorkMode') return Math.round(clamp(Number(value) || 0, 0, 5));
@@ -51,12 +61,13 @@ function parseSection(text) {
   return result;
 }
 
-function readConfig(file) {
+function readConfig(file, version = '') {
   let text = '';
   try { text = fs.readFileSync(file, 'utf8'); } catch {}
   const parsed = parseSection(text);
   const full = { ...DEFAULT_NR_CONFIG, ...parsed };
   return {
+    ...(configLimits(version) ? { limits: configLimits(version) } : {}),
     Enabled: full.Enabled,
     Intensity: full.Intensity,
     WorkMode: full.WorkMode,
@@ -82,13 +93,13 @@ function readConfig(file) {
   };
 }
 
-function updateSection(text, patch) {
+function updateSection(text, patch, version = '') {
   const normalized = {};
   for (const [key, value] of Object.entries(patch || {})) {
     if (!PUBLIC_NR_KEYS.includes(key)) {
       throw appError('ERR_BAD_REQUEST', { key });
     }
-    normalized[key] = normalizeValue(key, value);
+    normalized[key] = normalizeValue(key, value, version);
   }
 
   const newline = String(text || '').includes('\r\n') ? '\r\n' : '\n';
@@ -130,21 +141,21 @@ function updateSection(text, patch) {
   return lines.join(newline).replace(/(?:\r?\n)*$/, newline);
 }
 
-async function writeConfig(file, patch) {
+async function writeConfig(file, patch, version = '') {
   let current = '';
   try { current = await fs.promises.readFile(file, 'utf8'); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  const next = updateSection(current, patch);
+  const next = updateSection(current, patch, version);
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.xiaofeng.tmp`;
   await fs.promises.writeFile(temp, next, 'utf8');
   await fs.promises.rename(temp, file);
-  return readConfig(file);
+  return readConfig(file, version);
 }
 
 function defaultPatch(version = '') {
-  const currentBeta = /^0\.4\.7(?:beta|-beta)(?:$|[.-])/.test(String(version));
+  const currentBeta = /^0\.4\.7(?:beta|-beta)(?:$|[.-])/.test(String(version)) || version === '0.5-dline13';
   return {
     Enabled: 1,
     Intensity: currentBeta ? 1.2 : 1.0,
@@ -173,5 +184,6 @@ module.exports = {
   writeConfig,
   defaultPatch,
   recommendedPatch,
-  normalizeValue
+  normalizeValue,
+  configLimits
 };

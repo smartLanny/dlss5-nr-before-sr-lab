@@ -4,6 +4,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { appError, normalizeError } = require('../src/product/errors');
 
+test('bundled Core update prerequisite survives the IPC error formatter', () => {
+  const result = normalizeError(appError('CORE_UPDATE_BASE_REQUIRED'));
+  assert.equal(result.code, 'CORE_UPDATE_BASE_REQUIRED');
+  assert.match(result.message, /已有的 DX12 原生安装/);
+  assert.match(result.message, /默认 Core.*再预览切换/);
+});
+
 test('missing components name bounded files and offer player-facing recovery', () => {
   const paths = ['C:/组件/fixed/nvngx_dlssnr.dll', 'nrchain.dll', 'dxgi.dll', 'extra.dll'];
   const error = normalizeError(appError('ERR_PAYLOAD_MISSING', { files: paths }));

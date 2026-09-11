@@ -98,7 +98,35 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     await legacySrModel.prepareMigration(id);
     if (components) await components.restore(id);
   }
-  return { serialize, launch, restoreForUninstall,
+  async function inspectLaunchReadiness(id, observed = null) {
+    const base = typeof settings.inspectLaunchReadiness === 'function'
+      ? await settings.inspectLaunchReadiness(id, observed)
+      : { state: 'unknown', known: false, blockers: [], source: 'unavailable', pending: [] };
+    const blockers = [...(base.blockers || [])], requests = base.requests || observed?.requests || {};
+    const add = (domain, code, message, details = {}) => {
+      const { action, ...rest } = details;
+      blockers.push({ domain, code, message, ...rest, action: typeof action === 'string' ? { kind: action } : action || null });
+    };
+    const fgRequest = requests.fg?.request;
+    let migration = null;
+    if (components?.inspectMigration) {
+      try { migration = await components.inspectMigration(id); }
+      catch (error) { add('fg', error.code || 'SETTINGS_FG_MIGRATION_UNKNOWN', error.message || '补帧迁移状态无法确认。', { known: false, recovery: true, action: 'recover' }); }
+      if (migration?.fileRecoveryPending) add('fg', 'SETTINGS_FG_FILE_RECOVERY_REQUIRED', '补帧组件文件操作尚未完成，请先恢复。', { recovery: true, action: 'recover' });
+      else if (migration?.migrationPending) add('fg', 'SETTINGS_FG_MIGRATION_PENDING', '补帧迁移尚未完成，请先恢复或完成迁移。', { recovery: true, action: 'migrate' });
+    }
+    const observedFg = observed?.fgComponents;
+    if (fgRequest && fgRequest.mode !== 'restore' && observedFg) {
+      if (observedFg.fileRecoveryPending) add('fg', 'SETTINGS_FG_FILE_RECOVERY_REQUIRED', '补帧组件文件操作尚未完成，请先恢复。', { recovery: true, action: 'recover' });
+      else if (observedFg.migrationPending) add('fg', 'SETTINGS_FG_MIGRATION_PENDING', '补帧迁移尚未完成，请先恢复。', { recovery: true, action: 'migrate' });
+      else if (observedFg.ready === false) add('fg', 'SETTINGS_COMPONENTS_NOT_READY', observedFg.needsCleanup
+        ? '请先在 FG 区域切换为原生路线，移除旧兼容组件。' : '帧生成组件尚未就绪，请先准备兼容组件或处理提示。', { action: 'open-settings' });
+    }
+    const state = blockers.length ? 'blocked' : base.state === 'unknown' ? 'unknown' : 'ready';
+    return { ...base, state, known: state !== 'unknown' && base.known !== false && !blockers.some(row => row.known === false), blockers,
+      source: observed ? 'settings-inspection' : 'metadata', migration };
+  }
+  return { serialize, launch, restoreForUninstall, inspectLaunchReadiness,
     async inspect(id) {
       if (!components) return settings.inspect(id);
       const [snapshot, fgComponents] = await Promise.all([settings.inspect(id), components.inspect(id).catch(async error => {

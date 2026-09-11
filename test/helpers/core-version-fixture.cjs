@@ -17,6 +17,10 @@ async function smokeVersionContract() {
   await until(() => document.querySelector('.game-card[data-id="fixture"] .open-game-page-btn'), 'library missing');
   document.querySelector('.game-card[data-id="fixture"] .open-game-page-btn').click();
   await until(() => host()?.__gpController.getState().loaded.includes('installation'), 'installation assessment missing');
+  for (const id of ['0.5-dline13', '0.4.7beta-corefix.8']) {
+    const candidate = [...field('route', 'version').options].find(row => row.value === id);
+    assert(candidate && !candidate.disabled, id + ' core-update candidate is visible and selectable in the ordinary settings dropdown');
+  }
   const fresh = value => { value.game.installed = false; value.defaults.version = 'fixture-core-alternative'; };
   await reset('first install with a legal old global default', fresh);
   assert(field('route', 'version').value === '0.4.7beta' && mock.assessment.defaults.version === 'fixture-core-alternative', 'new installation displays current Core despite a legal older default');

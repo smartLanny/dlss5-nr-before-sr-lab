@@ -9,7 +9,7 @@ const { createLaunchCoordinator } = require('../src/product/launch-coordinator')
 const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
 const { createSrModelService, loadPolicies } = require('../src/product/sr-model-service');
 
-function fixture(t, { legacyPolicy } = {}) {
+function fixture(t, { legacyPolicy, explicitApply = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-real-launch-legacy-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const game = path.join(root, 'Game');
@@ -62,7 +62,7 @@ function fixture(t, { legacyPolicy } = {}) {
     launch: async () => { serviceCalls.push('launch'); return true; }
   };
   const guards = { assertGameClosed: async () => serviceCalls.push('closed') };
-  const coordinator = createLaunchCoordinator({ service, settings, legacySrModel, guards });
+  const coordinator = createLaunchCoordinator({ service, settings, legacySrModel, guards, explicitApply });
   return { root, game, exe, legacySrModel, settings, coordinator, nvapiCalls, driverCalls, serviceCalls };
 }
 
@@ -76,6 +76,8 @@ test('a completely unconfigured game can open the panel and launch without touch
   assert.equal(panel.legacy.baselineCaptured, false);
   assert.deepEqual(f.nvapiCalls, []);
   assert.deepEqual(f.driverCalls, []);
+  assert.equal((await f.coordinator.inspectLaunchReadiness('game')).state, 'ready');
+  assert.deepEqual(f.nvapiCalls, []); assert.deepEqual(f.driverCalls, []);
 
   const result = await f.coordinator.launch('game');
   assert.equal(result.launched, true);
@@ -84,6 +86,21 @@ test('a completely unconfigured game can open the panel and launch without touch
   assert.deepEqual(f.nvapiCalls, []);
   assert.deepEqual(f.driverCalls, []);
   assert.deepEqual(f.serviceCalls, ['validate', 'closed', 'launch']);
+});
+
+test('a configured legacy M with a captured baseline is visibly blocked before launch without probing NVAPI', async t => {
+  const f = fixture(t, { explicitApply: true, legacyPolicy: {
+    selection: 'm',
+    baseline: { profileFound: false, enable: { explicit: false, value: 0 }, preset: { explicit: false, value: 0 } }
+  } });
+  const readiness = await f.coordinator.inspectLaunchReadiness('game');
+  assert.equal(readiness.state, 'blocked'); assert.equal(readiness.known, true);
+  assert.equal(readiness.blockers[0].code, 'SETTINGS_LEGACY_APPLY_REQUIRED');
+  assert.equal(readiness.blockers[0].action.kind, 'open-settings');
+  assert.deepEqual(f.nvapiCalls, []); assert.deepEqual(f.driverCalls, []);
+  await assert.rejects(f.coordinator.launch('game'), { code: 'SETTINGS_LEGACY_APPLY_REQUIRED' });
+  assert.deepEqual(f.serviceCalls, ['validate', 'closed']);
+  assert.deepEqual(f.nvapiCalls, []); assert.deepEqual(f.driverCalls, []);
 });
 
 test('legacy migration treats an omitted or null baseline as unowned and remains launchable', async t => {

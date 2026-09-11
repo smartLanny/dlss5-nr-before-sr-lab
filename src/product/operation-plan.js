@@ -163,6 +163,8 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         if (proxy.changes.length) steps.push({ kind: 'proxy', entry: proxy.entry });
       }
       if (request.nr && Object.keys(request.nr).length) {
+        const version = deployment?.version || defaults?.version || (await service.installationDefaults?.(id))?.version || current.addonVersion || '';
+        for (const [key, value] of Object.entries(request.nr)) request.nr[key] = normalizeValue(key, value, version);
         changes.push(...Object.entries(request.nr).map(([key, value]) => ({ action: 'set-config-key', path: '当前部署 / nr_before_sr.ini', key, value })));
         steps.push({ kind: 'nr' });
       }

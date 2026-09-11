@@ -6,3 +6,4 @@ resources/fg-mfgunlock/README.md -text
 resources/legacy-runtime/** -text
 # The shipped helper metadata also pins the raw source digest.
 src/native/load-helper.cpp -text
+docs/core-candidate-LICENSES.txt -text

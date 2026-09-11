@@ -20,7 +20,8 @@ async function readRecord(file) {
 }
 
 function createHoYoWorkflow({ userData, service, operations, launches, verification, launch, elevatedApply,
-  requiresElevation = async () => false, discovery: suppliedDiscovery, discoveryOptions = {}, beforeMutation = async () => {} }) {
+  requiresElevation = async () => false, discovery: suppliedDiscovery, discoveryOptions = {}, beforeMutation = async () => {},
+  inspectLaunchReadiness: inspectLaunchReadinessMetadata = null }) {
   const file = path.join(userData, 'hoyo-bindings.json'), clients = new Map(), errors = new Map(), starts = new Map(), starting = new Map(), installs = new Map(), acknowledged = new Map();
   let launchers = [], warnings = [];
   async function saved() {
@@ -131,6 +132,21 @@ function createHoYoWorkflow({ userData, service, operations, launches, verificat
       binding.launcher?.kind !== installedLauncher?.kind || !same(binding.launcher?.path, installedLauncher?.path) ||
       binding.launcher?.sha256 !== installedLauncher?.sha256);
     const ready = installed && deployment.ready === true && !apiChangePending && !bindingChangePending && !needsRecovery && !error;
+    let launchReadiness;
+    if (installed && typeof inspectLaunchReadinessMetadata === 'function') {
+      try {
+        launchReadiness = await inspectLaunchReadinessMetadata(row.gameId);
+        if (!launchReadiness || typeof launchReadiness !== 'object' || Array.isArray(launchReadiness)) {
+          throw Object.assign(new Error('启动设置就绪状态返回无效。'), { code: 'HOYO_LAUNCH_READINESS_INVALID' });
+        }
+      } catch (cause) {
+        launchReadiness = {
+          state: 'unknown', known: false, source: 'metadata', pending: [],
+          blockers: [{ domain: 'settings', code: cause?.code || 'HOYO_LAUNCH_READINESS_UNKNOWN',
+            message: cause?.message || '启动设置就绪状态暂时无法确认。', known: false, action: { kind: 'open-settings' } }]
+        };
+      }
+    }
     // A newly verified preference can replace the old game's/launcher's hash
     // through a fresh owner plan. Other ownership or file failures stay visible.
     const blockers = (deployment?.blockers || []).filter(item => !(bindingChangePending && binding.confirmed &&
@@ -155,7 +171,8 @@ function createHoYoWorkflow({ userData, service, operations, launches, verificat
         launchers: launcherChoices(row), channels: channels.map(({ channel, channelLabel }) => ({ channel, channelLabel })) },
       installation: { installed, ready: ready && !error, needsRecovery, error, apiChangePending, bindingChangePending, installedApi: deployment?.api || null, hasRecord: Boolean(deployment?.installed || needsRecovery) },
       phase, nextAction, session, verification: Object.fromEntries(Object.entries(verified).map(([name, value]) => [name, { ...value, state: value?.status || 'unverified' }])),
-      error, busy: false, evidence: row.evidence || [], warnings: row.warnings || [] };
+      error, busy: false, evidence: row.evidence || [], warnings: row.warnings || [],
+      ...(launchReadiness ? { launchReadiness } : {}) };
   }
   async function assertIdle(row, allowStarting = false) {
     const session = await launches.inspect(row.gameId);

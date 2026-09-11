@@ -181,6 +181,84 @@ function createLaunchSettingsService(options = {}) {
     return rows;
   }
   async function assertReady(id) { const rows = await pending(id); if (rows.length) fail('SETTINGS_RECOVERY_FIRST', '上次文件或驱动设置尚未恢复，请先完成恢复。', { pending: rows }); return true; }
+  async function inspectLaunchReadiness(id, observed = null) {
+    const t = target(id), blockers = [];
+    const add = (domain, code, message, details = {}) => {
+      const { action, ...rest } = details;
+      blockers.push({ domain, code, message, ...rest, action: typeof action === 'string' ? { kind: action } : action || null });
+    };
+    let rows = {}, requestError = null;
+    try { rows = requests().games[t.key] || {}; }
+    catch (error) { requestError = { code: error.code || 'SETTINGS_REQUESTS_INVALID', message: error.message || '保存的启动设置无法读取。' }; }
+    const pendingRows = await pending(id);
+    if (requestError) add('settings', requestError.code, requestError.message, { known: false, recovery: true, action: 'open-settings' });
+    if (pendingRows.length) add('settings', 'SETTINGS_RECOVERY_FIRST', '上次文件或驱动设置尚未恢复，请先完成恢复。', { recovery: true, action: 'recover', pending: pendingRows });
+
+    let legacy = null, legacyError = null;
+    if (legacySrModel?.migrationInfo) {
+      try { legacy = await legacySrModel.migrationInfo(id); }
+      catch (error) { legacyError = { code: error.code || 'SETTINGS_LEGACY_MIGRATION', message: error.message || '旧 SR 状态无法确认。' }; }
+    }
+    const srOwned = Boolean(rows.sr || rows._srManaged);
+    if (!srOwned && legacyError) add('sr', legacyError.code, legacyError.message, { known: false, recovery: true, action: 'open-settings' });
+    else if (!srOwned && (legacy?.configured === true || legacy?.baselineCaptured === true))
+      add('sr', 'SETTINGS_LEGACY_APPLY_REQUIRED', '仍有旧版 SR 选择或恢复记录；请先在增强设置中预览并应用或恢复。', { recovery: true, action: 'open-settings' });
+
+    let stored = null, storedError = null;
+    if (rows.sr || rows.fg) {
+      try { stored = receipt(t).applied; }
+      catch (error) { storedError = { code: error.code || 'SETTINGS_RECEIPT_INVALID', message: error.message || '启动设置恢复记录无法读取。' }; }
+    }
+    if (storedError) add('settings', storedError.code, storedError.message, { known: false, recovery: true, action: 'recover' });
+    let readbackUnknown = false;
+    for (const domain of ['sr', 'fg']) {
+      const requestRow = rows[domain], request = requestRow?.request;
+      if (!request) continue;
+      if (domain === 'fg' && request.backend === 'rtx40') {
+        add('fg', 'SETTINGS_FG_MIGRATION_REQUIRED', '旧补帧设置只保留恢复能力，请先迁移或撤销后再启动。', { recovery: true, action: 'migrate' });
+        continue;
+      }
+      const saved = stored?.[domain], inspected = observed?.applied?.[domain];
+      const applied = inspected || saved;
+      if (!applied || !policy.same(applied.request, request)) {
+        add(domain, 'SETTINGS_REQUIRE_APPLY', '存在尚未应用的设置，请在增强设置中确认并应用。', { action: 'open-settings' });
+        continue;
+      }
+      if (inspected) {
+        if (domain === 'fg' && request.backend === 'mfgunlock') {
+          const current = observed?.current?.fg;
+          if (!current?.valid) {
+            add(domain, current?.error?.code || 'SETTINGS_MFG_CONFIG_UNAVAILABLE',
+              current?.error?.message || '无法读取当前 MFG 配置。', { action: 'open-settings' });
+            continue;
+          }
+          let exeUnchanged = true;
+          if (inspected.exeHash) {
+            try { exeUnchanged = inspected.exeHash === await digestFile(t.exe); } catch { exeUnchanged = false; }
+          }
+          if (!exeUnchanged) {
+            add(domain, 'SETTINGS_EXE_CHANGED', '游戏程序已变化，请重新检查原补帧绑定。', { action: 'reapply' });
+            continue;
+          }
+          try {
+            const eligibility = await assessEligibility(id, domain, current.request);
+            const blockers = (eligibility.blockers || []).filter(item => !(current.experimental && item.code === 'SETTINGS_MULTIPLIER_UNCONFIRMED'));
+            if (blockers.length) add(domain, 'SETTINGS_BLOCKED', blockers.map(item => item.message).join('\n'), { action: 'open-settings' });
+          } catch (error) {
+            add(domain, error.code || 'SETTINGS_EVIDENCE_UNAVAILABLE', error.message || '当前 MFG 支持条件无法确认。', { known: false, action: 'open-settings' });
+          }
+          continue;
+        }
+        if (inspected.requiresReapply === true || inspected.readbackVerified === false || inspected.configVerified === false)
+          add(domain, 'SETTINGS_REQUIRE_REAPPLY', '当前设置已被其他程序改变，请重新预览并明确应用。', { action: 'reapply' });
+      } else readbackUnknown = true;
+    }
+    let visibleRequests = {};
+    try { visibleRequests = savedRequests(id); } catch {}
+    const state = blockers.length ? 'blocked' : readbackUnknown ? 'unknown' : 'ready';
+    return { state, known: state !== 'unknown' && !blockers.some(row => row.known === false), blockers,
+      source: observed ? 'settings-inspection' : 'metadata', pending: pendingRows, requests: visibleRequests, legacy: legacy || (legacyError ? { error: legacyError } : null) };
+  }
   async function hasOwnedState(id) {
     const dir = options.gameDirectory(id);
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) fail('ERR_UNKNOWN_GAME', '游戏目录无效。');
@@ -671,7 +749,7 @@ function createLaunchSettingsService(options = {}) {
     }
     return outcomes;
   }
-  return Object.freeze({ inspect, savedRequests, save, preview, previewMfgCompensation, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
+  return Object.freeze({ inspect, savedRequests, save, preview, previewMfgCompensation, apply, beforeLaunch, recover, restore, pending, assertReady, inspectLaunchReadiness, hasSrRequest, hasOwnedState,
     assessEligibility, confirmGameFeature, inspectGameFeatureConfirmation,
     requestFile, receiptFile: id => receiptFile(target(id)), driverPendingFile: id => driverPendingFile(target(id)) });
 }

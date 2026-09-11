@@ -149,6 +149,37 @@ test('external NVIDIA change requires explicit reapply and launch performs no dr
   assert.equal(writes, 0); assert.deepEqual(f.driver.peek(), changed);
 });
 
+test('metadata launch readiness blocks unowned legacy SR without reading the driver', async t => {
+  const f = fixture(t, { legacy: { migrationInfo: async () => ({ configured: true, selection: 'm', effective: 'm', baselineCaptured: true }) } });
+  let reads = 0; f.driver.read = async () => { reads++; throw new Error('driver read must wait for enhancements'); };
+  const state = await f.service.inspectLaunchReadiness('g');
+  assert.equal(state.state, 'blocked'); assert.equal(state.known, true);
+  assert.equal(state.blockers[0].code, 'SETTINGS_LEGACY_APPLY_REQUIRED'); assert.equal(state.blockers[0].action.kind, 'open-settings');
+  assert.equal(reads, 0);
+});
+
+test('new SR ownership suppresses a stale or unreadable legacy policy record', async t => {
+  const f = fixture(t, { legacy: { migrationInfo: async () => { throw Object.assign(new Error('legacy policy file has another game error'), { code: 'SETTINGS_LEGACY_MIGRATION' }); } } });
+  await f.service.save('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' });
+  const state = await f.service.inspectLaunchReadiness('g');
+  assert.equal(state.blockers.find(row => row.code === 'SETTINGS_LEGACY_APPLY_REQUIRED'), undefined);
+  assert.equal(state.blockers[0].code, 'SETTINGS_REQUIRE_APPLY');
+});
+
+test('unconfigured launch readiness is ready, then stays unknown until readback is observed', async t => {
+  const f = fixture(t); let reads = 0; const read = f.driver.read;
+  f.driver.read = async (...args) => { reads++; return read(...args); };
+  assert.equal((await f.service.inspectLaunchReadiness('g')).state, 'ready'); assert.equal(reads, 0);
+  const request = { backend: 'native', quality: 'quality', preset: 'K' };
+  await f.service.save('g', 'sr', request);
+  assert.equal((await f.service.inspectLaunchReadiness('g')).blockers[0].code, 'SETTINGS_REQUIRE_APPLY');
+  const plan = await f.service.preview('g', 'sr', request); await f.service.apply(plan.id, { confirm: true });
+  await f.service.save('g', 'sr', request);
+  assert.equal((await f.service.inspectLaunchReadiness('g')).state, 'unknown');
+  const observed = await f.service.inspect('g');
+  assert.equal((await f.service.inspectLaunchReadiness('g', observed)).state, 'ready'); assert.ok(reads > 0);
+});
+
 test('component-preparation preview shows real operations but cannot itself be applied', async t => {
   let ready = false;
   const f = fixture(t, { family: 'RTX40', service: { assertComponents: async () => { if (!ready) throw Object.assign(Error('prepare addon'), { code: 'SETTINGS_COMPONENTS_NOT_READY' }); } } });
@@ -204,6 +235,9 @@ test('game-panel MFG changes are displayed and launched read-only while the orig
   const state = await f.service.inspect('g');
   assert.equal(state.current.fg.request.multiplier, 4); assert.equal(state.current.fg.differsFromLastApplied, true);
   assert.equal(state.requests.fg.request.multiplier, 3); assert.equal(state.applied.fg.requiresReapply, false);
+  const readiness = await f.service.inspectLaunchReadiness('g', state);
+  assert.equal(readiness.state, 'ready');
+  assert.equal(readiness.blockers.some(row => row.code === 'SETTINGS_REQUIRE_REAPPLY'), false);
   const before = fs.readFileSync(file), record = fs.readFileSync(path.join(f.game, '_DLSS5_Backup/xiaofeng-launch-settings.json'));
   const launch = (await f.service.beforeLaunch('g'))[0]; assert.equal(launch.noOp, true); assert.equal(launch.currentRequest.multiplier, 4);
   assert.deepEqual(fs.readFileSync(file), before); assert.deepEqual(fs.readFileSync(path.join(f.game, '_DLSS5_Backup/xiaofeng-launch-settings.json')), record);
@@ -228,7 +262,10 @@ test('malformed panel settings block MFG launch without any rewrite; 5/6 remain 
   await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true }); await f.service.save('g', 'fg', request);
   for (const value of ['9', 'dynamic', '3\nForceMultiplier=4']) {
     const text = `[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=${value}\n`; fs.writeFileSync(file, text);
-    assert.equal((await f.service.inspect('g')).current.fg.valid, false);
+    const state = await f.service.inspect('g'); assert.equal(state.current.fg.valid, false);
+    const readiness = await f.service.inspectLaunchReadiness('g', state);
+    assert.equal(readiness.state, 'blocked');
+    assert.equal(readiness.blockers.some(row => row.code === state.current.fg.error.code), true, JSON.stringify(readiness.blockers));
     assert.equal((await f.service.beforeLaunch('g'))[0].noOp, undefined); assert.equal(fs.readFileSync(file, 'utf8'), text);
   }
   const text = '[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=6\n'; fs.writeFileSync(file, text);

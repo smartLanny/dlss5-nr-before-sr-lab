@@ -148,6 +148,8 @@ function inspectVersion(dir, entry, digest = sha256, safetyRoot = dir) {
     notes: entry && entry.notes,
     source: entry && entry.source,
     compatibility: entry && entry.compatibility,
+    coreUpdateOnly: entry?.coreUpdateOnly === true,
+    comparisonOnly: entry?.comparisonOnly === true,
     trustedUpgradeFrom: Array.isArray(entry?.trustedUpgradeFrom) ? entry.trustedUpgradeFrom.filter(value => /^[a-f0-9]{64}$/i.test(value)).slice(0, 16) : [],
     ota: Boolean(entry && entry.ota),
     variants,
@@ -198,6 +200,8 @@ function inspectCompactVersion(root, id, entry, fixed, digest = sha256) {
     notes: entry && entry.notes,
     source: entry && entry.source,
     compatibility: entry && entry.compatibility,
+    coreUpdateOnly: entry?.coreUpdateOnly === true,
+    comparisonOnly: entry?.comparisonOnly === true,
     trustedUpgradeFrom: Array.isArray(entry?.trustedUpgradeFrom) ? entry.trustedUpgradeFrom.filter(value => /^[a-f0-9]{64}$/i.test(value)).slice(0, 16) : [],
     ota: Boolean(entry && entry.ota),
     variants,
@@ -294,6 +298,7 @@ function requirePayload(dir, hardwareFamily, version) {
   payload.versionInfo = result.versions && result.versions[result.selectedVersion]
       ? { id: result.selectedVersion, label: result.versions[result.selectedVersion].label, notes: result.versions[result.selectedVersion].notes,
         compatibility: result.versions[result.selectedVersion].compatibility || null,
+        coreUpdateOnly: result.versions[result.selectedVersion].coreUpdateOnly === true,
         trustedUpgradeFrom: result.versions[result.selectedVersion].trustedUpgradeFrom || [],
         ota: Boolean(result.versions[result.selectedVersion].ota) }
     : null;
@@ -355,7 +360,9 @@ function createCompactBundle(dir, entries, defaultVersion) {
     if (fs.existsSync(bridge)) files[PAYLOAD_FILES.bridge] = sha256(bridge);
     const carrier = path.join(base, OPTIONAL_PAYLOAD_FILES.carrier);
     if (fs.existsSync(carrier)) files[OPTIONAL_PAYLOAD_FILES.carrier] = sha256(carrier);
-    return [id, { label: entry.label || id, notes: entry.notes || '', source: entry.source || '', compatibility: entry.compatibility || null, ota: Boolean(entry.ota), files }];
+    return [id, { label: entry.label || id, notes: entry.notes || '', source: entry.source || '', compatibility: entry.compatibility || null, ota: Boolean(entry.ota),
+      ...(entry.coreUpdateOnly === true ? { coreUpdateOnly: true } : {}),
+      ...(entry.comparisonOnly === true ? { comparisonOnly: true } : {}), files }];
   }));
   return { version: 4, generatedAt: new Date().toISOString(), defaultVersion, fixed, versions };
 }

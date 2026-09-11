@@ -46,6 +46,20 @@ test('legacy-only selection is retained until new SR settings explicitly take ow
   assert.deepEqual(f.calls, ['ready', 'validate', 'closed', 'settings', 'legacy', 'launch']);
 });
 
+test('unified launch readiness retains the dedicated FG recovery action', async () => {
+  let pending = true;
+  const f = fixture({ inspectLaunchReadiness: async () => ({ state: 'ready', known: true, blockers: [], pending: [], requests: {} }) }, {
+    inspectMigration: async () => ({ migrationPending: false, fileRecoveryPending: pending })
+  });
+  const readiness = await f.module.inspectLaunchReadiness('a');
+  assert.equal(readiness.state, 'blocked');
+  assert.equal(readiness.blockers[0].code, 'SETTINGS_FG_FILE_RECOVERY_REQUIRED');
+  assert.equal(readiness.blockers[0].action.kind, 'recover');
+  pending = false;
+  assert.equal((await f.module.inspectLaunchReadiness('a')).state, 'ready');
+});
+
+
 test('plain launch reads saved intent without probing NVIDIA profile scope or component UI state', async () => {
   const f=fixture({savedRequests:async()=>({}),inspect:async()=>{throw Error('plain launch must not inspect GPU settings');}}, {inspect:async()=>{throw Error('no FG request');}});
   await f.module.launch('a');assert.equal(f.calls.includes('launch'),true);

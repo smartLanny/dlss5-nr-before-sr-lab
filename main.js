@@ -720,6 +720,7 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
     if (!worker) hoyoWorkflow = require('./src/product/hoyo-workflow').createHoYoWorkflow({ userData, service,
       operations: operationPlans, launches: launchSessions, verification: runtimeVerification,
       launch: (id, controls) => launchCoordinator.serialize(() => launchCoordinator.launch(id, controls)),
+      inspectLaunchReadiness: id => launchCoordinator.inspectLaunchReadiness(id),
       elevatedApply: (id, planId, consent) => operationElevation.apply(id, planId, consent),
       beforeMutation: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)),
       requiresElevation: async plan => {

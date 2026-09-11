@@ -17,7 +17,7 @@
 
   function mount(host, api, options = {}) {
     let games = [], launchers = [], warnings = [], selectedId = null, flow = null, form = {}, busy = false, error = '', plan = null,
-      discovering = false, disposed = false, generation = 0, timer = null, active = false, expanded = true, editingApi = false, currentWork = '', previewAction = 'install';
+      discovering = false, disposed = false, generation = 0, timer = null, active = false, expanded = true, editingApi = false, currentWork = '', previewAction = 'install', editorReadiness = null;
     const editors = new Map();
     const editor = () => editors.get(flow?.gameId);
     const editorBusy = () => editor()?.controller.getState().busy === true;
@@ -44,9 +44,37 @@
     }
     function accept(value) {
       if (!value || !value.id || selectedId && value.id !== selectedId) throw new Error('返回的客户端与当前选择不一致。');
-      flow = value; selectedId = value.id; const at = games.findIndex(row => row.id === value.id);
+      flow = value; editorReadiness = null; selectedId = value.id; const at = games.findIndex(row => row.id === value.id);
       if (at < 0) games.push(value); else games[at] = value;
       form = {}; options.onChanged?.(value); schedule();
+    }
+    function launchReadiness() {
+      const value = editorReadiness?.state ? editorReadiness : flow?.launch?.readiness || flow?.launchReadiness || flow?.installation?.launchReadiness;
+      return value?.state ? value : null;
+    }
+    function readinessBlocked() { const info = launchReadiness(); return info?.state === 'blocked' || info?.state === 'unknown' && Array.isArray(info.blockers) && info.blockers.length > 0; }
+    function readinessNeedsNotice() { const info = launchReadiness(); return readinessBlocked() || info?.state === 'unknown'; }
+    function readinessBlocker() {
+      const info = launchReadiness();
+      return Array.isArray(info?.blockers) ? info.blockers.find(row => row && row.message) || info.blockers[0] || null : null;
+    }
+    function readinessActionKind() {
+      const action = readinessBlocker()?.action;
+      return typeof action === 'string' ? action : action?.kind || null;
+    }
+    function readinessMessage() {
+      const info = launchReadiness(), blocker = readinessBlocker();
+      if (!info || !readinessNeedsNotice()) return '';
+      if (info.state === 'unknown' && !blocker && info.source === 'metadata') return '已保存设置；启动时会检查当前状态。';
+      return blocker?.message || (info.state === 'unknown' ? '启动前状态暂时无法确认，请重新检查设置。' : '启动前还有需要处理的设置。');
+    }
+    function readinessActionLabel() {
+      const kind = readinessActionKind();
+      if (kind === 'recover') return '恢复未完成操作';
+      if (kind === 'migrate') return '前往补帧设置';
+      if (kind === 'reapply') return '重新预览设置';
+      if (kind === 'open-settings') return '前往超分补帧设置';
+      return launchReadiness()?.state === 'unknown' ? '重新检查启动条件' : '处理启动前设置';
     }
     function currentAction() {
       if (busy) return button('working', currentWork, true, true);
@@ -58,7 +86,7 @@
       if (flow.nextAction === 'bind') return button('bind', '确认绑定', true, disabled || !((form.launcherId || flow.binding?.launcher?.id) && (!(flow.binding?.channels?.length > 1) || form.channel || flow.channel)));
       if (flow.nextAction === 'select-api') return button('bind', '确认图形 API', true, disabled || !['dx11', 'dx12'].includes(form.api));
       if (flow.nextAction === 'preview-install') return button('preview-install', flow.installation?.installed ? '预览更新配套' : '预览安装', true, disabled);
-      if (flow.nextAction === 'start') return button('start', '启动游戏', !hasDraft(), disabled || !flow.installation?.ready);
+      if (flow.nextAction === 'start') { const blocked = readinessBlocked(); return button(blocked ? 'resolve-readiness' : 'start', blocked ? readinessActionLabel() : '启动游戏', true, disabled || !flow.installation?.ready); }
       if (flow.nextAction === 'recover') return button('recover', '恢复未完成操作', true, disabled);
       if (flow.nextAction === 'wait' || waiting(flow.phase)) return button('cancel', '取消等待', false, disabled);
       return button('inspect', '重新检查', true, disabled);
@@ -82,6 +110,11 @@
     }
     const ready = () => !busy && !flow?.busy && !error && !flow?.error && !flow?.installation?.error && !editingApi && flow?.phase === 'ready' && flow?.nextAction === 'start' && flow?.installation?.ready;
     function phaseLabel(row) {
+      const readiness = row.id === selectedId ? launchReadiness() : row.launchReadiness;
+      if (row.phase === 'ready' && !(row.id === selectedId && (busy || editingApi || error))) {
+        if (readiness?.state === 'blocked' || readiness?.state === 'unknown' && readiness.blockers?.length) return '启动前需要处理';
+        if (readiness?.state === 'unknown') return '启动时检查设置';
+      }
       return row.id === selectedId && busy ? currentWork : PHASES[row.id === selectedId && editingApi ? 'api' : row.error || row.installation?.error || row.id === selectedId && error ? 'failed' : row.phase]?.[0] || '待检查';
     }
     function maintenance() {
@@ -98,14 +131,17 @@
         ${ready() ? '<div class="hoyo-settings-slot"></div>' : !busy && !['binding', 'api'].includes(phase) ? `<p class="gp-caption">${phase === 'install' ? '此客户端使用独立的 ReShade、Core 和 NR 配套。预览后再确认安装。' : ''}</p>` : ''}
         ${ready() ? '' : `<div class="hoyo-maintenance-slot">${maintenance()}${evidence()}</div>`}</div>`;
     }
-    function syncEditorActions() {
+    function syncEditorActions(actionState = null) {
+      if (actionState && Object.hasOwn(actionState, 'readiness')) editorReadiness = actionState.readiness?.state ? actionState.readiness : null;
       const locked = editorBusy() || hasDraft();
       host.querySelector('.game-card.expanded')?.classList.toggle('has-pending-draft', hasDraft());
       const status = host.querySelector(`[data-hoyo-card="${selectedId}"] [data-hoyo-status]`);
-      if (status && flow) { status.textContent = editorBusy() ? '正在处理设置…' : hasDraft() ? '有修改待应用' : phaseLabel(flow); status.classList.toggle('good', !locked && ready()); }
+      if (status && flow) { status.textContent = editorBusy() ? '正在处理设置…' : hasDraft() ? '有修改待应用' : readinessBlocked() ? '启动前需要处理' : readinessNeedsNotice() ? '启动时检查设置' : phaseLabel(flow); status.classList.toggle('good', !locked && ready() && !readinessNeedsNotice()); }
       host.setAttribute('aria-busy', String(busy || editorBusy()));
       const start = host.querySelector('[data-hoyo-action="start"]');
-      if (start) { start.disabled = locked || !ready(); start.classList.toggle('primary', !locked); }
+      if (start) { start.disabled = locked || !ready() || readinessBlocked(); start.classList.toggle('primary', !locked && !readinessBlocked()); }
+      const header = host.querySelector('.hoyo-header-action'); if (header && flow && ready()) { header.innerHTML = currentAction(); const headerStart = header.querySelector('[data-hoyo-action="start"]'); if (headerStart) { headerStart.disabled = locked || !ready() || readinessBlocked(); headerStart.classList.toggle('primary', !locked && !readinessBlocked()); } }
+      const primary = host.querySelector('.hoyo-primary-actions'); if (primary && flow && !ready()) primary.innerHTML = currentAction();
       for (const node of host.querySelectorAll('.hoyo-details [data-hoyo-action],.library-actions [data-hoyo-action]')) node.disabled = locked || busy || editingApi || node.closest('.hoyo-details') && waiting(flow?.phase) || node.dataset.hoyoAction === 'edit-api' && !['install', 'ready'].includes(flow?.phase);
       feedback?.update();
     }
@@ -196,6 +232,20 @@
       if (action === 'bind') return run(() => api.hoyoBind(selectedId, { ...form }), true, '正在保存客户端绑定…');
       if (action.startsWith('preview-')) { const requested = action.slice(8), result = await run(() => api.hoyoPreview(selectedId, requested), false, '正在准备操作预览…'); if (result) { plan = result; previewAction = requested; renderPlan(); } return; }
       if (action === 'close-plan') { plan = null; host.querySelector('.gp-modal')?.remove(); return; }
+      if (action === 'resolve-readiness') {
+        const kind = readinessActionKind();
+        // The outer HoYo card can be collapsed while its lightweight flow
+        // still exposes a launch blocker. Open the card first, create the
+        // shared editor, then let that editor wait for installation readiness
+        // and route to the owning tab.
+        if (!expanded) { expanded = true; render(); }
+        if (!editor()?.controller) openSettings();
+        const controller = editor()?.controller;
+        if (controller?.resolveReadiness) await controller.resolveReadiness();
+        else if (controller) controller.selectTab(kind === 'recover' ? 'maintenance' : 'enhance');
+        else await inspect();
+        return;
+      }
       if (action === 'apply') {
         const saved = plan; if (!saved) return; const allowAntiCheat = host.querySelector('[data-hoyo-consent]')?.checked === true;
         if ((saved.requiresAntiCheat === true || saved.deployment?.requiresAntiCheat === true) && !allowAntiCheat) {

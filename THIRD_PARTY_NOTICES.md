@@ -171,3 +171,9 @@ files only where they have a lawful right to do so.
 The manager treats the NR-before-SR add-on and bridge as external payload files.
 Their source, binaries and licensing remain separate from the manager unless a
 future release explicitly states otherwise.
+
+The optional 0.5 D13 and 0.4.7 Corefix8 candidates retain the original, identical
+third-party notice shipped in their verified source archives. It is included as
+`Core第三方许可.txt` in this local package; the original bytes are stored in
+`docs/core-candidate-LICENSES.txt` (SHA-256
+`528ec41bf98884de39de9a66bae3ab87d44dea694f5db49ed41b780745fb3f6c`).

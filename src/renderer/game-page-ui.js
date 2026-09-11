@@ -41,13 +41,70 @@
   }
   function mount(host, manager, options = {}) {
     let id = null, data = null, draft = {}, fields = {}, invalidFields = {}, tab = 'overview', busy = false, launching = false, message = '', error = false,
-      modal = null, generation = 0, session = null, unsubscribe = null, disposed = false, tabController = null, capturingHotkey = false, faceStrength = 1;
+      modal = null, generation = 0, session = null, unsubscribe = null, disposed = false, tabController = null, capturingHotkey = false, faceStrength = 1,
+      readinessState = null, readinessEpoch = -1, readinessOrder = -1, assessmentOrder = 0, launchAttempt = 0;
     const loaded = new Set(), sectionRequests = new Map(), sectionTokens = new Map(), sectionFailures = new Map();
     const draftCount = () => new Set([...Object.keys(draft), ...Object.keys(invalidFields)]).size;
     const dirty = () => draftCount() > 0;
     const act = (name, label, disabled = false, kind = '') => `<button type="button" class="button ${kind}" data-gp-action="${name}"${disabled ? ' disabled' : ''}>${label}</button>`;
     const selected = (name, baseline) => draft[name] ?? baseline;
     const currentHardware = () => data.enhancements?.hardware || data.hardware || {};
+    function launchReadiness() {
+      const fallback = data?.enhancements?.launchReadiness?.state ? data.enhancements.launchReadiness : data?.launch?.readiness;
+      return readinessState?.state ? readinessState : fallback || null;
+    }
+    function readinessBlocker() {
+      const info = launchReadiness();
+      return Array.isArray(info?.blockers) ? info.blockers.find(row => row && row.message) || info.blockers[0] || null : null;
+    }
+    function readinessNeedsAction() {
+      const info = launchReadiness();
+      return info?.state === 'blocked' || info?.state === 'unknown' && Array.isArray(info.blockers) && info.blockers.length > 0;
+    }
+    function readinessNeedsNotice() {
+      const info = launchReadiness();
+      return readinessNeedsAction() || info?.state === 'unknown';
+    }
+    function readinessActionKind() {
+      const action = readinessBlocker()?.action;
+      return typeof action === 'string' ? action : action?.kind || null;
+    }
+    function readinessMessage() {
+      const info = launchReadiness(), blocker = readinessBlocker();
+      if (!info || !readinessNeedsNotice()) return '';
+      if (info.state === 'unknown' && !blocker && info.source === 'metadata') return '已保存设置；启动时会检查当前状态。';
+      return blocker?.message || (info.state === 'unknown' ? '启动前状态暂时无法确认，请重新检查设置。' : '启动前还有需要处理的设置。');
+    }
+    function readinessActionName() {
+      const kind = readinessActionKind();
+      const fgRecovery = data?.enhancements?.fgComponents?.fileRecoveryPending || data?.enhancements?.fgComponents?.migrationPending;
+      if (kind === 'recover' && fgRecovery) return 'recover-fg-components';
+      if (kind === 'recover' && (data?.enhancements?.pending?.length || data?.operation?.pending || data?.deployment?.needsRecovery)) {
+        return data?.enhancements?.pending?.length ? 'recover-settings' : 'recover-operation';
+      }
+      return 'resolve-readiness';
+    }
+    function readinessActionLabel() {
+      const kind = readinessActionKind();
+      if (kind === 'recover') return readinessBlocker()?.domain === 'fg' ? '前往补帧恢复' : '恢复未完成操作';
+      if (kind === 'migrate') return '前往补帧设置';
+      if (kind === 'reapply') return '重新预览设置';
+      if (kind === 'open-settings') return '前往超分补帧设置';
+      return launchReadiness()?.state === 'unknown' ? '重新检查启动条件' : '处理启动前设置';
+    }
+    async function resolveReadiness() {
+      const targetId = id, targetGeneration = generation;
+      if (!loaded.has('installation')) await loadSection('installation');
+      if (disposed || id !== targetId || generation !== targetGeneration) return;
+      const kind = readinessActionKind();
+      if (kind === 'recover' && (data?.enhancements?.fgComponents?.fileRecoveryPending || data?.enhancements?.fgComponents?.migrationPending)) return work(() => manager.recoverFgComponents(id), '未完成补帧组件操作已恢复。', true);
+      if (kind === 'recover' && data?.enhancements?.pending?.length) return work(() => manager.recoverLaunchSettings(id), '未完成设置事务已恢复。', true);
+      if (kind === 'recover' && (data?.operation?.pending || data?.deployment?.needsRecovery)) return work(() => manager.recoverOperation(id), '已检查并恢复未完成操作。', true);
+      const next = kind === 'recover' ? 'maintenance' : 'enhance';
+      selectTab(next);
+      await loadSection(TAB_SECTION[next]);
+      if (next === 'maintenance') await loadSection('enhancements');
+    }
     const detectedApi = () => data.api?.detectedApi || data.game.chosen?.detectedApiResolution?.api || data.game.chosen?.detectedApi ||
       (data.game.chosen?.apiResolution?.source !== 'override' ? data.game.chosen?.apiResolution?.api : null) ||
       (data.game.apiOverride && data.game.apiOverride !== 'auto' ? 'unknown' : data.api?.effectiveApi);
@@ -99,7 +156,8 @@
     }
     function feature(domain) { return data?.enhancements?.featureStates?.[domain] || { eligible: false, blockers: [{ message: '尚未确认此功能的支持条件。' }] }; }
     function head() {
-      const tabs = options.hoyoSettingsOnly ? [['overview', '安装与画面'], ['maintenance', '高级与维护']] : [['overview', '安装与画面'], ['enhance', '超分与补帧'], ['maintenance', '高级与维护']];
+      const allowHoyoEnhance = options.hoyoSettingsOnly && (readinessNeedsAction() || tab === 'enhance');
+      const tabs = options.hoyoSettingsOnly ? [['overview', '安装与画面'], ...(allowHoyoEnhance ? [['enhance', '超分与补帧']] : []), ['maintenance', '高级与维护']] : [['overview', '安装与画面'], ['enhance', '超分与补帧'], ['maintenance', '高级与维护']];
       return `<div class="detail-tabs gp-tabs" role="tablist" aria-label="游戏设置">${tabs.map(([key, label]) => `<button class="detail-tab" type="button" role="tab" data-detail-tab="${DETAIL_TAB[key]}" data-gp-tab="${key}" aria-selected="${tab === key}" tabindex="${tab === key ? 0 : -1}">${label}</button>`).join('')}</div>`;
     }
     function diagnosticsContent() {
@@ -133,7 +191,8 @@
       const controls = rows => rows.map(([key, label, min, max, step]) => {
           const capable = available && (!Object.hasOwn(data.nr?.capabilities || {}, key) || data.nr.capabilities[key] === true);
           if (NR_CHOICES[key]) return selectField('nr', key, label, NR_CHOICES[key].map((label, value) => option(value, label, nr[key] ?? 0)).join(''), !capable);
-          return `<label class="gp-field"><span>${label}</span><div class="gp-range"><input type="range" min="${key === 'SkinStructureStrength' ? 0 : min}" max="${max}" step="${step}" value="${esc(nr[key] ?? min)}" data-gp-group="nr" data-gp-field="${key}"${capable ? '' : ' disabled'}><output>${esc(nr[key] ?? min)}</output></div>${capable ? key === 'CustomWorkScale' ? '<small>工作模式选为“自定义”后生效。</small>' : '' : '<small>当前 Core 或配置未提供此项。</small>'}</label>`;
+          const limits = data.nr?.limits?.[key] || {}, lower = limits.min === undefined ? key === 'SkinStructureStrength' ? 0 : min : Number(limits.min), upper = limits.max === undefined ? max : Number(limits.max);
+          return `<label class="gp-field"><span>${label}</span><div class="gp-range"><input type="range" min="${lower}" max="${upper}" step="${step}" value="${esc(nr[key] ?? lower)}" data-gp-group="nr" data-gp-field="${key}"${capable ? '' : ' disabled'}><output>${esc(nr[key] ?? lower)}</output></div>${capable ? key === 'CustomWorkScale' ? '<small>工作模式选为“自定义”后生效。</small>' : '' : '<small>当前 Core 或配置未提供此项。</small>'}</label>`;
       }).join('');
       return `<section class="gp-section"><div class="gp-section-title"><h3>NR 画面增强</h3><label class="check-line gp-check"><input type="checkbox" data-gp-group="nr" data-gp-field="Enabled"${nr.Enabled ? ' checked' : ''}${available ? '' : ' disabled'}>开启</label></div>
         ${!available ? '<p class="gp-caption">安装后可调整画面增强。</p>' : ''}
@@ -167,23 +226,31 @@
         <div class="gp-small-actions">${sr ? act('recommend-sr', '恢复推荐', busy || !active || !scope.launchSettingsUi.recommendedPreset(currentHardware()), 'subtle') + act('preview-sr', '预览当前超分设置', busy || data.operation?.pending || !apiReady() || !loaded.has('enhancements') || (!feature('sr').eligible && !(fields.sr.quality === 'game' && data.enhancements?.applied?.sr)), 'subtle') : ''}${allowRestore ? act(`restore-${domain}`, '恢复原设置', busy, 'subtle') : ''}${owned?.requiresReapply ? act('reapply', '重新预览', busy) : ''}</div></section>`;
     }
     function installation() {
-      if (options.hoyoSettingsOnly) return `<p class="gp-caption">当前 Core：${esc(coreLabel(data.deployment?.version || data.game.addonVersion || data.game.feeder?.coreVersion || '待确认'))} · 此客户端独立配置</p>${nrFields()}`;
       const game = data.game, api = selected('api', game.apiOverride || data.defaults?.api || 'auto'), effective = effectiveApi(), special = specialRoute();
       const version = currentVersion(), visibleVersion = version === COMPARISON_VERSION ? '0.4.7beta' : version;
       const versions = versionRows().filter(row => !isComparison(row));
       const pending = data.operation?.pending || data.deployment?.needsRecovery;
+      if (options.hoyoSettingsOnly) {
+        const current = data.deployment?.version || game.addonVersion || game.feeder?.coreVersion || '待确认';
+        const picker = special ? '' : `<section class="gp-section"><div class="gp-controls">${selectField('route', 'version', '增强版本',
+          (versions.some(row => row.id === version) ? '' : option(version, `${coreLabel(version)} · 来源待检查`, version, true)) +
+          versions.map(row => option(row.id, coreLabel(row.label || row.id), version, row.ready === false)).join(''), busy || pending,
+          versions.find(row => row.id === version)?.notes || '切换前会预览本次文件变更；保留此客户端的绑定和个人配置。')}</div></section>`;
+        return `<p class="gp-caption">当前 Core：${esc(coreLabel(current))} · 此客户端独立配置</p>${picker}${nrFields()}`;
+      }
+      const attention = readinessNeedsAction(), readinessNotice = readinessNeedsNotice();
       const unresolved = !effective || ['mixed', 'unknown', 'auto'].includes(effective);
       const automatic = detectedApi(), automaticLabel = !automatic || ['mixed', 'unknown', 'auto'].includes(automatic) ? '需要手动选择' : `${apiLabel(automatic)}（自动）`;
-      let status = !loaded.has('installation') ? '正在检查安装条件…' : pending ? '有未完成操作，请先恢复。' : !apiReady()
+      let status = !loaded.has('installation') ? '正在检查安装条件…' : pending ? '有未完成操作，请先恢复。' : attention ? readinessMessage() : readinessNotice ? '启动时检查设置。' : !apiReady()
         ? unresolved ? '需要手动选择游戏实际使用的 API。' : `${apiLabel(effective)} 当前不支持安装。`
         : data.layout?.needsInputPreparation ? '加载配置已准备，请预览修复以补齐输入配套。' : game.installed ? data.deployment?.verified === false && data.deployment?.inspection !== 'summary' ? '安装需要检查，可预览修复。' : '已安装，可以调整画面或启动游戏。'
         : '基础条件已确认，安装前将预览本次变更。';
-      if (data.antiCheat?.detected && !pending && apiReady()) status = '检测到游戏保护，安装前需确认兼容提示。';
-      if (loaded.has('installation') && !pending && apiReady() && !version) status = '配套版本尚未确定，请选择可用 Core。';
+      if (data.antiCheat?.detected && !pending && !readinessNotice && apiReady()) status = '检测到游戏保护，安装前需确认兼容提示。';
+      if (loaded.has('installation') && !pending && !readinessNotice && apiReady() && !version) status = '配套版本尚未确定，请选择可用 Core。';
       return `<section class="gp-section gp-install-section"><div class="gp-controls">
         ${selectField('route', 'api', '游戏 API', option('auto', automaticLabel, api) + ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan'].map(key => option(key, API[key] || key.toUpperCase(), api)).join(''), busy)}
         ${selectField('route', 'version', 'Core 配套', (!visibleVersion ? option('', '请选择 Core 配套', '', true) : versions.some(row => row.id === visibleVersion) ? '' : option(visibleVersion, `${coreLabel(visibleVersion)} · 来源待检查`, visibleVersion, true)) + versions.map(row => option(row.id, coreLabel(row.label || row.id), visibleVersion, row.ready === false)).join(''), busy || Boolean(special))}</div>
-        <div class="gp-compatibility ${pending || !apiReady() ? 'needs-attention' : ''}" role="status"><strong>兼容性</strong><span>${esc(status)}</span>${pending ? act('recover-operation', '恢复操作', busy, 'subtle') : ''}</div>
+        <div class="gp-compatibility ${pending || readinessNotice || !apiReady() ? 'needs-attention' : ''}" role="status"><strong>兼容性</strong><span>${esc(status)}</span>${pending ? act('recover-operation', '恢复操作', busy, 'subtle') : attention && readinessActionName() !== 'resolve-readiness' ? act(readinessActionName(), readinessActionLabel(), busy, 'subtle') : ''}</div>
         ${hasVersionUpdate() ? `<p class="gp-caption">当前已安装 ${esc(data.deployment?.version || game.addonVersion)}；应用后才会更新所选配套。</p>` : !game.installed && !special ? `<p class="gp-caption">默认使用游戏目录；安装预览会核对真实 DLSS 集成，无原生输入时匹配 Feeder。</p>` : ''}</section>${hoyoControls()}${nrFields()}`;
     }
     function enhancements() {
@@ -224,8 +291,8 @@
         ${line('上一完整部署', dep.previous ? `${dep.previous.version || ''} · ${dep.previous.mode || ''}` : '尚无外置切换记录')}${line('当前部署', `${dep.version || data.game.addonVersion || '未安装'} · ${dep.mode === 'external' ? '外置' : '游戏目录'}`)}
         ${line('清理归档', env.backupDirectory || (env.isolated ? '已备份隔离' : '尚无清理归档'))}</div>
         ${records ? `<div class="gp-message error"><strong>上次统一应用尚未完成</strong><p>${esc(records.error?.message || '请恢复未完成事务后继续。')}</p>${(records.stages || []).map(row => `<span class="badge">${esc(row.kind)} · ${esc(row.status)}</span>`).join('')}${act('recover-operation', '恢复未完成操作', busy, 'primary')}</div>` : ''}
-        ${data.enhancements?.pending?.length ? act('recover-settings', '恢复超分补帧事务', busy) : ''}${dep.needsRecovery ? act('recover-operation', '恢复部署事务', busy) : ''}
-        <div class="gp-actions">${act('repair-install', '预览修复', busy || !data.game.installed || data.operation?.pending || dep.needsRecovery)}${act('recover-operation', '恢复未完成操作', busy || !(data.operation?.pending || dep.needsRecovery))}${act('back-local', '迁回游戏目录', busy || dep.mode !== 'external')}${act('open-folder', '打开游戏文件夹')}${act('feedback', '保存反馈与验收记录', busy)}</div></section>
+        ${data.enhancements?.pending?.length ? act('recover-settings', '恢复超分补帧事务', busy) : ''}${data.enhancements?.fgComponents?.fileRecoveryPending || data.enhancements?.fgComponents?.migrationPending ? act('recover-fg-components', '恢复未完成补帧组件操作', busy) : ''}${dep.needsRecovery ? act('recover-operation', '恢复部署事务', busy) : ''}
+        <div class="gp-actions">${act('repair-install', '预览修复', busy || !data.game.installed || data.operation?.pending || dep.needsRecovery)}${!(data.enhancements?.fgComponents?.fileRecoveryPending || data.enhancements?.fgComponents?.migrationPending) ? act('recover-operation', '恢复未完成操作', busy || !(data.operation?.pending || dep.needsRecovery)) : ''}${act('back-local', '迁回游戏目录', busy || dep.mode !== 'external')}${act('open-folder', '打开游戏文件夹')}${act('feedback', '保存反馈与验收记录', busy)}</div></section>
         <section class="gp-section"><h3>卸载与原样恢复</h3><p class="gp-caption">每次选择本次的处理方式，预览文件后再应用。安装前备份和历史归档都会保留。</p><div class="gp-uninstall"><div><h4>干净移除</h4><p>移除摘要一致的受管文件，旧代理和旧插件继续留在备份中。</p>${act('uninstall-clean', '预览干净移除', busy || !data.game.installed, 'danger')}</div><div><h4>恢复安装前</h4><p>恢复有原始记录及摘要的文件。未知 .bak 不会自动当作原件。</p>${act('uninstall-restore', '预览恢复安装前', busy || !data.game.installed)}</div></div></section>
         <section class="gp-section"><h3>环境检查与清理</h3><p class="gp-caption">${esc(env.scope || '')}</p><div class="gp-module-list">${(env.remainingFiles || []).map(row => `<div><strong>${esc(row.name)}</strong><small>${esc(row.kind || row.classification || '需核对来源')}</small><small>${esc(row.sha256?.slice(0, 20) || '')}</small></div>`).join('') || '<p class="gp-caption">当前检查未发现额外代理或 Add-on。</p>'}</div>
         ${data.game.installed || hasSettings ? '<p class="gp-caption">请先明确移除配套并恢复超分补帧设置，再隔离剩余文件。</p>' : ''}<div class="gp-actions">${act('clean-environment', '预览剩余文件隔离', busy || data.game.installed || hasSettings || env.isolated)}${act('restore-environment', '撤销上次清理', busy || !env.canRestore)}</div></section>
@@ -236,22 +303,27 @@
         <p class="gp-caption">新安装默认使用 Home；已有自定义键会保留，也可以在这里修改。</p><div class="gp-small-actions">${act('capture-hotkey', capturingHotkey ? '请按组合键 · Esc 取消' : '点击录入快捷键', busy || !data.game.installed)}${act('panel-default', '恢复默认 Home', busy || !data.game.installed)}</div></section>`;
     }
     function footer() {
-      const invalid = Object.keys(invalidFields).length > 0, pending = data.operation?.pending || data.deployment?.needsRecovery;
+      const invalid = Object.keys(invalidFields).length > 0, pending = data.operation?.pending || data.deployment?.needsRecovery, readinessBlocked = readinessNeedsAction();
       let primary;
       if (dirty()) primary = act('preview', '预览并应用', busy || invalid || pending || apiBlocked(), 'primary');
+      else if (readinessBlocked) primary = act(readinessActionName(), readinessActionLabel(), busy || (readinessActionName() === 'resolve-readiness' && !loaded.has('installation')), 'primary');
+      else if (pending) primary = act(data.enhancements?.pending?.length ? 'recover-settings' : 'recover-operation', '恢复未完成操作', busy, 'primary');
       else if (tab === 'overview' && (!data.game.installed || hasVersionUpdate() || data.layout?.needsInputPreparation || data.deployment?.verified === false && data.deployment?.inspection !== 'summary')) primary = act(data.game.installed && !hasVersionUpdate() ? 'repair-install' : 'prepare', !data.game.installed ? '安装并启用' : hasVersionUpdate() ? '预览更新配套' : '预览修复安装', busy || pending || !loaded.has('installation') || !apiReady() || !currentVersion() || versionRows().find(row => row.id === currentVersion())?.ready === false, 'primary');
       else primary = '';
       const launchState = session || data.launch?.session, launch = launchState?.historical ? null : launchState;
       if (options.hoyoSettingsOnly && !dirty()) primary = '';
       const hasHeaderLaunch = options.hoyoSettingsOnly || Boolean(host.closest('.game-card')?.querySelector('.unified-launch-btn'));
-      return `<div class="gp-apply-bar${dirty() ? ' is-dirty' : ''}" aria-label="当前游戏操作"><div role="status"><strong>${invalid ? '请先修正输入' : !apiReady() && apiBlocked() ? '请先在“安装与画面”确认 API' : dirty() ? `${draftCount()} 组修改待应用` : LAUNCH[launch?.status] || (data.game.installed ? '设置已就绪' : '确认 API 后安装')}</strong>${dirty() ? '<small>先预览本次修改，再确认应用。</small>' : launch?.status === 'waiting-launcher' && launch.launchInstruction ? `<small>${esc(launch.launchInstruction)}</small>` : ''}</div><div>${dirty() ? act('discard', '放弃修改', busy, 'subtle') : act('refresh', '重新检查', busy, 'subtle')}${primary}${!hasHeaderLaunch && !dirty() ? act('launch', launching ? '等待游戏…' : data.game.installed ? '启动游戏' : '原样启动', busy || launching || pending, primary ? 'subtle' : 'primary') : ''}${launching ? act('cancel-launch', '取消等待') : ''}${act('back', '收起', busy, 'subtle')}</div></div>`;
+      const readinessNotice = readinessNeedsNotice();
+      const status = invalid ? '请先修正输入' : !apiReady() && apiBlocked() ? '请先在“安装与画面”确认 API' : dirty() ? `${draftCount()} 组修改待应用` : readinessBlocked ? '启动前需要处理' : readinessNotice ? '启动时检查设置' : LAUNCH[launch?.status] || (data.game.installed ? '设置已就绪' : '确认 API 后安装');
+      const detail = dirty() ? '<small>先预览本次修改，再确认应用。</small>' : readinessNotice ? `<small>${esc(readinessMessage())}</small>` : launch?.status === 'waiting-launcher' && launch.launchInstruction ? `<small>${esc(launch.launchInstruction)}</small>` : '';
+      return `<div class="gp-apply-bar${dirty() ? ' is-dirty' : readinessNotice ? ' needs-attention' : ''}" aria-label="当前游戏操作"><div role="status"><strong>${status}</strong>${detail}</div><div>${dirty() ? act('discard', '放弃修改', busy, 'subtle') : act('refresh', '重新检查', busy, 'subtle')}${primary}${!hasHeaderLaunch && !dirty() ? act('launch', launching ? '等待游戏…' : data.game.installed ? '启动游戏' : '原样启动', busy || launching || pending || readinessBlocked, primary ? 'subtle' : 'primary') : ''}${launching ? act('cancel-launch', '取消等待') : ''}${act('back', '收起', busy, 'subtle')}</div></div>`;
     }
     function syncHeaderAction() {
       const card = host.closest('.game-card'), start = card?.querySelector('.unified-launch-btn');
       card?.classList.toggle('has-pending-draft', dirty());
-      options.onActionState?.({ dirty: dirty(), busy, launching, hasPrimary: Boolean(host.querySelector('.gp-apply-bar .primary')) });
+      options.onActionState?.({ dirty: dirty(), busy, launching, hasPrimary: Boolean(host.querySelector('.gp-apply-bar .primary')), readiness: launchReadiness() });
       if (!start) return;
-      start.disabled = busy || launching || dirty() || data.operation?.pending || data.deployment?.needsRecovery;
+      start.disabled = busy || launching || dirty() || data.operation?.pending || data.deployment?.needsRecovery || readinessNeedsAction();
       start.textContent = launching ? '等待游戏…' : '启动游戏';
       start.classList.toggle('primary', !host.querySelector('.gp-apply-bar .primary'));
     }
@@ -297,10 +369,14 @@
       const notice = host.querySelector(':scope > .gp-message');
       if (notice) { notice.textContent = message; notice.hidden = !message; notice.classList.toggle('error', error); notice.setAttribute('role', error ? 'alert' : 'status'); }
     }
-    function mergeAssessment(value, section) {
+    function mergeAssessment(value, section, order) {
       if (value.gameId && value.gameId !== id) throw new Error('检测结果与当前游戏不一致。');
       const currentExe = data.game?.chosen?.path?.toLowerCase(), nextExe = value.game?.chosen?.path?.toLowerCase();
       if (currentExe && nextExe && currentExe !== nextExe) throw new Error('游戏程序已改变，请收起后重新打开设置。');
+      const candidate = section === 'enhancements' ? value.enhancements?.launchReadiness : section === 'installation' ? value.launch?.readiness : null;
+      if (candidate?.state) {
+        if (readinessEpoch !== generation || order >= readinessOrder) { readinessState = candidate; readinessEpoch = generation; readinessOrder = order; }
+      }
       data = { ...data, ...value, ...(value.game ? { game: { ...data.game, ...value.game } } : {}) };
       sectionFailures.set(section, value.failures || []);
       data.failures = [...sectionFailures.values()].flat();
@@ -313,15 +389,21 @@
       if (disposed || !id) return;
       if (!force && loaded.has(section)) return;
       if (!force && sectionRequests.has(section)) return sectionRequests.get(section);
-      const currentGeneration = generation, token = (sectionTokens.get(section) || 0) + 1;
+      const currentGeneration = generation, token = (sectionTokens.get(section) || 0) + 1, order = ++assessmentOrder;
+      if (force) loaded.delete(section);
       sectionTokens.set(section, token);
       const task = Promise.resolve().then(() => manager.assessGame(id, { sections: [section] })).then(unwrap).then(value => {
         if (disposed || generation !== currentGeneration || sectionTokens.get(section) !== token) return;
-        mergeAssessment(value, section);
+        mergeAssessment(value, section, order);
         for (const name of value.sections || [section]) loaded.add(name);
         if (!modal) render();
       }).catch(failure => {
         if (!disposed && generation === currentGeneration && sectionTokens.get(section) === token) {
+          if (section === 'installation' && order >= readinessOrder) {
+            readinessState = { state: 'unknown', source: 'unavailable', known: false,
+              blockers: [{ domain: 'settings', code: failure.code || 'ASSESSMENT_UNAVAILABLE', message: failure.message, action: { kind: 'open-settings' } }] };
+            readinessEpoch = generation; readinessOrder = order;
+          }
           message = failure.message; error = true; if (!modal) render();
         }
       }).finally(() => { if (sectionTokens.get(section) === token) sectionRequests.delete(section); });
@@ -333,16 +415,16 @@
       // sections lazily, and reject responses that started before this refresh.
       generation++; loaded.clear(); sectionRequests.clear();
       if (!preserve) { fields = initialFields(data); }
-      const needed = new Set(options.hoyoSettingsOnly ? ['installation'] : ['installation', TAB_SECTION[tab]]);
-      if (tab === 'maintenance' && !options.hoyoSettingsOnly) needed.add('enhancements');
+      const needed = new Set(['installation', TAB_SECTION[tab]]);
+      if (tab === 'maintenance') needed.add('enhancements');
       await Promise.all([...needed].map(section => loadSection(section, true)));
     }
     function selectTab(next) {
-      if (!Object.hasOwn(TAB_SECTION, next) || disposed || options.hoyoSettingsOnly && next === 'enhance') return;
+      if (!Object.hasOwn(TAB_SECTION, next) || disposed || options.hoyoSettingsOnly && next === 'enhance' && !readinessNeedsAction() && tab !== 'enhance') return;
       tab = next; render();
       host.querySelector(`[data-gp-tab="${tab}"]`)?.focus({ preventScroll: true });
-      void loadSection(options.hoyoSettingsOnly ? 'installation' : TAB_SECTION[tab]);
-      if (tab === 'maintenance' && !options.hoyoSettingsOnly) void loadSection('enhancements');
+      void loadSection(TAB_SECTION[tab]);
+      if (tab === 'maintenance') void loadSection('enhancements');
     }
     async function work(fn, success, preserve = false) {
       if (busy) return; busy = true; message = ''; error = false; render();
@@ -379,8 +461,10 @@
     }
     function requestLeave(callback) { if (busy) return false; callback(); return true; }
     async function open(gameId, initialTab = 'overview', seed = {}) {
+      launchAttempt++; launching = false;
       generation++; id = gameId; loaded.clear(); sectionTokens.clear(); sectionRequests.clear(); sectionFailures.clear(); draft = {}; invalidFields = {};
-      tab = initialTab; modal = null; message = ''; error = false; capturingHotkey = false; faceStrength = 1;
+      tab = initialTab; modal = null; message = ''; error = false; launching = false; capturingHotkey = false; faceStrength = 1;
+      readinessState = null; readinessEpoch = -1; readinessOrder = -1;
       const game = seed.game || { id: gameId, name: '游戏', installed: false };
       data = { gameId, game, api: game.chosen?.apiAssessment || { effectiveApi: game.apiOverride && game.apiOverride !== 'auto' ? game.apiOverride : game.chosen?.apiResolution?.api || 'unknown' }, ...seed };
       fields = initialFields(data); render();
@@ -389,15 +473,34 @@
     }
     function resume(game) {
       if (disposed || !data || game.id !== id) return;
-      data.game = { ...data.game, ...game }; render();
+      readinessState = null; readinessEpoch = -1; readinessOrder = -1; data.game = { ...data.game, ...game }; render();
       void loadSection('installation'); if (tab !== 'overview') void loadSection(TAB_SECTION[tab]);
     }
     async function launchGame() {
       if (busy || launching || dirty()) { message = '请先应用或放弃当前修改。'; error = true; render(); return; }
+      const targetId = id, targetGeneration = generation, attempt = ++launchAttempt;
       launching = true; message = ''; error = false; render();
-      try { const result = unwrap(await manager.launch(id)); session = result.launched || result; void loadSection('installation', true); }
-      catch (failure) { message = failure.message; error = true; session = failure.details?.launchSession || session; }
-      finally { launching = false; render(); }
+      // Collapsed library cards may retain a controller whose installation
+      // snapshot was read before the card was closed. Always read this small
+      // metadata section for the current launch attempt so the gate uses the
+      // current readiness, while the launch lock prevents a second request.
+      await loadSection('installation', true);
+      if (disposed || attempt !== launchAttempt) return;
+      if (id !== targetId || generation !== targetGeneration) { if (id === targetId) { launching = false; render(); } return; }
+      if (busy || !launching || dirty()) { launching = false; if (dirty()) { message = '请先应用或放弃当前修改。'; error = true; } render(); return; }
+      if (!loaded.has('installation')) { launching = false; render(); return; }
+      if (readinessNeedsAction()) {
+        launching = false;
+        message = readinessMessage() || '启动前还有需要处理的设置。'; error = true; render();
+        await resolveReadiness();
+        return;
+      }
+      try {
+        const result = unwrap(await manager.launch(targetId));
+        if (!disposed && id === targetId && attempt === launchAttempt) { session = result.launched || result; void loadSection('installation', true); }
+      }
+      catch (failure) { if (!disposed && id === targetId && attempt === launchAttempt) { message = failure.message; error = true; session = failure.details?.launchSession || session; } }
+      finally { if (attempt === launchAttempt) { launching = false; render(); } }
     }
     function change(input) {
       const group = input.dataset.gpGroup, key = input.dataset.gpField; if (!key || input.disabled || busy) return;
@@ -468,6 +571,7 @@
         else if (action === 'recommend-sr') { fields.sr = scope.launchSettingsUi.initialSrFields({}, currentHardware()); draft.sr = scope.launchSettingsUi.createRequest('sr', fields.sr); delete invalidFields.sr; message = ''; error = false; render(); }
         else if (action === 'discard') { draft = {}; invalidFields = {}; fields = initialFields(data); message = '已放弃尚未应用的修改。'; error = false; render(); }
         else if (action === 'prepare') { Object.assign(draft, installRequest()); await preview(); }
+        else if (action === 'resolve-readiness') await resolveReadiness();
         else if (action === 'pick-hoyo-launcher') {
           const file = unwrap(await manager.pickHoYoLauncher());
           if (file) { draft.hoyo = hoyoDraft(); draft.hoyo.launcher.path = file; render(); }
@@ -503,6 +607,7 @@
         else if (action === 'back-local') { draft.deployment = 'local'; await preview(); }
         else if (action === 'recover-operation') await work(() => manager.recoverOperation(id), '已检查并恢复未完成操作。', true);
         else if (action === 'recover-settings') await work(() => manager.recoverLaunchSettings(id), '未完成设置事务已恢复。', true);
+        else if (action === 'recover-fg-components') await work(() => manager.recoverFgComponents(id), '未完成补帧组件操作已恢复。', true);
         else if (action === 'restore-environment') await work(() => manager.restoreEnvironment(id), '已恢复隔离前环境。', true);
         else if (action === 'clean-environment') { modal = { kind: 'cleanup', plan: unwrap(await (manager.previewEnvironmentCleanup || manager.prepareEnvironmentCleanup)(id)) }; renderModal(); }
         else if (action === 'open-folder') unwrap(await manager.openFolder(id));
@@ -534,7 +639,7 @@
       }
     });
     if (manager.onLaunchSession) unsubscribe = manager.onLaunchSession(value => { if (!disposed && value.gameId === id) { session = value; if (!modal) render(); } });
-    return { open, resume, refresh, selectTab, launchGame, requestLeave, previewRepair: () => preview({ repair: true }), hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
+    return { open, resume, refresh, selectTab, resolveReadiness, launchGame, requestLeave, previewRepair: () => preview({ repair: true }), hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, readiness: structuredClone(launchReadiness()), loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
   }
   const api = { mount, recommendedModel, initialFields };
   if (typeof module === 'object' && module.exports) module.exports = api; else scope.GamePageUi = api;

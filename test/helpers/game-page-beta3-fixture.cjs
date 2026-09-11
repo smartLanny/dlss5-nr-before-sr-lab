@@ -31,6 +31,8 @@ function installMock(features, options = {}) {
     componentChoices: { bridges: [{ id: 'nigos-1.4.12-nr', label: 'NIGos Bridge 1.4.12 · NR 适配', ready: true, compatible: true },
       { id: 'nigos-1.4.11-nr', label: 'NIGos Bridge 1.4.11 · 回退', ready: true, compatible: true }], selected: { bridge: 'nigos-1.4.12-nr' } },
     coreVersions: [{ id: '0.4.7beta', label: 'beta0.4.7', ready: true }, { id: 'fixture-core-alternative', label: '另一已核验 Core · 测试', ready: true },
+      { id: '0.5-dline13', label: '0.5 D13 · 测试', ready: true, comparisonOnly: false, coreUpdateOnly: true, addonOnly: true },
+      { id: '0.4.7beta-corefix.8', label: '0.4.7 Corefix8 · 测试', ready: true, comparisonOnly: false, coreUpdateOnly: true, addonOnly: true },
       { id: '0.4.7beta-bg3-bridge1411', label: 'beta0.4.7 · BG3 桥接 1.4.11 对照', ready: true, comparisonOnly: true }] };
   const second = clone(assessment); second.gameId = second.game.id = 'fixture-two'; second.game.name = '第二款游戏 · DX12';
   second.game.dir = 'C:\\UI-fixture\\Second'; second.game.chosen.path = 'C:\\UI-fixture\\Second\\Game.exe';
@@ -144,6 +146,7 @@ function installMock(features, options = {}) {
     confirmGameFeature: forbidden('direct-retired-feature-confirmation'),
     pickHoYoLauncher: async () => { mock.calls.push(['pick-hoyo-launcher']); return ok(mock.selectedLauncher); },
     recoverOperation: async id => { mock.calls.push(['recover', id]); mock.assessments[id].operation = { pending: false }; return ok({ recovered: true }); },
+    recoverFgComponents: async id => { mock.calls.push(['recover-fg-components', id]); const value = mock.assessments[id], fg = value.enhancements.fgComponents; fg.fileRecoveryPending = false; fg.fileOperationActive = false; fg.migrationPending = false; value.launch.readiness = { state: 'ready', known: true, source: 'metadata', blockers: [], pending: [], requests: {} }; return ok({ recovered: true }); },
     recordVisualComparison: async (id, input) => { mock.calls.push(['visual-record', id, clone(input)]);
       mock.assessments[id].verification.visual = { status: input.result === 'changed' ? 'passed' : input.result === 'unchanged' ? 'not-observed' : 'unverified', source: 'user-comparison',
         automaticVerification: false, detail: input.result === 'changed' ? '用户观察：同场景发现画面变化。' : input.result === 'unchanged' ? '用户观察：未发现画面变化。' : '用户观察：暂时无法确认。' };
@@ -210,6 +213,11 @@ async function smoke() {
   assert(['Intensity', 'LocalToneStrength', 'LocalStructureStrength'].every(key => field('nr', key)?.getClientRects().length > 0), 'three primary NR sliders are visible on first tab');
   assert(host().querySelectorAll('.gp-nr-primary input[type="range"]').length === 3 && !host().querySelector('.gp-nr-details').open && field('nr', 'WorkMode').closest('details') === host().querySelector('.gp-nr-details'), 'advanced NR starts collapsed below the three primary sliders');
   assert(![...field('route', 'version').options].some(row => row.value.includes('bridge1411')), 'bridge comparison is absent from basic Core choices');
+  for (const id of ['0.5-dline13', '0.4.7beta-corefix.8']) {
+    const candidate = [...field('route', 'version').options].find(row => row.value === id);
+    assert(candidate && !candidate.disabled, id + ' core-update candidate is visible and selectable');
+  }
+  set('route', 'version', '0.5-dline13'); assert(state().draft.version === '0.5-dline13', 'ordinary Core dropdown accepts the D13 candidate'); discard();
   const firstHost = host(), firstController = firstHost.__gpController;
   set('nr', 'Intensity', '.65'); set('nr', 'WorkMode', '5'); mock.delays['fixture:diagnostics'] = 5000;
   await tab('maintenance');
@@ -275,6 +283,50 @@ async function smoke() {
   click('modal-apply'); await settled();
   assert(mock.assessment.enhancements.applied.sr.request.preset === 'K' && field('sr', 'preset').value === 'K', 'reapplying displayed SR retains K in storage and UI');
 
+  await scenario('已应用设置 · 启动时回读', value => {
+    const request = { backend: 'native', quality: 'preserve', preset: 'M' };
+    value.enhancements.requests.sr = { request: structuredClone(request) }; value.enhancements.applied.sr = { request: structuredClone(request), readbackVerified: true };
+    value.launch.readiness = { state: 'unknown', known: false, source: 'metadata', blockers: [], pending: [], requests: { sr: { request: structuredClone(request) } } };
+  }); await tab('overview');
+  assert(!button('launch').disabled && host().textContent.includes('启动时检查设置'), 'metadata-only unknown keeps the existing launch path while describing the startup check');
+
+  await scenario('启动前旧 SR 阻塞 · UI fixture', value => {
+    const readiness = { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '仍有旧版 SR 选择或恢复记录；请先在增强设置中预览并应用或恢复。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {}, legacy: { configured: true } };
+    value.launch.readiness = structuredClone(readiness); value.enhancements.launchReadiness = structuredClone(readiness);
+  }); await tab('overview');
+  assert(state().readiness?.state === 'blocked' && host().textContent.includes('旧版 SR'), 'old SR readiness is visible before launch without a new draft');
+  assert(button('resolve-readiness')?.textContent === '前往超分补帧设置' && button('launch')?.disabled, 'old SR blocks launch and exposes the settings entry');
+  click('resolve-readiness'); await until(() => state().tab === 'enhance', 'old SR settings entry');
+  mock.assessment.enhancements.launchReadiness = { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {} };
+  click('refresh'); await until(() => state().readiness?.state === 'ready' && !state().busy, 'newer settings readiness'); await tab('overview');
+  assert(!button('launch').disabled && !host().textContent.includes('旧版 SR'), 'newer enhancement readiness clears the stale installation blocker');
+
+  await scenario('启动前旧 FG 阻塞 · UI fixture', value => {
+    const request = { backend: 'rtx40', mode: 'fixed', multiplier: 2 };
+    value.enhancements.requests.fg = { request: structuredClone(request) }; value.enhancements.applied.fg = { request: structuredClone(request), readbackVerified: true };
+    value.enhancements.launchReadiness = { state: 'blocked', known: true, source: 'settings-inspection', blockers: [{ domain: 'fg', code: 'SETTINGS_FG_MIGRATION_REQUIRED', message: '旧补帧设置只保留恢复能力，请先迁移或撤销后再启动。', action: { kind: 'migrate' }, recovery: true }], pending: [], requests: { fg: { request: structuredClone(request) } } };
+  }); await tab('overview');
+  assert(button('resolve-readiness')?.textContent === '前往补帧设置' && button('launch')?.disabled, 'old FG blocks launch with a migration entry');
+  click('resolve-readiness'); await until(() => state().tab === 'enhance' && button('restore-fg'), 'old FG restore entry');
+
+  await scenario('启动前回读失配 · UI fixture', value => {
+    const request = { backend: 'native', quality: 'preserve', preset: 'M' };
+    value.enhancements.requests.sr = { request: structuredClone(request) }; value.enhancements.applied.sr = { request: structuredClone(request), readbackVerified: false, requiresReapply: true };
+    value.enhancements.launchReadiness = { state: 'blocked', known: true, source: 'settings-inspection', blockers: [{ domain: 'sr', code: 'SETTINGS_REQUIRE_REAPPLY', message: '当前设置已被其他程序改变，请重新预览并明确应用。', action: { kind: 'reapply' } }], pending: [], requests: { sr: { request: structuredClone(request) } } };
+  }); await tab('overview');
+  assert(button('resolve-readiness')?.textContent === '重新预览设置' && button('launch')?.disabled, 'readback mismatch blocks launch with a reapply entry');
+  click('resolve-readiness'); await until(() => state().tab === 'enhance' && button('reapply'), 'readback reapply entry');
+
+  discard(); mock.assessment = structuredClone(mock.baseline); mock.assessment.game.name = 'FG 文件恢复 · metadata 阶段';
+  mock.assessment.enhancements.fgComponents.fileRecoveryPending = true; mock.assessment.enhancements.fgComponents.fileOperationActive = false;
+  mock.assessment.launch.readiness = { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'fg', code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED', message: '补帧组件文件操作尚未完成，请先恢复。', action: { kind: 'recover' }, recovery: true }], pending: [], requests: {} };
+  await tab('overview'); click('refresh'); await until(() => state().data.game.name === 'FG 文件恢复 · metadata 阶段' && !state().busy, 'FG metadata readiness');
+  assert(!state().loaded.includes('enhancements') && button('resolve-readiness')?.textContent === '前往补帧恢复', 'metadata FG recovery points to the owner flow before enhancement details load');
+  click('resolve-readiness'); await until(() => state().tab === 'maintenance' && state().loaded.includes('enhancements'), 'FG recovery owner section'); await fold('.gp-maintenance-details');
+  assert(button('recover-fg-components') && !button('recover-operation'), 'FG file recovery exposes its dedicated component owner action');
+  click('recover-fg-components'); await settled();
+  assert(mock.calls.some(row => row[0] === 'recover-fg-components') && !button('recover-fg-components') && state().readiness?.state === 'ready', 'FG component recovery reaches the owner API and clears the launch blocker');
+
   await scenario('仅有 DLL · 自动条件不足', value => { value.enhancements.featureStates.sr = structuredClone(mock.features.unknownSr); }); await tab('enhance');
   assert(field('sr', 'quality').disabled && button('preview-sr').disabled && !button('confirm-sr'), 'unknown native integration remains blocked without a manual confirmation escape');
   assert(state().data.enhancements.featureStates.sr.canConfirm === false, 'a supplied obsolete user confirmation does not create production support');
@@ -301,6 +353,23 @@ async function smoke() {
   const beforeLaunchApply = count('apply'); click('launch');
   await until(() => count('launch') === 1 && !state().launching, 'explicit launch');
   assert(mock.calls.find(row => row[0] === 'launch')[1] === 'fixture' && count('apply') === beforeLaunchApply, 'launch targets the current game without applying settings');
+
+  await scenario('折叠卡片启动 · 旧 SR 守卫', value => {
+    const readiness = { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧版 SR 模型 M 仍有恢复记录，请先处理。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {} };
+    value.launch.readiness = structuredClone(readiness); value.enhancements.launchReadiness = structuredClone(readiness);
+  }); await tab('overview'); await until(() => state().readiness?.state === 'blocked' && !state().busy, 'collapsed launch blocker');
+  const blockedLaunches = count('launch'); click('back');
+  const collapsedBlockedCard = card('fixture'), collapsedBlockedLaunch = collapsedBlockedCard.querySelector('.unified-launch-btn');
+  assert(collapsedBlockedLaunch?.disabled === false, 'collapsed old SR card keeps its routed launch entry'); collapsedBlockedLaunch.click();
+  await until(() => host()?.__gpController.getState().tab === 'enhance' && !state().launching, 'collapsed old SR routes to settings');
+  assert(count('launch') === blockedLaunches, 'collapsed old SR launch entry cannot call manager.launch');
+  const readyReadiness = { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {} };
+  mock.assessment.launch.readiness = structuredClone(readyReadiness); mock.assessment.enhancements.launchReadiness = structuredClone(readyReadiness);
+  await tab('overview'); click('refresh'); await until(() => state().readiness?.state === 'ready' && !state().busy, 'collapsed launch ready state');
+  click('back'); const collapsedReadyCard = card('fixture'), collapsedReadyLaunch = collapsedReadyCard.querySelector('.unified-launch-btn'), readyLaunches = count('launch');
+  assert(collapsedReadyLaunch?.disabled === false, 'normal collapsed card keeps its launch entry enabled'); collapsedReadyLaunch.click();
+  await until(() => count('launch') === readyLaunches + 1 && !state().launching, 'collapsed normal launch');
+  assert(mock.calls.filter(row => row[0] === 'launch').at(-1)[1] === 'fixture', 'collapsed normal launch reaches the current game only');
 
   const session = { sessionId: 'b4aa3424-4828-40cd-9b5b-a49e566c5130', gameId: 'fixture', targetExe: mock.baseline.game.chosen.path,
     requestedAt: new Date().toISOString(), status: 'waiting-enhancement', process: { pid: 24001, exe: mock.baseline.game.chosen.path, startedAt: new Date().toISOString() } };
@@ -644,4 +713,65 @@ async function captureBaseline({ tab = 'overview', diagnostics = false, dirty = 
     assertions: 'global refresh success notification, preserved installed Core repair, explicit version selection, local layout, lazy tab focus, explicit SR baseline and narrow overflow', widths };
 }
 
-module.exports = { installMock, smoke, captureBaseline };
+async function captureReadiness({ readiness = 'blocked', tab = 'enhance' } = {}) {
+  const mock = window.__gpMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let assertionCount = 0;
+  const assert = (value, message) => { assertionCount++; if (!value) throw Error(message); };
+  const until = async (predicate, label) => { for (let attempt = 0; attempt < 150; attempt++) { if (predicate()) return; await delay(20); } throw Error('Readiness capture timeout: ' + label); };
+  const card = () => document.querySelector('.game-card[data-id="fixture"]');
+  const host = () => card()?.querySelector('.game-detail.gp-inline');
+  const state = () => host()?.__gpController.getState();
+  await until(() => card()?.querySelector('.open-game-page-btn'), 'library ready'); card().querySelector('.open-game-page-btn').click();
+  await until(() => state()?.loaded.includes('installation'), 'installation readiness');
+  const blocked = readiness !== 'ready', value = mock.assessment;
+  const request = { backend: 'native', quality: 'preserve', preset: 'M' };
+  value.enhancements.requests.sr = { request: structuredClone(request) };
+  value.enhancements.applied.sr = { request: structuredClone(request), readbackVerified: readiness === 'ready' };
+  value.launch.readiness = blocked ? { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧版 SR 模型 M 仍有恢复记录，请先在超分设置中处理。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {}, legacy: { configured: true, effective: 'm' } } : { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: { sr: { request: structuredClone(request) } }, legacy: { managed: true } };
+  await host().__gpController.refresh(true); await until(() => state()?.readiness?.state === (blocked ? 'blocked' : 'ready') && !state()?.busy, 'readiness state');
+  if (tab !== 'overview') { host().__gpController.selectTab(tab); await until(() => state()?.tab === tab && state()?.loaded.includes('enhancements'), 'readiness tab'); }
+  const unified = card().querySelector('.unified-launch-btn');
+  assert(blocked ? unified?.disabled === true : unified?.disabled === false, blocked ? 'old M disables the external launch entry' : 'ready state re-enables the external launch entry');
+  assert(blocked ? host().textContent.includes('旧版 SR') && host().querySelector('[data-gp-action="resolve-readiness"]') : host().textContent.includes('设置已就绪'), blocked ? 'old M reason and entry are visible' : 'ready state clears the old M reason');
+  return { scope: 'readiness contract screenshot · normal GamePageUi', assertionCount, readiness, tab, launchDisabled: Boolean(unified?.disabled), entry: Boolean(host().querySelector('[data-gp-action="resolve-readiness"]')) };
+}
+
+async function captureHoYoReadiness({ readiness = 'blocked' } = {}) {
+  const gp = window.__gpMock, mock = window.__hoyoMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let assertionCount = 0;
+  const assert = (value, message) => { assertionCount++; if (!value) throw Error(message); };
+  const until = async (predicate, label) => { for (let attempt = 0; attempt < 180; attempt++) { if (predicate()) return; await delay(20); } throw Error('HoYo readiness capture timeout: ' + label); };
+  const blocked = readiness !== 'ready', flow = mock.flow, game = gp.assessments['fixture-hoyo'];
+  const launcher = flow.binding.launchers[0];
+  flow.binding = { ...flow.binding, status: 'confirmed', launcher, channels: [{ channel: 'cn', channelLabel: '国服' }] };
+  flow.channel = 'cn'; flow.channelLabel = '国服'; flow.api = { api: 'dx11', source: 'user', requiresConfirmation: false, evidence: [] };
+  flow.installation = { installed: true, ready: true, needsRecovery: false, error: null }; flow.phase = 'ready'; flow.nextAction = 'start'; flow.error = null;
+  const readinessResult = blocked ? { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧版 SR 模型 M 仍有恢复记录，请先在超分设置中处理。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {}, legacy: { configured: true, effective: 'm' } } : { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {}, legacy: { managed: true } };
+  flow.launchReadiness = structuredClone(readinessResult); game.game.installed = true; game.launch.readiness = structuredClone(readinessResult); game.nr = structuredClone(gp.baseline.nr);
+  document.querySelector('[data-view="hoyo"]').click();
+  const host = () => document.getElementById('hoyoWorkspace'), card = () => host()?.querySelector('.hoyo-game-card.expanded'), anyCard = () => host()?.querySelector('.hoyo-game-card');
+  await until(() => anyCard() && host().querySelector('.hoyo-settings-host')?.__gpController && !host().querySelector('.hoyo-settings-host').__gpController.getState().busy, 'HoYo readiness card');
+  const start = () => host().querySelector('[data-hoyo-action="start"]'), resolve = () => host().querySelector('[data-hoyo-action="resolve-readiness"]');
+  assert(blocked ? resolve() && start()?.disabled !== false : start() && !start().disabled, blocked ? 'HoYo old M keeps a reachable readiness entry' : 'HoYo ready state enables launch');
+  assert(blocked ? host().textContent.includes('旧版 SR') : !host().textContent.includes('旧版 SR'), blocked ? 'HoYo old M reason is visible' : 'HoYo ready state clears the old M reason');
+  if (blocked) {
+    const outer = anyCard(); outer.querySelector('[data-hoyo-toggle]')?.click();
+    await until(() => !host().querySelector('.hoyo-game-card.expanded') && anyCard()?.querySelector('.hoyo-header-action [data-hoyo-action="resolve-readiness"]'), 'collapsed HoYo readiness entry');
+    const outerResolve = anyCard().querySelector('.hoyo-header-action [data-hoyo-action="resolve-readiness"]');
+    assert(outerResolve && !outerResolve.disabled, 'collapsed HoYo readiness entry is actionable');
+    outerResolve.click();
+    await until(() => card() && host().querySelector('.hoyo-settings-host'), 'HoYo readiness card expansion');
+    const settings = host().querySelector('.hoyo-settings-host');
+    await until(() => settings.__gpController?.getState().tab === 'enhance' && settings.__gpController.getState().loaded.includes('enhancements') && settings.querySelector('[data-gp-action="preview-sr"]') && !settings.querySelector('[data-gp-action="preview-sr"]').disabled, 'HoYo settings owner tab');
+    settings.querySelector('[data-gp-action="preview-sr"]').click();
+    await until(() => settings.querySelector('.gp-modal') && !settings.__gpController.getState().busy, 'HoYo nested SR preview');
+    assert(gp.plan?.request?.sr?.preset === 'M' && gp.calls.some(row => row[0] === 'preview'), 'HoYo readiness resolves into the shared SR preview path');
+    assert(settings.querySelector('.gp-apply-bar'), 'HoYo screenshot contains the shared settings operation bar');
+  } else {
+    await until(() => card() && host().querySelector('.hoyo-settings-host'), 'HoYo ready editor');
+    assert(host().querySelector('.hoyo-settings-host .gp-apply-bar'), 'HoYo screenshot contains the shared settings operation bar');
+  }
+  return { scope: 'readiness contract screenshot · HoYoPageUi + GamePageUi', assertionCount, readiness, launchDisabled: Boolean(start()?.disabled), entry: Boolean(resolve()) };
+}
+
+module.exports = { installMock, smoke, captureBaseline, captureReadiness, captureHoYoReadiness };

@@ -6,6 +6,7 @@ const MESSAGES = Object.freeze({
   ERR_NO_GAME_EXE: '没有找到可用的游戏主程序。',
   ERR_INSTALL_EXE_CHANGED: '当前选择的游戏程序与已有安装备份不一致。为避免同时修改两个目录，已停止操作；请重新选择原安装程序并恢复或卸载后，再安装到新程序。',
   ERR_OTA_CORE_ONLY: '这是仅供 D3D12 验收的核心测试包，不能作为 Manager OTA 导入。请使用配套的管理器更新包。',
+  CORE_UPDATE_BASE_REQUIRED: '此测试 Core 仅更新已有的 DX12 原生安装。请先使用默认 Core 完成 DX12 安装，再预览切换。',
   ERR_UNSUPPORTED_API: '所选组件不支持这条图形路线。DirectX 11 需要包含配套 carrier 的兼容包；其他图形 API 暂不支持。',
   ERR_API_SELECTION_REQUIRED: '图形 API 证据不足或存在多条路线，请进入游戏详情，按游戏的实际启动设置选择 API。',
   ERR_API_ROUTE_PENDING: '游戏 API 选择与已部署组件不一致，请先点击修复或应用版本，再启动游戏。',
