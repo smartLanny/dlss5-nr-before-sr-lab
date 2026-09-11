@@ -40,6 +40,7 @@ $OldCxx = $env:CXX
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
 $OldReShadeRoot = $env:NR_RESHADE_ROOT
 $OldLlvmBin = $env:NR_LLVM_BIN
+$OldWarpOnly = $env:NR_VALIDATION_WARP_ONLY
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
@@ -52,11 +53,12 @@ try {
     if ((Get-FileHash -LiteralPath $DirectionalBaseline -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c681b208ef320b1b9fbd497e3c46485bf3836296a084cd4a741a2b179f1c8208' -or
         (Get-FileHash -LiteralPath $DirectionalManifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'The generated D4 reference does not match the frozen acceptance source.' }
     $Checks.Add('frozen generated D4 directional reference source')
+    $env:NR_VALIDATION_WARP_ONLY = '1'
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline13') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline14') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
     if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
@@ -73,9 +75,92 @@ try {
     & python (Join-Path $Root 'tests/test_d13_ui_compile.py')
     if($LASTEXITCODE){throw 'Actual dual quick/detail UI compilation failed.'}
     $Checks.Add('NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts')
-
-
-    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-retirement-return.py')) {
+    & python -m unittest tests.test_motion_slot_selection -v
+    if ($LASTEXITCODE) { throw 'Motion binding slot selection CPU regression failed.' }
+    $Checks.Add('production motion slot selection and old-first-match negative control CPU')
+    foreach ($Pair in @(@('validate-resource-semantics.py','resource-semantics'), @('validate-resource-recovery.py','resource-recovery'), @('validate-native-format-observer.py','native-format-observer'))) {
+        & python (Join-Path $PSScriptRoot $Pair[0]) --source-root (Join-Path $Stage 'core') --compiler $Compiler --output (Join-Path $Output $Pair[1])
+        if ($LASTEXITCODE) { throw "Resource contract gate failed: $($Pair[0])" }
+        $Checks.Add($Pair[0])
+    }
+    foreach ($Pair in @(@('validate-compatibility-verdict.py','compatibility-verdict'), @('validate-compatibility-verdict-feedback.py','compatibility-writer'), @('validate-feedback-combined.py','combined-feedback'))) {
+        & python (Join-Path $PSScriptRoot $Pair[0]) --compiler $Compiler --output-dir (Join-Path $Output $Pair[1])
+        if ($LASTEXITCODE) { throw "Compatibility report gate failed: $($Pair[0])" }
+        $Checks.Add($Pair[0])
+    }
+    foreach ($Control in @('old-capacity-negative','omit-end-verdict-negative','ascii-metadata-negative','disable-privacy-negative','unknown-store-negative')) {
+        & python (Join-Path $PSScriptRoot 'validate-feedback-combined.py') --compiler $Compiler --output-dir (Join-Path $Output $Control) "--$Control"
+        if ($LASTEXITCODE) { throw "Combined report negative oracle failed: $Control" }
+    }
+    $Checks.Add('combined F8 capacity UTF8 privacy and end-verdict negative controls')
+    $Checks.Add('combined F8 current unknown store cannot inherit historical match')
+    & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-snapshot-cpu') --snapshot-cpu
+    if ($LASTEXITCODE) { throw 'Recovery snapshot interruption and observation-cache gate failed.' }
+    $Checks.Add('production recovery snapshot permits fresh proof after historical evidence loss CPU')
+    & python (Join-Path $PSScriptRoot 'validate-compatibility-rr-scope.py') --compiler $Compiler --source-root (Join-Path $Stage 'core/src') --output (Join-Path $Output 'compatibility-rr-scope')
+    if ($LASTEXITCODE) { throw 'Unclassified RR notification and Feature1 verdict isolation gate failed.' }
+    $Checks.Add('production RR notifications cannot retain old blocks or borrow Feature1 recovery CPU')
+    & python (Join-Path $PSScriptRoot 'validate-route-compatibility.py') --compiler $Compiler --source-root (Join-Path $Stage 'core') --output (Join-Path $Output 'route-compatibility-runtime-cpu')
+    if ($LASTEXITCODE) { throw 'Scoped compatibility route runtime gate failed.' }
+    $Checks.Add('route-compatibility-runtime-cpu')
+    & python (Join-Path $PSScriptRoot 'validate-descriptor-provenance.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-provenance-cpu') --cpu-only
+    if ($LASTEXITCODE) { throw 'Bounded descriptor provenance CPU gate failed.' }
+    $Checks.Add('descriptor-provenance-cpu')
+    & python (Join-Path $PSScriptRoot 'validate-descriptor-alias.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-alias-runtime-cpu') --negative-controls
+    if ($LASTEXITCODE) { throw 'Proxy/native identity and descriptor-domain gate failed.' }
+    $Checks.Add('descriptor-alias-runtime-cpu')
+    $Checks.Add('production bulk-copy destination scope and old-global negative control CPU')
+    $Checks.Add('production native Clear CPU request and exact fresh-call guard CPU')
+    & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
+    if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
+    $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
+    & python (Join-Path $PSScriptRoot 'validate-post-boundary.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'post-boundary-native')
+    if ($LASTEXITCODE) { throw 'Scoped native post-boundary gate failed.' }
+    $Checks.Add('production native boundary detours and immutable scoped window CPU')
+    $Checks.Add('production paused current-phase read-only boundary and historical-store isolation CPU')
+    $ActivityProbe = Join-Path $Output 'ui-activity.exe'
+    & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/ui_activity_test.cpp') -o $ActivityProbe
+    if ($LASTEXITCODE) { throw 'UI activity probe compile failed.' }
+    & $ActivityProbe
+    if ($LASTEXITCODE) { throw 'UI activity probe failed.' }
+    $Checks.Add('bounded UI activity alternating/stall/scope/reopen CPU gate')
+    & python (Join-Path $PSScriptRoot 'validate-ui-activity-receipt.py') --compiler $Compiler --source-root (Join-Path $Stage 'core') --output (Join-Path $Output 'ui-activity-receipt-runtime-cpu')
+    if ($LASTEXITCODE) { throw 'Actual UI observation and display receipt gate failed.' }
+    $Checks.Add('ui-activity-receipt-runtime-cpu')
+    $ProbePolicy = Join-Path $Output 'probe-policy.exe'
+    & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/probe_policy_test.cpp') -o $ProbePolicy
+    if ($LASTEXITCODE) { throw 'Probe policy compile failed.' }
+    & $ProbePolicy
+    if ($LASTEXITCODE) { throw 'Probe phase isolation failed.' }
+    $Checks.Add('process-local automatic GPU sampling policy and concurrent phase snapshots CPU')
+    & python (Join-Path $PSScriptRoot 'validate-store-interval.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'store-interval-cpu')
+    if ($LASTEXITCODE) { throw 'Exact UNORM interval collection and shader gate failed.' }
+    foreach ($Control in @('ignore-mismatch','accept-incomplete')) {
+        & python (Join-Path $PSScriptRoot 'validate-store-interval.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output "store-interval-$Control") --negative-control $Control
+        if ($LASTEXITCODE) { throw "UNORM interval negative control failed: $Control" }
+    }
+    $Checks.Add('production UNORM interval coverage mismatch and late-phase collection CPU')
+    & python (Join-Path $PSScriptRoot 'validate-config-policy.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'jitter-config-policy') --negative-control
+    if ($LASTEXITCODE) { throw 'Jitter migration, persistence and fresh-process gate failed.' }
+    $Checks.Add('production jitter migration Win32 persistence fresh processes and negative controls CPU')
+    & python (Join-Path $PSScriptRoot 'validate-jitter-status.py') --compiler $Compiler
+    if ($LASTEXITCODE) { throw 'Jitter PRE omission and POST zero binding gate failed.' }
+    $Checks.Add('production PRE disabled jitter and POST resolved zero binding CPU')
+    & python (Join-Path $PSScriptRoot 'validate-submitted-fence-wait.py') --compiler $Compiler --output (Join-Path $Output 'submitted-fence-event-cpu')
+    if ($LASTEXITCODE) { throw 'Exact fence event wait and scoped CPU timing gate failed.' }
+    $Checks.Add('exact submitted fence event wait and scoped CPU timing')
+    & python (Join-Path $PSScriptRoot 'validate-rr-timing.py') --compiler $Compiler --output (Join-Path $Output 'rr-timing-cpu')
+    if ($LASTEXITCODE) { throw 'Actual RR timing, original-call and no-recovery-borrowing gate failed.' }
+    $Checks.Add('actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU')
+    & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output 'full-feedback-timing')
+    if ($LASTEXITCODE) { throw 'Full assembled Core timing/probe F8 writer gate failed.' }
+    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','old-text-limit','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption','omit-end-ui-receipt','redact-ui-decimals','redact-boundary-numbers','bypass-boundary-privacy','borrow-historical-boundary')) {
+        & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output "full-feedback-$Control") --negative-control $Control
+        if ($LASTEXITCODE) { throw "Full Core F8 negative control failed: $Control" }
+    }
+    $Checks.Add('full assembled Core timing probe phases reserved tails and negative controls CPU')
+    $Checks.Add('final F8 typed timing numbers privacy disk output and actual summary CPU')
+    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-retirement-return.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
             & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler --negative-control
         } else {
@@ -98,7 +183,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-first-recording.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'First-recording old-policy negative control failed.' }
     $Checks.Add('first-recording old-policy CPU negative control')
-    foreach ($Test in @('tests/test_settings_notices_ui.py', 'tests/test_face_selection_ui.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
+    foreach ($Test in @('tests/test_settings_notices_ui.py', 'tests/test_face_selection_ui.py', 'tests/test_runtime_timing_summary.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -154,7 +239,7 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
-        if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the dual device identity regression.' }
+if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the dual device identity regression.' }
         & python (Join-Path $PSScriptRoot 'validate-dual-device.py') --compiler $Compiler --reshade-dll $ReShadeDllPath --output (Join-Path $Output 'dual-device')
         if ($LASTEXITCODE) { throw 'Actual ReShade dual device regression failed.' }
         $Checks.Add('actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX')
@@ -170,6 +255,30 @@ try {
         & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --compiler $Compiler --gpu
         if ($LASTEXITCODE) { throw 'F8 capture GPU group index, fence or readback gate failed.' }
         $Checks.Add('face diagnostic group8 production GPU ring and invalid group9 WARP')
+        & python (Join-Path $PSScriptRoot 'validate-descriptor-provenance.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'descriptor-provenance-warp')
+        if ($LASTEXITCODE) { throw 'Production descriptor provenance and native output-use WARP gate failed.' }
+        $Checks.Add('production descriptor provenance native uses RTV targets and Execute positions WARP')
+        $Checks.Add('production native Clear CPU format declaration and fresh-call rejection WARP')
+        $Checks.Add('production oversized native copies preserve unrelated Output CPU evidence WARP')
+        & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'native-color-view-warp')
+        if ($LASTEXITCODE) { throw 'Actual typed native color view WARP gate failed.' }
+        $Checks.Add('production typed native color admission descriptors and storage WARP')
+        $Checks.Add('production PRE POST rotating motion slots exact fence and descriptor readback WARP')
+        & python (Join-Path $PSScriptRoot 'validate-store-quantization.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'stored-quantization-warp')
+        if ($LASTEXITCODE) { throw 'Actual storage quantization WARP gate failed.' }
+        $Checks.Add('production PRE POST actual storage quantization and wrong-target WARP')
+        $Checks.Add('production UNORM legal interval endpoints complete coverage and slot reuse WARP')
+        & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-runtime-warp') --run-warp
+        if ($LASTEXITCODE) { throw 'Same-process production resource recovery WARP gate failed.' }
+        $Checks.Add('production same-process semantic recovery with real descriptor submit and readback WARP')
+        & python (Join-Path $PSScriptRoot 'validate-queue-retirement.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'queue-retirement')
+        if ($LASTEXITCODE) { throw 'Production one-shot queue retirement WARP gate failed.' }
+        $Checks.Add('production one-shot queue retirement WARP')
+        $Checks.Add('production bounded submitted-retirement and output binding WARP')
+        $Checks.Add('production post-store readback with unused-target negative control WARP')
+        $Checks.Add('production ordinary paused sampling equivalence and late-readback phase WARP')
+        $Checks.Add('production output-state-only barriers without diagnostic dispatch or readback WARP')
+        $Checks.Add('production read-only post-boundary callbacks and identity isolation CPU')
         & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
         $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')
         & (Join-Path $PSScriptRoot 'validate-rr-depth-gpu.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'rr-depth-warp') -RunWarp
@@ -180,7 +289,11 @@ try {
         $Checks.Add('legacy-post light controls production WARP; synthetic Neural only')
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -LightStyle
         $Checks.Add('four-region light controls production WARP; synthetic Neural only')
-        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -OutputRoot (Join-Path $Output 'codec-default-warp')
+        $Checks.Add('production codec FLOAT exposure finite extreme and composition regression WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -ExposureTyped -OutputRoot (Join-Path $Output 'typed-exposure-warp')
+        $Checks.Add('production typed R8 exposure versus R32 normalized control WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid -OutputRoot (Join-Path $Output 'combined-low-grid-warp')
         $Checks.Add('combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR')
         & (Join-Path $PSScriptRoot 'validate-regions.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'regions')
         $Checks.Add('engine region production adapter and snapshot WARP')
@@ -198,12 +311,15 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline13*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline13 Core artifacts.' }
+    $ExpectedPeVersion = [Version]'0.5.1.14'
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline14' -or [Version]$Manifest.integration.core_pe_version -ne $ExpectedPeVersion) { throw 'Source identity or PE version mismatch.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline14*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline14 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 13) { throw 'Wrong numeric PE version.' }
+            $ActualPeVersion = [Version]::new($Version.FileMajorPart,$Version.FileMinorPart,$Version.FileBuildPart,$Version.FilePrivatePart)
+            if ($ActualPeVersion -ne $ExpectedPeVersion) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
@@ -218,6 +334,7 @@ try {
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
     $env:NR_RESHADE_ROOT = $OldReShadeRoot
     $env:NR_LLVM_BIN = $OldLlvmBin
+    $env:NR_VALIDATION_WARP_ONLY = $OldWarpOnly
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;

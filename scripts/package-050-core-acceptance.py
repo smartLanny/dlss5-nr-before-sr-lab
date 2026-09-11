@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the verified 0.5 D-line and 0.4.7 compatibility integration, without carrier.
+"""Package the verified beta0.5-dline14 D-line and compatibility integration, without carrier.
 
 This is NOT the multi-API/Manager OTA packager. It never changes games or INI,
 includes no runtime/model/private log, and will not overwrite existing output.
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline13'
+VERSION = 'beta0.5-dline14'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -57,52 +57,116 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             or manifest['integration'].get('source_commit') != commit
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
-    required = {'validate-retirement-return.py',
-                'NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts',
-                'actual queued immutable bindings, bounded capacity, cross-queue/device negatives and recovery; no NVIDIA NGX',
-                'dual policy admission/history and independent matched-residual numeric oracle',
-                'actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX',
-                'dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained',
-                'canonical pinned full-source staging', 'validate-work-config.py',
-                'face tracker exact lifetime WARP and optional native CPU worker',
-                'independent face C1 and original endpoints production WARP',
-                'independent face production C1 negative control',
-                'engine region production adapter and snapshot WARP',
-                'fine region composition production WARP',
-                'full-input replay actual WARP capture and independent reader; isolated model lab compile',
-                'legacy stage capture lifecycle and shared diagnostic lease',
-                'frozen generated D4 directional reference source',
-                'directional light production scalar and independent negative controls',
-                'validate-color-policy.py', 'validate-bug-sweep.py',
-                'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py',
-                'validate-optional-layer-probe.py',
-                'validate-face-capture-geometry.py', 'validate-config-policy.py', 'tests/test_settings_notices_ui.py',
-                'face diagnostic group8 production GPU ring and invalid group9 WARP',
-                'tests/test_face_selection_ui.py', 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
-                'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py',
-                'tests/test_rr_depth_device_identity.py',
-                'four-region production scalar and three negative controls',
-                'legacy-post production scalar and four negative controls',
-                'post transformation exact adapter pair and negative controls',
-                'generated legacy-post light fixture compiled without GPU dispatch',
-                'legacy-post light controls production WARP; synthetic Neural only',
-                'four-region light controls production WARP; synthetic Neural only',
-                'bounded RR projection CPU copy',
-                'validate-command-creation.py', 'validate-first-recording.py',
-                'validate-reset-notification-gap.py', 'validate-core-feedback.py',
-                'first-recording old-policy CPU negative control',
-                'first-recording real Create Capture Restore native API',
-                'first-recording old-policy native API negative control', 'tests/test_rr_depth_projection.py',
-                'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py',
-                'native command creation and lifecycle; full state and negative restore WARP',
-                'production RR depth cs_5_0 and private R32 WARP readback',
-                'validate-recommended-picture.py', 'recommended independent negative control',
-                'test_post_patch.py', 'test_picture_integration.py',
-                'validate-edit-field.py', 'validate-color-edit-field.py',
-                'all staged production SM5 entries compiled',
-                'full staged bilingual Core and nrchain compile/link',
-                'combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR',
-                'manifest source hashes and actual numeric PE identities'}
+    required = {
+        'NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts',
+        'actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU',
+        'actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX',
+        'actual queued immutable bindings, bounded capacity, cross-queue/device negatives and recovery; no NVIDIA NGX',
+        'all staged production SM5 entries compiled',
+        'bounded RR projection CPU copy',
+        'bounded UI activity alternating/stall/scope/reopen CPU gate',
+        'canonical pinned full-source staging',
+        'combined F8 capacity UTF8 privacy and end-verdict negative controls',
+        'combined F8 current unknown store cannot inherit historical match',
+        'combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR',
+        'descriptor-alias-runtime-cpu',
+        'descriptor-provenance-cpu',
+        'directional light production scalar and independent negative controls',
+        'dual policy admission/history and independent matched-residual numeric oracle',
+        'dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained',
+        'engine region production adapter and snapshot WARP',
+        'exact submitted fence event wait and scoped CPU timing',
+        'face diagnostic group8 production GPU ring and invalid group9 WARP',
+        'face tracker exact lifetime WARP and optional native CPU worker',
+        'final F8 typed timing numbers privacy disk output and actual summary CPU',
+        'fine region composition production WARP',
+        'first-recording old-policy CPU negative control',
+        'first-recording old-policy native API negative control',
+        'first-recording real Create Capture Restore native API',
+        'four-region light controls production WARP; synthetic Neural only',
+        'four-region production scalar and three negative controls',
+        'frozen generated D4 directional reference source',
+        'full assembled Core timing probe phases reserved tails and negative controls CPU',
+        'full staged bilingual Core and nrchain compile/link',
+        'full-input replay actual WARP capture and independent reader; isolated model lab compile',
+        'generated legacy-post light fixture compiled without GPU dispatch',
+        'independent face C1 and original endpoints production WARP',
+        'independent face production C1 negative control',
+        'legacy stage capture lifecycle and shared diagnostic lease',
+        'legacy-post light controls production WARP; synthetic Neural only',
+        'legacy-post production scalar and four negative controls',
+        'manifest source hashes and actual numeric PE identities',
+        'native command creation and lifecycle; full state and negative restore WARP',
+        'post transformation exact adapter pair and negative controls',
+        'process-local automatic GPU sampling policy and concurrent phase snapshots CPU',
+        'production PRE POST actual storage quantization and wrong-target WARP',
+        'production PRE POST rotating motion slots exact fence and descriptor readback WARP',
+        'production PRE disabled jitter and POST resolved zero binding CPU',
+        'production RR depth cs_5_0 and private R32 WARP readback',
+        'production RR notifications cannot retain old blocks or borrow Feature1 recovery CPU',
+        'production UNORM interval coverage mismatch and late-phase collection CPU',
+        'production UNORM legal interval endpoints complete coverage and slot reuse WARP',
+        'production bounded submitted-retirement and output binding WARP',
+        'production bulk-copy destination scope and old-global negative control CPU',
+        'production codec FLOAT exposure finite extreme and composition regression WARP',
+        'production descriptor provenance native uses RTV targets and Execute positions WARP',
+        'production jitter migration Win32 persistence fresh processes and negative controls CPU',
+        'production layered NGX lifecycle and ownership with actual Win32 locks',
+        'production motion slot selection and old-first-match negative control CPU',
+        'production native Clear CPU format declaration and fresh-call rejection WARP',
+        'production native Clear CPU request and exact fresh-call guard CPU',
+        'production native boundary detours and immutable scoped window CPU',
+        'production one-shot queue retirement WARP',
+        'production ordinary paused sampling equivalence and late-readback phase WARP',
+        'production output-state-only barriers without diagnostic dispatch or readback WARP',
+        'production oversized native copies preserve unrelated Output CPU evidence WARP',
+        'production paused current-phase read-only boundary and historical-store isolation CPU',
+        'production post-store readback with unused-target negative control WARP',
+        'production read-only post-boundary callbacks and identity isolation CPU',
+        'production recovery snapshot permits fresh proof after historical evidence loss CPU',
+        'production same-process semantic recovery with real descriptor submit and readback WARP',
+        'production typed R8 exposure versus R32 normalized control WARP',
+        'production typed native color admission descriptors and storage WARP',
+        'recommended independent negative control',
+        'route-compatibility-runtime-cpu',
+        'test_picture_integration.py',
+        'test_post_patch.py',
+        'tests/multi_api/test_rr_post_diagnostics.py',
+        'tests/test_compat_route.py',
+        'tests/test_face_selection_ui.py',
+        'tests/test_imgui_abi.py',
+        'tests/test_light_style.py',
+        'tests/test_lighting_edge_weights.py',
+        'tests/test_picture_reset.py',
+        'tests/test_rr_depth_device_identity.py',
+        'tests/test_rr_depth_projection.py',
+        'tests/test_runtime_timing_summary.py',
+        'tests/test_settings_notices_ui.py',
+        'tests/test_ui_refresh.py',
+        'ui-activity-receipt-runtime-cpu',
+        'validate-bug-sweep.py',
+        'validate-color-edit-field.py',
+        'validate-color-policy.py',
+        'validate-command-creation.py',
+        'validate-compatibility-verdict-feedback.py',
+        'validate-compatibility-verdict.py',
+        'validate-config-policy.py',
+        'validate-core-feedback.py',
+        'validate-edit-field.py',
+        'validate-f8-controller.py',
+        'validate-face-capture-geometry.py',
+        'validate-feedback-combined.py',
+        'validate-first-recording.py',
+        'validate-native-format-observer.py',
+        'validate-optional-layer-probe.py',
+        'validate-recommended-picture.py',
+        'validate-reset-notification-gap.py',
+        'validate-resource-recovery.py',
+        'validate-resource-semantics.py',
+        'validate-retirement-return.py',
+        'validate-strength-migration.py',
+        'validate-work-config.py',
+    }
     if not required.issubset(result.get('checks', [])):
         raise ValueError('Focused required gate missing.')
     checked_file(build, 'validation.log', result['log_sha256'])
@@ -121,13 +185,13 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline13 language cores and only the owned bridge.')
+        raise ValueError('Expected two beta0.5-dline14 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE13_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE14_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     face_assets = {}
     receipt = json.loads(checked_file(binary_root, 'face-backend.json', result['face_backend_receipt_sha256']))
     if receipt['enabled'] != result['face_backend_enabled']:
@@ -187,7 +251,7 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             'binaries': {name: artifacts[name] for name in (addon, 'nrchain_nvngx.dll')},
         }
         entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
-                   'README.zh-CN.md': guide, 'LICENSES.txt': notice,
+'README.zh-CN.md': guide, 'LICENSES.txt': notice,
                    'DLINE11_CORE_ACCEPTANCE.zh-CN.md': (ROOT / 'docs/testing/DLINE11_CORE_ACCEPTANCE.zh-CN.md').read_bytes(),
                    'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
         entries.update(face_assets)

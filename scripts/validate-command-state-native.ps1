@@ -18,9 +18,12 @@ if ($FirstRecordingNegativeControl) {
     $production=$production.Replace($needle,'record->state->first_recording_observed = false; // old no-first-recording baseline')
 }
 $main = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
+# Both callbacks in the actual route coordinator must use the resolved native
+# interface captured by before_state, including a locked compatibility route.
 foreach ($expression in @(
-    'Substitution before_sr = PrepareBeforeSr\(\s*before_state.command_list,',
-    'PostSrSubstitution after_sr = PrepareAfterSr\(\s*before_state.command_list,',
+    'const auto prepare_before = \[&\]\s*\{\s*return PrepareBeforeSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature\);\s*\};',
+    'const bool compatibility_fallback = nr_route::Prepare\(\s*before_sr,\s*after_sr,\s*\[\]\s*\{\s*return NrRoutePostLocked\(\);\s*\},\s*prepare_before,\s*can_fallback,\s*observe_fallback,\s*\[&\]\(bool fallback\)\s*\{',
+    'auto prepared = PrepareAfterSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature,\s*fallback\);[\s\S]*?return prepared;\s*\}\);',
     'before_state.Restore\(\);\s*if \(!before_sr.active && !after_sr.active\)',
     'NativeCommandStateScope after_state\(command_list\);[\s\S]*?FinishAfterSr\(after_state.command_list,',
     'const HRESULT result = original\(command_list, allocator, initial_state\);\s*OnCommandStateResetResult\(command_list, result, initial_state\);'

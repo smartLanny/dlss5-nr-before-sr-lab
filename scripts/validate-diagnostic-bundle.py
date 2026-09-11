@@ -21,7 +21,7 @@ def main():
     ran=subprocess.run([str(exe),str(fixture)],capture_output=True,text=True,check=True,timeout=90)
     (out/'native.log').write_text(ran.stdout+ran.stderr,encoding='utf-8')
     reports={}
-    for case in ('complete','partial','names','cancelled','entry-limit'):
+    for case in ('complete','partial','names','cancelled','entry-limit','metadata-large','metadata-limit'):
         path=fixture/case/'feedback.zip'
         with zipfile.ZipFile(path) as z:
             assert z.testzip() is None
@@ -57,13 +57,23 @@ def main():
                 assert z.namelist()==['capture-info.txt','manifest.json']
             elif case=='entry-limit':
                 assert manifest['input_rejections']==1 and len(infos)==66
+            elif case in ('metadata-large','metadata-limit'):
+                raw=z.read('capture-info.txt')
+                metadata=raw.decode('utf-8')
+                assert manifest['complete'] and manifest['required_complete']
+                assert manifest['metadata_text']==metadata
+                if case=='metadata-large':
+                    assert len(raw)>96*1024 and 'metadata.requiredTail=complete' in metadata
+                else:
+                    assert len(raw)==128*1024-1 and metadata.endswith('中文')
         assert not (path.parent/'feedback.zip.partial').exists()
     assert (fixture/'existing-partial/feedback.zip.partial').read_bytes()==b'owner-sentinel'
     assert not (fixture/'existing-partial/feedback.zip').exists()
     assert not (fixture/'busy/feedback.zip').exists()
     summary={'status':'PASS','native':ran.stdout.strip(),'zipCases':list(reports),
         'checks':['actual native helper','published SHA256 vectors','independent ZIP CRC/SHA/payload verification',
-                  'UTF8 Chinese entry names and metadata','module hash only, DLL not bundled','active writer log tail',
+                  'UTF8 Chinese entry names and metadata','96KiB and exact 128KiB-minus-NUL metadata archives',
+                  'oversized metadata and incomplete UTF8 rejection','module hash only, DLL not bundled','active writer log tail',
                   'missing and oversize reasons','duplicate/traversal/reserved/ADS/network rejection',
                   'cancellation with valid manifest','single worker guard','no final/partial overwrite','64-item cap'],
         'limitations':['No GPU or game execution; collection worker is caller-owned.',

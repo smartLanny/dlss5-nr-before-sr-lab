@@ -16,7 +16,7 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
         if(plan){plan->Uav(i,resource,format);return;}
         D3D12_UNORDERED_ACCESS_VIEW_DESC d={};d.Format=format;d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(device,resource,nullptr,&d,at(i)); };
-    srv(0,slot.source,slot.source_format);
+    srv(0,slot.source,slot.source_srv_format);
     srv(1,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);
     const auto dual=second?*second:slot.dual_selected?nr_dual::dx12::GetSurfaces(slot.dual_selected->dual_spatial):nr_dual::dx12::Surfaces{};
     const bool has_second=second||slot.dual_selected;
@@ -42,7 +42,7 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     uav(kCodecEditRestoreUavIndex,slot.edit_horizontal,DXGI_FORMAT_R16G16_FLOAT);
     uav(kCodecLanczosUavIndex,slot.lanczos_intermediate,DXGI_FORMAT_R16G16B16A16_FLOAT);
     if(plan) {
-        plan->Raw(kCodecStatsUavIndex,slot.delta_stats,kDiagnosticStatsUintCount);
+        plan->Raw(kCodecStatsUavIndex,slot.delta_stats,nr_store_comparison::BufferWords(slot.store_interval_capacity));
         const bool capture=slot.stage_capture.armed&&slot.stage_capture.buffer;
         plan->Raw(kCodecCaptureUavIndex,capture?slot.stage_capture.buffer:nullptr,
             capture?static_cast<unsigned>(slot.stage_capture.bytes/sizeof(std::uint32_t)):4u);
@@ -50,10 +50,13 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     }
     D3D12_UNORDERED_ACCESS_VIEW_DESC raw={};raw.Format=DXGI_FORMAT_R32_TYPELESS;
     raw.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;raw.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;
-    raw.Buffer.NumElements=kDiagnosticStatsUintCount;
+    raw.Buffer.NumElements=nr_store_comparison::BufferWords(slot.store_interval_capacity);
     ID3D12Device_CreateUnorderedAccessView(device,slot.delta_stats,nullptr,&raw,at(kCodecStatsUavIndex));
     raw.Buffer.NumElements=4;
     ID3D12Device_CreateUnorderedAccessView(device,nullptr,nullptr,&raw,at(kCodecCaptureUavIndex));
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+    NrRecoveryDescriptorProgrammed(slot, heap);
+#endif
 }
 
 // Update only the optional plane after the slot's exact mutation gate passed.
@@ -106,7 +109,7 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     WriteCodecDescriptorSet(device, slot, slot.snapshot_heap);
     auto cpu = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = slot.result_format;
+    srv.Format = slot.result_srv_format;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
@@ -116,4 +119,28 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
     ID3D12Device_CreateUnorderedAccessView(device, slot.source, nullptr, &uav, cpu);
+    // Read-only pre-NR reference for the sparse post-store probe; this heap
+    // never uses the optional edit-field SRV for picture composition.
+    cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
+    cpu.ptr+=static_cast<SIZE_T>(g_codec.descriptor_size)*kCodecEditFieldSrvIndex;
+    srv.Format=slot.source_srv_format;
+    ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
+}
+
+// This pre-SR diagnostic heap only reads the owned Result and original Color.
+// Rebuilding the common table never creates a UAV of the external Color:
+// its u1 remains the owned FP16 Result, unused by ProbePostStoreCS.
+void WritePreStoreProbeDescriptors(ID3D12Device *device,const NrSlot &slot) {
+    if (!device || !slot.pre_store_probe_heap) return;
+    WriteCodecDescriptorSet(device,slot,slot.pre_store_probe_heap);
+    auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.pre_store_probe_heap);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format=slot.result_srv_format;
+    srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels=1;
+    ID3D12Device_CreateShaderResourceView(device,slot.result,&srv,cpu);
+    cpu.ptr+=static_cast<SIZE_T>(g_codec.descriptor_size)*kCodecEditFieldSrvIndex;
+    srv.Format=slot.source_srv_format;
+    ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
 }

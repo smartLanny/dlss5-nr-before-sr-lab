@@ -44,6 +44,7 @@ HARNESS = r'''
 #include <memory>
 #include "nr_diagnostic_bundle.inl"
 #include "nr_dual_observation.hpp"
+#include "nr_compatibility_verdict.h"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -85,6 +86,15 @@ ColorSnapshot SnapshotColorPolicy(){return {};}
 const char *NrColorPolicyStatusName(int){return "unavailable";}
 const char *NrColorReasonName(int){return "unknown";}
 APPEND
+#include "nr_compatibility_verdict_feedback.inl"
+// Explicit snapshot seam. Default evidence stays unknown; writer and Resolve
+// remain production code. Combined tests populate this same value interface.
+nr_compatibility_verdict::Input fixture_decision;
+unsigned fixture_decision_snapshots=0;
+nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
+    ++fixture_decision_snapshots;
+    return fixture_decision;
+}
 #define NR_HAS_COMMAND_STATE_EVIDENCE 1
 #define NR_HAS_NGX_HOOK_EVIDENCE 1
 COMMAND_EVIDENCE
@@ -260,11 +270,11 @@ int main(int argc,char **argv) {
     {
         ChainConfig frozen{};frozen.region_enabled=true;frozen.region_preview=3;
         for(unsigned i=0;i<11;++i)frozen.region_gains[i]=.25f*float(i);
-        FeedbackSession region_request;
-        nr_core_feedback::AppendPictureConfig(region_request,frozen,true);
-        check(std::strstr(region_request.report,"requested.regionEnabled=1\n") &&
-              std::strstr(region_request.report,"requested.regionPreview=3\n") &&
-              std::strstr(region_request.report,"requested.regionGains=0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5\n"),
+        const auto region_request=std::make_unique<FeedbackSession>();
+        nr_core_feedback::AppendPictureConfig(*region_request,frozen,true);
+        check(std::strstr(region_request->report,"requested.regionEnabled=1\n") &&
+              std::strstr(region_request->report,"requested.regionPreview=3\n") &&
+              std::strstr(region_request->report,"requested.regionGains=0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5\n"),
               "all eleven region gains and preview serialize from the coherent supplied snapshot");
     }
     g_command_state_evidence.available=true;g_command_state_evidence.sampled_at=GetTickCount64();
@@ -301,27 +311,27 @@ int main(int argc,char **argv) {
         g_command_state_evidence.first_recording_observed=true;
         g_command_state_evidence.baseline="Create-first-recording";
         g_command_state_evidence.reset_serial=0;g_command_state_evidence.fresh_reset=false;
-        FeedbackSession first_recording;
-        FeedbackAppendActivity(first_recording,"sample");
-        check(std::strstr(first_recording.report,"sample.commandState.firstRecordingObserved=1\n"),"first recording provenance reaches F8");
-        check(std::strstr(first_recording.report,"sample.commandState.baseline=Create-first-recording\n"),"first recording baseline is not relabeled Reset");
-        check(std::strstr(first_recording.report,"sample.commandState.resetSerial=0\n") &&
-            std::strstr(first_recording.report,"sample.commandState.freshReset=0\n"),"first recording F8 does not fabricate Reset proof");
+        const auto first_recording=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*first_recording,"sample");
+        check(std::strstr(first_recording->report,"sample.commandState.firstRecordingObserved=1\n"),"first recording provenance reaches F8");
+        check(std::strstr(first_recording->report,"sample.commandState.baseline=Create-first-recording\n"),"first recording baseline is not relabeled Reset");
+        check(std::strstr(first_recording->report,"sample.commandState.resetSerial=0\n") &&
+            std::strstr(first_recording->report,"sample.commandState.freshReset=0\n"),"first recording F8 does not fabricate Reset proof");
         g_command_state_evidence.first_recording_observed=false;g_command_state_evidence.baseline="Reset";
-        FeedbackSession unobserved;
-        FeedbackAppendActivity(unobserved,"sample");
-        check(std::strstr(unobserved.report,"sample.commandState.blend=unobserved\n"),"unobserved blend never masquerades as four zeroes");
+        const auto unobserved=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*unobserved,"sample");
+        check(std::strstr(unobserved->report,"sample.commandState.blend=unobserved\n"),"unobserved blend never masquerades as four zeroes");
         g_command_state_evidence.blend_observed=true;
         const float blend[4]={0.25f,0.5f,0.75f,1.0f};
         std::memcpy(g_command_state_evidence.blend,blend,sizeof(blend));
-        FeedbackSession measured;
-        FeedbackAppendActivity(measured,"sample");
-        check(std::strstr(measured.report,"sample.commandState.blend=0.25,0.5,0.75,1\n"),"all four sampled blend values reach TXT formatting");
+        const auto measured=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*measured,"sample");
+        check(std::strstr(measured->report,"sample.commandState.blend=0.25,0.5,0.75,1\n"),"all four sampled blend values reach TXT formatting");
         AcquireSRWLockExclusive(&g_command_state_lock);
-        FeedbackSession unavailable;
-        FeedbackAppendActivity(unavailable,"sample");
+        const auto unavailable=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*unavailable,"sample");
         ReleaseSRWLockExclusive(&g_command_state_lock);
-        check(std::strstr(unavailable.report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
+        check(std::strstr(unavailable->report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
     }
     g_config.high_strength_protection=false;g_config.layered_enhancement=true;
     g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
@@ -589,11 +599,7 @@ int main(int argc,char **argv) {
 }
 '''
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--compiler', required=True)
-    p.add_argument('--compile-only', action='store_true')
-    args = p.parse_args()
+def production_values():
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
@@ -603,7 +609,7 @@ def main():
         'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
-        'ACTIVITY': definition(legacy, 'void FeedbackAppendActivity('),
+        'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
@@ -613,7 +619,17 @@ def main():
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
         'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),
+        'COMBINED_EVIDENCE': '',
     }
+    return values
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--compiler', required=True)
+    p.add_argument('--compile-only', action='store_true')
+    args = p.parse_args()
+    values = production_values()
     text = HARNESS
     for key, value in values.items():
         text = text.replace('\n'+key+'\n', '\n'+value+'\n')
@@ -650,6 +666,9 @@ def main():
         assert 'real depth transport failed' in bridge and 'Private Tester' not in bridge
         metadata = archive.read('capture-info.txt').decode('utf-8-sig')
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
+                    'start.decision.reason=current-scope-unavailable',
+                    'end.decision.reason=current-scope-unavailable',
+                    'decision.evidenceComplete=0', 'decision.recoveryResult=unavailable',
                     'end.commandState.reason=null-guard-awaiting-reset',
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
                     'start.commandState.blend=0.25,0.5,0.75,1',

@@ -206,6 +206,8 @@ std::uint32_t Evaluate(void* user,ID3D12GraphicsCommandList* list,const void* fe
     auto& aux=*static_cast<NrContext*>(user);
     if(aux.nr_handle!=feature||aux.params!=params||aux.failed)return 0xBAD00005u;
     ScopedSrwExclusive lock(&g_nr_api_lock);
+    ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate, aux.nr_handle);
+    ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
     return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list,aux.nr_handle,aux.params,nullptr);
 }
 NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,

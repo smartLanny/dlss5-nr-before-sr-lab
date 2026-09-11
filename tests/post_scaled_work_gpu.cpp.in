@@ -43,14 +43,20 @@
 #define ID3D12Device_CreateUnorderedAccessView(d, r, c, s, h) \
     (d)->CreateUnorderedAccessView(r, c, s, h)
 struct NrSlot {
+    unsigned store_interval_capacity=0;
     ID3D12Resource *source = nullptr, *proxy = nullptr, *neural = nullptr,
                    *motion_source = nullptr;
     ID3D12Resource *exposure_source = nullptr, *result = nullptr,
                    *motion_proxy = nullptr, *delta_stats = nullptr;
+    ID3D12Resource *edit_field = nullptr, *edit_horizontal = nullptr,
+                   *lanczos_intermediate = nullptr;
+    ID3D12DescriptorHeap *heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
+    ID3D12DescriptorHeap *pre_store_probe_heap = nullptr;
     DXGI_FORMAT source_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT source_srv_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN,
+                result_srv_format = DXGI_FORMAT_UNKNOWN,
                 result_uav_format = DXGI_FORMAT_UNKNOWN;
 };
 struct {
@@ -701,7 +707,9 @@ void BindProductionDescriptors(Gpu &gpu, Texture &source, Texture &proxy,
     slot.source_format = source.format;
     slot.source_srv_format = source.format;
     slot.result_format = result.format;
+    slot.result_srv_format = result.format;
     slot.result_uav_format = result.format;
+    slot.heap = gpu.heap.p;
     WriteCodecDescriptorSet(gpu.device.p, slot, gpu.heap.p);
 }
 

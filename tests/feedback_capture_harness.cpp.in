@@ -18,6 +18,7 @@
 #include <functional>
 #include <cmath>
 #include <shlobj.h>
+#include "nr_compatibility_verdict.h"
 
 // Use the real packager once for the saved-path regression. Its implementation
 // is compiled before the scheduler/filesystem seams below are introduced.
@@ -107,6 +108,9 @@ namespace reshade::internal { static HMODULE get_reshade_module_handle() {return
 
 // @production_globals
 
+// Runtime sampling is an explicit seam; unavailable evidence remains unknown.
+static nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() { return {}; }
+
 enum class BypassReason { None };
 struct ChainConfig {
     bool enabled=true,preserve_lighting=true;
@@ -127,6 +131,7 @@ struct ColorSnapshot {
 };
 struct NgxParams {};
 struct FeatureRecord {
+    int feature_id=1;
     unsigned long long generation=1;int create_flags=0;
     unsigned width=1280,height=720,out_width=1920,out_height=1080;
 };
@@ -138,6 +143,7 @@ struct ResourceDescription {
 };
 static bool GetFloat(const NgxParams *,const char *,float *value) {*value=1;return true;}
 static bool GetInt(const NgxParams *,const char *,int *value) {*value=0;return true;}
+static bool GetUInt(const NgxParams *,const char *,unsigned *value) {*value=0;return false;}
 static bool GetResource(const NgxParams *,const char *,ID3D12Resource **value) {
     static ID3D12Resource resource;*value=&resource;return true;
 }
@@ -172,7 +178,15 @@ static std::atomic<unsigned long long> g_stage_capture_request_id{0};
 static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;
 static bool stage_available=true;
 static std::function<void()> during_stage_request;
-namespace nr_f8 { void Screenshot(reshade::api::effect_runtime*,const char*) {} }
+namespace nr_f8 {
+void Screenshot(reshade::api::effect_runtime*,const char*) {}
+// RequestCore is an IO/scheduling seam here: exercise the retained collector's
+// real writer/worker independently of the separate single-TXT dispatcher.
+bool RequestCore() {
+    const auto status=g_feedback_status.load();if(status==1||status==2)return false;
+    bool expected=false;return g_feedback_requested.compare_exchange_strong(expected,true);
+}
+}
 static const char *kBuildIdentity="fixture-build";
 static const char *kSourceCommit="fixture-source";
 static constexpr bool kSourceDirty=false;
@@ -229,7 +243,7 @@ static bool allocation_ok=true,run_ok=true;
 static Job last;
 static std::function<void()> during_run;
 static Job *CreateJob(const wchar_t *,const char *text) {
-    if(!allocation_ok||std::strlen(text)>=32768||
+    if(!allocation_ok||std::strlen(text)>=actual_bundle::kMetadataBytes||
         MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text,-1,nullptr,0)==0)return nullptr;
     ++created;return new Job{text,{}};
 }
@@ -455,7 +469,7 @@ static void TestInitializationReentry() {
 static void TestLongTimeline() {
     Reset();reshade::api::effect_runtime r;RequestFeedbackBundle();FeedbackPresent(&r);
     const auto used=g_feedback_session->report_used;
-    std::string huge(32700,'x');huge+="中文";
+    std::string huge(sizeof(g_feedback_session->report),'x');huge+="中文";
     FeedbackAppend(*g_feedback_session,"%s",huge.c_str());
     Check(g_feedback_session->report_used==used&&g_feedback_session->report[used]==0,
         "overflow append discarded as a whole without partial UTF8");
@@ -467,7 +481,8 @@ static void TestLongTimeline() {
     }
     const auto omitted=g_feedback_session->timeline_omitted;
     Check(omitted>0&&g_feedback_session->observations+omitted==120,"timeline budget omits rows and preserves bounded observation work");
-    Check(g_feedback_session->report_used<32768-7000,"optional timeline leaves room for mandatory final metadata");
+    Check(g_feedback_session->report_used<sizeof(g_feedback_session->report)-nr_feedback_limits::kMandatoryTailBytes,
+        "optional timeline leaves a full mandatory tail after the final bounded observation burst");
     tick=[&]{FeedbackPresent(&r);FeedbackStageExported(g_stage_capture_request_id,L"C:\\long-timeline",true);};
     RunWorker();
     const auto &metadata=nr_bundle::last.metadata;
@@ -477,8 +492,65 @@ static void TestLongTimeline() {
     Check(metadata.find("collection.metadataTruncated=1")!=std::string::npos&&
         metadata.find("collection.timelineRowsOmitted="+std::to_string(omitted))!=std::string::npos,
         "metadata tail records actual truncation and omitted-row count");
-    Check(metadata.size()<32768&&MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,metadata.c_str(),-1,nullptr,0)>0,
+    Check(metadata.size()<actual_bundle::kMetadataBytes&&MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,metadata.c_str(),-1,nullptr,0)>0,
         "bounded final metadata remains valid UTF8");
+}
+static void TestAppendUtf8Limit() {
+    auto *session=new FeedbackSession{};
+    static_assert(sizeof(session->report)==actual_bundle::kMetadataBytes,"live and packaged metadata buffers share one capacity");
+    const auto boundary=sizeof(session->report)-nr_feedback_limits::kFinalStatusReserveBytes;
+    const std::string prefix(boundary-7,'x');
+    FeedbackAppend(*session,"%s",prefix.c_str());FeedbackAppend(*session,"%s","中文");
+    Check(session->report_used==boundary-1 && !session->report_truncated,
+        "complete multibyte characters fit immediately before the reserved status tail");
+    const auto used=session->report_used;FeedbackAppend(*session,"%s","再");
+    Check(session->report_used==used && session->report[used]==0 && session->report_truncated,
+        "overflowing UTF8 append is rejected atomically at the new fixed limit");
+    Check(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,session->report,-1,nullptr,0)>0,
+        "near-capacity live metadata has no partial UTF8 code point");
+    delete session;
+}
+static std::string CapacityPayload() {
+    std::string text="capacity.test=expanded\n";
+    while(text.size()<96u*1024u)text+="字段=共同诊断证据; payload=0123456789abcdef\n";
+    text+="compatibility.verdict=capacity-fixture-only\n";
+    return text;
+}
+static bool OldCapacityOracle(const wchar_t *fixtures) {
+    const auto text=CapacityPayload();auto *session=new FeedbackSession{};
+    FeedbackAppend(*session,"%s",text.c_str());
+    const bool writer_rejected=session->report_truncated && session->report_used==0 && session->report[0]==0;
+    delete session;
+    auto *job=actual_bundle::CreateJob(fixtures,text.c_str());
+    const bool package_rejected=job==nullptr;if(job)actual_bundle::DestroyJob(job);
+    if(writer_rejected&&package_rejected) {
+        std::puts("EXPECTED_OLD_FEEDBACK_CAPACITY_REJECTION: actual writer and packager both reject the 96KiB fixture at old 32KiB limits");
+        return true;
+    }
+    return false;
+}
+static void TestExpandedMetadataZip(const wchar_t *fixtures) {
+    Reset();reshade::api::effect_runtime r;config.enabled=false;
+    RequestFeedbackBundle();FeedbackPresent(&r);
+    const auto text=CapacityPayload();FeedbackAppend(*g_feedback_session,"%s",text.c_str());
+    Check(g_feedback_session->report_used>32768 && !g_feedback_session->report_truncated,
+        "actual live writer accepts combined metadata beyond the old 32KiB limit");
+    tick=[&]{FeedbackPresent(&r);};RunWorker();
+    const auto &metadata=nr_bundle::last.metadata;
+    Check(metadata.size()>96u*1024u && metadata.size()<actual_bundle::kMetadataBytes &&
+        metadata.find("compatibility.verdict=capacity-fixture-only")!=std::string::npos &&
+        metadata.find("collection.metadataTruncated=0")!=std::string::npos && metadata.find("end.nrSuccess=")!=std::string::npos,
+        "actual worker preserves large UTF8 evidence, final counters and truncation status");
+    wchar_t path[1024]={};swprintf_s(path,L"%ls\\expanded-metadata",fixtures);
+    Check(RealCreateDirectory(path)!=FALSE,"expanded metadata archive directory created");
+    auto *job=actual_bundle::CreateJob(path,metadata.c_str());
+    Check(job!=nullptr,"actual packager accepts the same expanded live metadata capacity");
+    if(job) {
+        const auto result=actual_bundle::Run(*job);
+        Check(result.status==actual_bundle::Status::Complete && result.required_complete,
+            "expanded UTF8 worker metadata reaches an actual complete ZIP");
+        actual_bundle::DestroyJob(job);
+    }
 }
 static HANDLE stage_callback_entered=nullptr;
 static std::atomic<bool> stage_callback_completed{false};
@@ -570,10 +642,13 @@ static void TestCanonicalScreenshotZip(const wchar_t *fixtures) {
 int wmain(int argc,wchar_t **argv) {
     if(argc!=2)return 2;
     InitializeCriticalSection(&g_chain_cs);
+#if defined(NR_FEEDBACK_OLD_CAPACITY_NEGATIVE)
+    const bool rejected=OldCapacityOracle(argv[1]);DeleteCriticalSection(&g_chain_cs);return rejected?42:1;
+#endif
     TestCallbacks();TestReadyAndZeroNr(true,true);TestReadyAndZeroNr(false,true);
     TestReadyAndZeroNr(true,false);TestTimeoutAndNextSession();TestFailures();
     TestProtectedStageRequests();TestInitializationReentry();TestLongTimeline();TestStageRegistrationRace();
-    TestDirectoryFallback();TestCanonicalScreenshotZip(argv[1]);
+    TestDirectoryFallback();TestCanonicalScreenshotZip(argv[1]);TestAppendUtf8Limit();TestExpandedMetadataZip(argv[1]);
     DeleteCriticalSection(&g_chain_cs);
     std::printf("%u checks, %u failures\n",checks,failures);return failures?1:0;
 }

@@ -93,6 +93,11 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const unsigned source_flags=0;
     const bool f8_armed=false;
+    // This CPU seam tests colour policy; actual post-store sampling and its
+    // unused-target negative control run against production D3D12 below it.
+    const bool probe_post_store=false;
+    const bool probe_pre_store=false;
+    const unsigned store_format_flags=0;
     const bool low_grid_color=false, independent_chroma=false;
     // This fixture isolates colour admission; light wiring is exercised by
     // its production scalar/dispatch GPU tests with the full ChainConfig.

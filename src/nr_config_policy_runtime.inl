@@ -69,6 +69,7 @@ void ApplyConfigPolicyMigrations(ChainConfig &next, bool file_proven_absent) {
                                  nr_config_policy::kExtraStrengthVersion));
     }
     if (jitter_pending && ok) {
+        SetLastError(ERROR_SUCCESS);
         write(WriteIniInt(L"JitterMode", 0));
         if (ok) write(WriteIniInt(L"JitterPolicyVersion",
                                  nr_config_policy::kJitterVersion));

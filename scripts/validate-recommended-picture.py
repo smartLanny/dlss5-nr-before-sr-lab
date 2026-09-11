@@ -32,7 +32,7 @@ FIELDS = {
  'warmup_after_create':'WarmupAfterCreate', 'retry_original_on_sr_failure':'RetryOriginalOnSRFailure',
  'intensity':'Intensity', 'local_tone':'LocalToneStrength',
  'local_structure':'LocalStructureStrength', 'skin_structure':'SkinStructureStrength',
- 'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection',
+ 'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection', 'jitter_mode':'JitterMode',
  'light_broad':'LightBroad', 'light_dark':'LightDark',
  'light_reflection':'LightReflection', 'light_structure':'LightStructure', 'light_glow':'LightGlow',
  'light_style_version':'LightStyleVersion','light_preset':'LightPreset','light_preset_color':'LightPresetColor',
@@ -42,13 +42,13 @@ FIELDS = {
  'face_extra_cap':'FaceExtraCap','face_original_luma':'FaceOriginalLuma','face_original_color':'FaceOriginalColor','face_preview':None,
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
-PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
+PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
 # current model recommendation and the protection gate enabled.
 RECOMMENDED_OVERRIDES={
  'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
- 'color_protection':'1', 'lighting_lock':'0.2', 'light_control_mode':'1',
+ 'color_protection':'1', 'lighting_lock':'0.2', 'light_control_mode':'1', 'jitter_mode':'0',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
@@ -69,7 +69,8 @@ def check_wiring(cpp,ui,helper):
  settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
  assert 'ApplyLightStyleOverlay(next, expected_generation,' in settings
  apply=definition(cpp,'bool ApplyConfig(')
- assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
+ published=apply.index('g_config = next;')
+ assert apply.index('NormalizeConfig(next);') < published < apply.index('SaveConfig(g_config)',published)
  assert 'SameHistoryConfig(next, g_config)' in apply
  overlay=definition(cpp,'OverlayApplyResult ApplyOverlayConfig(')
  assert 'expected_generation' in overlay and 'nr_f8::g_config_hold' in overlay
@@ -126,9 +127,9 @@ int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
 '''+struct+'\n'+helper+'\nint main(){\n'
  code+='for(bool enabled:{false,true})for(int encoding:{0,1,2}){ChainConfig c;\n'+'\n'.join(dirty)+'\n'
- code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.jitter_mode=NrJitterMode::Legacy;c.perf_epoch=777;\n'
+ code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.perf_epoch=777;\n'
  code+='for(int repeat=0;repeat<2;++repeat){RestoreRecommendedPictureSettings(c);\n'+'\n'.join(checks)+'\n'
- code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.jitter_mode==NrJitterMode::Legacy&&c.perf_epoch==777,"master and provider contracts preserved");\n'
+ code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.perf_epoch==777,"master and provider contracts preserved");\n'
  code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')

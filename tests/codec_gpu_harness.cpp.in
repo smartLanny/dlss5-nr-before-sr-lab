@@ -99,6 +99,12 @@ struct Gpu {
         if (SUCCEEDED(result)) {
             std::puts("GPU codec validation adapter: D3D12 WARP");
         } else {
+            char warp_only[2]{};
+            const bool require_warp = GetEnvironmentVariableA(
+                "NR_VALIDATION_WARP_ONLY", warp_only, sizeof(warp_only)) == 1 &&
+                warp_only[0] == '1';
+            Require(!require_warp,
+                    "WARP-only validation requested but WARP creation failed; hardware fallback disabled");
             for (UINT index = 0; device.p == nullptr; ++index) {
                 Com<IDXGIAdapter1> adapter;
                 if (factory->EnumAdapters1(index, &adapter.p) == DXGI_ERROR_NOT_FOUND)

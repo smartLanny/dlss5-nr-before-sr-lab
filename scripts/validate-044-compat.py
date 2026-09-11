@@ -30,7 +30,9 @@ def run(compiler: str, name: str, code: str, expected_failure: str | None = None
         if os.name == 'nt': flags.append('-static')
         subprocess.run([compiler, *flags, str(src), '-o', str(exe)], check=True)
         if expected_failure is None:
-            subprocess.run([str(exe)], check=True)
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            print(result.stdout + result.stderr, end='')
+            result.check_returncode()
         else:
             result = subprocess.run([str(exe)], capture_output=True, text=True)
             if result.returncode != 1 or result.stderr.strip() != expected_failure:
@@ -61,12 +63,19 @@ std::atomic<unsigned> g_wrapper_calls{0},g_core_calls{0},g_dlssd_evaluate_calls{
 bool g_inside_ngx_evaluate=false,other_owner=false;
 int unknowns=0,native_calls=0;
 enum class BypassReason {ShortFuseOwnsNr}; enum class ModuleObserverFault {UnknownEvaluate};
+enum class NgxLayer {Dlss,Core,Dlssd}; enum class NgxOwner {Game,ExternalNr};
+enum class PrivateNrOperation {Evaluate};
+struct ScopedNgxLayer { explicit ScopedNgxLayer(NgxLayer){} };
+struct ScopedRrOwnershipGate { ScopedRrOwnershipGate(bool,bool,bool){} bool is_nested(){return false;} bool acquisition_failed(){return false;} };
+void LatchNestedRrOwnershipChange(const char*){} void LatchConcurrentRrOwnershipChange(const char*){}
+void ObserveNgxEvaluate(const NgxHandle*){}
+bool IsPrivateNrEntry(PrivateNrOperation,const NgxHandle*){return false;}
 void SetBypassReason(BypassReason) {}
 bool LatchGenericRenoDxConflictIfLoaded() {return false;}
 bool OtherNrOwnerActive() {return other_owner;}
 void ObserveNullEvaluateHandle(const char*) {}
 void LatchUnknownFeatureHandle(const char*,const char*,ModuleObserverFault) {++unknowns;}
-struct Feature { const NgxHandle* handle; };
+struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; };
 Feature FindFeature(const NgxHandle* h) {return {h==&public_handle?h:nullptr};}
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle* h) {return h&&!g_inside_ngx_evaluate&&!FindFeature(h).handle;}
 template<class... T> void Log(const char*,T...) {}
@@ -250,9 +259,14 @@ if __name__=='__main__':
         run(compiler,'null-raster',raster(cs))
         run(compiler,'blend-pointer',blend_pointer(cs))
         run(compiler,'blend-pointer-negative',blend_pointer(cs, True), 'BLEND_NULL_FORWARD_ORACLE')
-        assert 'if (record == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
+        assert 'if (record == nullptr || record->owner == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
-        assert 'next.mode = mode == 0 ? 2 : 1; changed = true;' in ui
-        assert 'if (rr_guarded) ImGui::EndDisabled();' in ui
+        route = definition(ui, 'bool DrawProcessingModeBlocks(')
+        assert 'const int requested_mode = option == 0 ? 2 : 1;' in route
+        assert 'const bool mode_guarded = rr_guarded || compatible_post_locked;' in route
+        assert 'const int shown_mode = mode_guarded ? 1 : next.mode;' in route
+        assert 'if (clicked && !mode_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
+        assert 'if (mode_guarded) ImGui::BeginDisabled();' in route
+        assert 'if (mode_guarded) ImGui::EndDisabled();' in route
         print('PASS sticky registration / visible comparison integration')

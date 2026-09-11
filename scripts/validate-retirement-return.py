@@ -33,6 +33,23 @@ int g_nr_api_lock=0;
 void check(bool ok,const char *name) {++checks;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
 struct ScopedSrwExclusive {explicit ScopedSrwExclusive(int*){++depth;}~ScopedSrwExclusive(){--depth;}};
 struct NgxParams {} params;
+struct NgxHandle {};
+enum class PrivateNrOperation {Release};
+enum class NgxLayer {PrivateBridge};
+int private_calls=0,private_layers=0;
+struct ScopedPrivateNrCall {
+    ScopedPrivateNrCall(PrivateNrOperation,void *handle) {check(handle&&depth==1,"private Release receives live handle under provider lock");++private_calls;}
+    ~ScopedPrivateNrCall(){--private_calls;}
+};
+struct ScopedNgxLayer {explicit ScopedNgxLayer(NgxLayer){++private_layers;}~ScopedNgxLayer(){--private_layers;}};
+struct FeatureRecord {unsigned long long generation=7;};
+FeatureRecord FindFeature(const NgxHandle *handle) {
+    check(handle&&private_calls==1&&private_layers==1,"private Release lookup uses scoped identity");return {};
+}
+void ForgetObservedFeature(const NgxHandle *handle,unsigned long long generation) {
+    check(handle&&generation==7&&release_result==kNgxSuccess&&private_calls==1&&private_layers==1,
+          "only successful Release forgets the same observed generation");
+}
 struct NrSlot {int value=7;};
 struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];void* dual_create_guides[2]{};};
 NgxResult release(void *entry,void *handle) {check(depth==1&&entry&&handle,"release serialized and callable");++releases;return release_result;}
@@ -44,7 +61,7 @@ template<class T> void ReleaseCom(T*& p) {if(p){++guide_releases;p=nullptr;}}
 void DestroyBindings(NrContext& c) {check(depth==0&&!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined,"binding tables retained until provider teardown succeeds");++bindings;}
 void DestroySlot(NrSlot &s) {check(depth==0&&bindings==1,"slot teardown follows binding retirement outside provider lock");++slots;s.value=0;}
 @ACTUAL@
-void reset() {check(depth==0,"provider lock unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=bindings=guide_releases=0;release_result=destroy_result=1;}
+void reset() {check(depth==0,"provider lock unwound");check(private_calls==0&&private_layers==0,"private Release scopes unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=bindings=guide_releases=0;release_result=destroy_result=1;}
 NrContext live() {NrContext c;c.nr_handle=&params;c.params=&params;c.dual_create_guides[0]=c.dual_create_guides[1]=&params;return c;}
 int main() {
  reset();{auto c=live();DestroyContext(c);check(releases==1&&destroys==1&&slots==2&&bindings==1&&guide_releases==2,"successful retirement completes once");check(!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain,"success clears ownership");}

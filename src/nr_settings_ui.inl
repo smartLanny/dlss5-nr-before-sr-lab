@@ -141,7 +141,8 @@ OverlayApplyResult ApplySettingsOverlay(ChainConfig next, unsigned expected_gene
     return result;
 }
 
-bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_mode) {
+bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
+    bool compatible_post_locked, int effective_mode) {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const char *labels[] = {
@@ -150,20 +151,21 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_
     const float width = std::max(1.0f,
         (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
     bool changed = false;
+    const bool mode_guarded = rr_guarded || compatible_post_locked;
     ImGui::PushID("nr-processing-mode");
-    if (rr_guarded) ImGui::BeginDisabled();
+    if (mode_guarded) ImGui::BeginDisabled();
     for (int option = 0; option < 2; ++option) {
         if (option != 0) ImGui::SameLine();
         ImGui::PushID(option);
         const int requested_mode = option == 0 ? 2 : 1;
-        const int shown_mode = rr_guarded ? 1 : effective_mode;
+        const int shown_mode = mode_guarded ? 1 : effective_mode;
         const bool selected = shown_mode == requested_mode;
         if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
             ImGui::GetStyleColorVec4(ImGuiCol_Header));
         const bool clicked = ImGui::Button(labels[option],
             ImVec2(width, ImGui::GetFrameHeight() * 1.25f));
         if (selected) ImGui::PopStyleColor();
-        if (clicked && !rr_guarded && next.mode != requested_mode) {
+        if (clicked && !mode_guarded && next.mode != requested_mode) {
             next.mode = requested_mode;
             changed = true;
         }
@@ -174,7 +176,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_
             "先由原生 SR 放大，再由 AI 处理更大画面。RR 实际总是采用后置路线；可选择时点击会保存后置偏好。"));
         ImGui::PopID();
     }
-    if (rr_guarded) ImGui::EndDisabled();
+    if (mode_guarded) ImGui::EndDisabled();
     ImGui::PopID();
     return changed;
 }
@@ -418,15 +420,159 @@ void DrawSimpleImageCaptureControls() {
 
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
-// ImGui can be drawn by more than one swapchain; do not block another caller.
-nr_ui_activity::Sample ReadUiActivity() {
-    static SRWLOCK lock=SRWLOCK_INIT;
-    static nr_ui_activity::Window window;
-    if(!TryAcquireSRWLockExclusive(&lock)) return {};
-    const auto result=window.Observe(GetTickCount64(),{g_carrier_evaluations.load(),
-        g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load()});
-    ReleaseSRWLockExclusive(&lock);
-    return result;
+// All drawing threads observe one bounded process-counter window. The short
+// CPU lock covers the reads as well as Observe, so a delayed reader cannot
+// apply older time/counters after a newer observation. Drawing stays outside.
+nr_ui_activity::Sample ReadUiActivity(unsigned config_generation,
+                                    nr_ui_activity::ReadReceipt* receipt=nullptr) {
+    auto& thread=NrUiActivityThread();
+    NrUiActivityWindowGuard guard;
+    auto& window=g_nr_ui_activity_window;
+    nr_ui_activity::ReadReceipt observation{};
+    const auto epoch=g_pipeline_stats_epoch.load(std::memory_order_acquire);
+    const nr_ui_activity::Counters counters{g_carrier_evaluations.load(),
+        g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load(),
+        g_queue_affinity_unknown_bypass_frames.load()};
+    const auto reason=g_last_bypass_reason.load(std::memory_order_acquire);
+    const auto config_checked=g_config_generation.load(std::memory_order_acquire);
+    const bool epoch_checked_known=config_checked==config_generation;
+    const auto epoch_checked=epoch_checked_known?
+        g_pipeline_stats_epoch.load(std::memory_order_acquire):0;
+    const auto now=GetTickCount64();
+    NrUiActivityReadIdentity(thread,observation,now);
+    observation.config_argument=config_generation;observation.epoch_entered=epoch;
+    observation.config_checked=config_checked;observation.epoch_checked=epoch_checked;
+    observation.epoch_checked_known=epoch_checked_known;
+    if (config_checked!=config_generation || (epoch_checked_known && epoch_checked!=epoch)) {
+        auto& detail=observation.observation;
+        detail.before=window.Inspect();detail.current=counters;detail.input_scope={config_generation,epoch};
+        detail.now=now;detail.live_reason=reason;detail.kind=nr_ui_activity::Kind::Incoherent;
+        detail.gap_known=detail.before.initialized && now>=detail.before.last_observed;
+        if(detail.gap_known)detail.gap_ms=now-detail.before.last_observed;
+        detail.reset_mask=config_checked!=config_generation?nr_ui_activity::ConfigReadChanged:
+            nr_ui_activity::EpochReadChanged;
+        // An obsolete caller must not erase a newer, already observed scope.
+        // An incoherent read of the currently held scope still invalidates it.
+        if(detail.before.scope.config==config_generation && detail.before.scope.epoch==epoch)
+            window={};
+        if(receipt)*receipt=observation;
+        return {};
+    }
+    const auto sample=window.Observe(now,counters,{config_generation,epoch},reason,&observation.observation);
+    if(receipt)*receipt=observation;
+    return sample;
+}
+
+void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
+                          const ChainConfig &config,unsigned generation,nr_ui_activity::Site site) {
+    const bool zh=UseChineseUi();
+    const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
+    nr_ui_activity::ReadReceipt receipt{};
+    const auto activity=ReadUiActivity(generation,&receipt);
+    using Display=nr_ui_activity::Display;
+    // The platform assembler replaces the first API-warning body. Its branch
+    // identity stays the same; every subsequent branch sets its own identity.
+    Display displayed=Display::WrongApi;
+    // A carrier can safely skip between two submitted NR frames. Keep the
+    // entire summary on one window instead of contradicting it every frame.
+    // The unfiltered per-carrier reason and counters remain in diagnostics/F8.
+    const auto reason=static_cast<BypassReason>(activity.bypass_reason);
+    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
+        ImGui::TextWrapped("%s", ui(
+            "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
+            "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
+    else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f) {
+        displayed=Display::Native;
+        ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
+            "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
+    }
+    else if (!activity.valid) {
+        displayed=Display::Checking;
+        ImGui::TextWrapped("%s", ui("Checking recent NR activity...", "正在检查近期 NR 处理状态……"));
+    }
+    else if (activity.Intermittent()) {
+        displayed=Display::Intermittent;
+        ImGui::TextWrapped("%s", ui(
+            "NR is processing intermittently. Some evaluations are skipped while queue synchronization requirements are unmet. Use F6 to compare and F8 to report.",
+            "NR 正在间歇处理；部分评估因队列同步条件未满足而跳过。按 F6 对比画面，按 F8 反馈。"));
+    }
+    else if (activity.Processing()) {
+        displayed=Display::Observed;
+        ImGui::TextWrapped("%s", ui("Recent NR processing and output submission observed. Use F6 to compare the picture.",
+            "最近已观察到 NR 处理和画面输出提交。按 F6 对比实际效果。"));
+    }
+    else if (reason == BypassReason::QueueRetirementTimeout) {
+        displayed=Display::QueueTimeout;
+        ImGui::TextWrapped("%s", ui("Submitted NR did not finish within the bounded wait. Native output is retained for these settings; use F8 before retrying with F6.",
+            "上一轮 NR 未在等待上限内完成；当前设置保持原生输出。请先按 F8 记录，再用 F6 重新尝试。"));
+    }
+    else if (reason == BypassReason::RuntimeUnavailable) {
+        displayed=Display::RuntimeUnavailable;
+        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll beside the addon. Use F8 for the actual failure record.",
+            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，将配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁；按 F8 记录具体失败。"));
+    }
+    else if (reason == BypassReason::CodecUnavailable) {
+        displayed=Display::CodecUnavailable;
+        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
+            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
+    }
+    else if (reason == BypassReason::RayReconstructionGuard) {
+        displayed=Display::RayReconstruction;
+        DrawPostRouteStatus();
+    }
+    else if (reason == BypassReason::ShortFuseOwnsNr) {
+        displayed=Display::OtherOwner;
+        ImGui::TextWrapped("%s", ui("Another NR plugin is active. Disable its NR effect before using this one.",
+            "另一个 NR 插件正在运行。请先关闭它的 NR 效果，再使用本插件。"));
+    }
+    else if (reason == BypassReason::GenericRenoDxConflict) {
+        displayed=Display::Conflict;
+        ImGui::TextWrapped("%s", ui(
+            "Duplicate NR plugin detected: remove renodx-dlss5.addon64 and restart the game.",
+            "检测到重复 NR 插件：请删除 renodx-dlss5.addon64，然后重启游戏。"));
+    }
+    else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling) {
+        displayed=Display::WaitingForSr;
+        ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in the game settings.",
+            "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
+    }
+    else if (reason == BypassReason::ModuleObserverUncertain) {
+        displayed=Display::ObserverIncomplete;
+        ImGui::TextWrapped("%s", ui(
+            "DLSS lifecycle observation is incomplete. NR stays off to protect SR/RR and any existing FG/MFG. F8 includes the first hook failure; changing NR strength cannot repair this.",
+            "DLSS 生命周期观察不完整，NR 已安全旁路以保护原生 SR/RR 和现有 FG/MFG。F8 会保留首次 Hook 失败；调高强度不能解决此问题。"));
+        const auto failure = SnapshotNgxHookFailure();
+        if (failure.available)
+            ImGui::TextWrapped(ui("First hook failure (historical): %s / %s", "首次 Hook 失败（历史记录）：%s / %s"),
+                failure.operation, failure.entry);
+    }
+    else if (reason == BypassReason::CommandStateUnverified) {
+        displayed=Display::CommandStateUnknown;
+        const auto evidence = SnapshotCommandStateEvidence();
+        ImGui::TextWrapped("%s", ui(
+            "The command list is not yet safe for NR insertion. Native SR is preserved. The last carrier decision below is an observation, not a compatibility guarantee.",
+            "当前命令列表尚未满足 NR 安全插入条件，已保留原生 SR。下方是最近一次载体判断，不代表已通过游戏兼容验证。"));
+        if (evidence.available)
+            ImGui::TextWrapped(ui("Last reason: %s | guard requested/covered/reset: %d/%d/%d | age: %llu ms",
+                "最近原因：%s | 观察请求/覆盖/新重置：%d/%d/%d | 距今：%llu 毫秒"),
+                evidence.reason, evidence.guard_requested ? 1 : 0, evidence.guard_covered ? 1 : 0,
+                evidence.fresh_reset ? 1 : 0, GetTickCount64() - evidence.sampled_at);
+        ImGui::TextWrapped("%s", ui("Use F8 for the structured state report; do not disable safety guards.",
+            "按 F8 获取结构化状态报告；请勿通过关闭安全保护强行启用。"));
+    }
+    else if (reason != BypassReason::None) {
+        displayed=Display::Bypassed;
+        ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and collect feedback with F8.",
+            "NR 当前已跳过（%s）。请保留问题场景，按 F8 收集反馈。"), BypassReasonName(reason));
+    }
+    else {
+        displayed=Display::NoSubmission;
+        ImGui::TextWrapped("%s", ui("No new NR output submission observed in the recent interval. Enter gameplay; use F8 if this persists.",
+            "近期暂未观察到新的 NR 画面输出提交。请进入实际场景；持续无效时按 F8 反馈。"));
+    }
+    NrPublishUiActivity(receipt,site,displayed);
+    SettingsTooltip(ui("Updated about once per second from recent process counters. Submission is not proof of presentation or picture quality. Per-evaluation reasons remain in F8.",
+        "约每秒根据近期处理计数更新。提交不等于已显示或画质已改善；每次评估的具体原因仍保留在 F8。"));
 }
 
 void DrawSettings(reshade::api::effect_runtime *runtime) {
@@ -466,57 +612,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     }
     // Keep controls stationary while live status text changes (#121).
-    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
-    const auto activity=ReadUiActivity();
-    if (activity.valid) {
-        const bool processing = activity.delta.nr > 0 && activity.delta.submitted > 0;
-        ImGui::TextUnformatted(processing ? ui("AI processing observed.", "最近状态：已观察到 AI 处理和画面输出提交。") :
-            ui("No recent AI output.", "最近状态：暂未观察到新的 AI 画面输出。"));
-    } else ImGui::TextDisabled("%s", ui("Checking AI activity...", "正在检查 AI 是否开始处理……"));
-    SettingsTooltip(ui("Recent process activity, not FPS or measured picture quality. Detailed counters are in F8.", "根据最近处理记录显示，不代表帧率或实测画质；完整诊断计数保留在 F8 报告。"));
-    const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
-    if (live_reason == BypassReason::RuntimeUnavailable)
-        ImGui::TextWrapped("%s", ui("NR runtime is unavailable. Install the matching NR files beside the add-on, then use F8 if it still fails.",
-            "NR 运行库不可用。请把配套 NR 文件放在插件旁；仍失败时按 F8 反馈。"));
-    else if (live_reason == BypassReason::CodecUnavailable)
-        ImGui::TextWrapped("%s", ui("NR composition is unavailable; native output is preserved. Save F8 for the reason.",
-            "NR 合成不可用，已保留原生输出。请按 F8 保存原因。"));
-    const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
-    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
-        ImGui::TextWrapped("%s", ui(
-            "This window uses Direct3D 11. Switch the game to Direct3D 12 and install the D3D12 Full Add-on.",
-            "当前使用 Direct3D 11。请把游戏切换到 Direct3D 12，并安装 D3D12 Full Add-on。"));
-    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)
-        ImGui::TextWrapped("%s", ui("Native game SR. Enable the add-on and raise Extra enhancement to compare NR.",
-            "当前为游戏原生 SR。请启用插件并提高“额外增强”进行对比。"));
-    else if (reason == BypassReason::RayReconstructionGuard) {
-        DrawPostRouteStatus();
-    }
-    else if (reason == BypassReason::ShortFuseOwnsNr)
-        ImGui::TextWrapped("%s", ui("Another NR plugin is active. Disable its NR effect before using this one.",
-            "另一个 NR 插件正在运行。请先关闭它的 NR 效果，再使用本插件。"));
-    else if (reason == BypassReason::GenericRenoDxConflict)
-        ImGui::TextWrapped("%s", ui(
-            "A duplicate NR add-on is active. Remove renodx-dlss5.addon64 and restart the game.",
-            "检测到重复 NR 插件。请删除 renodx-dlss5.addon64，然后重启游戏。"));
-    else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling)
-        ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in game settings.",
-            "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
-    else if (reason == BypassReason::ModuleObserverUncertain)
-        ImGui::TextWrapped("%s", ui("DLSS lifecycle is not confirmed, so NR stays off to protect SR/RR. Save F8 for details.",
-            "DLSS 生命周期尚未确认，NR 已关闭以保护原生 SR/RR。请按 F8 查看详情。"));
-    else if (reason == BypassReason::CommandStateUnverified) {
-        ImGui::TextWrapped("%s", ui(
-            "The command list is not ready for NR insertion; native SR is preserved. Save F8 for the recorded state.",
-            "当前命令列表尚未满足 NR 插入条件，已保留原生 SR。请按 F8 保存记录。"));
-    }
-    else if (reason != BypassReason::None && reason != BypassReason::RuntimeUnavailable &&
-        reason != BypassReason::CodecUnavailable)
-        ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and save F8.",
-            "NR 当前已跳过（%s）。请保留场景并按 F8 保存反馈。"), BypassReasonName(reason));
-    else
-        ImGui::TextWrapped("%s", ui("NR path is available. Use F6 to compare the picture.",
-            "NR 链路可用。请按 F6 对比画面。"));
+    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.25f), true);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+    if (current.config.enabled && ActiveTransferStrength(current.config)>0.000001f)
+        DrawGenericCompatibilityStatus();
+#endif
+    DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
 
 
     if (next.identity_use_original)
@@ -584,7 +685,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const bool compatibility_post = !rr_guarded && next.mode == 2 &&
         compatibility_snapshot.recent && compatibility_snapshot.effective_mode == 1;
     SettingsField(ui("Processing mode", "处理模式"));
-    if (DrawProcessingModeBlocks(next, rr_guarded, compatibility_post ? 1 : next.mode)) {
+    if (DrawProcessingModeBlocks(next, rr_guarded, compatibility_post, compatibility_post ? 1 : next.mode)) {
         changed = true;
         apply_discrete_edit = true;
     }
@@ -903,8 +1004,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                     ui("Do not forward\0Forward verified game pixel coordinates\0", "不传递\0传递已验证的游戏像素坐标\0"))) {
                 next.jitter_mode = static_cast<NrJitterMode>(jitter); changed = true;
             }
-            SettingsTooltip(ui("Experimental input forwarding; native SR jitter is unchanged. Switching rebuilds NR history.",
-                "实验性输入传递；不改变原生 SR jitter，切换后会重建 NR 历史。"));
+            SettingsTooltip(ui("Experimental game-pixel jitter forwarding, off by default. You may enable it manually. Native SR jitter is unchanged. Switching rebuilds NR history.",
+                "实验性游戏像素抖动传递，默认关闭，可手动开启。游戏原生 SR 抖动保持不变，切换后会重建 NR 历史。"));
+            const auto jitter_migration = SnapshotConfigPolicyMigrationStatus();
+            if (jitter_migration.visible && jitter_migration.jitter_changed &&
+                !jitter_migration.failed && next.jitter_mode == NrJitterMode::Legacy)
+                ImGui::TextWrapped("%s", ui("This upgrade turned experimental NR jitter forwarding off. You can enable it again here.",
+                    "本次升级已关闭实验性 NR 抖动传递，可在此重新开启。"));
             auto jitter_snapshot = SnapshotJitterStatus();
             using JitterStatus = nr_jitter_status::Status;
             if (jitter_snapshot.status != JitterStatus::Bypassed &&
@@ -940,6 +1046,33 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         DrawSimpleFeedbackControls();
         nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);
         nr_replay::DrawUi();
+        ImGui::BeginDisabled(collecting);
+        SettingsSection(ui("Flicker comparison", "闪烁对照"));
+        int probe_mode = static_cast<int>(NrProbePolicySnapshot().mode);
+        if (ImGui::Combo(ui("Automatic GPU sampling", "自动诊断采样"), &probe_mode,
+                ui("Normal sampling\0Pause sampling\0Output state transitions only\0", "正常采样\0暂停采样\0仅切换输出状态\0")))
+            SetNrProbePolicy(static_cast<nr_probe_policy::Mode>(probe_mode));
+        ImGui::TextWrapped("%s", ui(
+            "This session only. NR keeps processing. Switching does not save settings or reset model history. Compare the same scene without taking image captures; already submitted readbacks may still finish. F8 text remains available.",
+            "仅本次运行有效，NR 继续处理。切换不保存设置、不重置模型历史。请在同一场景对比，期间不要进行图像采集；此前已提交的读回仍会完成。仍可按 F8 获取文字反馈。"));
+        if (probe_mode==static_cast<int>(nr_probe_policy::Mode::OutputTransitionsOnly))
+            ImGui::TextWrapped("%s",ui(
+                "At diagnostic checkpoints, keep only the output UAV/read-state/UAV barrier sequence. No new automatic sample shader or readback is recorded. Compare flicker and visible enhancement separately; this does not certify a picture fix.",
+                "在诊断采样点仅保留输出状态切换，不新增自动采样着色器或读回。请分别记录是否闪烁、增强是否持续可见；该对照不代表画面已修复。"));
+#if NR_HAS_TIMING
+        SettingsSection(ui("Stutter comparison", "卡顿对照"));
+        const auto timing_policy=NrTimingPolicySnapshot();
+        int wait_mode=static_cast<int>(timing_policy.wait.mode);
+        if(ImGui::Combo(ui("Waiting strategy", "完成等待方式"),&wait_mode,
+                ui("Event (default)\0Legacy polling (comparison)\0","事件等待（默认）\0旧轮询（对照）\0")))
+            SetNrWaitComparison(static_cast<unsigned>(wait_mode));
+        if(ImGui::Button(ui("Start a new timing segment", "开始新计时段")))
+            SetNrWaitComparison(static_cast<unsigned>(wait_mode),true);
+        ImGui::TextWrapped("%s",ui(
+            "This session only; the completion checks and timeout stay the same. Start a new segment, close the menu and observe the same scene for 30 seconds, then press F8. Change one option at a time. CPU timings do not measure total input delay.",
+            "仅本次运行有效，完成条件和等待上限保持相同。开始新计时段后关闭菜单，在同一场景观察 30 秒，再按 F8。每次只改一个选项。CPU 耗时不等于完整输入延迟。"));
+#endif
+        ImGui::EndDisabled();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
         DrawFaceDiagnosticControls(runtime, current.config);

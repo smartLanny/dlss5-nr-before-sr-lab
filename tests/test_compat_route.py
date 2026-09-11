@@ -110,6 +110,9 @@ class CompatibilityRoute(unittest.TestCase):
             "    NativeCommandStateScope before_state(command_list);"
         )
         early = self.process[:before_state]
+        native_return = "return original(command_list, handle, params, callback);"
+        observed_return = "return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);"
+        observation = early.index("NrPrepareFormatObservation(command_list);")
         for guard in (
             "!g_enabled_fast.load(std::memory_order_acquire)",
             "OtherNrOwnerActive()",
@@ -125,25 +128,28 @@ class CompatibilityRoute(unittest.TestCase):
             self.assertIn(guard, early)
             guard_pos = early.index(guard)
             self.assertNotEqual(
-                early.find("return original(command_list, handle, params, callback);", guard_pos),
+                early.find(native_return if guard_pos < observation else observed_return, guard_pos),
                 -1,
                 guard,
             )
-        self.assertGreaterEqual(early.count("return original(command_list, handle, params, callback);"), 7)
+        self.assertEqual(early.count(native_return), 5)
+        self.assertEqual(early.count(observed_return), 6)
 
         state_start = self.process.index(
             "    NativeCommandStateScope before_state(command_list);"
         )
         before_prepare = self.process.index(
-            "    Substitution before_sr = PrepareBeforeSr(", state_start
+            "    const auto prepare_before = [&] { return PrepareBeforeSr(", state_start
         )
         state_boundary = self.process[state_start:before_prepare]
         self.assertIn("if (!before_state.active)", state_boundary)
-        self.assertIn("return original(command_list, handle, params, callback);", state_boundary)
+        self.assertIn(observed_return, state_boundary)
 
         after_prepare = self.process.index(
-            "    PostSrSubstitution after_sr = PrepareAfterSr("
+            "    const bool compatibility_fallback = nr_route::Prepare("
         )
+        self.assertIn("auto prepared = PrepareAfterSr(", self.process[after_prepare:])
+        self.assertIn("[] { return NrRoutePostLocked(); }", self.process[after_prepare:])
         restore = self.process.index("    before_state.Restore();", after_prepare)
         no_substitution = self.process.index(
             "    if (!before_sr.active && !after_sr.active)", restore
@@ -154,7 +160,7 @@ class CompatibilityRoute(unittest.TestCase):
         self.assertLess(no_substitution, finish)
         self.assertIn("if (used_after_sr)", self.process[no_substitution:finish])
         self.assertIn(
-            "before_state.command_list, handle, params, feature, compatibility_fallback",
+            "before_state.command_list, handle, params, feature, fallback",
             self.process,
         )
         self.assertIn("original(command_list, handle, params, callback)", self.process)
@@ -170,12 +176,17 @@ class CompatibilityRoute(unittest.TestCase):
             self.skipTest("no host C++ compiler; source-contract test still runs")
 
         suffix = _process_suffix(self.source)
+        native_forward = 'template <class NativeEvaluate>\n' + _function_block(
+            (CORE.parent / 'nr_native_format_runtime.inl').read_text(encoding='utf-8'),
+            'NgxResult NrCallNativeWithFormatObservation('
+        )
         harness = f'''
 #include <atomic>
 #include <cstdarg>
 #include <cstdlib>
 #include <iostream>
 #include "nr_pre_fallback.h"
+#include "nr_native_clear_request.h"
 
 struct ID3D12GraphicsCommandList {{}};
 struct NgxHandle {{ int id = 1; }};
@@ -185,6 +196,13 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*,
     const NgxHandle*, const NgxParams*, void*);
 constexpr NgxResult kNgxSuccess = 0;
 constexpr NgxResult kNgxFailure = 0x801;
+// Preserve the production native forwarding body, with value-only observer seams.
+struct NrNativeFormatScope {{
+    NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
+    void Finish(bool) {{}}
+}};
+void NrRecoveryCommandObserved() {{}}
+{native_forward}
 enum class BypassReason {{ LifecycleIsolation = 1 }};
 
 struct FeatureRecord {{ int feature_id = 1; unsigned long long generation = 1; }};
@@ -200,6 +218,8 @@ struct PostSrSubstitution {{
     NgxResult fatal_recording=0;NrSlot* slot=nullptr;
     bool active = false;
     bool redirected_output = false;
+    nr_native_clear::Receipt prepared_clear_request;
+    nr_native_clear::Invocation current_clear_request;
 }};
 struct ChainConfig {{
     bool enabled = true;
@@ -413,6 +433,7 @@ int main() {{
                     "-static",
                     "-static-libgcc",
                     "-static-libstdc++",
+                    "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
                     str(exe_path),

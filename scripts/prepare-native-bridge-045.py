@@ -53,9 +53,12 @@ def patch_core(text: str) -> str:
     return text + '\n#include "interop/nr_native_bridge_consumer.inl"\n'
 
 def patch_ui(text: str) -> str:
+    native_fallback = ('    else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f)'
+        if 'void DrawNrActivityStatus(' in text else
+        '    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)')
     text = between(text,
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))\n',
-        '    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)',
+        native_fallback,
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime)) {\n        DrawDx11DeploymentStatus();\n    }\n')
     refreshed = '        SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));'
     if refreshed in text:

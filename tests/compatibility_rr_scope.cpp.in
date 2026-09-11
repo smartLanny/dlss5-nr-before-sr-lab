@@ -1,0 +1,198 @@
+// Actual notification/getter/serializer bodies, real Win32 locks and the real
+// value-only ledger. Synthetic receipts below are CPU inputs, never GPU proof.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <atomic>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include "nr_resource_recovery.h"
+#include "nr_compatibility_verdict.h"
+
+namespace nr_recovery = nr_resource_recovery;
+namespace verdict = nr_compatibility_verdict;
+SRWLOCK g_nr_recovery_lock = SRWLOCK_INIT;
+nr_recovery::Ledger<16, 16, 4> g_nr_recovery;
+nr_recovery::Scope g_nr_recovery_scopes[4]{};
+std::atomic<unsigned> g_config_generation{7}, g_requested_mode_fast{2};
+std::atomic<int> g_last_carrier_feature{1}, g_last_bypass_reason{0};
+std::atomic<bool> g_enabled_fast{true}, g_feature_tracking_uncertain{false};
+std::atomic<bool> g_lifecycle_tracking_uncertain{false}, g_generic_renodx_conflict{false};
+std::atomic<unsigned long long> g_bypass_reason_transitions{0};
+template<class... T> void Log(const char*, T...) {}
+// @PRODUCTION_TYPES@
+NrRecoverySnapshot g_nr_recovery_snapshot;
+struct NrRecoveryCarrierScope { NrRecoverySnapshot snapshot; };
+thread_local NrRecoveryCarrierScope* g_nr_recovery_carrier = nullptr;
+// @PRODUCTION_FUNCTIONS@
+
+struct FeedbackSession {
+    std::string report;
+    std::size_t report_used = 0;
+    bool report_truncated = false;
+};
+void FeedbackAppend(FeedbackSession& session, const char* format, ...) {
+    char bytes[32768]; va_list args; va_start(args, format);
+    const int length = std::vsnprintf(bytes, sizeof(bytes), format, args); va_end(args);
+    if (length < 0 || static_cast<std::size_t>(length) >= sizeof(bytes)) std::abort();
+    session.report.append(bytes, static_cast<std::size_t>(length));
+    session.report_used = session.report.size();
+}
+#include "nr_compatibility_verdict_feedback.inl"
+
+unsigned checks = 0;
+void Check(bool condition, const char* oracle) {
+    ++checks;
+    if (!condition) { std::fprintf(stderr, "FAIL %s\n", oracle); std::exit(41); }
+}
+void Reset() {
+    g_nr_recovery = {}; g_nr_recovery_snapshot = {};
+    for (auto& scope : g_nr_recovery_scopes) scope = {};
+    g_nr_recovery_carrier = nullptr; g_last_carrier_feature = 1;
+    g_config_generation = 7; g_requested_mode_fast = 2; g_enabled_fast = true;
+    g_feature_tracking_uncertain = g_lifecycle_tracking_uncertain = false;
+    g_generic_renodx_conflict = false; g_last_bypass_reason = 0;
+}
+void SeedIdentity() {
+    auto& snapshot = g_nr_recovery_snapshot;
+    snapshot.key = {{11, 11, 1, 31, 7, 2}, 41, 41, 0, 0};
+    snapshot.signature = {10, 10, 1, 1};
+    snapshot.input.current = {true, 7, 31, 2, 2};
+    auto& resource = snapshot.input.resource;
+    resource.available = resource.admitted = resource.definitive = true;
+    resource.scope = snapshot.input.current; resource.state = verdict::ResourceState::Ready;
+    resource.reason = "typed-resource";
+    snapshot.input.observer = {verdict::FactState::Complete, snapshot.input.current, "classified-live-Feature1-carrier", true};
+    snapshot.input.command = {verdict::FactState::Complete, snapshot.input.current, "actual-native-command-state-captured", true};
+}
+nr_recovery::Token Begin(unsigned frame) {
+    const auto& snapshot = g_nr_recovery_snapshot;
+    Check(g_nr_recovery.Resolve(snapshot.key, snapshot.signature, nr_recovery::SemanticState::Exact).can_attempt,
+          "LEDGER_SETUP");
+    const auto carrier = g_nr_recovery.ObserveCarrier(snapshot.key.scope, snapshot.key.role, frame);
+    const auto token = g_nr_recovery.Begin(snapshot.key, snapshot.signature, carrier);
+    Check(static_cast<bool>(token), "LEDGER_SETUP");
+    return token;
+}
+void ClearUnclassified() {
+    Reset(); g_last_carrier_feature = 13;
+    SetBypassReason(BypassReason::RayReconstructionGuard);
+    const auto blocked = verdict::Resolve(SnapshotNrCompatibilityVerdict());
+    Check(blocked.reason == "rr-safe-bypass" && blocked.stage == verdict::Stage::Ownership,
+          "RR_GUARD_SETUP");
+    SetBypassReason(BypassReason::None);
+    const auto input = SnapshotNrCompatibilityVerdict();
+    const auto decision = verdict::Resolve(input);
+    Check(decision.reason == "waiting-feature1" && decision.stage == verdict::Stage::Waiting &&
+          input.current.feature_generation == 0 && !input.resource.available && !input.recovery.available &&
+          decision.recoveryResult == verdict::RecoveryState::Unavailable && !decision.recoveryAttempted,
+          "RR_CLEAR_ORACLE");
+    SetBypassReason(BypassReason::None);
+    Check(verdict::Resolve(SnapshotNrCompatibilityVerdict()).reason == "waiting-feature1", "RR_CLEAR_ORACLE");
+}
+void PreserveClassifiedFailure() {
+    Reset(); SeedIdentity();
+    const auto token = Begin(1);
+    Check(g_nr_recovery.Record(token, nr_recovery::Stage::NrEvaluate, false, -1), "LEDGER_SETUP");
+    auto& input = g_nr_recovery_snapshot.input;
+    input.first_block = {true, true, input.current, "nr-evaluate-failed", true};
+    SetBypassReason(BypassReason::None);
+    const auto decision = verdict::Resolve(SnapshotNrCompatibilityVerdict());
+    Check(g_nr_recovery_snapshot.key == token.key && input.current.feature_generation == 31 &&
+          input.first_block.reason == "nr-evaluate-failed" && input.first_block.unresolved &&
+          decision.recoveryResult == verdict::RecoveryState::Failed && decision.reason == "nr-evaluate-failed",
+          "CLASSIFIED_NONE_ORACLE");
+}
+void RejectPreviousFeatureSuccess() {
+    Reset(); SeedIdentity();
+    for (unsigned frame = 1; frame != 4; ++frame) {
+        const auto token = Begin(frame);
+        for (const auto stage : {nr_recovery::Stage::Descriptor, nr_recovery::Stage::NrEvaluate,
+                 nr_recovery::Stage::NativeSrEvaluate, nr_recovery::Stage::TransferRecorded, nr_recovery::Stage::Submitted})
+            Check(g_nr_recovery.Record(token, stage, true), "LEDGER_SETUP");
+        Check(g_nr_recovery.RecordWriteback(token, {token.key.resource, token.key.resource_generation,
+              token.key.subresource, true, true, true, 0}), "LEDGER_SETUP");
+        Check(g_nr_recovery.EndCarrier(token.key.scope, token.key.role, token.carrier, true), "LEDGER_SETUP");
+    }
+    const auto key = g_nr_recovery_snapshot.key;
+    const auto signature = g_nr_recovery_snapshot.signature;
+    Check(verdict::Resolve(SnapshotNrCompatibilityVerdict()).recoveryResult == verdict::RecoveryState::Succeeded,
+          "FEATURE1_SUCCESS_SETUP");
+    g_last_carrier_feature = 13;
+    const auto input = SnapshotNrCompatibilityVerdict();
+    const auto decision = verdict::Resolve(input);
+    Check(decision.reason == "waiting-feature1" && decision.recoveryResult == verdict::RecoveryState::Unavailable &&
+          !decision.recoveryAttempted && input.current.feature_generation == 0 &&
+          !input.resource.available && !input.recovery.available, "RR_PREVIOUS_SUCCESS_ORACLE");
+    Check(g_nr_recovery_snapshot.key == key &&
+          g_nr_recovery.Read(key, signature).state == nr_recovery::State::RecoverySucceeded,
+          "READ_ONLY_HISTORY_PRESERVED");
+}
+void CheckCoverage() {
+    Reset(); g_last_carrier_feature = 13;
+    SetBypassReason(BypassReason::RayReconstructionGuard); SetBypassReason(BypassReason::None);
+    FeedbackSession feedback;
+    FeedbackAppendCompatibilityVerdict(feedback, "end", SnapshotNrCompatibilityVerdict());
+    const std::string coverage = "classified Feature1 recovery; RR recovery uses its separate diagnostics and is not certified here\n";
+    Check(feedback.report.find("decision.coverage=" + coverage) != std::string::npos &&
+          feedback.report.find("end.decision.coverage=" + coverage) != std::string::npos &&
+          feedback.report.find("decision.recoveryResult=succeeded") == std::string::npos &&
+          feedback.report.find("decision.reason=waiting-feature1\n") != std::string::npos &&
+          !feedback.report_truncated, "F8_COVERAGE_ORACLE");
+}
+void ExecutionWithoutStorageComparison() {
+    // Synthetic collector outcome equivalent to a partial R10 comparison:
+    // NrRecoveryStoredEvidence has no comparable storage result to record.
+    // Exercise the real ledger -> snapshot -> verdict -> F8 path, not GPU
+    // quantization or the collector itself.
+    Reset(); SeedIdentity();
+    nr_recovery::Token latest;
+    for (unsigned frame = 1; frame != 4; ++frame) {
+        latest = Begin(frame);
+        for (const auto stage : {nr_recovery::Stage::Descriptor, nr_recovery::Stage::NrEvaluate,
+                 nr_recovery::Stage::NativeSrEvaluate, nr_recovery::Stage::TransferRecorded, nr_recovery::Stage::Submitted})
+            Check(g_nr_recovery.Record(latest, stage, true), "LEDGER_SETUP");
+        Check(g_nr_recovery.EndCarrier(latest.key.scope, latest.key.role, latest.carrier, true), "LEDGER_SETUP");
+    }
+    auto input = SnapshotNrCompatibilityVerdict();
+    Check(input.recovery.correlated_window && input.recovery.proof_attempt_id == 0 &&
+          input.recovery.native_success_streak == 3 && input.recovery.nr_success_streak == 3 &&
+          input.recovery.submitted_count == 3 && !input.recovery.writeback_verified &&
+          input.queue.state == verdict::FactState::Complete, "CURRENT_EXECUTION_MAPPING_ORACLE");
+    FeedbackSession pending;
+    FeedbackAppendCompatibilityVerdict(pending, "end", input);
+    Check(pending.report.find("decision.reason=storage-comparison-unverified\n") != std::string::npos &&
+          pending.report.find("decision.recoveryResult=pending\n") != std::string::npos &&
+          pending.report.find("end.decision.recovery.nrSuccessStreak=3\n") != std::string::npos &&
+          pending.report.find("end.decision.recovery.storageComparison=unknown\n") != std::string::npos &&
+          pending.report.find("decision.nextAction=needs-visual-F7\n") == std::string::npos,
+          "CURRENT_EXECUTION_F8_ORACLE");
+    Check(g_nr_recovery.Resolve(latest.key, latest.signature, nr_recovery::SemanticState::Exact).can_attempt,
+          "pending verdict leaves normal ledger admission intact");
+    // A later real failed comparison revokes the window and requests code.
+    Check(g_nr_recovery.RecordWriteback(latest, {latest.key.resource, latest.key.resource_generation,
+          latest.key.subresource, true, true, false, 0}), "LEDGER_SETUP");
+    input = SnapshotNrCompatibilityVerdict();
+    FeedbackSession failed;
+    FeedbackAppendCompatibilityVerdict(failed, "end", input);
+    Check(failed.report.find("decision.reason=writeback-failed\n") != std::string::npos &&
+          failed.report.find("decision.recoveryResult=failed\n") != std::string::npos &&
+          failed.report.find("end.decision.recovery.storageComparison=failed\n") != std::string::npos &&
+          failed.report.find("decision.nextAction=needs-code\n") != std::string::npos,
+          "CURRENT_STORAGE_FAILURE_F8_ORACLE");
+    Check(!g_nr_recovery.Resolve(latest.key, latest.signature, nr_recovery::SemanticState::Exact).can_attempt,
+          "an actual storage failure remains latched");
+}
+int main(int argc, char** argv) {
+    const std::string selected = argc == 2 ? argv[1] : "all";
+    if (selected == "all" || selected == "clear") ClearUnclassified();
+    if (selected == "all" || selected == "classified") PreserveClassifiedFailure();
+    if (selected == "all" || selected == "carrier") RejectPreviousFeatureSuccess();
+    if (selected == "all" || selected == "coverage") CheckCoverage();
+    if (selected == "all" || selected == "storage") ExecutionWithoutStorageComparison();
+    Check(selected == "all" || selected == "clear" || selected == "classified" || selected == "carrier" || selected == "coverage" || selected == "storage",
+          "UNKNOWN_CASE");
+    std::printf("PASS compatibility RR scope CPU: %u checks; actual notification/getter/ledger/F8, synthetic receipts; no GPU/NGX\n", checks);
+}

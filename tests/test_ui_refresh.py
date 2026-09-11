@@ -65,11 +65,14 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('CollapsingHeader(ui("Algorithm comparisons", "算法对照"))', self.ui)
         self.assertIn('SettingsSection(ui("Advanced picture controls"', self.ui)
         self.assertIn("ImGui::SameLine();", self.ui)
-        self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
+        self.assertIn("GetTextLineHeightWithSpacing() * 6.25f", self.ui)
+        self.assertEqual(self.ui.count("DrawGenericCompatibilityStatus();"), 1)
+        self.assertLess(self.ui.index("DrawGenericCompatibilityStatus();"),
+                        self.ui.index('ImGui::BeginTabBar("nr-main-tabs")'))
 
     def test_model_stage_menu_uses_existing_current_centre_capture(self):
         image_menu = self.ui[self.ui.index("void DrawSimpleImageCaptureControls()"):
-                             self.ui.index("nr_ui_activity::Sample ReadUiActivity()")]
+                             self.ui.index("nr_ui_activity::Sample ReadUiActivity(unsigned config_generation")]
         self.assertEqual(image_menu.count("ImGui::Selectable("), 3)
         self.assertEqual(image_menu.count("nr_f8::RequestFullscreen();"), 1)
         self.assertEqual(image_menu.count("nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix);"), 1)
@@ -165,9 +168,14 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn('g_compat_fallback_reason.load', self.ui + self.notices)
         mode = self.ui[self.ui.index('bool DrawProcessingModeBlocks('):
                        self.ui.index('void DrawColorControls(')]
-        self.assertIn('rr_guarded ? 1 : effective_mode', mode)
-        self.assertIn('clicked && !rr_guarded && next.mode != requested_mode', mode)
+        self.assertIn('bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,\n'
+                      '    bool compatible_post_locked, int effective_mode)', mode)
+        self.assertIn('const bool mode_guarded = rr_guarded || compatible_post_locked;', mode)
+        self.assertIn('mode_guarded ? 1 : effective_mode', mode)
+        self.assertIn('clicked && !mode_guarded && next.mode != requested_mode', mode)
         self.assertNotIn('clicked && !rr_guarded && !selected', mode)
+        self.assertIn('DrawProcessingModeBlocks(next, rr_guarded, compatibility_post, compatibility_post ? 1 : next.mode)',
+                      self.ui)
 
     def test_migration_notice_dismisses_locally_without_writing_settings(self):
         self.assertIn('DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),', self.ui)

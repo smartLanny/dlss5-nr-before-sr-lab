@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions, [switch]$DualGeneric)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions, [switch]$DualGeneric, [string]$OutputRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -101,6 +101,25 @@ if($PostLightStyle) {
     $lightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/light_style_gpu.inl') -Raw -Encoding UTF8
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $lightTests)
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--light-style") == 0) { ValidateLightStyle(gpu); return 0; }')
+} elseif($ExposureTyped) {
+    if ($BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
+        $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl -or
+        $CombinedLowGrid -or $LightStyle -or $PostLightStyle -or $DirectionalBaselineSource -or
+        $FaceProtection -or $FaceNegativeControl -or $Regions -or $DualGeneric) {
+        throw 'Run the typed exposure fixture independently.'
+    }
+    $exposureTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/exposure_typed_gpu.inl') -Raw -Encoding UTF8
+    $rebinding = ''
+    foreach ($name in @('WriteExposureSrv', 'RebindExposureSource')) {
+        $pattern = '(?ms)^void ' + [regex]::Escape($name) + '\([^{}]*\)\s*\{.*?^\}'
+        $definitions = [regex]::Matches($source, $pattern)
+        if ($definitions.Count -ne 1) { throw "Non-unique production exposure function: $name" }
+        $rebinding += $definitions[0].Value + "`n"
+    }
+    if (!$rebinding.Contains('NrExposureReadFormat(')) { throw 'Typed exposure fixture requires the actual staged exposure writer.' }
+    $exposureTests = $exposureTests.Replace('// @PRODUCTION_EXPOSURE_REBIND@', $rebinding)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $exposureTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--exposure-typed") == 0) { ValidateTypedExposure(gpu); return 0; }')
 } elseif($CombinedLowGrid) {
     if (!$BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
         $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) {
@@ -170,8 +189,17 @@ $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors
 $writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
 $writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw -Encoding UTF8
 $statsCount = [regex]::Match($source, 'constexpr unsigned int kDiagnosticStatsUintCount = \d+;')
-if (!$statsCount.Success -or !$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
-    throw 'Production descriptor writer is not wired into CreateSlot or stats count changed.'
+if (!$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
+    throw 'Production descriptor writer is not wired into CreateSlot.'
+}
+$statsDeclaration = ''
+if ($writer.Contains('kDiagnosticStatsUintCount')) {
+    if (!$statsCount.Success) { throw 'Legacy descriptor writer requires the production stats count declaration.' }
+    $statsDeclaration = $statsCount.Value + "`n"
+}
+if ($writer.Contains('nr_store_comparison::BufferWords') -and
+    !$writerTests.Contains('#include "nr_store_comparison.h"')) {
+    throw 'Store-interval descriptor writer requires the production nr_store_comparison header.'
 }
 # The standalone core needs neither helper. The transformed compatibility core
 # uses both. Pull the actual pure format mapping into the C++ COM pixel harness;
@@ -191,9 +219,13 @@ foreach ($entry in @(
         $helperDefinitions += $definitions[0].Value + "`n"
     }
 }
-$writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $helperDefinitions + $statsCount.Value + "`n" + $writer)
+$writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $helperDefinitions + $statsDeclaration + $writer)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_TESTS@', $writerTests)
 $build = Join-Path $projectRoot 'build\codec-gpu-validation'
+if ($OutputRoot) {
+    $build = [IO.Path]::GetFullPath($OutputRoot)
+    if (Test-Path -LiteralPath $build) { throw 'OutputRoot exists; preserve previous codec evidence.' }
+}
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'codec_gpu_validation.cpp'
 $binary = Join-Path $build 'codec_gpu_validation.exe'
@@ -226,6 +258,10 @@ if($PostLightStyle) {
 } elseif($LightStyle) {
     & $binary '--light-style'
     if($LASTEXITCODE -ne 0){throw 'Light style production GPU contract failed.'}
+    return
+} elseif($ExposureTyped) {
+    & $binary '--exposure-typed'
+    if($LASTEXITCODE -ne 0){throw 'Production typed exposure GPU contract failed.'}
     return
 } elseif($CombinedLowGrid) {
     & $binary '--combined-low-grid'

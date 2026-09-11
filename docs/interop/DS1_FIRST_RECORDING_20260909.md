@@ -1,8 +1,18 @@
 # #205 initial recording candidate
 
+Current owner handoff: the dev15 fix is implemented and installed in Death
+Stranding Director's Cut, and is inherited unchanged by `0.4.7beta` (#217).
+The installed dev15 SHA256 still matches its deployment receipt. The owner's
+new dev15 F8 proves the first-recording state is now admitted, but queue affinity
+remains unverified and NR/submission counts stay zero. The game is still failing.
+The owner clarified that Manager packaging continues independently while this
+task fixes the queue path. The separate [0.4.7beta-ds1.1 candidate](DS1_QUEUE_RETIREMENT_20260909.md)
+has been locally validated and installed for a new game check; #205 remains
+open. The sections below retain the original first-recording candidate history.
+
 Base: `b5a17cbf0531f7d5fa3e35d0b65df054aa12aa2d`, isolated
-`codex/ds1-first-recording-20260909`. This is a local uninstalled candidate;
-version beta0.5-dev15 / PE 0.5.0.15. No release, push or game result is implied.
+`codex/ds1-first-recording-20260909`. Initial candidate identity:
+version beta0.5-dev15 / PE 0.5.0.15. Final deployment and validation follow below.
 
 The historical Death Stranding `ds.exe` hotfix.1 F8 has 12 distinct freshly
 created DIRECT carriers with `createMethod=1`, `initialPso=0`, 42 observed PSO

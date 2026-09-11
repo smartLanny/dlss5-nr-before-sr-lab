@@ -172,6 +172,8 @@ def patch_core(text: str) -> str:
         ReleaseCom(device); return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);''')
+        if s.count('guides.signature.resample_motion ? guides.motion : nullptr') != 1:
+            raise ValueError('post slot selector must receive the required Motion binding')
         s=once(s,'    substitution.height = height;',
             '    substitution.height = height;\n    substitution.work_width = work_width;\n    substitution.work_height = work_height;')
         return s
@@ -267,12 +269,10 @@ def patch_core(text: str) -> str:
 def patch_diagnostics(text: str) -> str:
     # The original panel treats any historical RR handle as permanent bypass.
     # Only an actual guard reason means that in the post-compatible runtime.
-    text=once(text,'    } else if (rr_protected ||\n               bypass_reason == BypassReason::RayReconstructionGuard) {',
-        '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     text=once(text,'    } else if (rr_protected) {',
         '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     start=text.index('        ImGui::Text(ui("Perfect chain:')
-    end=text.index('\n    if (generic_renodx_conflict) {',start)
+    end=text.index('\n    if (ImGui::CollapsingHeader(ui("Per-evaluation details"',start)
     text=text[:start]+'''        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
                        "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
                     width, height, nr_render_width, nr_render_height,
@@ -358,8 +358,11 @@ def patch_ui(text: str) -> str:
 def patch_descriptors(text: str) -> str:
     # Main/snapshot/F7 descriptor rebuilds must retain the same typed view as
     # the first dispatch; physical TYPELESS is never a legal texture SRV.
-    text=once(text,'srv(0,slot.source,slot.source_format);',
-        'srv(0,slot.source,slot.source_srv_format);')
+    if 'srv(0,slot.source,slot.source_format);' in text:
+        text=once(text,'srv(0,slot.source,slot.source_format);',
+            'srv(0,slot.source,slot.source_srv_format);')
+    elif text.count('srv(0,slot.source,slot.source_srv_format);') != 1:
+        raise ValueError('Missing unique resolved source SRV writer')
     return once(text,
         'slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT',
         'slot.motion_source?NrMotionReadFormat(ID3D12Resource_GetDesc(slot.motion_source).Format):DXGI_FORMAT_R16G16_FLOAT')

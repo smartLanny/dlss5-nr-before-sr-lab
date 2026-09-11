@@ -53,6 +53,8 @@ class ExposurePatch(unittest.TestCase):
         self.assertEqual(out.count('#include "interop/nr_exposure_access_d3d12.inl"'),1)
         self.assertIn('const bool supported = access.allowed();',out)
         self.assertIn('NrExposureAccessReasonName(access.reason)',out)
+        self.assertIn('capabilityQueryAttempted=%d',out)
+        self.assertIn('access.query_attempted ? 1 : 0',out)
         self.assertIn('collect F8 TXT and upload BUG',out)
         self.assertIn('if (!hdr || !texture) return true;',out)
     def test_reject_before_partial_publication(self):
@@ -63,7 +65,7 @@ class ExposurePatch(unittest.TestCase):
             self.assertLess(body.index('NrResolveExposureAccess'), body.index(changed))
         a,b=m.base.block(out,'bool RebindSlotExternal('); body=out[a:b]
         self.assertLess(body.index('CanMutateSlotLocked'),body.index('NrResolveExposureAccess'))
-    def test_each_writer_preserves_the_same_float_view(self):
+    def test_each_writer_preserves_the_same_resolved_view(self):
         out=m.patch_exposure_core(SOURCE)
         self.assertEqual(out.count('? NrExposureReadFormat(ID3D12Resource_GetDesc(exposure).Format)'),2)
         self.assertNotIn('? ID3D12Resource_GetDesc(exposure).Format',out)
@@ -125,7 +127,12 @@ class ExposurePatch(unittest.TestCase):
     def test_complete_core_read_from_environment(self):
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8')
         out=m.patch_exposure_core(source)
-        for signature in ('Substitution PrepareBeforeSr(','bool FinishAfterSr(','void DispatchCodec('):
+        # Native SR call/restore and parameter reading remain byte-identical.
+        # This is transformation coverage, not an in-game execution claim.
+        for signature in ('Substitution PrepareBeforeSr(', 'Substitution PrepareAfterSr(',
+                          'bool FinishAfterSr(', 'void DispatchCodec(',
+                          'ColorContract ReadColorContract(', 'NgxResult ProcessEvaluate(',
+                          'NgxResult DispatchEvaluate(', 'NgxResult CallNativeEvaluatePassThrough('):
             a,b=m.base.block(source,signature); c,d=m.base.block(out,signature)
             self.assertEqual(source[a:b],out[c:d])
         writer=Path(os.environ['MULTIAPI_CORE_SOURCE']).parent/'nr_codec_descriptors.inl'
