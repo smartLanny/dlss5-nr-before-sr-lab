@@ -1,0 +1,30 @@
+name: manager049-source-review
+on:
+  push:
+    branches: ['codex/manager-049-mgr27-28-20260912']
+    paths: ['.github/workflows/manager049-source-review.yml']
+permissions:
+  contents: read
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        shell: bash
+        run: |
+          git rev-parse HEAD > source-commit.txt
+          git archive --format=zip HEAD -o manager049-source.zip
+          sha256sum manager049-source.zip > source-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manager049-source-review
+          path: |
+            manager049-source.zip
+            source-commit.txt
+            source-sha256.txt
+          retention-days: 1
+          if-no-files-found: error
