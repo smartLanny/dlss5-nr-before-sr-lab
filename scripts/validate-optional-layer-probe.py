@@ -47,6 +47,7 @@ HARNESS = r'''
 #include <iterator>
 #include <string>
 #include "nr_optional_layer_probe.h"
+#include "nr_feedback_limits.h"
 using NgxResult=std::uint32_t;
 constexpr NgxResult kNgxSuccess=1;
 constexpr NgxResult kFailure=0xBAD00004u;
@@ -62,6 +63,8 @@ GET_RESOURCE
 GET_UINT
 GET_INT
 GET_FLOAT
+NGX_LAYER_TYPE
+NGX_OWNER_TYPE
 FEATURE_TYPE
 namespace reshade { namespace api { struct effect_runtime; } }
 SESSION_TYPE
@@ -242,8 +245,12 @@ def main():
     assert 'if (s->observations == 1) FeedbackAppendOptionalLayers(*s, params, feature, carrier);' in observer
     assert 'FeedbackObserveEvaluate(params, feature, carrier);' in core
     rr = (ROOT / 'src/interop/nr_rr_post_runtime.inl').read_text(encoding='utf-8')
-    assert rr.index('FeedbackObserveEvaluate(params,feature,carrier);') < rr.index('const NgxResult native_result=original(')
+    observed = rr.index('FeedbackObserveEvaluate(params,feature,carrier);')
+    assert observed < rr.index('return call_native();')
+    assert observed < rr.index('const NgxResult native_result=call_native();')
     tokens = {
+        'NGX_LAYER_TYPE': definition(core, 'enum class NgxLayer', True),
+        'NGX_OWNER_TYPE': definition(core, 'enum class NgxOwner', True),
         'HANDLE_TYPE': definition(core, 'struct NgxHandle', True),
         'PARAM_TYPE': definition(core, 'struct NgxParams', True),
         'PARAM_SLOT': definition(core, 'template <typename Fn>'),
@@ -292,7 +299,9 @@ def main():
                 print(f'PASS compiled negative control {name}: {run.stderr.strip()}')
             runs.append({'name': name, 'returncode': run.returncode, 'stdout': run.stdout, 'stderr': run.stderr})
         if args.output_directory:
-            files = ['src/nr_feedback_capture.inl', 'src/nr_optional_layer_probe.h', 'scripts/validate-optional-layer-probe.py']
+            files = ['src/nr_before_sr.cpp', 'src/interop/nr_rr_post_runtime.inl',
+                     'src/nr_feedback_capture.inl', 'src/nr_feedback_limits.h',
+                     'src/nr_optional_layer_probe.h', 'scripts/validate-optional-layer-probe.py']
             result = {'schema': 'nr-optional-layer-observer-test-v1', 'success': True,
                 'gpu_or_game_verified': False, 'actual_layer_availability_verified': False,
                 'inputs': {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in files}, 'runs': runs}
