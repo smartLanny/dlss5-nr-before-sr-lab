@@ -22,6 +22,7 @@ CRITICAL_SECTION g_chain_cs;
 ULONGLONG g_config_read_tick = 0, test_tick = 10000;
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
 std::atomic<bool> g_config_persistence_failed{false}, g_enabled_fast{false};
+std::atomic<int> g_requested_mode_fast{2};
 std::atomic<unsigned long> g_config_persistence_error{0};
 std::atomic<unsigned> g_config_generation{1}, g_history_generation{1};
 std::atomic<unsigned long long> g_nr_successful_evaluations{0};
