@@ -6,9 +6,7 @@ and player guides only, without that experiment's extra runtime or model assets.
 """
 from __future__ import annotations
 import argparse
-import base64
 import hashlib
-import html
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -99,61 +97,6 @@ def read_images(receipt_path: Path):
     return images
 
 
-def inline(text):
-    value = html.escape(text)
-    value = re.sub(r'`([^`]+)`', r'<code>\1</code>', value)
-    return re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', value)
-
-
-def render_markdown(text):
-    # Deliberately bounded to the headings, lists, tables, paragraphs in these docs.
-    lines = text.splitlines()
-    blocks = []
-    index = 0
-    while index < len(lines):
-        line = lines[index].strip()
-        if not line:
-            index += 1
-            continue
-        if line.startswith('|'):
-            table = []
-            while index < len(lines) and lines[index].strip().startswith('|'):
-                row = [v.strip() for v in lines[index].strip().strip('|').split('|')]
-                if not all(re.fullmatch(r':?-+:?', v) for v in row):
-                    table.append(row)
-                index += 1
-            blocks.append('<div class="table-wrap"><table><thead><tr>' + ''.join('<th>'+inline(v)+'</th>' for v in table[0]) +
-                          '</tr></thead><tbody>' + ''.join('<tr>'+''.join('<td>'+inline(v)+'</td>' for v in row)+'</tr>' for row in table[1:]) + '</tbody></table></div>')
-            continue
-        heading = re.match(r'^(#{1,3}) (.+)$', line)
-        if heading:
-            level = min(3, len(heading[1]) + 1)
-            blocks.append(f'<h{level}>{inline(heading[2])}</h{level}>')
-            index += 1
-            continue
-        item = re.match(r'^(?:- |\d+\. )(.+)$', line)
-        if item:
-            ordered = not line.startswith('- ')
-            tag = 'ol' if ordered else 'ul'
-            values = []
-            while index < len(lines):
-                candidate = lines[index].strip()
-                found = re.match(r'^\d+\. (.+)$' if ordered else r'^- (.+)$', candidate)
-                if not found:
-                    break
-                values.append('<li>'+inline(found[1])+'</li>')
-                index += 1
-            blocks.append(f'<{tag}>'+''.join(values)+f'</{tag}>')
-            continue
-        paragraph = [line]
-        index += 1
-        while index < len(lines) and lines[index].strip():
-            paragraph.append(lines[index].strip())
-            index += 1
-        blocks.append('<p>'+inline(' '.join(paragraph))+'</p>')
-    return '\n'.join(blocks)
-
-
 def plain_text(text):
     output = []
     headers = None
@@ -170,32 +113,6 @@ def plain_text(text):
             headers = None
             output.append(re.sub(r'^#{1,3} ', '', line))
     return '\r\n'.join(output).replace('**', '').replace('`', '') + '\r\n'
-
-
-def guide(documents, images):
-    figures = ''.join('<figure><img alt="'+html.escape(name)+'" src="data:image/png;base64,'+
-                      base64.b64encode(data).decode()+'"><figcaption>'+html.escape(name[:-4])+
-                      ' · 实际 D13 菜单展示，非游戏效果对比</figcaption></figure>' for name, data in images.items())
-    body = ''.join(f'<section id="{key}">{render_markdown(documents[key])}</section>' for key in ['install', 'settings', 'update'])
-    return ('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>DLSS5 0.5 D13 · 安装与设置</title><style>'
-            '*{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#202b3b;font:16px/1.8 "Microsoft YaHei","Segoe UI",sans-serif}'
-            'header{background:#172337;color:white;padding:40px max(24px,calc((100vw - 1240px)/2))}h1{font-size:34px;line-height:1.3;margin:8px 0}'
-            'header p{color:#ced9ec}nav{display:flex;gap:22px;flex-wrap:wrap}nav a{color:#c2d9ff}a{color:#285aa5}'
-            'main{max-width:1300px;margin:auto;padding:28px;display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:28px;align-items:start}'
-            'section{background:white;border:1px solid #e0e5ed;border-radius:14px;padding:26px 32px;margin-bottom:24px;scroll-margin-top:24px}'
-            'h2{font-size:26px;line-height:1.45;margin:0 0 24px}h3{font-size:20px;margin:30px 0 12px;color:#22456d}p{margin:12px 0}'
-            'li{margin:10px 0}ol,ul{padding-left:24px}code{font:0.91em Consolas,monospace;overflow-wrap:anywhere;background:#edf2f8;padding:2px 5px;border-radius:4px}'
-            'table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;vertical-align:top;border:1px solid #d9e0e9;padding:11px}th{background:#eaf0f8}'
-            '.table-wrap{overflow-x:auto}figure{margin:0 0 24px;background:#172337;border-radius:12px;overflow:hidden}figure img{display:block;width:100%;height:auto}'
-            'figcaption{padding:12px 16px;color:#d3ddee;font-size:13px}footer{max-width:1240px;padding:0 24px 32px;margin:auto;color:#5e6f86;font-size:14px}'
-            '@media(max-width:960px){main{grid-template-columns:1fr;padding:16px}aside{max-width:600px;margin:auto}section{padding:22px}h1{font-size:28px}}'
-            '@media print{body{background:white}header{background:white;color:black;padding:0}header p,nav{color:black}main{display:block;padding:0}section{border:0;padding:0;break-inside:auto}aside{display:none}}'
-            '</style><header><p>装机宅 DLSS5 · 中文升级指南</p><h1>从 0.4.7 升级到 0.5 D13</h1>'
-            '<p>先保留旧设置，再按需尝试二次 AI。面向已有插件环境的 64 位 DX12 游戏。</p>'
-            '<nav><a href="#install">安装与回退</a><a href="#settings">常用设置</a><a href="#update">这版更新了什么</a></nav></header>'
-            '<main><article>'+body+'</article><aside>'+figures+'</aside></main>'
-            '<footer>游戏内版本：beta0.5-dline13 · 不同游戏的实际效果与开销请在同一场景比较。此文件可离线打开、转发或打印。</footer></html>').encode('utf-8')
 
 
 def verify(path: Path):
@@ -215,7 +132,7 @@ def verify(path: Path):
                 'Invalid OTA identity.')
         rows = manifest['files']
         require(len(rows) == len(names)-1 and {r['name'] for r in rows} == set(names)-{'ota-manifest.json'}, 'Invalid file manifest.')
-        allowed = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt', 'Instructions.txt', '设置说明.txt', '更新说明.txt', '安装与设置.html', 'ota-manifest.json'} | set(IMAGES.values())
+        allowed = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt', 'Instructions.txt', '设置说明.txt', '更新说明.txt', 'ota-manifest.json'} | set(IMAGES.values())
         require(set(names) == allowed, 'Unexpected payload files.')
         for row in rows:
             data = archive.read(row['name'])
@@ -236,7 +153,6 @@ def package(source_package, ui_receipt, output):
     data.update(images)
     for key, name in [('install', 'Instructions.txt'), ('settings', '设置说明.txt'), ('update', '更新说明.txt')]:
         data[name] = b'\xef\xbb\xbf' + plain_text(documents[key]).encode('utf-8')
-    data['安装与设置.html'] = guide(documents, images)
     manifest = {'schema': 'nr-branch-ota-v1', 'version': VERSION, 'display_version': '0.5 D13',
                 'language': 'Chinese', 'api': 'D3D12-x64', 'sourceCommit': SOURCE,
                 'sourceDirty': False, 'packaging_commit': packaging_commit, 'includesDx11': False,
@@ -259,7 +175,7 @@ def package(source_package, ui_receipt, output):
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, blob, compresslevel=9)
     result = verify(target)
-    for name in set(IMAGES.values()) | {'Instructions.txt', '设置说明.txt', '更新说明.txt', '安装与设置.html'}:
+    for name in set(IMAGES.values()) | {'Instructions.txt', '设置说明.txt', '更新说明.txt'}:
         leaf = '安装说明.txt' if name == 'Instructions.txt' else name
         (output / leaf).write_bytes(data[name])
     (output / 'SHA256SUMS.txt').write_text(result['sha256']+'  '+target.name+'\n', encoding='utf-8')
