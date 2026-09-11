@@ -175,17 +175,19 @@ int main() {
         Check(!Has(zh?"暂未确认":"not yet confirmed"),"matching recording does not retain attempt wording");
 
         ChainConfig config;
-        ResetUi(); Check(!DrawProcessingModeBlocks(config,false,1),"drawing effective post is read only");
+        ResetUi(); Check(!DrawProcessingModeBlocks(config,false,false,1),"drawing effective post is read only");
         Check(config.mode==2&&highlights==std::vector<bool>({false,true}),"fallback highlights effective post while preserving requested pre");
-        ResetUi(1); Check(DrawProcessingModeBlocks(config,false,1)&&config.mode==1,"clicking highlighted fallback post can save a different requested preference");
+        ResetUi(1); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==1,"clicking highlighted fallback post can save a different requested preference");
         config.mode=2;
-        ResetUi(0); Check(!DrawProcessingModeBlocks(config,false,1)&&config.mode==2,"clicking requested pre during fallback does not invent an edit");
+        ResetUi(0); Check(!DrawProcessingModeBlocks(config,false,false,1)&&config.mode==2,"clicking requested pre during fallback does not invent an edit");
         config.mode=1;
-        ResetUi(0); Check(DrawProcessingModeBlocks(config,false,1)&&config.mode==2,"normal pre selection remains editable");
+        ResetUi(0); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==2,"normal pre selection remains editable");
         for(int clicked:{0,1}) {
             config.mode=2;
-            ResetUi(clicked); Check(!DrawProcessingModeBlocks(config,true,2)&&config.mode==2,"RR rejects both route mutations even for a synthetic disabled click");
+            ResetUi(clicked); Check(!DrawProcessingModeBlocks(config,true,false,2)&&config.mode==2,"RR rejects both route mutations even for a synthetic disabled click");
             Check(highlights==std::vector<bool>({false,true})&&disabled_depth==0,"RR shows post and balances disabled scope");
+            ResetUi(clicked); Check(!DrawProcessingModeBlocks(config,false,true,2)&&config.mode==2,"current compatibility lock rejects both route mutations while preserving requested pre");
+            Check(highlights==std::vector<bool>({false,true})&&disabled_depth==0,"compatibility lock shows post and balances disabled scope");
         }
     }
     std::printf("Settings UI: %u checks, %u failures; production notices and route UI, CPU recorder only\n",checks,failures);

@@ -46,6 +46,7 @@ CRITICAL_SECTION g_chain_cs;
 wchar_t g_ini_path[MAX_PATH]={};
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};
 std::atomic<bool> g_enabled_fast{true},g_config_persistence_failed{false};
+std::atomic<int> g_requested_mode_fast{2};
 std::atomic<unsigned long> g_config_persistence_error{0};
 std::atomic<unsigned long long> g_next_config_poll_tick{0},g_nr_successful_evaluations{0};
 ULONGLONG g_config_read_tick=0;
