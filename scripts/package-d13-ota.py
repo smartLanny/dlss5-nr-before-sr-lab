@@ -1,8 +1,8 @@
 """Convert the exact validated D13 Chinese acceptance payload to standard DX12 OTA.
 
 Keeps the binary identities frozen. Does not modify games, Manager, or old packages.
-The existing Manager standard reader installs Core/chain only; face assets are an
-explicit manual supplement, as explained in the player instructions and manifest.
+The owner deferred independent face protection. This OTA includes Core/chain
+and player guides only, without that experiment's extra runtime or model assets.
 """
 from __future__ import annotations
 import argparse
@@ -26,15 +26,6 @@ VALIDATION_SHA = 'e3751f49f8fe37574ac40d73b45c7813714b0988d55e04fb654b38f98ce06b
 CORE = 'DLSS5-AI渲染超分版-beta0.5-dline13-@野生的装机宅-Bilibili.addon64'
 CORE_SHA = '3f67cc32536482dd51857df71bc8294f4af3d4e5974c453ca45a94fb9280e296'
 CHAIN_SHA = '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
-FACE_PINS = {
-    'nr_face/onnxruntime.dll': 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea',
-    'nr_face/onnxruntime_providers_shared.dll': 'a2b3a50956aa75a9879c8472bc7df4f7a8072bcd2db19a1b7d988e7688f293ef',
-    'nr_face/LICENSE': 'c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674',
-    'nr_face/ThirdPartyNotices.txt': 'e00f828e0a33de591a355ae6606d2625f5758da7d2c844db7821c9dd3e3647b6',
-    'nr_face/yunet-dynamic.onnx': 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1',
-    'nr_face/YUNET-LICENSE': 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958',
-}
-FACE = set(FACE_PINS)
 IMAGES = {'ui-main.png': '新UI-常用设置.png', 'ui-light.png': '新UI-光影微调.png'}
 DOCS = ROOT / 'docs/releases/beta0.5-dline13'
 
@@ -78,13 +69,11 @@ def load_payload(source_package: Path):
                 'Input provenance mismatch.')
         require(info['compile_verified'] is True and info['warp_verified'] is True,
                 'Missing source build/WARP checks.')
-        selected = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt'} | FACE
-        require(selected.issubset(names), 'Missing owned payload or face licenses.')
+        selected = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt'}
+        require(selected.issubset(names), 'Missing owned payload or licenses.')
         data = {name: archive.read(name) for name in selected}
     require(sha(data[CORE]) == CORE_SHA and sha(data['nrchain_nvngx.dll']) == CHAIN_SHA,
             'Frozen Core/chain bytes changed.')
-    for name, digest in FACE_PINS.items():
-        require(sha(data[name]) == digest, f'Frozen face asset changed: {name}')
     pe = struct.unpack_from('<I', data[CORE], 0x3c)[0]
     require(data[CORE][:2] == b'MZ' and data[CORE][pe:pe+4] == b'PE\0\0'
             and struct.unpack_from('<H', data[CORE], pe+4)[0] == 0x8664
@@ -226,15 +215,14 @@ def verify(path: Path):
                 'Invalid OTA identity.')
         rows = manifest['files']
         require(len(rows) == len(names)-1 and {r['name'] for r in rows} == set(names)-{'ota-manifest.json'}, 'Invalid file manifest.')
-        allowed = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt', 'Instructions.txt', '设置说明.txt', '更新说明.txt', '安装与设置.html', 'ota-manifest.json'} | FACE | set(IMAGES.values())
+        allowed = {CORE, 'nrchain_nvngx.dll', 'LICENSES.txt', 'Instructions.txt', '设置说明.txt', '更新说明.txt', '安装与设置.html', 'ota-manifest.json'} | set(IMAGES.values())
         require(set(names) == allowed, 'Unexpected payload files.')
         for row in rows:
             data = archive.read(row['name'])
             require(len(data) == row['bytes'] and sha(data) == row['sha256'], f'Corrupt OTA entry: {row["name"]}')
         require(sha(archive.read(CORE)) == CORE_SHA and sha(archive.read('nrchain_nvngx.dll')) == CHAIN_SHA, 'Wrong runtime identity.')
-        for name, digest in FACE_PINS.items():
-            require(sha(archive.read(name)) == digest, f'Wrong face asset identity: {name}')
-        require(not any(n.lower().endswith('.ini') or n.lower().startswith('nvngx') for n in names), 'Configuration/vendor payload refused.')
+        require(not any(n.lower().endswith(('.ini', '.onnx')) or n.lower().startswith(('nvngx', 'nr_face/')) for n in names), 'Configuration/vendor/independent-face payload refused.')
+        require(manifest['face_assets_included'] is False, 'Independent face assets were deferred.')
     return {'file': path.name, 'bytes': path.stat().st_size, 'sha256': sha(path.read_bytes()), 'files': len(names), 'source_commit': SOURCE}
 
 
@@ -257,9 +245,9 @@ def package(source_package, ui_receipt, output):
                 'input_package_sha256': INPUT_SHA, 'local_checks_passed': 64,
                 'maintainer_game_feedback': 'NTE: owner reports no obvious issues; unquantified smoke feedback only',
                 'universal_game_compatibility_verified': False, 'whole_frame_performance_verified': False,
-                'face_assets_included': True, 'face_experiment_default': False,
+                'face_assets_included': False, 'face_experiment_default': False,
                 'manager_deploys_face_assets': False,
-                'manager_install_scope': 'Core and nrchain; copy nr_face beside the active nr_before_sr.ini only for the independent face experiment',
+                'manager_install_scope': 'Core and nrchain',
                 'preserve': ['nr_before_sr.ini', 'ReShade.ini', 'ReShadePreset.ini', 'NVIDIA runtime DLLs', 'other game/MOD files'],
                 'files': [{'name': name, 'bytes': len(blob), 'sha256': sha(blob)} for name, blob in sorted(data.items())]}
     data['ota-manifest.json'] = (json.dumps(manifest, ensure_ascii=False, indent=2)+'\n').encode('utf-8')
