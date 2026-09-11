@@ -7,8 +7,12 @@ const { appError } = require('./errors');
 
 const SECTION = 'NRBeforeSR';
 
+function isDline05(version = '') {
+  return version === '0.5-dline13' || version === '0.5-dline14';
+}
+
 function configLimits(version = '') {
-  return version === '0.5-dline13' ? {
+  return isDline05(version) ? {
     CustomWorkScale: { min: 0.5, max: 1 },
     TransferStrength: { min: 1, max: 4 },
     PostTransferStrength: { min: 1, max: 4 }
@@ -155,7 +159,7 @@ async function writeConfig(file, patch, version = '') {
 }
 
 function defaultPatch(version = '') {
-  const currentBeta = /^0\.4\.7(?:beta|-beta)(?:$|[.-])/.test(String(version)) || version === '0.5-dline13';
+  const currentBeta = /^0\.4\.7(?:beta|-beta)(?:$|[.-])/.test(String(version)) || isDline05(version);
   return {
     Enabled: 1,
     Intensity: currentBeta ? 1.2 : 1.0,
