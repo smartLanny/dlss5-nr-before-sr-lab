@@ -53,6 +53,11 @@
       const fallback = data?.enhancements?.launchReadiness?.state ? data.enhancements.launchReadiness : data?.launch?.readiness;
       return readinessState?.state ? readinessState : fallback || null;
     }
+    function updateLaunchReadiness(gameId, value) {
+      if (disposed || id !== gameId || !value?.state) return;
+      readinessState = structuredClone(value); readinessEpoch = generation; readinessOrder = ++assessmentOrder;
+      render();
+    }
     function readinessBlocker() {
       const info = launchReadiness();
       return Array.isArray(info?.blockers) ? info.blockers.find(row => row && row.message) || info.blockers[0] || null : null;
@@ -92,9 +97,9 @@
       if (kind === 'open-settings') return '前往超分补帧设置';
       return launchReadiness()?.state === 'unknown' ? '重新检查启动条件' : '处理启动前设置';
     }
-    async function resolveReadiness() {
+    async function resolveReadiness({ refresh: recheck = true } = {}) {
       const targetId = id, targetGeneration = generation;
-      if (!loaded.has('installation')) await loadSection('installation');
+      if (recheck || !loaded.has('installation')) await loadSection('installation', recheck);
       if (disposed || id !== targetId || generation !== targetGeneration) return;
       const kind = readinessActionKind();
       if (kind === 'recover' && (data?.enhancements?.fgComponents?.fileRecoveryPending || data?.enhancements?.fgComponents?.migrationPending)) return work(() => manager.recoverFgComponents(id), '未完成补帧组件操作已恢复。', true);
@@ -321,7 +326,7 @@
     function syncHeaderAction() {
       const card = host.closest('.game-card'), start = card?.querySelector('.unified-launch-btn');
       card?.classList.toggle('has-pending-draft', dirty());
-      options.onActionState?.({ dirty: dirty(), busy, launching, hasPrimary: Boolean(host.querySelector('.gp-apply-bar .primary')), readiness: launchReadiness() });
+      options.onActionState?.({ dirty: dirty(), busy, launching, hasPrimary: Boolean(host.querySelector('.gp-apply-bar .primary')), readiness: launchReadiness(), readinessOrder });
       if (!start) return;
       start.disabled = busy || launching || dirty() || data.operation?.pending || data.deployment?.needsRecovery || readinessNeedsAction();
       start.textContent = launching ? '等待游戏…' : '启动游戏';
@@ -492,7 +497,7 @@
       if (readinessNeedsAction()) {
         launching = false;
         message = readinessMessage() || '启动前还有需要处理的设置。'; error = true; render();
-        await resolveReadiness();
+        await resolveReadiness({ refresh: false });
         return;
       }
       try {
@@ -639,7 +644,7 @@
       }
     });
     if (manager.onLaunchSession) unsubscribe = manager.onLaunchSession(value => { if (!disposed && value.gameId === id) { session = value; if (!modal) render(); } });
-    return { open, resume, refresh, selectTab, resolveReadiness, launchGame, requestLeave, previewRepair: () => preview({ repair: true }), hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, readiness: structuredClone(launchReadiness()), loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
+    return { open, resume, refresh, selectTab, resolveReadiness, launchGame, requestLeave, updateLaunchReadiness, previewRepair: () => preview({ repair: true }), hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), fields: structuredClone(fields), tab, busy, launching, readiness: structuredClone(launchReadiness()), readinessOrder, assessmentOrder, loaded: [...loaded] }), dispose: () => { disposed = true; generation++; tabController?.dispose(); unsubscribe?.(); } };
   }
   const api = { mount, recommendedModel, initialFields };
   if (typeof module === 'object' && module.exports) module.exports = api; else scope.GamePageUi = api;

@@ -393,17 +393,17 @@ test('global launch settings reset attempts both domains and rejects partial res
   assert.deepEqual(restored, ['fg', 'sr']);
 });
 
-test('missing SR and FG providers each reject their own override before component or driver work while allowing restore', async () => {
+test('missing SR and FG providers reject overrides while restore uses the owner path', async () => {
   const calls=[];
   const h=harness({noNativeDlss:true,noNativeFg:true,fgComponents:{inspect:async()=>calls.push('components')},launchService:{
-    assertReady:async()=>{},preview:async()=>{calls.push('preview');return{id:'restore'};},apply:async()=>{calls.push('apply');return{restored:true};},save:async()=>calls.push('save')
+    assertReady:async()=>{},preview:async()=>{calls.push('preview');return{id:'restore'};},apply:async()=>{calls.push('apply');return{restored:true};},save:async()=>calls.push('save'), restore:async (_id,domain)=>{calls.push('restore-'+domain);return{restored:true};}
   }});
   await settle();
   await assert.rejects(h.handles.get('launch-settings-update')({},'game','sr',{backend:'native',quality:'balanced',preset:'auto'}),error=>error.code==='ERR_NO_DLSS');
   await assert.rejects(h.handles.get('launch-settings-update')({},'game','fg',{backend:'mfgunlock',mode:'fixed',multiplier:3}),error=>error.code==='SETTINGS_NO_NATIVE_FG');
   assert.deepEqual(calls,[]);
   const result=await h.handles.get('launch-settings-update')({},'game','fg',{backend:'nvidia',mode:'restore'});
-  assert.equal(result.restored,true);assert.deepEqual(calls,['preview','apply','save']);
+  assert.equal(result.restored,true); assert.equal(result.saved,true); assert.deepEqual(calls,['restore-fg']);
 });
 
 test('native FG remains independent from a missing SR provider', async () => {

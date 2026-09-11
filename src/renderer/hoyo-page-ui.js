@@ -44,9 +44,19 @@
     }
     function accept(value) {
       if (!value || !value.id || selectedId && value.id !== selectedId) throw new Error('返回的客户端与当前选择不一致。');
-      flow = value; editorReadiness = null; selectedId = value.id; const at = games.findIndex(row => row.id === value.id);
+      flow = value; selectedId = value.id; resetEditorReadiness(); const at = games.findIndex(row => row.id === value.id);
       if (at < 0) games.push(value); else games[at] = value;
       form = {}; options.onChanged?.(value); schedule();
+    }
+    function resetEditorReadiness() {
+      editorReadiness = null;
+      const entry = editor();
+      // The new flow supersedes every assessment already started by its
+      // retained editor, including responses still in flight and cached renders.
+      if (entry) {
+        entry.readinessCutoff = entry.controller.getState().assessmentOrder ?? -1;
+        entry.controller.updateLaunchReadiness?.(flow.gameId, flow?.launch?.readiness || flow?.launchReadiness || flow?.installation?.launchReadiness);
+      }
     }
     function launchReadiness() {
       const value = editorReadiness?.state ? editorReadiness : flow?.launch?.readiness || flow?.launchReadiness || flow?.installation?.launchReadiness;
@@ -132,7 +142,8 @@
         ${ready() ? '' : `<div class="hoyo-maintenance-slot">${maintenance()}${evidence()}</div>`}</div>`;
     }
     function syncEditorActions(actionState = null) {
-      if (actionState && Object.hasOwn(actionState, 'readiness')) editorReadiness = actionState.readiness?.state ? actionState.readiness : null;
+      if (actionState && Object.hasOwn(actionState, 'readiness') && actionState.readinessOrder > (editor()?.readinessCutoff ?? -1))
+        editorReadiness = actionState.readiness?.state ? actionState.readiness : null;
       const locked = editorBusy() || hasDraft();
       host.querySelector('.game-card.expanded')?.classList.toggle('has-pending-draft', hasDraft());
       const status = host.querySelector(`[data-hoyo-card="${selectedId}"] [data-hoyo-status]`);
@@ -173,7 +184,8 @@
       let entry = editor();
       if (!entry) {
         const element = document.createElement('div'); element.className = 'hoyo-settings-host'; slot.append(element);
-        const id = flow.id, controller = scope.GamePageUi.mount(element, api, { hoyoSettingsOnly: true, compatibilityFeedbackOwned: Boolean(feedback), onBack: closeSettings, onActionState: syncEditorActions, maintenanceContent: () => maintenance() + evidence(),
+        const id = flow.id, gameId = flow.gameId, controller = scope.GamePageUi.mount(element, api, { hoyoSettingsOnly: true, compatibilityFeedbackOwned: Boolean(feedback), onBack: closeSettings,
+          onActionState: state => { if (!disposed && selectedId === id && flow?.gameId === gameId && editors.get(gameId)?.element === element) syncEditorActions(state); }, maintenanceContent: () => maintenance() + evidence(),
           onChanged: async () => { try { const value = unwrap(await api.hoyoInspect(id)); if (selectedId === id) { accept(value); render(); } } catch (failure) { error = failure.message; render(); } } });
         entry = { element, controller }; editors.set(flow.gameId, entry);
         void controller.open(flow.gameId, 'overview', { game: { id: flow.gameId, name: flow.name, installed: true, chosen: { path: flow.exePath, apiResolution: { api: flow.api?.api } } } });
@@ -195,7 +207,7 @@
       discovering = true;
       await run(async () => { const result = await api.hoyoDiscover(); if (result?.ok === true) {
         const value = result.value; games = value.games || []; launchers = value.launchers || []; warnings = value.warnings || [];
-        selectedId = games.some(row => row.id === selectedId) ? selectedId : games[0]?.id || null; flow = games.find(row => row.id === selectedId) || null; form = {};
+        selectedId = games.some(row => row.id === selectedId) ? selectedId : games[0]?.id || null; flow = games.find(row => row.id === selectedId) || null; resetEditorReadiness(); form = {};
         for (const game of games) options.onChanged?.(game);
       } return result; }, false, '正在发现本机客户端…'); discovering = false; render(); schedule();
     }
@@ -212,7 +224,7 @@
       const client = event.target.closest('[data-hoyo-client]');
       if (client && !event.target.closest('[data-hoyo-action]') && !busy && !editorBusy()) {
         if (selectedId === client.dataset.hoyoClient) { expanded = !expanded; render(); schedule(); return; }
-        generation++; stopPoll(); selectedId = client.dataset.hoyoClient; flow = games.find(row => row.id === selectedId); expanded = true; form = {}; editingApi = false; error = ''; plan = null; render(); await inspect(); return;
+        generation++; stopPoll(); selectedId = client.dataset.hoyoClient; flow = games.find(row => row.id === selectedId); resetEditorReadiness(); expanded = true; form = {}; editingApi = false; error = ''; plan = null; render(); await inspect(); return;
       }
       const item = event.target.closest('[data-hoyo-action]'); if (!item || item.disabled || busy || editorBusy()) return;
       const action = item.dataset.hoyoAction;

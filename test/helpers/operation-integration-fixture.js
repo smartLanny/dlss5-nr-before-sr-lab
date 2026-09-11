@@ -123,6 +123,7 @@ async function fixture(t, options = {}) {
   const applyEnhancement = async (gameId, domain, request, consent = {}) => {
     events.push('apply-' + domain);
     if (domain === 'fg' && request.backend === 'mfgunlock' && request.mode !== 'restore') return workflow.apply(gameId, request, consent);
+    if (policy.isRestore(domain, request)) return { ...await settings.restore(gameId, domain), saved: true };
     if (domain === 'fg' && request.mode !== 'restore') {
       const status = await components.inspect(gameId); assert.equal(status.route, 'native');
       if (status.needsCleanup) { await settings.restore(gameId, 'fg'); await components.restore(gameId); }

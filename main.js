@@ -134,6 +134,10 @@ async function applyEnhancement(id, domain, input, options = {}) {
     if (!eligibility.eligible) throw Object.assign(new Error(eligibility.blockers.map(row => row.message).join('；')), { code: eligibility.blockers[0]?.code || 'SETTINGS_UNAVAILABLE' });
   }
   if (domain === 'fg' && request.backend === 'mfgunlock' && request.mode !== 'restore') return fgWorkflow.apply(id, request, options);
+  if (policy.isRestore(domain, request)) {
+    const result = await launchSettings.restore(id, domain);
+    return { ...result, saved: true };
+  }
   if (domain === 'fg' && request.mode !== 'restore') {
     if (request.backend === 'rtx40') throw Object.assign(new Error('旧补帧后端仅保留恢复能力，请先迁移到 MFG Unlock。'), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
     const components = await fgComponents.inspect(id);

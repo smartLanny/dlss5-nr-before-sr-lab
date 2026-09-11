@@ -774,4 +774,115 @@ async function captureHoYoReadiness({ readiness = 'blocked' } = {}) {
   return { scope: 'readiness contract screenshot · HoYoPageUi + GamePageUi', assertionCount, readiness, launchDisabled: Boolean(start()?.disabled), entry: Boolean(resolve()) };
 }
 
-module.exports = { installMock, smoke, captureBaseline, captureReadiness, captureHoYoReadiness };
+async function smokeTargetedHoYo() {
+  const gp = window.__gpMock, mock = window.__hoyoMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let assertionCount = 0;
+  const assert = (value, message) => { assertionCount++; if (!value) throw Error(message); };
+  const until = async (predicate, label, timeout = 6500) => { const start = performance.now(); while (performance.now() - start < timeout) { if (predicate()) return; await delay(20); } throw Error('Targeted HoYo UI timeout: ' + label); };
+  const flow = mock.flow, game = gp.assessments['fixture-hoyo'], readiness = { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '旧版 SR 模型 M 仍有恢复记录，请先在超分设置中处理。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {}, legacy: { configured: true, effective: 'm' } };
+  const launcher = flow.binding.launchers[0];
+  flow.binding = { ...flow.binding, status: 'confirmed', launcher, channels: [{ channel: 'cn', channelLabel: '国服' }] };
+  flow.channel = 'cn'; flow.channelLabel = '国服'; flow.api = { api: 'dx12', source: 'user', requiresConfirmation: false, evidence: [] };
+  flow.installation = { installed: true, ready: true, needsRecovery: false, error: null }; flow.phase = 'ready'; flow.nextAction = 'start'; flow.error = null; flow.launchReadiness = structuredClone(readiness);
+  game.game.installed = true; game.game.nativeDlssAvailable = true; game.game.feeder = null;
+  game.game.chosen.apiResolution = { api: 'dx12', source: 'entry' }; game.game.chosen.detectedApiResolution = { api: 'dx12', source: 'entry' };
+  game.api.effectiveApi = 'dx12'; game.api.detectedApi = 'dx12'; game.api.capabilities = ['dx12'];
+  game.defaults = { ...game.defaults, deployment: 'external', loadingMode: 'helper' };
+  game.layout = { ...game.layout, mode: 'external', loadingMode: 'helper', loadingBackend: 'hoyoshade', source: 'hoyoshade-profile', inputRoute: 'native' };
+  game.deployment = { ...game.deployment, mode: 'external', loadingMode: 'helper', version: '0.4.7beta' };
+  game.launch.readiness = structuredClone(readiness); game.nr = structuredClone(gp.baseline.nr);
+  const secondGameId = 'fixture-hoyo-second', secondGame = structuredClone(game), secondFlow = structuredClone(flow);
+  secondGame.gameId = secondGame.game.id = secondGameId; secondGame.game.name = '崩坏：星穹铁道 · 旧 M blocker';
+  secondGame.game.chosen.path = 'C:\\UI-fixture\\StarRail\\StarRail-second.exe'; secondGame.game.dir = 'C:\\UI-fixture\\StarRail-second';
+  secondGame.launch.readiness = structuredClone(readiness); secondGame.enhancements.launchReadiness = structuredClone(readiness);
+  secondFlow.id = 'client-two'; secondFlow.gameId = secondGameId; secondFlow.name = '崩坏：星穹铁道 · 旧 M blocker'; secondFlow.exePath = secondGame.game.chosen.path; secondFlow.launchReadiness = structuredClone(readiness);
+  mock.extraFlow = secondFlow; gp.assessments[secondGameId] = secondGame;
+  document.querySelector('[data-view="hoyo"]').click();
+  const workspace = () => document.getElementById('hoyoWorkspace'), anyCard = () => workspace()?.querySelector('.hoyo-game-card'), secondCard = () => workspace()?.querySelector('[data-hoyo-card="client-two"]'), expanded = () => workspace()?.querySelector('.hoyo-game-card.expanded'), settings = () => workspace()?.querySelector('.hoyo-settings-host'), controller = () => settings()?.__gpController;
+  await until(() => anyCard() && settings() && controller(), 'HoYo shared editor');
+  await until(() => controller().getState().loaded.includes('installation') && controller().getState().readiness?.state === 'blocked', 'HoYo metadata blocker');
+  const ready = { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {} };
+  const aResolvedBefore = gp.calls.filter(row => row[0] === 'assess-resolved' && row[1] === 'fixture-hoyo').length;
+  gp.assessments['fixture-hoyo'].launch.readiness = structuredClone(ready); gp.assessments['fixture-hoyo'].enhancements.launchReadiness = structuredClone(ready);
+  gp.delays['fixture-hoyo:installation'] = 180; gp.delays['fixture-hoyo:enhancements'] = 220;
+  controller().selectTab('enhance'); const delayedA = controller().refresh(true); await delay(25);
+  await until(() => workspace().querySelector('[data-hoyo-card="client-two"]'), 'second HoYo card'); workspace().querySelector('[data-hoyo-card="client-two"] [data-hoyo-toggle="client-two"]')?.click();
+  await until(() => expanded()?.dataset.hoyoCard === 'client-two' && settings() && controller().getState().id === secondGameId, 'switch to HoYo B while A responses are pending');
+  await until(() => expanded().querySelector('[data-hoyo-action="resolve-readiness"]') && expanded().textContent.includes('旧版 SR'), 'B old-M blocker');
+  await delayedA; await until(() => gp.calls.filter(row => row[0] === 'assess-resolved' && row[1] === 'fixture-hoyo').length >= aResolvedBefore + 2, 'A delayed readiness responses');
+  assert(Boolean(expanded().querySelector('[data-hoyo-action="resolve-readiness"]')) && !expanded().querySelector('[data-hoyo-action="start"]') && expanded().textContent.includes('旧版 SR'), 'A ready response cannot promote selected B old-M blocker to start');
+  gp.assessments[secondGameId].launch.readiness = structuredClone(ready); gp.assessments[secondGameId].enhancements.launchReadiness = structuredClone(ready);
+  await controller().refresh(true); await until(() => controller().getState().readiness?.state === 'ready' && !controller().getState().busy, 'B editor ready baseline');
+  mock.extraFlow = { ...mock.extraFlow, launchReadiness: structuredClone(readiness) }; gp.assessments[secondGameId].launch.readiness = structuredClone(readiness); gp.assessments[secondGameId].enhancements.launchReadiness = structuredClone(readiness);
+  const discoverCallsBefore = mock.calls.filter(row => row[0] === 'discover').length, discoverButton = workspace().querySelector('.library-actions [data-hoyo-action="discover"]');
+  assert(discoverButton && !discoverButton.disabled, 'same-client discover is available for the cached ready editor'); discoverButton.click();
+  await until(() => mock.calls.filter(row => row[0] === 'discover').length === discoverCallsBefore + 1 && expanded()?.dataset.hoyoCard === 'client-two' && expanded().querySelector('[data-hoyo-action="resolve-readiness"]') && expanded().textContent.includes('旧版 SR'), 'same-client blocked discover');
+  controller().selectTab('overview'); await until(() => controller().getState().tab === 'overview', 'same-client cached editor redraw');
+  assert(Boolean(expanded().querySelector('[data-hoyo-action="resolve-readiness"]')) && !expanded().querySelector('[data-hoyo-action="start"]'), 'same-client blocked discover preserves the blocker over the cached ready editor');
+  expanded().querySelector('[data-hoyo-action="resolve-readiness"]').click();
+  await until(() => controller().getState().tab === 'enhance' && controller().getState().loaded.includes('enhancements') && settings().querySelector('[data-gp-action="preview-sr"]') && !settings().querySelector('[data-gp-action="preview-sr"]').disabled, 'new HoYo blocker refresh to SR');
+  settings().querySelector('[data-gp-action="preview-sr"]').click(); await until(() => settings().querySelector('.gp-modal') && !controller().getState().busy, 'new HoYo blocker SR preview');
+  assert(gp.plan.request.sr?.preset === 'M', 'new HoYo blocker reaches SR preview after refresh');
+  settings().querySelector('[data-gp-action="modal-cancel"]').click(); settings().querySelector('[data-gp-action="discard"]')?.click(); await until(() => !controller().getState().draft.version, 'HoYo readiness preview discard');
+  gp.delays['fixture-hoyo:installation'] = 0; gp.delays['fixture-hoyo:enhancements'] = 0;
+  const version = () => settings()?.querySelector('[data-gp-group="route"][data-gp-field="version"]');
+  controller().selectTab('overview'); await until(() => controller().getState().tab === 'overview' && version(), 'HoYo Core picker tab');
+  const candidates = ['0.5-dline13', '0.4.7beta-corefix.8'];
+  for (const id of candidates) {
+    const option = [...(version()?.options || [])].find(row => row.value === id);
+    assert(option && !option.disabled, id + ' is visible and selectable in the HoYo Core picker');
+  }
+  const selected = version(); selected.value = candidates[0]; selected.dispatchEvent(new Event('change', { bubbles: true }));
+  await until(() => controller().getState().draft.version === candidates[0], 'HoYo Core draft');
+  const previewBefore = gp.calls.filter(row => row[0] === 'preview').length;
+  settings().querySelector('[data-gp-action="preview"]').click();
+  await until(() => settings().querySelector('.gp-modal') && !controller().getState().busy, 'HoYo Core preview');
+  assert(gp.calls.filter(row => row[0] === 'preview').length === previewBefore + 1, 'HoYo Core uses the shared preview operation');
+  assert(gp.plan.request.version === candidates[0] && gp.plan.request.api === 'auto' && gp.plan.request.deployment === 'external' && gp.plan.request.loadingMode === 'helper', 'HoYo Core preview includes the external/helper version, API and deployment request');
+  const corePreviewRequest = structuredClone(gp.plan.request);
+  settings().querySelector('[data-gp-action="modal-cancel"]').click();
+  settings().querySelector('[data-gp-action="discard"]')?.click(); await until(() => !controller().getState().draft.version, 'HoYo Core draft discard');
+  secondCard().querySelector('[data-hoyo-toggle="client-two"]').click();
+  await until(() => !expanded() && secondCard().querySelector('.hoyo-header-action [data-hoyo-action="resolve-readiness"]'), 'collapsed HoYo old-M entry');
+  secondCard().querySelector('.hoyo-header-action [data-hoyo-action="resolve-readiness"]').click();
+  await until(() => expanded() && settings() && controller().getState().tab === 'enhance' && controller().getState().loaded.includes('enhancements'), 'collapsed HoYo entry to SR owner');
+  const sr = settings().querySelector('[data-gp-action="preview-sr"]'); assert(sr && !sr.disabled, 'collapsed HoYo entry exposes an enabled SR preview'); sr.click();
+  await until(() => settings().querySelector('.gp-modal') && !controller().getState().busy, 'collapsed HoYo SR preview');
+  assert(gp.plan.request.sr?.preset === 'M', 'collapsed HoYo entry reaches the real SR preview request');
+  return { scope: 'targeted HoYo readiness/Core UI', assertionCount, candidates, corePreviewRequest, srPreviewRequest: structuredClone(gp.plan.request), collapsedResolveToSr: true };
+}
+
+async function smokeTargeted() {
+  if (window.__hoyoMock) return smokeTargetedHoYo();
+  const mock = window.__gpMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let assertionCount = 0;
+  const assert = (value, message) => { assertionCount++; if (!value) throw Error(message); };
+  const until = async (predicate, label, timeout = 8000) => { const start = performance.now(); while (performance.now() - start < timeout) { if (predicate()) return; await delay(20); } throw Error('Targeted UI timeout: ' + label); };
+  const card = id => document.querySelector(`.game-card[data-id="${id}"]`), host = () => document.querySelector('.game-card.expanded .game-detail.gp-inline'), state = () => host()?.__gpController.getState(), countLaunch = () => mock.calls.filter(row => row[0] === 'launch').length;
+  await until(() => card('fixture')?.querySelector('.open-game-page-btn') && card('fixture-two')?.querySelector('.open-game-page-btn'), 'ordinary cards');
+  card('fixture').querySelector('.open-game-page-btn').click(); await until(() => state()?.loaded.includes('installation') && !state().busy, 'ordinary installation');
+  const controller = () => host().__gpController;
+  const ready = { state: 'ready', known: true, source: 'settings-inspection', blockers: [], pending: [], requests: {} };
+  mock.assessment.launch.readiness = structuredClone(ready); mock.assessment.enhancements.launchReadiness = structuredClone(ready);
+  controller().selectTab('enhance'); await until(() => state().loaded.includes('enhancements') && state().readiness?.state === 'ready', 'ordinary ready enhancements');
+  const blocked = { state: 'blocked', known: true, source: 'metadata', blockers: [{ domain: 'sr', code: 'SETTINGS_LEGACY_APPLY_REQUIRED', message: '新的 installation metadata 发现旧版 SR 需要处理。', action: { kind: 'open-settings' }, recovery: true }], pending: [], requests: {} };
+  mock.assessment.launch.readiness = structuredClone(blocked); const blockedLaunches = countLaunch(); const blockedAttempt = controller().launchGame();
+  await blockedAttempt; await until(() => !state().launching, 'metadata blocker launch gate');
+  assert(state().readiness?.state === 'blocked' && countLaunch() === blockedLaunches, 'new installation metadata blocker wins over previously ready enhancements without launch');
+  mock.assessment.launch.readiness = structuredClone(ready); mock.delays['fixture:installation'] = 90; await controller().refresh(true); await until(() => state().readiness?.state === 'ready' && !state().busy, 'fresh ready metadata');
+  const beforeDouble = countLaunch(), first = controller().launchGame(), second = controller().launchGame();
+  await delay(15); assert(state().launching === true && countLaunch() === beforeDouble, 'double click keeps one in-flight launch while metadata is pending');
+  await Promise.all([first, second]); await until(() => !state().launching, 'double launch settled'); assert(countLaunch() === beforeDouble + 1, 'double click produces exactly one manager.launch');
+  controller().selectTab('overview'); await until(() => state().tab === 'overview', 'ordinary overview for dirty race');
+  const beforeDirty = countLaunch(), dirtyAttempt = controller().launchGame(); await until(() => state().launching, 'dirty race launch pending');
+  const input = host().querySelector('[data-gp-group="nr"][data-gp-field="Intensity"]'); input.value = '0.8'; input.dispatchEvent(new Event('input', { bubbles: true })); await dirtyAttempt; await until(() => !state().launching, 'dirty race settled');
+  assert(countLaunch() === beforeDirty && state().draft.nr?.Intensity === 0.8, 'new dirty draft cancels the waiting launch without a backend call');
+  host().querySelector('[data-gp-action="discard"]')?.click(); await until(() => !state().draft.nr, 'dirty draft cleared');
+  const beforeSwitch = countLaunch(), switchAttempt = controller().launchGame(); await until(() => state().launching, 'switch race launch pending');
+  await controller().open('fixture-two', 'overview', { game: structuredClone(mock.assessments['fixture-two'].game) }); await until(() => state().id === 'fixture-two' && state().loaded.includes('installation') && !state().launching, 'new game controller state'); await switchAttempt;
+  assert(countLaunch() === beforeSwitch && state().id === 'fixture-two' && !state().launching, 'switching game cancels the old launch and leaves no lock on the new game');
+  mock.delays['fixture:installation'] = 0;
+  return { scope: 'targeted ordinary readiness/race UI', assertionCount, launchCalls: countLaunch(), blockedLaunchCalls: blockedLaunches, switchedTo: state().id };
+}
+
+module.exports = { installMock, smoke, captureBaseline, captureReadiness, captureHoYoReadiness, smokeTargeted, smokeTargetedHoYo };
