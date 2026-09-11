@@ -157,6 +157,8 @@ def main():
         if code:
             save();raise SystemExit(code)
         objects.append(target)
+    dual_source = snapshot / 'nr_dual_spatial_d3d12.cpp'
+    if dual_source.is_file(): objects.append(str(dual_source))
     binary = out/'descriptor-warp.exe'
     code = run([compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper, *objects, '-o', binary,
                 '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid',

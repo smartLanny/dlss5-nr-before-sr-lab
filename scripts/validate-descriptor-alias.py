@@ -150,6 +150,10 @@ def main():
         run([c_compiler, *common, '-std=c17', '-c', minhook_snapshot/'src'/name, '-o', target],
             'compile-'+target.stem)
         objects.append(target)
+    # D13+ full Core references its out-of-line spatial implementation even
+    # when this fixture does not enable NR2. Compile the same frozen source.
+    dual_source = snapshot / 'nr_dual_spatial_d3d12.cpp'
+    if dual_source.is_file(): objects.append(str(dual_source))
     binary = out/'descriptor-alias.exe'
     run([compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper, *objects, '-o', binary,
          '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid',

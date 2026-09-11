@@ -61,6 +61,12 @@ std::atomic<unsigned int> g_wrapper_calls{0}, g_core_calls{0}, g_dlssd_evaluate_
 std::atomic<unsigned long long> g_all_evaluations{0},g_rr_passthrough_evaluations{0};
 std::atomic<int> g_last_carrier_feature{-1};
 std::atomic<bool> g_rr_guard_was_active{false};
+namespace nr_dual_runtime {
+// ProcessEvaluate's early fatal guard is production code. These exact-type
+// atomics are the fixture control surface; the default state has no fatal.
+std::atomic<NgxResult> fatal_result{0};
+std::atomic<const NgxHandle *> fatal_carrier{nullptr};
+}
 thread_local unsigned int g_create_hook_depth = 0, g_release_hook_depth = 0;
 thread_local bool g_inside_ngx_evaluate = false;
 BypassReason bypass = BypassReason::None;
@@ -151,6 +157,8 @@ void Reset() {
     g_live_rr_handles=0;g_rr_create_in_progress=0;g_feature1_create_in_progress=0;
     g_feature1_create_entries=0;g_feature1_successful_creates=0;
     g_enabled_fast=true;g_generic_renodx_conflict=false;g_shortfuse_nr_enabled=false;
+    nr_dual_runtime::fatal_carrier.store(nullptr,std::memory_order_release);
+    nr_dual_runtime::fatal_result.store(0,std::memory_order_release);
     native_evals=native_releases=plugin_attempts=0;retired.clear();
     create_fails=outer_fails=null_create=alias_pointer=nested_create=cross_list=false;
     nested_release=nested_evaluate=second_child=release_recreates=false;
@@ -237,6 +245,16 @@ int main() {
       HookCoreRelease(h); ScopedNgxLayer bridge(NgxLayer::PrivateBridge);
       ForgetObservedFeature(&outer_handle,FindFeature(&outer_handle).generation); }
     Check(!Live() && !g_feature_tracking_uncertain && retired.empty(),"private retirement callback never acquires chain or reports unknown");
+    Reset(); NgxHandle *fatal_handle=nullptr;
+    const auto fatal_create=HookCoreCreate(&list,1,&params,&fatal_handle);
+    Check(fatal_create==kNgxSuccess,"fatal early-guard fixture creates the observed carrier");
+    Check(fatal_handle!=nullptr,"fatal early-guard fixture receives the observed carrier handle");
+    const auto native_before_fatal=native_evals;
+    nr_dual_runtime::fatal_carrier.store(fatal_handle,std::memory_order_release);
+    nr_dual_runtime::fatal_result.store(0xBADC0DEu,std::memory_order_release);
+    Check(HookCoreEvaluate(&list,fatal_handle,&params,nullptr)==0xBADC0DEu &&
+          native_evals==native_before_fatal && g_external_nr_handles==0,
+          "fatal early guard returns exact status without an extra native Evaluate or external owner");
     Reset(); {
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate bridge(NgxLayer::PrivateBridge,&list,18,&params);

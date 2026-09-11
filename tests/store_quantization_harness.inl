@@ -346,8 +346,8 @@ void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identi
         else changed+=!same;
     }
     if(!identity&&!wrong_target&&!invalid)Check(changed!=0,"constructed edited model plane reaches actual typed Output");
-    std::printf("STORE_CORE format=%u half=%d identity=%d wrong=%d high=%d nonfinite_case=%u actual_nonfinite=%d reference_nonfinite=%d known=%d match=%d expected=%.6f actual=%.6f PASS\n",
-        (unsigned)format,half,identity,wrong_target,high,nonfinite_case,evidence.actual_nonfinite,evidence.reference_nonfinite,
+    std::printf("STORE_CORE format=%u half=%d identity=%d wrong=%d high=%d nonfinite_case=%u light=%d packet=%d actual_nonfinite=%d reference_nonfinite=%d known=%d match=%d expected=%.6f actual=%.6f PASS\n",
+        (unsigned)format,half,identity,wrong_target,high,nonfinite_case,light,packet,evidence.actual_nonfinite,evidence.reference_nonfinite,
         evidence.comparison_known,evidence.matches_expected,evidence.expected_mean,evidence.actual_mean);
     DestroyBindings(context);
     DestroySlot(slot);ReleaseCom(gate);ReleaseCom(unused);

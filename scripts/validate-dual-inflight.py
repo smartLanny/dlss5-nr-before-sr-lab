@@ -40,7 +40,14 @@ def sha256(path: Path) -> str:
 
 def extract_function(source: str, marker: str) -> str:
     start = source.index(marker)
-    brace = source.index("{", start)
+    # Forward declarations may precede the actual production definition.
+    # A declaration's semicolon cannot be treated as the next function body.
+    while True:
+        brace = source.index("{", start)
+        semicolon = source.find(";", start, brace)
+        if semicolon == -1:
+            break
+        start = source.index(marker, semicolon + 1)
     depth = 0
     end = brace
     while end < len(source):
@@ -166,6 +173,7 @@ def main() -> int:
     binding_generated = binding_generated.replace(
         "// @CORE_MUTATION_AND_LIFECYCLE@", lifecycle_definition(core_source)
     )
+    binding_generated = binding_generated.replace("// @CORE_QUEUE_PROOF@", extract_function(core_source, "enum class RecordingQueueProof") + ";")
     (output / "d13_inflight_binding_host.cpp").write_text(
         binding_generated, encoding="utf-8"
     )
@@ -187,6 +195,7 @@ def main() -> int:
     region_generated = region_generated.replace(
         "// @CORE_MUTATION_AND_LIFECYCLE@", lifecycle_definition(core_source)
     )
+    region_generated = region_generated.replace("// @CORE_QUEUE_PROOF@", extract_function(core_source, "enum class RecordingQueueProof") + ";")
     (output / "d13_inflight_region_host.cpp").write_text(
         region_generated, encoding="utf-8"
     )

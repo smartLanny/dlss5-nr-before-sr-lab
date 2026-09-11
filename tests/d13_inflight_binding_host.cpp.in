@@ -68,8 +68,10 @@ struct CommandListQueueMarker {
 constexpr unsigned int kQueueMarkerMigrated = 1u;
 constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
 constexpr std::size_t kLifecycleCommandListCount = 128;
-constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+constexpr std::size_t kLifecycleUsesPerCommandList = 32;
+// @CORE_QUEUE_PROOF@
 struct LifecycleCommandList {
+    RecordingQueueProof queue_proof = RecordingQueueProof::None;
     unsigned long long token = 0;
     unsigned long long expected_queue_identity = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
@@ -96,6 +98,7 @@ std::atomic<unsigned long long> g_queue_contract_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_queue_retired_admitted_frames{0};
 std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
 
 enum class BypassReason { QueueAffinityUnverified, LifecycleIsolation };
@@ -341,6 +344,31 @@ int main() {
     auto fence = Submit(queue, first);
     CommitRecordedUse(context, *packet_a, lifecycle, fence);
 
+    // A fresh context cannot lend a completion proof to a still-busy lease.
+    // These are actual production RecordNrUse admissions on real lists/fences.
+    NrContext fresh_context{};
+    auto unknown = MakeRecording(native);
+    const auto active_before = g_lifecycle_active_command_lists.load();
+    Check(!RecordNrUseLocked(unknown.list,fresh_context,packet_a->lease),
+          "one-shot recording cannot borrow busy slot retirement from an empty context");
+    Check(g_lifecycle_active_command_lists.load()==active_before,
+          "declined one-shot admission rolls back its empty recording");
+    HR(unknown.list->Close(),"unknown busy slot close");
+    ReleaseCom(unknown.list);ReleaseCom(unknown.allocator);
+    auto wrong_slot_queue = MakeRecording(native);SetStableMarker(wrong_slot_queue.list,8002);
+    Check(!RecordNrUseLocked(wrong_slot_queue.list,fresh_context,packet_a->lease),
+          "completed context cannot append a busy slot on another queue");
+    HR(wrong_slot_queue.list->Close(),"different slot queue close");
+    ReleaseCom(wrong_slot_queue.list);ReleaseCom(wrong_slot_queue.allocator);
+    LifecycleQueue removed_queue{};removed_queue.identity=7001;
+    HR(native->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&removed_queue.fence)),"removed-value slot fence");
+    HR(removed_queue.fence->Signal(UINT64_MAX),"removed-value sentinel control");
+    NrSlot removed_slot{};removed_slot.last_submission_queue=&removed_queue;removed_slot.completion_fence_value=1;
+    auto removed_recording=MakeRecording(native);SetStableMarker(removed_recording.list,7001);
+    Check(!RecordNrUseLocked(removed_recording.list,fresh_context,removed_slot),
+          "same queue cannot turn removed-value slot fence into ordered-use proof");
+    HR(removed_recording.list->Close(),"removed-value negative close");
+    ReleaseCom(removed_recording.list);ReleaseCom(removed_recording.allocator);ReleaseCom(removed_queue.fence);
     auto second = MakeRecording(native); SetStableMarker(second.list, 7001);
     auto *packet_a_reuse = AcquireBindingPacket(native, second.list, context, plan_a);
     Check(packet_a_reuse == packet_a,

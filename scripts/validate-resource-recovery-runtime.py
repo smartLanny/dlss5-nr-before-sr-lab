@@ -167,6 +167,20 @@ def main() -> None:
         return result
 
     objects = []
+    # nr_before_sr.cpp includes the public dual spatial header, but the D3D12
+    # implementation is a separate production translation unit.  Include the
+    # captured implementation whenever the frozen source tree contains it so
+    # snapshot and WARP recovery links use the complete Core closure.
+    spatial_source = output / 'core/src/nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object = output / 'nr_dual_spatial_d3d12.o'
+        spatial_compile = run([str(compiler), *common, '-std=c++20', '-c', str(spatial_source), '-o', str(spatial_object)],
+                              'compile-nr-dual-spatial')
+        if spatial_compile.returncode:
+            summary.update(status='compile-failed', compile_exit=spatial_compile.returncode)
+            save()
+            raise SystemExit(spatial_compile.returncode)
+        objects.append(str(spatial_object))
     for name in ('buffer.c', 'hook.c', 'trampoline.c', 'hde/hde64.c'):
         obj = output / (Path(name).stem + '.o')
         result = run([str(c_compiler), *common, '-std=c17', '-c', str(minhook_snapshot / 'src' / name), '-o', str(obj)],

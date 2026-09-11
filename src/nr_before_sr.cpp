@@ -6521,7 +6521,7 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
     // bypass for this frame. Revalidate here under the same chain lock without
     // double-counting the queue-affinity diagnostic.
     if (!CanBeginContextUseLocked(command_list, context, false)) return false;
-    if (slot.awaiting_fence_signal || !IsSlotFenceCompleteLocked(slot)) {
+    if (slot.awaiting_fence_signal) {
         SetBypassReason(BypassReason::LifecycleIsolation);
         g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
         return false;
@@ -6554,6 +6554,19 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::QueueAffinityUnverified);
         return false;
     }
+    const bool slot_completed = IsSlotFenceCompleteLocked(slot);
+    // Recording a read-only use of an immutable table is distinct from CPU
+    // descriptor mutation. A submitted use can be appended only on its same
+    // stable ordered queue; one-shot/unknown queues still require retirement.
+    if (!slot_completed && (!has_stable_queue_marker || !slot.last_submission_queue ||
+        !slot.last_submission_queue->fence ||
+        slot.last_submission_queue->identity != queue_marker.identity ||
+        ID3D12Fence_GetCompletedValue(slot.last_submission_queue->fence) == UINT64_MAX)) {
+        RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
     RecordingQueueProof proof = record->queue_proof;
     if (proof == RecordingQueueProof::None) {
         if (record->context_count != 0 || record->slot_count != 0 ||
@@ -6565,7 +6578,7 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
                                          RecordingQueueProof::CompletedDependencies;
     }
     if (proof == RecordingQueueProof::CompletedDependencies &&
-        !IsContextFenceCompleteLocked(context)) {
+        (!slot_completed || !IsContextFenceCompleteLocked(context))) {
         RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
         SetBypassReason(BypassReason::LifecycleIsolation);
         g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);

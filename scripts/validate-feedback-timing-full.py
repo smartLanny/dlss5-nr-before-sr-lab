@@ -174,6 +174,16 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
         return result
 
     objects = []
+    # The complete Core references the dual spatial API from nr_before_sr.cpp,
+    # while its D3D12 implementation is deliberately a separate production
+    # translation unit.  Link that captured implementation when present so
+    # this full-TU timing check exercises the same source closure as the Core.
+    spatial_source = snapshot / 'src/nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object = out / 'nr_dual_spatial_d3d12.o'
+        run([str(compiler), *common, '-std=c++20', '-c', str(spatial_source), '-o', str(spatial_object)],
+            'compile-nr-dual-spatial')
+        objects.append(str(spatial_object))
     for rel in ('buffer.c', 'hook.c', 'trampoline.c', 'hde/hde64.c'):
         obj = out / (Path(rel).stem + '.o')
         run([str(c_compiler), *common, '-std=c17', '-c', str(snapshot / 'third_party/minhook/src' / rel), '-o', str(obj)],

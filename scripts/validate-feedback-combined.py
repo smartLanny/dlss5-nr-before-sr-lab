@@ -169,6 +169,15 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     harness = core.HARNESS[:core.HARNESS.index('int main(int argc,char **argv) {')]
     for key, value in values.items():
         harness = harness.replace('\n' + key + '\n', '\n' + value + '\n')
+    # validate-core-feedback.py exposes only the small command-state seam as a
+    # named placeholder.  The combined F8 activity also reads the production
+    # creation counters, command history, and pipeline-stat atomics assembled
+    # above.  Inject that captured production declaration block at the same
+    # global-declaration boundary instead of manufacturing test-only stubs.
+    combined_anchor = '\nstd::atomic<unsigned long long> g_nr_successful_evaluations'
+    if harness.count(combined_anchor) != 1:
+        raise SystemExit('Combined evidence declaration anchor changed')
+    harness = harness.replace(combined_anchor, '\n' + records + combined_anchor)
     before = '"TEST GPU (no NGX)"'
     if harness.count(before) != 1: raise SystemExit('GPU description privacy fixture anchor changed')
     harness = harness.replace(before, r'"TEST GPU C:\\Users\\Private Tester\\Game\\gpu.dll | adapter=fixture"')

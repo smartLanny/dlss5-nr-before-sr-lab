@@ -117,8 +117,10 @@ struct CommandListQueueMarker {
 constexpr unsigned int kQueueMarkerMigrated = 1u;
 constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
 constexpr std::size_t kLifecycleCommandListCount = 128;
-constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+constexpr std::size_t kLifecycleUsesPerCommandList = 32;
+// @CORE_QUEUE_PROOF@
 struct LifecycleCommandList {
+    RecordingQueueProof queue_proof = RecordingQueueProof::None;
     unsigned long long token = 0;
     unsigned long long expected_queue_identity = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
@@ -145,6 +147,7 @@ std::atomic<unsigned long long> g_queue_contract_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_queue_retired_admitted_frames{0};
 std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
 enum class BypassReason { QueueAffinityUnverified, LifecycleIsolation };
 void SetBypassReason(BypassReason) {}

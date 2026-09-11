@@ -41,6 +41,18 @@ def main():
         if r.returncode:print((r.stdout+r.stderr)[-12000:])
         return r
     objects=[]
+    # The Core includes the dual spatial public header, while its D3D12
+    # implementation is intentionally a separate production translation unit.
+    # Compile and link the captured implementation when the source snapshot
+    # contains it; otherwise the full Core link would silently omit the real
+    # dual resource/pipeline lifetime implementation.
+    spatial_source=snapshot/'nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object=out/'nr_dual_spatial_d3d12.o'
+        r=run([str(compiler),*common,'-std=c++20','-c',str(spatial_source),'-o',str(spatial_object)],
+              'compile-nr-dual-spatial')
+        if r.returncode:raise SystemExit(r.returncode)
+        objects.append(str(spatial_object))
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o');r=run([str(c_compiler),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)
         if r.returncode:raise SystemExit(r.returncode)
