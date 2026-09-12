@@ -1,0 +1,35 @@
+{
+  "schema": "dlss5-source-lock-v1",
+  "upstream": {
+    "repository": "https://github.com/jlrouzies-fr/DLSS5-Feeder",
+    "release": "v0.15.1",
+    "commit": "3f624855276c4bde55145c712782477639b30e85",
+    "sourceSha256": {
+      "src/dlss5-feed.cpp": "58b28b314039abcd624c0d751df42d10f7d662f77c9874b4ac09b208b32c779a",
+      "host/dlss5-feed-host64.cpp": "6d7488059318b22b88718a63195990f87a6932cc395c40cf2de99cbe30bad1e0",
+      "src/feed_d3d10.h": "aaa346899a33f0620d53968797f874ad195a838fd0f82ff3ebeaef2a94349f44",
+      "src/dlss5-feed32.cpp": "c9fd982e0fca61375fb84a8f8909a7d9e2f333278b13787833e6948e668aa11a",
+      "src/feed_ipc.h": "cf8e0633650c48d4a5695dee455a0f372e20805f885d61033c265a00908e4793"
+    }
+  },
+  "adapter": {
+    "stage.py": "5ef436c6183e012b0aafbd88676a35e257f3736389925dac0d7fe72a26f42d3d",
+    "build.ps1": "9a75b9091e053c5707cc7f0f640feb81b5aafa0da182181f085787161c54e630",
+    "build-d3d9.ps1": "b3cdcc02ef7f2cd159f5dfa9723292e086b9992d76811f65b256253e8eeea85b",
+    "feeder-beta3/nr_feeder_adapter_inventory.h": "6e72fc685f7ef912f65dca5c2cd079eae3295c8231432a0986cc6db5dea436ef",
+    "feeder-beta3/nr_feeder_consumer.h": "78ce0a2016ccfcefa63737e6f191776d13bf8bc7419d30ab25ab86401e497caa",
+    "feeder-beta3/nr_feeder_control.h": "065526266d538bfa79e72dcc2922b1b6f651627a4bee0763c4cc8220532decbf",
+    "feeder-beta3/nr_feeder_d3d9.cpp": "40b8af455ad5d89823bb42ad854bec5d687658e5bd6cba30026f0434985da774",
+    "feeder-beta3/nr_feeder_depth_copy.h": "4be5925e1716a87209a6013a812c0159cd9c8e4f5db0d43558070d224ae9ac1d",
+    "feeder-beta3/nr_feeder_host_guides.h": "ebfa760ccc9e513c435730bb7ef7d968d31252c643bb921de3862603d2330803",
+    "feeder-beta3/nr_feeder_ipc_client.h": "ce8290338f20a1e599464f7ea0b0c1e8a1cd8625c86be66ff1a4728d41c79377",
+    "feeder-beta3/nr_feeder_query.h": "eaaa774eac519f4253d08055481a337270dd3ee17dc794f51a0710b6f8fce12e"
+  },
+  "contract": {
+    "interface": "NRExternalProviderV1",
+    "ipcVersion": 9,
+    "ipcExtension": "project-frame-completion-v1",
+    "privateFeature1": false,
+    "syntheticSr": false
+  }
+}
