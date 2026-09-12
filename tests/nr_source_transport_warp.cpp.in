@@ -42,7 +42,8 @@ void Transition(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_R
 }
 bool IsSameRrDepthDevice(ID3D12Device* left,ID3D12Device* right){return left&&left==right;}
 namespace nr_processing_runtime {std::atomic<bool> work_enabled{true};nr_processing::Session session;
-    bool PresentSelected(){return session.Current()==nr_processing::Start::Present;}}
+    bool PresentSelected(){return session.Current()==nr_processing::Start::Present;}
+    void BeginSource(unsigned long long){}}
 namespace reshade::api {
 enum class device_api{d3d12};enum class resource_usage{render_target};
 enum class resource_view_type{unknown=0,buffer=1,texture_2d=4,texture_2d_array=5};
