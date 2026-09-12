@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "baseCommit": "c03e3aba3bd45a8d315669c6c1d7764bb24f3350",
+  "oldPerSourceLimit": 262144,
+  "newPerSourceLimit": 24576,
+  "newF8TextLimit": 196608,
+  "note": "Aggregate sample sizes and hashes. Personal filenames omitted. Later parent timestamp-prefix hardening is not a new benchmark run.",
+  "samples": [
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 164864,
+      "sourceSha256": "a759487b886324d0c55c35fcc64525c20ee8d4f282ee812dab18f05649158880",
+      "oldSummaryBytes": 164864,
+      "newSummaryBytes": 11486,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 1
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 164839,
+      "sourceSha256": "760abc4c4ccb98cff2929780a2910cb6c0448642371c6bac4e58174d1b2d8c1b",
+      "oldSummaryBytes": 164839,
+      "newSummaryBytes": 12109,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 2
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 151356,
+      "sourceSha256": "98dedba8bd10b7e71c3f2f36e370d02919fe620f433d8813d43459ad2ae7e79f",
+      "oldSummaryBytes": 151356,
+      "newSummaryBytes": 13180,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 3
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 150150,
+      "sourceSha256": "5c0b41a14ed2263426121765b006d1f38032afc073c280ecd725f6438d9cd917",
+      "oldSummaryBytes": 150150,
+      "newSummaryBytes": 11985,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 4
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 149850,
+      "sourceSha256": "c050d26ea91aea125a7b83acc51688baeeb9ac25512b880ce9eaed2d46450780",
+      "oldSummaryBytes": 149850,
+      "newSummaryBytes": 11427,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 5
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 148869,
+      "sourceSha256": "f5b5adf0526b1f1e949b4ac362116e6e0aa629bbf018093d6b657379ec78f7a2",
+      "oldSummaryBytes": 148869,
+      "newSummaryBytes": 11716,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 6
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 143932,
+      "sourceSha256": "0ea2e1905abc1cd77a239e21c36b788fcfcec9ff6be040223bf6ea7c4228b56e",
+      "oldSummaryBytes": 143932,
+      "newSummaryBytes": 12056,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 7
+    },
+    {
+      "kind": "bug-inbox-old-summary",
+      "sourceBytes": 141984,
+      "sourceSha256": "ce320cbb7498b23265347c5a0ec78d65890a1127a5a3a4a1dd4168f63a0e48d3",
+      "oldSummaryBytes": 141984,
+      "newSummaryBytes": 12474,
+      "retainedReasons": "reason=native-hooks-unavailable,reason=null-guard-graphics-state-used",
+      "sample": 8
+    },
+    {
+      "kind": "dev3-raw-log",
+      "sourceBytes": 315808,
+      "sourceSha256": "cdc9e87cd5461894ba9a1340f5969360f5aa53976f200f97f3a70f8739acaada",
+      "oldSummaryBytes": 164419,
+      "newSummaryBytes": 12356,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 9
+    },
+    {
+      "kind": "dev3-raw-log",
+      "sourceBytes": 226388,
+      "sourceSha256": "3d2efe8449225e06cd5b6b1b517ef1f66924e2ef8252d189a63d127c5c09d16a",
+      "oldSummaryBytes": 164516,
+      "newSummaryBytes": 11529,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 10
+    },
+    {
+      "kind": "dev3-raw-log",
+      "sourceBytes": 137058,
+      "sourceSha256": "864154a18b06358d91c4a8dd6f6b8238e42721ec526b7108187a34d9217d272c",
+      "oldSummaryBytes": 146238,
+      "newSummaryBytes": 12401,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 11
+    },
+    {
+      "kind": "dev3-raw-log",
+      "sourceBytes": 25386,
+      "sourceSha256": "622bc38f3ef2990658fc70b49129c2dd4190c62da55bfa27b46798bfcb9e43b8",
+      "oldSummaryBytes": 59804,
+      "newSummaryBytes": 11353,
+      "retainedReasons": "reason=native-hooks-unavailable",
+      "sample": 12
+    }
+  ],
+  "sourceBenchmarkSha256": "3ab0fdc0087145b4a435dc4b0c476d24dbca369362043870c5f96ff056b232c0",
+  "measurementCommit": "02fb888ceaa44d69f827c1772f1c6ea556f4faf9"
+}

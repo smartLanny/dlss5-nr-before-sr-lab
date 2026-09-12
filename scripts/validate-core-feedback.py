@@ -1,12 +1,14 @@
 """Compile production core collector with OS scheduling/runtime seams, real file IO.
 
 The core collector, log streaming, privacy policy and ZIP writer are included
-verbatim. GPU/NGX is not simulated as success: its counters stay zero. The test
+verbatim. A synthetic historical tuning identity tests serialization only;
+GPU/NGX is not simulated as success: its counters stay zero. The test
 must complete without a further Present and without any stage/image request.
 """
 from pathlib import Path
 import argparse
 import importlib.util
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +41,14 @@ HARNESS = r'''
 #include <string>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "nr_diagnostic_bundle.inl"
+#include "nr_dual_observation.hpp"
+#include "nr_compatibility_verdict.h"
+#include "nr_processing_route.h"
+#include "nr_compat_present_policy.hpp"
+#include "nr_full_pass.hpp"
+#include "nr_source_frame.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -64,6 +73,7 @@ IDENTITY
 SESSION
 ChainConfig g_config{};
 NrDiagnosticIdentity g_applied_nr_identity{};
+int g_applied_nr_mode=0;
 CRITICAL_SECTION g_chain_cs;
 SRWLOCK g_feedback_lock=SRWLOCK_INIT;
 std::atomic<bool> g_feedback_requested{false};
@@ -80,6 +90,15 @@ ColorSnapshot SnapshotColorPolicy(){return {};}
 const char *NrColorPolicyStatusName(int){return "unavailable";}
 const char *NrColorReasonName(int){return "unknown";}
 APPEND
+#include "nr_compatibility_verdict_feedback.inl"
+// Explicit snapshot seam. Default evidence stays unknown; writer and Resolve
+// remain production code. Combined tests populate this same value interface.
+nr_compatibility_verdict::Input fixture_decision;
+unsigned fixture_decision_snapshots=0;
+nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
+    ++fixture_decision_snapshots;
+    return fixture_decision;
+}
 #define NR_HAS_COMMAND_STATE_EVIDENCE 1
 #define NR_HAS_NGX_HOOK_EVIDENCE 1
 COMMAND_EVIDENCE
@@ -97,7 +116,95 @@ std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true}
 enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
+namespace nr_binding {
+enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
+    PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
+const char *RefusalName(Refusal value) {
+    switch (value) {
+    case Refusal::None: return "none";
+    case Refusal::InvalidPlan: return "invalid-descriptor-plan";
+    case Refusal::DeviceIdentity: return "different-or-unverified-device";
+    case Refusal::Queue: return "queue-or-recording-not-admitted";
+    case Refusal::PoolAllocation: return "packet-pool-allocation";
+    case Refusal::InFlightCapacity: return "all-binding-packets-in-use";
+    case Refusal::HeapAllocation: return "descriptor-heap-allocation";
+    case Refusal::Recording: return "lifetime-recording-declined";
+    }
+    return "unknown";
+}
+}
+// Serialization seams: no secondary GPU/NGX successes are fabricated.
+namespace nr_dual_runtime {
+FULL_SNAPSHOT
+FullSnapshot fixture_full;
+bool fixture_full_busy=false;
+bool TrySnapshotFull(FullSnapshot& out){if(fixture_full_busy)return false;out=fixture_full;return true;}
+std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{0},second_height{0},fatal_result{0},time_samples{0},time_config{0};
+std::atomic<unsigned long long> second_creates{0},second_evaluations{0},second_completed{0},last_primary_instance{0},last_second_instance{0},last_parent_evaluation{0},time_warmup_samples{0};
+std::atomic<double> time_last[7]{},time_median[7]{},time_p95[7]{};
+}
+namespace nr_compat_present_runtime {
+nr_compat_present::Observation fixture_present;
+bool fixture_present_busy=false;
+bool TrySnapshot(nr_compat_present::Observation& out){if(fixture_present_busy)return false;out=fixture_present;return true;}
+unsigned fixture_capture_status[2]{},fixture_capture_workers[2]{};
+bool fixture_capture_fg=false;
+unsigned CaptureStatus(bool fg){return fixture_capture_status[fg];}
+unsigned CaptureWorkers(bool fg){return fixture_capture_workers[fg];}
+bool CaptureUsesFg(){return fixture_capture_fg;}
+}
+namespace nr_source_runtime {
+nr_source_frame::PresentObservation fixture_source;
+bool fixture_source_busy=false;
+bool TryPresentObservation(nr_source_frame::PresentObservation& out){out={};if(fixture_source_busy||!fixture_source.ordinal)return false;out=fixture_source;return true;}
+}
+namespace nr_processing_runtime {
+nr_processing::Start fixture_effective=nr_processing::Start::Before;
+nr_processing::Start Effective(){return fixture_effective;}
+bool TrySnapshot(nr_processing::Snapshot& out){out={};out.current=fixture_effective;return true;}
+}
+namespace nr_fg_runtime {
+std::atomic<unsigned long long> attempts{0},recorded{0},adopted{0},unknown_inputs{0},hudless_waiting{0};
+FG_FEEDBACK
+}
+// The coordinator fixture supplies a coherent pair; it does not run NGX.
+// Keep the production FeedbackAppendActivity body intact while making its
+// new F8 snapshot read genuinely serializable in this CPU/Win32 harness.
+namespace nr_dual_status_runtime {
+struct SecondaryIdentity {
+    bool valid = false;
+    nr_dual_observation::Route route{};
+    unsigned long long instance_id = 0, feature_generation = 0;
+    unsigned config_generation = 0, evaluation = 0, since_reset = 0;
+    bool reset_requested = false;
+    unsigned reset_reasons = 0;
+    unsigned width = 0, height = 0;
+    bool warmed_up = false;
+    NrTuningSignature tuning{};
+};
+struct BindingSnapshot {
+    nr_binding::Refusal reason{};
+    unsigned generation = 0;
+    unsigned long long context = 0;
+    unsigned config_generation = 0, guide_flags = 0, status = 0;
+    bool generation_matches_config = false;
+};
+struct BindingSnapshotPair {
+    BindingSnapshot dual{};
+    BindingSnapshot region{};
+};
+struct SnapshotPair {
+    nr_dual_observation::Snapshot ui{};
+    SecondaryIdentity secondary{};
+    BindingSnapshotPair binding{};
+};
+SnapshotPair g_dual_snapshot{};
+SnapshotPair SnapshotUiAndSecondary() { return g_dual_snapshot; }
+}
+std::atomic<unsigned long long> g_dual_allocated_bytes{0};
+constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
+DUAL_SNAPSHOT
 ACTIVITY
 RELEVANT
 STRENGTH
@@ -135,14 +242,42 @@ bool IsActive(){return g_status==Status::Requested || g_status==Status::Running;
 unsigned StageCaptureStatus(){return 0;}
 REQUEST_CORE
 }
+LEGACY_REQUEST
 unsigned checks=0;
 void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s Win32=%lu\n",message,GetLastError());std::exit(1);}}
-void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
+void drain(){
+    unsigned char before[sizeof(g_config)];std::memcpy(before,&g_config,sizeof(g_config));
+    const auto generation=g_config_generation.load();
+    while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}
+    check(std::memcmp(before,&g_config,sizeof(g_config))==0 && g_config_generation==generation,
+        "worker collection preserves all requested configuration bytes and generation");
+}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime){check(nr_core_feedback::Request(),"new core request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime, bool archive=true){
+    unsigned char before[sizeof(g_config)];std::memcpy(before,&g_config,sizeof(g_config));
+    const auto generation=g_config_generation.load();
+    check(archive ? nr_core_feedback::Request(true) : RequestFeedbackBundle(),"explicit F7 archive or legacy F8 TXT request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);
+    check(std::memcmp(before,&g_config,sizeof(g_config))==0 && g_config_generation==generation,
+        "request and Present preserve all requested configuration bytes and generation");
+}
+void check_light_request(const std::string &report){
+    for(const char *line:{"requested.lightStyleVersion=1\n","requested.lightPreset=2\n","requested.lightPreview=1\n","requested.lightControlMode=1\n",
+        "requested.lightBroad=0.5\n","requested.lightDark=0.75\n","requested.lightReflection=1.25\n",
+        "requested.lightStructure=1.5\n","requested.lightGlow=0.25\n","requested.lightPresetColor=0.625\n"})
+        check(report.find(line)!=std::string::npos,"all D requested values survive actual TXT publication");
+}
+void check_applied_unavailable(const std::string &report,const char *status){
+    check(report.find("applied.valid=0\n")!=std::string::npos &&
+        report.find(std::string("applied.status=")+status+"\n")!=std::string::npos,
+        "missing applied identity has an explicit validity and reason");
+    for(const char *key:{"instance","frame","config","mode","evaluation","sinceReset","warmedUp","intensity",
+        "localTone","localStructure","skin","autoMask","style","uiCorrection","jitterMode","inputFilter"})
+        check(report.find(std::string("applied.")+key+"=")==std::string::npos,
+            "unavailable historical identity never emits constructor or stale applied values");
+}
 int main(int argc,char **argv) {
-    check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
+    check(argc==3,"output directory and matched companion fixture supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
     const auto log=std::filesystem::path(output_root)/"nr-before-sr.log";
     std::wstring logwide=log.wstring();wcscpy_s(g_log_path,logwide.c_str());
@@ -151,7 +286,94 @@ int main(int argc,char **argv) {
     content+="NR bypass: reason=null-pso-policy-disabled token=00001234ABCDEF00\n";
     for(unsigned i=0;i<20000;++i)content+="Feature 1 native frame; NR success=0\n";
     put(log,content);
+    const auto carrier_path=std::filesystem::absolute(argv[2]);
+    HMODULE carrier=LoadLibraryW(carrier_path.c_str());
+    check(carrier!=nullptr,"actual matching companion fixture loaded from separate directory");
+    const auto carrier_log=carrier_path.parent_path()/"dlss5-bridge.log";
+    std::string bridge_content;
+    for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress before diagnostic\n";
+    bridge_content+="[native-carrier] private baseline unavailable; native SR retained.\n"
+        "[native-carrier] real depth transport failed; native SR retained.\n"
+        "addonPath=C:\\Users\\Private Tester\\carrier.addon64 | owner=fixture\n"
+        "[native-contract] originalCreate=1920x1080 Evaluate=1280x720\n";
+    for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress after diagnostic\n";
+    put(carrier_log,bridge_content);
     reshade::api::effect_runtime runtime;
+    {
+        // Synthetic snapshot values test the real serialization body only.
+        // They are never interpreted as GPU/NGX evidence from this harness.
+        nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
+        nr_dual_runtime::fixture_full.enabled=true;
+        nr_dual_runtime::fixture_full.requested=5;
+        nr_dual_runtime::fixture_full.layers[4].instance=45;
+        nr_source_runtime::fixture_source.ordinal=900;
+        nr_source_runtime::fixture_source.decision=nr_source_frame::PresentDecision::NativeProducerBlocked;
+        nr_source_runtime::fixture_source.native_producer_on_device=true;
+        nr_source_runtime::fixture_source.promotion_blocked_by_native_producer=true;
+        nr_source_runtime::fixture_source.lookup.content=777;
+        nr_dual_runtime::fixture_full.adopted=3;
+        nr_dual_runtime::fixture_full.layers[2].instance=42;
+        nr_compat_present_runtime::fixture_present.source=101;
+        nr_compat_present_runtime::fixture_present.submitted_source=100;
+        nr_compat_present_runtime::fixture_present.completed_source=99;
+        nr_fg_runtime::attempts=7;nr_fg_runtime::recorded=5;nr_fg_runtime::adopted=3;
+        nr_compat_present_runtime::fixture_capture_status[0]=1;nr_compat_present_runtime::fixture_capture_status[1]=3;
+        nr_compat_present_runtime::fixture_capture_workers[1]=2;nr_compat_present_runtime::fixture_capture_fg=true;
+        const auto current=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*current,"sample");
+        check(std::strstr(current->report,"sample.processing.actual=Present\n"),"actual effective route reaches feedback with sample prefix");
+        check(std::strstr(current->report,"sample.fullNR.requestedPasses=5\n") &&
+              std::strstr(current->report,"sample.fullNR.lastAdoptedPasses=3\n") &&
+              std::strstr(current->report,"sample.fullNR.layer3=instance:42,"),
+              "full requested/adopted counts and layer identities serialize independently");
+        check(std::strstr(current->report,"sample.compatPost.source=101\n") &&
+              std::strstr(current->report,"sample.compatPost.submittedSource=100\n") &&
+              std::strstr(current->report,"sample.compatPost.completedSource=99\n"),
+              "Present source submission and completion remain distinct");
+        check(std::strstr(current->report,"sample.fgConsumer.attempted=7\n") &&
+              std::strstr(current->report,"sample.fgConsumer.recorded=5\n") &&
+              std::strstr(current->report,"sample.fgConsumer.composed=3\n"),
+              "FG attempted recorded and composed counters remain separate with sample prefix");
+        check(std::strstr(current->report,"sample.compatCapture.presentStatus=1\n")&&
+              std::strstr(current->report,"sample.compatCapture.fgStatus=3\n")&&
+              std::strstr(current->report,"sample.compatCapture.fgExportWorkers=2\n")&&
+              std::strstr(current->report,"sample.compatCapture.nextRequestRoute=FG\n"),
+              "F8 retains separate current capture status workers and next request route");
+        check(std::strstr(current->report,"sample.fullNR.layer5=instance:45,") &&
+              std::strstr(current->report,"sample.compatPost.layer5.attempted=0\n") &&
+              std::strstr(current->report,"sample.compatSource.decision=native-producer-blocked\n") &&
+              std::strstr(current->report,"sample.compatSource.lookup.content=777\n"),
+              "fifth layer and exact Present refusal serialize separately from NR counters");
+        nr_source_runtime::fixture_source_busy=true;
+        nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=true;
+        const auto busy=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*busy,"sample");
+        check(std::strstr(busy->report,"sample.fullNR.snapshot=busy\n") &&
+              !std::strstr(busy->report,"sample.fullNR.lastAdoptedPasses="),
+              "busy full snapshot never serializes stale adopted counts");
+        check(std::strstr(busy->report,"sample.compatPost.status=snapshot-busy-no-old-data-reused\n") &&
+              !std::strstr(busy->report,"compatPost.source="),
+              "busy Present snapshot never serializes stale source identity");
+        check(std::strstr(busy->report,"sample.compatSource.decision=unobserved-or-snapshot-busy\n") &&
+              !std::strstr(busy->report,"compatSource.lookup.content="),"busy source snapshot never reuses stale refusal");
+        nr_source_runtime::fixture_source={};nr_source_runtime::fixture_source_busy=false;
+        nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
+        nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
+        nr_processing_runtime::fixture_effective=nr_processing::Start::Before;
+        nr_fg_runtime::attempts=0;nr_fg_runtime::recorded=0;nr_fg_runtime::adopted=0;
+        nr_compat_present_runtime::fixture_capture_status[0]=nr_compat_present_runtime::fixture_capture_status[1]=0;
+        nr_compat_present_runtime::fixture_capture_workers[1]=0;nr_compat_present_runtime::fixture_capture_fg=false;
+    }
+    {
+        ChainConfig frozen{};frozen.region_enabled=true;frozen.region_preview=3;
+        for(unsigned i=0;i<11;++i)frozen.region_gains[i]=.25f*float(i);
+        const auto region_request=std::make_unique<FeedbackSession>();
+        nr_core_feedback::AppendPictureConfig(*region_request,frozen,true);
+        check(std::strstr(region_request->report,"requested.regionEnabled=1\n") &&
+              std::strstr(region_request->report,"requested.regionPreview=3\n") &&
+              std::strstr(region_request->report,"requested.regionGains=0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5\n"),
+              "all eleven region gains and preview serialize from the coherent supplied snapshot");
+    }
     g_command_state_evidence.available=true;g_command_state_evidence.sampled_at=GetTickCount64();
     g_command_state_evidence.reason="null-guard-awaiting-reset";g_command_state_evidence.token=42;
     g_command_state_evidence.sequence=3;g_command_state_evidence.guard_requested=true;
@@ -166,7 +388,57 @@ int main(int argc,char **argv) {
     AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
     check(!SnapshotNgxHookFailure().available,"hook evidence contention is nonblocking");
     ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
+    check(nr_core_feedback::Request(),"pre-Present request accepted");
+    const auto cancelled_before_present=nr_core_feedback::SnapshotPair();
+    nr_core_feedback::Cancel();
+    check(!g_feedback_requested.load() && !nr_core_feedback::Busy() && g_feedback_status==5,
+        "pre-Present cancellation retires pending request without another render callback");
+    check(nr_core_feedback::SnapshotPair().ready && !nr_core_feedback::SnapshotPair().complete &&
+        std::strstr(nr_core_feedback::g_reason,"before a render callback"),
+        "pre-Present cancellation publishes terminal session-bound state");
+    nr_core_feedback::Cancel();
+    check(g_feedback_status==5 && std::strcmp(cancelled_before_present.session,
+        nr_core_feedback::SnapshotPair().session)==0,
+        "repeated cancellation cannot rewrite or revive the retired request");
+    check(nr_core_feedback::Request(),"fresh request accepted after pre-Present cancellation");
+    check(std::strcmp(cancelled_before_present.session,nr_core_feedback::SnapshotPair().session)!=0,
+        "retry after pre-Present cancellation receives a new session identity");
+    nr_core_feedback::Cancel();
+    {
+        g_command_state_evidence.first_recording_observed=true;
+        g_command_state_evidence.baseline="Create-first-recording";
+        g_command_state_evidence.reset_serial=0;g_command_state_evidence.fresh_reset=false;
+        const auto first_recording=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*first_recording,"sample");
+        check(std::strstr(first_recording->report,"sample.commandState.firstRecordingObserved=1\n"),"first recording provenance reaches F8");
+        check(std::strstr(first_recording->report,"sample.commandState.baseline=Create-first-recording\n"),"first recording baseline is not relabeled Reset");
+        check(std::strstr(first_recording->report,"sample.commandState.resetSerial=0\n") &&
+            std::strstr(first_recording->report,"sample.commandState.freshReset=0\n"),"first recording F8 does not fabricate Reset proof");
+        g_command_state_evidence.first_recording_observed=false;g_command_state_evidence.baseline="Reset";
+        const auto unobserved=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*unobserved,"sample");
+        check(std::strstr(unobserved->report,"sample.commandState.blend=unobserved\n"),"unobserved blend never masquerades as four zeroes");
+        g_command_state_evidence.blend_observed=true;
+        const float blend[4]={0.25f,0.5f,0.75f,1.0f};
+        std::memcpy(g_command_state_evidence.blend,blend,sizeof(blend));
+        const auto measured=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*measured,"sample");
+        check(std::strstr(measured->report,"sample.commandState.blend=0.25,0.5,0.75,1\n"),"all four sampled blend values reach TXT formatting");
+        AcquireSRWLockExclusive(&g_command_state_lock);
+        const auto unavailable=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*unavailable,"sample");
+        ReleaseSRWLockExclusive(&g_command_state_lock);
+        check(std::strstr(unavailable->report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
+    }
+    g_config.high_strength_protection=false;g_config.layered_enhancement=true;
+    g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
+    g_config.light_preset=2;g_config.light_preview=1;g_config.light_broad=.5f;g_config.light_dark=.75f;
+    g_config.light_control_mode=1;
+    g_config.light_reflection=1.25f;g_config.light_structure=1.5f;g_config.light_glow=.25f;g_config.light_preset_color=.625f;
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
+    g_config.layer_bright=2.f; // Worker must serialize the earlier coherent snapshot.
+    g_config.light_broad=1.75f;
+    g_config.light_control_mode=0; // Worker must retain the earlier requested control mode.
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
@@ -177,10 +449,91 @@ int main(int argc,char **argv) {
     check(std::strstr(nr_core_feedback::g_submission,"end.commandState.reason=null-guard-awaiting-reset"),"actual ticket includes command-state reason");
     check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
+    check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"standalone TXT and cached content published");
+    wchar_t copied_path[1024]{};
+    check(nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          std::filesystem::path(copied_path)==std::filesystem::path(nr_core_feedback::g_report_path),
+          "successful atomic TXT publication exposes exactly its path for automatic clipboard copy");
+    wchar_t claimed_path[1024]{};wcscpy_s(claimed_path,copied_path);
+    check(!nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "automatic TXT path is claimed once while copier result remains pending");
+    nr_core_feedback::SetReportClipboardResult(L"C:\\stale-report.txt",true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "stale clipboard completion cannot mark a newer TXT copied");
+    nr_core_feedback::SetReportClipboardResult(claimed_path,true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Copied,
+          "UI may claim copied only after the platform copier reports success");
+    const auto &report=*nr_core_feedback::g_full_report;
+    check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
+    check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
+    check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
+    check(report.size()<64*1024 && report.size()<=nr_feedback_single::kTextLimit,"representative F8 TXT stays in tens of KiB and below hard limit");
+    check(report.find("requested.highStrengthProtection=0\n")!=std::string::npos &&
+          report.find("requested.layeredEnhancement=1\n")!=std::string::npos &&
+          report.find("requested.layerBright=0.75\n")!=std::string::npos &&
+          report.find("requested.layerShadow=1.25\n")!=std::string::npos,
+          "TXT carries frozen 0.5 picture settings, not current globals");
+    check_light_request(report);
+    check_applied_unavailable(report,"no-successful-NR");
+    std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
+    check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
+    txt.close();
+    std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"valid-core.txt");
+
+    {
+        nr_core_feedback::nr_feedback_report::Output blocked;
+        const auto dir=std::filesystem::path(output_root)/"core-1";
+        check(!nr_core_feedback::nr_feedback_report::WriteAtomic(dir.c_str(),"replacement",blocked),"TXT cannot overwrite this session's published report");
+        check(blocked.error!=0 && blocked.path.empty(),"TXT error is explicit and has no false published path");
+        check(g_feedback_last_zip[0] && g_feedback_status==3,"independent TXT failure preserves valid ZIP");
+        check(!std::filesystem::exists(dir/"feedback-report.txt.tmp"),"failed TXT publication removes only owned temporary file");
+    }
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
     check(text.find("null-pso-policy-disabled")!=std::string::npos,"first bypass survives long later success tail");
     check(text.find("Private Tester")==std::string::npos && text.find("ABCDEF00")==std::string::npos,"shared excerpts redact paths and pointers");
+    check(text.size()<=nr_feedback_text::kSummaryLimit && text.find("summary.limitBytes=24576")!=std::string::npos,
+        "per-source summary advertises and obeys 24 KiB bound");
+    check(text.find("latest.repetitionsSuppressed=19999")!=std::string::npos && text.find("count=19999")==std::string::npos,
+        "repetitive feature lines are counted without producing unbounded output");
+    {
+        const auto capped=std::filesystem::path(output_root)/"capped-source.log";
+        std::ofstream out(capped,std::ios::binary);
+        const std::string block(65536,'p');
+        for(unsigned i=0;i<513;++i){out<<"frame="<<i<<" progress count="<<i<<"\n";out.write(block.data(),block.size());out<<"\n";}
+        out<<"NR bypass transition reason=tail-only-critical HRESULT=0x887A0006\n";out.close();
+        std::string bounded;bool full=true;
+        check(nr_core_feedback::ReadSummary(capped.c_str(),bounded,full,GetTickCount64()+3000),"Windows reader summarizes capped source");
+        check(!full && bounded.find("scan.status=byte-limit")!=std::string::npos,"byte-limited source never claims complete scan");
+        check(bounded.find("scan.prefixBytes=33554432")!=std::string::npos && bounded.find("scan.tailBytes=")!=std::string::npos,
+            "Windows reader reports separate prefix and newest-tail coverage");
+        check(bounded.find("reason=tail-only-critical")!=std::string::npos && bounded.find("0x887A0006")!=std::string::npos,
+            "newest tail diagnostic and HRESULT survive capped prefix");
+        check(bounded.size()<=nr_feedback_text::kSummaryLimit,"capped Windows summary obeys 24 KiB bound");
+        std::string timed;bool timed_full=true;
+        check(nr_core_feedback::ReadSummary(capped.c_str(),timed,timed_full,test_clock),"deadline-limited source still emits bounded metadata");
+        check(!timed_full && timed.find("scan.status=time-limit")!=std::string::npos && timed.find("scan.status=read-error")==std::string::npos,
+            "deadline exhaustion is distinct from a Windows read failure");
+        const auto boundary=std::filesystem::path(output_root)/"boundary-source.log";
+        out.open(boundary,std::ios::binary|std::ios::trunc);
+        out.seekp(static_cast<std::streamoff>(nr_feedback_text::kScanLimit-1));out<<"\nNR bypass reason=first-contiguous-tail HRESULT=0x887A0005\n";out.close();
+        bounded.clear();full=true;
+        check(nr_core_feedback::ReadSummary(boundary.c_str(),bounded,full,test_clock+3000),"newline-boundary source summarized");
+        check(!full && bounded.find("reason=first-contiguous-tail")!=std::string::npos,
+            "first complete tail line is retained when prefix ends exactly at newline");
+        const auto partial=std::filesystem::path(output_root)/"partial-boundary-source.log";
+        const std::string partial_reason="NR bypass reason=partial-cut";
+        out.open(partial,std::ios::binary|std::ios::trunc);
+        out.seekp(static_cast<std::streamoff>(nr_feedback_text::kScanLimit-partial_reason.size()-1));
+        out<<"\n"<<partial_reason<<"-continuation\nNR bypass reason=tail-after-partial\n";out.close();
+        bounded.clear();full=true;
+        check(nr_core_feedback::ReadSummary(partial.c_str(),bounded,full,test_clock+3000),"partial-boundary source summarized");
+        check(!full && bounded.find("reason=partial-cut [line truncated]")!=std::string::npos &&
+              bounded.find("partial-cut-continuation")==std::string::npos,
+            "prefix fragment is marked truncated and never joined to skipped continuation");
+        check(bounded.find("reason=tail-after-partial")!=std::string::npos,"complete diagnostic after skipped continuation retained");
+    }
     begin(runtime);check(std::strcmp(first.session,nr_core_feedback::SnapshotPair().session)!=0,"new session ID differs");nr_core_feedback::Cancel();drain();
     check(g_feedback_status==4 && !nr_core_feedback::SnapshotPair().complete,"cancelled core is explicitly partial");save("cancelled-core.zip");
     snapshot_busy=true;begin(runtime);drain();snapshot_busy=false;
@@ -196,10 +549,135 @@ int main(int argc,char **argv) {
     wcscpy_s(nr_f8::g_last_zip,L"previous-image.zip");
     check(!nr_f8::RequestCore() && nr_f8::g_last_zip[0],"active image request is not cleared by rejected core request");
     nr_f8::g_status=nr_f8::Status::Done;
+    // Deliberately differ from the requested configuration; this is fixture data,
+    // not an NGX success or evidence that the D composition reached a GPU.
+    g_config.light_broad=.5f;g_config.style=1;g_config.intensity=.75f;g_config.mode=2;
+    g_config.light_control_mode=1;
+    g_config.color_strength=.875f;
+    g_applied_nr_identity.instance_id=73;g_applied_nr_identity.frame_id=84;g_applied_nr_identity.config_generation=6;
+    g_applied_nr_identity.evaluation=19;g_applied_nr_identity.since_reset=3;g_applied_nr_identity.warmed_up=true;
+    g_applied_nr_identity.tuning.intensity=1.75f;g_applied_nr_identity.tuning.local_tone=.5f;
+    g_applied_nr_identity.tuning.local_structure=1.5f;g_applied_nr_identity.tuning.skin_structure=.25f;
+    g_applied_nr_identity.tuning.auto_mask=true;g_applied_nr_identity.tuning.style=2;
+    g_applied_nr_identity.tuning.ui_correction=true;g_applied_nr_identity.tuning.jitter_mode=NrJitterMode::Legacy;
+    g_applied_nr_identity.tuning.input_filter=1;g_applied_nr_mode=1;
+    g_config.enabled=true;g_config.nr_passes=2;
+    nr_dual_status_runtime::g_dual_snapshot.ui.state=nr_dual_observation::UiState::Intermittent;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.eligible_primary=7;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.secondary_evaluate_success=8;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.warmup_discarded=2;
+    nr_dual_status_runtime::g_dual_snapshot.ui.counts.final_adopted=6;
+    nr_dual_status_runtime::g_dual_snapshot.ui.processing_age_ms=31;
+    nr_dual_status_runtime::g_dual_snapshot.ui.no_adoption_age_ms=32;
+    nr_dual_status_runtime::g_dual_snapshot.ui.window_start_ms=900;
+    nr_dual_status_runtime::g_dual_snapshot.ui.config_generation=7;
+    nr_dual_status_runtime::g_dual_snapshot.ui.route={0x1234,true};
+    auto &secondary_snapshot=nr_dual_status_runtime::g_dual_snapshot.secondary;
+    secondary_snapshot.valid=true;secondary_snapshot.route={0x1234,true};
+    secondary_snapshot.instance_id=300;secondary_snapshot.feature_generation=55;
+    secondary_snapshot.config_generation=7;secondary_snapshot.evaluation=8;
+    secondary_snapshot.since_reset=5;secondary_snapshot.width=960;secondary_snapshot.height=540;
+    secondary_snapshot.reset_requested=true;secondary_snapshot.reset_reasons=42;
+    secondary_snapshot.warmed_up=true;secondary_snapshot.tuning.intensity=1.7f;
+    secondary_snapshot.tuning.local_tone=.8f;secondary_snapshot.tuning.local_structure=.72f;
+    secondary_snapshot.tuning.skin_structure=.65f;secondary_snapshot.tuning.auto_mask=true;
+    secondary_snapshot.tuning.style=2;secondary_snapshot.tuning.ui_correction=true;
+    secondary_snapshot.tuning.jitter_mode=NrJitterMode::Legacy;secondary_snapshot.tuning.input_filter=1;
+    auto &binding_snapshot=nr_dual_status_runtime::g_dual_snapshot.binding;
+    binding_snapshot.dual.reason=nr_binding::Refusal::Queue;
+    binding_snapshot.dual.generation=7;binding_snapshot.dual.context=300;
+    binding_snapshot.dual.config_generation=7;binding_snapshot.dual.status=7;
+    binding_snapshot.dual.generation_matches_config=true;
+    binding_snapshot.region.reason=nr_binding::Refusal::InvalidPlan;
+    binding_snapshot.region.generation=7;binding_snapshot.region.config_generation=7;
+    binding_snapshot.region.guide_flags=0x13;binding_snapshot.region.status=2;
+    binding_snapshot.region.generation_matches_config=true;
     check(nr_f8::RequestCore(),"core request accepted after completed images");
     check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
-    nr_core_feedback::Present(&runtime);drain();
+    unsigned char requested_before[sizeof(g_config)];std::memcpy(requested_before,&g_config,sizeof(g_config));
+    nr_core_feedback::Present(&runtime);
+    check(std::memcmp(requested_before,&g_config,sizeof(g_config))==0 && g_config_generation==7,
+        "F8 Present preserves requested values while reading historical tuning");
+    g_applied_nr_identity={};g_applied_nr_mode=2;g_config.light_broad=1.75f;g_config.light_control_mode=0;
+    drain();
     check(g_feedback_status==3,"fresh core completes after image-result reset");
+    check(!g_feedback_last_zip[0],"F8 never publishes a ZIP path");
+    check(!nr_core_feedback::SnapshotPair().complete,"text-only capture cannot masquerade as a paired image core");
+    check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"F8 standalone text saved");
+    const auto named = std::filesystem::path(nr_core_feedback::g_report_path);
+    unsigned siblings=0;
+    for (const auto &entry : std::filesystem::directory_iterator(named.parent_path())) {
+        ++siblings; check(entry.path()==named,"F8 has no ZIP, summaries or temporary siblings");
+    }
+    check(siblings==1,"successful F8 physically leaves exactly one TXT");
+    check(named.filename().string().find("-core-test-only-")!=std::string::npos,"filename carries actual build");
+    const auto fresh_report=*nr_core_feedback::g_full_report;
+    check_light_request(fresh_report);
+    for(const char *line:{"applied.valid=1\n","applied.status=historical-success\n",
+        "applied.instance=73\n","applied.frame=84\n","applied.config=6\n","applied.mode=1\n",
+        "applied.evaluation=19\n","applied.sinceReset=3\n","applied.warmedUp=1\n",
+        "applied.intensity=1.75\n","applied.localTone=0.5\n","applied.localStructure=1.5\n","applied.skin=0.25\n",
+        "applied.autoMask=1\n","applied.style=2\n","applied.uiCorrection=1\n","applied.jitterMode=0\n","applied.inputFilter=1\n",
+        "requested.config=7\n","requested.mode=2\n","requested.style=1\n","requested.intensity=0.75\n","requested.color=0.875\n"})
+        check(fresh_report.find(line)!=std::string::npos,"F8 exports frozen requested and complete historical tuning as distinct records");
+    for(const char *line:{"end.dual.snapshot.state=intermittent\n",
+        "end.dual.snapshot.eligiblePrimary=7\n","end.dual.snapshot.secondaryEvaluate=8\n",
+        "end.dual.snapshot.warmupDiscarded=2\n","end.dual.snapshot.finalAdopted=6\n",
+        "end.dual.snapshot.processingAgeMs=31\n","end.dual.snapshot.noAdoptionAgeMs=32\n",
+        "end.dual.snapshot.config=7\n",
+        "end.dual.snapshot.routeId=4660\n","end.dual.snapshot.routeValid=1\n",
+        "end.dual.secondaryIdentity.instance=300\n","end.dual.secondaryIdentity.config=7\n",
+        "end.dual.secondaryIdentity.evaluation=8\n","end.dual.secondaryIdentity.sinceReset=5\n",
+        "end.dual.secondaryIdentity.resetRequested=1\n","end.dual.secondaryIdentity.resetReasons=0x2A\n",
+        "end.dual.secondaryIdentity.resetReasonLegend=1:caller,2:game,4:history,8:color-contract,16:guide,32:pending\n",
+        "end.dual.secondaryIdentity.extent=960x540\n","end.dual.secondaryIdentity.warmedUp=1\n",
+        "end.dual.secondaryIdentity.tuning.autoMask=1\n","end.dual.secondaryIdentity.tuning.style=2\n",
+        "end.dual.binding.reason=queue-or-recording-not-admitted\n","end.dual.binding.generation=7\n",
+        "end.dual.binding.context=300\n","end.dual.binding.generationMatchesConfig=1\n",
+        "end.dual.regionBinding.reason=invalid-descriptor-plan\n","end.dual.regionBinding.generation=7\n",
+        "end.dual.regionBinding.generationMatchesConfig=1\n","end.dual.regionBinding.guideFlags=0x13\n",
+        "end.dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth\n"})
+        check(fresh_report.find(line)!=std::string::npos,"F8 exports the current paired dual snapshot and secondary identity");
+    check(fresh_report.find("model tuning only, not D light composition or measured output")!=std::string::npos,
+        "applied contract cannot claim actual D composition or visual quality");
+    std::filesystem::copy_file(named,std::filesystem::path(output_root)/"applied-core.txt");
+    check(fresh_report.find("format=DLSS5-CoreText-v2")!=std::string::npos,"single text schema");
+    check(fresh_report.find("archive.requested=0")!=std::string::npos,"no false archive status");
+    check(fresh_report.find("capture.localTime=")!=std::string::npos && fresh_report.find("capture.utcTime=")!=std::string::npos,"local and UTC timestamps recorded");
+    check(fresh_report.find("null-pso-policy-disabled")!=std::string::npos,"standalone text retains first actual bypass");
+    check(fresh_report.find("Private Tester")==std::string::npos,"standalone text retains privacy rules");
+    check(fresh_report.find("carrierLog.status=matched-loaded-path")!=std::string::npos,"matched loaded companion path discovered by actual module enumeration");
+    check(fresh_report.find("[native-carrier] real depth transport failed")!=std::string::npos &&
+          fresh_report.find("[native-carrier] private baseline unavailable")!=std::string::npos &&
+          fresh_report.find("[native-contract] originalCreate=1920x1080")!=std::string::npos,"F8 single TXT retains carrier failure and native contract from separate module directory");
+    std::filesystem::remove(carrier_log);
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"missing optional bridge log leaves complete single TXT");
+    check(nr_core_feedback::g_full_report->find("real depth transport failed")==std::string::npos,"missing log never reuses previous carrier contents");
+    FreeLibrary(carrier);
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && nr_core_feedback::g_full_report->find("carrierLog.status=matching-companion-not-loaded")!=std::string::npos,"unloaded companion is explicit and not required for D3D12 feedback");
+    begin(runtime,false);nr_core_feedback::Cancel();drain();
+    check(g_feedback_status==4 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"cancelled F8 keeps partial TXT, not ZIP or old results");
+    g_applied_nr_identity.instance_id=99;g_applied_nr_identity.frame_id=101;g_applied_nr_mode=1;
+    snapshot_busy=true;begin(runtime,false);drain();snapshot_busy=false;
+    check(g_feedback_status==4 && nr_core_feedback::g_full_report->find("snapshot.valid=0")!=std::string::npos,"busy F8 snapshot explicit");
+    check_applied_unavailable(*nr_core_feedback::g_full_report,"snapshot-unavailable");
+    for(const char *key:{"config","enabled","mode","blend","color","workMode","workScale","lightingLock",
+        "detailStability","edgeGuard","intensity","localTone","localStructure","skin","faceMask","uiCorrection","jitterMode","style",
+        "lightStyleVersion","lightPreset","lightPreview","lightControlMode","lightBroad","lightDark","lightReflection","lightStructure","lightGlow","lightPresetColor"})
+        check(nr_core_feedback::g_full_report->find(std::string("requested.")+key+"=")==std::string::npos,
+            "busy snapshot never exports default or later global requested values");
+    check(nr_core_feedback::g_full_report->find("requested.pictureSnapshotValid=0\n")!=std::string::npos,
+        "D requested snapshot explicitly unavailable");
+    std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"busy-core.txt");
+    g_applied_nr_identity={};g_applied_nr_identity.instance_id=99; // Create without Evaluate is not success.
+    directory_fail=true;begin(runtime,false);drain();directory_fail=false;
+    check(g_feedback_status==5 && !nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"failed F8 has no stale text");
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && std::filesystem::path(nr_core_feedback::g_report_path)!=named,"repeat F8 has a new filename");
+    check_applied_unavailable(*nr_core_feedback::g_full_report,"no-successful-NR");
+    check(std::filesystem::exists(named),"later F8 never overwrites previous evidence");
     // The generalized archive cap cannot be raised and handles underflow safely.
     auto *job=new nr_bundle::Job{};job->archive_limit=UINT64_MAX;
     check(nr_bundle::ArchiveLimit(*job)==nr_bundle::kArchiveLimit,"caller cannot raise global ZIP limit");
@@ -218,38 +696,64 @@ int main(int argc,char **argv) {
 }
 '''
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--compiler', required=True)
-    args = p.parse_args()
+def production_values():
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
     values = {
+        'LEGACY_REQUEST': definition(legacy, 'bool RequestFeedbackBundle('),
         'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
         'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
-        'ACTIVITY': definition(legacy, 'void FeedbackAppendActivity('),
+        'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
+        'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
+        'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
         'SESSION': definition(legacy, 'struct FeedbackSession', True),
         'APPEND': definition(legacy, 'void FeedbackAppend('),
+        'DUAL_SNAPSHOT': definition(legacy, 'void FeedbackAppendDualSnapshot('),
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
         'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),
+        'COMBINED_EVIDENCE': '',
     }
+    return values
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--compiler', required=True)
+    p.add_argument('--compile-only', action='store_true')
+    args = p.parse_args()
+    values = production_values()
     text = HARNESS
     for key, value in values.items():
         text = text.replace('\n'+key+'\n', '\n'+value+'\n')
-    out = ROOT/'test-output/core-feedback'
-    out.mkdir(parents=True, exist_ok=True)
+    # Production writes use CREATE_NEW. Preserve prior fixture evidence and
+    # isolate each invocation so repeat validation never reuses old reports.
+    import tempfile
+    base = ROOT/'test-output/core-feedback'
+    base.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix='run-', dir=base))
+    print(f'Core feedback validation output: {out}', flush=True)
     cpp, exe = out/'core.cpp', out/'core.exe'
     cpp.write_text(text, encoding='utf-8')
     subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
                     '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe)], check=True)
-    subprocess.run([str(exe), str(out/'fixtures')], check=True)
+    if args.compile_only:
+        print('Windows harness cross-compiled; not executed.')
+        return
+    matching = definition((ROOT/'src/interop/nr_deployment_names.h').read_text(encoding='utf-8'), 'inline bool MatchingCarrier(')
+    leaf = re.search(r'Equal\(name, L"([^"]+)"\)', matching).group(1)
+    carrier_dir = out/'matched-companion'
+    carrier_dir.mkdir(exist_ok=True)
+    carrier_cpp, carrier_dll = carrier_dir/'fixture.cpp', carrier_dir/leaf
+    carrier_cpp.write_text('extern "C" __declspec(dllexport) void FeedbackFixture() {}\n')
+    subprocess.run([args.compiler, '-shared', '-static', str(carrier_cpp), '-o', str(carrier_dll)], check=True)
+    subprocess.run([str(exe), str(out/'fixtures'), str(carrier_dll)], check=True)
     spec = importlib.util.spec_from_file_location('core_parser', ROOT/'scripts/parse-core-feedback.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     for name in ('valid-core.zip','cancelled-core.zip','busy-core.zip'):
@@ -257,11 +761,20 @@ def main():
         assert result['required_complete'] == (name == 'valid-core.zip'), result
     import zipfile
     with zipfile.ZipFile(out/'fixtures/valid-core.zip') as archive:
+        bridge = archive.read('logs/carrier-summary.txt').decode('utf-8-sig')
+        assert 'real depth transport failed' in bridge and 'Private Tester' not in bridge
         metadata = archive.read('capture-info.txt').decode('utf-8-sig')
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
+                    'start.decision.reason=current-scope-unavailable',
+                    'end.decision.reason=current-scope-unavailable',
+                    'decision.evidenceComplete=0', 'decision.recoveryResult=unavailable',
                     'end.commandState.reason=null-guard-awaiting-reset',
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
-                    'end.ngxHookFailure.entry=existing-short-hotpatch'):
+                    'start.commandState.blend=0.25,0.5,0.75,1',
+                    'end.commandState.blend=0.25,0.5,0.75,1',
+                    'end.ngxHookFailure.entry=existing-short-hotpatch',
+                    'requested.highStrengthProtection=0', 'requested.layeredEnhancement=1',
+                    'requested.layerBright=0.75', 'requested.layerShadow=1.25'):
             assert key in metadata, key
     print('Actual Windows core ZIPs independently verified (complete / cancelled / snapshot busy).')
 

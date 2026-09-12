@@ -1,0 +1,590 @@
+// D13: real ReShade/D3D12 queued multi-frame fixture.
+//
+// This host deliberately uses a WARP D3D12 device so it can run without a
+// game or NVIDIA inference.  ReShade is still real: dxgi.dll is copied next
+// to this executable and the host proves the proxy/native device identity via
+// ReShade's pinned unwrap contract.  The NR provider callback below is an
+// explicit stub.  All Core-owned spatial recording, descriptor creation,
+// resource transitions and D3D12 fence operations remain real.
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <atomic>
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
+#include "nr_dual_spatial_d3d12.hpp"
+
+template<class T> void ReleaseCom(T *&p) noexcept { if (p) { p->Release(); p = nullptr; } }
+#define IUnknown_QueryInterface(p, i, o) (p)->QueryInterface(i, o)
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+// @CORE_DEVICE_IDENTITY@
+#undef IUnknown_QueryInterface
+
+void Check(bool ok, const char *message) {
+    if (!ok) {
+        std::fprintf(stderr, "FAIL %s\n", message);
+        std::exit(1);
+    }
+}
+void HR(HRESULT result, const char *message) {
+    if (FAILED(result)) {
+        std::fprintf(stderr, "FAIL %s hr=%08lx\n", message,
+                     static_cast<unsigned long>(result));
+        std::exit(2);
+    }
+}
+
+struct QueueState {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+    UINT64 next_fence = 1;
+};
+
+// The two functions below are extracted verbatim by the validator from the
+// current Core.  They are the old mutable-slot admission gate and its exact
+// fence predicate, not a second test implementation.  The small fixture
+// structs contain only the fields those production functions read.
+struct LifecycleQueue {
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12Fence *fence = nullptr;
+};
+struct NrSlot {
+    unsigned int recording_command_lists = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
+};
+std::atomic<bool> g_lifecycle_tracking_uncertain{false};
+#define ID3D12Fence_GetCompletedValue(p) (p)->GetCompletedValue()
+// @CORE_MUTATION_GATE@
+#undef ID3D12Fence_GetCompletedValue
+
+struct CommandRecording {
+    ID3D12CommandAllocator *allocator = nullptr;
+    ID3D12GraphicsCommandList *list = nullptr;
+    bool recorded = false;
+};
+
+struct StubFeature {
+    unsigned int id = 0;
+};
+struct StubParams {
+    unsigned int binding_id = 0;
+};
+struct StubNr {
+    unsigned int creates = 0;
+    unsigned int evaluates = 0;
+    unsigned int last_binding = 0;
+    std::vector<unsigned int> bindings;
+};
+
+// This is an NGX call stub only.  It never claims NVIDIA inference.  Its
+// purpose is to prove that the real RecordSecond callback boundary is reached
+// for every admitted recording, and that binding identity is passed through.
+std::uint32_t StubEvaluate(void *user, ID3D12GraphicsCommandList *,
+                           const void *, const void *params) {
+    auto *state = static_cast<StubNr *>(user);
+    auto *p = static_cast<const StubParams *>(params);
+    Check(state != nullptr && p != nullptr, "stub evaluate inputs");
+    ++state->evaluates;
+    state->last_binding = p->binding_id;
+    state->bindings.push_back(p->binding_id);
+    return 1u; // kNgxSuccess in the low-level helper's explicit test contract.
+}
+
+void MakeTexture(ID3D12Device *device, unsigned width, unsigned height,
+                 DXGI_FORMAT format, ID3D12Resource **out,
+                 D3D12_RESOURCE_STATES initial = D3D12_RESOURCE_STATE_COMMON) {
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC desc{};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width; desc.Height = height;
+    desc.DepthOrArraySize = desc.MipLevels = desc.SampleDesc.Count = 1;
+    desc.Format = format;
+    desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    HR(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                       initial, nullptr,
+                                       IID_PPV_ARGS(out)),
+       "controlled texture");
+}
+
+void MakeUavHeap(ID3D12Device *device, ID3D12Resource *resource,
+                 ID3D12DescriptorHeap **out) {
+    D3D12_DESCRIPTOR_HEAP_DESC heap{};
+    heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heap.NumDescriptors = 1;
+    heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    HR(device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(out)),
+       "tag descriptor heap");
+    D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+    view.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    device->CreateUnorderedAccessView(resource, nullptr, &view,
+                                       (*out)->GetCPUDescriptorHandleForHeapStart());
+}
+
+void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+                D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+    if (before == after) return;
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barrier.Transition.StateBefore = before;
+    barrier.Transition.StateAfter = after;
+    list->ResourceBarrier(1, &barrier);
+}
+
+CommandRecording MakeRecording(ID3D12Device *device) {
+    CommandRecording result{};
+    HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                      IID_PPV_ARGS(&result.allocator)),
+       "command allocator");
+    HR(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                 result.allocator, nullptr,
+                                 IID_PPV_ARGS(&result.list)),
+       "command list");
+    return result;
+}
+
+void Submit(QueueState &queue, const std::vector<CommandRecording *> &recordings,
+            UINT64 &fence_value) {
+    std::vector<ID3D12CommandList *> lists;
+    lists.reserve(recordings.size());
+    for (auto *recording : recordings) {
+        Check(recording != nullptr && recording->list != nullptr,
+              "recording list exists");
+        lists.push_back(recording->list);
+    }
+    queue.queue->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
+    fence_value = queue.next_fence++;
+    HR(queue.queue->Signal(queue.fence, fence_value), "retirement signal");
+}
+
+void WaitFence(ID3D12Fence *fence, UINT64 value, DWORD timeout_ms,
+               const char *message) {
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    Check(event != nullptr, "completion event");
+    HR(fence->SetEventOnCompletion(value, event), "completion event arm");
+    Check(WaitForSingleObject(event, timeout_ms) == WAIT_OBJECT_0, message);
+    CloseHandle(event);
+}
+
+void Close(CommandRecording &recording, const char *message) {
+    HR(recording.list->Close(), message);
+}
+
+void ClearTag(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
+              ID3D12DescriptorHeap *heap, D3D12_RESOURCE_STATES &state,
+              float tag) {
+    Transition(list, resource, state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    const float value[4] = {tag, tag + 0.125f, tag + 0.25f, 1.0f};
+    list->ClearUnorderedAccessViewFloat(
+        heap->GetGPUDescriptorHandleForHeapStart(),
+        heap->GetCPUDescriptorHandleForHeapStart(), resource, value, 0,
+        nullptr);
+    Transition(list, resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, state);
+}
+
+std::uint16_t ReadbackFirstHalf(QueueState &queue, ID3D12Resource *resource,
+                                D3D12_RESOURCE_STATES resource_state) {
+    const auto resource_desc = resource->GetDesc();
+    ID3D12Device *device = nullptr;
+    HR(resource->GetDevice(IID_PPV_ARGS(&device)), "readback device");
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    UINT rows = 0;
+    UINT64 row_bytes = 0;
+    UINT64 total_bytes = 0;
+    device->GetCopyableFootprints(&resource_desc, 0, 1, 0, &footprint,
+                                  &rows, &row_bytes, &total_bytes);
+    D3D12_RESOURCE_DESC readback_desc{};
+    readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    readback_desc.Width = footprint.Offset +
+        UINT64(footprint.Footprint.RowPitch) * footprint.Footprint.Height;
+    readback_desc.Height = readback_desc.DepthOrArraySize =
+        readback_desc.MipLevels = 1;
+    readback_desc.SampleDesc.Count = 1;
+    readback_desc.Format = DXGI_FORMAT_UNKNOWN;
+    readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES heap{};
+    heap.Type = D3D12_HEAP_TYPE_READBACK;
+    heap.CreationNodeMask = heap.VisibleNodeMask = 1;
+    ID3D12Resource *readback = nullptr;
+    HR(device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)),
+       "readback resource");
+    auto copy = MakeRecording(device);
+    Transition(copy.list, resource, resource_state,
+               D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION destination{};
+    destination.pResource = readback;
+    destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    destination.PlacedFootprint = footprint;
+    D3D12_TEXTURE_COPY_LOCATION source{};
+    source.pResource = resource;
+    source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    source.SubresourceIndex = 0;
+    copy.list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    Close(copy, "readback close");
+    UINT64 fence = 0;
+    Submit(queue, {&copy}, fence);
+    WaitFence(queue.fence, fence, 10000, "readback completion");
+    const D3D12_RANGE range{footprint.Offset,
+                            footprint.Offset + sizeof(std::uint16_t)};
+    void *mapped = nullptr;
+    HR(readback->Map(0, &range, &mapped), "readback map");
+    const auto value = *static_cast<const std::uint16_t *>(mapped);
+    const D3D12_RANGE empty{0, 0};
+    readback->Unmap(0, &empty);
+    ReleaseCom(readback); ReleaseCom(copy.list); ReleaseCom(copy.allocator);
+    ReleaseCom(device);
+    return value;
+}
+
+int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    std::printf("D13 real ReShade queued WARP host; NGX provider=stub; game=0; NVIDIA=0\n");
+
+    IDXGIFactory4 *factory = nullptr;
+    HR(CreateDXGIFactory1(IID_PPV_ARGS(&factory)), "factory");
+    IDXGIAdapter *warp = nullptr;
+    HR(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)), "WARP adapter");
+    ID3D12Device *proxy = nullptr;
+    HR(D3D12CreateDevice(warp, D3D_FEATURE_LEVEL_11_0,
+                         IID_PPV_ARGS(&proxy)), "ReShade proxy device");
+    IUnknown *unwrapped = nullptr;
+    HR(proxy->QueryInterface(kRrDepthUnwrappedObject,
+                             reinterpret_cast<void **>(&unwrapped)),
+       "ReShade device unwrap");
+    ID3D12Device *native = nullptr;
+    HR(unwrapped->QueryInterface(IID_PPV_ARGS(&native)),
+       "native execution device");
+    ReleaseCom(unwrapped);
+    Check(proxy != native, "ReShade proxy must differ from native device");
+    Check(IsSameRrDepthDevice(proxy, native),
+          "ReShade proxy/native identity proof");
+    std::printf("RESHade identity: proxy=%p native=%p same=1\n",
+                static_cast<void *>(proxy), static_cast<void *>(native));
+
+    QueueState queue{};
+    D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    HR(native->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue.queue)),
+       "graphics queue");
+    HR(native->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                           IID_PPV_ARGS(&queue.fence)), "retirement fence");
+    ID3D12Fence *gate = nullptr;
+    HR(native->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gate)),
+       "queue gate fence");
+
+    ID3D12Resource *primary = nullptr;
+    MakeTexture(native, 256, 128, DXGI_FORMAT_R16G16B16A16_FLOAT, &primary);
+    ID3D12DescriptorHeap *primary_uav = nullptr;
+    MakeUavHeap(native, primary, &primary_uav);
+    auto setup = MakeRecording(native);
+    std::uint32_t primary_state = D3D12_RESOURCE_STATE_COMMON;
+    Transition(setup.list, primary,
+               static_cast<D3D12_RESOURCE_STATES>(primary_state),
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    const float input_value[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+    setup.list->ClearUnorderedAccessViewFloat(
+        primary_uav->GetGPUDescriptorHandleForHeapStart(),
+        primary_uav->GetCPUDescriptorHandleForHeapStart(), primary, input_value,
+        0, nullptr);
+    Transition(setup.list, primary, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+               static_cast<D3D12_RESOURCE_STATES>(primary_state));
+    Close(setup, "controlled primary close");
+    UINT64 setup_fence = 0;
+    Submit(queue, {&setup}, setup_fence);
+    WaitFence(queue.fence, setup_fence, 10000, "controlled primary completion");
+    std::printf("CONTROLLED INPUT: P1=256x128 fp16 cleared; setup fence=%llu complete=%llu\n",
+                static_cast<unsigned long long>(setup_fence),
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    std::string error;
+    auto *pipelines = nr_dual::dx12::CreatePipelines(native, error);
+    Check(pipelines != nullptr, error.c_str());
+    const auto plan = nr_dual::MakePlan({2, {1, 2}}, {256, 128}, {});
+    Check(plan && plan.path == nr_dual::Path::MatchedResidual,
+          "matched residual two-layer plan");
+
+    // Two actual Core spatial slots stand in for two descriptor binding
+    // generations. They share the controlled P1 but own distinct Core P2/L1
+    // resources and descriptor heaps; no descriptor data is copied into a
+    // second fake algorithm.
+    nr_dual::dx12::SpatialError failure{};
+    auto *slot_a = nr_dual::dx12::CreateSpatialSlot(
+        pipelines, primary, plan, nr_dual::ModelDomain::DirectValue,
+        256ull << 20, error, IsSameRrDepthDevice, &failure);
+    Check(slot_a != nullptr && failure == nr_dual::dx12::SpatialError::None,
+          "first Core spatial slot");
+    auto *slot_b = nr_dual::dx12::CreateSpatialSlot(
+        pipelines, primary, plan, nr_dual::ModelDomain::DirectValue,
+        256ull << 20, error, IsSameRrDepthDevice, &failure);
+    Check(slot_b != nullptr && failure == nr_dual::dx12::SpatialError::None,
+          "changed-binding Core spatial slot");
+
+    auto creation_a = MakeRecording(native);
+    auto creation_b = MakeRecording(native);
+    auto creation_primary_state_a = primary_state;
+    auto creation_primary_state_b = primary_state;
+    Check(nr_dual::dx12::RecordCreationInputs(
+              pipelines, slot_a, creation_a.list, creation_primary_state_a),
+          "slot A Create input recording");
+    Check(nr_dual::dx12::RecordCreationInputs(
+              pipelines, slot_b, creation_b.list, creation_primary_state_b),
+          "slot B Create input recording");
+    Close(creation_a, "slot A Create input close");
+    Close(creation_b, "slot B Create input close");
+    Submit(queue, {&creation_a, &creation_b}, setup_fence);
+    WaitFence(queue.fence, setup_fence, 10000,
+              "both independent Create input completions");
+    StubNr stub{};
+    StubFeature feature_a{101}, feature_b{202};
+    StubParams params_a{101}, params_b{202};
+    ++stub.creates; // Explicit stub Create after the exact input fence.
+    ++stub.creates;
+    std::printf("CREATE STUB: two independent Feature18 handles after fence=%llu; no NVIDIA inference\n",
+                static_cast<unsigned long long>(setup_fence));
+
+    nr_dual::Admission admitted{};
+    admitted.primary_feature = &feature_a;
+    admitted.secondary_feature = &feature_a;
+    admitted.primary_params = &params_a;
+    admitted.secondary_params = &params_a;
+    admitted.secondary_create_extent = plan.secondary;
+    admitted.creation_completion_proven = true;
+    admitted.recording_and_queue_admitted = true;
+    admitted.dependencies_pinned = true;
+    admitted.current_inputs_and_guides_bound = true;
+    // The low-level Admission contract requires distinct primary and
+    // secondary identities. The stub feature/params objects model those two
+    // already-created Core contexts without invoking an NGX implementation.
+    StubFeature primary_feature{1};
+    StubParams primary_params{1};
+    admitted.primary_feature = &primary_feature;
+    admitted.primary_params = &primary_params;
+
+    // Prevent actual completion with a native D3D12 queue wait. Execute and
+    // signal are both real; the gate signal is intentionally withheld while
+    // the old Core mutation predicate is sampled.
+    HR(queue.queue->Wait(gate, 1), "queue completion gate");
+    LifecycleQueue lifecycle_queue{queue.queue, queue.fence};
+    NrSlot old_slot{};
+    old_slot.recording_command_lists = 1;
+    old_slot.last_submission_queue = &lifecycle_queue;
+    old_slot.completion_fence_value = queue.next_fence;
+    old_slot.awaiting_fence_signal = false;
+    Check(!CanMutateSlotLocked(old_slot),
+          "old CanMutate gate rejects an in-flight slot before completion");
+    unsigned old_attempts = 0;
+    unsigned old_rejections = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+        ++old_attempts;
+        if (!CanMutateSlotLocked(old_slot)) ++old_rejections;
+    }
+    Check(old_rejections == old_attempts,
+          "old CanMutate retry loop remains blocked while fence is pending");
+    std::printf("OLD GATE: attempts=%u rejected=%u completion=%llu (withheld by queue Wait)\n",
+                old_attempts, old_rejections,
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    auto frame_a = MakeRecording(native);
+    auto frame_b = MakeRecording(native);
+    auto frame_a_reuse = MakeRecording(native);
+    auto state_a = creation_primary_state_a;
+    auto state_b = creation_primary_state_b;
+    auto state_a_reuse = state_a;
+    const auto surfaces_a = nr_dual::dx12::GetSurfaces(slot_a);
+    const auto surfaces_b = nr_dual::dx12::GetSurfaces(slot_b);
+    Check(surfaces_a.output != surfaces_b.output,
+          "binding generation packets own distinct P2 resources");
+    ID3D12DescriptorHeap *tag_a = nullptr;
+    ID3D12DescriptorHeap *tag_b = nullptr;
+    MakeUavHeap(native, surfaces_a.output, &tag_a);
+    MakeUavHeap(native, surfaces_b.output, &tag_b);
+    D3D12_RESOURCE_STATES tag_state_a = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    D3D12_RESOURCE_STATES tag_state_b = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    nr_dual::Admission admitted_a = admitted;
+    nr_dual::Admission admitted_b = admitted;
+    admitted_b.secondary_feature = &feature_b;
+    admitted_b.secondary_params = &params_b;
+
+    const auto attempt_a = nr_dual::dx12::RecordSecond(
+        pipelines, slot_a, frame_a.list, state_a, plan, admitted_a,
+        StubEvaluate, &stub);
+    Check(attempt_a.HasSecond(), "slot A first in-flight RecordSecond");
+    ClearTag(frame_a.list, surfaces_a.output, tag_a, tag_state_a, 1.0f);
+    Close(frame_a, "slot A frame close");
+    const auto attempt_b = nr_dual::dx12::RecordSecond(
+        pipelines, slot_b, frame_b.list, state_b, plan, admitted_b,
+        StubEvaluate, &stub);
+    Check(attempt_b.HasSecond(), "slot B changed-binding in-flight RecordSecond");
+    ClearTag(frame_b.list, surfaces_b.output, tag_b, tag_state_b, 2.0f);
+    Close(frame_b, "slot B frame close");
+    const auto attempt_a_reuse = nr_dual::dx12::RecordSecond(
+        pipelines, slot_a, frame_a_reuse.list, state_a_reuse, plan,
+        admitted_a, StubEvaluate, &stub);
+    Check(attempt_a_reuse.HasSecond(),
+          "slot A ordered same-queue immutable reuse RecordSecond");
+    ClearTag(frame_a_reuse.list, surfaces_a.output, tag_a, tag_state_a, 3.0f);
+    Close(frame_a_reuse, "slot A reuse frame close");
+
+    UINT64 inflight_fence = 0;
+    Submit(queue, {&frame_a, &frame_b, &frame_a_reuse}, inflight_fence);
+    // The submission is real and is now fenced behind gate=1.  The old slot
+    // predicate is still false even though three Core records were accepted
+    // by the immutable-recording path exercised above.
+    lifecycle_queue.fence = queue.fence;
+    old_slot.completion_fence_value = inflight_fence;
+    old_slot.recording_command_lists = 3;
+    Check(!CanMutateSlotLocked(old_slot),
+          "old CanMutate remains false for exact submitted fence");
+    Check(stub.evaluates == 3,
+          "three real RecordSecond calls reached the NGX stub boundary");
+    Check(stub.bindings.size() == 3 && stub.bindings[0] == 101 &&
+              stub.bindings[1] == 202 && stub.bindings[2] == 101,
+          "binding sequence A/B/A preserved across queued records");
+    std::printf("IN FLIGHT: records=3 evaluates=%u A/B/A=1; fence=%llu complete=%llu\n",
+                stub.evaluates, static_cast<unsigned long long>(inflight_fence),
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    HR(gate->Signal(1), "release queued D3D12 work");
+    WaitFence(queue.fence, inflight_fence, 30000,
+              "queued multi-frame completion");
+    Check(queue.fence->GetCompletedValue() >= inflight_fence,
+          "exact queue fence completed after gate release");
+    old_slot.recording_command_lists = 0;
+    Check(CanMutateSlotLocked(old_slot),
+          "old mutation gate becomes available only after exact completion");
+    std::printf("RETIREMENT: exact fence=%llu complete=%llu old_gate=1\n",
+                static_cast<unsigned long long>(inflight_fence),
+                static_cast<unsigned long long>(queue.fence->GetCompletedValue()));
+
+    // A concrete second queue is paired with an admission receipt that the
+    // Core did not prove. RecordSecond must reject before calling the provider
+    // callback or appending GPU work; this is the same fail-closed boundary
+    // used when the actual queue identity differs from the prediction.
+    ID3D12CommandQueue *foreign_queue = nullptr;
+    HR(native->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&foreign_queue)),
+       "foreign queue");
+    auto queue_rejected = admitted_a;
+    queue_rejected.recording_and_queue_admitted = false;
+    auto foreign_recording = MakeRecording(native);
+    auto foreign_state = state_a_reuse;
+    const auto before_queue_reject = stub.evaluates;
+    const auto queue_attempt = nr_dual::dx12::RecordSecond(
+        pipelines, slot_a, foreign_recording.list, foreign_state, plan,
+        queue_rejected, StubEvaluate, &stub);
+    Check(!queue_attempt.HasSecond() && !queue_attempt.gpu_work_recorded,
+          "different queue admission is rejected before GPU work");
+    Check(stub.evaluates == before_queue_reject,
+          "different queue admission does not call NGX stub");
+    Close(foreign_recording, "foreign queue negative close");
+    std::printf("QUEUE NEGATIVE: concrete second queue rejected before Evaluate\n");
+    ReleaseCom(foreign_recording.list); ReleaseCom(foreign_recording.allocator);
+    ReleaseCom(foreign_queue);
+
+    // After the exact fence retired, the same A binding records again and the
+    // queue completes it. This is the recovery/continuous-warm path used by
+    // the parent Core seam once its BindingPacket lease is connected.
+    auto frame_restore = MakeRecording(native);
+    auto restore_state = state_a_reuse;
+    const auto restore_attempt = nr_dual::dx12::RecordSecond(
+        pipelines, slot_a, frame_restore.list, restore_state, plan, admitted_a,
+        StubEvaluate, &stub);
+    Check(restore_attempt.HasSecond(),
+          "same binding resumes after exact fence retirement");
+    ClearTag(frame_restore.list, surfaces_a.output, tag_a, tag_state_a, 4.0f);
+    Close(frame_restore, "restored binding close");
+    UINT64 restore_fence = 0;
+    Submit(queue, {&frame_restore}, restore_fence);
+    WaitFence(queue.fence, restore_fence, 30000,
+              "restored binding completion");
+    old_slot.completion_fence_value = restore_fence;
+    Check(CanMutateSlotLocked(old_slot),
+          "old mutation gate is available after restored exact fence");
+    Check(stub.evaluates == 4,
+          "restored binding reaches the NGX stub after warmup");
+    std::printf("RECOVERY: A evaluated again after fence=%llu; total evaluates=%u\n",
+                static_cast<unsigned long long>(restore_fence), stub.evaluates);
+
+    // The two output resources carry independent tags. Read them back only
+    // after all exact fences; this verifies that the A/B/A queued records kept
+    // distinct resource bindings. The descriptor heaps are created by the
+    // production slot allocator and are not rewritten while the gate is held.
+    const auto tag_a_bits = ReadbackFirstHalf(
+        queue, surfaces_a.output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    const auto tag_b_bits = ReadbackFirstHalf(
+        queue, surfaces_b.output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Check(tag_a_bits == 0x4400 && tag_b_bits == 0x4000,
+          "in-flight A/B descriptor packets retain distinct tagged outputs");
+    std::printf("DESCRIPTORS: A=0x%04X B=0x%04X; in-flight heaps were not rewritten\n",
+                static_cast<unsigned>(tag_a_bits), static_cast<unsigned>(tag_b_bits));
+    ReleaseCom(frame_restore.list); ReleaseCom(frame_restore.allocator);
+
+    // Device-negative control: the Core's actual identity proof must reject a
+    // resource from a different adapter before allocation/recording.
+    IDXGIAdapter *foreign_adapter = nullptr;
+    HR(factory->EnumAdapters(0, &foreign_adapter), "hardware adapter");
+    ID3D12Device *foreign_device = nullptr;
+    HR(D3D12CreateDevice(foreign_adapter, D3D_FEATURE_LEVEL_11_0,
+                         IID_PPV_ARGS(&foreign_device)),
+       "different adapter device");
+    ID3D12Resource *foreign_primary = nullptr;
+    MakeTexture(foreign_device, 256, 128,
+                DXGI_FORMAT_R16G16B16A16_FLOAT, &foreign_primary);
+    auto *rejected = nr_dual::dx12::CreateSpatialSlot(
+        pipelines, foreign_primary, plan, nr_dual::ModelDomain::DirectValue,
+        256ull << 20, error, IsSameRrDepthDevice, &failure);
+    Check(rejected == nullptr &&
+              failure == nr_dual::dx12::SpatialError::DeviceIdentity,
+          "different adapter rejected by Core identity proof");
+    std::printf("DEVICE NEGATIVE: foreign resource rejected before allocation\n");
+    ReleaseCom(foreign_primary);
+    ReleaseCom(foreign_device);
+    ReleaseCom(foreign_adapter);
+
+    Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(
+              slot_a, [](void *user) {
+                  auto *q = static_cast<QueueState *>(user);
+                  return q->fence->GetCompletedValue() >= q->next_fence - 1;
+              }, &queue),
+          "slot A exact retirement");
+    Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(
+              slot_b, [](void *user) {
+                  auto *q = static_cast<QueueState *>(user);
+                  return q->fence->GetCompletedValue() >= q->next_fence - 1;
+              }, &queue),
+          "slot B exact retirement");
+    Check(nr_dual::dx12::DestroyPipelinesAfterRetirement(
+              pipelines, [](void *user) {
+                  auto *q = static_cast<QueueState *>(user);
+                  return q->fence->GetCompletedValue() >= q->next_fence - 1;
+              }, &queue),
+          "pipelines exact retirement");
+
+    ReleaseCom(tag_b); ReleaseCom(tag_a);
+    ReleaseCom(creation_b.list); ReleaseCom(creation_b.allocator);
+    ReleaseCom(creation_a.list); ReleaseCom(creation_a.allocator);
+    ReleaseCom(frame_a_reuse.list); ReleaseCom(frame_a_reuse.allocator);
+    ReleaseCom(frame_b.list); ReleaseCom(frame_b.allocator);
+    ReleaseCom(frame_a.list); ReleaseCom(frame_a.allocator);
+    ReleaseCom(setup.list); ReleaseCom(setup.allocator);
+    ReleaseCom(primary_uav); ReleaseCom(primary);
+    ReleaseCom(gate); ReleaseCom(queue.fence); ReleaseCom(queue.queue);
+    ReleaseCom(native); ReleaseCom(proxy); ReleaseCom(warp); ReleaseCom(factory);
+    std::printf("PASS D13 real ReShade queued WARP lifecycle; no game; no NVIDIA inference\n");
+    return 0;
+}

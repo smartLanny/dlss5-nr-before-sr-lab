@@ -1,0 +1,39 @@
+name: Exposure FLOAT access - production adapter and staging
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: exposure-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Run actual adapter and complete-source patch tests
+        env:
+          CXX: ${{ matrix.compiler }}
+          MULTIAPI_CORE_SOURCE: src/nr_before_sr.cpp
+        run: |
+          set -euo pipefail
+          "$CXX" -std=c++17 -Wall -Wextra -Werror -I. tests/multi_api/exposure_access.cpp -o "$RUNNER_TEMP/exposure"
+          "$RUNNER_TEMP/exposure"
+          python3 -m unittest discover -s tests/multi_api -p 'test_exposure*.py' -v
+      - name: ASan and UBSan; diagnostics are failures
+        if: matrix.compiler == 'clang++'
+        env:
+          UBSAN_OPTIONS: halt_on_error=1
+          ASAN_OPTIONS: detect_leaks=1
+        run: |
+          set -euo pipefail
+          clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -I. tests/multi_api/exposure_access.cpp -o "$RUNNER_TEMP/exposure-san"
+          "$RUNNER_TEMP/exposure-san"

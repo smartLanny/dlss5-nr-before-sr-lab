@@ -1,55 +1,62 @@
+# beta0.5-dline5 — 可切换的完整亮暗控制
+
+接续已合并 0.4.7 且获维护者异环 RR 通过的 D4，D 画质线继续为 0.5。
+目标 PE 版本 `0.5.1.5`。新增“完整亮暗 / 细节分层”选择，完整模式增强整个
+亮或暗方向的模型修改量，保留独立宽亮/宽暗和辉光调节；旧模式保留 D4 算法。
+INI 没有新键时保留旧模式，标准配置模板及整个画质恢复推荐完整模式；组预设保留
+当前模式，撤销恢复模式与数值。切换不重建 NR 模型，光照默认仍为 0.2。
+
+未知深度、状态或设备条件仍保留原生画面；D3 人脸问题没有被宣布修复。
+新候选的源码、编译、WARP 和游戏结果分别记录，未执行的验证不计通过。
+构建身份及最新验收状态见 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md)，
+实际使用范围见 [DLINE5 验收说明](docs/testing/DLINE5_CORE_ACCEPTANCE.zh-CN.md)。
+
+以下内容为保留的历史分层与发布基线，不代表本整合包的游戏验收结果。
+
+# beta0.5-dev4 experimental layered composition
+
+单次 NR 分层强化与最终强度 0–4；并非 PR26 的多次模型推理。默认分层关闭，游戏与性能仍待验证。
+
+开发、回退、真实范围：[BETA_0_5_LAYERS.md](docs/BETA_0_5_LAYERS.md)。
+
+---
+
+以下是历史 dev1 / 0.4 基线说明，不代表当前候选的新功能：
+
+# beta0.5-dev1 experimental development branch
+
+当前分支是基于完整 **beta0.4.3r3** 的 **0.5 开发候选**，不是新的正式 Release。
+首批加入可关闭的高强度保护；低分辨率 EditField / Lanczos2 / Catmull 尚在后续分阶段任务中。
+开发、验证、回退和持续合入 0.4.4 的规则：[BETA_0_5_DEVELOPMENT.md](docs/BETA_0_5_DEVELOPMENT.md)。
+当前验证状态请查看该提交的 Actions，不将 WARP 通过等同于游戏实测。
+
+---
+
+## 继承的 0.4 稳定线说明（历史基线，版本链接不代表本候选）
+
 # DLSS5 NR-Before-SR Lab
 
-Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering
-orders around a game's ordinary DLSS Super Resolution call:
+当前版本 **[0.4.5-DX11-兼容增强](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-dx11-compat)**：中文精简OTA及配套安装器。唯一持续Addon开发分支为 `main`，fix2/兼容增强/反馈稳定性修复已整合，33个已合入临时远端分支已清理。历史dev3 Release保持原样。本地和云端都从 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
 
-- Mode 1: game DLSS SR, then full-output-resolution neural rendering (`SR -> NR`).
-- Mode 2: neural rendering on an independently selected working raster, then a
-  matched-residual composition into the game's render-resolution colour before
-  the original DLSS SR call (`NR -> SR`). Mode 2 is the default performance path;
-  Mode 1 remains the full-output-resolution quality/reference path.
+- [本轮 0.4.5-DX11-兼容增强 反馈与稳定性说明](docs/interop/RELEASE_DEV4_PLAYER_NOTES.md)
+- [分支收敛记录](docs/interop/MAIN_CONSOLIDATION.md)
+- [已发布 dev3 玩家更新说明：改了什么、如何升级、建议操作](docs/interop/RELEASE_DEV3_PLAYER_NOTES.md)
+- [安装/回退与测试矩阵](docs/interop/POST_COMPAT_DEV3.md)
+- [精确源码本地验证和OTA哈希](docs/interop/DEV3_LOCAL_VALIDATION.md)
+- [Windows完整生成/构建/打包入口](docs/interop/VALIDATE_DEV3_WINDOWS.md)
+- [下一session入口及未完成项](docs/interop/NEXT_CHAT_PROMPT.zh-CN.md)
 
-Runtime hotkeys are `F6` for the master comparison switch, `F8` for the small
-CPU-only core feedback ZIP, `F7` for the heavier paired image-feedback flow,
-and main keyboard `-` for a ReShade screenshot whose filename records the
-current build, chain and selected settings.
+本版整合fix2颜色/模型默认操作和UI整理、原生DLSS兼容、合法颜色/运动/曝光视图、符合条件的RR后置、50–100%后置NR工作精度、资源退役/桥接完成修复及F8取证。不是所有游戏Issues都已修复；异环、HDR/运动/长期稳定及其他游戏仍按各自Issue验收。
 
-The current **beta0.4.3** community build uses a simpler front page, a visible
-final-effect strength from 0 to 8 (1.2 for new installations), and an independent
-NR quality setting. It fixes the confirmed Cyberpunk 2077 RGBA16 motion-vector
-bypass, restores the conservative null-PSO policy used to reduce the Forza
-Horizon regression surface, detects the exact competing
-`renodx-dlss5.addon64` module, extends MinHook relay allocation for low-address
-NGX modules, and records the first lifecycle-observer failure. It observes
-immutable D3D12 command-signature descriptions at device creation regardless
-of the transient master-switch snapshot. This fixes the r3 regression that could alternate processed
-and native frames when weather, map or UI work reused an early
-`ExecuteIndirect` signature. F8 now keeps picture settings untouched and
-creates a bounded core diagnostics ZIP without texture readback; F7 first
-creates a session-associated core package and then runs the heavier image
-capture path. See the
-[community release notes](docs/BETA_0_4_3_RELEASE_NOTES.zh-CN.md) and
-[plain-text update instructions](docs/UPDATE.en.txt). Automated validation proves
-the stated code paths and package identity; picture quality still needs a fixed
-camera comparison in each game.
+F6是总开关对比，**F8生成一个命名TXT**，F7仅用于主动补充图像。NR处理精度不是游戏真实渲染比例。当前OTA只交付中文核心，使用同包核心、nrchain和carrier，保留旧INI；包不含替换INI、NVIDIA模型/运行库、ReShade或游戏文件。
 
-This is a research project, not an NVIDIA product and not an official joint
-DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
-trademarks of their respective owners.
+This experimental ReShade project supports two orders around native DLSS SR: Mode 2 runs NR before native SR, while Mode 1 processes the resolved output after SR. The compatibility candidate also includes eligible native D3D12 RR post-NR and a DX11 carrier for games that already have DLSS. Post-NR working resolution is independent of the complete output. Feeder, native Vulkan and Legacy APIs are not delivered in this OTA.
 
-Project author: **@野生的装机宅 Bilibili**. The only official release location
-is https://space.bilibili.com/941799. The author and official address remain
-embedded in release binaries and the add-on UI. The core full-install payload
-contains nine files: the add-on, bridge DLL, configuration, matching NR runtime,
-plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
-and the ordinary and crash-feedback CMD/PowerShell pairs.
-The core update payload contains six files: the add-on, the plain-text instructions,
-and both feedback-tool pairs. Updates reuse an existing compatible full
-installation's runtime, bridge and configuration; they are not first-install
-packages. Official signed archives add verification files; their exact contents
-are listed by the signed manifest, and the release page publishes the ZIP hash.
-See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
-unauthorized automated builds, rebranding and modified redistribution.
+Exact binary source is identified by the package source-manifest.json, not the latest documentation commit. Local Windows/WARP, NVIDIA execution, game picture quality and hosted CI are separate validation levels. Historical beta0.3/beta0.4.3 notes remain in docs and Git history; their old ZIP feedback format, package layout and runtime results do not describe dev3.
+
+This is a research project, not an NVIDIA product or an official joint DLSS NR/SR implementation. NVIDIA, DLSS and GeForce are trademarks of their respective owners.
+
+Project author: **@野生的装机宅 Bilibili**, official channel https://space.bilibili.com/941799. User discussion QQ group 2: **392308850**. Author identity remains embedded in the binaries and UI. See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for restrictions on unauthorized automated builds, rebranding and redistribution.
 
 ## Repository boundary
 
@@ -69,27 +76,11 @@ components must come from lawful sources and remain outside this repository.
 
 ## Safety model
 
-The add-on deliberately limits itself to ordinary DLSS Super Resolution
-(NGX feature 1). Ray Reconstruction (feature 13) is passed through unmodified;
-while any feature-13 handle remains live, companion feature-1 evaluations are
-also protected from a second NR pass. A retained RR handle is never guessed
-dormant from timing or evaluation counts: the guard ends only on explicit
-Release, or on process restart. The process-lifetime detours remain installed,
-but the master-off
-path takes an atomic first-branch bypass before Feature 18, resource conversion,
-parameter substitution, or GPU work. If a resource, subrect, guide, format,
-create, or evaluate contract is not accepted, the intended behavior is to retain
-the game's original SR result.
+Native SR/RR is called with its original contract and remains the fallback when a resource, guide, subrect, ownership or command-state requirement is not met. Native RR is evaluated once; only a successful, eligible Feature13 output can receive post-NR. A retained RR handle is not guessed dormant from counters or timing. Master-off avoids NR work, and real successful Reset observations are never fabricated.
 
-This code injects into a game process and hooks graphics API entry points. Use it
-only in offline/single-player environments that allow ReShade add-ons. Do not use
-it with anti-cheat-protected or competitive multiplayer software.
+The DX11 carrier observes actual D3D12 completion before copyback. Submission or retirement failure retains unproven dependencies and stops the carrier; it never CPU-signals false GPU completion. This synchronous path may reduce performance. NGX/creation access violations propagate instead of becoming ordinary return codes that continue partially recorded work. See [review disposition](docs/interop/DEV3_REVIEW_DISPOSITION.md).
 
-The scope is intentionally modular: this add-on concentrates on native D3D12
-DLSS Feature 1 games and the two `SR -> NR` / `NR -> native game SR` orders.
-DX11, Vulkan, games without native DLSS SR, and runtime portability for older
-GPUs remain separate Bridge/Feeder/ShortFuse concerns rather than duplicate
-implementations inside this project.
+This code injects into a game process and hooks graphics API entry points. Use it only in offline/single-player environments that allow ReShade add-ons. Do not use it with anti-cheat-protected or competitive multiplayer software.
 
 ## Included source
 
@@ -120,7 +111,9 @@ implementations inside this project.
 - `scripts/Verify-ReleaseManifest.ps1`: offline verifier bundled once with official
   signed packages; lightweight development archives may omit it.
 
-## Build prerequisites
+## Historical base-core build prerequisites
+
+For the current unified combination, use the [canonical Windows instructions](docs/interop/VALIDATE_DEV3_WINDOWS.md). The standalone command below builds the maintenance core and does not generate the compatibility candidate.
 
 The repository does not download or vendor the toolchain or ReShade headers.
 Provide both explicitly:
@@ -144,7 +137,9 @@ is written only to `build/`, which is ignored by Git.
 No proprietary runtime is needed to compile the source. Vendor binaries and
 their download links are not provided by this repository.
 
-## Local release packaging
+## Historical beta0.3 packaging
+
+Do not use this historical packager for the unified candidate. Current OTA packaging uses `scripts/package-multi-api-candidate.ps1` after the canonical build.
 
 The packaging script uses existing local build output. To create small update
 archives without copying the large runtime DLLs, use:
@@ -161,7 +156,7 @@ for each run. Both package types include plain-text player instructions and the
 offline collector pair. Generated archives and binaries stay outside version
 control; the repository retains only their source, scripts and documentation.
 
-## Current research status
+## Historical research evidence (not dev3 verification)
 
 The two chains have executed successfully in several D3D12 titles, including
 contracts with FP16 SceneColor, UE-style `R11G11B10_FLOAT` SceneColor, padded
@@ -175,7 +170,7 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The current tree is the **beta0.4.3 enhanced-chain candidate**, not a universal
+The historical **beta0.4.3 enhanced-chain candidate**, not a universal
 compatibility claim. It compiles cleanly in the maintained local toolchain, all embedded
 shader entries compile, and both language builds pass focused LLVM analysis.
 The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077

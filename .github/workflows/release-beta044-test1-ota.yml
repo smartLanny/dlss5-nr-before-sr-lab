@@ -1,0 +1,13 @@
+name: Historical beta0.4.4-test1 publication (frozen)
+# Original workflows remain available at the immutable released source.
+# Do not feed newer-version artifacts into a historical release publisher.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  historical-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preserve historical release
+        run: echo 'beta0.4.4-test1 is frozen at 1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83; use followup-validate.yml for fix1.'

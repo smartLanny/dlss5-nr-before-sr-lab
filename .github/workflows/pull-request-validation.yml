@@ -1,0 +1,72 @@
+name: Pull request validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release/0.4
+      - release/0.4.5-test
+      - next/0.5
+      - codex/beta0.4.2
+      - codex/multiapi-045-integration
+      - fix/f8-single-txt-reset-evidence
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  maintenance:
+    if: contains(fromJSON('["release/0.4","codex/beta0.4.2"]'), github.base_ref)
+    uses: ./.github/workflows/beta042-validate.yml
+
+  feedback:
+    if: contains(fromJSON('["release/0.4","next/0.5"]'), github.base_ref)
+    uses: ./.github/workflows/feedback-integrity.yml
+
+  baseline-and-release-contracts:
+    if: contains(fromJSON('["main","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/followup-validate.yml
+
+  compatibility:
+    if: github.base_ref == 'codex/multiapi-045-integration'
+    uses: ./.github/workflows/compat-continuation.yml
+
+  exposure:
+    if: contains(fromJSON('["main","codex/multiapi-045-integration","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/exposure-access.yml
+
+  single-text:
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/f8-single-text-validate.yml
+
+  multi-api:
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/multi-api-foundation.yml
+
+  generated-picture:
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/multi-api-picture-regression.yml
+
+  picture-controls:
+    if: contains(fromJSON('["main","fix/f8-single-txt-reset-evidence","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/picture-ui-budget-validate.yml
+
+  recommended-picture:
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    uses: ./.github/workflows/recommended-picture-validate.yml
+
+  retirement-ownership:
+    if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
+    uses: ./.github/workflows/retirement-return-validate.yml
+
+  strength-cap:
+    if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
+    uses: ./.github/workflows/strength-cap-validate.yml
+
+  research-050:
+    if: github.base_ref == 'next/0.5'
+    uses: ./.github/workflows/beta050-validate.yml

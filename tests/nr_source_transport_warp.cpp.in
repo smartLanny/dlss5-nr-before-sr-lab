@@ -1,0 +1,227 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+#include "nr_source_frame.hpp"
+#include "nr_guide_contract.h"
+#include "nr_f8_types.h"
+#include "nr_processing_route.h"
+// @ACTUAL_GUIDE_BINDING@
+CRITICAL_SECTION g_chain_cs;SRWLOCK g_nr_api_lock=SRWLOCK_INIT;
+struct Config {bool enabled=true,identity_use_original=false;float transfer_strength=1;} g_config;
+struct Api {bool initialized=false,failed=false;}g_nr_api;
+struct Codec {bool failed=false;}g_codec;
+std::atomic<bool> g_nr_failed_create_process_latched{false},g_lifecycle_tracking_uncertain{false};
+bool other_nr_owner=false;bool OtherNrOwnerActive(){return other_nr_owner;}
+struct NgxParams{};struct FeatureRecord{};enum class CodecColorMode{Automatic};
+unsigned resource_parameter_reads=0;
+bool GetResource(const NgxParams*,const char*,ID3D12Resource**){++resource_parameter_reads;return false;}
+bool GetUInt(const NgxParams*,const char*,unsigned*){return false;}
+template<class... T>bool ResolveRenderExtentFromEvaluate(T&&...){return false;}
+template<class... T>bool ResolveOutputExtentFromEvaluate(T&&...){return false;}
+template<class... T>bool ResolveNrGuideBinding(T&&...){return false;}
+template<class... T>bool ResolveRrLinearDepth(T&&...){return false;}
+unsigned checks=0;
+void Check(bool value,const char* why){++checks;if(!value)throw std::runtime_error(why);}
+void Hr(HRESULT value,const char* why){Check(SUCCEEDED(value),why);}
+template<class T>void ReleaseCom(T*& object){if(object){IUnknown_Release(reinterpret_cast<IUnknown*>(object));object=nullptr;}}
+namespace transport {void OnBarrier(ID3D12GraphicsCommandList*,unsigned,const D3D12_RESOURCE_BARRIER*);}
+void Transition(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES& state,D3D12_RESOURCE_STATES next){
+    if(state==next)return;D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,state,next};
+    ID3D12GraphicsCommandList_ResourceBarrier(list,1,&barrier);state=next;transport::OnBarrier(list,1,&barrier);
+}
+bool IsSameRrDepthDevice(ID3D12Device* left,ID3D12Device* right){return left&&left==right;}
+namespace nr_processing_runtime {std::atomic<bool> work_enabled{true};nr_processing::Session session;
+    bool PresentSelected(){return session.Current()==nr_processing::Start::Present;}}
+namespace reshade::api {
+enum class device_api{d3d12};enum class resource_usage{render_target};
+enum class resource_view_type{unknown=0,buffer=1,texture_2d=4,texture_2d_array=5};
+struct resource{unsigned long long handle=0;};struct resource_view{unsigned long long handle=0;};
+struct resource_view_desc{resource_view_type type=resource_view_type::unknown;struct {unsigned first_level=0,first_layer=0;}texture;};
+struct device{device_api get_api()const{return device_api::d3d12;}};
+struct command_list{ID3D12GraphicsCommandList* native;unsigned long long get_native()const{return reinterpret_cast<unsigned long long>(native);}};
+}
+namespace transport {
+using namespace nr_source_frame;
+// The surrounding Core recording/state observers are controlled test inputs;
+// all allocations, command copies, transitions, queues and fences are real WARP.
+SRWLOCK lock=SRWLOCK_INIT;
+struct Lock{Lock(){AcquireSRWLockExclusive(&lock);}~Lock(){ReleaseSRWLockExclusive(&lock);}};
+Id recording_reset=1;nr_source_frame::Lineage lineage;std::atomic<bool> source_receipts_pending{false};
+std::atomic<Id> source_objects{1};
+// @ACTUAL_OBJECT_COOKIES@
+Recording RecordingOf(ID3D12GraphicsCommandList* list){return {reinterpret_cast<Id>(list),ObjectId(reinterpret_cast<ID3D12Object*>(list)),recording_reset,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(list))};}
+Resource ResourceOf(ID3D12Resource* resource){return resource?Resource{reinterpret_cast<Id>(resource),ObjectId(reinterpret_cast<ID3D12Object*>(resource)),DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(resource)),0}:Resource{};}
+// @ACTUAL_SOURCE_STATES@
+struct PresentLease{NrGuideBinding guides{};bool guides_owned=false,guides_current=false;} present_lease;
+#include "nr_source_transport.inl"
+Id RetryToken(Source source){return source.sequence;}
+// @ACTUAL_CAPTURE_NGX_GUIDES@
+#include "nr_source_views.inl"
+}
+struct Harness {
+    ID3D12Device* device=nullptr;ID3D12CommandQueue* queue=nullptr;ID3D12CommandAllocator* allocator=nullptr;
+    ID3D12GraphicsCommandList* list=nullptr;ID3D12Fence* fence=nullptr;HANDLE event=nullptr;UINT64 value=0;
+    Harness(){IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;
+        Hr(CreateDXGIFactory2(0,IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
+        Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&adapter)),"WARP");
+        Hr(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void**>(&device)),"device");
+        ReleaseCom(adapter);ReleaseCom(factory);D3D12_COMMAND_QUEUE_DESC desc{};
+        Hr(ID3D12Device_CreateCommandQueue(device,&desc,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue)),"queue");
+        Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void**>(&allocator)),"allocator");
+        Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,IID_ID3D12GraphicsCommandList,reinterpret_cast<void**>(&list)),"list");
+        Hr(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&fence)),"fence");
+        event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Check(event!=nullptr,"event");
+    }
+    void Submit(bool producer){Hr(ID3D12GraphicsCommandList_Close(list),"close");ID3D12CommandList* commands[]={reinterpret_cast<ID3D12CommandList*>(list)};
+        ID3D12CommandQueue_ExecuteCommandLists(queue,1,commands);
+        if(producer){transport::Lock lock;transport::GuideCopiesSubmitted(queue,transport::RecordingOf(list),true);}
+        Hr(ID3D12CommandQueue_Signal(queue,fence,++value),"signal");
+    }
+    void Wait(){Hr(ID3D12Fence_SetEventOnCompletion(fence,value,event),"completion event");Check(WaitForSingleObject(event,10000)==WAIT_OBJECT_0,"bounded completion");Check(ID3D12Fence_GetCompletedValue(fence)>=value,"completed fence");}
+    void Reset(){Hr(ID3D12CommandAllocator_Reset(allocator),"allocator reset");Hr(ID3D12GraphicsCommandList_Reset(list,allocator,nullptr),"list reset");++transport::recording_reset;}
+    ~Harness(){if(event)CloseHandle(event);ReleaseCom(fence);ReleaseCom(list);ReleaseCom(allocator);ReleaseCom(queue);ReleaseCom(device);}
+};
+ID3D12Resource* Buffer(ID3D12Device* device,UINT64 size,D3D12_HEAP_TYPE type){
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=type;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;desc.Width=size;desc.Height=1;
+    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource* resource=nullptr;Hr(ID3D12Device_CreateCommittedResource(device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+        type==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&resource)),"buffer");return resource;
+}
+ID3D12Resource* Input(Harness& h,DXGI_FORMAT format,unsigned components,ID3D12Resource*& upload){
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=desc.Height=8;
+    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;ID3D12Resource* resource=nullptr;
+    Hr(ID3D12Device_CreateCommittedResource(h.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&resource)),"input texture");
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;ID3D12Device_GetCopyableFootprints(h.device,&desc,0,1,0,&footprint,nullptr,nullptr,&size);
+    upload=Buffer(h.device,size,D3D12_HEAP_TYPE_UPLOAD);unsigned char* mapped=nullptr;D3D12_RANGE none{};
+    Hr(ID3D12Resource_Map(upload,0,&none,reinterpret_cast<void**>(&mapped)),"upload map");std::memset(mapped,0,size);
+    for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)for(unsigned c=0;c<components;++c){const float value=float(y*100+x*10+c)+0.25f;
+        std::memcpy(mapped+footprint.Offset+y*footprint.Footprint.RowPitch+(x*components+c)*4,&value,4);}
+    ID3D12Resource_Unmap(upload,0,nullptr);D3D12_TEXTURE_COPY_LOCATION from{},to{};
+    from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=footprint;
+    to.pResource=resource;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);
+    auto state=D3D12_RESOURCE_STATE_COPY_DEST;Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return resource;
+}
+ID3D12Resource* ViewShape(Harness& h,unsigned mips,unsigned layers,unsigned samples){
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=desc.Height=16;
+    desc.DepthOrArraySize=static_cast<UINT16>(layers);desc.MipLevels=static_cast<UINT16>(mips);desc.SampleDesc.Count=samples;
+    desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;ID3D12Resource* resource=nullptr;
+    Hr(ID3D12Device_CreateCommittedResource(h.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_RENDER_TARGET,
+        nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&resource)),"view shape texture");return resource;
+}
+void CheckViewClear(Harness& h,ID3D12Resource* native,reshade::api::resource_view_desc desc,bool whole){
+    using namespace transport;reshade::api::device owner;reshade::api::resource_view view{5566};
+    OnSourceInitView(&owner,{reinterpret_cast<Id>(native)},reshade::api::resource_usage::render_target,desc,view);
+    const auto resource=ResourceOf(native);const auto recording=RecordingOf(h.list);
+    auto* observed=FindSourceRtv(view.handle,resource.device);
+    Check(observed&&observed->whole==whole,"default RTV whole proof requires the actual single-surface shape");
+    Label prior{};prior.source={41,1,1};prior.role=Role::Generated;prior.fg_consumed=true;
+    lineage.Presented(resource,prior,QueueOf(h.queue));
+    OnClearRtv(h.list,{view.handle},true);const auto label=lineage.Lookup(resource,recording);
+    Check(whole?!label.tainted&&label.role==Role::Unknown&&!label.processed&&!label.fg_consumed:label.tainted,
+        "only proven whole RTV clear replaces processed/generated provenance");
+    lineage.Reset(recording);lineage.Forget(resource);OnSourceDestroyView(&owner,view);
+}
+struct Readback{ID3D12Resource* buffer=nullptr;D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;};
+Readback Read(Harness& h,ID3D12Resource* resource){Readback r;const auto desc=ID3D12Resource_GetDesc(resource);
+    ID3D12Device_GetCopyableFootprints(h.device,&desc,0,1,0,&r.footprint,nullptr,nullptr,&r.size);r.buffer=Buffer(h.device,r.size,D3D12_HEAP_TYPE_READBACK);
+    auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=resource;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.pResource=r.buffer;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=r.footprint;
+    ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return r;
+}
+void Verify(Readback& r,unsigned x0,unsigned y0,unsigned components){unsigned char* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(r.size)};
+    Hr(ID3D12Resource_Map(r.buffer,0,&range,reinterpret_cast<void**>(&mapped)),"readback map");
+    for(unsigned y=0;y<3;++y)for(unsigned x=0;x<4;++x)for(unsigned c=0;c<components;++c){float value=0;
+        std::memcpy(&value,mapped+r.footprint.Offset+y*r.footprint.Footprint.RowPitch+(x*components+c)*4,4);
+        Check(value==float((y+y0)*100+(x+x0)*10+c)+0.25f,"owned crop preserves exact guide bytes");}
+    D3D12_RANGE none{};ID3D12Resource_Unmap(r.buffer,0,&none);ReleaseCom(r.buffer);
+}
+int main(){try{InitializeCriticalSection(&g_chain_cs);Harness h;ID3D12Resource *depth_upload=nullptr,*motion_upload=nullptr;
+    auto* depth=Input(h,DXGI_FORMAT_R32_FLOAT,1,depth_upload);auto* motion=Input(h,DXGI_FORMAT_R32G32_FLOAT,2,motion_upload);
+    NrGuideBinding g{};g.depth=depth;g.motion=motion;g.signature.depth_x=1;g.signature.depth_y=2;
+    g.signature.motion_x=2;g.signature.motion_y=1;g.signature.depth_width=g.signature.motion_source_width=4;
+    g.signature.depth_height=g.signature.motion_source_height=3;
+    using namespace transport;Source first{1,1,1};
+    reshade::api::device owner;reshade::api::resource_view view{4567};reshade::api::resource_view_desc view_desc;
+    const auto objects_before=source_objects.load();nr_processing_runtime::work_enabled=false;
+    OnSourceInitView(&owner,{reinterpret_cast<Id>(depth)},reshade::api::resource_usage::render_target,view_desc,view);
+    Check(source_objects.load()==objects_before,"off-created RTV caches scalar receipt without querying or retaining COM identity");
+    nr_processing_runtime::work_enabled=true;
+    auto* first_view=FindSourceRtv(view.handle,ResourceOf(depth).device);
+    Check(first_view&&first_view->resource.address==reinterpret_cast<Id>(depth)&&first_view->resource.lifetime,"on-use resolves the off-created RTV from the real resource");
+    Check(first_view&&first_view->whole,"default RTV resolves to whole only after actual single-surface verification");
+    nr_processing_runtime::work_enabled=false;OnSourceDestroyView(&owner,view);
+    OnSourceInitView(&owner,{reinterpret_cast<Id>(motion)},reshade::api::resource_usage::render_target,view_desc,view);
+    nr_processing_runtime::work_enabled=true;
+    auto* resized_view=FindSourceRtv(view.handle,ResourceOf(motion).device);
+    Check(resized_view&&resized_view->resource.address==reinterpret_cast<Id>(motion),"off resize view replacement resolves new resource on enabled use");
+    OnSourceDestroyView(&owner,view);Check(!FindSourceRtv(view.handle,ResourceOf(motion).device),"destroyed view cannot lend old resource identity");
+    auto* full_view=ViewShape(h,1,1,1);CheckViewClear(h,full_view,{},true);
+    reshade::api::resource_view_desc explicit_view;explicit_view.type=reshade::api::resource_view_type::texture_2d;
+    CheckViewClear(h,full_view,explicit_view,true);
+    explicit_view.texture.first_level=1;CheckViewClear(h,full_view,explicit_view,false);
+    explicit_view.texture.first_level=0;explicit_view.texture.first_layer=1;CheckViewClear(h,full_view,explicit_view,false);
+    explicit_view.texture.first_layer=0;explicit_view.type=reshade::api::resource_view_type::texture_2d_array;
+    CheckViewClear(h,full_view,explicit_view,false);
+    for(const auto shape:{std::array<unsigned,3>{2,1,1},{1,2,1},{1,1,2}}){
+        auto* incomplete=ViewShape(h,shape[0],shape[1],shape[2]);CheckViewClear(h,incomplete,{},false);ReleaseCom(incomplete);}
+    ReleaseCom(full_view);
+    nr_processing_runtime::session.Select(nr_processing::Start::Present,1);NgxParams parameters;FeatureRecord feature;
+    CaptureNgxGuides(h.list,&parameters,feature,first);Check(resource_parameter_reads==1,"API not initialized and not failed still allows initial guide probe");
+    g_nr_failed_create_process_latched=true;CaptureNgxGuides(h.list,&parameters,feature,first);g_nr_failed_create_process_latched=false;
+    g_lifecycle_tracking_uncertain=true;CaptureNgxGuides(h.list,&parameters,feature,first);g_lifecycle_tracking_uncertain=false;
+    other_nr_owner=true;CaptureNgxGuides(h.list,&parameters,feature,first);other_nr_owner=false;
+    g_codec.failed=true;CaptureNgxGuides(h.list,&parameters,feature,first);g_codec.failed=false;
+    g_nr_api.failed=true;CaptureNgxGuides(h.list,&parameters,feature,first);g_nr_api.failed=false;
+    Check(resource_parameter_reads==1,"hard failure lifecycle owner codec and NR API refusal performs no guide-resource probe");
+    nr_processing_runtime::session.Reject(nr_processing::Start::Present,1,"fixture transient",true);
+    CaptureNgxGuides(h.list,&parameters,feature,{1,1,2});Check(resource_parameter_reads==1,"Present retry delay prevents guide-resource probe");
+    CaptureNgxGuides(h.list,&parameters,feature,{1,1,5});Check(resource_parameter_reads==2,"actual later eligible source permits retry probe");
+    unsigned observed=0;Check(StateOf(RecordingOf(h.list),ResourceOf(depth),observed)&&observed==D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,"actual legacy transition establishes source read state");
+    OnEnhancedBarrier(h.list);
+    Check(!StateOf(RecordingOf(h.list),ResourceOf(depth),observed),"enhanced boundary invalidates older legacy state");
+    Check(!CaptureGuides(h.list,first,g),"legacy-to-enhanced unknown entry does not allocate or record");
+    for(auto* resource:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+    g.signature.linear_depth=true;Check(!CaptureGuides(h.list,first,g),"RR linear raw depth is not a normalized guide");g.signature.linear_depth=false;
+    nr_processing_runtime::work_enabled=false;Check(!CaptureGuides(h.list,first,g),"F6/zero strength performs no guide work");nr_processing_runtime::work_enabled=true;
+    Check(CaptureGuides(h.list,first,g),"record actual native copy");auto& copy=guide_copies[0];
+    auto* owned_depth=copy.owned[0];auto* owned_motion=copy.owned[1];auto* producer_fence=copy.producer_fence;
+    Check(owned_depth!=depth&&owned_motion!=motion&&copy.recorded&&!copy.submitted,"guides are owned and not falsely submitted");
+    Check(CaptureGuides(h.list,first,g)&&!guide_copies[1].recorded,"duplicate source cannot duplicate copies");
+    AcquirePresentGuides(first,QueueOf(h.queue));Check(!present_guides,"unsubmitted guide lease rejected");
+    h.Submit(true);h.Wait();Check(copy.submitted&&FenceDone(copy.producer_fence,copy.producer_value),"actual producer fence completes");
+    AcquirePresentGuides(first,123);Check(!present_guides,"wrong queue cannot acquire guides");
+    ID3D12CommandQueue* another_queue=nullptr;D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    Hr(ID3D12Device_CreateCommandQueue(h.device,&queue_desc,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&another_queue)),"other real queue");
+    Check(QueueOf(another_queue)!=QueueOf(h.queue),"queue generation is an object cookie rather than a reused address proof");
+    AcquirePresentGuides(first,QueueOf(another_queue));Check(!present_guides,"different real queue cookie cannot borrow producer proof");ReleaseCom(another_queue);
+    AcquirePresentGuides(first,QueueOf(h.queue));Check(present_guides==&copy&&present_lease.guides_owned&&present_lease.guides_current,"same source same queue acquires owned current guides");
+    Check(!GuideReusable(copy),"acquired guide cannot be overwritten");
+    h.Reset();auto d=Read(h,owned_depth);auto m=Read(h,owned_motion);h.Submit(false);
+    ReleasePresentGuides(h.fence,h.value,true);h.Wait();Verify(d,1,2,1);Verify(m,2,1,2);
+    CollectGuideInputs();Check(!copy.inputs[0]&&!copy.inputs[1],"original application references retire at producer fence");
+    Check(GuideReusable(copy),"exact consumer fence permits pool reuse");h.Reset();
+    for(auto* resource:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+    Check(CaptureGuides(h.list,{1,1,2},g),"next source records reused texture");
+    Check(copy.owned[0]==owned_depth&&copy.owned[1]==owned_motion&&copy.producer_fence==producer_fence,"same format and extent reuse allocations and producer fence");
+    h.Submit(true);h.Wait();Check(copy.producer_value==2,"reused producer fence has monotonic real value");
+    CollectGuideInputs();for(auto& item:guide_copies)ClearGuideCopy(item);
+    ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(depth_upload);ReleaseCom(motion_upload);
+    std::printf("source-transport WARP: %u checks passed; NGX/FG inference not tested\n",checks);return 0;
+}catch(const std::exception& e){std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}}

@@ -1,0 +1,63 @@
+name: Multi-API integration - exact source and Windows candidate
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: multiapi-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Production functions and exact merged ancestry
+        shell: bash
+        env:
+          CXX: ${{ matrix.compiler }}
+          MULTIAPI_CORE_SOURCE: src/nr_before_sr.cpp
+          POST_COMPAT_CORE_SOURCE: src/nr_before_sr.cpp
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor f88adc33d04803982d98336a3d26e7081bb66f9f HEAD
+          git merge-base --is-ancestor 2ab31a17388fb9cfe3c6394397df4cb555b7a172 HEAD
+          git merge-base --is-ancestor 145689aee077fa51c54d0b1dba2d79bc38633b2c HEAD
+          for test in format_access format_adapter; do
+            "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test"
+            "$RUNNER_TEMP/$test"
+          done
+          for test in history forward render_scale mirror_rect; do
+            "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/native_bridge/$test.cpp" -o "$RUNNER_TEMP/$test"
+            "$RUNNER_TEMP/$test"
+          done
+          python3 -m unittest discover -s tests/multi_api -v
+          "$CXX" -std=c++20 -Wall -Wextra -Werror -Isrc tests/single_text_policy_test.cpp -o "$RUNNER_TEMP/single-text"
+          "$RUNNER_TEMP/single-text"
+          python3 scripts/validate-command-creation.py --compiler "$CXX"
+          python3 scripts/validate-reset-notification-gap.py --compiler "$CXX"
+          git show 61fe9a0fe527fb2304c382c332cbe62876228b8b:src/nr_command_state.inl > "$RUNNER_TEMP/reset-before.inl"
+          python3 scripts/validate-reset-notification-gap.py --compiler "$CXX" --old-source "$RUNNER_TEMP/reset-before.inl"
+      - name: Sanitized format policies
+        if: matrix.compiler == 'clang++'
+        run: |
+          set -euo pipefail
+          for test in format_access format_adapter; do
+            clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test-sanitized"
+            "$RUNNER_TEMP/$test-sanitized"
+          done
+  windows:
+    needs: portable
+    # One candidate builder/package definition; never ship a dev1-named
+    # carrier next to a core whose deployment handshake expects dev2.
+    uses: ./.github/workflows/compat-post-dev2.yml
+    permissions:
+      contents: read

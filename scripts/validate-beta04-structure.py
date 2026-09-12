@@ -28,26 +28,26 @@ current_identity_files = {
 }
 
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.4.3r3"', 'kBuildIdentity = "beta0.4.3r3"',
-               "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI)",
-               "DLSS 5 AI Rendering Perfect Chain beta0.4.3r3"],
-    "resource": ["FILEVERSION 0,4,3,3", "PRODUCTVERSION 0,4,3,3",
-                 '"0.4.3r3 beta\\0"', "beta0.4.3r3-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.4.3r3-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.4.3r3-@"],
-    "package": ["$Version = 'beta0.4.3r3'",
-                "DLSS5-AI渲染超分版-beta0.4.3r3-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.4.3r3-@"],
+    "source": ['kAddonVersion = "beta0.5-dev4"', 'kBuildIdentity = "beta0.5-dev4"',
+               "DLSS 5 NR Perfect Chain beta0.5-dev4 (Chinese UI)",
+               "DLSS 5 AI Rendering Perfect Chain beta0.5-dev4"],
+    "resource": ["FILEVERSION 0,5,0,4", "PRODUCTVERSION 0,5,0,4",
+                 '"0.5.0 dev4 beta\\0"', "beta0.5-dev4-@"],
+    "build": ["DLSS5-AI渲染超分版-beta0.5-dev4-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.5-dev4-@"],
+    "package": ["$Version = 'beta0.5-dev4'",
+                "DLSS5-AI渲染超分版-beta0.5-dev4-@",
+                "DLSS5-AI-Rendering-Upscaling-beta0.5-dev4-@"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.4.3r3 community maintenance release"],
+    "config": ["beta0.5-dev4 experimental candidate, not an OTA release"],
     "README": ["beta0.4.3"],
-    "Chinese install": ["beta0.4.3"],
-    "English install": ["beta0.4.3"],
-    "Chinese install markdown": ["beta0.4.3"],
-    "English install markdown": ["beta0.4.3"],
-    "Chinese update": ["beta0.4.3r3"],
-    "English update": ["beta0.4.3r3"],
+    "Chinese install": ["beta0.5-dev4"],
+    "English install": ["beta0.5-dev4"],
+    "Chinese install markdown": ["beta0.5-dev4"],
+    "English install markdown": ["beta0.5-dev4"],
+    "Chinese update": ["beta0.5-dev4"],
+    "English update": ["beta0.5-dev4"],
     "release notes": ["beta0.4.3"],
 }
 for label, tokens in identity_requirements.items():
@@ -56,8 +56,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.4.3r3"',
-    'kBuildIdentity = "beta0.4.3r3"',
+    'kAddonVersion = "beta0.5-dev4"',
+    'kBuildIdentity = "beta0.5-dev4"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -79,8 +79,8 @@ if missing:
     raise SystemExit("missing beta0.4 markers: " + ", ".join(missing))
 
 match = re.search(r"constexpr UINT kCodecRootConstantCount = (\d+);", source)
-if not match or int(match.group(1)) != 31:
-    raise SystemExit("kCodecRootConstantCount must be 31")
+if not match or int(match.group(1)) != 35:
+    raise SystemExit("kCodecRootConstantCount must be 35")
 
 hlsl = re.search(
     r'const char kCodecShader\[\] = R"HLSL\((?P<body>[\s\S]*?)\)HLSL";',
@@ -94,8 +94,8 @@ cpp = re.search(r"struct CodecConstants \{(?P<body>[\s\S]*?)\};", source)
 if not cbuffer or not cpp:
     raise SystemExit("constant layouts not found")
 hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.group("body"), re.M)
-cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)\s*;", cpp.group("body"), re.M)
-if len(hlsl_fields) != 31 or len(cpp_fields) != 31:
+cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)(?:\s*=\s*[^;]+)?\s*;", cpp.group("body"), re.M)
+if len(hlsl_fields) != 35 or len(cpp_fields) != 35:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
 normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
 if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:
@@ -128,10 +128,10 @@ if ("float3 storedProxy = modelValueDomain" not in body or
     raise SystemExit("bounded R8 value-domain preservation missing")
 if not re.search(
     r"config\.transfer_strength\s*=\s*std::clamp\(\s*"
-    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*8\.0f\s*\)",
+    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*4\.0f\s*\)",
     source,
 ):
-    raise SystemExit("8x strength ceiling missing")
+    raise SystemExit("4x public strength ceiling missing")
 if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
 if "capture_model_width" not in source:
@@ -144,4 +144,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.4.3r3 perfect-chain structural and release-identity validation passed")
+print("beta0.5-dev4 perfect-chain structural and release-identity validation passed")

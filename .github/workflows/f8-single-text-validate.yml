@@ -1,0 +1,36 @@
+name: Single TXT and native Reset evidence
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable-production:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Naming, bounded document and optional creation observers
+        shell: bash
+        run: |
+          set -euo pipefail
+          '${{ matrix.compiler }}' -std=c++20 -Wall -Wextra -Werror -Isrc tests/single_text_policy_test.cpp -o "$RUNNER_TEMP/single-text"
+          "$RUNNER_TEMP/single-text"
+          python3 scripts/validate-command-creation.py --compiler '${{ matrix.compiler }}'
+          python3 scripts/validate-reset-notification-gap.py --compiler '${{ matrix.compiler }}'
+      - name: Exact historical missed-Reset negative control
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 61fe9a0fe527fb2304c382c332cbe62876228b8b:src/nr_command_state.inl > "$RUNNER_TEMP/reset-before.inl"
+          python3 scripts/validate-reset-notification-gap.py --compiler '${{ matrix.compiler }}' --old-source "$RUNNER_TEMP/reset-before.inl"
+# The existing followup-validate workflow also runs on this PR target. Its
+# full Windows job compiles the add-on and runs the modified core-feedback,
+# F7 controller/GPU and native command-state/WARP integration harnesses.
+# This workflow never creates or replaces a Release.

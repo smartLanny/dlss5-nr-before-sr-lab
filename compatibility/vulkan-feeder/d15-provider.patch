@@ -1,0 +1,2442 @@
+--- a/build.bat
++++ b/build.bat
+@@ -5,5 +5,5 @@
+ if not exist build mkdir build
+ rc /nologo /fo build\version.res src\version.rc
+ rem MinHook (external\minhook, BSD-2) backs the vkCreateDevice hook in src\feed_vk_hook.h.
+-cl /nologo /LD /EHsc /O2 /MD /W3 /std:c++20 /Iexternal\reshade\include /Iexternal\ngx /Iexternal\vulkan /Iexternal\imgui /Iexternal\minhook\include /Fobuild\ /Fdbuild\ src\dlss5-feed.cpp external\minhook\src\buffer.c external\minhook\src\hook.c external\minhook\src\trampoline.c external\minhook\src\hde\hde64.c /link /OUT:build\dlss5-feed.addon64 build\version.res external\ngx\libs\nvsdk_ngx_d.lib version.lib kernel32.lib user32.lib advapi32.lib ole32.lib
++cl /nologo /LD /EHsc /O2 /MD /W3 /utf-8 /std:c++20 /Inr_lab_interop /Iexternal\reshade\include /Iexternal\ngx /Iexternal\vulkan /Iexternal\imgui /Iexternal\minhook\include /Fobuild\ /Fdbuild\ src\dlss5-feed.cpp external\minhook\src\buffer.c external\minhook\src\hook.c external\minhook\src\trampoline.c external\minhook\src\hde\hde64.c /link /OUT:build\dlss5-feed.addon64 build\version.res external\ngx\libs\nvsdk_ngx_d.lib version.lib kernel32.lib user32.lib advapi32.lib ole32.lib
+ endlocal
+--- a/src/dlss5-feed.cpp
++++ b/src/dlss5-feed.cpp
+@@ -54,8 +54,19 @@
+ #include <nvsdk_ngx_defs_dlssd.h>   // SuperSamplingDenoising.Available (DLSS Ray Reconstruction, nvngx_dlssd.dll)
+ 
+ #include "feed_ngx.h"  // NGX result names and DLL identity, shared with host64
++// MC1: optional external NR consumer (this lab). Headers are staged beside
++// the Feeder tree; when absent at compile time the legacy evaluate remains.
++#if 1 // staged provider build: missing headers must fail compilation
++#include "nr_external_provider_producer.h"
++#include "nr_external_provider_feeder_map.h"
++#include "nr_external_provider_completion.h"
++#include "nr_external_provider_vk_sync.h"
++#include "nr_external_provider_vk_color.h"
++#define NR_FEED_EXTERNAL_PROVIDER 1
++#endif
+ #include "feed_crash.h" // naming a C++ throw and the modules it came through, shared with host64
+ #include "feed_vk.h"   // raw-Vulkan interop for the Vulkan transport (see PLAN-VULKAN)
++#include "nr_external_provider_vk_device.h"
+ #include "feed_vk_hook.h"   // in-process vkCreateDevice hook: appends the interop extensions the transport needs
+ #include "feed_vk_present64.h"
+ #include "feed_gl.h"   // raw-OpenGL interop for the OpenGL transport (see PLAN-OPENGL)
+@@ -1732,8 +1743,10 @@
+     g.ts_read->Unmap(0, &wrote);
+ }
+ 
++static bool nr_external_gpu_quarantined = false;
+ static bool BeginCommands()
+ {
++    if (nr_external_gpu_quarantined) return false;
+     // Notice a removal promptly: without this the first symptom is a rebuild failing
+     // with DXGI_ERROR_DEVICE_REMOVED long after the fact, by which time the breadcrumb
+     // trail is the only evidence left of what actually faulted.
+@@ -1840,25 +1853,35 @@
+     g.queue->ExecuteCommandLists(1, lists);
+     CK("ExecuteCommandLists");
+     const UINT64 v = ++g.fence_value;
+-    g.queue->Signal(g.fence12, v);
++    const HRESULT signaled = g.queue->Signal(g.fence12, v);
++    if (FAILED(signaled))
++    {
++        g.alloc_fence[g.frame_slot] = v;
++        nr_external_gpu_quarantined = true;
++        FeedDisable("queue Signal failed; submitted resources retained");
++        return 0;
++    }
+     CK("queue Signal(fence12)");
+     g.alloc_fence[g.frame_slot] = v;
+     g.frame_slot = (g.frame_slot + 1) % Feed::kFrames;
+     return v;
+ }
+ 
+-static void DrainGpu()
+-{
+-    if (g.queue == nullptr || g.fence12 == nullptr) return;
++static bool DrainGpu()
++{
++    if (g.queue == nullptr || g.fence12 == nullptr) return !nr_external_gpu_quarantined;
+     const UINT64 v = ++g.fence_value;
+-    g.queue->Signal(g.fence12, v);
+-    if (g.fence12->GetCompletedValue() < v && g.fence_event != nullptr)
+-    {
+-        g.fence12->SetEventOnCompletion(v, g.fence_event);
+-        if (WaitForSingleObject(g.fence_event, 5000) != WAIT_OBJECT_0)
+-            Log("[feed] timed out draining the queue before teardown");
+-    }
++    const auto result = nr_external_provider_completion::SignalAndWait(
++        g.queue, g.fence12, g.fence_event, v, 5000);
++    if (result != nr_external_provider_completion::Result::Complete)
++    {
++        nr_external_gpu_quarantined = true;
++        FeedDisable("queue drain unconfirmed; resources and allocator fences retained");
++        return false;
++    }
++    nr_external_gpu_quarantined = false;
+     for (int i = 0; i < Feed::kFrames; ++i) g.alloc_fence[i] = 0;
++    return true;
+ }
+ 
+ // NGX can access-violate inside its own code or inside the DLSS 5 add-on (a leaked, closed-source
+@@ -2691,12 +2714,22 @@
+ // Resources
+ // ---------------------------------------------------------------------------
+ 
+-static void ReleaseFrameResources()
+-{
++static std::uint64_t nr_external_resource_epoch = 1;
++static bool ReleaseFrameResources()
++{
++    if (nr_external_provider_vk::quarantined) return false; // retain both APIs; restart required
+     // The private fence retires D3D12 only. Vulkan may still have copy-home
+     // commands referencing these imports (including on the immediate list).
+     if (g.vk.ok && g.rs_queue && (g.vk_img[SLOT_COLOR] || g_vk_probe.dev)) g.rs_queue->wait_idle();
+-    DrainGpu();
++    if (!DrainGpu()) return false;
++    ++nr_external_resource_epoch;
++    if (!nr_external_provider_client::Release()) {
++        nr_external_provider_vk::quarantined = true;
++        nr_external_gpu_quarantined = true;
++        Log("[feed] external provider still owns exact-completion work; retaining Vulkan/D3D12 resources");
++        return false;
++    }
++    nr_external_provider_vk_color::adapter.Release(); // DrainGpu succeeded above
+     FeedVkProbeRelease();
+     // Vulkan transport: drop our raw VkImage imports (the memory is the D3D12 resource's;
+     // freeing the import does not free the D3D12 resource, which SafeRelease(tex12) does).
+@@ -2773,6 +2806,7 @@
+         g.feature = nullptr;
+     }
+     g.frame_ready = false;
++    return true;
+ }
+ 
+ // One texture visible to both APIs: created on D3D12 and opened on D3D11, or the other
+@@ -3005,6 +3039,7 @@
+ // (The DLSS 5 add-on has crashed twice inside a release-then-recreate; never again.)
+ static bool RecreateFeatureOnly(UINT w, UINT h)
+ {
++    if (!DrainGpu()) return false;
+     const bool inverted = g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed;
+     g.hdr = g_cfg.hdr >= 0 ? g_cfg.hdr != 0 : IsHdrFormat(g.color_fmt);
+ 
+@@ -3013,7 +3048,6 @@
+     bool crashed = false;
+     if (CreateDlssFeature(w, h, inverted, &crashed))
+     {
+-        DrainGpu();  // the old feature's last evaluate may still be in flight
+         SafeReleaseFeature(old);
+         return true;
+     }
+@@ -3033,7 +3067,7 @@
+         return RecreateFeatureOnly(w, h);
+ 
+     Breadcrumb("building shared textures");
+-    ReleaseFrameResources();
++    if (!ReleaseFrameResources()) return false;
+ 
+     ID3D11Device1 *dev1 = nullptr;
+     if (FAILED(g.dev11->QueryInterface(__uuidof(ID3D11Device1), reinterpret_cast<void **>(&dev1))) || dev1 == nullptr)
+@@ -3671,6 +3705,7 @@
+ 
+ static bool InitSession(ID3D11Device *dev11, ID3D11DeviceContext *ctx)
+ {
++    if (nr_external_gpu_quarantined) return false;
+     Breadcrumb("opening the D3D12 session");
+     Log("################ feed: opening D3D12 session ################");
+     g_ngx_dying = false;
+@@ -3821,7 +3856,7 @@
+ 
+ static void ShutdownSession()
+ {
+-    ReleaseFrameResources();
++    if (!ReleaseFrameResources()) return;
+     if (g.params != nullptr) { if (!g_ngx_dying) NVSDK_NGX_D3D12_DestroyParameters(g.params); g.params = nullptr; }
+     if (g.ngx_inited && g.dev12 != nullptr) { if (!g_ngx_dying) NVSDK_NGX_D3D12_Shutdown1(g.dev12); g.ngx_inited = false; }
+     SafeRelease(g.blit_vs);
+@@ -3900,6 +3935,7 @@
+ 
+ static bool InitSession12(reshade::api::effect_runtime *rt)
+ {
++    if (nr_external_gpu_quarantined) return false;
+     Breadcrumb("opening the same-device D3D12 session");
+     Log("################ feed: opening same-device D3D12 session ################");
+     g_ngx_dying = false;
+@@ -3926,6 +3962,31 @@
+     GetModuleFileNameW(g_self, data_path, MAX_PATH);
+     if (wchar_t *s = wcsrchr(data_path, L'\\')) *(s + 1) = L'\0';
+ 
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++    {
++        nr_external_provider_client::Claim(kNrExternalProviderIdDl5f);
++    }
++    if (nr_external_provider_client::ShouldDisableFeederNr())
++    {
++        Breadcrumb("bootstrapping NGX allocation runtime for external NR Core");
++        DWORD bootstrap_code = 0;
++        const NVSDK_NGX_Result bootstrap = SafeNgxInit12(data_path, g.dev12, &bootstrap_code);
++        if (bootstrap_code != 0 || NVSDK_NGX_FAILED(bootstrap))
++        {
++            Log("[feed] external Core NGX bootstrap failed result=0x%08X exception=0x%08X",
++                bootstrap, bootstrap_code);
++            ShutdownSession();
++            FeedDisable("external Core NGX bootstrap unavailable");
++            return false;
++        }
++        Log("[feed] provider-only session: NGX allocation runtime initialized; private Feature1 Create/Evaluate skipped");
++        g.ngx_inited = true;
++        g.params = nullptr;
++        g.feature = nullptr;
++    }
++    else
++#endif
++    {
+     Breadcrumb("initialising NGX on the game's device");
+     DWORD ngx_code = 0;
+     NVSDK_NGX_Result r = SafeNgxInit12(data_path, g.dev12, &ngx_code);
+@@ -3966,6 +4027,9 @@
+         return false;
+     }
+ 
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++    } // end private NGX init else
++#endif
+     // Our own allocators + list on the game's device; submission goes to the game's queue.
+     for (int i = 0; i < Feed::kFrames; ++i)
+         g.dev12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+@@ -4004,7 +4068,8 @@
+     rd.Format           = fmt;
+     rd.SampleDesc.Count = 1;
+     rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+-    rd.Flags            = uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
++    rd.Flags            = (uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE) |
++                          (i == SLOT_OUTPUT ? D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET : D3D12_RESOURCE_FLAG_NONE);
+     const HRESULT hr = g.dev12->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, initial, nullptr,
+                                                         __uuidof(ID3D12Resource), reinterpret_cast<void **>(&g.tex12[i]));
+     if (FAILED(hr)) { Log("[feed] %s: CreateCommittedResource failed 0x%08X", kSlotName[i], hr); return false; }
+@@ -4019,7 +4084,7 @@
+         return RecreateFeatureOnly(w, h);
+ 
+     Breadcrumb("building same-device textures");
+-    ReleaseFrameResources();
++    if (!ReleaseFrameResources()) return false;
+ 
+     g.width      = w;
+     g.height     = h;
+@@ -4052,6 +4117,13 @@
+     }
+ 
+     if (g_cfg.mode < 2) { g.frame_ready = true; g.need_reset = true; Log("[feed] transport ready (mode %d, no NGX feature)", g_cfg.mode); return true; }
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++    if (nr_external_provider_client::ShouldDisableFeederNr()) {
++        g.frame_ready = true; g.need_reset = true;
++        Log("[feed] provider-only textures ready (%ux%u); private CreateFeature skipped", w, h);
++        return true;
++    }
++#endif
+ 
+     bool crashed = false;
+     if (!CreateDlssFeature(w, h, inverted, &crashed))
+@@ -4071,8 +4143,10 @@
+ 
+ static bool InitSessionVk(reshade::api::effect_runtime *rt)
+ {
++    if (nr_external_gpu_quarantined) return false;
+     Breadcrumb("opening the D3D12 session (Vulkan transport)");
+     Log("################ feed: opening D3D12 session (Vulkan transport) ################");
++    Log("[nr-vulkan-session] pid=%lu", GetCurrentProcessId());
+     g_ngx_dying = false;
+ 
+     g.rs_dev   = rt->get_device();
+@@ -4097,15 +4171,37 @@
+     }
+     FeedEnableD3D12DebugLayer();   // must precede device creation
+     FeedEnableDred();              // must precede device creation
+-    FeedLogDefaultAdapter();
+-    HRESULT hr = FeedCreatePrivateDevice(create_device, nullptr, &g.dev12);
++    nr_external_provider_vk::Binding binding{};
++    LUID selected_luid{};
++    if (!nr_external_provider_vk::Find(FeedVkDispatch<VkDevice>(g.rs_dev->get_native()),
++            FeedVkDispatch<VkQueue>(g.rs_queue->get_native()), binding) ||
++        !g.rs_dev->get_property(reshade::api::device_properties::adapter_luid, &selected_luid) ||
++        !nr_external_provider_vk::SameLuid(binding.luid, selected_luid))
++    {
++        FeedDisable("Vulkan device/queue LUID is not confirmed; no default-adapter fallback");
++        return false;
++    }
++    IDXGIAdapter1 *selected_adapter = nr_external_provider_vk::OpenAdapter(selected_luid);
++    if (!selected_adapter) { FeedDisable("matching NVIDIA adapter unavailable"); return false; }
++    HRESULT hr = FeedCreatePrivateDevice(create_device, selected_adapter, &g.dev12);
++    selected_adapter->Release();
++    bool unwrapped_private_device = false;
++    HRESULT identity_hr = S_OK;
++    if (SUCCEEDED(hr) && g.dev12 &&
++        !nr_external_provider_vk::NormalizePrivateDevice(
++            g.dev12, selected_luid, unwrapped_private_device, identity_hr)) {
++        SafeRelease(g.dev12);
++        Log("[feed] private D3D12 native identity rejected: 0x%08X", identity_hr);
++        FeedDisable("D3D12 private device identity is different or unproven");
++        return false;
++    }
+     if (FAILED(hr) || g.dev12 == nullptr)
+     {
+         FeedDisable("the private D3D12 device failed");
+         return false;
+     }
+     g.dev12_owned = true;
+-    LogAdapterIdentity("private (DXGI's default)", g.dev12);
++    LogAdapterIdentity(unwrapped_private_device ? "Vulkan LUID-matched private native" : "Vulkan LUID-matched private", g.dev12);
+ 
+     wchar_t data_path[MAX_PATH] = {};
+     GetModuleFileNameW(g_self, data_path, MAX_PATH);
+@@ -4119,7 +4215,7 @@
+             "process faulted during init; the feed stays off for this run", ngx_code);
+     else
+         Log("[feed] NVSDK_NGX_D3D12_Init -> 0x%08X (%s)", r, NgxResultName(r));
+-    if (NVSDK_NGX_FAILED(r))
++    if (ngx_code != 0 || NVSDK_NGX_FAILED(r))
+     {
+         ShutdownSession();
+         FeedDisable("NGX would not initialise");
+@@ -4127,26 +4223,11 @@
+     }
+     g.ngx_inited = true;
+ 
+-    NVSDK_NGX_Parameter *caps = nullptr;
+-    r = NVSDK_NGX_D3D12_GetCapabilityParameters(&caps);
+-    if (NVSDK_NGX_SUCCEED(r) && caps != nullptr)
+-    {
+-        const int avail = LogNgxCaps(caps, g.dev12, data_path);
+-        if (!avail)
+-        {
+-            ShutdownSession();
+-            FeedDisable("DLSS is not available on this GPU/driver");
+-            return false;
+-        }
+-    }
+-    r = NVSDK_NGX_D3D12_AllocateParameters(&g.params);
+-    if (NVSDK_NGX_FAILED(r) || g.params == nullptr)
+-    {
+-        Log("[feed] AllocateParameters failed 0x%08X", r);
+-        ShutdownSession();
+-        FeedDisable("NGX parameter allocation failed");
+-        return false;
+-    }
++    // Official NGX bootstrap is retained for Core's Feature18 allocation API.
++    // This route never allocates or creates a private Feature1/DLAA owner.
++    g.params = nullptr;
++    g.feature = nullptr;
++    Log("[feed] Vulkan project Core provider-only: private Feature1 Create/Evaluate skipped");
+ 
+     D3D12_COMMAND_QUEUE_DESC qd = {};
+     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+@@ -4187,7 +4268,7 @@
+     // ourselves (ReShade's create_fence imports as the wrong external type). Then wrap
+     // the VkSemaphores back into api::fence handles -- in ReShade's Vulkan backend an
+     // api::fence handle IS a VkSemaphore -- so queue signal/wait stay inside its locks.
+-    if (!FeedVkLoad(&g.vk, FeedVkDispatch<VkDevice>(g.rs_dev->get_native()), g_vk_phys))
++    if (!FeedVkLoad(&g.vk, FeedVkDispatch<VkDevice>(g.rs_dev->get_native()), binding.physical))
+     {
+         // The KHR external-interop extensions were not enabled at vkCreateDevice. Our
+         // vkCreateDevice hook (feed_vk_hook.h) normally appends them; if it never saw
+@@ -4205,6 +4286,11 @@
+         Log("[feed] FALLBACK: launch the game through layer\\run-with-feed-layer.bat (VK_LAYER_feed_vk appends them from outside).");
+         ShutdownSession();
+         FeedDisable("the Vulkan interop extensions are missing on this device -- see dlss5-feed.log");
++        return false;
++    }
++    if (!FeedVkHasTimelineQueries(&g.vk)) {
++        ShutdownSession();
++        FeedDisable("Vulkan timeline completion queries unavailable");
+         return false;
+     }
+     g.vk_sem_in  = FeedVkImportFence(&g.vk, g.fence_in_handle);
+@@ -4282,22 +4368,18 @@
+ 
+ static bool BuildResourcesVk(UINT w, UINT h, DXGI_FORMAT bb_fmt)
+ {
+-    if (g.session_ready && g_cfg.mode >= 2 && g.feature != nullptr && g.tex12[SLOT_COLOR] != nullptr &&
+-        w == g.width && h == g.height && bb_fmt == g.bb_fmt)
+-        return RecreateFeatureOnly(w, h);
+-
+     Breadcrumb("building the Vulkan-shared textures");
+-    ReleaseFrameResources();
++    if (!ReleaseFrameResources()) return false;
+ 
+     g.width      = w;
+     g.height     = h;
+     g.bb_fmt     = bb_fmt;
+     g.color_fmt  = TypedColorFormat(bb_fmt);
+-    g.output_fmt = ResolveOutputFormat(g.color_fmt, g.dev12);
++    g.output_fmt = g.color_fmt; // packed copy-home keeps the source byte order; Core uses private FP16
+     Log("[feed] copy home: %s (output %s -> backbuffer %s)",
+         SameTexelLayout(g.output_fmt, bb_fmt) ? "raw vkCmdCopyImage" : "vkCmdBlitImage (CONVERTS: expect issue #11 washout)",
+         FormatName(g.output_fmt), FormatName(bb_fmt));
+-    g.hdr        = g_cfg.hdr >= 0 ? g_cfg.hdr != 0 : IsHdrFormat(g.color_fmt);
++    g.hdr        = false; // source admitted only by confirmed SDR swapchain color space
+     const bool inverted = g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed;
+ 
+     if (g.color_fmt == DXGI_FORMAT_UNKNOWN)
+@@ -4313,7 +4395,7 @@
+     const reshade::api::resource_usage copy_rw =
+         reshade::api::resource_usage::copy_dest | reshade::api::resource_usage::copy_source;
+     if (!MakeSharedTexVk(SLOT_COLOR,  w, h, g.color_fmt,             false, copy_rw, reshade::api::resource_usage::copy_dest) ||
+-        !MakeSharedTexVk(SLOT_OUTPUT, w, h, g.output_fmt,            true,  copy_rw, reshade::api::resource_usage::copy_source) ||
++        !MakeSharedTexVk(SLOT_OUTPUT, w, h, g.output_fmt,            false,  copy_rw, reshade::api::resource_usage::copy_source) ||
+         !MakeSharedTexVk(SLOT_DEPTH,  w, h, DXGI_FORMAT_R32_FLOAT,   false, copy_rw, reshade::api::resource_usage::copy_dest) ||
+         !MakeSharedTexVk(SLOT_MV,     w, h, DXGI_FORMAT_R16G16_FLOAT, false, copy_rw, reshade::api::resource_usage::copy_dest) ||
+         !MakeSharedTexVk(SLOT_MASK,   w, h, DXGI_FORMAT_R8_UNORM,     false, copy_rw, reshade::api::resource_usage::copy_dest))
+@@ -4419,9 +4501,21 @@
+ 
+     if (g_cfg.mode < 2) { g.frame_ready = true; g.need_reset = true; Log("[feed] transport ready (mode %d, no NGX feature)", g_cfg.mode); return true; }
+ 
+-    bool crashed = false;
+-    if (!CreateDlssFeature(w, h, inverted, &crashed))
+-        return OnCreateFeatureFailed(crashed);
++    if (!g.home_buf12 || !g.in_buf12[SLOT_COLOR]) {
++        FeedDisable("SDR color adapter requires the shared packed input/output buffers");
++        ReleaseFrameResources(); return false;
++    }
++    const auto color_layout = nr_external_provider_vk_color::Classify(bb_fmt, reshade::api::color_space::srgb_nonlinear);
++    if (!nr_external_provider_vk_color::adapter.Prepare(g.dev12, w, h, g.in_pitch[SLOT_COLOR], g.home_pitch, color_layout)) {
++        Log("[feed] Vulkan SDR FP16 color adapter creation failed: 0x%08X", nr_external_provider_vk_color::adapter.last_error);
++        FeedDisable("Vulkan SDR FP16 color adapter unavailable; original frame retained");
++        ReleaseFrameResources(); return false;
++    }
++    Log("[feed] Vulkan SDR byte-order conversion: source=%s -> linear FP16 Core -> source bytes; probe C=packed input D=encoded output",
++        FormatName(g.color_fmt));
++    g.frame_ready = true;
++    g.need_reset = true;
++    Log("[feed] Vulkan project Core textures ready (%ux%u), no private Feature1", w, h);
+     return true;
+ }
+ 
+@@ -4437,6 +4531,7 @@
+ 
+ static bool InitSessionGl(reshade::api::effect_runtime *rt)
+ {
++    if (nr_external_gpu_quarantined) return false;
+     Breadcrumb("opening the D3D12 session (OpenGL transport)");
+     Log("################ feed: opening D3D12 session (OpenGL transport) ################");
+     g_ngx_dying = false;
+@@ -4657,7 +4752,7 @@
+         return RecreateFeatureOnly(w, h);
+ 
+     Breadcrumb("building the OpenGL-shared textures");
+-    ReleaseFrameResources();
++    if (!ReleaseFrameResources()) return false;
+ 
+     g.width      = w;
+     g.height     = h;
+@@ -5070,6 +5165,11 @@
+ 
+     if ((g.frames_done % 60) == 0 && CfgReload()) g.frame_ready = false;
+     if (!g_cfg.enabled || g_cfg.mode == 0) return;
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++    if (g_cfg.mode >= 2 &&
++        (!nr_external_provider_client::Claim(kNrExternalProviderIdDl5f) ||
++         !nr_external_provider_client::CanPrepareFrame())) return;
++#endif
+ 
+     device *dev_api = rt->get_device();
+ 
+@@ -5136,7 +5236,7 @@
+     // add-on may still be patching its vtable (that has crashed the process at EXEC 0x0),
+     // and it re-patches after every runtime recreation.
+     const bool needs_build12 = !g.frame_ready || w != g.width || h != g.height || cd.Format != g.bb_fmt ||
+-                               FeatureMissingForMode();
++                               (FeatureMissingForMode() && !nr_external_provider_client::ShouldDisableFeederNr());
+     // Re-arm the grace on a resolution/format change too: that makes the DLSS 5 add-on
+     // re-create its own feature, and any NGX interposer downstream (Alex's Toolkit) re-arms
+     // with it. Without this the second build races hooks that are only half in place.
+@@ -5248,19 +5348,110 @@
+ 
+                 Breadcrumb("running the same-device evaluate");
+                 DWORD ecode = 0;
+-                NVSDK_NGX_Result re = SafeEvaluateDLSS(&ep, &ecode);
+-                if (ecode != 0)
+-                    AbortCommands();  // never execute a list NGX crashed while recording
++                NVSDK_NGX_Result re = NVSDK_NGX_Result_Fail;
++                bool external_attempted = false;
++                bool external_delegated = false;
++                bool external_train_only = false;
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++                {
++                    nr_external_provider_client::Claim(kNrExternalProviderIdDl5f);
++                }
++                if (nr_external_provider_client::ShouldDisableFeederNr())
++                {
++                    external_attempted = true;
++                    static UINT64 s_ext_frame_seq = 0;
++                    const bool inverted = g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed;
++                    nr_external_provider_feeder::FeedInputs feed_in = {};
++                    feed_in.command_list = reinterpret_cast<std::uint64_t>(g.list);
++                    feed_in.color = reinterpret_cast<std::uint64_t>(g.tex12[SLOT_COLOR]);
++                    feed_in.output = reinterpret_cast<std::uint64_t>(g.tex12[SLOT_OUTPUT]);
++                    feed_in.depth = reinterpret_cast<std::uint64_t>(depth);
++                    feed_in.motion = reinterpret_cast<std::uint64_t>(mv);
++                    feed_in.width = g.width;
++                    feed_in.height = g.height;
++                    feed_in.color_format = static_cast<std::uint32_t>(g.color_fmt);
++                    feed_in.depth_format = static_cast<std::uint32_t>(dd.Format);
++                    feed_in.motion_format = static_cast<std::uint32_t>(md.Format);
++                    feed_in.color_state = static_cast<std::uint32_t>(
++                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
++                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
++                    feed_in.output_state = static_cast<std::uint32_t>(
++                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++                    feed_in.depth_state = static_cast<std::uint32_t>(
++                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
++                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++                    feed_in.motion_state = feed_in.depth_state;
++                    feed_in.mv_scale_x = g_cfg.mv_scale_x;
++                    feed_in.mv_scale_y = g_cfg.mv_scale_y;
++                    feed_in.pre_exposure = 1.0f;
++                    feed_in.exposure_scale = 1.0f;
++                    feed_in.reset = reset != 0;
++                    feed_in.depth_inverted = inverted;
++                    feed_in.hdr_color = g.hdr;
++                    feed_in.view_id = 1;
++                    feed_in.epoch = nr_external_resource_epoch;
++                    feed_in.frame_id = ++s_ext_frame_seq; // monotonic; independent of frames_done
++                    feed_in.provider_id = kNrExternalProviderIdDl5f;
++                    feed_in.queue = reinterpret_cast<std::uint64_t>(g.queue);
++                    feed_in.fence = reinterpret_cast<std::uint64_t>(g.fence12);
++                    feed_in.fence_value = g.fence_value + 1; // exact value EndCommands will signal
++                    NrExternalFrameV1 ext_frame = {};
++                    NrExternalSubmitResultV1 ext_result = {};
++                    if (nr_external_provider_feeder::BuildSyntheticFrame(feed_in, ext_frame) &&
++                        nr_external_provider_client::Submit(ext_frame, ext_result) &&
++                        ext_result.writeback_performed)
++                    {
++                        const UINT64 submitted = EndCommands();
++                        external_delegated = submitted != 0 &&
++                            nr_external_provider_completion::Wait(g.fence12, g.fence_event,
++                                submitted, static_cast<DWORD>(g_cfg.gpu_timeout_ms)) ==
++                                nr_external_provider_completion::Result::Complete;
++                        if (submitted && !external_delegated)
++                        {
++                            nr_external_gpu_quarantined = true;
++                            FeedDisable("external NR completion unconfirmed; retaining resources and original frame");
++                        }
++                        re = external_delegated ? static_cast<NVSDK_NGX_Result>(0x1) : NVSDK_NGX_Result_Fail;
++                    }
++                    else
++                    {
++                        // Owned consumer declined: execute starter list so core
++                        // queue hooks observe real submits. No AbortCommands.
++                        // No copy-home / no second private NGX NR.
++                        EndCommands();
++                        external_train_only = true;
++                        ecode = 0;
++                        re = NVSDK_NGX_Result_Fail;
++                        Log("[feed] external NR declined (%s); identity retain, affinity train submit, Feeder NR skipped",
++                            ext_result.bypass[0] ? ext_result.bypass : "unavailable");
++                    }
++                }
+                 else
+-                    EndCommands();
+-
+-                if (ecode != 0)
++#endif
++                {
++                    re = SafeEvaluateDLSS(&ep, &ecode);
++                }
++                if (!external_attempted)
++                {
++                    if (ecode != 0)
++                        AbortCommands();  // never execute a list NGX crashed while recording
++                    else
++                        EndCommands();
++                }
++
++                if (external_attempted && !external_delegated)
++                {
++                    // Ownership claimed; consumer declined — keep original via !restored path.
++                    g.frame_ready = true;
++                    (void)external_train_only;
++                }
++                else if (!external_delegated && ecode != 0)
+                 {
+                     Log("[feed] evaluate raised exception 0x%08X (caught; nothing was submitted)", ecode);
+                     FeedDisable("the DLSS evaluate crashed (the DLSS 5 add-on may be incompatible with this game/resolution)");
+                     g.frame_ready = false;
+                 }
+-                else if (NVSDK_NGX_FAILED(re))
++                else if (!external_delegated && NVSDK_NGX_FAILED(re))
+                 {
+                     Log("[feed] evaluate failed 0x%08X (%s)", re, NgxResultName(re));
+                     FeedFail("evaluate");
+@@ -5324,6 +5515,8 @@
+ // cross-API fences, and our private D3D12 list carries only the NGX evaluate.
+ // ---------------------------------------------------------------------------
+ 
++#include "nr_external_provider_vk_frame.inl"
++
+ static void FeedFrameVk(reshade::api::effect_runtime *rt, reshade::api::command_list *cl, reshade::api::resource_view rtv)
+ {
+     using namespace reshade::api;
+@@ -5332,7 +5525,18 @@
+     QueryPerformanceCounter(&t0);
+ 
+     if ((g.frames_done % 60) == 0 && CfgReload()) g.frame_ready = false;
+-    if (!g_cfg.enabled || g_cfg.mode == 0) return;
++    if (!g_cfg.enabled || g_cfg.mode == 0 || nr_external_provider_vk::quarantined) return;
++    // This route always returns this source frame, never the previous frame.
++    g_cfg.async_home = 0;
++    g_cfg.vk_present_sync = 1;
++    g_cfg.buffer_home = 1; // no opaque-image fallback for the SDR color adapter
++    if (g_cfg.mode >= 2 && (!nr_external_provider_client::Claim(kNrExternalProviderIdDl5f) ||
++                           !nr_external_provider_client::CanPrepareFrame())) return;
++    nr_external_provider_vk::Binding binding{};
++    if (!nr_external_provider_vk::Find(FeedVkDispatch<VkDevice>(rt->get_device()->get_native()),
++            FeedVkDispatch<VkQueue>(rt->get_command_queue()->get_native()), binding)) {
++        FeedDisable("Vulkan device/queue identity unavailable; original frame retained"); return;
++    }
+ 
+     device *dev_api = rt->get_device();
+ 
+@@ -5391,6 +5595,18 @@
+         return;
+     }
+ 
++    // The runtime SDK has no get_color_space(). Read the actual associated
++    // swapchain, matched by device and exact back buffers, before any transport.
++    const auto color_space = nr_external_provider_vk_color::ColorSpace(rt);
++    if (nr_external_provider_vk_color::Classify(static_cast<DXGI_FORMAT>(cd.texture.format), color_space) ==
++        nr_external_provider_vk_color::Layout::Unsupported) {
++        static unsigned rejected_color = 0;
++        if (++rejected_color <= 3 || rejected_color % 600 == 0)
++            Log("[feed] Vulkan project Core retained original: SDR color evidence unsupported (space=%u format=%u)",
++                static_cast<unsigned>(color_space), static_cast<unsigned>(cd.texture.format));
++        return;
++    }
++
+     // Even a resource rebuild can flush the immediate list. Establish the game
+     // dependency before that, not just before the explicit per-frame flush.
+     if (g_cfg.vk_present_sync && !g_vk_frame_present_target) FeedVkFramePresentInstall(rt);
+@@ -5411,7 +5627,7 @@
+ 
+     const DXGI_FORMAT bbf = static_cast<DXGI_FORMAT>(cd.texture.format);
+     const bool needs_build_vk = !g.frame_ready || w != g.width || h != g.height || bbf != g.bb_fmt ||
+-                                FeatureMissingForMode();
++                                (FeatureMissingForMode() && !nr_external_provider_client::ShouldDisableFeederNr());
+     // Re-arm the grace on a resolution/format change too: that makes the DLSS 5 add-on
+     // re-create its own feature, and any NGX interposer downstream (Alex's Toolkit) re-arms
+     // with it. Without this the second build races hooks that are only half in place.
+@@ -5447,20 +5663,7 @@
+         VkImage mv_img = FeedVkHandle<VkImage>(mv_res.handle);
+         VkImage dp_img = FeedVkHandle<VkImage>(depth_res.handle);
+ 
+-        // The transfers to/from VK_QUEUE_FAMILY_EXTERNAL below need the graphics queue
+-        // family. The vkCreateDevice hook captured it; family 0 is graphics on every
+-        // Windows desktop driver, so that is the (loudly logged) fallback.
+-        uint32_t gfx_family = g_vk_gfx_family;
+-        if (gfx_family == VK_QUEUE_FAMILY_IGNORED)
+-        {
+-            static bool said_family = false;
+-            if (!said_family)
+-            {
+-                said_family = true;
+-                Log("[feed] the vkCreateDevice hook never saw this device; assuming graphics queue family 0 for the external ownership transfers");
+-            }
+-            gfx_family = 0;
+-        }
++        const uint32_t gfx_family = binding.family;
+ 
+         // Our imported images -> GENERAL (first frame after a build, from UNDEFINED).
+         // ReShade never touches them; only these raw barriers do. A frame that released
+@@ -5590,27 +5793,15 @@
+             const int reset = (g.need_reset || g_cfg.reset_every) ? 1 : 0;
+             g.need_reset = false;
+ 
+-            // async_home=2: the copy home carries frame n-1, which does not depend on
+-            // anything this frame does on the D3D12 side -- so it can ride the SAME
+-            // command buffer as the input copies. One submit per frame, the shape a
+-            // normal game has. The entry acquire above already published last frame's
+-            // D3D12 writes; the fence wait before the flush orders them.
+-            const bool one_submit = g_cfg.async_home >= 2 && g.home_slice != 0 &&
+-                                    g.vk_home_buf != VK_NULL_HANDLE;
+-            if (one_submit)
+-            {
+-                if (n > 1)
+-                {
+-                    const UINT wh1 = g_cfg.half_home != 0 ? w / 2 : w;
+-                    FeedVkCopyBufferToImage(&g.vk, cb, g.vk_home_buf, bb_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+-                                            wh1, h, g.home_pitch / HomeTexelBytes(g.output_fmt),
+-                                            g.home_slice * ((n - 1) & 1));
+-                }
+-                const resource       res1[1]  = { bb_res };
+-                const resource_usage from1[1] = { resource_usage::copy_dest };
+-                const resource_usage to1[1]   = { resource_usage::render_target };
+-                cl->barrier(1, res1, from1, to1);
+-            }
++            auto retain_original = [&](const char *reason) {
++                nr_external_provider_vk::quarantined = true;
++                nr_external_gpu_quarantined = true;
++                Log("[feed] Vulkan same-frame transport failed: %s; no copy-home, resources retained", reason);
++                FeedDisable(reason);
++                // Only this backbuffer's layout changed. No NR output has been copied.
++                cl->barrier(bb_res, resource_usage::copy_dest, resource_usage::render_target);
++                FeedVkProbeEnd(false);
++            };
+ 
+             // Hand the images to the D3D12 device: release ownership to
+             // VK_QUEUE_FAMILY_EXTERNAL. This is what makes this frame's input copies
+@@ -5630,221 +5821,25 @@
+             g.vk_released = true;
+ 
+             Breadcrumb("signalling the game-side fence (Vulkan)");
+-            // One-submit mode orders the copy home against the PREVIOUS frame's evaluate
+-            // here, so the whole frame still leaves as a single submission. (If ReShade's
+-            // backend flushes inside wait(), the count goes back to two and the experiment
+-            // is inconclusive -- the log line below says which we got.)
+-            if (one_submit && n > 1) g.rs_queue->wait(g.rs_fence_out, n - 1);
+             g.rs_queue->flush_immediate_command_list();
+-            const bool sig_ok = g.rs_queue->signal(g.rs_fence_in, n);
+-
+-            // D3D12: wait for the copies, evaluate, signal back. Unchanged machinery.
+-            g.queue->Wait(g.fence12_in, n);
+-            CK("queue Wait(fence12_in)");
+-            bool done = false;
+-            if (!BeginCommands()) FeedFail("command list");
+-            else
+-            {
+-                if (g.in_buf12[SLOT_COLOR] != nullptr && g_cfg.mode >= 2)
+-                {
+-                    // buffer_home inputs: the Vulkan side wrote the shared buffers;
+-                    // land them in the textures the evaluate actually reads.
+-                    static const struct { int slot; DXGI_FORMAT fmt; } kFill[] = {
+-                        { SLOT_COLOR, DXGI_FORMAT_UNKNOWN }, { SLOT_DEPTH, DXGI_FORMAT_R32_FLOAT },
+-                        { SLOT_MV, DXGI_FORMAT_R16G16_FLOAT }, { SLOT_MASK, DXGI_FORMAT_R8_UNORM },
+-                    };
+-                    for (const auto &d : kFill)
+-                    {
+-                        if (g.in_buf12[d.slot] == nullptr) continue;
+-                        if (d.slot == SLOT_MASK && !g.mask_ok) continue;
+-                        D3D12_TEXTURE_COPY_LOCATION src = {};
+-                        src.pResource = g.in_buf12[d.slot];
+-                        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+-                        src.PlacedFootprint.Offset = 0;
+-                        src.PlacedFootprint.Footprint = { d.slot == SLOT_COLOR ? g.color_fmt : d.fmt,
+-                                                          g.width, g.height, 1, g.in_pitch[d.slot] };
+-                        D3D12_TEXTURE_COPY_LOCATION dst = {};
+-                        dst.pResource = g.tex12[d.slot];
+-                        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-                        dst.SubresourceIndex = 0;
+-                        Barrier(g.tex12[d.slot], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+-                        g.list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+-                        CK(kSlotName[d.slot]);
+-                        Barrier(g.tex12[d.slot], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+-                    }
+-                }
+-                Barrier(g.tex12[SLOT_COLOR],  D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                Barrier(g.tex12[SLOT_DEPTH],  D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                Barrier(g.tex12[SLOT_MV],     D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                if (g.mask_ok) Barrier(g.tex12[SLOT_MASK], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                GuideProbeRecord(g.tex12[SLOT_MV], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+-                                 g.tex12[SLOT_DEPTH], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-                CK("input barriers");
+-
+-                NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
+-                ep.Feature.pInColor  = g.tex12[SLOT_COLOR];
+-                ep.Feature.pInOutput = g.tex12[SLOT_OUTPUT];
+-                ep.Feature.InSharpness = 0.0f;
+-                ep.pInDepth          = g.tex12[SLOT_DEPTH];
+-                ep.pInMotionVectors  = g.tex12[SLOT_MV];
+-                ep.pInBiasCurrentColorMask = g.mask_ok ? g.tex12[SLOT_MASK] : nullptr;   // the shader's validation mask
+-                ep.InJitterOffsetX   = 0.0f;
+-                ep.InJitterOffsetY   = 0.0f;
+-                ep.InRenderSubrectDimensions.Width  = g.width;
+-                ep.InRenderSubrectDimensions.Height = g.height;
+-                ep.InReset           = reset;
+-                ep.InMVScaleX        = g_cfg.mv_scale_x;
+-                ep.InMVScaleY        = g_cfg.mv_scale_y;
+-                ep.InPreExposure     = 1.0f;
+-                ep.InExposureScale   = 1.0f;
+-
+-                Breadcrumb("running the D3D12 evaluate (Vulkan transport)");
+-                FeedVkProbeD12(false); // C: exact pInColor, before EvaluateFeature/CopyResource
+-                DWORD ecode = 0;
+-                NVSDK_NGX_Result re;
+-                if (g_cfg.passthrough != 0 && g.color_fmt == g.output_fmt)
+-                {
+-                    // Diagnostic passthrough: identical machinery, no DLSS. The output
+-                    // becomes a byte copy of this frame's colour input.
+-                    static bool said_pass = false;
+-                    if (!said_pass) { said_pass = true; Log("[feed] passthrough=1: NGX evaluate replaced by CopyResource (diagnostic)"); }
+-                    Barrier(g.tex12[SLOT_COLOR],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+-                    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+-                    g.list->CopyResource(g.tex12[SLOT_OUTPUT], g.tex12[SLOT_COLOR]);
+-                    Barrier(g.tex12[SLOT_COLOR],  D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+-                    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-                    re = static_cast<NVSDK_NGX_Result>(0x1);   // NVSDK_NGX_Result_Success
+-                }
+-                else
+-                {
+-                    re = SafeEvaluateDLSS(&ep, &ecode);
+-                    CK("NGX evaluate");
+-                }
+-                if (ecode != 0)
+-                {
+-                    AbortCommands();  // never execute a list NGX crashed while recording
+-                    Log("[feed] evaluate raised exception 0x%08X (caught; nothing was submitted)", ecode);
+-                    FeedDisable("the DLSS evaluate crashed (the DLSS 5 add-on may be incompatible with this game/resolution)");
+-                    g.frame_ready = false;
+-                }
+-                else
+-                {
+-                    FeedVkProbeD12(true); // D: exact pInOutput, after EvaluateFeature/CopyResource
+-                    StaleProbeRecord(g.tex12[SLOT_COLOR],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+-                                     g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-                    if (g.home_buf12 != nullptr)
+-                    {
+-                        // buffer_home: linearise the output into the shared buffer on
+-                        // this same list, so the out-fence signal below covers it too.
+-                        // The buffer itself needs no barrier (COMMON promotion).
+-                        Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+-                        D3D12_TEXTURE_COPY_LOCATION src = {};
+-                        src.pResource = g.tex12[SLOT_OUTPUT];
+-                        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-                        src.SubresourceIndex = 0;
+-                        D3D12_TEXTURE_COPY_LOCATION dst = {};
+-                        dst.pResource = g.home_buf12;
+-                        dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+-                        dst.PlacedFootprint.Offset = g.home_slice != 0 ? g.home_slice * (n & 1) : 0;
+-                        dst.PlacedFootprint.Footprint = { g.output_fmt, g.width, g.height, 1, g.home_pitch };
+-                        g.list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+-                        CK("copy home (output -> shared buffer)");
+-                        Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-                    }
+-                    Barrier(g.tex12[SLOT_COLOR],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+-                    Barrier(g.tex12[SLOT_DEPTH],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+-                    Barrier(g.tex12[SLOT_MV],     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+-                    if (g.mask_ok) Barrier(g.tex12[SLOT_MASK], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+-                    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+-                    EndCommands();
+-                    if (NVSDK_NGX_FAILED(re))
+-                    {
+-                        Log("[feed] evaluate failed 0x%08X (%s)", re, NgxResultName(re));
+-                        FeedFail("evaluate");
+-                        g.frame_ready = false;
+-                    }
+-                    else
+-                        done = true;
+-                }
++            NrFeedVkSyncOps sync;
++            const auto input = nr_external_provider_vk_sync::Input(sync, n);
++            if (input != nr_external_provider_vk_sync::Result::Complete) {
++                retain_original(nr_external_provider_vk_sync::Name(input)); return;
+             }
+-            if (done)
+-            {
+-                g.queue->Signal(g.fence12_out, n);   // after the evaluate, GPU-ordered
+-                CK("queue Signal(fence12_out)");
++            if (!BeginCommands()) { retain_original("D3D12 command list unavailable"); return; }
++            bool done = NrFeedVkRecord(n, reset);
++            const auto output = nr_external_provider_vk_sync::Output(sync, n);
++            if (output != nr_external_provider_vk_sync::Result::Complete) {
++                retain_original(nr_external_provider_vk_sync::Name(output)); return;
+             }
+-            else
+-            {
+-                g.fence12_out->Signal(n);            // CPU-signal so the game never hangs on us
+-                CK("fence12_out CPU Signal");
+-            }
+-
+-            // The copy home lands on the fresh immediate list, which executes on the
+-            // game's queue after the wait below -- GPU-ordered, no CPU stall.
+-            if (one_submit)
+-            {
+-                // Nothing more to record: the copy home already went out with the inputs.
+-                if (g_cfg.vk_trace)
+-                    FeedVkIdentity(rt, cl, rtv, bb_res, g.vk_frame, capture_cb,
+-                        FeedVkValue(g.vk_img[SLOT_COLOR]), FeedVkValue(g.vk_img[SLOT_OUTPUT]),
+-                        g.tex12[SLOT_COLOR], g.tex12[SLOT_OUTPUT], n, n > 1 ? n - 1 : 0, n > 1);
+-                static bool said_one = false;
+-                if (!said_one)
+-                {
+-                    said_one = true;
+-                    Log("[feed] async_home=2: one queue submit per frame (copy home rides the input buffer)");
+-                }
+-                if (done)
+-                {
+-                    const UINT64 fn = ++g.frames_done;
+-                    g.consecutive_fails = 0;
+-                    if (fn <= static_cast<UINT64>(g_cfg.log_frames) || (fn % 1800) == 0)
+-                        Log("[feed] frame %llu delivered (%ux%u, reset=%d, Vulkan transport, 1 submit)",
+-                            fn, g.width, g.height, reset);
+-                    FeedVkPresentTick(fn, 120);
+-                    if (WarmupRebuildDue(fn))
+-                    {
+-                        g.warmup_done = true;
+-                        g.frame_ready = false;
+-                        Log("[feed] warm-up: re-creating the DLSS feature once (frame %llu, Vulkan transport)", fn);
+-                    }
+-                }
+-                QueryPerformanceCounter(&t1);
+-                TimingTick(t0.QuadPart, t1.QuadPart);
+-                return;
+-            }
+-
+-            Breadcrumb("waiting for the result (Vulkan)");
+-            // async_home: wait for the PREVIOUS frame's evaluate, not this one. The game's
+-            // present path then never carries a cross-API stall of unbounded length -- which
+-            // is what an external frame pacer (Smooth Motion) cannot absorb, and is a cost
+-            // worth removing regardless. Frame 1 has no predecessor: skip the copy home.
+-            const bool async_home = g.home_slice != 0;
+-            const UINT64 wait_n   = async_home ? (n > 1 ? n - 1 : 0) : n;
+-            const bool   home_ok  = !async_home || n > 1;
+-            const bool wait_ok = wait_n != 0 ? g.rs_queue->wait(g.rs_fence_out, wait_n) : true;
+-            // Sync probe: does the cross-API fence machinery actually connect? The two
+-            // D3D12 completed values are what the D3D12 device has retired; the two
+-            // Vulkan values are what the IMPORTED timeline semaphores read from this
+-            // side. If vk_out trails d12_out by hundreds, the fence import is broken
+-            // and nothing orders the copy home against the evaluate. sig/wait are
+-            // ReShade's own return values -- 0 means it refused the imported semaphore.
+-            if ((n % 60) == 1)
+-                Log("[feed] sync probe: n=%llu (waited out=%llu) sig=%d wait=%d | d12 in=%llu out=%llu | vk in=%llu out=%llu",
+-                    static_cast<unsigned long long>(n), static_cast<unsigned long long>(wait_n),
+-                    sig_ok ? 1 : 0, wait_ok ? 1 : 0,
+-                    static_cast<unsigned long long>(g.fence12_in  != nullptr ? g.fence12_in->GetCompletedValue()  : 0),
+-                    static_cast<unsigned long long>(g.fence12_out != nullptr ? g.fence12_out->GetCompletedValue() : 0),
+-                    static_cast<unsigned long long>(FeedVkTimelineValue(&g.vk, g.vk_sem_in)),
+-                    static_cast<unsigned long long>(FeedVkTimelineValue(&g.vk, g.vk_sem_out)));
+-            cb = FeedVkDispatch<VkCommandBuffer>(cl->get_native());  // fresh buffer after the flush
+-            done = done && home_ok;   // async_home frame 1: nothing to carry home yet
+-            // A flush changes the native command buffer, not the RTV's owner. Do
+-            // not silently redirect output to another image if that contract breaks.
+-            if (dev_api->get_resource_from_view(rtv) != bb_res)
+-            {
+-                Log("[feed] Vulkan RTV mapping changed across flush; suppressing copy home");
+-                done = false;
++            // Both API fence observations and the game queue wait succeeded.
++            // Warmup/disabled/declined Core results still reacquire resources,
++            // but only a real Core transfer is allowed to overwrite the source.
++            const UINT64 wait_n = n;
++            cb = FeedVkDispatch<VkCommandBuffer>(cl->get_native());
++            if (dev_api->get_resource_from_view(rtv) != bb_res) {
++                retain_original("Vulkan RTV identity changed across submit"); return;
+             }
+             // Take the images back from the D3D12 device: acquire from
+             // VK_QUEUE_FAMILY_EXTERNAL, making the evaluate's output writes visible to
+@@ -5874,7 +5869,7 @@
+                 if (g.vk_home_buf != VK_NULL_HANDLE)
+                 {
+                     // async_home reads the slot the evaluate is NOT writing this frame.
+-                    const VkDeviceSize slot = async_home ? g.home_slice * ((n - 1) & 1) : 0;
++                    const VkDeviceSize slot = 0; // current source frame only
+                     FeedVkCopyBufferToImage(&g.vk, cb, g.vk_home_buf, bb_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             wh, h, g.home_pitch / HomeTexelBytes(g.output_fmt), slot);
+                 }
+@@ -5903,6 +5898,13 @@
+                     FeedVkValue(g.vk_img[SLOT_COLOR]), FeedVkValue(g.vk_img[SLOT_OUTPUT]),
+                     g.tex12[SLOT_COLOR], g.tex12[SLOT_OUTPUT], n, wait_n, done);
+             FeedVkProbeEnd(done);
++            // Output() already observed real Core submission and both output
++            // fences. Copy-home is recorded above, not yet visually verified.
++            static unsigned completed_announcements = 0;
++            if (done && (completed_announcements < 3 || n % 600 == 0)) {
++                ++completed_announcements;
++                Log("[nr-vulkan-completion] frame=%llu nr_completed=1 output_recorded=1", n);
++            }
+ 
+             // sync_home: submit the copy home and block until the GPU has finished it,
+             // before this callback returns and the game presents. Everything else in this
+@@ -5927,12 +5929,7 @@
+                 // Feeds the pacer detector (presents vs. frames fed) and reports periodically.
+                 FeedVkPresentTick(fn, 120);
+ 
+-                if (WarmupRebuildDue(fn))
+-                {
+-                    g.warmup_done = true;
+-                    g.frame_ready = false;
+-                    Log("[feed] warm-up: re-creating the DLSS feature once (frame %llu, Vulkan transport)", fn);
+-                }
++
+             }
+         }
+     }
+@@ -6858,6 +6855,8 @@
+ 
+ static void OnDestroyDevice(reshade::api::device *dev)
+ {
++    if (dev->get_api() == reshade::api::device_api::vulkan)
++        nr_external_provider_vk::Forget(FeedVkDispatch<VkDevice>(dev->get_native()));
+     if (g.dev11 != nullptr && reinterpret_cast<ID3D11Device *>(dev->get_native()) == g.dev11)
+     {
+         Log("[feed] D3D11 device destroyed; shutting the session down");
+@@ -7200,6 +7199,8 @@
+         reshade::register_event<reshade::addon_event::reshade_reloaded_effects>(OnReloadedEffects);
+         reshade::register_event<reshade::addon_event::reshade_render_technique>(OnRenderTechnique);
+         reshade::register_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
++        reshade::register_event<reshade::addon_event::init_swapchain>(nr_external_provider_vk_color::RememberSwapchain);
++        reshade::register_event<reshade::addon_event::destroy_swapchain>(nr_external_provider_vk_color::ForgetSwapchain);
+         reshade::register_overlay(nullptr, DrawOverlay);
+     }
+     else if (reason == DLL_PROCESS_DETACH)
+@@ -7225,6 +7226,8 @@
+         reshade::unregister_event<reshade::addon_event::reshade_reloaded_effects>(OnReloadedEffects);
+         reshade::unregister_event<reshade::addon_event::reshade_render_technique>(OnRenderTechnique);
+         reshade::unregister_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
++        reshade::unregister_event<reshade::addon_event::init_swapchain>(nr_external_provider_vk_color::RememberSwapchain);
++        reshade::unregister_event<reshade::addon_event::destroy_swapchain>(nr_external_provider_vk_color::ForgetSwapchain);
+         FeedVkFramePresentRemove();
+         FeedVkHookRemove();   // before this code is unmapped -- ReShade reloads add-ons per Vulkan instance
+         g_ngx_dying = true;   // process is exiting: never call back into NGX
+--- a/src/feed_vk_hook.h
++++ b/src/feed_vk_hook.h
+@@ -30,6 +30,7 @@
+ #include <MinHook.h>
+ #include <vector>
+ #include <string>
++#include "nr_vulkan_device_features.h"
+ 
+ static void Log(const char *fmt, ...);   // dlss5-feed.cpp
+ 
+@@ -186,40 +187,20 @@
+     for (const char *want : kFeedVkWanted)
+         if (!already(want) && driver_has(want)) { exts.push_back(want); ++added; }
+ 
+-    // timelineSemaphore is a FEATURE as well: importing a D3D12 fence yields a timeline
+-    // semaphore, so it has to be on. If the app chains a struct that covers it, fine. If
+-    // it chains VkPhysicalDeviceVulkan12Features with the bit off, flip that bit in place
+-    // (a second timeline struct next to Vulkan12Features is not allowed). Otherwise chain
+-    // our own (stack lifetime is fine -- the call below is synchronous).
+-    VkDeviceCreateInfo ci = *pCreateInfo;
+-    VkPhysicalDeviceTimelineSemaphoreFeatures tl = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
+-    const char *timeline_how = "enabled by the add-on";
+-    bool have_timeline_feature = false;
+-    for (const auto *s = static_cast<const VkBaseInStructure *>(pCreateInfo->pNext); s != nullptr; s = s->pNext)
+-    {
+-        if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES)
+-        {
+-            auto *f = const_cast<VkPhysicalDeviceTimelineSemaphoreFeatures *>(
+-                reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeatures *>(s));
+-            timeline_how = f->timelineSemaphore ? "already enabled by the app" : "switched on in the app's features struct";
+-            f->timelineSemaphore = VK_TRUE;
+-            have_timeline_feature = true;
+-        }
+-        else if (s->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
+-        {
+-            auto *f = const_cast<VkPhysicalDeviceVulkan12Features *>(
+-                reinterpret_cast<const VkPhysicalDeviceVulkan12Features *>(s));
+-            timeline_how = f->timelineSemaphore ? "already enabled by the app" : "switched on in the app's Vulkan 1.2 features";
+-            f->timelineSemaphore = VK_TRUE;
+-            have_timeline_feature = true;
+-        }
+-    }
+-    if (!have_timeline_feature)
+-    {
+-        tl.timelineSemaphore = VK_TRUE;
+-        tl.pNext = const_cast<void *>(ci.pNext);
+-        ci.pNext = &tl;
+-    }
++    // Never mutate the application's feature chain. A false timeline node is
++    // changed only in a bounded, exactly-sized shadow prefix; unknown prefixes,
++    // cycles and oversized chains leave the complete original request untouched.
++    auto feature = nr_vulkan_device_features::Prepare(pCreateInfo);
++    VkDeviceCreateInfo ci = feature.info;
++    if (!feature.safe)
++    {
++        Log("[feed] vkCreateDevice feature enhancement skipped: %s", feature.reason);
++        exts.assign(pCreateInfo->ppEnabledExtensionNames,
++                    pCreateInfo->ppEnabledExtensionNames + pCreateInfo->enabledExtensionCount);
++        added = 0;
++    }
++    const char *timeline_how = !feature.safe ? "unchanged (unsafe pNext chain)" :
++        feature.changed ? "enabled in a shadow chain" : "already enabled by the app";
+ 
+     ci.enabledExtensionCount   = static_cast<uint32_t>(exts.size());
+     ci.ppEnabledExtensionNames = exts.data();
+@@ -251,14 +232,13 @@
+             already(want) ? "(app)" : driver_has(want) ? "ADDED" : "unsupported by driver");
+ 
+     g_vk_phys = physicalDevice;
+-    VkResult r = g_vk_create_device_orig(physicalDevice, &ci, pAllocator, pDevice);
+-    if (r != VK_SUCCESS && (added > 0 || !have_timeline_feature))
+-    {
+-        // A driver that advertised an extension but refuses it is not worth arguing
+-        // with: retry untouched so the hook can never stop a game from starting.
+-        Log("[feed] vkCreateDevice failed (%d) with the added extensions; retrying with the app's original create info", r);
+-        r = g_vk_create_device_orig(physicalDevice, pCreateInfo, pAllocator, pDevice);
+-    }
++    VkResult r = nr_vulkan_device_features::CreateWithFallback(
++        g_vk_create_device_orig, physicalDevice, pCreateInfo, &ci, pAllocator, pDevice,
++        added > 0 || feature.changed);
++#if defined(NR_FEED_EXTERNAL_PROVIDER)
++    if (r == VK_SUCCESS && pDevice && *pDevice)
++        nr_external_provider_vk::Remember(physicalDevice, *pDevice, pCreateInfo);
++#endif
+     Log("[feed] vkCreateDevice -> %d", r);
+     return r;
+ }
+@@ -275,7 +255,7 @@
+         Log("[feed] vkCreateDevice hook: vulkan-1.dll is not loaded in this process (?)");
+         return false;
+     }
+-    void *target = GetProcAddress(lib, "vkCreateDevice");
++    void *target = reinterpret_cast<void *>(GetProcAddress(lib, "vkCreateDevice"));
+     if (target == nullptr)
+     {
+         Log("[feed] vkCreateDevice hook: vulkan-1.dll exports no vkCreateDevice (?)");
+@@ -305,7 +285,7 @@
+ 
+     // vkQueuePresentKHR: counting only, and strictly optional -- a game that cannot
+     // be hooked here still feeds fine, it just gets no pacer detection.
+-    if (void *ptarget = GetProcAddress(lib, "vkQueuePresentKHR"))
++    if (void *ptarget = reinterpret_cast<void *>(GetProcAddress(lib, "vkQueuePresentKHR")))
+     {
+         MH_STATUS ps = MH_CreateHook(ptarget, reinterpret_cast<void *>(&FeedVkHookQueuePresent),
+                                      reinterpret_cast<void **>(&g_vk_present_orig));
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_abi.h
+@@ -0,0 +1,167 @@
++#pragma once
++#include <cstdint>
++
++// Versioned Feeder/external producer <-> NR consumer ABI (MC1).
++// CPU handshake and opaque GPU handles only. Never adopts COM ownership across
++// the DLL boundary; the producer retains resource/command lifetime and must
++// keep resources, descriptors and allocator valid until the real Execute batch
++// fence completes. Submit only records commands; its return is not GPU completion.
++// Exact version/size; x64 Windows WINAPI at the DLL boundary.
++constexpr std::uint32_t kNrExternalProviderAbi = 0x00010000u;
++constexpr std::uint64_t kNrExternalProviderIdDl5f = 0x444C3546ull; // 'DL5F'
++// Opt-in Query mode for hosts injecting native SR. Flags 0/1 retain NR-only
++// semantics. Old consumers reject bit 2, so callers must fail closed.
++constexpr std::uint32_t kNrExternalQueryNativeObserver = 2u;
++
++enum class NrGuideProvenance : std::uint32_t {
++    Unknown = 0,
++    Native = 1,     // game/NGX Feature1 guides
++    Extracted = 2,  // engine-structure extraction
++    Synthetic = 3,  // ReShade depth + OFA/estimated MV (Feeder path)
++};
++
++enum class NrExternalMotionUnit : std::uint32_t {
++    Pixels = 0,
++    Normalized = 1,
++};
++
++enum class NrExternalProviderReason : std::uint32_t {
++    Ready = 0,
++    Starting,
++    Disabled,              // F6/master off or zero strength: no NR work
++    CompetingNr,           // another NR owner already claimed
++    Busy,
++    MissingRequired,       // color/output (or required guides) absent
++    TransportFailed,       // copy/writeback could not be recorded
++    EpochMismatch,
++    ViewMismatch,
++    FrameMismatch,
++    LeaseInvalid,          // queue/fence/resource state lease rejected
++    UnsupportedContract,
++    IdentityPassthrough,   // admitted but left the original image untouched
++    HistoryResetRequired,
++    ObserverUncertain,
++    RuntimeUnavailable,    // NR API/codec/hooks not ready; decline (never fake copy-success)
++    ObserverFailed,
++    Stopping,
++};
++
++enum class NrExternalLeaseFlags : std::uint32_t {
++    None = 0,
++    CommandListOwnedByProducer = 1u << 0,
++    QueueFenceRequired = 1u << 1,
++    OutputSameAsColor = 1u << 2, // in-place writeback (Feeder backbuffer)
++    ResetTemporal = 1u << 3,
++    DepthInverted = 1u << 4, // Feeder/ReShade depth_reversed → Feature18 bit 8
++    HdrColor = 1u << 5,      // HDR color create flag bit 0
++};
++
++struct NrExternalResourceV1 {
++    std::uint64_t resource = 0; // ID3D12Resource* as integer; never dereferenced here
++    std::uint32_t subresource = 0;
++    std::uint32_t format = 0;   // DXGI_FORMAT numeric
++    std::uint32_t width = 0;
++    std::uint32_t height = 0;
++    std::uint32_t rect_x = 0;
++    std::uint32_t rect_y = 0;
++    std::uint32_t rect_w = 0;
++    std::uint32_t rect_h = 0;
++    std::uint32_t state_before = 0; // D3D12_RESOURCE_STATES
++    std::uint32_t state_after = 0;
++    NrGuideProvenance provenance = NrGuideProvenance::Unknown;
++    NrExternalMotionUnit motion_unit = NrExternalMotionUnit::Pixels;
++    float motion_scale_x = 1.0f;
++    float motion_scale_y = 1.0f;
++    // Source pixels. Native/Extracted provenance declares a supplied value,
++    // including zero. Legacy Synthetic zero means unspecified camera jitter.
++    float jitter_x = 0.0f;
++    float jitter_y = 0.0f;
++};
++static_assert(sizeof(NrExternalResourceV1) == 72);
++
++struct NrExternalFrameV1 {
++    std::uint32_t size = sizeof(NrExternalFrameV1);
++    std::uint32_t abi = kNrExternalProviderAbi;
++    std::uint64_t provider_id = 0;
++    std::uint64_t view_id = 0;
++    std::uint64_t epoch = 0;
++    std::uint64_t frame_id = 0;
++    std::uint32_t lease_flags = 0;
++    std::uint32_t reserved = 0;
++    float pre_exposure = 1.0f;
++    float exposure_scale = 1.0f;
++    NrExternalResourceV1 color{};
++    NrExternalResourceV1 depth{};
++    NrExternalResourceV1 motion{};
++    NrExternalResourceV1 exposure{};
++    NrExternalResourceV1 output{};
++    std::uint64_t command_list = 0; // ID3D12GraphicsCommandList*
++    std::uint64_t queue = 0;        // ID3D12CommandQueue* (optional unless lease requires)
++    std::uint64_t fence = 0;        // ID3D12Fence* (optional unless lease requires)
++    std::uint64_t fence_value = 0;
++};
++static_assert(sizeof(NrExternalFrameV1) == 448);
++
++struct NrExternalStatusV1 {
++    std::uint32_t size = sizeof(NrExternalStatusV1);
++    std::uint32_t abi = kNrExternalProviderAbi;
++    NrExternalProviderReason reason = NrExternalProviderReason::Starting;
++    std::uint32_t reserved = 0;
++    std::uint64_t observer_epoch = 0;
++    std::uint64_t owner_provider_id = 0;
++    std::uint64_t admitted_frames = 0;
++    std::uint64_t writeback_frames = 0;
++    std::uint32_t last_provenance = 0; // NrGuideProvenance of color
++    std::uint32_t last_bypass = 0;     // NrExternalProviderReason numeric for F8
++};
++static_assert(sizeof(NrExternalStatusV1) == 56);
++
++struct NrExternalSubmitResultV1 {
++    std::uint32_t size = sizeof(NrExternalSubmitResultV1);
++    std::uint32_t abi = kNrExternalProviderAbi;
++    NrExternalProviderReason reason = NrExternalProviderReason::Starting;
++    std::uint32_t writeback_performed = 0; // NR writeback recorded; producer still must submit
++    std::uint64_t admitted_frame_id = 0;
++    std::uint32_t history_reset = 0;
++    std::uint32_t color_provenance = 0;
++    char bypass[64]{};
++};
++static_assert(sizeof(NrExternalSubmitResultV1) == 96);
++
++inline const char *NrGuideProvenanceName(NrGuideProvenance p) noexcept {
++    switch (p) {
++    case NrGuideProvenance::Native: return "Native";
++    case NrGuideProvenance::Extracted: return "Extracted";
++    case NrGuideProvenance::Synthetic: return "Synthetic";
++    default: return "Unknown";
++    }
++}
++
++inline const char *NrExternalProviderReasonName(NrExternalProviderReason r) noexcept {
++    switch (r) {
++    case NrExternalProviderReason::Ready: return "ready";
++    case NrExternalProviderReason::Starting: return "starting";
++    case NrExternalProviderReason::Disabled: return "master-disabled";
++    case NrExternalProviderReason::CompetingNr: return "competing-nr-owner";
++    case NrExternalProviderReason::Busy: return "busy";
++    case NrExternalProviderReason::MissingRequired: return "missing-required-input";
++    case NrExternalProviderReason::TransportFailed: return "transport-failed";
++    case NrExternalProviderReason::EpochMismatch: return "epoch-mismatch";
++    case NrExternalProviderReason::ViewMismatch: return "view-mismatch";
++    case NrExternalProviderReason::FrameMismatch: return "frame-mismatch";
++    case NrExternalProviderReason::LeaseInvalid: return "lease-invalid";
++    case NrExternalProviderReason::UnsupportedContract: return "unsupported-contract";
++    case NrExternalProviderReason::IdentityPassthrough: return "identity-passthrough";
++    case NrExternalProviderReason::HistoryResetRequired: return "history-reset-required";
++    case NrExternalProviderReason::ObserverUncertain: return "observer-uncertain";
++    case NrExternalProviderReason::RuntimeUnavailable: return "runtime-unavailable";
++    case NrExternalProviderReason::ObserverFailed: return "observer-failed";
++    case NrExternalProviderReason::Stopping: return "stopping";
++    default: return "unknown";
++    }
++}
++
++inline bool NrExternalStatusAllowsSubmit(const NrExternalStatusV1 &s) noexcept {
++    return s.size == sizeof(s) && s.abi == kNrExternalProviderAbi && !s.reserved &&
++        s.reason == NrExternalProviderReason::Ready && !(s.observer_epoch & 1u);
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_completion.h
+@@ -0,0 +1,51 @@
++#pragma once
++#include <windows.h>
++#include <d3d12.h>
++#include <cstdint>
++
++// Completion is a fence observation, never the return from recording commands.
++// A timed-out event can subsequently wake a different wait, so always recheck
++// the fence and keep a single deadline. UINT64_MAX means device removal.
++namespace nr_external_provider_completion {
++enum class Result { Complete, Invalid, SignalFailed, Removed, EventFailed, Timeout };
++
++template<class Ops>
++Result WaitWith(Ops &ops, UINT64 value, DWORD timeout) {
++    if (!ops.Valid() || !value || value == UINT64_MAX) return Result::Invalid;
++    const ULONGLONG deadline = ops.Now() + timeout;
++    for (;;) {
++        const UINT64 completed = ops.Completed();
++        if (completed == UINT64_MAX) return Result::Removed;
++        if (completed >= value) return Result::Complete;
++        const ULONGLONG now = ops.Now();
++        if (now >= deadline) return Result::Timeout;
++        if (!ops.Reset() || FAILED(ops.Arm(value)))
++            return Result::EventFailed;
++        const DWORD wait = ops.Wait(static_cast<DWORD>(deadline - now));
++        if (wait != WAIT_OBJECT_0 && wait != WAIT_TIMEOUT) return Result::EventFailed;
++    }
++}
++
++struct Win32Ops {
++    ID3D12Fence *fence;
++    HANDLE event;
++    bool Valid() const { return fence && event; }
++    ULONGLONG Now() const { return GetTickCount64(); }
++    UINT64 Completed() const { return fence->GetCompletedValue(); }
++    bool Reset() const { return ResetEvent(event) != FALSE; }
++    HRESULT Arm(UINT64 value) const { return fence->SetEventOnCompletion(value, event); }
++    DWORD Wait(DWORD timeout) const { return WaitForSingleObject(event, timeout); }
++};
++
++inline Result Wait(ID3D12Fence *fence, HANDLE event, UINT64 value, DWORD timeout) {
++    Win32Ops ops{fence, event};
++    return WaitWith(ops, value, timeout);
++}
++
++inline Result SignalAndWait(ID3D12CommandQueue *queue, ID3D12Fence *fence,
++                            HANDLE event, UINT64 value, DWORD timeout) {
++    if (!queue || !fence || !event || !value || value == UINT64_MAX) return Result::Invalid;
++    if (FAILED(queue->Signal(fence, value))) return Result::SignalFailed;
++    return Wait(fence, event, value, timeout);
++}
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_feeder_map.h
+@@ -0,0 +1,144 @@
++#pragma once
++#include "nr_external_provider_abi.h"
++
++// Maps the D3D12 same-device Feeder FeedFrame12 contract onto NrExternalFrameV1.
++// Derived from jlrouzies-fr/DLSS5-Feeder production FeedFrame12 (bb/mv/depth,
++// Output writeback home). Does not create NGX Feature1 handles.
++namespace nr_external_provider_feeder {
++
++struct FeedInputs {
++    std::uint64_t command_list = 0;
++    std::uint64_t color = 0;   // snapshot of backbuffer / private color
++    std::uint64_t output = 0;  // SLOT_OUTPUT (UAV) or backbuffer when in-place
++    std::uint64_t depth = 0;   // ReShade depth texture (zero-copy)
++    std::uint64_t motion = 0;  // estimated MV provider texture
++    std::uint64_t exposure = 0;
++    std::uint64_t mask = 0;    // optional; unused by MC1 writeback
++    std::uint32_t width = 0;
++    std::uint32_t height = 0;
++    // Zero inherits the Color extent. OF producers may publish an independent
++    // 100% or 50% motion plane without relabelling it as full resolution.
++    std::uint32_t output_width = 0, output_height = 0;
++    std::uint32_t depth_width = 0, depth_height = 0;
++    std::uint32_t motion_width = 0, motion_height = 0;
++    std::uint32_t color_format = 0;
++    std::uint32_t output_format = 0; // zero inherits color_format
++    std::uint32_t depth_format = 0;
++    std::uint32_t motion_format = 0;
++    std::uint32_t exposure_format = 0;
++    std::uint32_t color_state = 0;
++    std::uint32_t output_state = 0;
++    std::uint32_t depth_state = 0;
++    std::uint32_t motion_state = 0;
++    std::uint32_t color_subresource = 0;
++    std::uint32_t output_subresource = 0;
++    std::uint32_t depth_subresource = 0;
++    std::uint32_t motion_subresource = 0;
++    std::uint32_t rect_x = 0;
++    std::uint32_t rect_y = 0;
++    std::uint32_t rect_w = 0; // 0 => full width
++    std::uint32_t rect_h = 0;
++    std::uint32_t depth_rect_x = 0, depth_rect_y = 0, depth_rect_w = 0, depth_rect_h = 0;
++    std::uint32_t motion_rect_x = 0, motion_rect_y = 0, motion_rect_w = 0, motion_rect_h = 0;
++    float mv_scale_x = 1.0f;
++    float mv_scale_y = 1.0f;
++    NrExternalMotionUnit motion_unit = NrExternalMotionUnit::Pixels;
++    float pre_exposure = 1.0f;
++    float exposure_scale = 1.0f;
++    float jitter_x = 0.0f;
++    float jitter_y = 0.0f;
++    bool reset = false;
++    bool output_is_color = false;
++    bool depth_inverted = false;
++    bool hdr_color = false;
++    std::uint64_t view_id = 0;
++    std::uint64_t epoch = 0;
++    std::uint64_t frame_id = 0;
++    std::uint64_t provider_id = kNrExternalProviderIdDl5f;
++    std::uint64_t queue = 0;
++    std::uint64_t fence = 0;
++    // Exact value the producer will signal after executing command_list. It is
++    // predicted before Submit; the current completed/previous value is invalid.
++    std::uint64_t fence_value = 0;
++};
++
++inline bool BuildSyntheticFrame(const FeedInputs &in, NrExternalFrameV1 &out) noexcept {
++    if (!in.command_list || !in.color || !in.output || !in.width || !in.height ||
++        !in.view_id || !in.epoch || !in.frame_id || !in.queue || !in.fence || !in.fence_value)
++        return false;
++    const std::uint32_t rw = in.rect_w ? in.rect_w : in.width;
++    const std::uint32_t rh = in.rect_h ? in.rect_h : in.height;
++    out = NrExternalFrameV1{};
++    out.provider_id = in.provider_id ? in.provider_id : kNrExternalProviderIdDl5f;
++    out.view_id = in.view_id;
++    out.epoch = in.epoch;
++    out.frame_id = in.frame_id;
++    out.lease_flags = static_cast<std::uint32_t>(NrExternalLeaseFlags::CommandListOwnedByProducer);
++    if (in.output_is_color || in.color == in.output)
++        out.lease_flags |= static_cast<std::uint32_t>(NrExternalLeaseFlags::OutputSameAsColor);
++    if (in.reset)
++        out.lease_flags |= static_cast<std::uint32_t>(NrExternalLeaseFlags::ResetTemporal);
++    if (in.depth_inverted)
++        out.lease_flags |= static_cast<std::uint32_t>(NrExternalLeaseFlags::DepthInverted);
++    if (in.hdr_color)
++        out.lease_flags |= static_cast<std::uint32_t>(NrExternalLeaseFlags::HdrColor);
++    if (in.queue && in.fence)
++        out.lease_flags |= static_cast<std::uint32_t>(NrExternalLeaseFlags::QueueFenceRequired);
++    out.command_list = in.command_list;
++    out.queue = in.queue;
++    out.fence = in.fence;
++    out.fence_value = in.fence_value;
++    out.pre_exposure = in.pre_exposure;
++    out.exposure_scale = in.exposure_scale;
++
++    auto fill = [&](NrExternalResourceV1 &r, std::uint64_t resource,
++                     std::uint32_t format, std::uint32_t state,
++                     std::uint32_t subresource, NrGuideProvenance provenance,
++                     std::uint32_t width,std::uint32_t height,
++                     std::uint32_t x,std::uint32_t y,std::uint32_t w,std::uint32_t h) {
++        r.resource = resource;
++        r.subresource = subresource;
++        r.format = format;
++        r.width = width;
++        r.height = height;
++        r.rect_x = x;
++        r.rect_y = y;
++        r.rect_w = w?w:width;
++        r.rect_h = h?h:height;
++        r.state_before = state;
++        r.state_after = state;
++        r.provenance = provenance;
++        r.jitter_x = in.jitter_x;
++        r.jitter_y = in.jitter_y;
++    };
++    fill(out.color, in.color, in.color_format, in.color_state,
++         in.color_subresource, NrGuideProvenance::Synthetic,in.width,in.height,in.rect_x,in.rect_y,rw,rh);
++    const auto ow=in.output_width?in.output_width:in.width,oh=in.output_height?in.output_height:in.height;
++    fill(out.output, in.output, in.output_format?in.output_format:in.color_format, in.output_state,
++         in.output_subresource, NrGuideProvenance::Synthetic,ow,oh,in.rect_x,in.rect_y,in.rect_w,in.rect_h);
++    if (in.depth) {
++        const auto dw=in.depth_width?in.depth_width:in.width,dh=in.depth_height?in.depth_height:in.height;
++        fill(out.depth, in.depth, in.depth_format, in.depth_state,
++             in.depth_subresource, NrGuideProvenance::Synthetic,dw,dh,in.depth_rect_x,in.depth_rect_y,in.depth_rect_w,in.depth_rect_h);
++    }
++    if (in.motion) {
++        const auto mw=in.motion_width?in.motion_width:in.width,mh=in.motion_height?in.motion_height:in.height;
++        fill(out.motion, in.motion, in.motion_format, in.motion_state,
++             in.motion_subresource, NrGuideProvenance::Synthetic,mw,mh,in.motion_rect_x,in.motion_rect_y,in.motion_rect_w,in.motion_rect_h);
++        out.motion.motion_unit = in.motion_unit;
++        out.motion.motion_scale_x = in.mv_scale_x;
++        out.motion.motion_scale_y = in.mv_scale_y;
++    }
++    if (in.exposure) {
++        fill(out.exposure, in.exposure, in.exposure_format, 0, 0,
++             NrGuideProvenance::Synthetic,1,1,0,0,1,1);
++        out.exposure.width = 1;
++        out.exposure.height = 1;
++        out.exposure.rect_w = 1;
++        out.exposure.rect_h = 1;
++    }
++    (void)in.mask;
++    return true;
++}
++
++} // namespace nr_external_provider_feeder
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_producer.h
+@@ -0,0 +1,187 @@
++#pragma once
++#include <windows.h>
++#include <tlhelp32.h>
++#include <atomic>
++#include "nr_external_provider_abi.h"
++
++// Producer-side client for jlrouzies-fr/DLSS5-Feeder (and host tests).
++// Discovers the unique NR consumer export set. On successful ClaimOwnership the
++// producer MUST disable its private Feature1-based NR implementation; a direct
++// SR feature may be created only after native-observer preflight. Never install
++// a second NR owner or spoof Feature1 for this core.
++namespace nr_external_provider_client {
++
++using QueryFn = std::int32_t (WINAPI *)(std::uint32_t, std::uint32_t,
++                                        std::uint32_t, NrExternalStatusV1 *);
++using ClaimFn = std::int32_t (WINAPI *)(std::uint32_t, std::uint32_t,
++                                        std::uint64_t, NrExternalStatusV1 *);
++using ReleaseFn = std::int32_t (WINAPI *)(std::uint32_t, std::uint64_t);
++using SubmitFn = std::int32_t (WINAPI *)(std::uint32_t, const NrExternalFrameV1 *,
++                                         NrExternalSubmitResultV1 *);
++
++// Call outside loader callbacks, after official NGX Init/capability loading and
++// before Claim/Create of an injected SR feature. Retain the consumer module.
++// A deadline declines startup; it never authorizes Create. Re-run before each
++// new SR lifecycle. This is separate from NR-only Feeder admission.
++inline bool WaitForNativeObserver(QueryFn query_fn, DWORD timeout_ms,
++                                 NrExternalStatusV1 &status) noexcept {
++    const ULONGLONG start = GetTickCount64();
++    for (;;) {
++        status = {};
++        if (!query_fn || !query_fn(kNrExternalProviderAbi, sizeof(status),
++                kNrExternalQueryNativeObserver, &status)) return false;
++        if (status.size != sizeof(status) || status.abi != kNrExternalProviderAbi ||
++            status.reserved) return false;
++        if (status.reason == NrExternalProviderReason::Ready)
++            return !(status.observer_epoch & 1u);
++        if (status.reason != NrExternalProviderReason::Starting &&
++            status.reason != NrExternalProviderReason::Busy) return false;
++        const ULONGLONG elapsed = GetTickCount64() - start;
++        if (elapsed >= timeout_ms) return false;
++        const auto remaining = static_cast<DWORD>(timeout_ms - elapsed);
++        Sleep(remaining < 5 ? remaining : 5);
++    }
++}
++
++inline SRWLOCK lock = SRWLOCK_INIT;
++inline HMODULE retained = nullptr;
++inline QueryFn query = nullptr;
++inline ClaimFn claim = nullptr;
++inline ReleaseFn release = nullptr;
++inline SubmitFn submit = nullptr;
++inline bool unique = false;
++inline bool ownership = false;
++// Once delegation succeeds, discovery failure can only decline work.
++// It must never re-enable a second private NR implementation.
++inline std::atomic<bool> delegated_process{false};
++inline std::uint64_t provider_id = 0;
++inline ULONGLONG next_scan = 0;
++
++inline void Discover(ULONGLONG now) {
++    if (now < next_scan) return;
++    next_scan = now + 1000;
++    unique = false;
++    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
++    if (snapshot == INVALID_HANDLE_VALUE) return;
++    MODULEENTRY32W e{};
++    e.dwSize = sizeof(e);
++    HMODULE found = nullptr;
++    QueryFn q = nullptr;
++    ClaimFn c = nullptr;
++    ReleaseFn r = nullptr;
++    SubmitFn s = nullptr;
++    bool duplicate = false;
++    for (BOOL ok = Module32FirstW(snapshot, &e); ok; ok = Module32NextW(snapshot, &e)) {
++        HMODULE owner = nullptr;
++        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
++                reinterpret_cast<LPCWSTR>(e.modBaseAddr), &owner))
++            continue;
++        auto *qn = reinterpret_cast<QueryFn>(
++            GetProcAddress(owner, "NRExternalProvider_QueryV1"));
++        auto *cn = reinterpret_cast<ClaimFn>(
++            GetProcAddress(owner, "NRExternalProvider_ClaimOwnershipV1"));
++        auto *rn = reinterpret_cast<ReleaseFn>(
++            GetProcAddress(owner, "NRExternalProvider_ReleaseOwnershipV1"));
++        auto *sn = reinterpret_cast<SubmitFn>(
++            GetProcAddress(owner, "NRExternalProvider_SubmitFrameV1"));
++        if (!qn || !cn || !rn || !sn) {
++            FreeLibrary(owner);
++            continue;
++        }
++        if (found) {
++            duplicate = true;
++            FreeLibrary(owner);
++            break;
++        }
++        found = owner;
++        q = qn;
++        c = cn;
++        r = rn;
++        s = sn;
++    }
++    const bool complete = !duplicate && GetLastError() == ERROR_NO_MORE_FILES;
++    CloseHandle(snapshot);
++    if (!complete || !found) {
++        if (found) FreeLibrary(found);
++        return;
++    }
++    if (retained && retained != found) {
++        FreeLibrary(found);
++        return;
++    }
++    if (retained) FreeLibrary(found);
++    else retained = found;
++    query = q;
++    claim = c;
++    release = r;
++    submit = s;
++    unique = true;
++}
++
++// True when Feeder must skip its private NGX Feature1 NR owner.
++inline bool ShouldDisableFeederNr() noexcept {
++    return delegated_process.load(std::memory_order_acquire);
++}
++
++// CPU-only preflight. Run before texture lookups, copies, allocators or probes.
++inline bool CanPrepareFrame() noexcept {
++    if (!TryAcquireSRWLockExclusive(&lock)) return false;
++    Discover(GetTickCount64());
++    NrExternalStatusV1 status{};
++    const bool ready = ownership && unique && query && submit &&
++        query(kNrExternalProviderAbi, sizeof(status), 0u, &status) &&
++        status.owner_provider_id == provider_id &&
++        NrExternalStatusAllowsSubmit(status);
++    ReleaseSRWLockExclusive(&lock);
++    return ready;
++}
++
++inline bool Claim(std::uint64_t id) noexcept {
++    if (!id) return false;
++    if (!TryAcquireSRWLockExclusive(&lock)) return false;
++    if (ownership) {
++        const bool same = provider_id == id;
++        ReleaseSRWLockExclusive(&lock);
++        return same;
++    }
++    Discover(GetTickCount64());
++    bool ok = false;
++    if (unique && claim) {
++        NrExternalStatusV1 status{};
++        if (claim(kNrExternalProviderAbi, sizeof(status), id, &status) &&
++            status.owner_provider_id == id &&
++            (status.reason == NrExternalProviderReason::Ready ||
++             status.reason == NrExternalProviderReason::Disabled)) {
++            ownership = true;
++            delegated_process.store(true, std::memory_order_release);
++            provider_id = id;
++            ok = true;
++        }
++    }
++    ReleaseSRWLockExclusive(&lock);
++    return ok;
++}
++
++inline bool Release() noexcept {
++    AcquireSRWLockExclusive(&lock);
++    bool complete=!ownership;
++    if (ownership && release && provider_id)
++        complete=release(kNrExternalProviderAbi, provider_id)!=0;
++    // A failed Release means recorded work still owns its declared completion
++    // fence. Keep delegation latched and retry after the producer observes it.
++    if(complete){ownership=false;provider_id=0;}
++    ReleaseSRWLockExclusive(&lock);
++    return complete;
++}
++
++inline bool Submit(const NrExternalFrameV1 &frame, NrExternalSubmitResultV1 &result) noexcept {
++    if (!TryAcquireSRWLockExclusive(&lock)) return false;
++    Discover(GetTickCount64());
++    bool ok = false;
++    if (unique && ownership && submit && frame.provider_id == provider_id)
++        ok = submit(kNrExternalProviderAbi, &frame, &result) != 0;
++    ReleaseSRWLockExclusive(&lock);
++    return ok;
++}
++
++} // namespace nr_external_provider_client
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_vk_color.h
+@@ -0,0 +1,225 @@
++#pragma once
++#include <windows.h>
++#include <d3d12.h>
++#include <d3dcompiler.h>
++#include <reshade_api.hpp>
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <utility>
++#include <initializer_list>
++
++// SDR adapter for the Vulkan provider. The game's packed bytes stay packed
++// across the external-memory transport. Only the private, LUID-matched D3D12
++// device sees the linear FP16 textures consumed by the project Core.
++namespace nr_external_provider_vk_color {
++enum class Layout { Unsupported, Rgba8, Bgra8 };
++inline Layout Classify(DXGI_FORMAT format, reshade::api::color_space color_space) noexcept {
++    if (color_space != reshade::api::color_space::srgb_nonlinear) return Layout::Unsupported;
++    switch (format) {
++    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
++    case DXGI_FORMAT_R8G8B8A8_UNORM:
++    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return Layout::Rgba8;
++    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
++    case DXGI_FORMAT_B8G8R8A8_UNORM:
++    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return Layout::Bgra8;
++    default: return Layout::Unsupported;
++    }
++}
++
++// effect_runtime has no color-space getter in the pinned SDK. Bind the real
++// swapchain via its actual back buffers; never cast an effect_runtime to it.
++inline SRWLOCK swapchain_lock = SRWLOCK_INIT;
++inline reshade::api::swapchain *swapchains[128]{};
++inline void RememberSwapchain(reshade::api::swapchain *swapchain, bool) {
++    if (!swapchain || swapchain->get_device()->get_api() != reshade::api::device_api::vulkan) return;
++    AcquireSRWLockExclusive(&swapchain_lock);
++    for (auto *entry : swapchains) if (entry == swapchain) { ReleaseSRWLockExclusive(&swapchain_lock); return; }
++    for (auto &entry : swapchains) if (!entry) { entry = swapchain; break; }
++    ReleaseSRWLockExclusive(&swapchain_lock);
++}
++inline void ForgetSwapchain(reshade::api::swapchain *swapchain, bool) {
++    AcquireSRWLockExclusive(&swapchain_lock);
++    for (auto &entry : swapchains) if (entry == swapchain) entry = nullptr;
++    ReleaseSRWLockExclusive(&swapchain_lock);
++}
++inline reshade::api::color_space ColorSpace(reshade::api::effect_runtime *runtime) {
++    auto result = reshade::api::color_space::unknown;
++    if (!runtime) return result;
++    const auto count = runtime->get_back_buffer_count();
++    if (!count || count > 64) return result;
++    unsigned matched = 0;
++    AcquireSRWLockShared(&swapchain_lock);
++    for (auto *swapchain : swapchains) {
++        if (!swapchain || swapchain->get_device() != runtime->get_device() || swapchain->get_back_buffer_count() != count) continue;
++        bool same = true;
++        for (std::uint32_t i = 0; i < count; ++i)
++            if (swapchain->get_back_buffer(i).handle != runtime->get_back_buffer(i).handle) { same = false; break; }
++        if (same) { result = swapchain->get_color_space(); ++matched; }
++    }
++    ReleaseSRWLockShared(&swapchain_lock);
++    return matched == 1 ? result : reshade::api::color_space::unknown;
++}
++
++// SM5 compute works with raw buffers and FP16 UAVs. There is deliberately no
++// BGRA UAV, sRGB UAV, sampler conversion or CPU readback in either direction.
++inline constexpr char kShader[] = R"hlsl(
++cbuffer Extent : register(b0) { uint width; uint height; uint input_pitch; uint output_pitch; uint bgra; };
++ByteAddressBuffer packed_input : register(t1);
++Texture2D<float4> linear_output : register(t0);
++RWTexture2D<float4> linear_input : register(u0);
++RWByteAddressBuffer packed_output : register(u1);
++float DecodeChannel(float x) { return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4); }
++float EncodeChannel(float x) { x = saturate(x); return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055; }
++[numthreads(8,8,1)] void Decode(uint3 id : SV_DispatchThreadID) {
++    if (id.x >= width || id.y >= height) return;
++    uint packed = packed_input.Load(id.y * input_pitch + id.x * 4);
++    float4 c = float4(packed & 255, (packed >> 8) & 255, (packed >> 16) & 255, packed >> 24) / 255.0;
++    if (bgra != 0) c.rgb = c.bgr;
++    linear_input[id.xy] = float4(DecodeChannel(c.r), DecodeChannel(c.g), DecodeChannel(c.b), c.a);
++}
++[numthreads(8,8,1)] void Encode(uint3 id : SV_DispatchThreadID) {
++    if (id.x >= width || id.y >= height) return;
++    uint original = packed_input.Load(id.y * input_pitch + id.x * 4);
++    float3 c = linear_output.Load(int3(id.xy,0)).rgb;
++    if (any(isnan(c)) || any(isinf(c))) { packed_output.Store(id.y * output_pitch + id.x * 4, original); return; }
++    c = float3(EncodeChannel(c.r), EncodeChannel(c.g), EncodeChannel(c.b));
++    if (bgra != 0) c = c.bgr;
++    uint3 bytes = (uint3)floor(saturate(c) * 255.0 + 0.5);
++    // NR does not own alpha. Preserve the source's original alpha byte exactly.
++    packed_output.Store(id.y * output_pitch + id.x * 4, bytes.r | (bytes.g << 8) | (bytes.b << 16) | (original & 0xff000000));
++}
++)hlsl";
++
++inline HRESULT Compile(const char *entry, ID3DBlob **shader) {
++    // The returned ID3DBlob keeps a vtable in the compiler DLL. Retain this
++    // process-wide module reference until process exit, including PSO creation.
++    static HMODULE module = LoadLibraryExW(L"d3dcompiler_47.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    if (!module) return HRESULT_FROM_WIN32(GetLastError());
++    auto compile = reinterpret_cast<decltype(&D3DCompile)>(GetProcAddress(module, "D3DCompile"));
++    ID3DBlob *errors = nullptr;
++    HRESULT hr = compile ? compile(kShader, sizeof(kShader) - 1, "nr-vulkan-sdr", nullptr, nullptr, entry, "cs_5_0",
++        D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, shader, &errors) : E_NOINTERFACE;
++    if (errors) errors->Release();
++    return hr;
++}
++template<class T> inline void Drop(T *&value) { if (value) value->Release(); value = nullptr; }
++inline void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
++                       D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
++    D3D12_RESOURCE_BARRIER barrier{};
++    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, before, after};
++    list->ResourceBarrier(1, &barrier);
++}
++
++struct Adapter {
++    ID3D12Resource *input = nullptr, *output = nullptr, *packed = nullptr;
++    ID3D12DescriptorHeap *heap = nullptr;
++    ID3D12RootSignature *root = nullptr;
++    ID3D12PipelineState *decode = nullptr, *encode = nullptr;
++    UINT width = 0, height = 0, input_pitch = 0, output_pitch = 0, stride = 0;
++    Layout layout = Layout::Unsupported;
++    HRESULT last_error = S_OK;
++
++    // The caller must retire the existing same-frame queue/fence first.
++    void Release() {
++        Drop(input); Drop(output); Drop(packed); Drop(heap); Drop(root); Drop(decode); Drop(encode);
++        width = height = input_pitch = output_pitch = stride = 0; layout = Layout::Unsupported;
++    }
++    bool Prepare(ID3D12Device *device, UINT w, UINT h, UINT in_pitch, UINT out_pitch, Layout selected) {
++        Release(); last_error = E_INVALIDARG;
++        if (!device || !w || !h || w > 16384 || h > 16384 || selected == Layout::Unsupported ||
++            in_pitch < w * 4 || out_pitch < w * 4 || in_pitch % 256 || out_pitch % 256 ||
++            static_cast<UINT64>(in_pitch) * h > 0xffffffff || static_cast<UINT64>(out_pitch) * h > 0xffffffff) return false;
++        width = w; height = h; input_pitch = in_pitch; output_pitch = out_pitch; layout = selected;
++        D3D12_FEATURE_DATA_FORMAT_SUPPORT support{DXGI_FORMAT_R16G16B16A16_FLOAT};
++        last_error = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
++        if (FAILED(last_error) || !(support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) ||
++            !(support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)) {
++            if (SUCCEEDED(last_error)) last_error = DXGI_ERROR_UNSUPPORTED;
++            Release(); return false;
++        }
++        D3D12_HEAP_PROPERTIES props{}; props.Type = D3D12_HEAP_TYPE_DEFAULT;
++        D3D12_RESOURCE_DESC desc{};
++        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; desc.Width = w; desc.Height = h;
++        desc.DepthOrArraySize = 1; desc.MipLevels = 1; desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++        desc.SampleDesc.Count = 1; desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++        last_error = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++            nullptr, IID_PPV_ARGS(&input));
++        desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
++        if (SUCCEEDED(last_error)) last_error = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
++            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&output));
++        desc = {}; desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; desc.Width = static_cast<UINT64>(out_pitch) * h;
++        desc.Height = 1; desc.DepthOrArraySize = 1; desc.MipLevels = 1; desc.SampleDesc.Count = 1;
++        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR; desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++        if (SUCCEEDED(last_error)) last_error = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
++            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&packed));
++        D3D12_DESCRIPTOR_HEAP_DESC heap_desc{D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 2, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0};
++        if (SUCCEEDED(last_error)) last_error = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&heap));
++        if (FAILED(last_error)) { Release(); return false; }
++        stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
++        D3D12_CPU_DESCRIPTOR_HANDLE cpu = heap->GetCPUDescriptorHandleForHeapStart();
++        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{}; uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
++        device->CreateUnorderedAccessView(input, nullptr, &uav, cpu); cpu.ptr += stride;
++        D3D12_SHADER_RESOURCE_VIEW_DESC srv{}; srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; srv.Texture2D.MipLevels = 1;
++        device->CreateShaderResourceView(output, &srv, cpu);
++        D3D12_DESCRIPTOR_RANGE ranges[2] = {
++            {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 0}, {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, 0}};
++        D3D12_ROOT_PARAMETER params[5]{};
++        params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[0].Constants = {0, 0, 5};
++        params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[1].DescriptorTable = {1, &ranges[0]};
++        params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[2].DescriptorTable = {1, &ranges[1]};
++        params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV; params[3].Descriptor = {1, 0};
++        params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV; params[4].Descriptor = {1, 0};
++        D3D12_ROOT_SIGNATURE_DESC signature{5, params, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE};
++        HMODULE d3d = LoadLibraryExW(L"d3d12.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
++        auto serialize = d3d ? reinterpret_cast<decltype(&D3D12SerializeRootSignature)>(GetProcAddress(d3d, "D3D12SerializeRootSignature")) : nullptr;
++        ID3DBlob *blob = nullptr, *error = nullptr;
++        last_error = serialize ? serialize(&signature, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error) : E_NOINTERFACE;
++        if (SUCCEEDED(last_error)) last_error = device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&root));
++        Drop(blob); Drop(error); if (d3d) FreeLibrary(d3d);
++        for (const auto &pass : {std::pair<const char *, ID3D12PipelineState **>{"Decode", &decode}, {"Encode", &encode}}) {
++            if (FAILED(last_error)) break;
++            last_error = Compile(pass.first, &blob);
++            if (SUCCEEDED(last_error)) {
++                D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = root;
++                pso.CS = {blob->GetBufferPointer(), blob->GetBufferSize()};
++                last_error = device->CreateComputePipelineState(&pso, __uuidof(ID3D12PipelineState), reinterpret_cast<void **>(pass.second));
++            }
++            Drop(blob);
++        }
++        if (FAILED(last_error)) { Release(); return false; }
++        return true;
++    }
++    void Bind(ID3D12GraphicsCommandList *list, ID3D12Resource *source, ID3D12PipelineState *pipeline) {
++        const UINT constants[] = {width, height, input_pitch, output_pitch, layout == Layout::Bgra8 ? 1u : 0u};
++        list->SetDescriptorHeaps(1, &heap); list->SetComputeRootSignature(root); list->SetPipelineState(pipeline);
++        list->SetComputeRoot32BitConstants(0, 5, constants, 0);
++        auto gpu = heap->GetGPUDescriptorHandleForHeapStart(); list->SetComputeRootDescriptorTable(1, gpu);
++        gpu.ptr += stride; list->SetComputeRootDescriptorTable(2, gpu);
++        list->SetComputeRootShaderResourceView(3, source->GetGPUVirtualAddress());
++        list->SetComputeRootUnorderedAccessView(4, packed->GetGPUVirtualAddress());
++    }
++    void Decode(ID3D12GraphicsCommandList *list, ID3D12Resource *source) {
++        Transition(list, source, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++        Transition(list, input, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++        Bind(list, source, decode); list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
++        Transition(list, input, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    }
++    void Finish(ID3D12GraphicsCommandList *list, ID3D12Resource *source, ID3D12Resource *home, bool completed) {
++        if (completed) {
++            Transition(list, output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++            Bind(list, source, encode); list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
++            Transition(list, packed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
++            Transition(list, home, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
++            list->CopyBufferRegion(home, 0, packed, 0, static_cast<UINT64>(output_pitch) * height);
++            Transition(list, home, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
++            Transition(list, packed, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++            Transition(list, output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++        }
++        Transition(list, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++    }
++};
++inline Adapter adapter;
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_vk_device.h
+@@ -0,0 +1,190 @@
++#pragma once
++#include <windows.h>
++#include <d3d12.h>
++#include <dxgi1_4.h>
++#include <cstdint>
++#include <cstring>
++
++// Included after feed_vk.h. Bind physical devices and queue families to the
++// actual VkDevice/VkQueue; upstream's last-created-device globals are insufficient
++// in processes with multiple Vulkan devices. No fallback to queue family zero.
++namespace nr_external_provider_vk {
++inline bool quarantined = false;
++struct Binding {
++    VkDevice device = VK_NULL_HANDLE;
++    VkPhysicalDevice physical = VK_NULL_HANDLE;
++    VkQueue queue = VK_NULL_HANDLE;
++    std::uint32_t family = VK_QUEUE_FAMILY_IGNORED;
++    LUID luid{};
++};
++inline SRWLOCK bindings_lock = SRWLOCK_INIT;
++inline Binding bindings[128]{};
++inline bool SameLuid(const LUID &a, const LUID &b) noexcept {
++    return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
++}
++
++// ReShade 6.8's fixed escape hatch. The Vulkan transport owns a private D3D12
++// device, so normalize it before creating any queue/list/resource wrappers.
++constexpr GUID kUnwrappedObject = {
++    0x7f2c9a11, 0x3b4e, 0x4d6a,
++    {0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42}};
++
++inline bool ResolvePrivateDeviceIdentity(IUnknown *object,
++                                         IUnknown **identity) {
++    if (!identity) return false;
++    *identity = nullptr;
++    if (!object) return false;
++    IUnknown *unwrapped = nullptr;
++    const HRESULT unwrap_hr = object->QueryInterface(
++        kUnwrappedObject, reinterpret_cast<void **>(&unwrapped));
++    if (FAILED(unwrap_hr) && unwrap_hr != E_NOINTERFACE) return false;
++    if (SUCCEEDED(unwrap_hr) && !unwrapped) return false;
++    const HRESULT identity_hr = (unwrapped ? unwrapped : object)->QueryInterface(
++        IID_IUnknown, reinterpret_cast<void **>(identity));
++    if (unwrapped) unwrapped->Release();
++    return SUCCEEDED(identity_hr) && *identity;
++}
++
++// On success, 'device' keeps exactly one caller-owned reference. A ReShade
++// proxy is released only after the returned native reference and both canonical
++// identities are live. E_NOINTERFACE means the original was already native.
++inline bool NormalizePrivateDevice(ID3D12Device *&device,
++                                   const LUID &expected_luid,
++                                   bool &unwrapped_proxy,
++                                   HRESULT &failure) {
++    unwrapped_proxy = false;
++    failure = E_FAIL;
++    if (!device) { failure = E_POINTER; return false; }
++
++    ID3D12Device *native = nullptr;
++    const HRESULT unwrap_hr = device->QueryInterface(
++        kUnwrappedObject, reinterpret_cast<void **>(&native));
++    if (unwrap_hr == E_NOINTERFACE) {
++        IUnknown *identity = nullptr;
++        const HRESULT identity_hr = device->QueryInterface(
++            IID_IUnknown, reinterpret_cast<void **>(&identity));
++        if (identity) identity->Release();
++        if (FAILED(identity_hr) || !identity) {
++            failure = FAILED(identity_hr) ? identity_hr : E_POINTER;
++            return false;
++        }
++        if (!SameLuid(device->GetAdapterLuid(), expected_luid)) {
++            failure = DXGI_ERROR_INVALID_CALL;
++            return false;
++        }
++        failure = S_OK;
++        return true;
++    }
++    if (FAILED(unwrap_hr) || !native) {
++        if (native) native->Release();
++        failure = FAILED(unwrap_hr) ? unwrap_hr : E_POINTER;
++        return false;
++    }
++
++    IUnknown *proxy_identity = nullptr;
++    IUnknown *native_identity = nullptr;
++    const bool proxy_proven = ResolvePrivateDeviceIdentity(device, &proxy_identity);
++    const bool native_proven = ResolvePrivateDeviceIdentity(native, &native_identity);
++    const bool same = proxy_proven && native_proven &&
++                      proxy_identity == native_identity;
++    if (proxy_identity) proxy_identity->Release();
++    if (native_identity) native_identity->Release();
++    if (!same || !SameLuid(native->GetAdapterLuid(), expected_luid)) {
++        native->Release();
++        failure = same ? DXGI_ERROR_INVALID_CALL : E_NOINTERFACE;
++        return false;
++    }
++
++    ID3D12Device *proxy = device;
++    device = native; // owns the reference returned by IID_UnwrappedObject
++    unwrapped_proxy = true;
++    failure = S_OK;
++    proxy->Release();
++    return true;
++}
++inline void Forget(VkDevice device) {
++    AcquireSRWLockExclusive(&bindings_lock);
++    for (auto &row : bindings) if (row.device == device) row = {};
++    ReleaseSRWLockExclusive(&bindings_lock);
++}
++inline bool Find(VkDevice device, VkQueue queue, Binding &out) {
++    bool found = false;
++    AcquireSRWLockShared(&bindings_lock);
++    for (const auto &row : bindings) if (row.device == device && row.queue == queue && row.physical) {
++        out = row; found = true; break;
++    }
++    ReleaseSRWLockShared(&bindings_lock);
++    return found;
++}
++inline void Remember(VkPhysicalDevice physical, VkDevice device, const VkDeviceCreateInfo *info) {
++    Forget(device);
++    if (!physical || !device || !info || !info->pQueueCreateInfos || info->queueCreateInfoCount > 32) return;
++    HMODULE loader = GetModuleHandleW(L"vulkan-1.dll");
++    if (!loader) return;
++    auto properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(GetProcAddress(loader, "vkGetPhysicalDeviceProperties2"));
++    auto families = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(GetProcAddress(loader, "vkGetPhysicalDeviceQueueFamilyProperties"));
++    auto gdpa = reinterpret_cast<PFN_vkGetDeviceProcAddr>(GetProcAddress(loader, "vkGetDeviceProcAddr"));
++    if (!properties || !families || !gdpa) return;
++    auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(gdpa(device, "vkGetDeviceQueue"));
++    if (!get_queue) return;
++    VkPhysicalDeviceIDProperties ids{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
++    VkPhysicalDeviceProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
++    props.pNext = &ids; properties(physical, &props);
++    if (!ids.deviceLUIDValid || props.properties.vendorID != 0x10de) return;
++    std::uint32_t count = 0;
++    families(physical, &count, nullptr);
++    if (!count || count > 64) return;
++    VkQueueFamilyProperties family_properties[64]{};
++    families(physical, &count, family_properties);
++    Binding pending[128]{}; std::uint32_t used = 0;
++    LUID luid{}; static_assert(sizeof(luid) == VK_LUID_SIZE);
++    std::memcpy(&luid, ids.deviceLUID, sizeof(luid));
++    for (std::uint32_t i = 0; i < info->queueCreateInfoCount; ++i) {
++        const auto &q = info->pQueueCreateInfos[i];
++        if (q.flags || q.queueFamilyIndex >= count ||
++            !(family_properties[q.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)) continue;
++        if (q.queueCount > 128 - used) return;
++        for (std::uint32_t j = 0; j < q.queueCount; ++j) {
++            VkQueue queue = VK_NULL_HANDLE;
++            get_queue(device, q.queueFamilyIndex, j, &queue);
++            if (!queue) return;
++            pending[used++] = {device, physical, queue, q.queueFamilyIndex, luid};
++        }
++    }
++    AcquireSRWLockExclusive(&bindings_lock);
++    std::uint32_t free = 0;
++    for (const auto &row : bindings) if (!row.device) ++free;
++    if (free >= used) {
++        std::uint32_t next = 0;
++        for (auto &row : bindings) if (!row.device && next < used) row = pending[next++];
++    }
++    ReleaseSRWLockExclusive(&bindings_lock);
++}
++
++// Dynamic DXGI resolution matches the pinned Feeder build, which does not link
++// dxgi.lib. The selected adapter is retained for the caller, never the default.
++inline IDXGIAdapter1 *OpenAdapter(const LUID &luid) {
++    // Keep one System32 module reference for every COM object returned through
++    // this dynamically resolved factory. It is released by the loader at exit.
++    static HMODULE dxgi = LoadLibraryExW(
++        L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    if (!dxgi) return nullptr;
++    using FactoryFn = HRESULT (WINAPI *)(REFIID, void **);
++    auto create = reinterpret_cast<FactoryFn>(GetProcAddress(dxgi, "CreateDXGIFactory1"));
++    IDXGIFactory1 *factory = nullptr; IDXGIAdapter1 *selected = nullptr;
++    if (create && SUCCEEDED(create(__uuidof(IDXGIFactory1), reinterpret_cast<void **>(&factory)))) {
++        for (UINT i = 0; ; ++i) {
++            IDXGIAdapter1 *adapter = nullptr;
++            if (factory->EnumAdapters1(i, &adapter) != S_OK) break;
++            DXGI_ADAPTER_DESC1 desc{};
++            if (SUCCEEDED(adapter->GetDesc1(&desc)) && desc.VendorId == 0x10de &&
++                !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && SameLuid(desc.AdapterLuid, luid)) {
++                selected = adapter; break;
++            }
++            adapter->Release();
++        }
++        factory->Release();
++    }
++    return selected;
++}
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_vk_frame.inl
+@@ -0,0 +1,101 @@
++// Included immediately before the production FeedFrameVk callback. The Vulkan
++// copies, layouts and ownership transfers remain in that callback; this is its
++// D3D12 middle, using the existing project Core ABI and completion helpers.
++struct NrFeedVkSyncOps {
++    DWORD timeout() const { return static_cast<DWORD>(g_cfg.gpu_timeout_ms); }
++    bool completed(ID3D12Fence *fence, UINT64 value) const {
++        return nr_external_provider_completion::Wait(fence, g.fence_event, value, timeout()) ==
++            nr_external_provider_completion::Result::Complete;
++    }
++    bool SignalInput(UINT64 n) { return g.rs_queue->signal(g.rs_fence_in, n); }
++    bool WaitInput(UINT64 n) { return completed(g.fence12_in, n); }
++    bool QueueWaitInput(UINT64 n) { return SUCCEEDED(g.queue->Wait(g.fence12_in, n)); }
++    UINT64 End() { return EndCommands(); }
++    bool WaitSubmitted(UINT64 n) { return completed(g.fence12, n); }
++    bool SignalOutput(UINT64 n) { return SUCCEEDED(g.queue->Signal(g.fence12_out, n)); }
++    bool WaitOutput(UINT64 n) { return completed(g.fence12_out, n); }
++    bool WaitImportedOutput(UINT64 n) { return FeedVkWaitTimeline(&g.vk, g.vk_sem_out, n, timeout()); }
++    bool QueueWaitOutput(UINT64 n) { return g.rs_queue->wait(g.rs_fence_out, n); }
++};
++
++static bool NrFeedVkRecord(UINT64 n, int reset)
++{
++    // Keep the transport bytes unchanged, and decode SDR into the private FP16
++    // pair on this same LUID-matched device/list before submitting to Core.
++    if (g.in_buf12[SLOT_COLOR]) {
++        const struct { int slot; DXGI_FORMAT fmt; } fill[] = {
++            {SLOT_COLOR, g.color_fmt}, {SLOT_DEPTH, DXGI_FORMAT_R32_FLOAT},
++            {SLOT_MV, DXGI_FORMAT_R16G16_FLOAT}, {SLOT_MASK, DXGI_FORMAT_R8_UNORM}
++        };
++        for (const auto &d : fill) {
++            if (!g.in_buf12[d.slot] || (d.slot == SLOT_MASK && !g.mask_ok)) continue;
++            D3D12_TEXTURE_COPY_LOCATION src{}, dst{};
++            src.pResource = g.in_buf12[d.slot]; src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++            src.PlacedFootprint.Footprint = {d.fmt, g.width, g.height, 1, g.in_pitch[d.slot]};
++            dst.pResource = g.tex12[d.slot]; dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++            Barrier(g.in_buf12[d.slot], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
++            Barrier(g.tex12[d.slot], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
++            g.list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
++            Barrier(g.tex12[d.slot], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
++            Barrier(g.in_buf12[d.slot], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++        }
++    }
++    for (int slot : {SLOT_COLOR, SLOT_DEPTH, SLOT_MV})
++        Barrier(g.tex12[slot], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    GuideProbeRecord(g.tex12[SLOT_MV], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                     g.tex12[SLOT_DEPTH], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    FeedVkProbeD12(false);
++    auto &color = nr_external_provider_vk_color::adapter;
++    color.Decode(g.list, g.in_buf12[SLOT_COLOR]);
++
++    nr_external_provider_feeder::FeedInputs input{};
++    input.command_list = reinterpret_cast<std::uint64_t>(g.list);
++    input.queue = reinterpret_cast<std::uint64_t>(g.queue);
++    input.fence = reinterpret_cast<std::uint64_t>(g.fence12);
++    input.fence_value = g.fence_value + 1; // exact value NrFeedVkSyncOps::End will signal
++    input.output_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++    input.color = reinterpret_cast<std::uint64_t>(color.input);
++    input.output = reinterpret_cast<std::uint64_t>(color.output);
++    input.depth = reinterpret_cast<std::uint64_t>(g.tex12[SLOT_DEPTH]);
++    input.motion = reinterpret_cast<std::uint64_t>(g.tex12[SLOT_MV]);
++    input.width = g.width; input.height = g.height;
++    input.color_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
++    input.depth_format = DXGI_FORMAT_R32_FLOAT;
++    input.motion_format = DXGI_FORMAT_R16G16_FLOAT;
++    input.color_state = input.depth_state = input.motion_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    input.output_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++    input.mv_scale_x = g_cfg.mv_scale_x; input.mv_scale_y = g_cfg.mv_scale_y;
++    input.depth_inverted = g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed;
++    input.hdr_color = false; // confirmed SDR, decoded to linear light; not an HDR admission override
++    input.pre_exposure = input.exposure_scale = 1.0f;
++    input.reset = reset != 0;
++    input.view_id = 2; // Vulkan synthetic view; distinct from FeedFrame12.
++    input.epoch = nr_external_resource_epoch;
++    static std::uint64_t sequence = 0;
++    input.frame_id = ++sequence;
++    NrExternalFrameV1 frame{}; NrExternalSubmitResultV1 result{};
++    const bool transferred = nr_external_provider_client::Claim(kNrExternalProviderIdDl5f) &&
++        nr_external_provider_feeder::BuildSyntheticFrame(input, frame) &&
++        nr_external_provider_client::Submit(frame, result) && result.writeback_performed;
++    if (!transferred && (n <= 8 || n % 600 == 0))
++        Log("[feed] Vulkan project Core retained original: %s (no private Feature1/SR fallback)",
++            result.bypass[0] ? result.bypass : "consumer unavailable");
++    color.Finish(g.list, g.in_buf12[SLOT_COLOR], g.home_buf12, transferred);
++    if (transferred && g_vk_probe.active) {
++        // D is now the encoded Core output, comparable byte-for-byte with C/E/F.
++        // Sample the existing bounded 3x16x16 probe; no per-frame CPU download.
++        Barrier(color.packed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
++        for (UINT t = 0; t < 3; ++t) for (UINT y = 0; y < kVkProbeSide; ++y) {
++            const UINT x = g.width * (t + 1) / 4 - kVkProbeSide / 2;
++            const UINT sy = g.height * (t + 1) / 4 - kVkProbeSide / 2 + y;
++            g.list->CopyBufferRegion(g_vk_probe.d12, kVkProbeStage + t * kVkProbeTile + y * kVkProbePitch,
++                color.packed, static_cast<UINT64>(sy) * g.home_pitch + x * 4, kVkProbeSide * 4);
++        }
++        Barrier(color.packed, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    }
++    for (int slot : {SLOT_COLOR, SLOT_DEPTH, SLOT_MV})
++        Barrier(g.tex12[slot], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++    // Even a decline must submit: real ExecuteCommandLists trains Core affinity.
++    // The caller completes this list before reacquiring the imports or copying home.
++    return transferred;
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_external_provider_vk_sync.h
+@@ -0,0 +1,44 @@
++#pragma once
++#include <cstdint>
++
++// The first Vulkan provider route deliberately confirms each cross-API handoff
++// before queuing the next one. Never enqueue an unsatisfiable wait on the game
++// queue, and never confuse recorded Core output with completed output.
++namespace nr_external_provider_vk_sync {
++enum class Result {
++    Complete, InputSignal, InputCompletion, InputQueueWait, Submit,
++    SubmitCompletion, OutputSignal, OutputCompletion, ImportedCompletion,
++    OutputQueueWait
++};
++inline const char *Name(Result r) {
++    switch (r) {
++    case Result::Complete: return "complete";
++    case Result::InputSignal: return "Vulkan input signal failed";
++    case Result::InputCompletion: return "Vulkan input completion unconfirmed";
++    case Result::InputQueueWait: return "D3D12 input queue wait failed";
++    case Result::Submit: return "D3D12 command submission failed";
++    case Result::SubmitCompletion: return "D3D12 Core completion unconfirmed";
++    case Result::OutputSignal: return "D3D12 output signal failed";
++    case Result::OutputCompletion: return "D3D12 output completion unconfirmed";
++    case Result::ImportedCompletion: return "Vulkan imported output completion unconfirmed";
++    case Result::OutputQueueWait: return "Vulkan output queue wait failed";
++    }
++    return "Vulkan transport failed";
++}
++template<class Ops> Result Input(Ops &ops, std::uint64_t frame) {
++    if (!ops.SignalInput(frame)) return Result::InputSignal;
++    if (!ops.WaitInput(frame)) return Result::InputCompletion;
++    if (!ops.QueueWaitInput(frame)) return Result::InputQueueWait;
++    return Result::Complete;
++}
++template<class Ops> Result Output(Ops &ops, std::uint64_t frame) {
++    const auto submitted = ops.End();
++    if (!submitted) return Result::Submit;
++    if (!ops.WaitSubmitted(submitted)) return Result::SubmitCompletion;
++    if (!ops.SignalOutput(frame)) return Result::OutputSignal;
++    if (!ops.WaitOutput(frame)) return Result::OutputCompletion;
++    if (!ops.WaitImportedOutput(frame)) return Result::ImportedCompletion;
++    if (!ops.QueueWaitOutput(frame)) return Result::OutputQueueWait;
++    return Result::Complete;
++}
++}
+--- /dev/null
++++ b/nr_lab_interop/nr_vulkan_device_features.h
+@@ -0,0 +1,205 @@
++#pragma once
++
++#include <vulkan/vulkan_core.h>
++#include <vulkan/vk_layer.h>
++
++#include <algorithm>
++#include <cstddef>
++#include <cstring>
++#include <memory>
++#include <vector>
++
++namespace nr_vulkan_device_features {
++
++struct Prepared {
++    VkDeviceCreateInfo info{};
++    VkPhysicalDeviceTimelineSemaphoreFeatures prepend{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
++    std::vector<std::unique_ptr<unsigned char[]>> storage;
++    bool safe = true;
++    bool changed = false;
++    bool shadowed = false;
++    bool uses_prepend = false;
++    const char *reason = "unchanged";
++    Prepared() = default;
++    Prepared(const Prepared &) = delete;
++    Prepared &operator=(const Prepared &) = delete;
++    Prepared(Prepared &&other) noexcept
++        : info(other.info), prepend(other.prepend), storage(std::move(other.storage)), safe(other.safe), changed(other.changed),
++          shadowed(other.shadowed), uses_prepend(other.uses_prepend), reason(other.reason)
++    {
++        if (uses_prepend) info.pNext = &prepend;
++    }
++    Prepared &operator=(Prepared &&other) noexcept
++    {
++        if (this == &other) return *this;
++        info = other.info; prepend = other.prepend; storage = std::move(other.storage); safe = other.safe; changed = other.changed;
++        shadowed = other.shadowed; uses_prepend = other.uses_prepend; reason = other.reason;
++        if (uses_prepend) info.pNext = &prepend;
++        return *this;
++    }
++};
++
++inline std::size_t KnownSize(VkStructureType type)
++{
++    switch (type)
++    {
++    case VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO: return sizeof(VkLayerDeviceCreateInfo);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2: return sizeof(VkPhysicalDeviceFeatures2);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: return sizeof(VkPhysicalDeviceVulkan11Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: return sizeof(VkPhysicalDeviceVulkan12Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES: return sizeof(VkPhysicalDeviceVulkan13Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES: return sizeof(VkPhysicalDevice16BitStorageFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES: return sizeof(VkPhysicalDeviceMultiviewFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES: return sizeof(VkPhysicalDeviceVariablePointersFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES: return sizeof(VkPhysicalDeviceProtectedMemoryFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES: return sizeof(VkPhysicalDeviceSamplerYcbcrConversionFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES: return sizeof(VkPhysicalDeviceShaderDrawParametersFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES: return sizeof(VkPhysicalDevice8BitStorageFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES: return sizeof(VkPhysicalDeviceShaderAtomicInt64Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES: return sizeof(VkPhysicalDeviceShaderFloat16Int8Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES: return sizeof(VkPhysicalDeviceDescriptorIndexingFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES: return sizeof(VkPhysicalDeviceScalarBlockLayoutFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES: return sizeof(VkPhysicalDeviceImagelessFramebufferFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES: return sizeof(VkPhysicalDeviceUniformBufferStandardLayoutFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES: return sizeof(VkPhysicalDeviceSeparateDepthStencilLayoutsFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES: return sizeof(VkPhysicalDeviceHostQueryResetFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES: return sizeof(VkPhysicalDeviceBufferDeviceAddressFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES: return sizeof(VkPhysicalDeviceTimelineSemaphoreFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES: return sizeof(VkPhysicalDeviceVulkanMemoryModelFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES: return sizeof(VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES: return sizeof(VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRIVATE_DATA_FEATURES: return sizeof(VkPhysicalDevicePrivateDataFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES: return sizeof(VkPhysicalDevicePipelineCreationCacheControlFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_TERMINATE_INVOCATION_FEATURES: return sizeof(VkPhysicalDeviceShaderTerminateInvocationFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES: return sizeof(VkPhysicalDeviceSynchronization2Features);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ZERO_INITIALIZE_WORKGROUP_MEMORY_FEATURES: return sizeof(VkPhysicalDeviceZeroInitializeWorkgroupMemoryFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES: return sizeof(VkPhysicalDeviceDynamicRenderingFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES: return sizeof(VkPhysicalDeviceShaderIntegerDotProductFeatures);
++    case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES: return sizeof(VkPhysicalDeviceMaintenance4Features);
++    default: return 0;
++    }
++}
++
++inline VkBaseOutStructure *CopyNode(Prepared &result, const VkBaseInStructure *source, std::size_t size)
++{
++    auto bytes = std::make_unique<unsigned char[]>(size);
++    std::memcpy(bytes.get(), source, size);
++    auto *copy = reinterpret_cast<VkBaseOutStructure *>(bytes.get());
++    result.storage.push_back(std::move(bytes));
++    return copy;
++}
++
++// clone_through is used by a loader layer for its mandatory link-info advance.
++// The inline hook passes nullptr and only shadows a false timeline feature node.
++inline Prepared Prepare(const VkDeviceCreateInfo *original, const void *clone_through = nullptr, bool enable_timeline = true)
++{
++    Prepared result;
++    if (original == nullptr)
++    {
++        result.safe = false;
++        result.reason = "null create info";
++        return result;
++    }
++    result.info = *original;
++    std::vector<const VkBaseInStructure *> nodes;
++    const auto *cursor = static_cast<const VkBaseInStructure *>(original->pNext);
++    while (cursor != nullptr)
++    {
++        if (nodes.size() == 64 || std::find(nodes.begin(), nodes.end(), cursor) != nodes.end())
++        {
++            result.safe = false;
++            result.reason = nodes.size() == 64 ? "pNext exceeds 64 nodes" : "pNext cycle";
++            return result;
++        }
++        nodes.push_back(cursor);
++        cursor = cursor->pNext;
++    }
++
++    std::size_t timeline_index = nodes.size(), through_index = nodes.size();
++    bool timeline_enabled = false;
++    unsigned timeline_nodes = 0;
++    for (std::size_t i = 0; i < nodes.size(); ++i)
++    {
++        const auto *node = nodes[i];
++        if (node == clone_through) through_index = i;
++        if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES)
++        {
++            ++timeline_nodes; timeline_index = i;
++            timeline_enabled = reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeatures *>(node)->timelineSemaphore != VK_FALSE;
++        }
++        else if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
++        {
++            ++timeline_nodes; timeline_index = i;
++            timeline_enabled = reinterpret_cast<const VkPhysicalDeviceVulkan12Features *>(node)->timelineSemaphore != VK_FALSE;
++        }
++    }
++    if (timeline_nodes > 1 || clone_through != nullptr && through_index == nodes.size())
++    {
++        result.safe = false;
++        result.reason = timeline_nodes > 1 ? "ambiguous timeline feature nodes" : "required layer node missing";
++        return result;
++    }
++
++    const bool enable_existing = enable_timeline && timeline_nodes == 1 && !timeline_enabled;
++    std::size_t clone_end = nodes.size();
++    if (enable_existing) clone_end = timeline_index;
++    if (through_index != nodes.size()) clone_end = clone_end == nodes.size() ? through_index : (std::max)(clone_end, through_index);
++    if (clone_end != nodes.size())
++    {
++        std::vector<VkBaseOutStructure *> copies;
++        copies.reserve(clone_end + 1);
++        for (std::size_t i = 0; i <= clone_end; ++i)
++        {
++            const std::size_t size = KnownSize(nodes[i]->sType);
++            if (size == 0)
++            {
++                result.storage.clear();
++                result.safe = false;
++                result.reason = "unknown structure before mutable node";
++                return result;
++            }
++            copies.push_back(CopyNode(result, nodes[i], size));
++        }
++        for (std::size_t i = 0; i < copies.size(); ++i)
++            copies[i]->pNext = i + 1 < copies.size() ? copies[i + 1] : const_cast<VkBaseOutStructure *>(reinterpret_cast<const VkBaseOutStructure *>(nodes[clone_end]->pNext));
++        result.info.pNext = copies.front();
++        result.shadowed = true;
++        if (enable_existing)
++        {
++            auto *target = copies[timeline_index];
++            if (target->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES)
++                reinterpret_cast<VkPhysicalDeviceTimelineSemaphoreFeatures *>(target)->timelineSemaphore = VK_TRUE;
++            else
++                reinterpret_cast<VkPhysicalDeviceVulkan12Features *>(target)->timelineSemaphore = VK_TRUE;
++            result.changed = true;
++            result.reason = "enabled timeline in shadow prefix";
++        }
++    }
++    if (enable_timeline && timeline_nodes == 0)
++    {
++        result.prepend.timelineSemaphore = VK_TRUE;
++        result.prepend.pNext = const_cast<void *>(result.info.pNext);
++        result.info.pNext = &result.prepend;
++        result.uses_prepend = true;
++        result.changed = true;
++        result.reason = "prepended timeline feature";
++    }
++    else if (enable_timeline && timeline_enabled)
++        result.reason = result.shadowed ? "timeline already enabled; shadowed layer prefix" : "timeline already enabled";
++    else if (!enable_timeline && result.shadowed)
++        result.reason = "shadowed loader prefix without feature changes";
++    return result;
++}
++
++template <typename Create>
++inline VkResult CreateWithFallback(Create create, VkPhysicalDevice physical, const VkDeviceCreateInfo *original,
++                                   const VkDeviceCreateInfo *enhanced, const VkAllocationCallbacks *allocator,
++                                   VkDevice *device, bool enhancement_changed)
++{
++    VkResult result = create(physical, enhanced, allocator, device);
++    if (result != VK_SUCCESS && enhancement_changed)
++        result = create(physical, original, allocator, device);
++    return result;
++}
++
++} // namespace nr_vulkan_device_features

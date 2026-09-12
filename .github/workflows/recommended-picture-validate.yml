@@ -1,0 +1,19 @@
+name: Recommended picture reset
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-defaults:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Production reset and independent INI defaults
+        run: python3 scripts/validate-recommended-picture.py
+      - name: Colour defaults and model-only reset
+        run: python3 scripts/validate-colour-defaults.py
+      - name: Wrong legacy default must fail exact oracle
+        run: python3 scripts/validate-recommended-picture.py --negative-control

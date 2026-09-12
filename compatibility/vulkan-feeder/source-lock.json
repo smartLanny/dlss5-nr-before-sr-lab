@@ -1,0 +1,31 @@
+{
+  "schema": "dlss5-source-lock-v1",
+  "upstream": {
+    "repository": "jlrouzies-fr/DLSS5-Feeder",
+    "release": "pre-0.15 transport base",
+    "commit": "26c002d5156d178c2db438327194077c9ad94418",
+    "sourceSha256": {
+      "build.bat": "e867194b81ee07a0419f7cdc392381e086cf6ac42f1770b5a3246287b7f85578",
+      "src/dlss5-feed.cpp": "0215e6bd0568d3fd832a6855b8da18397f3acd8deb5664d865ae57959a0f5517",
+      "src/feed_vk_hook.h": "5bc6924364cb66f58854342da8f85984a7c99554ae1f83a4fdb16217a41aa67b"
+    }
+  },
+  "patch": {
+    "file": "d15-provider.patch",
+    "sha256": "f0390ba686138db7be002362e39cf28ba5edf60f7b29b889bc54c72fc6204fc7"
+  },
+  "outputSha256": {
+    "build.bat": "bcccf86fba2d3810d02591e23a8bba17bc8ada282631c8d02ea2c31c57cb7bb4",
+    "src/dlss5-feed.cpp": "6757a90000ed59db82f16099d18abb65b6fefc01d25cf78026a1ebae54cf1115",
+    "src/feed_vk_hook.h": "59152c0b91f18bfbfe22202d07254dbd79b4aed994725e672a5b994858f1def5",
+    "nr_lab_interop/nr_external_provider_abi.h": "e8fa49056ae0fc866cfa5a6bbb191472b12dfd0612ebfa1200e7b3ed2220eec5",
+    "nr_lab_interop/nr_external_provider_completion.h": "79a96bd5aea11493e0f9e497468c91a4c918d94e4fc2d72faf32feb1ac11c448",
+    "nr_lab_interop/nr_external_provider_feeder_map.h": "6932991ea3560e71dfa46bcf8f43a2873b8ac269f0b5727a1f3019d4eb3fd0a8",
+    "nr_lab_interop/nr_external_provider_producer.h": "f3ccc3de440cc84da853e17d96b0f2584bb52cceb402aa8a09bee731c6aef2ec",
+    "nr_lab_interop/nr_external_provider_vk_color.h": "cd99653b9bc2e91417c05274dbc7e4dc4d7e427d45a98437b77196bde1a9229c",
+    "nr_lab_interop/nr_external_provider_vk_device.h": "5cd70f0be1dff16ee729101b8c4db42efba07186e847decbbddc08cef216599c",
+    "nr_lab_interop/nr_external_provider_vk_frame.inl": "b122fc79c2060b9676de2286379011862590044d8ac553a7f43edce0207017f3",
+    "nr_lab_interop/nr_external_provider_vk_sync.h": "55c9e66876a62cf438d3f18bfb543c331315f04711ad8d00855502c76c7aba70",
+    "nr_lab_interop/nr_vulkan_device_features.h": "6142e7873deb7b5ee59f0b57cfe3a9557a6981515b931e8ac72056d11d9f413b"
+  }
+}

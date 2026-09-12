@@ -1,0 +1,22 @@
+name: NR retirement returned-error ownership
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-return-oracles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 647ac292433bf00506eead16ccda1a30c2b3a153
+          path: historical-control
+          persist-credentials: false
+      - name: Historical production must fail exact oracle
+        run: python3 scripts/validate-retirement-return.py --source historical-control/src/nr_before_sr.cpp --expect-rejection
+      - name: Current production must pass
+        run: python3 scripts/validate-retirement-return.py

@@ -1,0 +1,35 @@
+name: Compatibility continuation - exact committed inputs
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: compat-continuation-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate:
+    uses: ./.github/workflows/compat-post-dev2.yml
+  source-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Archive only reviewed tracked development inputs
+        run: |
+          set -euo pipefail
+          git archive --format=tar --output=source-inputs.tar HEAD src scripts tests config third_party .github docs/interop
+          git rev-parse HEAD > source-commit.txt
+          sha256sum source-inputs.tar > source-inputs.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: private-compat-source-inputs-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            source-inputs.tar
+            source-inputs.sha256
+            source-commit.txt
+          retention-days: 7
+          if-no-files-found: error

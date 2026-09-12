@@ -33,13 +33,13 @@ struct FrameTicket {
 
 namespace nr_f8_gpu {
 
-constexpr unsigned int kGroupCount = 3;
+constexpr unsigned int kGroupCount = 9;
 // Sixteen consecutive ROI frames plus one independent full-frame overview.
 constexpr unsigned int kFramesPerGroup = 17;
 constexpr unsigned int kCapacity = kGroupCount * kFramesPerGroup;
 constexpr unsigned int kPlaneCount = 5; // F8 v4 includes the spatial-protection telemetry plane.
 constexpr unsigned int kExposureTrailerBytes = 16;
-constexpr unsigned int kMaxRoiSide = 256;
+constexpr unsigned int kMaxRoiSide = 512;
 constexpr unsigned int kMaxOverviewSide = 1024;
 
 enum class TokenState : unsigned int {

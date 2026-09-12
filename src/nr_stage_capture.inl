@@ -24,16 +24,19 @@ unsigned int StageCaptureStatus() {
 }
 
 bool RequestStageCapture() {
+    EnterCriticalSection(&g_chain_cs);
+    if(nr_f8::g_config_hold.load()) {LeaveCriticalSection(&g_chain_cs);return false;}
     unsigned int expected = 0;
     // Reserve the request before publishing its identity. State 4 is a brief
     // request publication/cancellation state, never eligible for render-thread arm.
     if (!g_stage_capture_status.compare_exchange_strong(
-            expected, 4, std::memory_order_acq_rel)) return false;
+            expected, 4, std::memory_order_acq_rel)) {LeaveCriticalSection(&g_chain_cs);return false;}
     g_stage_capture_request_id.fetch_add(1, std::memory_order_relaxed);
     g_stage_capture_last_result.store(0, std::memory_order_relaxed);
     g_stage_capture_retry_count.store(0, std::memory_order_relaxed);
     g_stage_capture_rebuild_pending.store(true, std::memory_order_relaxed);
     g_stage_capture_status.store(1, std::memory_order_release);
+    LeaveCriticalSection(&g_chain_cs);
     Log("Stage capture requested: next eligible warmed-up NR composition; "
         "one outstanding request, sampled raw stages, no native-SR output read. "
         "NR is recreated before capture, waits at least 64 successful "
@@ -51,9 +54,8 @@ bool CancelPendingStageCapture(unsigned long long request) {
     unsigned int expected = 1;
     if (g_stage_capture_status.compare_exchange_strong(
             expected, 4, std::memory_order_acq_rel)) {
-        // Check identity after reserving status: RequestStageCapture publishes
-        // without g_chain_cs, so a check before the CAS could observe an older
-        // request, then accidentally cancel a newly published one.
+        // Check the reserved identity so a late cancellation can never discard
+        // a newer request. Request publication shares the configuration lock.
         if (g_stage_capture_request_id.load(std::memory_order_acquire) == request) {
             g_stage_capture_prepared_context = {};
             g_stage_capture_rebuild_pending.store(false, std::memory_order_relaxed);
@@ -373,6 +375,7 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "proxyScale=%.9g\nproxyMapping=%s\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
         "workMode=%d\nworkLinearScale=%.9g\nlightingLock=%.9g\nedgeGuard=%.9g\n"
         "proxyCurve=%u\nframeConfidence=%.9g\n"
+        "lightStyleSupported=%d\nlightStyleRecorded=%d\nlightControlModeRecorded=%d\nlightBroad=%.9g\nlightDark=%.9g\nlightReflection=%.9g\nlightStructure=%.9g\nlightGlow=%.9g\nlightPreview=%u\n"
         "preExposure=%.9g\nhasPreExposure=%d\nscalarExposureScale=%.9g\nhasExposureScale=%d\n"
         "sampling=nearest grid at active-region coordinates (x*stride,y*stride)\n"
         "pixels=PFM little-endian float RGB, raw shader values; alpha omitted\n"
@@ -406,6 +409,11 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         static_cast<double>(info.lighting_lock),
         static_cast<double>(info.edge_guard), info.proxy_curve,
         static_cast<double>(info.frame_confidence),
+        info.light_supported?1:0,(info.codec_flags&262144u)!=0u,
+        info.light_supported && (info.codec_flags&262144u)!=0u ? static_cast<int>(info.light_control_mode) : -1,
+        static_cast<double>(info.light_broad),static_cast<double>(info.light_dark),
+        static_cast<double>(info.light_reflection),static_cast<double>(info.light_structure),
+        static_cast<double>(info.light_glow),info.light_preview,
         static_cast<double>(info.pre_exposure),
         info.has_pre_exposure ? 1 : 0, static_cast<double>(info.exposure_scale),
         info.has_exposure_scale ? 1 : 0,

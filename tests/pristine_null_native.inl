@@ -1,6 +1,7 @@
 // Included into the generated native command-state harness after production code.
 // No NGX runtime or game is involved. Negative control must produce exactly 999.
 int RunPristineNullGate(bool negative) {
+    setvbuf(stdout,nullptr,_IONBF,0); // Preserve exact checkpoints if a future native regression terminates.
     g_allow_experimental=false;
     g_enabled_fast.store(true);
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr; ID3D12Device *device=nullptr;
@@ -8,19 +9,36 @@ int RunPristineNullGate(bool negative) {
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"pristine WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"pristine device");
-    reshade::api::device od{device}; OnCommandStateInitDevice(&od);
-    Check(g_state_RSSetViewports.count==0 && g_state_OMSetRenderTargets.count==0,
-          "default device startup does not install wide graphics hooks");
+    reshade::api::device od{device};
     ID3D12CommandAllocator *allocator=nullptr; ID3D12GraphicsCommandList *list=nullptr;
     Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"pristine allocator");
     Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
         IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"pristine list");
+    // Keep this legacy recovery case genuinely unobserved: its native Create
+    // predates hook publication. Post-publication native records are tested
+    // separately and must not be made artificially unregistered here.
+    // Both lists in this missed-init fixture genuinely predate native Create
+    // observation. The separate first-recording gate starts enabled and proves
+    // new-list coverage; it must not pre-publish full guards for this legacy case.
+    ID3D12CommandAllocator *other_allocator=nullptr;
+    Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&other_allocator)),"unrelated allocator");
+    ID3D12GraphicsCommandList *other=nullptr;
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,other_allocator,nullptr,
+        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
+    OnCommandStateInitDevice(&od);
+    Check(g_state_RSSetViewports.count==0 && g_state_OMSetRenderTargets.count==0,
+          "default device startup does not install wide graphics hooks");
     reshade::api::command_list owner{&od,list};
     auto *snapshot=new NativeCommandState;
     Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
     Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
+    reshade::api::command_list other_owner{&od,other}; OnCommandStateInitList(&other_owner);
+    Check(!CaptureNativeCommandState(other,*snapshot),"unrelated known list still awaits its own baseline");
+    Check(g_command_state_registration_repair_needed.load(),"known carrier does not cancel missing-list recovery");
     OnCommandStateObserveSubmission(&owner);
+    OnCommandStateDestroyList(&other_owner);Drop(other);Drop(other_allocator);
     const auto token=ReadCommandStateToken(list);
     auto *record=FindCommandStateTokenLocked(token);
     Check(record && token && !record->state,"real ReShade submission repairs mapping only");
@@ -45,13 +63,50 @@ int RunPristineNullGate(bool negative) {
     reset();
     Check(CaptureNativeCommandState(list,*snapshot),"default admits freshly guarded pristine null");
     Check(std::strcmp(SnapshotCommandStateEvidence().route,"pristine-null")==0,"actual default route recorded");
+    Check(!SnapshotCommandStateEvidence().blend_observed,"pristine defaults are not observed blend values");
     Check(!CanRestoreNativeCommandState(*snapshot),"raw predicate still rejects null without explicit evidence");
     D3D12_VIEWPORT vp{0,0,2,2,0,1};
     ID3D12GraphicsCommandList_RSSetViewports(list,1,&vp);
-    Check(!CaptureNativeCommandState(list,*snapshot),"valid graphics state is not automatically replayed");
-    Check(SnapshotCommandStateEvidence().dynamic==kDynamicViewport,"dynamic field survives evidence snapshot");
+    Check(CaptureNativeCommandState(list,*snapshot),"fully observed bounded viewport is admitted without experimental replay");
+    Check(std::strcmp(SnapshotCommandStateEvidence().route,"guarded-null-raster")==0,"bounded raster route is explicit");
+    D3D12_RECT scissor{0,0,2,2};ID3D12GraphicsCommandList_RSSetScissorRects(list,1,&scissor);
+    Check(CaptureNativeCommandState(list,*snapshot),"viewport and scissor compose within the safe subset");
+    {
+        NativeCommandStateScope restore_raster(list);
+        Check(restore_raster.active,"actual raster scope can be acquired");
+        D3D12_VIEWPORT changed{0,0,1,1,0,1};
+        ID3D12GraphicsCommandList_RSSetViewports(list,1,&changed);
+        restore_raster.Restore();
+        Check(record->state->dynamic.viewports[0].Width==2,"native scope restores observed viewport bytes");
+    }
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(list,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    Check(!CaptureNativeCommandState(list,*snapshot),"other graphics domains remain outside automatic subset");
+    Check(SnapshotCommandStateEvidence().dynamic==(kDynamicViewport|kDynamicScissor|kDynamicTopology),"dynamic field survives evidence snapshot");
     ID3D12GraphicsCommandList_ClearState(list,nullptr);
     Check(CaptureNativeCommandState(list,*snapshot),"tracked ClearState after fresh Reset erases graphics state");
+    const float blend[4]={0.25f,0.5f,0.75f,1.0f};
+    ID3D12GraphicsCommandList_OMSetBlendFactor(list,blend);
+    Check(CaptureNativeCommandState(list,*snapshot),"blend-only game state now admitted");
+    const auto blend_evidence=SnapshotCommandStateEvidence();
+    Check(blend_evidence.blend_observed && memcmp(blend_evidence.blend,blend,sizeof(blend))==0,
+          "carrier snapshot retains all four actual blend values from the captured state");
+    Check(g_command_history.count && g_command_history.entries[0].blend_observed &&
+          memcmp(g_command_history.entries[0].blend,blend,sizeof(blend))==0,"history retains the same blend observation");
+    {
+        NativeCommandStateScope scope(list);
+        Check(scope.active,"blend-only native scope acquired");
+        const float wrong[4]={0,0,0,0};
+        ID3D12GraphicsCommandList_OMSetBlendFactor(list,wrong);
+        scope.Restore();
+        Check(memcmp(record->state->dynamic.blend,blend,sizeof(blend))==0,"exact native blend values restored");
+    }
+    ID3D12GraphicsCommandList_OMSetBlendFactor(list,nullptr);
+    Check(CaptureNativeCommandState(list,*snapshot),"legal NULL blend resets all channels to one");
+    for(float v:record->state->dynamic.blend) Check(v==1.0f,"NULL blend follows D3D12 default");
+    Check(SnapshotCommandStateEvidence().blend_observed,"actual NULL blend setter remains an observed write");
+    ID3D12GraphicsCommandList_ClearState(list,nullptr);
+    Check(CaptureNativeCommandState(list,*snapshot) && !SnapshotCommandStateEvidence().blend_observed,
+          "ClearState removes prior blend evidence instead of leaking stale values");
     auto saved=g_state_BeginRenderPass.originals[3];
     g_state_BeginRenderPass.originals[3]=reinterpret_cast<void *>(&RenderPassTrampoline);
     StateHookBeginRenderPass<3>(list,0,nullptr,nullptr,D3D12_RENDER_PASS_FLAG_NONE);
@@ -112,7 +167,6 @@ int RunPristineNullGate(bool negative) {
         ID3D12GraphicsCommandList_ResourceBarrier(scope.command_list,1,&b);
         if (negative) scope.active=false;
     }
-    // The game does not rebind its root arguments: restoration is required.
     ID3D12GraphicsCommandList_SetPipelineState(list,pso);
     ID3D12GraphicsCommandList_Dispatch(list,1,1,1);
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition.pResource=output;
@@ -134,9 +188,10 @@ int RunPristineNullGate(bool negative) {
     void *data=nullptr;D3D12_RANGE range{0,4};Hr(ID3D12Resource_Map(readback,0,&range,&data),"probe map");
     const UINT actual=*static_cast<const UINT *>(data);range={0,0};ID3D12Resource_Unmap(readback,0,&range);
     Check(actual==73,"GPU result must equal game constant 73, not plugin constant 999");
+    if (!negative) CheckCommandPoolPriming(device,od);
     const auto old_token=ReadCommandStateToken(list);
     OnCommandStateDestroyList(&owner);OnCommandStateInitList(&owner);
-    Check(ReadCommandStateToken(list)!=old_token && !CaptureNativeCommandState(list,*snapshot),"reused list never inherits pristine certification");
+    Check(ReadCommandStateToken(list)!=old_token && !CaptureNativeCommandState(list,*snapshot),"legacy wrapper re-registration requires a fresh observed baseline");
     OnCommandStateDestroyList(&owner);ReleaseNativeCommandState(*snapshot);delete snapshot;
     Drop(queue);Drop(fence);Drop(readback);Drop(output);Drop(list);Drop(allocator);Drop(pso);Drop(root);Drop(device);Drop(adapter);Drop(factory);
     printf("default pristine-null native+GPU: %d checks, %d failures; GPU=%u, negative=%d\n",checks,failures,actual,negative?1:0);

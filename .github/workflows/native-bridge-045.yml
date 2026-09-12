@@ -1,0 +1,11 @@
+name: Legacy DX11 entry - delegate to merged integration checks
+# #131's standalone workflow remains on its original branch. On this merged
+# branch the only generator that understands the #132 ancestry is the unified
+# entry below; do not run an obsolete generator against the new Reset blob.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integrated-validation:
+    uses: ./.github/workflows/multi-api-foundation.yml

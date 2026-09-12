@@ -1,0 +1,918 @@
+diff --git a/src/bridge-contract.hpp b/src/bridge-contract.hpp
+new file mode 100644
+index 0000000..f820c75
+--- /dev/null
++++ b/src/bridge-contract.hpp
+@@ -0,0 +1,18 @@
++#pragma once
++
++#include <cstdint>
++
++namespace bridge_contract
++{
++inline bool RealFenceReached(std::uint64_t completed, std::uint64_t wanted)
++{
++    // D3D12 reports device removal as UINT64_MAX. It is numerically beyond every
++    // submitted value, but it is not evidence that any GPU work retired.
++    return completed != UINT64_MAX && completed >= wanted;
++}
++
++inline bool NeedsNativeFallback(bool native_was_suppressed, bool bridge_delivered)
++{
++    return native_was_suppressed && !bridge_delivered;
++}
++}
+diff --git a/src/bridge.h b/src/bridge.h
+index 307a5cb..1e5bda4 100644
+--- a/src/bridge.h
++++ b/src/bridge.h
+@@ -18,6 +18,8 @@
+ 
+ #pragma once
+ 
++#include "bridge-contract.hpp"
++
+ enum { SLOT_COLOR = 0, SLOT_OUTPUT, SLOT_DEPTH, SLOT_MV, SLOT_COUNT };
+ 
+ static const char *kSlotKey[SLOT_COUNT]  = { "Color", "Output", "Depth", "MotionVectors" };
+@@ -180,6 +182,10 @@ struct Bridge
+     // forward by hand to release the game.
+     ID3D12Fence *fence_progress;
+     bool         stalled;
++    // completion=auto begins on the asynchronous transport and latches this
++    // after the first observed wait anomaly. It is intentionally session-local:
++    // a restart or an explicit completion setting change clears the latch.
++    bool         completion_sync_sticky;
+     ULONGLONG    stall_since;
+     UINT64       stall_release;
+     // The newest value the queue has actually been asked to signal. fence_value
+diff --git a/src/bridge.inc b/src/bridge.inc
+index 0096073..2499deb 100644
+--- a/src/bridge.inc
++++ b/src/bridge.inc
+@@ -51,6 +51,9 @@ static NVSDK_NGX_Result SafeEvaluateGuarded(PFN_D3D12EvaluateFeature fn,
+ //                  quantity. auto lets the game's own DLSS hold the session and
+ //                  falls back to the synthetic contract when it has none or
+ //                  stops calling it; mirror and synth pin one; off disables both
++//   completion=auto how the D3D11 output copy waits for D3D12: auto starts
++//                  asynchronous and latches to synchronous after a wait anomaly;
++//                  async and sync force either policy for the session
+ //   synth_after=0  seconds with no DLSS call from the game before a synthetic
+ //                  contract is built for a game that has never called DLSS at
+ //                  all. 0 leaves that opt-in. It does NOT gate the fallback for
+@@ -116,6 +119,7 @@ struct BridgeCfg
+     int skip_exe;
+     int unwrap;
+     int source;        // CfgSource
++    int completion;    // CfgCompletion
+     // The whole synthetic path, off by default. It is a substitute contract built
+     // from ReShade's depth and the driver's optical flow, and it looks like one:
+     // Red Dead Redemption 2 melts under it and Baldur's Gate 3 keeps its geometry
+@@ -204,8 +208,10 @@ struct BridgeCfg
+ // the value it names is the one thing in this file a user is most likely to be
+ // told to change by someone else.
+ enum CfgSource { CFG_SRC_AUTO, CFG_SRC_MIRROR, CFG_SRC_SYNTH, CFG_SRC_OFF };
++enum CfgCompletion { CFG_COMPLETION_AUTO, CFG_COMPLETION_ASYNC, CFG_COMPLETION_SYNC };
+ 
+ static const char *kCfgSourceName[] = { "auto", "mirror", "synth", "off" };
++static const char *kCfgCompletionName[] = { "auto", "async", "sync" };
+ 
+ static int ParseSourceWord(const char *w, int fallback)
+ {
+@@ -214,7 +220,30 @@ static int ParseSourceWord(const char *w, int fallback)
+     return fallback;   // an unreadable value is not a request to change anything
+ }
+ 
+-static BridgeCfg g_cfg = { 2, -1, 1, 0, 0, 3, 1, 1, 1, 1, CFG_SRC_AUTO, 0, 1, 0, 0, 0, 2, 20, 0, 0, 0, 0, 0, 0 };
++static int ParseCompletionWord(const char *w, int fallback)
++{
++    for (int i = 0; i < static_cast<int>(_countof(kCfgCompletionName)); ++i)
++        if (_stricmp(w, kCfgCompletionName[i]) == 0) return i;
++    return fallback;
++}
++
++static BridgeCfg g_cfg = { 2, -1, 1, 0, 0, 3, 1, 1, 1, 1, CFG_SRC_AUTO,
++                           CFG_COMPLETION_AUTO, 0, 1, 0, 0, 0, 2, 20, 0, 0, 0, 0, 0, 0 };
++
++static bool BridgeCompletionSynchronous()
++{
++    return g_cfg.completion == CFG_COMPLETION_SYNC ||
++           (g_cfg.completion == CFG_COMPLETION_AUTO && g_bridge.completion_sync_sticky);
++}
++
++static void BridgeLatchSynchronousCompletion(const char *reason)
++{
++    if (g_cfg.completion != CFG_COMPLETION_AUTO || g_bridge.completion_sync_sticky) return;
++    g_bridge.completion_sync_sticky = true;
++    Log("[bridge] completion=auto observed %s; later frames use synchronous real-GPU "
++        "completion for the rest of this session. Restart or change completion= explicitly "
++        "to restore asynchronous delivery.", reason);
++}
+ 
+ // synth_after answers one question and used to answer two. It is still the
+ // opt-in for synthesising a contract in a game that has never called DLSS --
+@@ -479,15 +508,19 @@ static void CfgReload()
+         int  val = 0;
+         if (sscanf_s(line, "%63[^=]=%d", key, static_cast<unsigned>(sizeof(key)), &val) != 2)
+         {
+-            // Only source= takes a word, so the numeric scan stays exactly as it
+-            // was and a line it rejects gets one more chance rather than a
+-            // rewritten parser -- every other key in this file is a number, and
+-            // the ones the nine shipped titles depend on are all in that set.
++            // The two policy choices take words, so the numeric scan stays
++            // exactly as it was and a line it rejects gets one more chance
++            // rather than a rewritten parser -- every other key in this file is
++            // a number, and the shipped titles depend on that existing set.
+             char word[16];
+             if (sscanf_s(line, "%63[^=]=%15s", key, static_cast<unsigned>(sizeof(key)),
+-                         word, static_cast<unsigned>(sizeof(word))) == 2 &&
+-                _stricmp(key, "source") == 0)
+-                next.source = ParseSourceWord(word, next.source);
++                         word, static_cast<unsigned>(sizeof(word))) == 2)
++            {
++                if (_stricmp(key, "source") == 0)
++                    next.source = ParseSourceWord(word, next.source);
++                else if (_stricmp(key, "completion") == 0)
++                    next.completion = ParseCompletionWord(word, next.completion);
++            }
+             continue;
+         }
+         if      (_stricmp(key, "mode")        == 0) next.mode        = val;
+@@ -540,11 +573,13 @@ static void CfgReload()
+     // config line then described a file it no longer matched, which is worse
+     // than not printing one. A key worth reading is worth comparing.
+     const bool rebuild = (next.flags != g_cfg.flags) || (next.subrects != g_cfg.subrects);
++    const bool completion_changed = next.completion != g_cfg.completion;
+     const bool changed = rebuild || (next.mode != g_cfg.mode) ||
+                          (next.reset_every != g_cfg.reset_every) || (next.pixels != g_cfg.pixels) ||
+                          (next.stage != g_cfg.stage) || (next.skip_game != g_cfg.skip_game) ||
+                          (next.dred != g_cfg.dred) || (next.skip_exe != g_cfg.skip_exe) ||
+-                         (next.unwrap != g_cfg.unwrap) || (next.source != g_cfg.source) ||
++                          (next.unwrap != g_cfg.unwrap) || (next.source != g_cfg.source) ||
++                          completion_changed ||
+                          (next.synth_after != g_cfg.synth_after) ||
+                          (next.synth != g_cfg.synth) || (next.hash_out != g_cfg.hash_out) ||
+                          (next.mv_sign_x != g_cfg.mv_sign_x) ||
+@@ -567,12 +602,20 @@ static void CfgReload()
+     said_once = true;
+ 
+     g_cfg = next;
++    if (completion_changed)
++    {
++        g_bridge.completion_sync_sticky = false;
++        Log("[bridge] completion policy changed explicitly; the session fallback latch was reset.");
++    }
+     Log("[bridge] config: stage=%d mode=%d flags=%d subrects=%d reset_every=%d pixels=%d "
+-        "skip_game=%d dred=%d skip_exe=%d unwrap=%d source=%s synth=%d hash_out=%d synth_after=%d "
++        "skip_game=%d dred=%d skip_exe=%d unwrap=%d source=%s completion=%s effective=%s "
++        "synth=%d hash_out=%d synth_after=%d "
+         "mv_sign_x=%d mv_sign_y=%d ofa_grid=%d ofa_perf=%d vk_present=%d vk_sync=%d",
+         g_cfg.stage, g_cfg.mode, g_cfg.flags, g_cfg.subrects, g_cfg.reset_every, g_cfg.pixels,
+         g_cfg.skip_game, g_cfg.dred, g_cfg.skip_exe, g_cfg.unwrap,
+-        kCfgSourceName[g_cfg.source], g_cfg.synth, g_cfg.hash_out, g_cfg.synth_after,
++        kCfgSourceName[g_cfg.source], kCfgCompletionName[g_cfg.completion],
++        BridgeCompletionSynchronous() ? "sync" : "async",
++        g_cfg.synth, g_cfg.hash_out, g_cfg.synth_after,
+         g_cfg.mv_sign_x, g_cfg.mv_sign_y, g_cfg.ofa_grid, g_cfg.ofa_perf, g_cfg.vk_present,
+         g_cfg.vk_sync);
+ 
+@@ -638,6 +681,13 @@ static bool CfgWriteFile(const char *path)
+         "# off; synth pins the synthetic one; off disables both.\n"
+         "source=%s\n"
+         "\n"
++        "# D3D11 OUTPUT COMPLETION\n"
++        "# auto starts with the GPU-side asynchronous wait. If a wait anomaly is\n"
++        "# observed, later frames use synchronous real-GPU completion for the rest\n"
++        "# of this session. sync forces that safer per-frame wait; async forces the\n"
++        "# original high-throughput path. Neither mode adds a frame of latency.\n"
++        "completion=%s\n"
++        "\n"
+         "# THE DRIVER'S OPTICAL FLOW ENGINE, used by the synthetic contract only.\n"
+         "# ofa_grid 0 off -- a ReShade motion-vector shader is then required -- or\n"
+         "# 1, 2, 4 finest to cheapest. ofa_perf 5 SLOW, 10 MEDIUM, 20 FAST.\n"
+@@ -675,7 +725,8 @@ static bool CfgWriteFile(const char *path)
+         "skip_exe=%d\n"
+         "unwrap=%d\n",
+         1, g_cfg.synth, g_cfg.synth_after,
+-        kCfgSourceName[g_cfg.source], g_cfg.ofa_grid, g_cfg.ofa_perf,
++        kCfgSourceName[g_cfg.source], kCfgCompletionName[g_cfg.completion],
++        g_cfg.ofa_grid, g_cfg.ofa_perf,
+         g_cfg.mv_sign_x, g_cfg.mv_sign_y, g_cfg.vk_present, g_cfg.vk_sync,
+         g_cfg.stage, g_cfg.mode, g_cfg.skip_game, g_cfg.flags, g_cfg.subrects,
+         g_cfg.reset_every, g_cfg.pixels, g_cfg.dred, g_cfg.skip_exe, g_cfg.unwrap);
+@@ -962,9 +1013,9 @@ static void LogCenterPixel(ID3D11DeviceContext *ctx, ID3D11Device *dev11,
+ // Every path that gives up goes through here, so the user is told once, in the
+ // overlay, that the bridge stopped -- otherwise there is simply no effect on
+ // screen and nothing to explain it without opening a file.
+-static void BridgeReleaseExposureFwd();
++static bool BridgeReleaseExposureFwd();
+ 
+-static void BridgeReleaseTextures();
++static bool BridgeReleaseTextures();
+ 
+ // It is also the only shutdown this add-on has. It used to set a flag and
+ // nothing else, which left the DLSS feature, four shared textures and their NT
+@@ -1627,27 +1678,43 @@ static bool BridgeBlitMV(ID3D11DeviceContext *ctx, ID3D11Device *dev11, ID3D11Te
+ // feature while a submitted command list still references it corrupts driver
+ // state and surfaces later as an access violation inside NGX. Every teardown
+ // therefore drains the queue first. Rebuilds are rare, so the stall is free.
+-static void BridgeDrainGpu()
++static bool BridgeDrainGpu()
+ {
+-    if (g_bridge.queue == nullptr || g_bridge.fence12 == nullptr) return;
++    if (g_bridge.queue == nullptr || g_bridge.fence12 == nullptr) return true;
+ 
+     const UINT64 v = ++g_bridge.fence_value;
+-    g_bridge.queue->Signal(g_bridge.fence12, v);
+-    if (g_bridge.fence12->GetCompletedValue() < v && g_bridge.fence_event != nullptr)
++    if (FAILED(g_bridge.queue->Signal(g_bridge.fence12, v)) ||
++        (g_bridge.fence_progress != nullptr &&
++         FAILED(g_bridge.queue->Signal(g_bridge.fence_progress, v))))
+     {
+-        g_bridge.fence12->SetEventOnCompletion(v, g_bridge.fence_event);
++        Log("[bridge] the queue refused the teardown fence; resources are retained");
++        return false;
++    }
++    g_bridge.last_submitted = v;
++
++    ID3D12Fence *truth = g_bridge.fence_progress != nullptr ? g_bridge.fence_progress
++                                                            : g_bridge.fence12;
++    if (!bridge_contract::RealFenceReached(truth->GetCompletedValue(), v) &&
++        g_bridge.fence_event != nullptr)
++    {
++        const HRESULT armed = truth->SetEventOnCompletion(v, g_bridge.fence_event);
+         // The wake is not the answer; the fence is. SetEventOnCompletion cannot
+         // be cancelled, so a wait that timed out earlier leaves a live
+         // registration, and one auto-reset event serves all three waits here --
+         // a stale signal would otherwise satisfy this one for the wrong value
+         // and let the release below run while command lists still reference the
+         // resources, which is exactly what this drain exists to prevent.
+-        if (WaitForSingleObject(g_bridge.fence_event, 5000) != WAIT_OBJECT_0 ||
+-            g_bridge.fence12->GetCompletedValue() < v)
+-            Log("[bridge] timed out draining the queue before teardown");
++        if (SUCCEEDED(armed)) WaitForSingleObject(g_bridge.fence_event, 5000);
++    }
++    if (!bridge_contract::RealFenceReached(truth->GetCompletedValue(), v))
++    {
++        Log("[bridge] the queue did not really complete before teardown; its resources "
++            "are retained and retirement will be retried after the GPU reaches fence %llu", v);
++        return false;
+     }
+     // Every allocator is now retired, so none of them needs waiting on again.
+     for (int i = 0; i < Bridge::kFrames; ++i) g_bridge.alloc_fence[i] = 0;
++    return true;
+ }
+ 
+ // The D3D12 output texture, read back once and reduced to one number.
+@@ -1701,12 +1768,14 @@ static void BridgeReadbackStats(int slot, UINT64 fence_value)
+     const UINT64 v = EndCommands();
+     (void)fence_value;
+ 
+-    if (g_bridge.fence12 != nullptr && g_bridge.fence_event != nullptr &&
+-        g_bridge.fence12->GetCompletedValue() < v)
++    ID3D12Fence *truth = g_bridge.fence_progress != nullptr ? g_bridge.fence_progress
++                                                            : g_bridge.fence12;
++    if (truth != nullptr && g_bridge.fence_event != nullptr &&
++        !bridge_contract::RealFenceReached(truth->GetCompletedValue(), v))
+     {
+-        g_bridge.fence12->SetEventOnCompletion(v, g_bridge.fence_event);
++        truth->SetEventOnCompletion(v, g_bridge.fence_event);
+         if (WaitForSingleObject(g_bridge.fence_event, 4000) != WAIT_OBJECT_0 ||
+-            g_bridge.fence12->GetCompletedValue() < v)
++            !bridge_contract::RealFenceReached(truth->GetCompletedValue(), v))
+         { rb->Release(); Log("[bridge] output hash: the copy did not complete"); return; }
+     }
+ 
+@@ -1866,18 +1935,27 @@ static bool PqBackBuffer(DXGI_FORMAT f)
+ // is parked behind those.
+ static bool PqPassWait(PqPass *p, UINT64 value, DWORD wait_ms = 4000)
+ {
+-    if (p->fence == nullptr || p->fence->GetCompletedValue() >= value) return true;
++    if (value == 0 || p->fence == nullptr ||
++        bridge_contract::RealFenceReached(p->fence->GetCompletedValue(), value))
++        return true;
+     if (FAILED(p->fence->SetEventOnCompletion(value, p->ev))) return false;
+-    return WaitForSingleObject(p->ev, wait_ms) == WAIT_OBJECT_0;
++    WaitForSingleObject(p->ev, wait_ms);
++    return bridge_contract::RealFenceReached(p->fence->GetCompletedValue(), value);
+ }
+ 
+-static void PqPassRelease(PqPass *p)
++static bool PqPassRelease(PqPass *p)
+ {
+     // The lists may still name the textures: let them finish first.
+-    if (p->fence != nullptr) PqPassWait(p, p->fv);
++    if (p->fence != nullptr && !PqPassWait(p, p->fv))
++    {
++        Log("[bridge] the HDR10 pass is still in flight; retaining its textures until "
++            "the GPU really completes fence %llu", p->fv);
++        return false;
++    }
+     if (p->in  != nullptr) { p->in->Release();  p->in  = nullptr; }
+     if (p->out != nullptr) { p->out->Release(); p->out = nullptr; }
+     p->colour = p->output = p->output_b = nullptr;
++    return true;
+ }
+ 
+ // One shader, one root constant choosing the direction: 0 decodes colour into
+@@ -1886,7 +1964,7 @@ static void PqPassRelease(PqPass *p)
+ static bool PqPassMake(PqPass *p, ID3D12Device *dev, ID3D12Resource *colour, ID3D12Resource *output,
+                        ID3D12Resource *output_b = nullptr)
+ {
+-    PqPassRelease(p);
++    if (!PqPassRelease(p)) return false;
+     p->dev      = dev;
+     p->colour   = colour;
+     p->output   = output;
+@@ -2154,8 +2232,9 @@ static bool PqPassRun(PqPass *p, ID3D12CommandQueue *queue, int mode, int set,
+     list->Close();
+     ID3D12CommandList *lists[] = { list };
+     queue->ExecuteCommandLists(1, lists);
+-    queue->Signal(p->fence, ++p->fv);
+-    p->done[mode] = p->fv;
++    const UINT64 value = ++p->fv;
++    if (FAILED(queue->Signal(p->fence, value))) return false;
++    p->done[mode] = value;
+     return true;
+ }
+ 
+@@ -2170,23 +2249,40 @@ static bool PqPassBefore(PqPass *p, ID3D12CommandQueue *queue, DWORD wait_ms = 4
+ // waits for the encoded result and not only for the evaluate.
+ static UINT64 PqPassAfter(PqPass *p, ID3D12CommandQueue *queue, ID3D12Fence *session_fence,
+                           UINT64 *session_value, UINT64 fallback, int set = 0,
+-                          DWORD wait_ms = 4000)
++                          DWORD wait_ms = 4000, bool *submitted = nullptr)
+ {
++    if (submitted != nullptr) *submitted = false;
+     if (!PqPassRun(p, queue, 1, set, wait_ms)) return fallback;
+     const UINT64 v = ++*session_value;
+-    queue->Signal(session_fence, v);
++    if (FAILED(queue->Signal(session_fence, v))) return fallback;
++    if (submitted != nullptr) *submitted = true;
+     return v;
+ }
+ 
+-static void BridgeReleaseTextures()
++static bool BridgeReleaseTextures()
+ {
+-    PqPassRelease(&g_bridge.pq);
+-    BridgeDrainGpu();
++    // The session fence is queued after every NGX and PQ submission. Do not free
++    // any member of this resource set unless that queue signal really completed.
++    // On timeout the set stays intact, so a later rebuild attempt can retry.
++    if (!BridgeDrainGpu())
++    {
++        g_bridge.frame_ready = false;
++        return false;
++    }
++    if (!PqPassRelease(&g_bridge.pq))
++    {
++        g_bridge.frame_ready = false;
++        return false;
++    }
+ 
+     // The exposure mirror goes with the rest. Leaving it out kept a shared NT
+     // handle and a D3D12 resource alive for the life of the process on a
+     // session that had already told the user it was disabled.
+-    BridgeReleaseExposureFwd();
++    if (!BridgeReleaseExposureFwd())
++    {
++        g_bridge.frame_ready = false;
++        return false;
++    }
+ 
+     // The four resource keys, cleared before the textures they name are freed.
+     // Same rule as the exposure one above and the same reason: NGX does not
+@@ -2234,6 +2330,7 @@ static void BridgeReleaseTextures()
+     }
+     g_bridge.feature = nullptr;
+     g_bridge.frame_ready = false;
++    return true;
+ }
+ 
+ // The one place a D3D11 description is reduced to the four facts the frame path
+@@ -3037,7 +3134,7 @@ static bool BridgeBuildResources(ID3D11Device *dev11, const DXGI_FORMAT *fmt,
+ {
+     Breadcrumb("building shared textures");
+     const UINT w = g_bridge.width, h = g_bridge.height;
+-    BridgeReleaseTextures();
++    if (!BridgeReleaseTextures()) return false;
+ 
+     ID3D11Device1 *dev1 = nullptr;
+     if (FAILED(dev11->QueryInterface(__uuidof(ID3D11Device1), reinterpret_cast<void **>(&dev1))) ||
+@@ -3673,13 +3770,27 @@ static void BridgeEnterStall(UINT64 done, UINT64 wanted, const char *who)
+     if (t - g_bridge.stall_last > 60000) g_bridge.stalls = 0;
+     g_bridge.stall_last = t;
+     ++g_bridge.stalls;
++    BridgeLatchSynchronousCompletion("a GPU wait anomaly");
+     Log("[bridge] the D3D12 side has completed nothing for 500 ms while %s waits on", who);
+-    Log("  fence %llu (completed %llu). Releasing the game's wait from the CPU so it can",
+-        wanted, done);
+-    Log("  present again, and standing aside until the D3D12 side catches up: its work");
+-    Log("  is still queued, and the neural pass runs inside it. The game's own DLSS runs");
+-    Log("  meanwhile. Stall %d in the last minute.", g_bridge.stalls);
+-    if (g_bridge.pending_out != 0) g_bridge.fence12->Signal(g_bridge.pending_out);
++    if (g_bridge.pending_out != 0)
++    {
++        Log("  fence %llu (completed %llu). Releasing the already queued D3D11 wait from",
++            wanted, done);
++        Log("  the CPU so the game can present again. That output copy was queued before");
++        Log("  the anomaly was observable and cannot be cancelled; this first fallback does");
++        Log("  not prove that copy safe. Later auto frames wait for real completion before");
++        Log("  queuing any output copy. Stall %d in the last minute.", g_bridge.stalls);
++        if (FAILED(g_bridge.fence12->Signal(g_bridge.pending_out)))
++            Log("[bridge] the CPU rescue signal itself failed; device removal will decide the wait.");
++    }
++    else
++    {
++        Log("  fence %llu (completed %llu). No D3D11 output wait or copy was queued for this",
++            wanted, done);
++        Log("  frame. The game's own DLSS remains on screen while submitted resources stay");
++        Log("  isolated until real GPU progress catches up. Stall %d in the last minute.",
++            g_bridge.stalls);
++    }
+     g_bridge.stalled       = true;
+     g_bridge.stall_since   = GetTickCount64();
+     // Everything submitted so far, not only what the game waits on: the
+@@ -3696,6 +3807,50 @@ static void BridgeEnterStall(UINT64 done, UINT64 wanted, const char *who)
+     }
+ }
+ 
++// completion=sync (and auto after it latches) uses the progress fence that only
++// the D3D12 queue can signal. The shared session fence is deliberately excluded:
++// asynchronous rescue may have advanced it from the CPU, which is enough to
++// unblock D3D11 but is not proof that the producer finished. Only after this
++// function succeeds may the frame enqueue its D3D11 output copy.
++static bool BridgeWaitForRealOutput(UINT64 wanted)
++{
++    ID3D12Fence *truth = g_bridge.fence_progress;
++    if (truth == nullptr || g_bridge.fence_event == nullptr)
++    {
++        BridgeLatchSynchronousCompletion("a missing real-progress fence");
++        Log("[bridge] synchronous output cannot verify fence %llu; this frame stays native.",
++            wanted);
++        BridgeFail("real GPU completion is unavailable");
++        return false;
++    }
++
++    const ULONGLONG deadline = GetTickCount64() + 500;
++    for (;;)
++    {
++        const UINT64 done = truth->GetCompletedValue();
++        if (bridge_contract::RealFenceReached(done, wanted)) return true;
++        if (done == UINT64_MAX)
++        {
++            BridgeDeviceLost();
++            return false;
++        }
++        const ULONGLONG now = GetTickCount64();
++        if (now >= deadline)
++        {
++            BridgeEnterStall(done, wanted, "synchronous output");
++            return false;
++        }
++        if (FAILED(truth->SetEventOnCompletion(wanted, g_bridge.fence_event)))
++        {
++            BridgeLatchSynchronousCompletion("a failed real-progress wait");
++            Log("[bridge] the real-progress fence refused a synchronous wait; this frame stays native.");
++            BridgeFail("real GPU completion wait");
++            return false;
++        }
++        WaitForSingleObject(g_bridge.fence_event, static_cast<DWORD>(deadline - now));
++    }
++}
++
+ static void BridgeRescueStalledQueue()
+ {
+     // Once the bridge has stopped there is nothing left to rescue, and without
+@@ -3904,7 +4059,7 @@ static void MirrorFloatParam(const NVSDK_NGX_Parameter *src, const char *key)
+ // Kept out of the slot array on purpose. Games that supply no exposure texture
+ // are the common case and every SLOT_COUNT loop would have to learn about a
+ // null.
+-static void BridgeReleaseExposure()
++static bool BridgeReleaseExposure()
+ {
+     // NGX does not AddRef the resources in a parameter block -- that is why
+     // games must keep them alive across the call -- and this block is allocated
+@@ -3914,7 +4069,11 @@ static void BridgeReleaseExposure()
+     // reference the surface, and up to three are in flight.
+     if (g_bridge.exp12 != nullptr)
+     {
+-        BridgeDrainGpu();
++        if (!BridgeDrainGpu())
++        {
++            g_bridge.frame_ready = false;
++            return false;
++        }
+         if (g_bridge.params != nullptr)
+             g_bridge.params->Set("ExposureTexture", static_cast<ID3D12Resource *>(nullptr));
+     }
+@@ -3922,8 +4081,9 @@ static void BridgeReleaseExposure()
+     if (g_bridge.exp11   != nullptr) { g_bridge.exp11->Release();   g_bridge.exp11   = nullptr; }
+     if (g_bridge.exp_shared != nullptr) { CloseHandle(g_bridge.exp_shared); g_bridge.exp_shared = nullptr; }
+     g_bridge.exp_w = g_bridge.exp_h = 0;
++    return true;
+ }
+-static void BridgeReleaseExposureFwd() { BridgeReleaseExposure(); }
++static bool BridgeReleaseExposureFwd() { return BridgeReleaseExposure(); }
+ 
+ 
+ // Builds the mirror on first use and whenever the game's exposure texture
+@@ -3938,7 +4098,7 @@ static bool BridgeEnsureExposure(ID3D11Device *dev11, ID3D11Texture2D *src)
+         g_bridge.exp_h == sd.Height && g_bridge.exp_fmt == sd.Format)
+         return true;
+ 
+-    BridgeReleaseExposure();
++    if (!BridgeReleaseExposure()) return false;
+ 
+     D3D11_TEXTURE2D_DESC td = {};
+     td.Width            = sd.Width;
+@@ -4204,10 +4364,11 @@ static bool BridgeSelectHistory(const NVSDK_NGX_Parameter *gp)
+     return true;
+ }
+ 
+-static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter *gp)
++static bool BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter *gp)
+ {
++    bool delivered = false;
+     BridgeRescueStalledQueue();
+-    if (g_bridge.disabled || !g_bridge.session_ready || gp == nullptr) return;
++    if (g_bridge.disabled || !g_bridge.session_ready || gp == nullptr) return false;
+ 
+     // Standing aside after a stall: nothing is recorded or copied until the
+     // progress fence reaches the value the game was released from. The game's
+@@ -4229,18 +4390,18 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+             Log("[bridge] the D3D12 side has not caught up 4 s after the stall: fence %llu "
+                 "wanted, %llu completed.", g_bridge.stall_release, done);
+             BridgeDisable("the D3D12 side never caught up after a stall");
+-            return;
++            return false;
+         }
+         else
+         {
+             ++g_bridge.frames_done;
+-            return;
++            return false;
+         }
+     }
+ 
+     if (g_bridge.paused_until != 0)
+     {
+-        if (GetTickCount64() < g_bridge.paused_until) return;
++        if (GetTickCount64() < g_bridge.paused_until) return false;
+         g_bridge.paused_until  = 0;
+         g_bridge.rebuilds      = 0;
+         g_bridge.rebuild_since = GetTickCount64();
+@@ -4264,13 +4425,13 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         Log("  works on the immediate context. Continuing would deadlock the render");
+         Log("  thread, so the bridge is stopping. The game is unaffected.");
+         BridgeDisable("DLSS runs on a deferred context here");
+-        return;
++        return false;
+     }
+ 
+     CfgReload();   // rate limited inside, on the clock rather than on frames
+ 
+     // Stage 0 touches nothing at all, not even a read of the game's parameters.
+-    if (g_cfg.stage <= 0) { ++g_bridge.frames_done; return; }
++    if (g_cfg.stage <= 0) { ++g_bridge.frames_done; return false; }
+ 
+     TexFacts             d[SLOT_COUNT] = {};
+     ID3D11Texture2D     *g[SLOT_COUNT] = {};
+@@ -4280,7 +4441,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         if (g[i] == nullptr)
+         {
+             for (int k = 0; k < i; ++k) g[k]->Release();
+-            return;  // nothing to do this frame
++            return false;  // nothing to do this frame
+         }
+     }
+ 
+@@ -4308,7 +4469,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         }
+         g_bridge.frame_ready = false;
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+-        return;
++        return false;
+     }
+     // This used to clear msaa_reported, so a game alternating sample counts
+     // re-armed the warning every other frame and the two messages traded places
+@@ -4490,7 +4651,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         BridgeDisable("the game's output is smaller than its input");
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+ 
+     // Gallipoli's map screen creates a 1440x1440 feature while its textures stay
+@@ -4522,7 +4683,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         BridgeDisable("the output region exceeds its texture; no output is copied back");
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+     const bool partial = (gow != d[SLOT_OUTPUT].Width) || (goh != d[SLOT_OUTPUT].Height);
+     g_bridge.partial_output = partial;
+@@ -4536,7 +4697,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         g_bridge.frame_ready = false;
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+     if (partial && !g_bridge.partial_reported)
+     {
+@@ -4591,7 +4752,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+                 BridgeDisable("the render shape never settles");
+                 for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+                 dev11->Release();
+-                return;
++                return false;
+             }
+ 
+             if (!g_bridge.pause_reported)
+@@ -4608,7 +4769,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+             g_bridge.frame_ready  = false;
+             for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+             dev11->Release();
+-            return;
++            return false;
+         }
+ 
+         DXGI_FORMAT fmt[SLOT_COUNT];
+@@ -4630,7 +4791,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+             BridgeFail("resource build");
+             for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+             dev11->Release();
+-            return;
++            return false;
+         }
+     }
+ 
+@@ -4641,7 +4802,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+     {
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+ 
+     // If the game alternates its Color and Output textures, writing the result
+@@ -4677,7 +4838,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+     {
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+     if (!g_bridge.mv_converted) ctx->CopyResource(g_bridge.tex11[SLOT_MV], g[SLOT_MV]);
+ 
+@@ -4702,7 +4863,12 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+             // for the rest of the session would be worse than sending none.
+             Log("[bridge] the game no longer supplies an exposure texture; the mirror "
+                 "is dropped rather than left holding a stale one.");
+-            BridgeReleaseExposure();
++            if (!BridgeReleaseExposure())
++            {
++                for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
++                dev11->Release();
++                return false;
++            }
+         }
+     }
+ 
+@@ -4714,7 +4880,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         ++g_bridge.frames_done;
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+ 
+     // 2. publish those copies to the other queue. The flush matters: without it
+@@ -4732,7 +4898,7 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         if (!g_bridge.stalled) BridgeFail("command list");
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+ 
+     Barrier(g_bridge.list, g_bridge.tex12[SLOT_COLOR], D3D12_RESOURCE_STATE_COMMON,
+@@ -4746,10 +4912,14 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+ 
+     if (g_bridge.pq.in != nullptr && !PqPassBefore(&g_bridge.pq, g_bridge.queue))
+     {
++        // BeginCommands opened this list, but no command from it was submitted.
++        // Close the discarded recording so the next frame can reset and retry.
++        g_bridge.list->Close();
++        BridgeLatchSynchronousCompletion("an HDR10 wait or submission anomaly");
+         BridgeFail("HDR10 decode");
+         for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+         dev11->Release();
+-        return;
++        return false;
+     }
+     g_bridge.params->Set("Color", g_bridge.pq.in  != nullptr ? g_bridge.pq.in  : g_bridge.tex12[SLOT_COLOR]);
+     g_bridge.params->Set("Output", g_bridge.pq.out != nullptr ? g_bridge.pq.out : g_bridge.tex12[SLOT_OUTPUT]);
+@@ -4818,11 +4988,37 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+ 
+     UINT64 v_out = EndCommands();
+     if (g_bridge.pq.in != nullptr)
+-        v_out = PqPassAfter(&g_bridge.pq, g_bridge.queue, g_bridge.fence12, &g_bridge.fence_value, v_out);
++    {
++        bool encoded = false;
++        v_out = PqPassAfter(&g_bridge.pq, g_bridge.queue, g_bridge.fence12,
++                            &g_bridge.fence_value, v_out, 0, 4000, &encoded);
++        // PqPassAfter advances the shared session fence after the encode. Mirror
++        // that value onto the queue-only progress fence too: otherwise HDR10's
++        // returned v_out has no real-completion witness and both synchronous
++        // delivery and asynchronous retirement could mistake the earlier NGX
++        // signal for completion of the later encode.
++        if (encoded && (g_bridge.fence_progress == nullptr ||
++                        FAILED(g_bridge.queue->Signal(g_bridge.fence_progress, v_out))))
++        {
++            Log("[bridge] the HDR10 encode has no real-progress signal; this frame is not delivered");
++            encoded = false;
++        }
++        if (encoded) g_bridge.last_submitted = v_out;
++        if (!encoded)
++        {
++            BridgeLatchSynchronousCompletion("an HDR10 wait or submission anomaly");
++            Log("[bridge] the HDR10 encode could not be submitted; this frame is not delivered");
++            BridgeFail("HDR10 encode");
++            for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
++            dev11->Release();
++            return false;
++        }
++    }
+ 
+-    // No CPU wait here, and that is deliberate rather than an omission: the
+-    // signal above is a GPU-side fence and the game's queue waits on it, so this
+-    // transport never blocks the calling thread.
++    // The default reaches this point asynchronously. completion=sync, or auto
++    // after a wait anomaly, verifies the queue-only progress fence below before
++    // any D3D11 output copy is queued. That preserves the same source frame and
++    // adds no one-frame buffer, at the cost of a CPU/GPU serialization point.
+     //
+     // Tested as an accommodation on 2026-09-02 and it changes nothing. A DLSS 5
+     // add-on build whose own log announces a "GPU-safe NR workset pool ... exact
+@@ -4872,6 +5068,17 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+     }
+     else
+     {
++        if (BridgeCompletionSynchronous() && !BridgeWaitForRealOutput(v_out))
++        {
++            // BridgeEnterStall, when the wait timed out, retains every submitted
++            // resource and makes BridgeWillDeliver false. Direct wait failures
++            // likewise leave this frame native; neither path queues a D3D11
++            // copy from an unproven producer.
++            for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
++            dev11->Release();
++            return false;
++        }
++
+         // Only a completed evaluate clears the failure count.
+         g_bridge.consecutive_fails = 0;
+ 
+@@ -4883,18 +5090,22 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+         // a GPU-side wait has no timeout and cannot be cancelled, so if the
+         // D3D12 side never reaches v_out the game's queue stops for good.
+         // BridgeRescueStalledQueue watches this value on later frames.
+-        g_bridge.ctx4->Wait(g_bridge.fence11, v_out);
++        if (FAILED(g_bridge.ctx4->Wait(g_bridge.fence11, v_out)))
++        {
++            BridgeLatchSynchronousCompletion("a refused D3D11 output wait");
++            Log("[bridge] D3D11 refused the output fence wait; no output copy was queued.");
++            BridgeFail("D3D11 output wait");
++            for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
++            dev11->Release();
++            return false;
++        }
+         // Always the newest value: fences are monotonic, so signalling the
+         // latest satisfies every wait queued behind it. The deadline is not
+         // armed here -- BridgeRescueStalledQueue keeps it, against the last time
+         // the GPU completed anything at all.
+-        g_bridge.pending_out = v_out;
++        g_bridge.pending_out = BridgeCompletionSynchronous() ? 0 : v_out;
+ 
+         const UINT64 n = ++g_bridge.frames_done;
+-        // The one place a completed evaluate exists to be copied back, so the
+-        // only honest place to count a delivered frame. The stage<3 returns
+-        // above move frames_done as well, and they deliver nothing.
+-        CountDelivered();
+ 
+         // Did a DLSS 5 add-on detour CreateFeature after this add-on had already
+         // called it? Only asked on the synthetic path, and only for the first
+@@ -4933,6 +5144,10 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+             }
+             else
+                 ctx->CopyResource(g[SLOT_OUTPUT], g_bridge.tex11[SLOT_OUTPUT]);
++            // The copy into the consumer's Output is what delivery means. A
++            // successful evaluate in mode 0/1 does not claim a delivered frame.
++            CountDelivered();
++            delivered = true;
+         }
+         else if (mode == 1) ctx->CopyResource(g[SLOT_OUTPUT], g_bridge.tex11[SLOT_COLOR]);
+         // mode 0 writes nothing back
+@@ -4955,11 +5170,12 @@ static void BridgeFrameInner(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter
+ 
+     for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+     dev11->Release();
++    return delivered;
+ }
+ 
+ // Wrapper so every exit path from the frame work is timed, including the early
+ // ones taken when a stage is disabled or a rebuild fails.
+-static void BridgeFrame(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter *gp)
++static bool BridgeFrame(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter *gp)
+ {
+     LARGE_INTEGER t0, t1;
+     QueryPerformanceCounter(&t0);
+@@ -4968,9 +5184,10 @@ static void BridgeFrame(ID3D11DeviceContext *ctx, const NVSDK_NGX_Parameter *gp)
+     // thread can land between the copies, the fence signal and the copy back.
+     const bool lock = g_bridge.mt != nullptr && g_bridge.mt->GetMultithreadProtected();
+     if (lock) g_bridge.mt->Enter();
+-    BridgeFrameInner(ctx, gp);
++    const bool delivered = BridgeFrameInner(ctx, gp);
+     if (lock) g_bridge.mt->Leave();
+ 
+     QueryPerformanceCounter(&t1);
+     TimingTick(t0.QuadPart, t1.QuadPart);
++    return delivered;
+ }
+diff --git a/src/dlss5-bridge.cpp b/src/dlss5-bridge.cpp
+index dd23b3a..c75e75a 100644
+--- a/src/dlss5-bridge.cpp
++++ b/src/dlss5-bridge.cpp
+@@ -2332,28 +2332,20 @@ static NVSDK_NGX_Result ForwardEvaluate(Hook &h, const char *tag, ID3D11DeviceCo
+     Breadcrumb("forwarding the game's DLSS evaluate");
+     const bool suppress = BridgeWillDeliver(handle);
+ 
+-    NVSDK_NGX_Result r = NGX_SUCCESS;
+-    if (!suppress)
++    auto forward_native = [&]() -> NVSDK_NGX_Result
+     {
+         if (g_ngx_cs_ready) EnterCriticalSection(&g_ngx_cs);
+         EnterCriticalSection(&g_hook_cs);
+         HookRemove(h);
+-        r = reinterpret_cast<PFN_Evaluate>(h.target)(ctx, handle, p, cb);
++        const NVSDK_NGX_Result native =
++            reinterpret_cast<PFN_Evaluate>(h.target)(ctx, handle, p, cb);
+         HookRestore(h);
+         LeaveCriticalSection(&g_hook_cs);
+         if (g_ngx_cs_ready) LeaveCriticalSection(&g_ngx_cs);
+-    }
++        return native;
++    };
+ 
+-    if (n <= 5)
+-        Log("--- EvaluateFeature #%ld returned %d%s ---", n, r,
+-            suppress ? " (game's own DLSS suppressed)" : "");
+-
+-    // Worth saying in words. If the game's own DLSS is already failing, the
+-    // contract was broken before this add-on touched it, and chasing the bridge
+-    // is chasing the wrong thing.
+-    if (!suppress && r != NGX_SUCCESS && n <= 5)
+-        Log("  the game's own DLSS call failed (0x%08X), before the bridge changed "
+-            "anything. Whatever is wrong is wrong upstream of it.", r);
++    NVSDK_NGX_Result r = suppress ? NGX_SUCCESS : forward_native();
+ 
+     // The bridge runs after the game's own evaluate has been forwarded, so the
+     // game's Color holds this frame's input and its Output can be replaced.
+@@ -2383,9 +2375,32 @@ static NVSDK_NGX_Result ForwardEvaluate(Hook &h, const char *tag, ID3D11DeviceCo
+         ctx->GetDevice(&dev);
+         if (dev != nullptr) { BridgeInitSession(dev, ctx); dev->Release(); }
+     }
+-    BridgeFrame(ctx, p);
++    const bool delivered = BridgeFrame(ctx, p);
+     LeaveCriticalSection(&g_bridge_cs);
+ 
++    bool fell_back = false;
++    if (bridge_contract::NeedsNativeFallback(suppress, delivered))
++    {
++        // BridgeWillDeliver is necessarily a prediction made before this frame
++        // runs. If the actual frame refuses, restore the call that prediction
++        // suppressed and return its real result instead of preset success.
++        Breadcrumb("the bridge did not deliver; forwarding the game's DLSS evaluate");
++        r = forward_native();
++        fell_back = true;
++    }
++
++    if (n <= 5)
++        Log("--- EvaluateFeature #%ld returned %d%s ---", n, r,
++            suppress && !fell_back ? " (game's own DLSS suppressed)" :
++            fell_back ? " (game's own DLSS restored after bridge refusal)" : "");
++
++    // Worth saying in words. If the game's own DLSS is already failing, the
++    // contract was broken before this add-on touched it, and chasing the bridge
++    // is chasing the wrong thing.
++    if ((!suppress || fell_back) && r != NGX_SUCCESS && n <= 5)
++        Log("  the game's own DLSS call failed (0x%08X). Whatever is wrong is "
++            "upstream of the bridge output.", r);
++
+     return r;
+ }
+ 

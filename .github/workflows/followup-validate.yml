@@ -1,0 +1,22 @@
+name: Validate 0.4.5 fix1
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    uses: ./.github/workflows/beta042-validate.yml
+  feedback:
+    uses: ./.github/workflows/feedback-integrity.yml
+  release-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Actual TXT status and precise historical negative
+        run: |
+          python3 scripts/validate-feedback-report-status.py
+          python3 scripts/validate-feedback-report-status.py --negative-control
+          python3 -m py_compile scripts/publish-045-fix1.py

@@ -119,6 +119,7 @@ struct StageCapturePreparedContext {
 };
 StageCapturePreparedContext g_stage_capture_prepared_context{};
 std::recursive_mutex g_chain_cs;
+namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
 std::atomic<unsigned int> chain_waiters{0};
 void EnterCriticalSection(std::recursive_mutex *lock) {
     ++chain_waiters; lock->lock(); --chain_waiters;
@@ -143,6 +144,9 @@ void Check(bool pass, const char *message) {
     if (!pass) { ++failures; std::printf("FAIL: %s\n", message); }
 }
 int main() {
+    nr_f8::g_config_hold=true;
+    Check(!RequestStageCapture() && StageCaptureStatus()==0,"other diagnostic lease blocks legacy capture publication");
+    nr_f8::g_config_hold=false;
     NgxHandle carrier, runtime;
     ID3D12Resource gpu, readback;
     auto &old = g_contexts[0];

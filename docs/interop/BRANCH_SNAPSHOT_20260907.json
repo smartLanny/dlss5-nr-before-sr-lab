@@ -1,0 +1,492 @@
+{
+  "baseline": "7b9ebb8",
+  "policy": "Retire only exactly snapshotted merged refs; preserve worktrees/uncommitted work, unmerged experiments, archives and historical release bases. main retains all deleted tips by ancestry.",
+  "branches": [
+    {
+      "branch": "archive/beta042-final",
+      "commit": "7913503b1a23185a077bef6d7c79e5086ac32277",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "archive/mainline-normalization-20260906",
+      "commit": "49dd9d4a619a6e73a89ad9d37e3a92a031c57d8d",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "archive/normalized-main-49dd9d4",
+      "commit": "49dd9d4a619a6e73a89ad9d37e3a92a031c57d8d",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "archive/pre-mainline-beta043r3",
+      "commit": "d42a8eb23778bc602d0d638193872d41216c2203",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "archive/pre-normalization-marker",
+      "commit": "7913503b1a23185a077bef6d7c79e5086ac32277",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "archive/r3-release-line",
+      "commit": "d42a8eb23778bc602d0d638193872d41216c2203",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "chore/canonical-feedback-integrity",
+      "commit": "bff1adcaa142b900f1e273e8536276f0a52a78c3",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "chore/mainline-normalization-prep",
+      "commit": "63f873df64a62825f535e451a4b28241939cf9b4",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/043-feedback-and-triage",
+      "commit": "f648c5bfcef14b552b2d38e8f45c533462e4cf40",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/043-feedback-integrity",
+      "commit": "690d934de162254436e6b2baf521f28ba5b5b87c",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/043-source-preparation",
+      "commit": "317fb2a0dee55297c4a93130ee0a26d60ba0e7e3",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/043r2-compat-feedback-ux",
+      "commit": "1e2d2c1d2d80126d04f021bde0c36138dcee3f21",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/043r2-finalize-preparation",
+      "commit": "5bed5185e89eb18eb9a5b2b57ef415d20d6b7568",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/043r2-release-finalize",
+      "commit": "e2bccd4bd6fd864ad56ce2bd0bbe86dec4100cb9",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/043r3-release-finalize",
+      "commit": "f6d2f60ad7ab205ebf714b90f39da70f0c2ca1a7",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/045-colour-defaults-20260907",
+      "commit": "7aa6500ee79deca0689ec85faf2bbb8301d181b7",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/045-feeder-recovery",
+      "commit": "f6dbc3dce6bd33a656b0c3e377142262a1302302",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/045-unified-candidate-20260907",
+      "commit": "c03e3aba3bd45a8d315669c6c1d7764bb24f3350",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/050-high-strength-guard",
+      "commit": "14957312ad42debd70bd5c8040fc433e05c502e9",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/050-high-strength-preparation",
+      "commit": "1c3b95fdbca64d6f73c4e49ff2c3d5d9bb279828",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/050-layered-source-preparation",
+      "commit": "1822760eb7ed933013cfe8ca81d21fda6b93cf47",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/050-stability-preparation",
+      "commit": "4e8583fdb5dd9c71f72d24e8ffd85d44ea146c69",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.3-stabilization",
+      "commit": "58482c811521df9dec7b1d705c5c1f65083035a9",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.3.1-startup-stability",
+      "commit": "2f5f261f9d001fbdd2465ad72b0fa824f503c062",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.3.2-diagnostics",
+      "commit": "3cb94091663c7e13280d0aa3844299365223df0a",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.3.2-screenshot-runtime",
+      "commit": "4aea4942f4a9093b750fa93b041fd93c1a26da1d",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.3.3-tuning-r8",
+      "commit": "973d22d1f47c24500c7dd69293977396d980c7fa",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.3.7",
+      "commit": "75b3fa0d1cdbee4d730262836c8cc58642b8a684",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.3.7-helldivers2",
+      "commit": "d04571da4efff5336a112f2c0ce12d3adf57647e",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.3.7-helldivers2-r2",
+      "commit": "8de4764f3deb2a9885fb9821f54c51c7f3ae6ffc",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.3.8",
+      "commit": "f4d0657ad2ddcb82b8af3b0edc6c67ecf9109934",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.3.8-helldivers2",
+      "commit": "b2d8f5a6961b47b335baa698768cec725297e3e1",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.4-perfect-chain",
+      "commit": "507992b96067379690949197cfeb290b08298cc6",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.4.1",
+      "commit": "acdda0febbbf1d90b45fc19e774f6c3378a3438b",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.4.2",
+      "commit": "7913503b1a23185a077bef6d7c79e5086ac32277",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.4.2-bug-sweep",
+      "commit": "2886c0e9a949a08ba81924c4bed06b1f80d213a1",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/beta0.4.2-native-bridge-exp1",
+      "commit": "e5ab2f7689243d8721ebfb717cf91bda1a0ffe61",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta0.5",
+      "commit": "d42a8eb23778bc602d0d638193872d41216c2203",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/beta042-dx11-native-carrier",
+      "commit": "d9f6629a5287faaec8b91c891f23783744c7a21e",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/compat-dev2-import-20260907",
+      "commit": "c433b83c63d2bcb85e2410541c7db6cf947b6d39",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/compat-fg-ui-sweep",
+      "commit": "b33d3a1b77f1b8f1921c503756c09ad663eed88b",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/dx11-045-compat",
+      "commit": "f88adc33d04803982d98336a3d26e7081bb66f9f",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/dx11-045-preparation",
+      "commit": "8d3af661cb2317cc420287ecbdc29c25385a9a5f",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/dx11-r3-render-control",
+      "commit": "0f714b32597e395d0684567ed9296dc1d2a1f35c",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/install-assistant",
+      "commit": "df32f5b492959047043dcfafda9c0ec0e80f6e2a",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/manager-official-link-ux",
+      "commit": "d4e688db5f288fa16567a42ff33a8d1199c15e74",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/manager-sr-model-policy",
+      "commit": "fc9aeb6537b184e2601a304755fb542b1d075b42",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/mc0-build-20260907",
+      "commit": "3dbac3338c4e92fc76cad98070f8fae016218abb",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/mc1-feeder-20260907",
+      "commit": "47cd2a1643eb44d7f8c9d50e8bc8039d44a04c3a",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/multiapi-045-integration",
+      "commit": "c03e3aba3bd45a8d315669c6c1d7764bb24f3350",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "codex/research-fg-mfg-control-v1",
+      "commit": "3e313ae7c97da7cb80e6640f89412365f4ef9cd8",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/research-temporal-provider-v1",
+      "commit": "5d14450637c88ea9aca615a17c73c24920a844d0",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "codex/research-unified-controls-v1",
+      "commit": "7dd23a5205f4bccea34c782726bae892ffbb5f14",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "cursor/beta045-fix2-ota-a201",
+      "commit": "202a1fcf79af951666ad7ddad610bdd37dbd6add",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "cursor/fix-118-dx11-waiting-feature1-e3f9",
+      "commit": "b43b1e10cc3bc6dd237f9dc29a20234d24971a49",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "docs/r3-followup-test-matrix",
+      "commit": "447cc5b669edfa1531623839964895cc5ff37659",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "feature/050-layered-composite",
+      "commit": "962f15577ac86b2f9ca6d1d2d670714ee0ca0cb6",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "fix/044-d3d12-compat-test1",
+      "commit": "1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/045-complete-post-nr-and-controls",
+      "commit": "5616db62f0228e32fd78ce3d0247cb3523708624",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/045-flicker-input-targets",
+      "commit": "e5ce12109da0a81fa099c027172b0fee8336888e",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/045-picture-budget-primary-ui",
+      "commit": "9c6848d334e06963a88aad9089e4eaa7d9d38798",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/050-maintenance-stability",
+      "commit": "fefd447033b21cf0ae979aa53b7dddc1a8a3e20c",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "fix/f8-single-txt-reset-evidence",
+      "commit": "145689aee077fa51c54d0b1dba2d79bc38633b2c",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/f8-two-file-delivery",
+      "commit": "0ba9db01f0eb5d2545e2f9be080d453b170d8977",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "fix/nr-retirement-return-errors",
+      "commit": "453aa5fae3ecacc9f48c74020392d049a3aa16e5",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/public-strength-cap-four",
+      "commit": "2f070400b19595774bf3fa6b4d46ea2e6c64adf3",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "fix/restore-recommended-picture",
+      "commit": "7cf62b5c3b9c8ab15b37820641933cb304402bd9",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "main",
+      "commit": "4e11c35813f7dd58dd8dcc665b51979dbd928935",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "next/0.5",
+      "commit": "7540d38eb864697566585a355301b8b1f720d577",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "prep/045-followup-audit",
+      "commit": "6d0fd5251157a9a6af19775e22d1b78dbc62660a",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "prep/045-followup-sweep",
+      "commit": "0a354457da7faa56bdc1cb982ad3ae49f094d091",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "prep/045-integration",
+      "commit": "2a7e6c303c653a31544fbb3776dcc7942de1dd85",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "prep/sep06-review-fixes",
+      "commit": "eddc089e755e715d5276fb2ef5e15575d8542833",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "product/china-manager-prototype",
+      "commit": "9be23c3869a1a7bbdf2a4f20cff43b6133f776ef",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "product/glass-quickbar-v0.2",
+      "commit": "8168b1c4780b17d65b42f5bba00209df0b21f0c6",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "product/xiaofeng-manager-foundation",
+      "commit": "ce6dae6373f3ff3f37c55aea7ca6ee35b2026d06",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "release/0.4",
+      "commit": "647ac292433bf00506eead16ccda1a30c2b3a153",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "release/0.4.5-test",
+      "commit": "d675ec02055c21ce7386db461251c215c5e0e72e",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "release/beta0.4.3-finalize",
+      "commit": "25407ed2c19dc443178f7a6f96b7615a2cf469a8",
+      "contained_in_unified_baseline": true,
+      "disposition": "retire_after_verified_main_merge"
+    },
+    {
+      "branch": "tmp/cross-repo-blob-test",
+      "commit": "6def46b35e2964c04ec9817e6cbdb1feef43f21c",
+      "contained_in_unified_baseline": true,
+      "disposition": "preserve"
+    },
+    {
+      "branch": "ui/quickbar-control-v1",
+      "commit": "dfb8978fde3d845ccfe79bbe595701fbf0622337",
+      "contained_in_unified_baseline": false,
+      "disposition": "preserve"
+    }
+  ]
+}

@@ -1,0 +1,431 @@
+#include <windows.h>
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cwchar>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <vector>
+#include "nr_work_config.h"
+#include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
+#include "nr_processing_route.h"
+
+@JITTER_ENUM@
+@CHAIN_CONFIG@
+ChainConfig g_config;
+wchar_t g_ini_path[MAX_PATH]{};
+CRITICAL_SECTION g_chain_cs;
+ULONGLONG g_config_read_tick = 0, test_tick = 10000;
+std::atomic<ULONGLONG> g_next_config_poll_tick{0};
+std::atomic<bool> g_config_persistence_failed{false}, g_enabled_fast{false};
+std::atomic<int> g_requested_mode_fast{2};
+std::atomic<unsigned long> g_config_persistence_error{0};
+std::atomic<unsigned> g_config_generation{1}, g_history_generation{1};
+std::atomic<unsigned long long> g_nr_successful_evaluations{0};
+bool g_work_config_loaded = false;
+std::atomic<bool> g_work_request_rejected{false};
+namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
+enum class BypassReason { WaitingForFeature1, MasterDisabled };
+void SetBypassReason(BypassReason) {}
+template<class... T> void Log(const char *, T...) {}
+namespace nr_source_runtime { unsigned long long CurrentRetryToken(){static unsigned long long source=1;return source++;} }
+@PROCESSING_RUNTIME@
+
+struct Write { std::wstring key, value; bool succeeded; };
+std::vector<Write> writes;
+unsigned attempted_writes = 0, fail_write = 0;
+bool fail_every_write = false;
+BOOL ProfileWrite(const wchar_t *section, const wchar_t *key,
+                  const wchar_t *value, const wchar_t *path) {
+    if (!section && !key && !value)
+        return ::WritePrivateProfileStringW(section, key, value, path);
+    ++attempted_writes;
+    BOOL success;
+    if (fail_every_write || (fail_write && attempted_writes == fail_write)) {
+        SetLastError(ERROR_WRITE_FAULT);
+        success = FALSE;
+    } else {
+        success = ::WritePrivateProfileStringW(section, key, value, path);
+    }
+    writes.push_back({key ? key : L"", value ? value : L"", success != FALSE});
+    return success;
+}
+ULONGLONG TestTick() { return test_tick; }
+#define WritePrivateProfileStringW ProfileWrite
+#define GetTickCount64 TestTick
+@HELPERS@
+@POLICY_RUNTIME@
+@NORMALIZE@
+@SAME_CONFIG@
+@SAME_HISTORY@
+@ACTIVE_TRANSFER@
+@RELOAD_PREFIX@
+    // Skip module discovery/log formatting; preserve the actual production
+    // config publication and route reconciliation after those observations.
+@RELOAD_PUBLISH@
+}
+@SAVE_CONFIG@
+@APPLY_CONFIG@
+@SNAPSHOT_CONFIG@
+@POLL_CONFIG@
+#undef WritePrivateProfileStringW
+#undef GetTickCount64
+
+int checks = 0, failures = 0;
+void Check(bool success, const char *label) {
+    ++checks;
+    if (!success) { ++failures; std::printf("FAIL %s\n", label); }
+}
+void Put(const wchar_t *key, const wchar_t *value) {
+    Check(::WritePrivateProfileStringW(L"NRBeforeSR", key, value, g_ini_path) != 0,
+          "fixture real Win32 write");
+}
+int Int(const wchar_t *key, int missing = 0) {
+    return GetPrivateProfileIntW(L"NRBeforeSR", key, missing, g_ini_path);
+}
+std::string Bytes() {
+    std::ifstream file(std::filesystem::path(g_ini_path), std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+void ResetSession() {
+    g_config = {};
+    nr_processing_runtime::session = {};
+    nr_processing_runtime::effective = 0;
+    nr_processing_runtime::next_selection = 1;
+    g_config_policy_migration = {};
+    g_config_policy_attempted = false;
+    g_config_persistence_failed = false;
+    g_config_persistence_error = 0;
+    g_work_config_loaded = false;
+    g_work_request_rejected = false;
+    g_config_read_tick = 0;
+    g_next_config_poll_tick = 0;
+    g_config_generation = g_history_generation = 1;
+    nr_f8::g_config_hold = false;
+    writes.clear(); attempted_writes = fail_write = 0; fail_every_write = false;
+    test_tick += 10000;
+}
+void Fixture(const wchar_t *pre = L"0.25", const wchar_t *post = L"0.25",
+             int shared = 1, int extra = 0, int jitter_policy = 0,
+             int mode = 2, int jitter = 1, int layer_version = 2) {
+    ResetSession();
+    SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
+    DeleteFileW(g_ini_path);
+    Put(L"ConfigVersion", L"4"); Put(L"Enabled", L"1");
+    Put(L"Mode", mode == 1 ? L"1" : L"2");
+    Put(L"StrengthConfigVersion", shared ? L"1" : L"0");
+    Put(L"ExtraStrengthPolicyVersion", extra ? L"1" : L"0");
+    Put(L"JitterPolicyVersion", jitter_policy ? L"1" : L"0");
+    Put(L"JitterMode", jitter ? L"1" : L"0");
+    if (layer_version >= 0) {
+        wchar_t text[16]{}; swprintf_s(text, L"%d", layer_version);
+        Put(L"NRLayerControlsVersion", text);
+    }
+    if (pre) Put(L"TransferStrength", pre);
+    if (post) Put(L"PostTransferStrength", post);
+    Put(L"WorkMode", L"0"); Put(L"CustomWorkScale", L"1");
+    Put(L"Intensity", L"1.73"); Put(L"LocalToneStrength", L"1.64");
+    Put(L"LocalStructureStrength", L"1.77"); Put(L"AutoMask", L"1");
+    Put(L"SkinStructureStrength", L"1.25"); Put(L"ColorStrength", L"0.61");
+    Put(L"UICorrection", L"0"); Put(L"R8OutputEncoding", L"2");
+    Put(L"DepthMode", L"1");
+}
+ChainConfig Load() { test_tick += 1000; ReloadConfig(); return g_config; }
+void ModelPreserved(const ChainConfig &c) {
+    Check(c.intensity == 1.73f && c.local_tone == 1.64f &&
+          c.local_structure == 1.77f && c.skin_structure == 1.25f && c.auto_mask,
+          "model values preserved exactly without strength conversion");
+    Check(c.color_strength == .61f && !c.ui_correction &&
+          c.r8_output_encoding == 2 && c.depth_mode == 1,
+          "colour and compatibility preferences preserved");
+}
+void CopyRestartFixture(const std::filesystem::path &directory, const wchar_t *name) {
+    (void)::WritePrivateProfileStringW(nullptr, nullptr, nullptr, g_ini_path);
+    Check(CopyFileW(g_ini_path, (directory / name).c_str(), TRUE) != 0,
+          "restart fixture snapshot");
+}
+void TestLegacy(const std::filesystem::path &directory) {
+    for (int mode : {1, 2}) {
+        Fixture(mode == 1 ? L"1.8" : L"0", mode == 1 ? L"0" : L"1.8", 0, 0, 0, mode);
+        const auto c = Load();
+        Check(c.transfer_strength == 1 && c.post_transfer_strength == 1 && !c.enabled,
+              "legacy active zero migrates to one and disabled master");
+        Check(c.mode == mode, "saved processing route preserved"); ModelPreserved(c);
+        Check(writes.size() == 9 && writes[0].key == L"TransferStrength" &&
+              writes[0].value == L"0" && writes[1].key == L"PostTransferStrength" &&
+              writes[2].key == L"StrengthConfigVersion" &&
+              writes[3].key == L"Enabled" && writes[3].value == L"0" &&
+              writes[6].key == L"ExtraStrengthPolicyVersion" &&
+              writes[7].key == L"JitterMode" && writes[8].key == L"JitterPolicyVersion",
+              "shared selection completes before disabled master and policy markers");
+        const auto status = SnapshotConfigPolicyMigrationStatus();
+        Check(status.visible && status.extra_changed && status.extra_disabled &&
+              status.jitter_changed && status.persisted && !status.failed,
+              "successful migration UI status is accurate");
+    }
+    CopyRestartFixture(directory, L"restart-off.ini");
+    for (const auto value : {L"0.1", L"0.75", L"0.999", L"1", L"1.2", L"4", L"8"}) {
+        Fixture(value, L"0.8"); const float expected = std::clamp(std::wcstof(value, nullptr), 1.f, 4.f);
+        const auto c = Load();
+        Check(c.enabled && c.transfer_strength == expected && c.post_transfer_strength == expected,
+              "positive legacy value obeys independent extra range"); ModelPreserved(c);
+        Check(Int(L"ExtraStrengthPolicyVersion") == 1 && Int(L"JitterPolicyVersion") == 1 &&
+              Int(L"JitterMode") == 0, "policy mode and values persisted");
+    }
+    Fixture(L"0.75", L"0.75"); Put(L"Enabled", L"0");
+    Check(!Load().enabled, "existing master disabled remains disabled");
+    Fixture(L"1.8", L"0.75", 0, 0, 0, 1);
+    Check(Load().transfer_strength == 1, "old post fractional selection migrates before new range");
+    Fixture(L"0", L"1.7", 1, 0, 0, 1);
+    Check(!Load().enabled, "canonical shared zero beats stale inactive post");
+}
+void TestFailure(const std::filesystem::path &directory) {
+    Fixture();
+    Check(SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_READONLY) != 0, "real read-only fixture");
+    const auto original = Bytes();
+    const auto c = Load();
+    Check(c.transfer_strength == 1 && c.jitter_mode == NrJitterMode::Legacy,
+          "read-only migration remains available in memory");
+    const auto failed = SnapshotConfigPolicyMigrationStatus();
+    Check(failed.failed && !failed.persisted && failed.error != 0 && g_config_persistence_failed,
+          "read-only failure is visible and latched");
+    Check(Bytes() == original && Int(L"ExtraStrengthPolicyVersion") == 0 &&
+          Int(L"JitterPolicyVersion") == 0, "read-only file is unchanged and not marked complete");
+    auto manual = c; manual.transfer_strength = 2.3f; manual.jitter_mode = NrJitterMode::GameInputPixel;
+    Check(ApplyConfig(manual, "test manual"), "manual edit accepted after failed migration");
+    const auto count = attempted_writes;
+    for (unsigned i = 0; i < 30; ++i) { test_tick += 1000; PollConfigFromPresent(); (void)SnapshotConfig(); }
+    Check(g_config.transfer_strength == 2.3f && g_config.jitter_mode == NrJitterMode::GameInputPixel &&
+          attempted_writes == count, "failed save polling never overwrites live manual settings");
+    Check(SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL) != 0, "restore fixture write access");
+    Check(SaveConfig(g_config), "explicit successful save completes current preferences");
+    Check(Int(L"JitterMode") == 1 && Int(L"JitterPolicyVersion") == 1 &&
+          ReadIniFloat(L"TransferStrength", 0) == 2.3f && !g_config_persistence_failed,
+          "explicit re-enable is persisted without replaying the migration");
+    Check(Load().jitter_mode == NrJitterMode::GameInputPixel && g_config.transfer_strength == 2.3f,
+          "later polling retains explicit user re-enable");
+    CopyRestartFixture(directory, L"restart-user-on.ini");
+
+    Fixture(); fail_write = 2; (void)Load();
+    Check(Int(L"ExtraStrengthPolicyVersion") == 0 && Int(L"JitterPolicyVersion") == 0 &&
+          writes.size() == 2 && !writes[1].succeeded,
+          "second strength write failure never publishes policy marker");
+    CopyRestartFixture(directory, L"restart-partial.ini");
+    Fixture(L"0", L"0"); fail_write = 1; (void)Load();
+    Check(Int(L"Enabled") == 1 && ReadIniFloat(L"TransferStrength", 9) == 0 && writes.size() == 1,
+          "failed disable cannot raise zero strength on disk");
+    Fixture(L"0", L"0"); fail_write = 2; (void)Load();
+    Check(Int(L"Enabled") == 0 && ReadIniFloat(L"TransferStrength", 9) == 0 &&
+          Int(L"ExtraStrengthPolicyVersion") == 0, "partial zero migration preserves bypass intent");
+    CopyRestartFixture(directory, L"restart-partial-off.ini");
+    Fixture(L"0.25", L"0.25", 1, 1, 0); fail_write = 2; (void)Load();
+    Check(Int(L"JitterMode") == 0 && Int(L"JitterPolicyVersion") == 0 &&
+          SnapshotConfigPolicyMigrationStatus().failed,
+          "second jitter marker write failure remains incomplete");
+    Fixture(L"1.8", L"0", 0, 0, 0, 1); fail_write = 2; (void)Load();
+    Check(Int(L"StrengthConfigVersion") == 0 && Int(L"ExtraStrengthPolicyVersion") == 0 &&
+          Int(L"JitterPolicyVersion") == 0, "failed shared migration cannot certify either new policy");
+    Check(g_config.transfer_strength == 1 && !g_config.enabled,
+          "failed shared zero still retains its in-memory disabled intent");
+}
+void TestCompletedPolicyAndDiagnostic(const std::filesystem::path &directory) {
+    Fixture(L"0.25", L"0.25", 1, 1, 1);
+    auto c = Load();
+    Check(c.transfer_strength == .25f && c.jitter_mode == NrJitterMode::GameInputPixel && writes.empty(),
+          "completed policies preserve explicit internal range and user jitter enable");
+    Check(!SnapshotConfigPolicyMigrationStatus().visible,
+          "completed policies do not repeat migration notification");
+    Fixture(L"0", L"0", 1, 1, 1); c = Load();
+    Check(c.transfer_strength == 0 && c.enabled, "internal diagnostic zero remains representable after upgrade");
+    CopyRestartFixture(directory, L"restart-diagnostic-zero.ini");
+    for (bool migrated : {false, true}) {
+        Fixture(L"0", L"0", 1, migrated ? 0 : 1, 1);
+        const auto before = Load(); const auto saved_bytes = Bytes(); const auto write_count = attempted_writes;
+        nr_f8::g_config_hold = true;
+        auto temporary = before; temporary.transfer_strength = migrated ? 0.f : 1.f;
+        temporary.enabled = true;
+        Check(ApplyConfig(temporary, "F8 temporary", false), "F8 no-INI temporary transition");
+        for (unsigned i = 0; i < 4; ++i) { test_tick += 1000; PollConfigFromPresent(); ReloadConfig(true); }
+        Check(g_config.transfer_strength == temporary.transfer_strength,
+              "capture hold preserves temporary diagnostic strength");
+        Check(ApplyConfig(before, "F8 restore", false), "F8 original zero or migrated disabled restoration");
+        auto restored = g_config; restored.perf_epoch = before.perf_epoch;
+        Check(SameConfig(restored, before) && Bytes() == saved_bytes && attempted_writes == write_count,
+              "F8 restore is exact and performs no policy or INI writes");
+        nr_f8::g_config_hold = false;
+    }
+    Fixture(L"2", L"2", 1, 1, 1); (void)Load();
+    g_config.transfer_strength = g_config.post_transfer_strength = 3.f;
+    Put(L"ExtraStrengthPolicyVersion", L"0"); Put(L"JitterPolicyVersion", L"0");
+    writes.clear(); attempted_writes = 0; fail_write = 2;
+    Check(!SaveConfig(g_config) && Int(L"ExtraStrengthPolicyVersion") == 0 &&
+          Int(L"JitterPolicyVersion") == 0, "partial full save cannot publish policy markers");
+    fail_write = 0; writes.clear(); attempted_writes = 0;
+    Check(SaveConfig(g_config), "full save succeeds after explicit retry");
+    auto index = [](const wchar_t *key) {
+        for (std::size_t i = 0; i < writes.size(); ++i) if (writes[i].key == key) return i;
+        return writes.size();
+    };
+    Check(index(L"Enabled") < index(L"ExtraStrengthPolicyVersion") &&
+          index(L"PostTransferStrength") < index(L"ExtraStrengthPolicyVersion") &&
+          index(L"StrengthConfigVersion") < index(L"ExtraStrengthPolicyVersion") &&
+          index(L"JitterMode") < index(L"JitterPolicyVersion"),
+          "full save publishes markers only after concrete values");
+    ResetSession(); SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL); DeleteFileW(g_ini_path);
+    c = Load();
+    Check(c.jitter_mode == NrJitterMode::Legacy && c.enabled && c.transfer_strength == 1,
+          "new file defaults to jitter zero with extra one and enabled master");
+    Check(Int(L"ExtraStrengthPolicyVersion") == 1 && Int(L"JitterPolicyVersion") == 1 &&
+          !SnapshotConfigPolicyMigrationStatus().visible,
+          "new file stores policy without old-setting notification");
+}
+void TestLayerControlsMigration() {
+    Fixture(L"0.25", L"0.25", 1, 1, 1, 2, 1, -1);
+    Put(L"NRPasses", L"1"); Put(L"NRFullReference", L"1"); Put(L"NRFullPasses", L"2");
+    writes.clear(); attempted_writes = 0;
+    auto c = Load();
+    Check(c.nr_passes == 2 && !c.nr_full_reference && c.nr_full_passes == 3,
+          "legacy two-pass full reference becomes ordinary second AI");
+    Check(attempted_writes == 0 && Int(L"NRLayerControlsVersion") == 0,
+          "layer migration changes memory without writing during reload");
+
+    for (unsigned passes : {3u, 4u}) {
+        Fixture(L"0.25", L"0.25", 1, 1, 1, 2, 1, -1);
+        Put(L"NRPasses", L"1"); Put(L"NRFullReference", L"1");
+        Put(L"NRFullPasses", passes == 3 ? L"3" : L"4");
+        writes.clear(); attempted_writes = 0;
+        c = Load();
+        Check(c.nr_passes == 2 && c.nr_full_reference && c.nr_full_passes == passes,
+              "legacy three/four-layer full reference remains enabled");
+        Check(attempted_writes == 0 && Int(L"NRLayerControlsVersion") == 0,
+              "legacy full-layer migration remains memory-only");
+    }
+
+    Fixture(L"0.25", L"0.25", 1, 1, 1, 2, 1, -1);
+    Put(L"NRPasses", L"1"); Put(L"NRFullReference", L"1"); Put(L"NRFullPasses", L"3");
+    writes.clear(); attempted_writes = 0;
+    c = Load(); c.nr_passes = 1;
+    Check(ApplyConfig(c, "turn second AI off after migration"),
+          "turning second AI off persists migrated layer marker");
+    Check(Int(L"NRLayerControlsVersion") == 2 && Int(L"NRPasses") == 1 &&
+          Int(L"NRFullReference") == 1,
+          "disabling second AI preserves more-layer preference and marker");
+    c = Load();
+    Check(c.nr_passes == 1 && c.nr_full_reference,
+          "version marker prevents disabled second AI from reopening on reload");
+}
+void TestProcessingAndFullReference(const std::filesystem::path& directory) {
+    using Start=nr_processing::Start;
+    Check(!ChainConfig{}.retry_original_on_sr_failure,"native SR retry defaults disabled");
+    ChainConfig legacy_retry;legacy_retry.retry_original_on_sr_failure=true;NormalizeConfig(legacy_retry);
+    Check(!legacy_retry.retry_original_on_sr_failure,"normalization disables legacy same-source native SR retry");
+    for(int mode:{1,2}) {
+        Fixture(L"1.8",L"1.8",1,1,1,mode);
+        Put(L"RetryOriginalOnSRFailure",L"1");
+        auto c=Load();
+        Check(!c.retry_original_on_sr_failure,"legacy retry INI true cannot re-enable native SR retry");
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "legacy Mode maps to the same starting position");
+        Check(!c.nr_full_reference&&c.nr_full_passes==3&&c.compat_percent==100,
+              "old settings keep full reference disabled with safe defaults");
+        Put(L"ProcessingStart",L"invalid");c=Load();
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "invalid new position retains the legacy Mode fallback");
+    }
+    const wchar_t* names[]={L"Before",L"After",L"Present"};
+    const wchar_t* files[]={L"restart-route-before.ini",L"restart-route-after.ini",L"restart-route-present.ini"};
+    for(unsigned route=0;route<3;++route) {
+        Fixture(L"1.8",L"1.8",1,1,1,route==0?1:2);
+        Put(L"ProcessingStart",names[route]);auto c=Load();
+        Check(c.processing_start==static_cast<Start>(route),"explicit ProcessingStart wins over stale Mode");
+        c.nr_full_reference=true;c.nr_full_passes=route+3;c.compat_percent=50+route*25;
+        c.nr_passes=2;c.nr_second_numerator=2;c.nr_second_denominator=3;
+        c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+        Check(ApplyConfig(c,"test full reference save"),"explicit full reference settings apply");
+        Check(Int(L"RetryOriginalOnSRFailure")==0,"saved legacy retry key reflects disabled native SR retry");
+        const auto reloaded=Load();
+        Check(reloaded.processing_start==c.processing_start&&reloaded.nr_full_reference&&
+              reloaded.nr_full_passes==route+3&&reloaded.compat_percent==50+route*25,
+              "new route full reference and compatibility precision round trip");
+        Check(reloaded.nr_second_numerator==2&&reloaded.nr_second_denominator==3,
+              "full reference retains the exact legacy reduced fraction");
+        Check(Int(L"ProcessingSelection",-9)==-9,"session-only selection is never persisted");
+        CopyRestartFixture(directory,files[route]);
+        c=reloaded;c.nr_full_reference=false;
+        Check(ApplyConfig(c,"test disable full reference"),"full reference can be disabled");
+        Check(g_config.nr_second_numerator==2&&g_config.nr_second_denominator==3&&g_config.nr_passes==2,
+              "disabling full reference restores the saved reduced configuration");
+    }
+    for(unsigned value:{0u,1u,2u,3u,4u,5u,UINT_MAX}) {
+        ChainConfig c;c.nr_full_passes=value;c.compat_percent=value;NormalizeConfig(c);
+        const unsigned wanted=value<3?3:value>5?5:value;
+        Check(c.nr_full_passes==wanted,"more-layer count stays inside three to five passes");
+        Check(c.compat_percent==(value<50?50:value>100?100:value),"compatibility precision remains fifty to one hundred");
+    }
+    Fixture(L"1.8",L"1.8",1,1,1,2);(void)Load();
+    {
+        nr_processing_runtime::CarrierScope carrier;
+        nr_processing_runtime::Reject(Start::Before,"test input gate");
+        Check(nr_processing_runtime::Effective()==Start::After,"before failure advances to after");
+        nr_processing_runtime::Adopted(Start::After);
+    }
+    {
+        nr_processing_runtime::CarrierScope carrier;
+        nr_processing_runtime::Reject(Start::After,"test output gate");
+        Check(nr_processing_runtime::Effective()==Start::Present,"after failure advances to Present");
+        nr_processing_runtime::Adopted(Start::Present);
+    }
+    auto c=g_config;c.intensity=1.9f;
+    Check(ApplyConfig(c,"ordinary model edit"),"ordinary model edit accepted");
+    Check(nr_processing_runtime::Effective()==Start::Present&&g_config.processing_start==Start::Before,
+          "ordinary edits preserve fallback without replacing the saved start");
+    (void)Load();
+    Check(nr_processing_runtime::Effective()==Start::Present,"config polling preserves the session fallback");
+    c=g_config;c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+    Check(ApplyConfig(c,"explicit start reselection"),"same start button explicitly retries");
+    Check(nr_processing_runtime::Effective()==Start::Before,"explicit reselection resets to the saved start");
+    const auto saved_bytes=Bytes();const auto saved_config=g_config;
+    nr_f8::g_config_hold=true;c.processing_start=Start::Present;++c.processing_selection;
+    Check(!ApplyConfig(c,"F8-owned UI route edit")&&SameConfig(g_config,saved_config)&&Bytes()==saved_bytes,
+          "F8 owns configuration and blocks ordinary route edits");
+    nr_f8::g_config_hold=false;
+}
+int wmain(int argc, wchar_t **argv) {
+    if (argc < 2) return 3;
+    InitializeCriticalSection(&g_chain_cs);
+    const std::filesystem::path directory = argv[1];
+    if (argc == 8 && std::wcscmp(argv[7],L"processing")==0) {
+        wcscpy_s(g_ini_path,argv[2]);const auto c=Load();
+        Check(static_cast<unsigned>(c.processing_start)==std::wcstoul(argv[3],nullptr,10)&&
+              c.nr_full_passes==std::wcstoul(argv[4],nullptr,10)&&
+              c.compat_percent==std::wcstoul(argv[5],nullptr,10)&&c.nr_full_reference,
+              "fresh process retains new route and full reference selection");
+        Check(c.processing_selection==0,"new process starts a new session selection");
+        Check(c.nr_second_numerator==2&&c.nr_second_denominator==3,"new process retains exact reduced fraction");
+    } else if (argc == 7) {
+        wcscpy_s(g_ini_path, argv[2]);
+        const auto c = Load();
+        Check(c.transfer_strength == std::wcstof(argv[3], nullptr) &&
+              c.post_transfer_strength == c.transfer_strength &&
+              c.enabled == (std::wcstol(argv[4], nullptr, 10) != 0) &&
+              static_cast<int>(c.jitter_mode) == std::wcstol(argv[5], nullptr, 10),
+              "fresh process reads intended saved preferences");
+        Check(c.intensity == std::wcstof(argv[6], nullptr), "restart never compensates model intensity");
+        Check(!g_config_persistence_failed && Int(L"ExtraStrengthPolicyVersion") == 1 &&
+              Int(L"JitterPolicyVersion") == 1, "restart completes only successful policy writes");
+    } else {
+        wcscpy_s(g_ini_path, (directory / L"fixture.ini").c_str());
+        Check(ChainConfig{}.jitter_mode == NrJitterMode::Legacy, "in-memory default jitter is zero");
+        TestLegacy(directory); TestFailure(directory); TestCompletedPolicyAndDiagnostic(directory);
+        TestLayerControlsMigration(); TestProcessingAndFullReference(directory);
+        SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
+    }
+    std::printf("config policy real Win32: %d checks / %d failures\n", checks, failures);
+    DeleteCriticalSection(&g_chain_cs);
+    return failures ? 23 : 0;
+}

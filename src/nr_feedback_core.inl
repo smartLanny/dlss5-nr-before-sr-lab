@@ -2,19 +2,34 @@
 // not its legacy screenshot/stage worker. No runtime pointer leaves Present.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
+#include "nr_feedback_single_text.h"
+#include "interop/nr_deployment_names.h"
 namespace nr_core_feedback {
+#define NR_HAS_CORE_TEXT_REPORT 1
+#include "nr_feedback_report.inl"
+#include "nr_feedback_picture.inl"
 struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
-    bool ready = false, complete = false;
+    bool ready = false, complete = false, archive_requested = false;
 };
 struct CoreSession {
     FeedbackSession activity{};
     wchar_t directory[1024] = {};
     wchar_t exe[1024] = {}, reshade_module[1024] = {};
+    std::wstring carrier_log; // Worker-only path from the uniquely matched loaded companion.
     char session[96] = {};
-    bool snapshot_ok = false;
+    bool snapshot_ok = false, archive_requested = false;
+    SYSTEMTIME local_time{}, utc_time{};
+    unsigned long long serial = 0;
 };
+std::shared_ptr<const std::string> g_full_report; // g_feedback_lock
+wchar_t g_report_path[1024] = {};
+DWORD g_report_error = ERROR_SUCCESS;
+bool g_report_complete = false;
+enum class ReportClipboardStatus : unsigned { Idle, Pending, Copied, Failed };
+std::atomic<ReportClipboardStatus> g_report_clipboard_status{ReportClipboardStatus::Idle};
+bool g_report_path_copy_claimed = false; // g_feedback_lock
 PairSnapshot g_pair{}; // g_feedback_lock
 char g_reason[160] = {}; // g_feedback_lock
 char g_submission[nr_feedback_ticket::kCapacity] = {}; // same session, g_feedback_lock
@@ -33,10 +48,14 @@ PairSnapshot SnapshotPair() {
     return pair;
 }
 // The caller serializes image/core requests with nr_f8::g_control.
-bool Request() {
+bool Request(bool archive_requested = false) {
     AcquireSRWLockExclusive(&g_feedback_lock);
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
+    g_pair.archive_requested = archive_requested;
+    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS;
+    g_report_complete = false; g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(ReportClipboardStatus::Idle,std::memory_order_release);
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
         GetCurrentProcessId(), GetTickCount64(), ++g_serial);
@@ -49,27 +68,73 @@ bool Request() {
 }
 void Cancel() {
     g_cancel.store(true, std::memory_order_release);
+    // Retire a request which no Present callback has claimed. Without this,
+    // closing the overlay after requesting F8 could leave Busy() true forever
+    // when rendering had already stopped, preventing every later retry.
+    const bool pending = g_feedback_requested.exchange(false, std::memory_order_acq_rel);
     AcquireSRWLockExclusive(&g_feedback_lock);
-    if (g_job) nr_bundle::RequestCancel(*g_job);
+    if (pending) {
+        nr_bundle::CopyText(g_reason, sizeof(g_reason),
+            "cancelled before a render callback claimed the request");
+        g_pair.ready = true;
+        g_pair.complete = false;
+        g_feedback_status.store(5, std::memory_order_release);
+    } else if (g_job) {
+        nr_bundle::RequestCancel(*g_job);
+    }
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
 void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
-             const char *report = nullptr) {
+             const char *report = nullptr, const nr_feedback_report::Output *text = nullptr, bool archive_requested = true) {
     char submission[nr_feedback_ticket::kCapacity] = {};
-    if (result.zip_path[0])
+    if (result.zip_path[0] || (text && text->text))
         nr_feedback_ticket::Build(submission, sizeof(submission), report,
-            complete && result.required_complete);
+            archive_requested ? complete && result.required_complete : text->complete);
 
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_job = nullptr;
+    g_full_report = text ? text->text : nullptr;
+    g_report_path[0] = 0;
+    g_report_error = text ? text->error : ERROR_SUCCESS;
+    g_report_complete = text && text->text && text->complete;
+    if (text && text->text) nr_bundle::CopyPath(g_report_path, text->path.c_str());
+    g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(text && text->text && g_report_path[0]
+        ? ReportClipboardStatus::Pending : ReportClipboardStatus::Idle,std::memory_order_release);
     nr_bundle::CopyPath(g_feedback_last_zip, result.zip_path);
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
     g_pair.ready = true;
-    g_pair.complete = complete && result.required_complete && result.zip_path[0];
-    const unsigned status = result.status == nr_bundle::Status::Failed ? 5 : g_pair.complete ? 3 : 4;
+    g_pair.complete = archive_requested && complete && result.required_complete && result.zip_path[0];
+    const unsigned status = archive_requested ?
+        (result.status == nr_bundle::Status::Failed ? 5u : g_pair.complete ? 3u : 4u) :
+        (!text || !text->text ? 5u : text->complete ? 3u : 4u);
     g_feedback_status.store(status, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+bool TakeReportPathForClipboard(wchar_t (&path)[1024]) {
+    path[0] = 0;
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    const bool ready = g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+        !g_report_path_copy_claimed && g_report_path[0];
+    if (ready) {
+        nr_bundle::CopyPath(path, g_report_path);
+        g_report_path_copy_claimed = true;
+    }
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+    return ready;
+}
+void SetReportClipboardResult(const wchar_t *path,bool copied) {
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    if(path && g_report_path_copy_claimed &&
+       g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+       std::wcscmp(path,g_report_path)==0)
+        g_report_clipboard_status.store(copied?ReportClipboardStatus::Copied:
+            ReportClipboardStatus::Failed,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+ReportClipboardStatus GetReportClipboardStatus() {
+    return g_report_clipboard_status.load(std::memory_order_acquire);
 }
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;
@@ -79,9 +144,9 @@ struct Handle {
     Handle &operator=(const Handle &) = delete;
 };
 
-bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, ULONGLONG deadline) {
-    coverage = false;
-    if (!nr_bundle::LocalAbsolutePath(source) || !nr_bundle::LocalAbsolutePath(output)) return false;
+bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONGLONG deadline) {
+    coverage = false; text.clear();
+    if (!nr_bundle::LocalAbsolutePath(source)) return false;
     wchar_t native[1024] = {};
     if (!nr_bundle::NativePath(native, source)) return false;
     Handle input(CreateFileW(native, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -94,9 +159,17 @@ bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, U
     nr_feedback_text::Summary summary;
     char bytes[16384];
     std::string line;
-    bool long_line = false, read_ok = true;
-    UINT64 scanned = 0;
+    bool long_line = false, read_ok = true, tail_read_ok = true;
+    bool tail_needed = false, tail_complete = true;
+    UINT64 scanned = 0, tail_scanned = 0;
     const UINT64 target = std::min<UINT64>(size, nr_feedback_text::kScanLimit);
+    const ULONGLONG started = GetTickCount64();
+    const ULONGLONG source_deadline = std::min<ULONGLONG>(deadline,
+        started + nr_feedback_text::kPerSourceScanMs);
+    // Cooperative wall-clock budget: checked between bounded synchronous
+    // 16 KiB reads. Reserve the final slice for the newest 64 KiB tail.
+    const ULONGLONG prefix_deadline = source_deadline > started + nr_feedback_text::kTailReserveMs
+        ? source_deadline - nr_feedback_text::kTailReserveMs : started;
     auto feed = [&](const char *data, DWORD count) {
         for (DWORD i = 0; i < count; ++i) {
             if (data[i] == '\n') { summary.Push(line, long_line); line.clear(); long_line = false; }
@@ -104,26 +177,37 @@ bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, U
             else long_line = true;
         }
     };
-    while (scanned < target && !g_cancel.load() && GetTickCount64() < deadline) {
+    while (scanned < target && !g_cancel.load() && GetTickCount64() < prefix_deadline) {
         DWORD got = 0;
         const DWORD count = static_cast<DWORD>(std::min<UINT64>(sizeof(bytes), target - scanned));
         if (!ReadFile(input.value, bytes, count, &got, nullptr) || !got) { read_ok = false; break; }
         feed(bytes, got); scanned += got;
     }
-    if (!line.empty() || long_line) summary.Push(line, long_line);
+    const bool prefix_fragment = scanned < size && (!line.empty() || long_line);
+    if (!line.empty() || long_line) summary.Push(line, long_line || scanned < size);
     coverage = read_ok && scanned == size;
     // A capped prefix is NOT a complete search for the first bypass. Record
     // that limitation, and still include the latest bounded tail.
-    if (!coverage && size > scanned && !g_cancel.load()) {
-        LARGE_INTEGER offset{}; offset.QuadPart = static_cast<LONGLONG>(size > 65536 ? size - 65536 : 0);
+    tail_needed = !coverage && size > scanned;
+    tail_complete = !tail_needed;
+    if (tail_needed && !g_cancel.load() && GetTickCount64() < source_deadline) {
+        LARGE_INTEGER offset{};
+        const UINT64 tail_start = size > nr_feedback_text::kTailScanLimit
+            ? size - nr_feedback_text::kTailScanLimit : 0;
+        offset.QuadPart = static_cast<LONGLONG>(std::max<UINT64>(scanned, tail_start));
         if (SetFilePointerEx(input.value, offset, nullptr, FILE_BEGIN)) {
             summary.tail = {}; line.clear(); long_line = false;
             UINT64 left = size - static_cast<UINT64>(offset.QuadPart);
-            bool skip_fragment = offset.QuadPart != 0;
-            while (left && !g_cancel.load()) {
+            // At an exactly contiguous newline boundary the first tail line is
+            // complete. Skip only a known prefix continuation or an arbitrary
+            // seek into the newest tail window.
+            bool skip_fragment = static_cast<UINT64>(offset.QuadPart) > scanned || prefix_fragment;
+            while (left && !g_cancel.load() && GetTickCount64() < source_deadline) {
                 DWORD got = 0;
-                if (!ReadFile(input.value, bytes, static_cast<DWORD>(std::min<UINT64>(left, sizeof(bytes))), &got, nullptr) || !got) break;
-                left -= got;
+                if (!ReadFile(input.value, bytes, static_cast<DWORD>(std::min<UINT64>(left, sizeof(bytes))), &got, nullptr) || !got) {
+                    tail_read_ok = false; break;
+                }
+                left -= got; tail_scanned += got;
                 DWORD start = 0;
                 if (skip_fragment) {
                     while (start < got && bytes[start] != '\n') ++start;
@@ -132,11 +216,33 @@ bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, U
                 }
                 feed(bytes + start, got - start);
             }
-            if (!line.empty() || long_line) summary.Push(line, long_line);
-        }
+            if (!line.empty() || long_line) summary.Push(line, long_line || left != 0);
+            tail_complete = left == 0;
+        } else tail_read_ok = false;
     }
-    auto text = summary.Text(size, scanned, coverage);
-    if (text.size() > nr_feedback_text::kSummaryLimit) return false;
+    // Detect replacement/resizing during the read; never claim a coherent full scan.
+    BY_HANDLE_FILE_INFORMATION after{};
+    const bool source_changed = !GetFileInformationByHandle(input.value, &after) ||
+        after.nFileSizeHigh != info.nFileSizeHigh || after.nFileSizeLow != info.nFileSizeLow ||
+        after.ftLastWriteTime.dwHighDateTime != info.ftLastWriteTime.dwHighDateTime ||
+        after.ftLastWriteTime.dwLowDateTime != info.ftLastWriteTime.dwLowDateTime;
+    if (source_changed) coverage = false;
+    const bool cancelled = g_cancel.load();
+    const ULONGLONG finished = GetTickCount64();
+    const bool time_limited = !coverage && !cancelled &&
+        ((scanned < target && finished >= prefix_deadline) ||
+         (tail_needed && !tail_complete && tail_read_ok && finished >= source_deadline));
+    const char *status = coverage ? "complete" : source_changed ? "source-changed" : cancelled ? "cancelled" :
+        !read_ok || !tail_read_ok ? "read-error" : time_limited ? "time-limit" :
+        scanned == target && target < size ? "byte-limit" : "bounded-incomplete";
+    text = summary.Text(size, scanned, tail_scanned, coverage, status);
+    return text.size() <= nr_feedback_text::kSummaryLimit;
+}
+// F7's paired archive retains its existing temporary-file/ZIP contract.
+bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, ULONGLONG deadline) {
+    std::string text;
+    if (!nr_bundle::LocalAbsolutePath(output) || !ReadSummary(source, text, coverage, deadline)) return false;
+    wchar_t native[1024] = {};
     if (!nr_bundle::NativePath(native, output)) return false;
     Handle out(CreateFileW(native, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
     DWORD written = 0;
@@ -151,14 +257,38 @@ std::wstring Beside(const wchar_t *path, const wchar_t *leaf) {
     result.resize(slash + 1); result += leaf;
     return result.size() < 1024 ? result : std::wstring{};
 }
+std::wstring FindCarrierLog(FeedbackSession &s) {
+    Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
+    if (snapshot.value == INVALID_HANDLE_VALUE) {
+        FeedbackAppend(s, "carrierLog.status=module-inventory-unavailable\n"); return {};
+    }
+    MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
+    unsigned matches = 0, scanned = 0;
+    std::wstring result;
+    BOOL more = Module32FirstW(snapshot.value, &entry);
+    for (; more && scanned < 2048; more = Module32NextW(snapshot.value, &entry), ++scanned) {
+        if (!nr_deployment_names::MatchingCarrier(entry.szModule)) continue;
+        ++matches;
+        if (nr_bundle::LocalAbsolutePath(entry.szExePath))
+            result = Beside(entry.szExePath, L"dlss5-bridge.log");
+    }
+    const bool complete = !more && GetLastError() == ERROR_NO_MORE_FILES;
+    const bool found = complete && matches == 1 && !result.empty();
+    FeedbackAppend(s, "carrierLog.status=%s\ncarrierLog.matches=%u\n"
+        "carrierLog.scope=optional bounded sanitized log beside the matched loaded companion; file contents are not proof of delivery\n",
+        found ? "matched-loaded-path" : !complete ? "module-inventory-incomplete" :
+        matches > 1 ? "ambiguous-companion" : matches == 0 ? "matching-companion-not-loaded" : "path-unavailable", matches);
+    return found ? result : std::wstring{};
+}
 void CollectLogs(nr_bundle::Job &job, const CoreSession &session) {
     const std::wstring paths[] = {g_log_path, Beside(g_log_path, L"nr-before-sr.previous.log"),
         Beside(g_log_path, L"ReShade.log"), Beside(session.exe, L"ReShade.log"),
-        Beside(session.reshade_module, L"ReShade.log")};
+        Beside(session.reshade_module, L"ReShade.log"), session.carrier_log};
     const char *names[] = {"logs/nr-current-summary.txt", "logs/nr-previous-summary.txt",
-        "logs/reshade-addon-summary.txt", "logs/reshade-game-summary.txt", "logs/reshade-module-summary.txt"};
+        "logs/reshade-addon-summary.txt", "logs/reshade-game-summary.txt", "logs/reshade-module-summary.txt",
+        "logs/carrier-summary.txt"};
     const ULONGLONG deadline = GetTickCount64() + 3000;
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < 6; ++i) {
         bool duplicate = false;
         for (unsigned j = 0; j < i; ++j)
             if (!paths[i].empty() && _wcsicmp(paths[i].c_str(), paths[j].c_str()) == 0) duplicate = true;
@@ -177,19 +307,83 @@ void CollectLogs(nr_bundle::Job &job, const CoreSession &session) {
         }
     }
 }
+
+// F8 does not create a Job, a ZIP or summary scratch files. Build from the same
+// bounded sanitizer/summary reader used by F7 and persist exactly one text file.
+nr_feedback_report::Output CollectSingleText(const CoreSession &session, bool capture_complete) {
+    nr_feedback_report::Output output;
+    nr_feedback_single::Document doc;
+    doc.complete = capture_complete;
+    doc.Append("\n===== CURRENT CAPTURE METADATA / 本次采集 =====\n");
+    std::string metadata = nr_feedback_report::SafeLines(session.activity.report);
+    if (metadata.compare(0, 7, "format=") == 0) metadata.replace(0, 7, "metadata.format=");
+    doc.Append(metadata);
+    const std::wstring paths[] = {g_log_path, Beside(g_log_path, L"nr-before-sr.previous.log"),
+        Beside(g_log_path, L"ReShade.log"), Beside(session.exe, L"ReShade.log"),
+        Beside(session.reshade_module, L"ReShade.log"), session.carrier_log};
+    const char *names[] = {"nr-current", "nr-previous", "reshade-addon", "reshade-game", "reshade-module", "carrier"};
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    for (unsigned i = 0; i < 6; ++i) {
+        bool duplicate = false;
+        for (unsigned j = 0; j < i; ++j)
+            if (!paths[i].empty() && _wcsicmp(paths[i].c_str(), paths[j].c_str()) == 0) duplicate = true;
+        if (duplicate) continue;
+        bool coverage = false;
+        std::string summary;
+        if (g_cancel.load() || paths[i].empty() || !ReadSummary(paths[i].c_str(), summary, coverage, deadline)) {
+            doc.Missing(names[i], g_cancel.load() ? "cancelled" : "source-or-read-unavailable", i == 0);
+            continue;
+        }
+        doc.Append(std::string("\n===== ") + names[i] +
+            (i == 1 ? " / PREVIOUS PROCESS, NOT CURRENT =====\n" : " / CURRENT PROCESS (first distinct/latest/tail) =====\n"));
+        if (!coverage) doc.Missing(std::string(names[i]) + ".coverage", "bounded or changing source; first-event completeness not guaranteed", i == 0);
+        nr_bundle::Sha256 digest;
+        digest.Update(reinterpret_cast<const unsigned char *>(summary.data()), summary.size());
+        char hash[65]{}; digest.Finish(hash);
+        doc.Append(std::string("summary.bytes=") + std::to_string(summary.size()) + "\nsummary.sha256=" + hash +
+            "\nsummary.sha256Scope=bounded sanitized selected evidence\n");
+        if (!doc.Append(summary)) break;
+    }
+    if (g_cancel.load()) { doc.complete = false; doc.Append("collection.cancelled=1\n"); }
+    doc.Finish();
+    output.complete = doc.complete;
+    char exe[1024]{};
+    const wchar_t *leaf = wcsrchr(session.exe, L'\\');
+    WideToUtf8(leaf ? leaf + 1 : session.exe, exe, sizeof(exe));
+    const auto &t = session.local_time;
+    const std::string name = nr_feedback_single::Filename(exe, kBuildIdentity,
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds,
+        GetCurrentProcessId(), session.serial);
+    const std::wstring filename(name.begin(), name.end());
+    auto cached = std::make_shared<const std::string>(std::move(doc.text));
+    if (nr_feedback_report::WriteAtomic(session.directory, *cached, output, filename.c_str())) output.text = std::move(cached);
+    return output;
+}
+
+#include "nr_feedback_modules.inl"
+
 void Modules(FeedbackSession &s) {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
     MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
     unsigned count = 0;
+    std::size_t inventory_bytes = 0;
     if (snapshot.value == INVALID_HANDLE_VALUE) { FeedbackAppend(s, "modules.status=unavailable\n"); return; }
     for (BOOL more = Module32FirstW(snapshot.value, &entry); more; more = Module32NextW(snapshot.value, &entry)) {
         if (!FeedbackModuleRelevant(entry.szModule)) continue;
         if (count == 32) { FeedbackAppend(s, "modules.truncated=1\n"); break; }
         char name[1024] = {}; WideToUtf8(entry.szModule, name, sizeof(name));
         const auto safe = nr_feedback_text::Sanitize(name);
+        // File-name inventory is optional. Keep the four named runtime-file
+        // fingerprints and final collection status available even when many
+        // unrelated add-ons have long UTF-8 names. Do not cut a UTF-8 name.
+        if (safe.size() + 32 > nr_feedback_limits::kModuleInventoryBytes - inventory_bytes) {
+            FeedbackAppend(s, "modules.truncated=1\nmodules.reason=name-byte-budget\n");
+            break;
+        }
+        inventory_bytes += safe.size() + 32;
         FeedbackAppend(s, "module.%u=%s\n", count++, safe.c_str());
     }
-    FeedbackAppend(s, "modules.contract=names only; no module bytes or process addresses collected\n");
+    FeedbackAppend(s, "modules.contract=name inventory plus bounded loaded-file fingerprints; no module bytes or process addresses exported\n");
 }
 DWORD WINAPI Worker(void *opaque) {
     auto *session = static_cast<CoreSession *>(opaque);
@@ -197,6 +391,7 @@ DWORD WINAPI Worker(void *opaque) {
     nr_bundle::Result result{};
     nr_bundle::Job *job = nullptr;
     bool complete = false;
+    nr_feedback_report::Output text;
     try {
         // Bounded CPU observation interval, independent of Present/NR/GPU.
         for (unsigned i = 0; i < 15 && !g_cancel.load(); ++i) Sleep(50);
@@ -205,18 +400,41 @@ DWORD WINAPI Worker(void *opaque) {
         g_feedback_status.store(2, std::memory_order_release);
         ReleaseSRWLockExclusive(&g_feedback_lock);
         FeedbackAppendActivity(s, "end");
+#if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
+        FeedbackAppendCommandHistory(s);
+#endif
         FeedbackAppend(s, "collection.elapsedMs=%llu\ncollection.parameterSamples=%u\ncollection.cancelled=%d\n",
             GetTickCount64() - s.started, s.observations, g_cancel.load() ? 1 : 0);
         const auto &identity = EnsureRuntimeIdentityOnWorker();
         FeedbackAppend(s, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\nartifact.addonSha256=%s\nartifact.identityStatus=%s\n",
             kSourceCommit, kSourceDirty ? 1 : 0, identity.sha256, identity.status);
+        FeedbackAppend(s,
+            "external.owner=%llu\nexternal.provenance=%s\nexternal.reason=%s\n"
+            "external.admittedFrames=%llu\nexternal.recordedWritebacks=%llu\nexternal.submitCalls=%llu\n"
+            "external.pendingCompletions=%u\nexternal.completedFrames=%llu\nexternal.completionFailures=%llu\n"
+            "external.contract=Submit/writeback mean commands recorded; completedFrames requires the declared producer fence\n",
+            nr_external_provider_feedback::owner_provider_id.load(),
+            NrGuideProvenanceName(static_cast<NrGuideProvenance>(nr_external_provider_feedback::last_provenance.load())),
+            NrExternalProviderReasonName(static_cast<NrExternalProviderReason>(nr_external_provider_feedback::last_reason.load())),
+            nr_external_provider_feedback::admitted_frames.load(),nr_external_provider_feedback::writeback_frames.load(),
+            nr_external_provider_feedback::external_submits.load(),nr_external_provider_feedback::pending_completions.load(),
+            nr_external_provider_feedback::completion_frames.load(),nr_external_provider_feedback::completion_failures.load());
         Modules(s);
+        session->carrier_log = FindCarrierLog(s);
+        FingerprintRuntimeFiles(s, *session);
         const auto color = SnapshotColorPolicy();
         FeedbackAppend(s, "color.status=%s\ncolor.requested=%.9g\ncolor.effective=%.9g\ncolor.reason=%s\n"
             "color.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=%d\n",
             NrColorPolicyStatusName(color.status), color.policy.requested_color_strength,
             color.policy.effective_color_strength, NrColorReasonName(color.policy.color_reason), s.report_truncated ? 1 : 0);
-        if (FeedbackCreateDirectory(session->directory)) job = nr_bundle::CreateJob(session->directory, s.report);
+        complete = !g_cancel.load() && session->snapshot_ok && !s.report_truncated;
+        if (FeedbackCreateDirectory(session->directory)) {
+            if (session->archive_requested) job = nr_bundle::CreateJob(session->directory, s.report);
+            else text = CollectSingleText(*session, complete);
+        } else {
+            text.error = GetLastError();
+            if (!text.error) text.error = ERROR_PATH_NOT_FOUND;
+        }
         if (job) {
             job->archive_limit = nr_feedback_text::kCoreZipLimit;
             AcquireSRWLockExclusive(&g_feedback_lock); g_job = job; ReleaseSRWLockExclusive(&g_feedback_lock);
@@ -229,15 +447,18 @@ DWORD WINAPI Worker(void *opaque) {
             }
             result = nr_bundle::Run(*job);
             complete = !g_cancel.load() && session->snapshot_ok && !s.report_truncated;
+            text = nr_feedback_report::Build(*job, result, complete);
         }
     } catch (...) {
+        text.error = ERROR_NOT_ENOUGH_MEMORY;
         // Never let a failed diagnostic allocation unwind into the game.
         AcquireSRWLockExclusive(&g_feedback_lock);
         if (g_feedback_session == &s) g_feedback_session = nullptr;
         ReleaseSRWLockExclusive(&g_feedback_lock);
     }
     Publish(result, complete, g_cancel.load() ? "cancelled; inspect partial evidence" :
-        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested", s.report);
+        !session->archive_requested ? (text.text ? "single TXT saved; missing evidence is explicit; no ZIP or images requested" : "TXT save failed; no old report reused") :
+        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "paired F7 core collected; no image readback requested", s.report, &text, session->archive_requested);
     nr_bundle::DestroyJob(job);
     delete session;
     return 0;
@@ -254,10 +475,15 @@ void Present(reshade::api::effect_runtime *runtime) {
     auto &s = session->activity;
     s.started = GetTickCount64();
     const auto pair = SnapshotPair();
+    session->archive_requested = pair.archive_requested;
+    session->serial = g_serial.load();
+    GetLocalTime(&session->local_time); GetSystemTime(&session->utc_time);
     nr_bundle::CopyText(session->session, sizeof(session->session), pair.session);
     ChainConfig config{}; NrDiagnosticIdentity applied{}; unsigned generation = 0;
+    int applied_mode = 0;
     if (TryEnterCriticalSection(&g_chain_cs)) {
         config = g_config; applied = g_applied_nr_identity; generation = g_config_generation.load();
+        applied_mode = g_applied_nr_mode;
         session->snapshot_ok = true; LeaveCriticalSection(&g_chain_cs);
     }
     char gpu[256] = {}; std::uint32_t driver = 0, vendor = 0, width = 0, height = 0;
@@ -275,25 +501,46 @@ void Present(reshade::api::effect_runtime *runtime) {
     FeedbackAppend(s, "format=DLSS5-Core-v1\ncapture.kind=core\nsession=%s\nbuild=%s\nlanguage=%s\n"
         "exe.leaf=%s\ngpu=%s\ndriver.raw=%u\ndriver.known=%d\nvendor=%u\napi=%u\n"
         "display.extent=%ux%u\ndisplay.storageFormat=%u\ndisplay.colorSpace=%u\n"
-        "snapshot.valid=%d\nrequested.config=%u\nrequested.enabled=%d\nrequested.mode=%d\n"
-        "requested.blend=%.9g\nrequested.color=%.9g\nrequested.workMode=%d\nrequested.workScale=%.9g\n"
-        "requested.lightingLock=%.9g\nrequested.detailStability=%.9g\nrequested.edgeGuard=%.9g\n"
-        "requested.intensity=%.9g\nrequested.localTone=%.9g\nrequested.localStructure=%.9g\nrequested.skin=%.9g\n"
-        "requested.faceMask=%d\nrequested.uiCorrection=%d\nrequested.jitterMode=%d\nrequested.style=%u\n"
-        "applied.instance=%llu\napplied.frame=%llu\napplied.config=%u\napplied.intensity=%.9g\napplied.skin=%.9g\n"
+        "snapshot.valid=%d\n"
         "capture.automaticSettingChanges=none\nconfig.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\n"
         "fg.status=unavailable; this collector does not intercept FG\n"
-        "applied.contract=historical successful NR; compare config generation and start/end counters\n"
+        "applied.contract=historical successful NR; compare config generation and start/end counters; model tuning only, not D light composition or measured output\n"
         "core.zipLimitBytes=%llu\ntimeline.columns=tag,elapsedMs,SRcarrier,featureGeneration,reset,jitterX,jitterY,mvScaleX,mvScaleY,preExposure,exposureScale,previousBypass\n",
         session->session, kBuildIdentity, kChineseUi ? "zh-CN" : "en", safe_exe.c_str(), safe_gpu.c_str(),
         driver, driver_known, vendor, device ? static_cast<unsigned>(device->get_api()) : 0, width, height,
-        g_feedback_swap_format.load(), g_feedback_swap_color_space.load(), session->snapshot_ok, generation,
-        config.enabled, config.mode, ActiveTransferStrength(config), config.color_strength, config.work_mode,
-        config.custom_work_scale, config.lighting_lock, config.detail_stability, config.edge_guard,
-        config.intensity, config.local_tone, config.local_structure, config.skin_structure, config.auto_mask,
-        config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
-        applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
-        applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+        g_feedback_swap_format.load(), g_feedback_swap_color_space.load(), session->snapshot_ok,
+        static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+    if (session->snapshot_ok)
+        FeedbackAppend(s, "requested.config=%u\nrequested.enabled=%d\nrequested.mode=%d\n"
+            "requested.blend=%.9g\nrequested.color=%.9g\nrequested.workMode=%d\nrequested.workScale=%.9g\n"
+            "requested.lightingLock=%.9g\nrequested.detailStability=%.9g\nrequested.edgeGuard=%.9g\n"
+            "requested.intensity=%.9g\nrequested.localTone=%.9g\nrequested.localStructure=%.9g\nrequested.skin=%.9g\n"
+            "requested.faceMask=%d\nrequested.uiCorrection=%d\nrequested.jitterMode=%d\nrequested.style=%u\n",
+            generation, config.enabled, config.mode, ActiveTransferStrength(config), config.color_strength, config.work_mode,
+            config.custom_work_scale, config.lighting_lock, config.detail_stability, config.edge_guard,
+            config.intensity, config.local_tone, config.local_structure, config.skin_structure, config.auto_mask,
+            config.ui_correction, static_cast<int>(config.jitter_mode), config.style);
+    const bool applied_valid = session->snapshot_ok && applied.instance_id != 0 && applied.frame_id != 0;
+    FeedbackAppend(s, "applied.valid=%d\napplied.status=%s\n", applied_valid ? 1 : 0,
+        !session->snapshot_ok ? "snapshot-unavailable" : applied_valid ? "historical-success" : "no-successful-NR");
+    if (applied_valid)
+        FeedbackAppend(s, "applied.instance=%llu\napplied.frame=%llu\napplied.config=%u\napplied.mode=%d\n"
+            "applied.evaluation=%u\napplied.sinceReset=%u\napplied.warmedUp=%d\n"
+            "applied.intensity=%.9g\napplied.localTone=%.9g\napplied.localStructure=%.9g\napplied.skin=%.9g\n"
+            "applied.autoMask=%d\napplied.style=%u\napplied.uiCorrection=%d\napplied.jitterMode=%d\napplied.inputFilter=%u\n",
+            applied.instance_id, applied.frame_id, applied.config_generation, applied_mode,
+            applied.evaluation, applied.since_reset, applied.warmed_up,
+            applied.tuning.intensity, applied.tuning.local_tone, applied.tuning.local_structure, applied.tuning.skin_structure,
+            applied.tuning.auto_mask, applied.tuning.style, applied.tuning.ui_correction,
+            static_cast<int>(applied.tuning.jitter_mode), applied.tuning.input_filter);
+    const auto &local = session->local_time;
+    const auto &utc = session->utc_time;
+    FeedbackAppend(s, "capture.delivery=%s\ncapture.localTime=%04u-%02u-%02uT%02u:%02u:%02u.%03u\n"
+        "capture.utcTime=%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\n",
+        session->archive_requested ? "f7-paired-archive" : "single-txt",
+        local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond, local.wMilliseconds,
+        utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
+    AppendPictureConfig(s, config, session->snapshot_ok);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;

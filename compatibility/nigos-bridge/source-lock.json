@@ -1,0 +1,20 @@
+{
+  "schema": "dlss5-source-lock-v1",
+  "repository": "https://github.com/NIGos/dlss5-bridge",
+  "upstreamTag": "v1.4.13-pre7",
+  "upstreamCommit": "b990798dfeda712d5b2b155650be11d92a38c2ee",
+  "compatibilityCommit": "adb8bd81ce7020b2f1076ba3f3486addbf573293",
+  "packagingMetadataCommit": "5aaf8080c7d0ceeb49be6d7a6cc8765f235c09d1",
+  "patch": {
+    "file": "nr-transport.patch",
+    "sha256": "620ab9653f71a8a7999acd6d2d413f182627e2dae6a7f8a70f22e652d29d568f",
+    "bytes": 44575
+  },
+  "files": [
+    "src/bridge-contract.hpp",
+    "src/bridge.h",
+    "src/bridge.inc",
+    "src/dlss5-bridge.cpp"
+  ],
+  "license": "MIT; retain the upstream LICENSE when building or distributing the adapter"
+}

@@ -1,0 +1,74 @@
+// Isolated actual ReShade/D3D12 identity regression. No game or NGX provider.
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include "nr_dual_spatial_d3d12.hpp"
+template<class T>void ReleaseCom(T*& p){if(p){p->Release();p=nullptr;}}
+#define IUnknown_QueryInterface(p,i,o) (p)->QueryInterface(i,o)
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+// @CORE_DEVICE_IDENTITY@
+#undef IUnknown_QueryInterface
+void Check(bool ok,const char* message){if(!ok){std::fprintf(stderr,"FAIL %s\n",message);std::exit(1);}}
+void HR(HRESULT result,const char* message){if(FAILED(result)){std::fprintf(stderr,"FAIL %s hr=%08lx\n",message,static_cast<unsigned long>(result));std::exit(2);}}
+struct Retirement {ID3D12Fence* fence=nullptr;UINT64 value=0;};
+bool Retired(void* p){auto& r=*static_cast<Retirement*>(p);auto n=r.fence->GetCompletedValue();return r.value&&n!=UINT64_MAX&&n>=r.value;}
+int main(){
+ setvbuf(stdout,nullptr,_IONBF,0);
+ IDXGIFactory4* factory=nullptr;HR(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"factory");
+ IDXGIAdapter* warp=nullptr;HR(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)),"WARP");
+ ID3D12Device* proxy=nullptr;HR(D3D12CreateDevice(warp,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&proxy)),"device");
+ IUnknown* object=nullptr;HR(proxy->QueryInterface(kRrDepthUnwrappedObject,reinterpret_cast<void**>(&object)),"real ReShade unwrap");
+ ID3D12Device* native=nullptr;HR(object->QueryInterface(IID_PPV_ARGS(&native)),"native device");ReleaseCom(object);
+ Check(proxy!=native,"test must contain a real device proxy");
+ D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+ D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=64;d.Height=32;
+ d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+ // Register the actual ReShade resource hook, then create the owned texture
+ // through the native execution device as the Core does.
+ ID3D12Resource* registration=nullptr;HR(proxy->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&registration)),"register resource hook");
+ ID3D12Resource* primary=nullptr;HR(native->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&primary)),"native owned P1");
+ ID3D12Device* observed=nullptr;HR(primary->GetDevice(IID_PPV_ARGS(&observed)),"P1 device");
+ Check(observed!=native&&IsSameRrDepthDevice(native,observed),"resource proxy differs while real Core resolves the same native device");
+ std::string error;auto* pipelines=nr_dual::dx12::CreatePipelines(native,error);Check(pipelines!=nullptr,error.c_str());
+ auto plan=nr_dual::MakePlan({2,{1,1}},{64,32},{});
+ // Legacy identity comparison must reproduce the user's exact pre-allocation
+ // failure even though this tiny texture is far below the declared budget.
+ auto* rejected=nr_dual::dx12::CreateSpatialSlot(pipelines,primary,plan,nr_dual::ModelDomain::DirectValue,256ull<<20,error);
+ Check(!rejected,"legacy plain COM identity must fail through real ReShade");
+ std::printf("REPRODUCED old CreateSpatialSlot: %s; allocation=0; NGX calls=0\n",error.c_str());
+
+ nr_dual::dx12::SpatialError reason{};
+ auto* direct=nr_dual::dx12::CreateSpatialSlot(pipelines,primary,plan,nr_dual::ModelDomain::DirectValue,256ull<<20,error,IsSameRrDepthDevice,&reason);
+ Check(direct&&reason==nr_dual::dx12::SpatialError::None,"Core identity proof admits the same native owner");
+ auto half=nr_dual::MakePlan({2,{1,2}},{64,32},{});
+ auto* reduced=nr_dual::dx12::CreateSpatialSlot(pipelines,primary,half,nr_dual::ModelDomain::SrgbProxy,256ull<<20,error,IsSameRrDepthDevice,&reason);
+ Check(reduced&&reason==nr_dual::dx12::SpatialError::None,"reduced spatial resources admitted through the wrapper");
+ Check(nr_dual::dx12::GetSurfaces(direct).primary==primary&&nr_dual::dx12::GetSurfaces(direct).input==primary,"100 percent P1 never substituted");
+ auto* budget=nr_dual::dx12::CreateSpatialSlot(pipelines,primary,plan,nr_dual::ModelDomain::DirectValue,1,error,IsSameRrDepthDevice,&reason);
+ Check(!budget&&reason==nr_dual::dx12::SpatialError::Budget,"real insufficient budget distinguished from identity");
+ IDXGIAdapter* foreignAdapter=nullptr;HR(factory->EnumAdapters(0,&foreignAdapter),"hardware adapter");
+ ID3D12Device* other=nullptr;HR(D3D12CreateDevice(foreignAdapter,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&other)),"different adapter device");
+ Check(!IsSameRrDepthDevice(native,other),"fixture requires a real distinct hardware device");
+ ID3D12Resource* foreign=nullptr;HR(other->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COMMON,nullptr,IID_PPV_ARGS(&foreign)),"foreign resource");
+ auto* cross=nr_dual::dx12::CreateSpatialSlot(pipelines,foreign,plan,nr_dual::ModelDomain::DirectValue,256ull<<20,error,IsSameRrDepthDevice,&reason);
+ Check(!cross&&reason==nr_dual::dx12::SpatialError::DeviceIdentity,"cross-adapter resource stays rejected");
+ ReleaseCom(foreign);ReleaseCom(other);ReleaseCom(foreignAdapter);
+ std::printf("FIX VERIFIED: native/proxy matched; 100/50 percent admitted; foreign device and 1-byte budget refused; NGX calls=0\n");
+
+ ID3D12CommandQueue* queue=nullptr;D3D12_COMMAND_QUEUE_DESC q{};HR(native->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)),"queue");
+ ID3D12Fence* fence=nullptr;HR(native->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)),"fence");
+ auto event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Check(event!=nullptr,"event");
+ HR(queue->Signal(fence,1),"signal");HR(fence->SetEventOnCompletion(1,event),"complete");
+ Check(WaitForSingleObject(event,10000)==WAIT_OBJECT_0,"completion bound");Retirement retired{fence,1};
+ Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(direct,Retired,&retired),"direct retirement");
+ Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(reduced,Retired,&retired),"reduced retirement");
+ Check(nr_dual::dx12::DestroyPipelinesAfterRetirement(pipelines,Retired,&retired),"pipeline retirement");
+ ReleaseCom(observed);ReleaseCom(primary);ReleaseCom(registration);ReleaseCom(fence);ReleaseCom(queue);
+ ReleaseCom(native);ReleaseCom(proxy);ReleaseCom(warp);ReleaseCom(factory);CloseHandle(event);
+ std::printf("PASS real ReShade resource identity regression; WARP resources; no game/NGX\n");
+}

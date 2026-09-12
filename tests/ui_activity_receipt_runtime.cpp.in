@@ -1,0 +1,493 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <atomic>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+#include "nr_ui_activity.h"
+#include "nr_feedback_limits.h"
+#include "nr_feedback_text.h"
+#include "nr_compat_present_policy.hpp"
+using nr_ui_activity::Count;
+thread_local Count test_now=0;
+thread_local unsigned window_lock_depth=0;
+thread_local bool read_pending_tick=false;
+std::atomic<unsigned> lock_violations{0};
+std::atomic<bool> parallel_clock{false};
+std::atomic<Count> monotonic_tick{100};
+ULONGLONG UiFixtureTick() {
+    if(read_pending_tick&&window_lock_depth!=1)++lock_violations;
+    read_pending_tick=false;
+    return parallel_clock.load()?monotonic_tick.fetch_add(1):test_now;
+}
+void UiFixtureAcquireExclusive(PSRWLOCK lock);
+void UiFixtureReleaseExclusive(PSRWLOCK lock);
+void UiFixtureAcquireShared(PSRWLOCK lock);
+#define AcquireSRWLockExclusive UiFixtureAcquireExclusive
+#define ReleaseSRWLockExclusive UiFixtureReleaseExclusive
+#define AcquireSRWLockShared UiFixtureAcquireShared
+#define GetTickCount64 UiFixtureTick
+#include "nr_ui_activity_runtime.inl"
+#undef AcquireSRWLockExclusive
+#undef ReleaseSRWLockExclusive
+#undef AcquireSRWLockShared
+void UiFixtureAcquireExclusive(PSRWLOCK lock) {
+    if(lock==&g_nr_ui_activity_lock&&window_lock_depth)++lock_violations;
+    AcquireSRWLockExclusive(lock);
+    if(lock==&g_nr_ui_activity_window_lock)++window_lock_depth;
+}
+void UiFixtureReleaseExclusive(PSRWLOCK lock) {
+    if(lock==&g_nr_ui_activity_window_lock)--window_lock_depth;
+    ReleaseSRWLockExclusive(lock);
+}
+void UiFixtureAcquireShared(PSRWLOCK lock) {
+    if(lock==&g_nr_ui_activity_lock&&window_lock_depth)++lock_violations;
+    AcquireSRWLockShared(lock);
+}
+struct ReadCounter {
+    std::atomic<Count> value{0};
+    std::atomic<unsigned> reads{0};
+    bool change_on_second=false;
+    Count load(std::memory_order order=std::memory_order_seq_cst) {
+        if(window_lock_depth!=1)++lock_violations;
+        read_pending_tick=true;
+        const auto call=reads.fetch_add(1,std::memory_order_relaxed)+1;
+        return value.load(order)+(change_on_second && call==2?1u:0u);
+    }
+    void Reset(Count next) {value=next;reads=0;change_on_second=false;}
+};
+ReadCounter g_pipeline_stats_epoch,g_config_generation,g_carrier_evaluations,g_nr_successful_evaluations;
+ReadCounter g_nr_transfer_submitted_frames,g_queue_affinity_unknown_bypass_frames,g_last_bypass_reason;
+enum class BypassReason { None,QueueRetirementTimeout,RuntimeUnavailable,CodecUnavailable,
+    RayReconstructionGuard,ShortFuseOwnsNr,GenericRenoDxConflict,WaitingForFeature1,
+    ModuleObserverInstalling,ModuleObserverUncertain,CommandStateUnverified,Other };
+namespace reshade::api {struct effect_runtime {};}
+namespace nr_present_api_status {bool wrong_api=false;bool IsD3d11PresentRuntime(reshade::api::effect_runtime*) {return wrong_api;}}
+struct ChainConfig {bool enabled=true;float strength=1;};
+namespace nr_processing_runtime {bool present_selected=false;bool PresentSelected(){return present_selected;}}
+namespace nr_compat_present_runtime {
+nr_compat_present::Observation current;
+bool busy=false;
+bool TrySnapshot(nr_compat_present::Observation& out){if(busy)return false;out=current;return true;}
+}
+namespace nr_fg_runtime {
+std::atomic<unsigned long long> last_adopted_tick{0};
+std::atomic<unsigned> last_adopted_generation{0};
+// @FG_RECENT@
+}
+float ActiveTransferStrength(const ChainConfig& c) {return c.strength;}
+bool UseChineseUi() {return false;}
+const char* BypassReasonName(BypassReason) {return "fixture-other";}
+struct HookFailure {bool available=false;const char* operation="none";const char* entry="none";};
+HookFailure SnapshotNgxHookFailure() {return {};}
+struct CommandEvidence {bool available=false;const char* reason="none";bool guard_requested=false,guard_covered=false,fresh_reset=false;Count sampled_at=0;};
+CommandEvidence SnapshotCommandStateEvidence() {return {};}
+thread_local std::vector<std::string> drawn;
+namespace ImGui {
+void TextWrapped(const char* format,...) {if(window_lock_depth)++lock_violations;char line[2048];va_list args;va_start(args,format);std::vsnprintf(line,sizeof(line),format,args);va_end(args);drawn.emplace_back(line);}
+}
+void SettingsTooltip(const char*) {if(window_lock_depth)++lock_violations;}
+void DrawPostRouteStatus() {ImGui::TextWrapped("fixture RR details");}
+void DrawDx11DeploymentStatus() {ImGui::TextWrapped("fixture Direct3D 11 deployment status");}
+// @READ@
+// @DRAW@
+// @FEEDBACK_SESSION@
+// @FEEDBACK_APPEND@
+#include "nr_ui_activity_feedback.inl"
+unsigned checks=0,failures=0;
+void Check(bool value,const char* label) {++checks;if(!value){++failures;std::printf("FAIL %s\n",label);}}
+void ResetUi() {
+    g_nr_ui_activity_window={};
+    auto& thread=NrUiActivityThread();thread.calls=0;thread.last_read=0;thread.read_seen=false;
+    for(auto& value:thread.displayed)value={};
+    g_nr_ui_activity_trace={};g_nr_ui_activity_recent_next=0;
+    g_pipeline_stats_epoch.Reset(2);g_config_generation.Reset(39);g_carrier_evaluations.Reset(10);
+    g_nr_successful_evaluations.Reset(5);g_nr_transfer_submitted_frames.Reset(4);
+    g_queue_affinity_unknown_bypass_frames.Reset(0);g_last_bypass_reason.Reset(0);
+    test_now=100;drawn.clear();nr_present_api_status::wrong_api=false;
+    nr_processing_runtime::present_selected=false;
+    nr_compat_present_runtime::current={};nr_compat_present_runtime::busy=false;
+    nr_fg_runtime::last_adopted_tick=0;nr_fg_runtime::last_adopted_generation=0;
+}
+void CompatibilityDisplay() {
+    using nr_ui_activity::Site;
+    using nr_ui_activity::Display;
+    using nr_ui_activity::ObservationSource;
+    using nr_compat_present::Status;
+    ResetUi();reshade::api::effect_runtime runtime;ChainConfig config;
+    config.enabled=false;DrawNrActivityStatus(&runtime,config,39,Site::Top);config.enabled=true;
+    nr_ui_activity::TraceSnapshot latest{};SnapshotNrUiActivity(latest);
+    Check(latest.latest[0].display==Display::Native,"initial inline receipt exists before switching to compatibility");
+    const auto native_reads=g_carrier_evaluations.reads.load();
+    nr_processing_runtime::present_selected=true;
+    auto draw=[&](){
+        const auto prior=latest.latest[0].sequence;
+        drawn.clear();DrawNrActivityStatus(&runtime,config,39,Site::Top);SnapshotNrUiActivity(latest);
+        if(config.enabled) {
+            const auto& p=latest.latest[0];const auto& o=p.read.observation;
+            Check(p.available&&p.sequence>prior&&p.read.config_argument==39&&p.read.source!=ObservationSource::NativeWindow,
+                  "UI_COMPAT_CURRENT: latest receipt records the new compatibility display and origin");
+            Check(!o.observe_called&&!o.sample.valid&&!o.before.initialized&&!o.current.carriers&&!o.current.nr&&
+                  !o.current.submitted&&!o.sample.delta.nr&&g_carrier_evaluations.reads==native_reads,
+                  "UI_COMPAT_NO_NATIVE_COUNTERS: compatibility receipt never borrows or observes the native Window");
+        }
+    };
+    draw();Check(drawn.back().find("press F8")!=std::string::npos&&latest.latest[0].display==Display::CompatibilityBypassed,
+                 "unknown Present state remains an explicit compatibility issue");
+    nr_compat_present_runtime::busy=true;draw();
+    Check(drawn.back().find("Checking compatibility")!=std::string::npos&&
+          latest.latest[0].display==Display::CompatibilityChecking&&latest.latest[0].read.observation.kind==nr_ui_activity::Kind::Unavailable,
+          "busy Present snapshot is checking, not stale success");
+    nr_compat_present_runtime::busy=false;
+    for(auto state:{Status::Preparing,Status::Creating,Status::Draining,Status::Busy,Status::RetryBackoff}){
+        nr_compat_present_runtime::current.status=state;draw();
+        Check(drawn.back().find("preparing or waiting")!=std::string::npos&&latest.latest[0].display==Display::CompatibilityPreparing,
+              "Present preparation and retry backoff show waiting");
+    }
+    for(auto state:{Status::Submitted,Status::Completed}){
+        nr_compat_present_runtime::current.status=state;draw();
+        Check(drawn.back().find("submitted")!=std::string::npos&&drawn.back().find("F6")!=std::string::npos&&
+              latest.latest[0].display==Display::PresentSubmitted&&latest.latest[0].read.source==ObservationSource::PresentSnapshot,
+              "Present submission suggests picture comparison without claiming display proof");
+    }
+    nr_compat_present_runtime::current.status=Status::Off;
+    nr_fg_runtime::last_adopted_tick=100;nr_fg_runtime::last_adopted_generation=39;test_now=1599;draw();
+    Check(drawn.back().find("recorded before frame generation")!=std::string::npos&&
+          latest.latest[0].display==Display::FgRecorded&&latest.latest[0].read.source==ObservationSource::FgRecentRecord,
+          "current recent FG record has its distinct actual UI status");
+    DrawNrActivityStatus(&runtime,config,39,Site::Feedback);SnapshotNrUiActivity(latest);
+    Check(latest.latest[1].display==Display::FgRecorded&&latest.latest[1].read.source==ObservationSource::FgRecentRecord,
+          "feedback UI site independently publishes the actual FG display");
+    const auto fg_report=std::make_unique<FeedbackSession>();FeedbackAppendUiActivity(*fg_report,"end");
+    Check(std::strstr(fg_report->report,"end.uiActivity.latest.top.origin=FG-recent-record\n")&&
+          std::strstr(fg_report->report,"end.uiActivity.latest.feedback.origin=FG-recent-record\n"),
+          "actual F8 writer names the FG origin for both latest publications");
+    Check(std::strstr(fg_report->report,"18:FG-recorded,19:Present-submitted,20:compat-preparing,21:compat-bypassed")&&
+          std::strstr(fg_report->report,"non-native origin has unavailable counter tuples and no Window Observe"),
+          "F8 mapping distinguishes compatibility displays and declares native counters unavailable");
+    test_now=1600;draw();Check(drawn.back().find("press F8")!=std::string::npos,"expired FG record cannot stay active");
+    test_now=200;nr_fg_runtime::last_adopted_generation=38;draw();
+    Check(drawn.back().find("press F8")!=std::string::npos,"old configuration FG record cannot appear current");
+    nr_fg_runtime::last_adopted_generation=39;config.enabled=false;draw();
+    Check(drawn.back().find("Native game SR")!=std::string::npos&&latest.latest[0].display==Display::Native&&
+          latest.latest[0].read.source==ObservationSource::NativeWindow,"F6 off wins over a recent FG recorded status");
+    ResetUi();
+}
+bool Same(const nr_ui_activity::Sample& a,const nr_ui_activity::Sample& b) {
+    return a.valid==b.valid && a.elapsed_ms==b.elapsed_ms && a.bypass_reason==b.bypass_reason &&
+        a.delta.carriers==b.delta.carriers && a.delta.nr==b.delta.nr &&
+        a.delta.submitted==b.delta.submitted && a.delta.queue_waits==b.delta.queue_waits;
+}
+void WindowReceipts() {
+    using namespace nr_ui_activity;
+    Window plain,traced;Observation o{};
+    struct Step {Count tick;Counters count;Scope scope;int reason;};
+    const Step steps[]={{100,{10,5,4,2},{39,2},0},{1099,{20,10,8,3},{39,2},1},
+        {1100,{20,10,8,3},{39,2},2},{1110,{21,11,9,4},{39,2},3},
+        {2100,{20,10,8,3},{39,2},4},{4100,{21,11,9,4},{39,2},5},
+        {6101,{22,12,10,4},{39,2},6},{6102,{23,13,11,4},{40,2},7},
+        {6103,{24,14,12,4},{40,3},8},{2,{25,15,13,4},{40,3},9}};
+    for(const auto& step:steps) {
+        const auto a=plain.Observe(step.tick,step.count,step.scope,step.reason);
+        const auto b=traced.Observe(step.tick,step.count,step.scope,step.reason,&o);
+        Check(Same(a,b)&&Same(b,o.sample),"optional receipt preserves actual Window result and future state");
+        Check(o.observe_called&&o.now==step.tick&&o.live_reason==step.reason,"receipt belongs to this exact Observe");
+        if(step.tick==1099)Check(o.kind==Kind::Held&&!o.sample.valid,"999ms does not complete a window");
+        if(step.tick==1100)Check(o.kind==Kind::Updated&&o.sample.valid&&o.sample.elapsed_ms==1000,"1000ms completes the original window");
+        if(step.tick==1110)Check(o.kind==Kind::Held&&o.sample.bypass_reason==2,"held sample keeps the prior interval reason");
+        if(step.tick==4100)Check(!(o.reset_mask&WindowGap)&&o.sample.valid,"2000ms call gap stays valid");
+        if(step.tick==6101)Check(o.reset_mask==WindowGap&&o.gap_ms==2001&&!o.sample.valid,"UI_GAP_REASON: 2001ms gap has the precise reset reason");
+        if(step.tick==6102)Check(o.reset_mask==ConfigChanged,"configuration scope reset is identified");
+        if(step.tick==6103)Check(o.reset_mask==EpochChanged,"pipeline epoch reset is identified");
+        if(step.tick==2)Check(o.reset_mask==ClockBackwards&&!o.gap_known,"backward clock never exports unsigned underflow gap");
+    }
+    for(unsigned field=0;field!=4;++field) {
+        Window w;w.Observe(100,{10,10,10,10},{39,2});Counters c{10,10,10,10};
+        if(field==0)--c.carriers;else if(field==1)--c.nr;else if(field==2)--c.submitted;else --c.queue_waits;
+        w.Observe(200,c,{39,2},0,&o);
+        Check(o.reset_mask==CounterRegressed&&o.regression_mask==(1u<<field),"regression mask names the actual baseline counter");
+    }
+    Window baseline;baseline.Observe(100,{10,10,10,10},{39,2});baseline.Observe(200,{20,20,20,20},{39,2});
+    baseline.Observe(300,{15,15,15,15},{39,2},0,&o);
+    Check(o.reset_mask==0&&o.regression_mask==0,"counter decrease above the original baseline does not reset");
+}
+void ReadAndDisplay() {
+    using namespace nr_ui_activity;
+    ResetUi();ReadReceipt first{},again{};
+    ReadUiActivity(39,&first);test_now=101;ReadUiActivity(39,&again);
+    Check(first.thread_cookie&&first.thread_cookie==again.thread_cookie,"UI_TLS_ID: stable anonymous identity belongs to the drawing thread");
+    Check(first.observation.reset_mask==FirstWindow&&again.thread_call==2&&again.read_gap_ms==1,"read identity follows existing calls only");
+    g_config_generation.Reset(40);const auto epoch_reads=g_pipeline_stats_epoch.reads.load();
+    test_now=110;const auto failed=ReadUiActivity(39,&again);
+    Check(!failed.valid&&!again.observation.observe_called&&again.observation.reset_mask==ConfigReadChanged,
+          "actual configuration-read mismatch does not call Observe");
+    Check(!again.epoch_checked_known&&again.epoch_checked==0&&g_pipeline_stats_epoch.reads==epoch_reads+1,
+          "short-circuited epoch check remains explicitly unknown");
+    Check(again.thread_cookie==first.thread_cookie&&again.thread_call==3,"UI_TLS_ID: coherence Clear cannot reset thread metadata");
+    g_config_generation.Reset(39);g_pipeline_stats_epoch.Reset(2);g_pipeline_stats_epoch.change_on_second=true;
+    test_now=120;ReadUiActivity(39,&again);
+    Check(again.observation.reset_mask==EpochReadChanged&&!again.observation.observe_called&&again.epoch_checked_known&&
+          again.epoch_entered==2&&again.epoch_checked==3,"actual epoch read race is separate from configuration mismatch");
+    ResetUi();ChainConfig config;reshade::api::effect_runtime runtime;
+    DrawNrActivityStatus(&runtime,config,39,Site::Top);
+    DrawNrActivityStatus(&runtime,config,39,Site::Feedback);
+    TraceSnapshot snapshot;SnapshotNrUiActivity(snapshot);
+    Check(NrUiActivityThread().calls==2&&snapshot.latest[0].read.thread_call==1&&snapshot.latest[1].read.thread_call==2,
+          "top and feedback retain exactly their original two reader calls");
+    Check(snapshot.latest[0].display==Display::Checking&&snapshot.latest[1].display==Display::Checking&&
+          drawn[0].find("Checking recent NR activity")!=std::string::npos,"UI_TEXT_STATE: receipt names the actual checking text");
+    test_now=1100;g_carrier_evaluations.value=20;g_nr_successful_evaluations.value=10;g_nr_transfer_submitted_frames.value=9;
+    DrawNrActivityStatus(&runtime,config,39,Site::Top);DrawNrActivityStatus(&runtime,config,39,Site::Feedback);
+    SnapshotNrUiActivity(snapshot);
+    Check(snapshot.latest[0].display==Display::Observed&&snapshot.latest[1].display==Display::Observed&&
+          drawn.back().find("Recent NR processing and output submission observed")!=std::string::npos,
+          "UI_TEXT_STATE: selected display enum agrees with actual production text");
+    const auto transitions=snapshot.recent_count;const auto published=snapshot.published;
+    test_now=2100;g_carrier_evaluations.value=21;g_nr_successful_evaluations.value=11;g_nr_transfer_submitted_frames.value=10;
+    ReadUiActivity(39,&again);
+    const auto before=g_nr_ui_activity_window.Inspect();const auto calls=NrUiActivityThread().calls;
+    auto feedback=std::make_unique<FeedbackSession>();
+    for(unsigned i=0;i!=5;++i){SnapshotNrUiActivity(snapshot);FeedbackAppendUiActivity(*feedback,"start");}
+    const auto after=g_nr_ui_activity_window.Inspect();
+    Check(NrUiActivityThread().calls==calls&&before.started==after.started&&before.last_observed==after.last_observed&&
+          before.counters.nr==after.counters.nr&&Same(before.sample,after.sample),"UI_F8_NO_OBSERVE: F8 getter/writer cannot advance or reset the Window");
+    for(unsigned i=0;i!=20;++i) {
+        test_now+=10;DrawNrActivityStatus(&runtime,config,39,i%2?Site::Feedback:Site::Top);
+    }
+    SnapshotNrUiActivity(snapshot);
+    Check(snapshot.recent_count==transitions&&snapshot.published==published+20,"changing UI site alone cannot manufacture state transitions");
+    const auto verify=[&](BypassReason reason,Display expected,const char* text) {
+        ResetUi();g_last_bypass_reason.value=static_cast<unsigned>(reason);
+        DrawNrActivityStatus(&runtime,config,39,Site::Top);test_now=1100;
+        DrawNrActivityStatus(&runtime,config,39,Site::Top);SnapshotNrUiActivity(snapshot);
+        Check(snapshot.latest[0].display==expected&&drawn.back().find(text)!=std::string::npos,"actual unchanged special UI branch is labelled accurately");
+    };
+    verify(BypassReason::None,Display::NoSubmission,"No new NR output submission");
+    verify(BypassReason::QueueRetirementTimeout,Display::QueueTimeout,"bounded wait");
+    verify(BypassReason::RuntimeUnavailable,Display::RuntimeUnavailable,"could not load");
+    verify(BypassReason::CodecUnavailable,Display::CodecUnavailable,"could not initialize");
+    verify(BypassReason::RayReconstructionGuard,Display::RayReconstruction,"fixture RR details");
+    verify(BypassReason::ShortFuseOwnsNr,Display::OtherOwner,"Another NR plugin");
+    verify(BypassReason::GenericRenoDxConflict,Display::Conflict,"Duplicate NR plugin");
+    verify(BypassReason::WaitingForFeature1,Display::WaitingForSr,"Waiting for native DLSS SR");
+    verify(BypassReason::ModuleObserverInstalling,Display::WaitingForSr,"Waiting for native DLSS SR");
+    verify(BypassReason::ModuleObserverUncertain,Display::ObserverIncomplete,"DLSS lifecycle observation");
+    verify(BypassReason::CommandStateUnverified,Display::CommandStateUnknown,"Use F8 for the structured state report");
+    verify(BypassReason::Other,Display::Bypassed,"NR is temporarily skipped");
+    ResetUi();nr_present_api_status::wrong_api=true;DrawNrActivityStatus(&runtime,config,39,Site::Top);SnapshotNrUiActivity(snapshot);
+    Check(snapshot.latest[0].display==Display::WrongApi&&drawn.back().find("Direct3D 11")!=std::string::npos,"wrong API text still has priority over checking");
+    ResetUi();config.enabled=false;DrawNrActivityStatus(&runtime,config,39,Site::Top);SnapshotNrUiActivity(snapshot);
+    Check(snapshot.latest[0].display==Display::Native&&drawn.back().find("Native game SR")!=std::string::npos,"disabled text still has priority over checking");
+    ResetUi();config.enabled=true;DrawNrActivityStatus(&runtime,config,39,Site::Top);test_now=1100;
+    g_nr_successful_evaluations.value=20;g_nr_transfer_submitted_frames.value=20;g_queue_affinity_unknown_bypass_frames.value=1;
+    DrawNrActivityStatus(&runtime,config,39,Site::Top);SnapshotNrUiActivity(snapshot);
+    Check(snapshot.latest[0].display==Display::Intermittent&&drawn.back().find("intermittently")!=std::string::npos,"intermittent text still has priority over ordinary processing");
+}
+void DrawingThreadHandoff() {
+    using namespace nr_ui_activity;
+    ResetUi();
+    struct Step {unsigned side;Count tick,carrier,nr,submitted,config=39,epoch=2;};
+    const Step steps[]={
+        {0,100,10,5,4},{1,100,10,5,4},{1,1100,20,10,9},
+        {0,1200,21,11,10},{0,2100,40,30,29},{0,3193,60,50,49},
+        {1,3256,62,52,51}, // B was absent 2156 ms; A drew only 63 ms ago.
+        {0,5256,80,70,69}, // Exactly 2000 ms globally remains valid.
+        {1,7257,100,90,89},{1,8257,110,100,99},
+        {0,8260,0,0,0},{1,9260,10,10,10},
+        {0,9261,11,11,11,40},{1,10261,20,20,20,40},
+        {0,10262,21,21,21,40,3},{1,11262,31,31,31,40,3},
+        {0,11200,32,32,32,40,3}};
+    constexpr unsigned count=sizeof(steps)/sizeof(steps[0]);
+    TraceSnapshot samples[count]{};Count cookies[2]{};
+    std::atomic<unsigned> turn{0};
+    const auto worker=[&](unsigned side) {
+        ChainConfig config;reshade::api::effect_runtime runtime;
+        cookies[side]=NrUiActivityThread().cookie;
+        for(unsigned i=0;i<count;++i) {
+            if(steps[i].side!=side)continue;
+            while(turn.load(std::memory_order_acquire)!=i)std::this_thread::yield();
+            const auto& step=steps[i];test_now=step.tick;
+            g_config_generation.value=step.config;g_pipeline_stats_epoch.value=step.epoch;
+            g_carrier_evaluations.value=step.carrier;g_nr_successful_evaluations.value=step.nr;
+            g_nr_transfer_submitted_frames.value=step.submitted;
+            DrawNrActivityStatus(&runtime,config,static_cast<unsigned>(step.config),Site::Top);
+            DrawNrActivityStatus(&runtime,config,static_cast<unsigned>(step.config),Site::Feedback);
+            SnapshotNrUiActivity(samples[i]);
+            turn.store(i+1,std::memory_order_release);
+        }
+    };
+    std::thread a(worker,0),b(worker,1);a.join();b.join();
+    Check(cookies[0]&&cookies[1]&&cookies[0]!=cookies[1],"UI_SHARED_WINDOW: handoff uses two actual stable drawing-thread identities");
+    Check(samples[2].latest[0].display==Display::Observed,"UI_SHARED_WINDOW: B confirmed activity before its long personal absence");
+    const auto& handoff=samples[6];
+    const auto& read=handoff.latest[0].read;
+    Check(read.thread_cookie==cookies[1]&&read.read_gap_known&&read.read_gap_ms==2156,
+          "UI_SHARED_WINDOW: returning B retains its own 2156ms read gap");
+    Check(read.observation.gap_known&&read.observation.gap_ms==63&&!read.observation.reset_mask,
+          "UI_SHARED_WINDOW: another thread's 63ms-old observation prevents a false window-gap reset");
+    Check(handoff.latest[0].display==Display::Observed&&handoff.latest[1].display==Display::Observed&&
+          read.observation.kind==Kind::Held&&Same(read.observation.sample,samples[5].latest[0].read.observation.sample),
+          "UI_SHARED_WINDOW: top and feedback keep the actual shared confirmed sample across thread handoff");
+    Check(samples[7].latest[0].read.observation.gap_ms==2000&&samples[7].latest[0].display==Display::Observed,
+          "UI_SHARED_WINDOW: exact 2000ms global gap preserves the original threshold");
+    Check(samples[8].latest[0].read.observation.reset_mask==WindowGap&&
+          samples[8].latest[0].read.observation.gap_ms==2001&&
+          samples[8].latest[0].display==Display::Checking&&samples[8].latest[1].display==Display::Checking,
+          "UI_SHARED_WINDOW: actual global 2001ms absence still clears both sites");
+    Check(samples[9].latest[0].display==Display::Observed,"shared window requires a fresh complete interval after the global gap");
+    Check(samples[10].latest[0].read.observation.reset_mask==CounterRegressed&&
+          samples[10].latest[0].read.observation.regression_mask==7&&samples[10].latest[0].display==Display::Checking,
+          "shared actual reader still resets on real carrier/NR/submission regression");
+    Check(samples[12].latest[0].read.observation.reset_mask==ConfigChanged&&samples[12].latest[0].display==Display::Checking,
+          "shared actual reader still resets immediately for a configuration change");
+    Check(samples[14].latest[0].read.observation.reset_mask==EpochChanged&&samples[14].latest[0].display==Display::Checking,
+          "shared actual reader still resets immediately for a pipeline epoch change");
+    Check(samples[16].latest[0].read.observation.reset_mask==ClockBackwards&&
+          !samples[16].latest[0].read.observation.gap_known&&samples[16].latest[0].display==Display::Checking,
+          "shared actual reader still resets on a true backward observation clock");
+    std::printf("UI_SHARED_HANDOFF thread=%llu call=%llu readGap=%llu windowGap=%llu reset=%u display=%u/%u globalGapReset=%u\n",
+        static_cast<unsigned long long>(read.thread_cookie),static_cast<unsigned long long>(read.thread_call),
+        static_cast<unsigned long long>(read.read_gap_ms),static_cast<unsigned long long>(read.observation.gap_ms),
+        read.observation.reset_mask,static_cast<unsigned>(handoff.latest[0].display),static_cast<unsigned>(handoff.latest[1].display),
+        samples[8].latest[0].read.observation.reset_mask);
+}
+void StaleScopeAndConcurrentDrawing() {
+    using namespace nr_ui_activity;
+    ResetUi();ReadReceipt receipt{};
+    g_config_generation.value=40;ReadUiActivity(40,&receipt);
+    test_now=1100;g_carrier_evaluations.value=20;g_nr_successful_evaluations.value=15;
+    g_nr_transfer_submitted_frames.value=14;
+    Check(ReadUiActivity(40,&receipt).Processing(),"new configuration has its own confirmed sample");
+    test_now=1101;const auto stale=ReadUiActivity(39,&receipt);
+    Check(!stale.valid&&receipt.observation.kind==Kind::Incoherent&&
+          receipt.observation.reset_mask==ConfigReadChanged&&!receipt.observation.observe_called,
+          "UI_STALE_SCOPE: obsolete caller is explicitly incoherent, never a current success");
+    test_now=1102;const auto current=ReadUiActivity(40,&receipt);
+    Check(current.Processing()&&receipt.observation.kind==Kind::Held&&!receipt.observation.reset_mask,
+          "UI_STALE_SCOPE: obsolete caller cannot erase the newer shared scope");
+    // A real in-flight epoch change of the held scope still invalidates it.
+    g_pipeline_stats_epoch.Reset(2);g_pipeline_stats_epoch.change_on_second=true;
+    test_now=1103;ReadUiActivity(40,&receipt);
+    Check(receipt.observation.reset_mask==EpochReadChanged&&!g_nr_ui_activity_window.Inspect().initialized,
+          "current-scope incoherence still clears the held window");
+
+    ResetUi();parallel_clock=true;monotonic_tick=100;
+    std::atomic<bool> go{false},coherent{true};std::atomic<unsigned> done{0};
+    Count cookies[2]{},calls[2]{};
+    const auto worker=[&](unsigned side) {
+        ChainConfig config;reshade::api::effect_runtime runtime;
+        while(!go.load(std::memory_order_acquire))std::this_thread::yield();
+        for(unsigned i=0;i!=1000;++i) {
+            g_carrier_evaluations.value.fetch_add(1);g_nr_successful_evaluations.value.fetch_add(1);
+            g_nr_transfer_submitted_frames.value.fetch_add(1);
+            DrawNrActivityStatus(&runtime,config,39,Site::Top);
+            DrawNrActivityStatus(&runtime,config,39,Site::Feedback);
+            TraceSnapshot snapshot;SnapshotNrUiActivity(snapshot);
+            for(const auto& value:snapshot.latest)if(value.available) {
+                const auto& o=value.read.observation;
+                if((o.reset_mask&&o.reset_mask!=FirstWindow)||o.input_scope.config!=39||o.input_scope.epoch!=2||
+                   (o.before.initialized&&o.now<o.before.last_observed)||o.current.nr<o.before.counters.nr)
+                    coherent=false;
+            }
+        }
+        cookies[side]=NrUiActivityThread().cookie;calls[side]=NrUiActivityThread().calls;
+        ++done;
+    };
+    std::thread a(worker,0),b(worker,1);go.store(true,std::memory_order_release);
+    for(unsigned i=0;i!=16;++i) {
+        auto f8=std::make_unique<FeedbackSession>();FeedbackAppendUiActivity(*f8,"end");
+        if(f8->report_truncated)coherent=false;
+        std::this_thread::yield();
+    }
+    while(done.load()!=2)std::this_thread::yield();
+    a.join();b.join();parallel_clock=false;
+    TraceSnapshot snapshot;SnapshotNrUiActivity(snapshot);
+    Check(coherent&&cookies[0]&&cookies[1]&&cookies[0]!=cookies[1]&&calls[0]==2000&&calls[1]==2000&&
+          snapshot.published==4000,"UI_SHARED_CONCURRENT: two drawing threads and F8 preserve ordered shared observations and separate identities");
+    Check(snapshot.latest[0].read.observation.sample.Processing()&&snapshot.latest[1].read.observation.sample.Processing(),
+          "UI_SHARED_CONCURRENT: continuous concurrent drawing keeps confirmed processing");
+    std::printf("UI_SHARED_CONCURRENT published=%llu calls=%llu/%llu lockViolations=%u\n",
+        static_cast<unsigned long long>(snapshot.published),static_cast<unsigned long long>(calls[0]),
+        static_cast<unsigned long long>(calls[1]),lock_violations.load());
+}
+void JournalAndPrivacy() {
+    using namespace nr_ui_activity;
+    ResetUi();std::atomic<bool> go=false;std::atomic<unsigned> done=0;Count cookies[2]{};
+    const auto worker=[&](unsigned side) {
+        cookies[side]=NrUiActivityThread().cookie;
+        while(!go.load(std::memory_order_acquire))std::this_thread::yield();
+        for(unsigned i=0;i!=400;++i) {
+            ReadReceipt read{};read.thread_cookie=cookies[side];read.thread_call=i+1;
+            read.observation.current={cookies[side],cookies[side]+1,cookies[side]+2,cookies[side]+3};
+            read.observation.reset_mask=FirstWindow;
+            NrPublishUiActivity(read,static_cast<Site>(side),Display::Checking);
+        }
+        ++done;
+    };
+    std::thread a(worker,0),b(worker,1);go=true;TraceSnapshot snapshot;
+    bool coherent=true;
+    while(done.load()!=2) {
+        SnapshotNrUiActivity(snapshot);
+        for(const auto& value:snapshot.latest)if(value.available) {
+            const auto& c=value.read.observation.current;const auto id=value.read.thread_cookie;
+            coherent=coherent&&c.carriers==id&&c.nr==id+1&&c.submitted==id+2&&c.queue_waits==id+3;
+        }
+    }
+    a.join();b.join();SnapshotNrUiActivity(snapshot);
+    Check(cookies[0]&&cookies[0]!=cookies[1]&&coherent,"real CPU threads publish untorn receipts with distinct anonymous identities");
+    Check(snapshot.recent_count==4&&snapshot.overwritten==796&&snapshot.published==800,"fixed transition ring reports exact overflow without growing");
+    for(unsigned i=1;i!=snapshot.recent_count;++i)Check(snapshot.recent[i].sequence>snapshot.recent[i-1].sequence,"F8 history returns ordered complete publications");
+    for(const Count value:{123456789012ull,12345678901234ull,1234567890123456ull,UINT64_MAX}) {
+        ResetUi();ReadReceipt read{};read.thread_cookie=read.thread_call=read.read_gap_ms=value;
+        read.config_argument=read.epoch_entered=read.config_checked=read.epoch_checked=value;
+        read.read_gap_known=read.epoch_checked_known=true;
+        auto& o=read.observation;o.now=o.gap_ms=value;o.gap_known=o.observe_called=true;
+        o.before.initialized=true;o.before.scope={value,value};o.before.counters={value,value,value,value};
+        o.current=o.sample.delta=o.before.counters;o.sample.valid=o.before.sample.valid=true;
+        o.sample.elapsed_ms=value;o.reset_mask=255;o.regression_mask=15;o.kind=Kind::Incoherent;
+        for(unsigned i=0;i!=6;++i)NrPublishUiActivity(read,static_cast<Site>(i%2),Display::CommandStateUnknown);
+        auto report=std::make_unique<FeedbackSession>();FeedbackAppendUiActivity(*report,"end");
+        const std::string raw(report->report,report->report_used);
+        std::string clean;
+        for(std::size_t at=0;at<raw.size();) {
+            const auto end=raw.find('\n',at);const auto finish=end==std::string::npos?raw.size():end;
+            clean+=nr_feedback_text::SanitizeMetadata(std::string_view(raw).substr(at,finish-at));
+            if(end!=std::string::npos)clean+='\n';
+            at=end==std::string::npos?raw.size():end+1;
+        }
+        Check(clean==raw,"UI_TYPED_PRIVACY: legitimate fixed-schema 12/14/16/full-width decimals survive actual sanitizer");
+        Check(report->report_used<7u*1024u&&!report->report_truncated,"full bounded UI receipt export fits the seven KiB per-snapshot budget");
+        std::size_t begin=0,max_line=0;while(begin<raw.size()){const auto end=raw.find('\n',begin);if(end==std::string::npos)break;max_line=std::max(max_line,end-begin+1);begin=end+1;}
+        Check(max_line<1024,"every actual fixed-schema receipt line stays below 1024 bytes");
+        if(value==UINT64_MAX)std::printf("UI_F8_BYTES %zu; maxLine=%zu; six bounded records\n",report->report_used,max_line);
+        const auto at=raw.find("end.uiActivity.latest.top=");const auto end=raw.find('\n',at);
+        const auto record=raw.substr(at,end-at);
+        Check(nr_feedback_text::Sanitize(record).find("[address]")!=std::string::npos || value==UINT64_MAX,
+              "UI schema never exempts pointer-sized tokens in raw logs");
+        if(value!=UINT64_MAX) {
+            auto malformed=record;malformed += ",secret:"+std::to_string(value);
+            Check(nr_feedback_text::SanitizeMetadata(malformed).find("[address]")!=std::string::npos,"unknown extra tuple field does not inherit UI exemption");
+            malformed=record;malformed.replace(malformed.find("readGap:"),8,"readGap:0/");
+            Check(nr_feedback_text::SanitizeMetadata(malformed).find("[address]")!=std::string::npos,"extra tuple component invalidates UI number exemption");
+        }
+    }
+    for(const auto line:{"end.uiActivity.note=12345678901234", "end.uiActivity.published=0x12345678901234",
+                         "end.uiActivity.published=012345678901234", "end.uiActivity.recent.4=seq:12345678901234"})
+        Check(nr_feedback_text::SanitizeMetadata(line).find("[address]")!=std::string::npos,"unknown UI fields/hex/noncanonical decimals keep address redaction");
+    Check(nr_feedback_text::SanitizeMetadata("end.uiActivity.note=C:\\private\\ui.txt").find("[local-path]")!=std::string::npos,
+          "UI prefix cannot bypass private path redaction");
+    Check(nr_feedback_text::SanitizeMetadata("end.uiActivity.published=12345678901234,password=secret").find("sensitive log line omitted")!=std::string::npos,
+          "UI prefix cannot bypass credential redaction");
+}
+int main() {
+    CompatibilityDisplay();WindowReceipts();ReadAndDisplay();DrawingThreadHandoff();StaleScopeAndConcurrentDrawing();JournalAndPrivacy();
+    Check(lock_violations==0,"UI_SHARED_LOCK: counter/time reads occur under the window lock; ImGui, publication and F8 remain outside it");
+    std::printf("UI_RECEIPT_CPU %s checks=%u failures=%u; actual Window/read/display/F8 boundaries, real Win32 value locks and CPU threads; clock/atomic/UI APIs scripted; no device/GPU/game\n",failures?"FAIL":"PASS",checks,failures);
+    return failures?41:0;
+}

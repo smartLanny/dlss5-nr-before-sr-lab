@@ -1,6 +1,8 @@
 // One decision feeds composition constants, completed-sample diagnostics and
 // the controls. Admission of a new HDR contract belongs elsewhere; this policy
 // deliberately preserves the existing FP16/unit-exposure post-SR exception.
+#include "nr_color_amplification.h"
+
 enum class NrColorReason : unsigned int {
     Unknown,
     NonHdr,
@@ -17,12 +19,15 @@ enum class NrLightingReason : unsigned int {
     RequestedOff,
     NrBeforeSr,
     OnlyNrBeforeSr,
+    AfterSr,
 };
 
 struct NrColorPolicy {
     float requested_color_strength = 0.0f;
     float effective_color_strength = 0.0f;
     bool color_allowed = false;
+    float amplification = 1.0f;
+    bool amplification_color_limited = false;
     NrColorReason color_reason = NrColorReason::Unknown;
     bool requested_preserve_lighting = false;
     bool effective_preserve_lighting = false;
@@ -61,6 +66,40 @@ NrColorPolicy ResolveNrColorPolicy(int mode, bool hdr_input,
     return result;
 }
 
+// Finalize the LightingLock request for the selected composition route. This
+// is deliberately independent from HDR colour admission: post-SR local
+// lighting matching must not grant colour processing for an unverified input.
+void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
+    const bool supported = mode == 1 || mode == 2;
+    const bool requested = supported && std::isfinite(strength) && strength > 0.000001f;
+    policy.requested_preserve_lighting = requested;
+    policy.effective_preserve_lighting = requested;
+    policy.lighting_reason = !supported ? NrLightingReason::Unknown :
+        !requested ? NrLightingReason::RequestedOff :
+        mode == 1 ? NrLightingReason::AfterSr : NrLightingReason::NrBeforeSr;
+}
+
+// Called inside DispatchCodec's existing configuration lock before constants
+// and diagnostic snapshots are published. The explicit optional argument keeps
+// host tests independent; the production call uses the same committed strength
+// as TransferStrength. This finalization runs for BOTH verified colour and the
+// explicit unverified-HDR opt-in, not just for the latter.
+void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
+    float amplification = ActiveTransferStrength(g_config), bool protect_color = true) {
+    if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
+        policy.color_allowed = true;
+        policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
+        policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
+    }
+    const auto budget = nr_color_amplification::Resolve(
+        policy.effective_color_strength, amplification, protect_color);
+    policy.effective_color_strength = policy.color_allowed ? budget.coefficient : 0.0f;
+    policy.amplification = budget.amplification;
+    policy.amplification_color_limited = policy.color_allowed && budget.limited;
+    // In Mode 1 this is a conservative reduction of the final colour MIX,
+    // not an exact cap on per-channel ratios (unlike Mode 2's log exponent).
+}
+
 const char *NrColorReasonName(NrColorReason reason) {
     switch (reason) {
     case NrColorReason::NonHdr: return "non-hdr-input";
@@ -79,6 +118,7 @@ const char *NrLightingReasonName(NrLightingReason reason) {
     case NrLightingReason::RequestedOff: return "requested-off";
     case NrLightingReason::NrBeforeSr: return "nr-before-sr-local-match";
     case NrLightingReason::OnlyNrBeforeSr: return "only-nr-before-sr";
+    case NrLightingReason::AfterSr: return "post-sr-local-match";
     default: return "unknown-live-contract";
     }
 }
@@ -140,19 +180,19 @@ const char *NrColorPolicyStatusName(NrColorPolicyStatus status) {
 const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
     switch (status) {
     case NrColorPolicyStatus::Inactive:
-        return chinese ? "NR 合成未启用；实际值未知，设置已保留。" :
+        return chinese ? "NR 当前未启用，AI 色彩暂不处理；设置已保留。" :
             "NR composition is inactive; effective values are unknown. Requests are retained.";
     case NrColorPolicyStatus::Pending:
-        return chinese ? "设置待应用；等待此配置的合成帧。" :
+        return chinese ? "正在应用设置，请等待 AI 重新开始处理画面。" :
             "Settings pending; waiting for a composition frame with this configuration.";
     case NrColorPolicyStatus::Bypassed:
-        return chinese ? "当前帧已旁路；实际值未知，设置已保留。" :
+        return chinese ? "NR 当前未参与画面处理，AI 色彩暂不生效；设置已保留。" :
             "The current frame is bypassed; effective values are unknown. Requests are retained.";
     case NrColorPolicyStatus::ContractChanged:
-        return chinese ? "游戏输入合同已变化；等待新的合成帧。" :
+        return chinese ? "游戏刚切换了画面模式，正在等待 AI 恢复处理。" :
             "The game input contract changed; waiting for a new composition frame.";
     default:
-        return chinese ? "暂无当前合成合同；实际值未知，设置已保留。" :
+        return chinese ? "暂无最近的 AI 画面处理记录；设置已保留。" :
             "No current composition contract; effective values are unknown. Requests are retained.";
     }
 }
@@ -161,16 +201,51 @@ const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
 // recorded values when status is not Current so exports can identify history.
 NrColorPolicySnapshot g_recorded_color_policy = {};
 
+int EffectivePictureMode(int requested_mode) {
+    return IsRayReconstructionRouteObserved() ||
+        (requested_mode==2 && IsCompatibilityPostObserved()) ? 1 : requested_mode;
+}
+
 NrColorPolicySnapshot SnapshotColorPolicy() {
     EnterCriticalSection(&g_chain_cs);
     NrColorPolicySnapshot snapshot = g_recorded_color_policy;
     snapshot.status = ColorPolicyStatusFor(snapshot,
         g_config_generation.load(std::memory_order_relaxed),
         g_pipeline_stats_generation.load(std::memory_order_relaxed),
-        g_config.mode, g_config.enabled && !g_config.identity_use_original &&
+        EffectivePictureMode(g_config.mode), g_config.enabled && !g_config.identity_use_original &&
             ActiveTransferStrength(g_config) > 0.001f,
         g_last_bypass_reason.load(std::memory_order_relaxed) !=
             static_cast<int>(BypassReason::None), GetTickCount64());
     LeaveCriticalSection(&g_chain_cs);
     return snapshot;
+}
+
+struct CompatibilityFallbackSnapshot {
+    bool recent = false;
+    bool recorded = false;
+    int requested_mode = 2, effective_mode = 2;
+    unsigned cause = 0;
+    BypassReason failure = BypassReason::None;
+    unsigned long long attempts = 0, recordings = 0;
+};
+CompatibilityFallbackSnapshot SnapshotCompatibilityFallback() {
+    // The producer publishes under this same recursive chain lock. Do not
+    // join a previous request's reason with a newer route/configuration.
+    EnterCriticalSection(&g_chain_cs);
+    CompatibilityFallbackSnapshot out;
+    out.requested_mode = g_config.mode;
+    out.effective_mode = EffectivePictureMode(g_config.mode);
+    out.attempts = g_compat_fallback_attempts.load(std::memory_order_relaxed);
+    out.recordings = g_compat_fallback_recorded.load(std::memory_order_relaxed);
+    out.recent = g_config.enabled && g_config.mode == 2 &&
+        !g_config.identity_use_original && ActiveTransferStrength(g_config) > 0.001f &&
+        !IsRayReconstructionRouteObserved() && IsCompatibilityPostObserved();
+    if (out.recent) {
+        out.cause = g_compat_fallback_cause.load(std::memory_order_relaxed);
+        out.failure = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed));
+        const auto colour = SnapshotColorPolicy();
+        out.recorded = colour.status == NrColorPolicyStatus::Current && colour.mode == 1;
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    return out;
 }

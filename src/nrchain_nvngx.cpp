@@ -6,12 +6,39 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <shlobj.h>
+#include <nvsdk_ngx.h>
 
 #include <cstdint>
 
 namespace {
 using NgxResult = std::uint32_t;
 volatile LONG g_post_call_epoch = 0;
+}
+
+// The official SDK loader discovers the driver core. Do not emulate its
+// registry/path policy or provide a home-grown NVSDK_NGX_Parameter vtable.
+// Called only when the host has not loaded NGX; no SR feature is created.
+extern "C" __declspec(dllexport) NgxResult NRChain_Bootstrap(ID3D12Device *device) {
+    if (!device) return static_cast<NgxResult>(NVSDK_NGX_Result_FAIL_InvalidParameter);
+    wchar_t directory[MAX_PATH] = {};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE,
+                              nullptr, SHGFP_TYPE_CURRENT, directory)))
+        return static_cast<NgxResult>(NVSDK_NGX_Result_Fail);
+    if (wcscat_s(directory, L"\\DLSS5") != 0) return static_cast<NgxResult>(NVSDK_NGX_Result_Fail);
+    if (!CreateDirectoryW(directory, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+        return static_cast<NgxResult>(NVSDK_NGX_Result_Fail);
+    if (wcscat_s(directory, L"\\NGX") != 0) return static_cast<NgxResult>(NVSDK_NGX_Result_Fail);
+    if (!CreateDirectoryW(directory, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+        return static_cast<NgxResult>(NVSDK_NGX_Result_Fail);
+    // A plugin-owned identifier, not an invented NVIDIA-assigned application ID.
+    const auto result = NVSDK_NGX_D3D12_Init_with_ProjectID(
+        "1e962a93-7a44-4b5f-93b6-9b1a87896f15", NVSDK_NGX_ENGINE_TYPE_CUSTOM,
+        "DLSS5-0.5", directory, device, nullptr, NVSDK_NGX_Version_API);
+    InterlockedIncrement(&g_post_call_epoch);
+    // Keep this SDK instance and module alive with the process. Shutdown here
+    // could invalidate parameters/features, including a later host NGX user.
+    return static_cast<NgxResult>(result);
 }
 
 // These wrappers deliberately live in a module whose leaf name contains
