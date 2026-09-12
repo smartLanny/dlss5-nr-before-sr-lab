@@ -301,7 +301,7 @@ void RunCombined(reshade::api::effect_runtime &runtime, bool archive) {
         FeedbackAppend(session, "fixture.optionalCapacity.%u=%s\n", row++, value.c_str());
     }
     const auto before_end = session.report_used;
-    check(!session.report_truncated, "start snapshot and labelled optional capacity rows remain whole");
+    check(!session.report_truncated, "COMBINED_CAPACITY_TOO_SMALL: start snapshot and labelled optional capacity rows remain whole");
     // A configuration change during collection keeps the historical proof's
     // original scope. The main decision must come from the actual end snapshot.
     fixture_decision.current.config = 8;

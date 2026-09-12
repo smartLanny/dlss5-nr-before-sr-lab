@@ -4,6 +4,9 @@
 本包提供一种语言的 Core 和配套 `nrchain_nvngx.dll`；个人 INI、ReShade、
 NVIDIA 模型及游戏文件沿用现有安装。验证身份和文件哈希见包内 `build-info.json`
 及 `SHA256.json`。本地测试结果与实际游戏兼容、最终显示和整帧性能分别记录。
+`DLINE15_BUILD_VALIDATION_20260912.md` 是历史开发记录，其中的 r4、r13 等哈希
+不代表本包。最终结论以本包同一源码的 `build-info.json`、`GPU-VALIDATION.json`
+及其中四份独立 GPU 验证记录为准；游戏实测、物理显示与整帧性能仍单独标注。
 
 ## 更新与恢复
 

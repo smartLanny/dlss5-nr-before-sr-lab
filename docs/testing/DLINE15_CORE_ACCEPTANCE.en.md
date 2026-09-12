@@ -5,6 +5,10 @@ contains one language Core and its matching `nrchain_nvngx.dll`. Keep your INI,
 ReShade, NVIDIA model/runtime and game files. See `build-info.json` and
 `SHA256.json` for the exact build identity and hashes. Local validation, game
 compatibility, final presentation and whole-frame performance are separate results.
+`DLINE15_BUILD_VALIDATION_20260912.md` is historical development documentation;
+its r4/r13 hashes do not identify this package. Final results are the same-source
+`build-info.json`, `GPU-VALIDATION.json` and their four independent GPU receipts.
+Game validation, physical presentation and whole-frame performance remain separate.
 
 ## Update and restore
 
