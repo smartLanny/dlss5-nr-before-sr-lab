@@ -1,5 +1,40 @@
 # 统一开发与测试交接入口
 
+## 2026-09-13 D16：外部 Provider 与光流输入候选（仅完成 Windows 编译）
+
+本候选把 D16 冻结源 `fa583e1d4d3fb887272e761d77d7640f3117ddbe`
+与外部输入实现合成于私有构建源 `7b056439a981b1392d66d40a746a9fbd2299ca94`。
+公开 PR 使用经过仓库边界审计的显式源码导出，因此公开提交号与该私有构建源不同；
+两者的生产源码由清单逐文件绑定，私有构建证据和产物不进入源码仓库。
+
+Core 现在导出 `NRExternalProviderV1` 的 Query、Claim、Release 和 Submit。
+Submit 只表示同帧处理与回填命令已经录制；Provider 必须提供将来确切完成的生产者
+fence，Core 在观察到该值后才完成 claim。外部 Color、Depth 和 MV 进入现有
+`SourceFrame`/Claims 及同一 NR 消费路径，不创建第二个 NR 所有者。D16 保留原生
+Feature1 优先、三入口准入和失败快照，并将完整多层范围扩到 2–5 层；第 3–5 层
+沿用第二层实际比例。
+
+官方 Feeder 0.15.1 与 1.16.0-beta.1 的适配源均已生成并完成 x64 Windows
+编译。集成光流默认关闭，开启时由同一个 Feeder 快照 Color/Depth，以 AMD 或
+NVIDIA 光流替换 MV 后执行唯一一次 V1 Submit；默认 AMD、100%，可选 50%。
+AMD FidelityFX 1.1.4 以静态库编译，最终 Feeder 不依赖 FidelityFX DLL。
+NVIDIA 路径源码保留条件编译，但构建机没有需 NVIDIA Developer Program 获取的
+官方 `NvOFInterface/nvOpticalFlowD3D12.h`，所以当前二进制明确只有 AMD 后端，
+NVOF 不可选用，也没有以镜像头文件或占位实现冒充。
+
+x86、DX9、DX10、DX11 宿主 IPC v9 和 Vulkan profile 运输的可复现适配源、
+上游 commit 与摘要锁保存在 `compatibility/`。源码仓库不含 Core、NR runtime、
+ReShade、vendor SDK 或已编译运输文件；Manager 从独立组件库存注入同版本 Core、
+`nrchain_nvngx.dll`、生成配置及共享 NR runtime。
+
+`7b056439` 的 canonical generated stage 完成中英文 Core Windows 编译：中文
+SHA256 `93ceb82f32e9963292d8f832ad82e21c165eb4cbfb1d6360213f26f030b7fccb`，
+英文 `0b95bbce08dfa56da2a9b5d172266f60f5b887b810a85f90e659ff1775eca1dd`，
+同源 chain `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2`，
+生成配置 `84cb54bea2d2fcdd0ede005741d413a80f082d960752be1ae8912c28cd0204a8`。
+这是编译和 PE 导出边界；本批依维护者要求没有运行新增 CPU/WARP、GPU、游戏或
+性能验收。异环、2077、黑旗及 NVOF 的兼容性未被本候选证明。
+
 ## 2026-09-11 D14：累计 Corefix.1–8 移植（本地验收通过）
 
 维护者要求将 PR #245 的完整累计分支移植到当前 0.5，来源固定为

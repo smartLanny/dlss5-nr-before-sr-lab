@@ -50,6 +50,25 @@ ReShade
 ReShade headers and binaries are not vendored. A source checkout is supplied by
 the builder and remains governed by its own license.
 
+DLSS5-Feeder and NIGos dlss5-bridge
+----------------------------------
+
+The compatibility adapters are reproducible transformations of source-pinned
+MIT projects. Their upstream repositories, commits, patch hashes and license
+retention requirements are recorded under `compatibility/legacy-feeder`,
+`compatibility/vulkan-feeder` and `compatibility/nigos-bridge`. No compiled
+Feeder, host, ReShade or bridge binary is stored in this source repository.
+
+AMD FidelityFX SDK
+------------------
+
+The optional AMD optical-flow build consumes the separately obtained official
+FidelityFX SDK 1.1.4 headers and static libraries. SDK headers, libraries and
+binaries are not vendored here and remain governed by AMD's FidelityFX SDK
+license. Component packaging retains the official license beside the compiled
+Feeder. The NVIDIA Optical Flow SDK is likewise an external build input; no
+NVOF SDK header, library or binary is included in this repository.
+
 NVIDIA and games
 ----------------
 
