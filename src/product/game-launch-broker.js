@@ -158,7 +158,7 @@ function createGameLaunchBroker(options = {}) {
     const exe = validateTarget(input); await noLinks(exe);
     let bitness; try { bitness = getBitness(exe); } catch { fail('GAME_LAUNCH_EXE_INVALID', '游戏文件不是有效 Windows PE。'); }
     const level = readLevel(exe);
-    if (level === 'requireAdministrator' || level === 'highestAvailable') fail('GAME_LAUNCH_REQUIRES_ELEVATION', '该游戏明确要求管理员权限，不能用 Vulkan 用户 layer 路线启动。', { level });
+    if (level === 'requireAdministrator' || level === 'highestAvailable') fail('GAME_LAUNCH_REQUIRES_ELEVATION', '该游戏请求提升权限，当前普通权限启动方式无法启动；请使用受支持的启动器确认权限。此检查不表示安装文件失败。', { level });
     return { ...(await call({ op: 'inspect', exe })), exe, bitness, executionLevel: level };
   }
   async function launch(input, controls) {

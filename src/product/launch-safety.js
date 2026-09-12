@@ -2,6 +2,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
+const { hashRegularFile } = require('./streamed-file-digest');
 
 function fail(code, message, details) {
   throw Object.assign(new Error(message), { code, details });
@@ -25,7 +26,8 @@ async function noLinks(target) {
   }
 }
 async function digestFile(file) {
-  try { return sha256(await fs.readFile(file)); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  // OperationPlan also hashes the game EXE: do not allocate it as one Buffer.
+  return hashRegularFile(file, { assertPath: noLinks });
 }
 async function atomicJson(file, value) {
   await noLinks(file);

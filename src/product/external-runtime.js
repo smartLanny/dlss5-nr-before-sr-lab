@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const execFile = promisify(require('node:child_process').execFile);
 const { noLinks, inside, atomicJson } = require('./launch-safety');
+const { hashRegularFile, deploymentHashLimit } = require('./streamed-file-digest');
 const { readManifest, manifestPath, newManifest, backupPath, assertManifestExecutable } = require('./manifest');
 const { requireAddonLayout, inspectAddonLayout } = require('./reshade-layout');
 const { externalConfig, localConfig, loaderConfig, inspectProfile } = require('./external-profile-config');
@@ -59,14 +60,9 @@ function readJson(file) {
   } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 async function digest(file) {
-  await noLinks(file);
-  let before; try { before = await fsp.stat(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-  if (!before.isFile() || before.size > MAX_FILE) fail('FILE', '部署目标不是可检查的普通文件。', { file });
-  const sha = crypto.createHash('sha256');
-  for await (const bytes of fs.createReadStream(file)) sha.update(bytes);
-  const after = await fsp.stat(file); await noLinks(file);
-  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) fail('FILE_CHANGED', '文件在检查期间改变。', { file });
-  return sha.digest('hex');
+  // Shared by native and external plan/commit EXE checks (MGR#28). The larger
+  // EXE budget never relaxes DLL, config, backup or package size limits.
+  return hashRegularFile(file, { assertPath: noLinks, maxBytes: deploymentHashLimit(file), fail });
 }
 function createExternalRuntime(options) {
   if (!path.isAbsolute(options.userData || '')) fail('CONFIG', '外置运行目录需要绝对用户目录。');
