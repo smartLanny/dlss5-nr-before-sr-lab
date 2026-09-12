@@ -9,6 +9,8 @@ using nr_source_frame::Point;
 using nr_source_frame::Ticket;
 using nr_source_frame::Recording;
 using nr_source_frame::Resource;
+using nr_source_frame::PresentDecision;
+using nr_source_frame::PresentObservation;
 SRWLOCK source_lock=SRWLOCK_INIT;
 nr_source_frame::Claims claims;
 nr_source_frame::Lineage lineage;
@@ -16,6 +18,29 @@ std::atomic<Id> source_objects{1};
 // Private cookies describe actual COM lifetimes, never pointer generations.
 const GUID source_identity_guid={0x68b5d447,0x109e,0x4a98,{0xa5,0xb7,0x12,0x6e,0xec,0x43,0x8a,0x51}};
 struct Lock {Lock(){AcquireSRWLockExclusive(&source_lock);}~Lock(){ReleaseSRWLockExclusive(&source_lock);}};
+PresentObservation present_observation{};
+Id present_observation_serial=0;
+void PublishPresentObservationLocked(PresentObservation value){
+    if(present_observation_serial!=UINT64_MAX)++present_observation_serial;
+    value.ordinal=present_observation_serial;present_observation=value;
+}
+void PublishPresentObservation(PresentObservation value){Lock lock;PublishPresentObservationLocked(value);}
+bool TryPresentObservation(PresentObservation& out){
+    out={};
+    if(!TryAcquireSRWLockShared(&source_lock))return false;
+    const bool ready=present_observation.ordinal!=0;if(ready)out=present_observation;
+    ReleaseSRWLockShared(&source_lock);return ready;
+}
+PresentDecision PresentDecisionFor(const PresentObservation& value){
+    if(value.promotion_blocked_by_native_producer)return PresentDecision::NativeProducerBlocked;
+    if(value.label.role==Role::Generated)return PresentDecision::GeneratedLabel;
+    if(value.label.role==Role::Retired)return PresentDecision::RetiredLabel;
+    if(value.reject_mask&nr_source_frame::PresentRejectNoApplication)return PresentDecision::UnknownLabel;
+    if(value.reject_mask&nr_source_frame::PresentRejectFgConsumed)return PresentDecision::FgConsumed;
+    if(value.reject_mask&nr_source_frame::PresentRejectUnsubmitted)return PresentDecision::Unsubmitted;
+    if(value.reject_mask&nr_source_frame::PresentRejectWrongQueue)return PresentDecision::WrongQueue;
+    return PresentDecision::Accepted;
+}
 Id ObjectId(ID3D12Object* object) {
     if(!object)return 0;
     Id value=0;UINT size=sizeof(value);
@@ -555,27 +580,38 @@ void Register(bool enable){
 bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain,ID3D12Resource* buffer) {
     CollectGuideInputs();
     present_lease={};
-    if(!queue||!chain||!buffer||chain->get_device()->get_api()!=reshade::api::device_api::d3d12)return false;
+    PresentObservation diagnostic{};
+    if(!queue||!chain||!buffer){diagnostic.decision=PresentDecision::InvalidArguments;PublishPresentObservation(diagnostic);return false;}
+    if(!chain->get_device()||chain->get_device()->get_api()!=reshade::api::device_api::d3d12){
+        diagnostic.decision=PresentDecision::UnsupportedApi;PublishPresentObservation(diagnostic);return false;
+    }
     ObserveSurface(chain);
     Lock lock;
     ReleasePresentGuides(nullptr,0,present_recorded);
     if(present_ticket){if(present_recorded)claims.RetainRecorded(present_ticket);else claims.RejectBeforeWork(present_ticket);present_ticket={};}
     present_recorded=false;
-    const auto queue_identity=QueueOf(reinterpret_cast<ID3D12CommandQueue*>(queue->get_native()));if(!queue_identity)return false;
+    const auto queue_identity=QueueOf(reinterpret_cast<ID3D12CommandQueue*>(queue->get_native()));diagnostic.queue_identity=queue_identity;
+    if(!queue_identity){diagnostic.decision=PresentDecision::QueueIdentityUnavailable;PublishPresentObservationLocked(diagnostic);return false;}
     present_resource=ResourceOf(buffer);auto label=lineage.Lookup(present_resource);
+    diagnostic.lookup=label;diagnostic.native_producer_on_device=NativeProducerOnDevice(present_resource.device);
+    diagnostic.promotion_eligible=nr_source_frame::PresentPromotionEligible(label,queue_identity);
+    diagnostic.promotion_blocked_by_native_producer=diagnostic.promotion_eligible&&diagnostic.native_producer_on_device;
     // A new, explicitly targeted output write at the application Present
     // boundary is sufficient for history-free color processing. This does not
     // claim a camera/temporal frame identity. Generated output is never promoted.
-    if(label.role==Role::Unknown&&!label.tainted&&!label.processed&&!label.fg_consumed&&label.exact_write&&label.content&&label.submitted&&label.queue==queue_identity&&
-       !NativeProducerOnDevice(present_resource.device)){
+    if(diagnostic.promotion_eligible&&!diagnostic.native_producer_on_device){
         const auto device=ResourceOf(buffer).device;
         label.source=ProducerSource(reinterpret_cast<Id>(chain),device,label.content);label.role=Role::Application;
     }
+    diagnostic.label=label;diagnostic.reject_mask=nr_source_frame::PresentRejectMask(label,queue_identity,diagnostic.native_producer_on_device);
     present_lease.source=label.source;present_lease.source_id=label.content?label.content:label.source.sequence;
     present_lease.role=label.role;present_lease.queue=label.queue;
-    if(!label.KnownApplication()||label.fg_consumed||!label.submitted||label.queue!=queue_identity)return false;
+    if(diagnostic.reject_mask){diagnostic.decision=PresentDecisionFor(diagnostic);PublishPresentObservationLocked(diagnostic);return false;}
     present_ticket=claims.Begin(label,Point::Present);
-    if(present_ticket)AcquirePresentGuides(label.source,label.queue);return bool(present_ticket);
+    if(!present_ticket){diagnostic.claim_reason=static_cast<Id>(claims.reason);diagnostic.decision=PresentDecision::ClaimRejected;
+        PublishPresentObservationLocked(diagnostic);return false;}
+    diagnostic.claim_started=true;diagnostic.accepted=true;diagnostic.decision=PresentDecision::Accepted;
+    PublishPresentObservationLocked(diagnostic);AcquirePresentGuides(label.source,label.queue);return true;
 }
 Id PresentSourceId(){return present_lease.source_id;}
 Id PresentRetryToken(){Lock lock;return RetryToken(present_lease.source);}

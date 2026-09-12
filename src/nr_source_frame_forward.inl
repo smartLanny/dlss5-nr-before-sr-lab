@@ -21,4 +21,5 @@ bool InlineAllowed(unsigned);
 void MarkPrivateRecorded();
 unsigned long long CurrentRetryToken();
 unsigned long long PresentRetryToken();
+bool TryPresentObservation(nr_source_frame::PresentObservation&);
 }

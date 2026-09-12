@@ -15,8 +15,14 @@ void Reconcile() {
     }
 }
 Start Effective(){return static_cast<Start>(effective.load(std::memory_order_acquire));}
+bool TrySnapshot(nr_processing::Snapshot& out) {
+    out={};if(!TryEnterCriticalSection(&g_chain_cs))return false;
+    out.requested=session.Requested();out.current=session.Current();out.retained=session.Retained();
+    std::strncpy(out.reason,session.Reason(),sizeof(out.reason)-1);
+    LeaveCriticalSection(&g_chain_cs);return true;
+}
 bool PresentSelected(){return Effective()==Start::Present;}
-void MarkRecorded(){private_recorded=true;}
+void MarkRecorded(){private_recorded=true;session.Hold(Effective());}
 void BlockSource(){source_blocked=true;}
 bool Recorded(){return private_recorded||source_blocked;}
 void Reject(Start route,const char* reason,bool structural=false) {
@@ -39,9 +45,16 @@ void RejectBeforePresentWork(unsigned long long source,const char* reason){
     carrier_serial=old_serial;private_recorded=old_recorded;source_blocked=old_blocked;
 }
 void Adopted(Start route){session.Adopted(route);}
+void BeginSource(unsigned long long source) {
+    if(session.BeginSource(source)) {
+        effective.store(static_cast<unsigned>(session.Current()),std::memory_order_release);
+        g_history_generation.fetch_add(1,std::memory_order_relaxed);
+    }
+}
 void MissingInlineAtPresent(unsigned long long source) {
     const auto old_serial=carrier_serial;const bool old_recorded=private_recorded,old_blocked=source_blocked;
     carrier_serial=source;private_recorded=source_blocked=false;
+    BeginSource(source);
     if(Effective()==Start::Before)Reject(Start::Before,"native-reconstruction-entry-unavailable");
     if(Effective()==Start::After)Reject(Start::After,"native-reconstruction-entry-unavailable");
     carrier_serial=old_serial;private_recorded=old_recorded;source_blocked=old_blocked;
@@ -52,6 +65,7 @@ struct CarrierScope {
     CarrierScope():previous_recorded(private_recorded),previous_blocked(source_blocked),previous_serial(carrier_serial) {
         Reconcile();private_recorded=false;source_blocked=false;
         carrier_serial=nr_source_runtime::CurrentRetryToken();
+        BeginSource(carrier_serial);
     }
     ~CarrierScope(){private_recorded=previous_recorded;source_blocked=previous_blocked;carrier_serial=previous_serial;}
 };

@@ -12,7 +12,7 @@
             prefix,full.scope_matches?1:0,prefix,full.enabled?1:0,prefix,full.generation,prefix,full.mode,
             prefix,full.requested,prefix,full.prepared,prefix,full.adopted,
             prefix,full.recorded_adoptions,prefix,full.root);
-        for(unsigned i=0;i<4;++i) {
+        for(unsigned i=0;i<nr_full::kMaxPasses;++i) {
             const auto& l=full.layers[i];
             FeedbackAppend(s,"%s.fullNR.layer%u=instance:%llu,evaluations:%llu,timingCurrent:%d,"
                 "samples:%u,lastMs:%.6f,medianMs:%.6f,p95Ms:%.6f\n",prefix,i+1,l.instance,l.evaluations,

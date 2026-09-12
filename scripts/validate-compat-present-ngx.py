@@ -82,7 +82,7 @@ def main():
             shutil.copy2(src,out/name)
         if a.native_fg:shutil.copy2(a.fg_runtime.resolve(strict=True),out/'nvngx_dlssg.dll')
         if not a.compile_only:
-            cases=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(2,50)]
+            cases=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in cases:
                 code=run([binary,out,passes,scale],f'run-{passes}-{scale}',240)
                 if code:break
@@ -116,7 +116,7 @@ def main():
         result['present_nrf_metadata']={f.name:{'sha256':sha(f),'content':json.loads(f.read_text(encoding='utf-8'))} for f in out.glob('capture-p*-layer*.json')}
         result['present_capture_cases_checked']=0
         if not a.compile_only and not code:
-            expected=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(2,50)]
+            expected=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in expected:
                 prefix=f'capture-p{passes}-s{scale}-layer'
                 paths=[out/f'{prefix}{layer}.json' for layer in range(1,passes+1)]

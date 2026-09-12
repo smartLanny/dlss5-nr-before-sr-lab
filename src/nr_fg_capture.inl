@@ -1,6 +1,7 @@
 // Include after nr_fg_consumer.inl. The caller holds the Core chain lock during
 // Start/Finish/Submit/Invalidate. These recordings borrow the real application
 // list; only its actual submission AND retirement can authorize export.
+#include "nr_full_pass.hpp"
 namespace nr_fg_capture {
 std::atomic<unsigned long long> requested{0};
 std::atomic<unsigned> status{0},workers{0},remaining{0}; // idle, pending, complete, failed
@@ -11,7 +12,7 @@ struct Identity {
     bool hudless=false,full=false;
 };
 struct Layer {nr_replay::Recorder recorder;Identity identity{};unsigned index=nr_replay::Recorder::Invalid;};
-Layer layers[4]{};
+Layer layers[nr_full::kMaxPasses]{};
 struct Attempt {
     unsigned long long request=0,token=0,root=0;
     nr_source_frame::Source source{};
@@ -139,10 +140,15 @@ void Finish(ID3D12GraphicsCommandList* list,const nr_source_runtime::NativeInput
         else Waiting();
         return;
     }
-    const unsigned count=g_config.nr_full_reference?g_config.nr_full_passes:(g_config.nr_passes==2?2u:1u);
-    if(count<1||count>4||!image.device||!image.image.source||!image.image.result||!attempt.constant_count){Failed();return;}
-    NrContext* contexts[]={&primary,nullptr,nullptr,nullptr};NrSlot* slots[]={&main,nullptr,nullptr,nullptr};
-    const NrGuideBinding* bound_guides[]={&guides,nullptr,nullptr,nullptr};
+    const bool dual_enabled=g_config.nr_passes==2;
+    const bool full_enabled=dual_enabled&&g_config.nr_full_reference;
+    const unsigned count=full_enabled?g_config.nr_full_passes:(dual_enabled?2u:1u);
+    if(count<1||count>nr_full::kMaxPasses||
+       (full_enabled&&(count<3||count>nr_full::kMaxPasses))||
+       !image.device||!image.image.source||!image.image.result||!attempt.constant_count){Failed();return;}
+    NrContext* contexts[nr_full::kMaxPasses]={&primary,nullptr,nullptr,nullptr,nullptr};
+    NrSlot* slots[nr_full::kMaxPasses]={&main,nullptr,nullptr,nullptr,nullptr};
+    const NrGuideBinding* bound_guides[nr_full::kMaxPasses]={&guides,nullptr,nullptr,nullptr,nullptr};
     for(unsigned i=1;i<count;++i){const auto& stage=prepared.full?prepared.layers[i-1]:static_cast<const nr_dual_runtime::LayerPrepared&>(prepared);
         if(!stage.context||!stage.slot||!stage.evaluated||!stage.adoptable||
            (prepared.full&&(prepared.requested!=count||prepared.prepared!=count-1))){Waiting();return;}

@@ -111,9 +111,9 @@ struct Observation {
     std::uint32_t result=0;
     bool timing_valid=false;
     std::uint64_t timing_source=0;
-    double capture_ms=0,encode_ms=0,nr_ms[4]{},compose_ms=0,blit_ms=0,total_ms=0;
+    double capture_ms=0,encode_ms=0,nr_ms[5]{},compose_ms=0,blit_ms=0,total_ms=0;
     bool color_only=true,reset_each_frame=true;
-    std::uint64_t attempted[4]{},evaluated[4]{},adopted[4]{};
+    std::uint64_t attempted[5]{},evaluated[5]{},adopted[5]{};
 };
 // CPU EOTF/primary reference for tests. The rendering shader uses these same
 // published constants, but a CPU test is NOT proof that the HLSL was executed.

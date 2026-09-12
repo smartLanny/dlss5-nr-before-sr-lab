@@ -91,11 +91,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline15";
+constexpr const char *kAddonVersion = "beta0.5-dline16";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline15";
+constexpr const char *kBuildIdentity = "beta0.5-dline16";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -907,7 +907,7 @@ struct ChainConfig {
     unsigned region_version=1;
     unsigned nr_passes=1;
     bool nr_full_reference=false;
-    unsigned nr_full_passes=2;
+    unsigned nr_full_passes=3;
     unsigned nr_second_numerator=1,nr_second_denominator=2;
     bool generic_residual=false;
     float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
@@ -1479,7 +1479,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.retry_original_on_sr_failure=false;
     if(!nr_processing::Valid(config.processing_start))config.processing_start=nr_processing::FromLegacy(config.mode);
     config.compat_percent=std::clamp(config.compat_percent,50u,100u);
-    config.nr_full_passes=std::clamp(config.nr_full_passes,2u,4u);
+    config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
     config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
@@ -1681,7 +1681,31 @@ void ReloadConfig(bool force = false) {
     next.region_version=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionCompositionVersion",1,g_ini_path);
     next.nr_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRPasses",1,g_ini_path);
     next.nr_full_reference=GetPrivateProfileIntW(L"NRBeforeSR",L"NRFullReference",0,g_ini_path)!=0;
-    next.nr_full_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRFullPasses",2,g_ini_path);
+    const int layer_controls_version=GetPrivateProfileIntW(
+        L"NRBeforeSR",L"NRLayerControlsVersion",0,g_ini_path);
+    const int full_passes_default=layer_controls_version<2?2:3;
+    next.nr_full_passes=GetPrivateProfileIntW(
+        L"NRBeforeSR",L"NRFullPasses",full_passes_default,g_ini_path);
+    if(layer_controls_version<2) {
+        // D13 exposed full-reference as an independent switch and allowed a
+        // two-pass full reference.  D16 makes the second-pass switch the
+        // owner of all auxiliary work: retain that switch when the old full
+        // reference was on, while an old two-pass reference becomes ordinary
+        // second AI instead of silently turning into three layers.
+        const bool legacy_full=next.nr_full_reference;
+        const unsigned legacy_passes=next.nr_full_passes;
+        next.nr_passes=legacy_full?2:next.nr_passes;
+        if(legacy_full && legacy_passes<=2) {
+            next.nr_full_reference=false;
+            next.nr_full_passes=3;
+        } else {
+            next.nr_full_passes=std::clamp(legacy_passes,3u,5u);
+        }
+        Log("Layer-control migration in memory: legacyFull=%d legacyPasses=%u -> "
+            "nrPasses=%u full=%d fullPasses=%u; SaveConfig publishes version 2.",
+            legacy_full?1:0,legacy_passes,next.nr_passes,
+            next.nr_full_reference?1:0,next.nr_full_passes);
+    }
     next.nr_second_numerator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleNumerator",1,g_ini_path);
     next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",2,g_ini_path);
     next.generic_residual=GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualExperiment",0,g_ini_path)!=0;
@@ -1904,6 +1928,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
     record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
     record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
+    if(ok)record_write(WriteIniInt(L"NRLayerControlsVersion",2));
     record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
     record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
     record_write(WriteIniInt(L"GenericResidualExperiment",config.generic_residual?1:0));
@@ -14834,13 +14859,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline15 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline16 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline15 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline16 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

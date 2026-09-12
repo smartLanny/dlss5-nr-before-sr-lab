@@ -6,7 +6,7 @@
 CRITICAL_SECTION g_chain_cs;
 std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 std::atomic<unsigned> g_config_generation{9};
-struct Config{unsigned warmup_after_create=0,nr_full_passes=4,nr_passes=1;bool nr_full_reference=true;float proxy_scale=1;} g_config;
+struct Config{unsigned warmup_after_create=0,nr_full_passes=5,nr_passes=1;bool nr_full_reference=true;float proxy_scale=1;} g_config;
 constexpr bool kSourceDirty=true;constexpr const char* kSourceCommit="capture-fixture",*kBuildIdentity="capture-WARP-fixture";
 struct Params{ID3D12Resource* depth=nullptr;ID3D12Resource* motion=nullptr;unsigned scalar=0;bool legacy_keys_only=false;};
 bool GetResource(const Params* p,const char* name,ID3D12Resource** out){
@@ -33,7 +33,7 @@ namespace nr_source_runtime{struct NativeInputs{nr_source_frame::Source source{}
 namespace nr_compat_present_runtime{struct Context{ID3D12Device* device=nullptr;struct Extent{unsigned width=8,height=8;}source;
     struct Image{ID3D12Resource* source=nullptr;ID3D12Resource* result=nullptr;D3D12_RESOURCE_STATES source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,result_state=source_state;}image;};}
 namespace nr_dual_runtime{struct LayerPrepared{NrContext* context=nullptr;NrSlot* slot=nullptr;NrGuideBinding guides{};bool evaluated=true,adoptable=true,full=true;};
-    struct Prepared:LayerPrepared{std::array<LayerPrepared,3> layers{};unsigned requested=4,prepared=3;};}
+    struct Prepared:LayerPrepared{std::array<LayerPrepared,4> layers{};unsigned requested=5,prepared=4;};}
 namespace nr_replay{
 // @ACTUAL_TEXTURE_HELPER@
 void SnapshotScalars(Header& h,const Params* p){h.parameter_count=1;std::snprintf(h.parameters[0].name,64,"fixture_bound_parameter");
@@ -61,12 +61,13 @@ void VerifyPlane(const Seen& seen,nr_replay::Role role,unsigned short expected){
 int main(){InitializeCriticalSection(&g_chain_cs);Gpu gpu;using namespace nr_fg_capture;
     nr_compat_present_runtime::Context image;image.device=gpu.device;image.image.source=HalfTexture(gpu,8,0x3800);image.image.result=HalfTexture(gpu,8,0x3c00);
     auto* depth=FloatTexture(gpu,1);auto* motion=FloatTexture(gpu,2);NrGuideBinding guides;guides.depth=depth;guides.motion=motion;
-    NrContext contexts[4];NrSlot slots[4];Params parameters[4];
-    for(unsigned i=0;i<4;++i){contexts[i].params=&parameters[i];contexts[i].nr_handle=&contexts[i];contexts[i].instance_id=101+i;
+    NrContext contexts[5];NrSlot slots[5];Params parameters[5];
+    for(unsigned i=0;i<5;++i){contexts[i].params=&parameters[i];contexts[i].nr_handle=&contexts[i];contexts[i].instance_id=101+i;
         parameters[i]={depth,motion,500+i};slots[i].proxy=HalfTexture(gpu,8,static_cast<unsigned short>(0x3000+i*0x100));
         slots[i].neural=HalfTexture(gpu,8,static_cast<unsigned short>(0x3400+i*0x100));}
     nr_source_runtime::NativeInputs input;input.source={70,8,100};input.color=image.image.source;input.hudless=image.image.source;
-    nr_dual_runtime::Prepared prepared;for(unsigned i=0;i<3;++i){prepared.layers[i].context=&contexts[i+1];prepared.layers[i].slot=&slots[i+1];prepared.layers[i].guides=guides;}
+    nr_dual_runtime::Prepared prepared;prepared.context=&contexts[1];prepared.slot=&slots[1];prepared.guides=guides;
+    for(unsigned i=0;i<4;++i){prepared.layers[i].context=&contexts[i+1];prepared.layers[i].slot=&slots[i+1];prepared.layers[i].guides=guides;}
     unsigned constants[]={10,20,30,40};
     Check(RequestCapture(),"capture request queued");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
     Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,false);
@@ -74,7 +75,7 @@ int main(){InitializeCriticalSection(&g_chain_cs);Gpu gpu;using namespace nr_fg_
     Start(gpu.list,input.source,contexts[0]);contexts[0].lifecycle_dependencies_quarantined=true;
     Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,false);
     Check(status.load()==3&&Empty(),"opaque failure abandons capture with no GPU tail work");contexts[0].lifecycle_dependencies_quarantined=false;
-    for(unsigned count=1;count<=4;++count){g_config.nr_full_reference=count>1;g_config.nr_full_passes=count;prepared.full=count>1;prepared.requested=count;prepared.prepared=count-1;
+    for(unsigned count=1;count<=5;++count){g_config.nr_passes=count>1?2u:1u;g_config.nr_full_reference=count>2;g_config.nr_full_passes=count;prepared.full=count>2;prepared.requested=count;prepared.prepared=count-1;
         slots[0].dual_selected=count>1?&slots[count-1]:nullptr;input.source.sequence=100+count;native_token=1000+count;
         for(auto& context:contexts)context.pending_recording_token=native_token;
         Check(RequestCapture(),"next independent capture request");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
@@ -110,5 +111,5 @@ int main(){InitializeCriticalSection(&g_chain_cs);Gpu gpu;using namespace nr_fg_
     delete exports[0].job;exports.clear();Check(Empty()&&nr_replay::resident_bytes.load()==0,"unsubmitted captures release resources without GPU waits");
     for(auto& layer:layers)Check(layer.recorder.ResetDevice(),"empty capture recorder retires device");
     for(auto& slot:slots){ReleaseCom(slot.proxy);ReleaseCom(slot.neural);}ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(image.image.source);ReleaseCom(image.image.result);
-    DeleteCriticalSection(&g_chain_cs);std::printf("pre-FG capture WARP: %u checks passed; 1-4 actual layers, no NGX inference\n",checks);return 0;
+    DeleteCriticalSection(&g_chain_cs);std::printf("pre-FG capture WARP: %u checks passed; 1-5 actual layers, no NGX inference\n",checks);return 0;
 }

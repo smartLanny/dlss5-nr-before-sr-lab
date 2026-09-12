@@ -25,7 +25,7 @@ void ValidateFgCapture(const wchar_t* output,unsigned passes,unsigned scale,unsi
         const auto input=plane(nr_replay::Role::Proxy),neural=plane(nr_replay::Role::Neural),source=plane(nr_replay::Role::Source),composite=plane(nr_replay::Role::Composite);
         Check(input.size()==neural.size()&&input!=neural,"actual captured signed NR model result differs from input");
         if(layer){Check(source==source_plane&&composite==composite_plane,"all layers share exact source and final composition");
-            if(scale==100)Check(input==previous_neural,"same-size next NR input is previous actual model output");}
+            if(scale==100||layer>1)Check(input==previous_neural,"same-size next NR input is previous actual model output");}
         else {source_plane=source;composite_plane=composite;}previous_neural=neural;
         plane(nr_replay::Role::Depth);plane(nr_replay::Role::Motion);
         swprintf_s(destination,L"%ls\\fg-capture-p%u-s%u-hud%u-layer%u.nrf",output,passes,scale,hud_mode,layer+1);Check(CopyFileW(path,destination,TRUE)!=FALSE,"copy observed FG capture evidence");

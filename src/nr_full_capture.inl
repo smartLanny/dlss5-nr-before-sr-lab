@@ -8,7 +8,7 @@ struct Layer {
     std::uint64_t token=0,request=0;
     unsigned index=nr_replay::Recorder::Invalid,evaluation=0,since_reset=0;
 };
-Layer layers[3]{};
+Layer layers[nr_full::kAuxLayers]{};
 void Collect() {
     if(g_lifecycle_tracking_uncertain.load())return;
     for(auto& layer:layers)layer.recorder.Collect(
@@ -21,14 +21,18 @@ void Collect() {
 void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     NrContext& aux,NrSlot& slot,NrSlot& source,const NrGuideBinding& guides,
     unsigned auxiliary,unsigned total_passes) {
-    if(auxiliary>=3||total_passes<2||total_passes>4)return;
+    if(g_config.nr_passes!=2||!g_config.nr_full_reference||
+       auxiliary>=nr_full::kAuxLayers||total_passes<3||total_passes>nr_full::kMaxPasses)return;
     auto& layer=layers[auxiliary];const auto request=main.stage_capture.info.request_id;
     if(!main.stage_capture.armed||!request||request==layer.request||
         !layer.recorder.Empty()||nr_dual_capture::workers.load())return;
     nr_replay::Header h{};
     h.sequence=((GetTickCount64()<<16)^GetCurrentProcessId())^(std::uint64_t(auxiliary+1)<<56);
     h.instance=aux.instance_id;h.mode=aux.mode;h.config=g_config_generation.load();
-    h.source_width=primary.width;h.source_height=primary.height;
+    if(!source.neural)return;
+    const auto source_desc=ID3D12Resource_GetDesc(source.neural);
+    h.source_width=static_cast<unsigned>(source_desc.Width);
+    h.source_height=source_desc.Height;
     h.work_width=aux.width;h.work_height=aux.height;h.color_mode=static_cast<unsigned>(aux.codec_color_mode);
     h.source_dirty=kSourceDirty?1:0;std::snprintf(h.source_commit,sizeof(h.source_commit),"%s",kSourceCommit);
     std::snprintf(h.build,sizeof(h.build),"%s",kBuildIdentity);nr_replay::SnapshotScalars(h,aux.params);
@@ -46,7 +50,8 @@ void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     }
     layer.index=index;layer.owner=&main;layer.token=primary.pending_recording_token;layer.request=request;
     layer.evaluation=aux.evaluations;layer.since_reset=aux.successful_evaluations_since_reset;
-    layer.identity={request,primary.instance_id,aux.instance_id,primary.evaluations,1,1,
+    layer.identity={request,primary.instance_id,aux.instance_id,primary.evaluations,
+        g_config.nr_second_numerator,g_config.nr_second_denominator,
         main.dual_model_domain,g_config.generic_residual?1u:0u};
     std::copy_n(g_config.generic_gains,5,layer.identity.gains);
     layer.identity.full_passes=total_passes;layer.identity.layer=auxiliary+2;

@@ -47,6 +47,8 @@ HARNESS = r'''
 #include "nr_compatibility_verdict.h"
 #include "nr_processing_route.h"
 #include "nr_compat_present_policy.hpp"
+#include "nr_full_pass.hpp"
+#include "nr_source_frame.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -151,9 +153,15 @@ unsigned CaptureStatus(bool fg){return fixture_capture_status[fg];}
 unsigned CaptureWorkers(bool fg){return fixture_capture_workers[fg];}
 bool CaptureUsesFg(){return fixture_capture_fg;}
 }
+namespace nr_source_runtime {
+nr_source_frame::PresentObservation fixture_source;
+bool fixture_source_busy=false;
+bool TryPresentObservation(nr_source_frame::PresentObservation& out){out={};if(fixture_source_busy||!fixture_source.ordinal)return false;out=fixture_source;return true;}
+}
 namespace nr_processing_runtime {
 nr_processing::Start fixture_effective=nr_processing::Start::Before;
 nr_processing::Start Effective(){return fixture_effective;}
+bool TrySnapshot(nr_processing::Snapshot& out){out={};out.current=fixture_effective;return true;}
 }
 namespace nr_fg_runtime {
 std::atomic<unsigned long long> attempts{0},recorded{0},adopted{0},unknown_inputs{0},hudless_waiting{0};
@@ -296,7 +304,13 @@ int main(int argc,char **argv) {
         // They are never interpreted as GPU/NGX evidence from this harness.
         nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
         nr_dual_runtime::fixture_full.enabled=true;
-        nr_dual_runtime::fixture_full.requested=4;
+        nr_dual_runtime::fixture_full.requested=5;
+        nr_dual_runtime::fixture_full.layers[4].instance=45;
+        nr_source_runtime::fixture_source.ordinal=900;
+        nr_source_runtime::fixture_source.decision=nr_source_frame::PresentDecision::NativeProducerBlocked;
+        nr_source_runtime::fixture_source.native_producer_on_device=true;
+        nr_source_runtime::fixture_source.promotion_blocked_by_native_producer=true;
+        nr_source_runtime::fixture_source.lookup.content=777;
         nr_dual_runtime::fixture_full.adopted=3;
         nr_dual_runtime::fixture_full.layers[2].instance=42;
         nr_compat_present_runtime::fixture_present.source=101;
@@ -308,7 +322,7 @@ int main(int argc,char **argv) {
         const auto current=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*current,"sample");
         check(std::strstr(current->report,"sample.processing.actual=Present\n"),"actual effective route reaches feedback with sample prefix");
-        check(std::strstr(current->report,"sample.fullNR.requestedPasses=4\n") &&
+        check(std::strstr(current->report,"sample.fullNR.requestedPasses=5\n") &&
               std::strstr(current->report,"sample.fullNR.lastAdoptedPasses=3\n") &&
               std::strstr(current->report,"sample.fullNR.layer3=instance:42,"),
               "full requested/adopted counts and layer identities serialize independently");
@@ -325,6 +339,12 @@ int main(int argc,char **argv) {
               std::strstr(current->report,"sample.compatCapture.fgExportWorkers=2\n")&&
               std::strstr(current->report,"sample.compatCapture.nextRequestRoute=FG\n"),
               "F8 retains separate current capture status workers and next request route");
+        check(std::strstr(current->report,"sample.fullNR.layer5=instance:45,") &&
+              std::strstr(current->report,"sample.compatPost.layer5.attempted=0\n") &&
+              std::strstr(current->report,"sample.compatSource.decision=native-producer-blocked\n") &&
+              std::strstr(current->report,"sample.compatSource.lookup.content=777\n"),
+              "fifth layer and exact Present refusal serialize separately from NR counters");
+        nr_source_runtime::fixture_source_busy=true;
         nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=true;
         const auto busy=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*busy,"sample");
@@ -334,6 +354,9 @@ int main(int argc,char **argv) {
         check(std::strstr(busy->report,"sample.compatPost.status=snapshot-busy-no-old-data-reused\n") &&
               !std::strstr(busy->report,"compatPost.source="),
               "busy Present snapshot never serializes stale source identity");
+        check(std::strstr(busy->report,"sample.compatSource.decision=unobserved-or-snapshot-busy\n") &&
+              !std::strstr(busy->report,"compatSource.lookup.content="),"busy source snapshot never reuses stale refusal");
+        nr_source_runtime::fixture_source={};nr_source_runtime::fixture_source_busy=false;
         nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
         nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
         nr_processing_runtime::fixture_effective=nr_processing::Start::Before;

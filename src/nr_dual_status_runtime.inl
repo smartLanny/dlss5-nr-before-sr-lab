@@ -65,7 +65,7 @@ void RecordObservation(const NrContext &primary, const NrContext *secondary,
     const auto route = RouteForPrimary(primary);
     const auto config_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool enabled = g_config.enabled && (g_config.nr_passes == 2 || g_config.nr_full_reference);
+    const bool enabled = g_config.enabled && g_config.nr_passes == 2;
     if (!g_route_initialized || route != g_last_route ||
         config_generation != g_last_config_generation ||
         enabled != g_last_enabled) {
@@ -132,7 +132,7 @@ SecondaryIdentity SnapshotSecondaryIdentityAlreadyLocked() noexcept {
     SecondaryIdentity snapshot = g_secondary_identity;
     const auto generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool enabled = g_config.enabled && (g_config.nr_passes == 2 || g_config.nr_full_reference);
+    const bool enabled = g_config.enabled && g_config.nr_passes == 2;
     if (!snapshot.valid || !enabled ||
         snapshot.config_generation != generation ||
         snapshot.route != g_last_route)
@@ -220,7 +220,7 @@ SnapshotPair SnapshotUiAndSecondary() noexcept {
 UiSnapshot SnapshotUiAlreadyLocked() noexcept {
     const auto config_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool enabled = g_config.enabled && (g_config.nr_passes == 2 || g_config.nr_full_reference);
+    const bool enabled = g_config.enabled && g_config.nr_passes == 2;
     nr_dual_observation::SnapshotQuery query{};
     query.tick_ms = GetTickCount64();
     query.config_generation = config_generation;

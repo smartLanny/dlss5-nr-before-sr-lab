@@ -14,7 +14,7 @@ constexpr bool operator==(Extent a, Extent b) noexcept {
 }
 constexpr bool operator!=(Extent a, Extent b) noexcept { return !(a == b); }
 
-// Persist a rational. The 2/3 button is exactly 2/3, not 66 or 67 percent.
+// Persist the exact historical rational, including 2/3, until manually edited.
 struct Scale {
     std::uint32_t numerator = 1, denominator = 1;
 };
@@ -148,7 +148,7 @@ public:
             parent_evaluation != last_parent_evaluation_ + 1;
     }
     bool CommitSuccess(const LayerKey& key, std::uint64_t parent_evaluation) noexcept {
-        if ((key.layer < 1 || key.layer > 3) || !key.primary_instance || !key.secondary_generation ||
+        if ((key.layer < 1 || key.layer > 4) || !key.primary_instance || !key.secondary_generation ||
             !key.size.width || !key.size.height || !parent_evaluation) return false;
         key_ = key; last_parent_evaluation_ = parent_evaluation; valid_ = true; return true;
     }

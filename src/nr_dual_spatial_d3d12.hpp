@@ -40,8 +40,12 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error);
 SpatialSlot* CreateSpatialSlot(Pipelines* pipelines, ID3D12Resource* first_answer,
                                const Plan& plan, ModelDomain domain,
                                std::uint64_t budget_available_bytes, std::string& error,
-                               DeviceIdentityFn same_device=nullptr,SpatialError* failure=nullptr);
+                               DeviceIdentityFn same_device=nullptr,SpatialError* failure=nullptr,
+                               const Surfaces* residual_base=nullptr);
 Surfaces GetSurfaces(const SpatialSlot* slot) noexcept;
+// A cumulative low-resolution chain retains the first reduced input/validity
+// while evaluating later outputs; descriptors remain immutable in flight.
+bool MatchesResidualBase(const SpatialSlot* slot,const Surfaces* base) noexcept;
 std::uint64_t SlotBytes(const SpatialSlot* slot) noexcept;
 
 // After the Core pins both real slots, initialize the Create input from this

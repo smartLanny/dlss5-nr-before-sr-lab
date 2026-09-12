@@ -29,23 +29,40 @@ const char *UiStateText(nr_dual_status_runtime::UiState value, bool zh) {
 }
 
 template<class Config>
-bool DrawFullReferenceControls(Config& next,bool& changed,bool& discrete,bool zh) {
+void DrawMoreLayerControls(Config& next,bool& changed,bool& discrete,bool zh) {
     if constexpr(requires {next.nr_full_reference;next.nr_full_passes;}) {
-        if(ImGui::Checkbox(zh?"完整同尺寸对照":"Full-size reference",&next.nr_full_reference)) {
+        if(ImGui::Checkbox(zh?"启用更多层":"Enable more layers",&next.nr_full_reference)) {
             changed=true;discrete=true;
         }
-        if(next.nr_full_reference) {
-            for(unsigned passes=2;passes<=4;++passes) {
-                if(passes!=2)ImGui::SameLine();
-                const char* labels[]={"2###full-passes-2","3###full-passes-3","4###full-passes-4"};
-                if(ImGui::Button(labels[passes-2])){next.nr_full_passes=passes;changed=true;discrete=true;}
+        if(!next.nr_full_reference)return;
+
+        SettingsField(zh?"总层数":"Total layers");
+        const char* labels[]={
+            zh?"3层###full-passes-3":"3 layers###full-passes-3",
+            zh?"4层###full-passes-4":"4 layers###full-passes-4",
+            zh?"5层###full-passes-5":"5 layers###full-passes-5"};
+        const float width=std::max(1.f,(SettingsContentWidth()-
+            2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
+        const bool stacked=width<ImGui::GetFontSize()*6.f;
+        ImGui::PushID("nr-full-passes");
+        for(unsigned i=0;i<3;++i) {
+            if(i&&!stacked)ImGui::SameLine();
+            ImGui::PushID(static_cast<int>(i));
+            const unsigned passes=i+3;
+            const bool selected=next.nr_full_passes==passes;
+            if(selected)ImGui::PushStyleColor(ImGuiCol_Button,
+                ImGui::GetStyleColorVec4(ImGuiCol_Header));
+            const bool clicked=ImGui::Button(labels[i],ImVec2(
+                stacked?SettingsContentWidth():width,ImGui::GetFrameHeight()*1.25f));
+            if(selected)ImGui::PopStyleColor();
+            if(clicked&&!selected) {
+                next.nr_full_passes=passes;changed=true;discrete=true;
             }
-            ImGui::TextDisabled(zh?"请求：同尺寸 %u 层":"Requested: %u full-size passes",next.nr_full_passes);
-            SettingsTooltip(zh?"每层使用独立模型状态，尺寸均与第一层相同；仅最后合成一次。原有低分二次比例保留，关闭完整对照后恢复。":"Each pass has independent model state at the first pass size; composition runs once. The saved reduced second-pass scale returns when this reference is disabled.");
-            return true;
+            SettingsTooltip(zh?"选择启用更多层时的总层数。":"Choose the total number of layers when more layers are enabled.");
+            ImGui::PopID();
         }
+        ImGui::PopID();
     }
-    return false;
 }
 
 // Keep the frequently used controls next to the first NR scale. Detailed
@@ -58,37 +75,15 @@ void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
     if(ImGui::Checkbox(zh?"启用二次 AI 增强":"Enable second AI enhancement",&enabled)){
         next.nr_passes=enabled?2:1;changed=true;discrete=true;
     }
-    const bool full=DrawFullReferenceControls(next,changed,discrete,zh);
-    if(!enabled&&!full)return;
-    if(full)ImGui::BeginDisabled();
+    if(!enabled)return;
     float percent=100.f*next.nr_second_numerator/next.nr_second_denominator;
     if(SettingsSliderFloat(zh?"第二次 AI 处理比例":"Second AI processing scale","##dual-scale",
         &percent,25.f,100.f,"%.0f%%")){
         next.nr_second_numerator=static_cast<unsigned>(std::lround(percent));
         next.nr_second_denominator=100;changed=true;
     }
-    const unsigned n[]={1,3,1},d[]={2,4,1};
-    const char *labels[]={"50%###dual-scale-50","75%###dual-scale-75","100%###dual-scale-100"};
-    for(unsigned i=0;i<3;++i){
-        if(i)ImGui::SameLine();
-        if(ImGui::Button(labels[i])){
-            next.nr_second_numerator=n[i];next.nr_second_denominator=d[i];
-            changed=true;discrete=true;
-        }
-    }
-    SettingsTooltip(zh
-        ?"第二次 AI 会重新处理第一层产生的整幅变化；比例越低，第二次按更小画面处理，再恢复对应改动。100% 是同尺寸参考。最终仍只执行原有的一次游戏 SR，不会按负载自动调档。"
-        :"The second AI pass reprocesses the full edit from the first pass. Lower scales process a smaller view, then restore the matching edit; 100% is the same-size reference. The game still performs its existing single SR, with no load-based auto scaling.");
-    if(ImGui::CollapsingHeader(zh?"更多第二次比例":"More second-pass scales")){
-        if(ImGui::Button("2/3###dual-scale-two-thirds")){
-            // Preserve the historical exact fraction in the INI. Do not
-            // replace it with the rounded 67/100 slider representation.
-            next.nr_second_numerator=2;next.nr_second_denominator=3;
-            changed=true;discrete=true;
-        }
-        SettingsTooltip(zh?"保留原有精确 2/3 请求与保存值；滑块或常用按钮仍可改成百分比。":"Keeps the historical exact 2/3 request and saved fraction; the slider and common buttons remain percentage based.");
-    }
-    if(full)ImGui::EndDisabled();
+    SettingsTooltip(zh?"第2层及后续层使用相同比例；100%时与主层同尺寸。":"Layer 2 and later layers use the same scale; at 100%, they match the primary layer size.");
+    DrawMoreLayerControls(next,changed,discrete,zh);
     const auto snapshot = nr_dual_status_runtime::SnapshotUi();
     if (snapshot.state != nr_dual_status_runtime::UiState::Failed && (has_pending || changed)) {
         ImGui::TextDisabled("%s", zh ? "二次 AI：等待请求的设置生效" :

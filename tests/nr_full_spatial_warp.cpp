@@ -9,6 +9,8 @@
 #include <iostream>
 #include <cstring>
 #include <stdexcept>
+#include <vector>
+#include <cmath>
 unsigned checks=0;
 void Check(bool ok,const char* why){++checks;if(!ok)throw std::runtime_error(why);}
 void Hr(HRESULT hr,const char* why){Check(SUCCEEDED(hr),why);}
@@ -78,9 +80,30 @@ struct ModelStub {
     ~ModelStub(){Drop(heap);Drop(pso);Drop(root);}
 };
 bool Retired(void*){return true;}
+std::vector<unsigned char> ReadTexture(Harness& h,ID3D12Resource* source) {
+    const auto desc=source->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0;
+    h.device->GetCopyableFootprints(&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
+    D3D12_RESOURCE_DESC buffer{};buffer.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;buffer.Width=bytes;
+    buffer.Height=buffer.DepthOrArraySize=buffer.MipLevels=buffer.SampleDesc.Count=1;buffer.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES memory{};memory.Type=D3D12_HEAP_TYPE_READBACK;memory.CreationNodeMask=memory.VisibleNodeMask=1;
+    ID3D12Resource* readback=nullptr;
+    Hr(h.device->CreateCommittedResource(&memory,D3D12_HEAP_FLAG_NONE,&buffer,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&readback)),"readback");
+    Transition(h.list,source,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{};from.pResource=source;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_TEXTURE_COPY_LOCATION to{};to.pResource=readback;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=footprint;
+    h.list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+    Transition(h.list,source,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit();
+    void* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(bytes)};Hr(readback->Map(0,&range,&mapped),"map output");
+    const unsigned row=unsigned(desc.Width)*(desc.Format==DXGI_FORMAT_R32G32B32A32_FLOAT?16:8);
+    std::vector<unsigned char> data(row*desc.Height);
+    for(unsigned y=0;y<desc.Height;++y)std::memcpy(data.data()+y*row,static_cast<unsigned char*>(mapped)+y*footprint.Footprint.RowPitch,row);
+    D3D12_RANGE none{0,0};readback->Unmap(0,&none);Drop(readback);h.Reset();return data;
+}
 int main(){try {
     Harness h;
-    for(unsigned passes=2;passes<=4;++passes){
+    for(auto domain:{nr_dual::ModelDomain::DirectValue,nr_dual::ModelDomain::SrgbProxy})
+    for(auto scale:{nr_dual::Scale{1,1},nr_dual::Scale{1,2},nr_dual::Scale{3,4}})
+    for(unsigned passes=2;passes<=5;++passes){
         auto* primary=Texture(h.device);ID3D12DescriptorHeap *gpu=nullptr,*cpu=nullptr;
         D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=1;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         Hr(h.device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&gpu)),"clear GPU heap");hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
@@ -93,38 +116,48 @@ int main(){try {
         Transition(h.list,primary,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         h.Submit();h.Reset();Drop(gpu);Drop(cpu);
         std::string error;auto* pipelines=nr_dual::dx12::CreatePipelines(h.device,error);Check(pipelines!=nullptr,"real spatial pipelines");
-        const auto plan=nr_full::MakePlan({true,passes},{8,8});nr_dual::dx12::SpatialSlot* spatial[3]{};ModelStub models[3];
+        const auto plan=nr_full::MakePlan({true,passes,scale},{8,8});
+        nr_dual::dx12::SpatialSlot* spatial[nr_full::kAuxLayers]{};ModelStub models[nr_full::kAuxLayers];
         ID3D12Resource* source=primary;unsigned source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         for(unsigned layer=0;layer<passes-1;++layer){
-            spatial[layer]=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],nr_dual::ModelDomain::DirectValue,1024*1024,error);
-            Check(spatial[layer]!=nullptr,"independent full-size spatial slot");
+            nr_dual::dx12::Surfaces base{};
+            const bool cumulative=plan.reduced&&layer>0&&layer==passes-2;
+            if(cumulative)base=nr_dual::dx12::GetSurfaces(spatial[0]);
+            spatial[layer]=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],domain,1024*1024,error,nullptr,nullptr,cumulative?&base:nullptr);
+            Check(spatial[layer]!=nullptr,"independent spatial slot");
             const auto surfaces=nr_dual::dx12::GetSurfaces(spatial[layer]);models[layer].Init(h.device,surfaces.input,surfaces.output);
-            Check(surfaces.input==source&&surfaces.output!=source,"actual input/output chain identity");
+            Check(surfaces.secondary_extent==plan.auxiliary,"every auxiliary holds the same second-pass raster");
+            Check((surfaces.input==source)==(layer>0||!plan.reduced)&&surfaces.output!=source,"only first auxiliary downsamples; later input is preceding complete output");
+            Check(nr_dual::dx12::MatchesResidualBase(spatial[layer],cumulative?&base:nullptr),"immutable cumulative base ownership");
+            if(cumulative){auto bad=base;bad.secondary_extent.width++;
+                auto* rejected=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],domain,1024*1024,error,nullptr,nullptr,&bad);
+                Check(rejected==nullptr,"mismatched cumulative raster refused before GPU work");}
             nr_dual::Admission a{};a.primary_feature=primary;a.secondary_feature=&models[layer];a.primary_params=primary;a.secondary_params=&models[layer];
-            a.secondary_create_extent={8,8};a.creation_completion_proven=h.fence->GetCompletedValue()>=h.serial;
+            a.secondary_create_extent=plan.auxiliary;a.creation_completion_proven=h.fence->GetCompletedValue()>=h.serial;
             a.recording_and_queue_admitted=a.dependencies_pinned=a.current_inputs_and_guides_bound=true;
             const auto result=nr_dual::dx12::RecordSecond(pipelines,spatial[layer],h.list,source_state,plan.layers[layer],a,ModelStub::Evaluate,&models[layer]);
-            Check(result.selection==nr_dual::Selection::DirectSecond&&models[layer].calls==1,"one actual direct dispatch per auxiliary layer");
+            Check(result.selection!=nr_dual::Selection::Primary&&models[layer].calls==1,"one actual dispatch per auxiliary layer");
             source=surfaces.output;source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         }
-        const auto desc=source->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0;
-        h.device->GetCopyableFootprints(&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
-        D3D12_RESOURCE_DESC buffer{};buffer.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;buffer.Width=bytes;buffer.Height=buffer.DepthOrArraySize=buffer.MipLevels=buffer.SampleDesc.Count=1;buffer.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        D3D12_HEAP_PROPERTIES memory{};memory.Type=D3D12_HEAP_TYPE_READBACK;memory.CreationNodeMask=memory.VisibleNodeMask=1;ID3D12Resource* readback=nullptr;
-        Hr(h.device->CreateCommittedResource(&memory,D3D12_HEAP_FLAG_NONE,&buffer,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&readback)),"final readback");
-        Transition(h.list,source,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
-        D3D12_TEXTURE_COPY_LOCATION from{};from.pResource=source;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        D3D12_TEXTURE_COPY_LOCATION to{};to.pResource=readback;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=footprint;
-        h.list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
-        Transition(h.list,source,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit();
-        void* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(bytes)};Hr(readback->Map(0,&range,&mapped),"map final output");
-        const unsigned short expected[]={0,0x3000,0x3400,0x3600};
-        for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x){const auto* value=reinterpret_cast<const unsigned short*>(static_cast<const unsigned char*>(mapped)+y*footprint.Footprint.RowPitch)+x*4;
-            for(unsigned ch=0;ch<3;++ch)Check(value[ch]==expected[passes-1],"all final pixels equal composed layer increments");}
-        D3D12_RANGE none{0,0};readback->Unmap(0,&none);Drop(readback);
+        const auto data=ReadTexture(h,source);
+        const unsigned short expected[]={0,0x3000,0x3400,0x3600,0x3800};
+        for(unsigned i=0;i<data.size()/8;++i){const auto* value=reinterpret_cast<const unsigned short*>(data.data())+i*4;
+            for(unsigned ch=0;ch<3;++ch)Check(value[ch]==expected[passes-1],"all final pixels include every layer increment");
+            Check(value[3]==(plan.reduced?0x3c00:0),"auxiliary alpha preserved");}
+        if(plan.reduced){
+            auto final=nr_dual::dx12::GetSurfaces(spatial[passes-2]);Check(final.low_delta!=nullptr,"final composition receives cumulative residual");
+            const auto delta=ReadTexture(h,final.low_delta);const auto* values=reinterpret_cast<const float*>(delta.data());
+            const float encoded=.125f*(passes-1);const float expected_delta=domain==nr_dual::ModelDomain::DirectValue?encoded:std::pow((encoded+.055f)/1.055f,2.4f);
+            for(unsigned i=0;i<delta.size()/16;++i){for(unsigned ch=0;ch<3;++ch)
+                Check(std::abs(values[i*4+ch]-expected_delta)<0.00001f,"residual uses last result minus first reduced input, retaining all edits");
+                Check(values[i*4+3]==1,"valid cumulative residual");}
+            const auto first=ReadTexture(h,nr_dual::dx12::GetSurfaces(spatial[0]).input);
+            for(unsigned i=0;i<first.size()/8;++i)for(unsigned ch=0;ch<3;++ch)
+                Check(reinterpret_cast<const unsigned short*>(first.data())[i*4+ch]==0,"original reduced baseline remains immutable");
+        }
         for(auto& slot:spatial)Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(slot,Retired,nullptr),"retire exact-completed layer");
-        Check(nr_dual::dx12::DestroyPipelinesAfterRetirement(pipelines,Retired,nullptr),"retire shared spatial pipeline");Drop(primary);h.Reset();
+        Check(nr_dual::dx12::DestroyPipelinesAfterRetirement(pipelines,Retired,nullptr),"retire shared spatial pipeline");Drop(primary);
     }
     Hr(h.list->Close(),"final close");
-    std::cout<<"PASS "<<checks<<" WARP full-size spatial-chain checks (2-4 layers, explicit shader model substitute; no NVIDIA NGX)\n";
+    std::cout<<"PASS "<<checks<<" WARP spatial-chain checks (2-5 layers, 50/75/100%, both model domains; explicit shader substitute, no NVIDIA NGX)\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
