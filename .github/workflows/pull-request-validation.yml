@@ -10,6 +10,7 @@ on:
       - codex/beta0.4.2
       - codex/multiapi-045-integration
       - fix/f8-single-txt-reset-evidence
+      - codex/dx12-compat-multipass-20260912
 
 permissions:
   contents: read
@@ -22,51 +23,77 @@ jobs:
   maintenance:
     if: contains(fromJSON('["release/0.4","codex/beta0.4.2"]'), github.base_ref)
     uses: ./.github/workflows/beta042-validate.yml
-
   feedback:
     if: contains(fromJSON('["release/0.4","next/0.5"]'), github.base_ref)
     uses: ./.github/workflows/feedback-integrity.yml
-
   baseline-and-release-contracts:
     if: contains(fromJSON('["main","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/followup-validate.yml
-
   compatibility:
     if: github.base_ref == 'codex/multiapi-045-integration'
     uses: ./.github/workflows/compat-continuation.yml
-
   exposure:
     if: contains(fromJSON('["main","codex/multiapi-045-integration","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/exposure-access.yml
-
   single-text:
     if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/f8-single-text-validate.yml
-
   multi-api:
     if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/multi-api-foundation.yml
-
   generated-picture:
     if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/multi-api-picture-regression.yml
-
   picture-controls:
     if: contains(fromJSON('["main","fix/f8-single-txt-reset-evidence","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/picture-ui-budget-validate.yml
-
   recommended-picture:
     if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/recommended-picture-validate.yml
-
   retirement-ownership:
     if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
     uses: ./.github/workflows/retirement-return-validate.yml
-
   strength-cap:
     if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
     uses: ./.github/workflows/strength-cap-validate.yml
-
   research-050:
     if: github.base_ref == 'next/0.5'
     uses: ./.github/workflows/beta050-validate.yml
+  edit-runtime-source:
+    # One existing PR entry point. No push trigger, secrets, model payload or release.
+    if: github.base_ref == 'codex/dx12-compat-multipass-20260912' && github.head_ref == 'codex/d16-edit-258-259-runtime-v3-20260913'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Export tracked text-only development inputs
+        shell: python
+        run: |
+          import hashlib, json, pathlib, subprocess
+          root = pathlib.Path('build/edit-source')
+          root.mkdir(parents=True, exist_ok=True)
+          allowed_dirs = {'src', 'scripts', 'tools', 'include', 'shaders', '.github'}
+          allowed_ext = {'.h', '.hpp', '.hlsl', '.hlsli', '.cpp', '.c', '.inl', '.rc', '.py', '.ps1', '.cmake', '.yml', '.yaml', '.json', '.txt', '.md'}
+          allowed_root = {'AGENTS.md', 'AI_AGENT_NOTICE.md', 'CONTRIBUTING.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.txt', 'README.md'}
+          names = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', '-z', 'HEAD']).decode().split('\0')
+          names = sorted(n for n in names if n and (n in allowed_root or (pathlib.PurePosixPath(n).parts[0] in allowed_dirs and pathlib.PurePosixPath(n).suffix.lower() in allowed_ext)))
+          if 'src/nr_before_sr.cpp' not in names:
+              raise RuntimeError('No exact Core input')
+          manifest = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip(), 'files': {}, 'validation': 'source-export-only; no GPU or game validation'}
+          for name in names:
+              data = subprocess.check_output(['git', 'show', 'HEAD:' + name])
+              data.decode('utf-8-sig')
+              if b'-----BEGIN PRIVATE KEY-----' in data or b'-----BEGIN RSA PRIVATE KEY-----' in data:
+                  raise RuntimeError('Private-key marker: ' + name)
+              manifest['files'][name] = hashlib.sha256(data).hexdigest()
+          subprocess.run(['git', 'archive', '--format=tar.gz', '--output=' + str(root / 'source.tar.gz'), 'HEAD', '--', *names], check=True)
+          (root / 'source-manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nr-edit-reviewed-source
+          path: build/edit-source
+          if-no-files-found: error
+          retention-days: 3
