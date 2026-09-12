@@ -12,6 +12,8 @@ std::atomic<unsigned int> g_external_nr_creates{0};
 std::atomic<unsigned long long> g_external_nr_evaluations{0};
 std::atomic<unsigned int> g_ngx_pending_retirement_count{0};
 std::atomic<unsigned long long> g_ngx_operation_sequence{0};
+std::atomic<unsigned long long> g_feature_live_identity_conflicts{0};
+std::atomic<unsigned long long> g_feature_registry_capacity_conflicts{0};
 thread_local NgxLayer g_ngx_layer = NgxLayer::Unspecified;
 thread_local unsigned int g_private_nr_call_depth = 0;
 
@@ -242,25 +244,48 @@ void PublishObservedFeature(FeatureRecord record) {
         if (!record.generation)
             record.generation = g_feature_generation.fetch_add(1, std::memory_order_relaxed);
     }
-    bool conflict = false;
+    bool live_identity_conflict = false;
+    unsigned int active_slots = 0;
     AcquireSRWLockExclusive(&g_feature_lock);
     FeatureRecord *slot = nullptr;
     for (auto &r : g_features) {
+        if (r.handle) ++active_slots;
         if (!r.handle && !slot) slot = &r;
         if (r.handle == record.handle && r.layer == record.layer) {
             // No successful Release: do not overwrite a live generation, even
             // for the same feature. A later Release snapshot must not erase it.
-            conflict = true;
-            break;
+            live_identity_conflict = true;
         }
     }
-    if (!slot || (call && call->depth > 8)) conflict = true;
+    const bool registry_capacity_conflict = slot == nullptr;
+    const bool nested_capacity_conflict = call != nullptr && call->depth > 8;
+    const bool capacity_conflict = registry_capacity_conflict || nested_capacity_conflict;
+    const bool conflict = live_identity_conflict || capacity_conflict;
     if (!conflict) *slot = record;
     RecordNgxLifecycleLocked(1, record, kNgxSuccess);
     RecountNgxOwnersLocked();
     ReleaseSRWLockExclusive(&g_feature_lock);
     if (!conflict && record.owner == NgxOwner::ExternalNr)
         g_history_generation.fetch_add(1, std::memory_order_acq_rel);
+    if (live_identity_conflict) {
+        const auto count = g_feature_live_identity_conflicts.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        Log("[ngx-lifecycle] Feature registry conflict: kind=live-identity "
+            "count=%llu active=%u capacity=%zu layer=%u feature=%d owner=%u.",
+            count, active_slots, std::size(g_features),
+            static_cast<unsigned int>(record.layer), record.feature_id,
+            static_cast<unsigned int>(record.owner));
+    }
+    if (capacity_conflict) {
+        const auto count = g_feature_registry_capacity_conflicts.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        Log("[ngx-lifecycle] Feature registry conflict: kind=capacity "
+            "count=%llu active=%u capacity=%zu nestedDepth=%u layer=%u feature=%d owner=%u.",
+            count, active_slots, std::size(g_features),
+            nested_capacity_conflict ? (call != nullptr ? call->depth : 0u) : 0u,
+            static_cast<unsigned int>(record.layer), record.feature_id,
+            static_cast<unsigned int>(record.owner));
+    }
     if (conflict) {
         FreezeNgxLifecycleFault();
         LatchRrOwnershipUncertain("NGX Create observation", "live identity collision or bounded registry exhausted");

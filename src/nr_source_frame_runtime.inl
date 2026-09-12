@@ -285,6 +285,10 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     AcquireSRWLockShared(&g_nr_api_lock);const bool api_failed=g_nr_api.failed;ReleaseSRWLockShared(&g_nr_api_lock);
     if(api_failed)return;
     Id retry=0;{Lock lock;retry=RetryToken(source);}
+    // Resolve a provisional fallback before paying for its guide transport.
+    // Otherwise a skipped previous frame could trigger Present copies and then
+    // return to inline NR later in CarrierScope for this same new source.
+    nr_processing_runtime::BeginSource(retry);
     if(!nr_processing_runtime::session.Ready(nr_processing::Start::Present,retry))return;
     ID3D12Resource* color=nullptr;ID3D12Resource* output=nullptr;
     if(!GetResource(params,"Color",&color)||!GetResource(params,"Output",&output))return;

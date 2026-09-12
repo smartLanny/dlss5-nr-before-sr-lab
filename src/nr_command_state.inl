@@ -1039,42 +1039,114 @@ void *const g_state_detours_CreateCommandSignature[4] = {
     reinterpret_cast<void *>(&StateHookCreateCommandSignature<0>), reinterpret_cast<void *>(&StateHookCreateCommandSignature<1>),
     reinterpret_cast<void *>(&StateHookCreateCommandSignature<2>), reinterpret_cast<void *>(&StateHookCreateCommandSignature<3>) };
 
-struct CommandStateHookRequest { CommandStateHookFamily *family; void *target; void *const *detours; };
+struct CommandStateHookRequest {
+    CommandStateHookFamily *family;
+    void *target;
+    void *const *detours;
+    const char *name = "unknown";
+};
 bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int count,
         const char *failure_effect="this carrier remains native") {
     // MinHook's queued list is global; serialize with NGX observer publication.
     AcquireSRWLockExclusive(&g_evaluate_hook_lock);
     bool ok = true;
+    const char *failure_stage = "none";
+    const char *failure_family = "unknown";
+    unsigned int failure_index = 0;
+    unsigned int failure_family_count = 0;
+    int failure_status = MH_OK;
+    unsigned int failure_queue_count = 0;
     const auto initialized = MH_Initialize();
-    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) ok = false;
+    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) {
+        ok = false;
+        failure_stage = "init";
+        failure_status = static_cast<int>(initialized);
+        if (count != 0 && requests != nullptr && requests[0].name != nullptr)
+            failure_family = requests[0].name;
+    }
     void *queued[64] = {};
     bool *enabled_flags[64] = {};
     if (count > 64) ok = false;
+    if (!ok && std::strcmp(failure_stage, "none") == 0) {
+        failure_stage = "request-capacity";
+        failure_status = -1;
+    }
     unsigned int queued_count = 0;
     for (unsigned int r = 0; ok && r < count; ++r) {
         auto &request = requests[r];
         auto &family = *request.family;
+        failure_family = request.name != nullptr ? request.name : "unknown";
         unsigned int i = 0;
         for (; i < family.count; ++i) if (family.targets[i] == request.target) break;
         if (i == family.count) {
-            if (i == 4 || request.target == nullptr || !PinHookAddress(request.target, "D3D12 command state", nullptr)) { ok = false; break; }
-            if (MH_CreateHook(request.target, request.detours[i], &family.originals[i]) != MH_OK) { ok = false; break; }
+            failure_index = i;
+            failure_family_count = family.count;
+            if (i == 4) {
+                ok = false;
+                failure_stage = "family-capacity";
+                failure_status = -1;
+                break;
+            }
+            if (request.target == nullptr) {
+                ok = false;
+                failure_stage = "target";
+                failure_status = -1;
+                break;
+            }
+            if (!PinHookAddress(request.target, "D3D12 command state", nullptr)) {
+                ok = false;
+                failure_stage = "pin";
+                failure_status = -1;
+                break;
+            }
+            const MH_STATUS created = MH_CreateHook(request.target, request.detours[i], &family.originals[i]);
+            if (created != MH_OK) {
+                ok = false;
+                failure_stage = "create";
+                failure_status = static_cast<int>(created);
+                break;
+            }
             family.targets[i] = request.target;
             ++family.count;
         }
         if (family.enabled[i]) continue;
         const auto status = MH_QueueEnableHook(request.target);
-        if (status != MH_OK && status != MH_ERROR_ENABLED) { ok = false; break; }
+        if (status != MH_OK && status != MH_ERROR_ENABLED) {
+            ok = false;
+            failure_stage = "queue";
+            failure_index = i;
+            failure_family_count = family.count;
+            failure_status = static_cast<int>(status);
+            failure_queue_count = queued_count;
+            break;
+        }
         enabled_flags[queued_count] = &family.enabled[i];
         queued[queued_count++] = request.target;
     }
-    if (ok) ok = MH_ApplyQueued() == MH_OK;
+    if (ok) {
+        const MH_STATUS applied = MH_ApplyQueued();
+        if (applied != MH_OK) {
+            ok = false;
+            failure_stage = "apply";
+            failure_status = static_cast<int>(applied);
+            failure_queue_count = queued_count;
+            failure_family = "batch-unknown";
+            failure_index = 0;
+            failure_family_count = 0;
+        }
+    }
     if (ok) for (unsigned int i = 0; i < queued_count; ++i) *enabled_flags[i] = true;
     if (!ok) {
+        if (std::strcmp(failure_stage, "apply") != 0)
+            failure_queue_count = queued_count;
         // Do not leave queued enables for an unrelated future NGX transaction.
         for (unsigned int i = 0; i < queued_count; ++i) MH_QueueDisableHook(queued[i]);
         MH_ApplyQueued();
-        Log("[command-state] hook publication failed; %s.",failure_effect);
+        Log("[command-state] hook publication failed: stage=%s family=%s index=%u "
+            "familyCount=%u familyCapacity=4 status=%d queueCount=%u; %s.",
+            failure_stage, failure_family != nullptr ? failure_family : "unknown",
+            failure_index, failure_family_count, failure_status, failure_queue_count,
+            failure_effect);
     }
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     return ok;
@@ -1123,7 +1195,8 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
     g_command_signature_start_deferred.store(false,
                                              std::memory_order_release);
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
-        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
+        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature,
+        "CreateCommandSignature"};
     if (PublishCommandStateHooks(&request, 1))
         g_command_signature_hook_published.store(true,
                                                  std::memory_order_release);
@@ -1131,7 +1204,8 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
 bool EnsureNativeCommandSignatureHook(ID3D12Device *native) {
     if(!native)return false;
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
-        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
+        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature,
+        "CreateCommandSignature"};
     const bool published=PublishCommandStateHooks(&request,1);
     if(published)g_command_signature_hook_published.store(true,std::memory_order_release);
     return published;
@@ -1145,21 +1219,41 @@ bool EnsureCommandSignatureHook(reshade::api::device *device) {
     OnCommandStateInitDevice(device);
     return EnsureNativeCommandSignatureHook(reinterpret_cast<ID3D12Device *>(device->get_native()));
 }
-struct CommandStateExtendedHookRequest { CommandStateHookFamily *family; UINT slot; void *const *detours; };
+struct CommandStateExtendedHookRequest {
+    CommandStateHookFamily *family;
+    UINT slot;
+    void *const *detours;
+    const char *name = "unknown";
+};
 bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID iid,
     CommandStateHookRequest *requests, unsigned int &count,
-    const CommandStateExtendedHookRequest *extra, unsigned int extra_count) {
+    const CommandStateExtendedHookRequest *extra, unsigned int extra_count,
+    const char *interface_name) {
     IUnknown *queried=nullptr;
     const HRESULT hr=ID3D12GraphicsCommandList_QueryInterface(native, iid, reinterpret_cast<void **>(&queried));
     if (hr == E_NOINTERFACE) return true;
-    if (FAILED(hr) || queried == nullptr) return false;
-    if (count > 48 || extra_count > 48-count) { IUnknown_Release(queried); return false; }
+    if (FAILED(hr) || queried == nullptr) {
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=%s hr=0x%08X object=%d; carrier remains native.",
+            interface_name != nullptr ? interface_name : "unknown",
+            static_cast<unsigned int>(hr), queried != nullptr ? 1 : 0);
+        if (queried != nullptr) IUnknown_Release(queried);
+        return false;
+    }
+    if (count > 48 || extra_count > 48-count) {
+        Log("[command-state] interface observation failed: stage=request-capacity "
+            "interface=%s count=%u extra=%u capacity=48; carrier remains native.",
+            interface_name != nullptr ? interface_name : "unknown", count, extra_count);
+        IUnknown_Release(queried); return false;
+    }
     const bool same=reinterpret_cast<void *>(native)==reinterpret_cast<void *>(queried);
     if (same) {
         auto **vtable=*reinterpret_cast<void ***>(queried);
         for (unsigned int i=0; i<extra_count; ++i)
-            requests[count++]={extra[i].family, vtable[extra[i].slot], extra[i].detours};
-    } else Log("[command-state] extended interface tear-off refused; state cannot be reconstructed.");
+            requests[count++]={extra[i].family, vtable[extra[i].slot], extra[i].detours, extra[i].name};
+    } else Log("[command-state] interface observation failed: stage=identity "
+        "interface=%s sameIdentity=0; extended tear-off refused; carrier remains native.",
+        interface_name != nullptr ? interface_name : "unknown");
     IUnknown_Release(queried);
     return same;
 }
@@ -1167,7 +1261,7 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     CommandStateHookRequest requests[48] = {};
     unsigned int count = 0;
     const bool allow_null_pso = AllowExperimentalNullPsoCarrier() || observe_pristine_null;
-#define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME }
+#define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME, #NAME }
     NR_ADD_STATE_HOOK(SetPipelineState); NR_ADD_STATE_HOOK(ClearState);
     NR_ADD_STATE_HOOK(SetDescriptorHeaps); NR_ADD_STATE_HOOK(ExecuteBundle); NR_ADD_STATE_HOOK(ExecuteIndirect);
 #define NR_ADD_STATE_STAGE(NAME) \
@@ -1186,7 +1280,7 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
 #undef NR_ADD_STATE_HOOK
     constexpr GUID list8={0xee936ef9,0x599d,0x4d28,{0x93,0x8e,0x23,0xc4,0xad,0x05,0xce,0x51}};
     constexpr GUID list9={0x34ed2808,0xffe6,0x4c2b,{0xb1,0x1a,0xca,0xbd,0x2b,0x0c,0x59,0xe1}};
-#define NR_EXTRA(NAME, SLOT) {&g_state_##NAME, SLOT, g_state_detours_##NAME}
+#define NR_EXTRA(NAME, SLOT) {&g_state_##NAME, SLOT, g_state_detours_##NAME, #NAME}
     const CommandStateExtendedHookRequest extra1[]={NR_EXTRA(OMSetDepthBounds,62), NR_EXTRA(SetSamplePositions,63), NR_EXTRA(SetViewInstanceMask,65)};
     const CommandStateExtendedHookRequest extra3[]={NR_EXTRA(SetProtectedResourceSession,67)};
     const CommandStateExtendedHookRequest extra5[]={NR_EXTRA(RSSetShadingRate,77), NR_EXTRA(RSSetShadingRateImage,78)};
@@ -1194,44 +1288,56 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     const CommandStateExtendedHookRequest extra9[]={NR_EXTRA(RSSetDepthBias,82), NR_EXTRA(IASetIndexBufferStripCutValue,83)};
 #undef NR_EXTRA
     if (allow_null_pso &&
-        (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3) ||
-         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1) ||
-         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2) ||
-         !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1) ||
-         !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2))) return false;
+        (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3,"GraphicsCommandList1") ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1,"GraphicsCommandList3") ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2,"GraphicsCommandList5") ||
+         !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1,"GraphicsCommandList8") ||
+         !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2,"GraphicsCommandList9"))) return false;
     ID3D12GraphicsCommandList4 *extended = nullptr;
     const HRESULT queried4=ID3D12GraphicsCommandList_QueryInterface(native, IID_ID3D12GraphicsCommandList4, reinterpret_cast<void **>(&extended));
-    if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) return false;
+    if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) {
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=GraphicsCommandList4 hr=0x%08X object=%d; carrier remains native.",
+            static_cast<unsigned int>(queried4), extended != nullptr ? 1 : 0);
+        if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
+        return false;
+    }
     if (SUCCEEDED(queried4)) {
         if (reinterpret_cast<void *>(extended) != reinterpret_cast<void *>(native)) {
             // Distinct tear-off interfaces need their own full setter family.
             // Do not silently miss base setters or the active DXR PSO.
             ID3D12GraphicsCommandList4_Release(extended);
-            Log("[command-state] distinct command-list4 tear-off interface is unsupported; carrier remains native.");
+            Log("[command-state] interface observation failed: stage=identity "
+                "interface=GraphicsCommandList4 sameIdentity=0; extended tear-off refused; carrier remains native.");
             return false;
         }
-        requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1 };
-        requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand };
-        requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand };
+        requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1, "SetPipelineState1" };
+        requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand, "InitializeMetaCommand" };
+        requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand, "ExecuteMetaCommand" };
         if (allow_null_pso)
-            requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass };
+            requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass, "BeginRenderPass" };
     }
     IUnknown *latest = nullptr;
     const HRESULT queried10 = allow_null_pso ? ID3D12GraphicsCommandList_QueryInterface(
         native, kCommandList10Interface, reinterpret_cast<void **>(&latest)) : E_NOINTERFACE;
     if (queried10 != E_NOINTERFACE && (FAILED(queried10) || latest == nullptr)) {
         if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=GraphicsCommandList10 hr=0x%08X object=%d; carrier remains native.",
+            static_cast<unsigned int>(queried10), latest != nullptr ? 1 : 0);
+        if (latest != nullptr) IUnknown_Release(latest);
         return false;
     }
     if (SUCCEEDED(queried10)) {
         if (reinterpret_cast<void *>(latest) != reinterpret_cast<void *>(native)) {
             IUnknown_Release(latest);
             if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
-            Log("[command-state] distinct command-list10 tear-off interface is unsupported; carrier remains native.");
+            Log("[command-state] interface observation failed: stage=identity "
+                "interface=GraphicsCommandList10 sameIdentity=0; extended tear-off refused; carrier remains native.");
             return false;
         }
         auto **vtable = *reinterpret_cast<void ***>(latest);
-        requests[count++] = { &g_state_SetProgram, vtable[kCommandListSetProgramSlot], g_state_detours_SetProgram };
+        requests[count++] = { &g_state_SetProgram, vtable[kCommandListSetProgramSlot], g_state_detours_SetProgram, "SetProgram" };
     }
     const bool result = PublishCommandStateHooks(requests, count);
     if (latest != nullptr) IUnknown_Release(latest);
