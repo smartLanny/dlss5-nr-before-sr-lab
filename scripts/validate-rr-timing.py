@@ -18,6 +18,7 @@ def main():
     if output.exists():
         raise SystemExit('Preserve earlier evidence; choose a fresh output.')
     names = ('src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl',
+             'src/nr_processing_route.h', 'src/nr_processing_runtime.inl',
              'src/interop/nr_rr_post_runtime.inl', 'src/interop/nr_post_compat.h',
              'tests/multi_api/rr_post_runtime.cpp')
     inputs = {name: (ROOT / name).read_bytes() for name in names}

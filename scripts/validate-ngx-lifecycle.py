@@ -49,6 +49,11 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
                                 '    if (!outermost) return result;\n    observed.Finish(result, handle, params);')
         if negative == 'disable-unknown-guard' and name == 'HookCoreEvaluate':
             body = body.replace('g_core_unknown_handle_guard.load(std::memory_order_acquire)', 'false')
+        if negative == 'ignore-source-fatal' and name == 'DispatchEvaluate':
+            anchor = 'const NgxResult source_fatal=source_scope.FatalResult();'
+            if body.count(anchor) != 1:
+                raise SystemExit('Source fatal negative-control anchor changed')
+            body = body.replace(anchor, 'const NgxResult source_fatal=0;')
         functions.append(body)
     # Compile the exact production admission prefix, up to rendering work.
     process = definition(source, 'NgxResult ProcessEvaluate(')
@@ -106,7 +111,7 @@ def main() -> None:
     feedback_source = captured['feedback'].decode('utf-8-sig')
     template = captured['harness'].decode('utf-8-sig')
     results = []
-    for variant in ['', 'drop-inner-create', 'disable-unknown-guard']:
+    for variant in ['', 'drop-inner-create', 'disable-unknown-guard', 'ignore-source-fatal']:
         leaf = variant or 'production'
         cpp = args.output_dir / (leaf + '.cpp')
         exe = args.output_dir / (leaf + '.exe')
@@ -125,7 +130,9 @@ def main() -> None:
         (args.output_dir / (leaf + '.log')).write_text(result.stdout + result.stderr, encoding='utf-8')
         print(result.stdout + result.stderr, end='')
         if variant:
-            expected = 'INNER_CREATE_OBSERVED' if variant == 'drop-inner-create' else 'UNKNOWN_REMAINS_CLOSED'
+            expected = {'drop-inner-create': 'INNER_CREATE_OBSERVED',
+                        'disable-unknown-guard': 'UNKNOWN_REMAINS_CLOSED',
+                        'ignore-source-fatal': 'SOURCE_FATAL_ORACLE'}[variant]
             if result.returncode != 1 or expected not in result.stderr:
                 raise SystemExit('Negative control missed its specific regression: ' + variant)
             print('PASS negative control:', variant)

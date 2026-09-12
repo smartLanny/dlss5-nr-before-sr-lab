@@ -132,7 +132,12 @@ class CompatibilityRoute(unittest.TestCase):
                 -1,
                 guard,
             )
-        self.assertEqual(early.count(native_return), 5)
+        # The canonical RR integration replaces exactly its native early return
+        # with the real ProcessRrPost dispatcher; the other guards stay native.
+        rr_return = "return ProcessRrPost(original,command_list,handle,params,callback,feature);"
+        rr_returns = early.count(rr_return)
+        self.assertIn(rr_returns, (0, 1))
+        self.assertEqual(early.count(native_return) + rr_returns, 5)
         self.assertEqual(early.count(observed_return), 6)
         # Present adds a seventh observed native return, with compact formatting.
         self.assertEqual("".join(early.split()).count("".join(observed_return.split())), 7)
