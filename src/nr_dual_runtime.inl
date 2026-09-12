@@ -1,4 +1,5 @@
 #include "nr_dual_codec.inl"
+#include "nr_full_pass.hpp"
 // Included after the actual Core guide/NGX/lifetime/codec declarations.
 namespace nr_dual_runtime {
 enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending, Active,
@@ -19,13 +20,21 @@ ID3D12Device* pipeline_device=nullptr;
 #include "nr_dual_status_runtime.inl"
 #include "nr_dual_timing.inl"
 namespace nr_dual_runtime {
-struct Prepared {
+struct LayerPrepared {
     NrContext* context=nullptr;
     NrSlot* slot=nullptr;
     nr_dual::Plan plan{};
     NrGuideBinding guides{};
     bool create_completed=false;
+    NrSlot* source=nullptr;
+    NrBindingPacket* binding=nullptr;
+    bool evaluated=false,adoptable=false;
+    bool full=false;
     explicit operator bool() const {return context&&slot&&bool(plan);}
+};
+struct Prepared : LayerPrepared {
+    std::array<LayerPrepared,nr_full::kAuxLayers> layers{};
+    unsigned requested=0,prepared=0;
 };
 void SetStatus(Status value){status.store(value,std::memory_order_relaxed);}
 void Unavailable(Status value,const std::string& reason) {
@@ -58,23 +67,24 @@ bool CreateCompleted(NrContext& context) {
         context.instance_id,context.last_submission_queue->identity,context.completion_fence_value);
     return true;
 }
-Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
+LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     NrContext& primary,NrSlot& main,const NgxParams* params,const FeatureRecord& feature,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
-    unsigned x,unsigned y,CodecColorMode color_mode) {
-    ClearSelection(main);
+    unsigned x,unsigned y,CodecColorMode color_mode, unsigned layer_index=1, NrSlot* input=nullptr, bool full=false) {
+    auto& source=input?*input:main;
+    if(layer_index==1)ClearSelection(main);
     binding_reason.store(nr_binding::Refusal::None);
     binding_generation.store(g_config_generation.load(std::memory_order_relaxed));
     binding_context.store(0);
-    if(CanMutateSlotLocked(main)){CollectTiming(main);main.dual_time_active=false;}
-    if(g_config.nr_passes!=2){
+    if(layer_index==1&&CanMutateSlotLocked(main)){CollectTiming(main);main.dual_time_active=false;}
+    if(!full&&g_config.nr_passes!=2){
         for(auto& child:g_contexts)if(child.layer_index==1&&child.parent_instance_id==primary.instance_id)child.retired=true;
         SetStatus(Status::Off);return {};
     }
     if(fatal_result.load()){SetStatus(Status::Failed);return {};}
     if(!primary.nr_handle||!primary.instance_id||g_config.identity_use_original||
        primary.successful_evaluations_since_reset<=g_config.warmup_after_create){SetStatus(Status::PrimaryWarming);return {};}
-    const auto plan=nr_dual::MakePlan({g_config.nr_passes,{g_config.nr_second_numerator,g_config.nr_second_denominator}},
+    const auto plan=nr_dual::MakePlan({2,full?nr_dual::Scale{1,1}:nr_dual::Scale{g_config.nr_second_numerator,g_config.nr_second_denominator}},
         {primary.width,primary.height},{{1,1},{16384,16384},{1,1}});
     if(!plan){SetStatus(Status::ResourceBudget);return {};}
     primary_width.store(primary.width);primary_height.store(primary.height);
@@ -89,7 +99,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     guides.jitter.known=false;
     auto* aux=FindOrCreateContext(primary.sr_handle,feature.generation,primary.mode,
         plan.secondary.width,plan.secondary.height,color_mode,guides.signature,
-        primary.codec_peak_shoulder,1,primary.instance_id,primary.history_generation);
+        primary.codec_peak_shoulder,layer_index,primary.instance_id,primary.history_generation);
     if(!aux||aux==&primary||aux->retired||aux->failed){SetStatus(Status::SlotPending);return {};}
     if(!CanBeginContextUseLocked(list,*aux,false)){SetStatus(Status::QueuePending);return {};}
     const bool completed=CreateCompleted(*aux);
@@ -106,7 +116,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     const auto index=static_cast<unsigned>(&main-primary.slots);
     if(index>=8){SetStatus(Status::SlotPending);return {};}
     auto& slot=aux->slots[index];
-    if(slot.key&&slot.key!=main.neural){aux->retired=true;SetStatus(Status::SlotPending);return {};}
+    if(slot.key&&slot.key!=source.neural){aux->retired=true;SetStatus(Status::SlotPending);return {};}
     if(!slot.dual_spatial && (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))){SetStatus(Status::SlotPending);return {};}
     const auto domain=color_mode==CodecColorMode::ModelEncodedValueDomain ||
         ((feature.create_flags&1)==0 && color_mode==CodecColorMode::Automatic)
@@ -117,13 +127,13 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
             std::min(kDualSlotBudget,kDualTotalBudget-g_dual_allocated_bytes.load()):0ull;
         std::string error;
         nr_dual::dx12::SpatialError failure{};
-        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,main.neural,plan,domain,available,error,IsSameRrDepthDevice,&failure);
+        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,source.neural,plan,domain,available,error,IsSameRrDepthDevice,&failure);
         if(!slot.dual_spatial){Unavailable(failure==nr_dual::dx12::SpatialError::DeviceIdentity?Status::DeviceIdentity:
             failure==nr_dual::dx12::SpatialError::Contract?Status::ResourceContract:Status::ResourceBudget,error);return {};}
         slot.dual_owner=aux;slot.dual_bytes=nr_dual::dx12::SlotBytes(slot.dual_spatial);
         g_dual_allocated_bytes.fetch_add(slot.dual_bytes);
         const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
-        slot.key=main.neural;slot.source=main.neural;ID3D12Resource_AddRef(slot.source);
+        slot.key=source.neural;slot.source=source.neural;ID3D12Resource_AddRef(slot.source);
         slot.proxy=surfaces.input;ID3D12Resource_AddRef(slot.proxy);
         slot.neural=surfaces.output;ID3D12Resource_AddRef(slot.neural);
         InitializeSourceFormats(slot);
@@ -152,14 +162,15 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         aux->lifecycle_dependencies_quarantined=true;primary.lifecycle_dependencies_quarantined=true;
         MarkLifecycleUncertain("Independent NR layer identity aliased the primary");SetStatus(Status::Failed);return {};
     }
-    PrepareTiming(device,main);
+    if(layer_index==1)PrepareTiming(device,main,full?1u:0u);
+    if(full)PrepareTiming(device,slot,layer_index+1);
     SetStatus(completed?Status::Preparing:Status::CreatePending);
-    return {aux,&slot,plan,guides,completed};
+    return {aux,&slot,plan,guides,completed,&source,nullptr,false,false,full};
 }
 
 // All descriptors are sealed before either layer's Evaluate. Run never
 // rewrites a heap after an opaque NGX call or an earlier GPU dispatch.
-void Seal(ID3D12GraphicsCommandList* list,NrSlot& main,Prepared& prepared) {
+void SealOne(ID3D12GraphicsCommandList* list,NrSlot& main,LayerPrepared& prepared) {
     if(!prepared)return;
     auto& slot=*prepared.slot;auto& aux=*prepared.context;
     const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
@@ -187,7 +198,7 @@ void Seal(ID3D12GraphicsCommandList* list,NrSlot& main,Prepared& prepared) {
             refusal==R::Queue||refusal==R::Recording?Status::QueuePending:Status::SlotPending);
         return;
     }
-    main.dual_binding=packet;slot.compose_binding=packet;
+    main.dual_binding=packet;slot.compose_binding=packet;prepared.binding=packet;
 }
 
 NgxResult Fail(ID3D12GraphicsCommandList* list,NrContext& primary,NrContext& aux,NgxResult result,const char* stage) {
@@ -210,18 +221,20 @@ std::uint32_t Evaluate(void* user,ID3D12GraphicsCommandList* list,const void* fe
     ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
     return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list,aux.nr_handle,aux.params,nullptr);
 }
-NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
-    Prepared& prepared,const FeatureRecord& feature,const ColorContract& color) {
+NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
+    LayerPrepared& prepared,const FeatureRecord& feature,const ColorContract& color) {
     struct Observation {
-        NrContext& primary;Prepared& prepared;bool evaluated=false,adopted=false,warmup=false;
+        NrContext& primary;LayerPrepared& prepared;bool evaluated=false,adopted=false,warmup=false;
         ~Observation(){
-            nr_dual_status_runtime::RecordObservation(primary,prepared.context,
+            if(!prepared.full)nr_dual_status_runtime::RecordObservation(primary,prepared.context,
                 primary.successful_evaluations_since_reset>g_config.warmup_after_create,
                 evaluated,adopted,warmup);
-            if(evaluated&&prepared.context)nr_dual_status_runtime::CaptureSecondaryIdentity(*prepared.context);
+            if(!prepared.full&&evaluated&&prepared.context)nr_dual_status_runtime::CaptureSecondaryIdentity(*prepared.context);
         }
     } observation{primary,prepared};
-    if(!prepared||!main.dual_binding)return 0;
+    prepared.evaluated=prepared.adoptable=false;
+    if(!prepared||!prepared.binding)return 0;
+    auto& source=prepared.source?*prepared.source:main;
     auto& aux=*prepared.context;auto& slot=*prepared.slot;
     if(primary.diagnostic_reset_requested||primary.successful_evaluations_since_reset<=g_config.warmup_after_create){
         aux.dual_history.Invalidate();SetStatus(Status::PrimaryWarming);return 0;
@@ -235,21 +248,23 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
         Transition(list,slot.motion_proxy,slot.motion_proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
     if(!DispatchRrDepth(list,slot,prepared.guides)){SetStatus(Status::UnsupportedGuides);return 0;}
-    const nr_dual::LayerKey key{1,primary.instance_id,primary.history_generation,aux.instance_id?aux.instance_id:1,prepared.plan.secondary};
+    const nr_dual::LayerKey key{aux.layer_index,primary.instance_id,primary.history_generation,aux.instance_id?aux.instance_id:1,prepared.plan.secondary};
     const bool reset=aux.dual_history.NeedsReset(key,primary.evaluations,primary.diagnostic_reset_requested);
     if(!BindNrParameters(aux,slot,prepared.guides,feature,aux.width,aux.height,color,reset,slot.motion_proxy)) {
         aux.dual_history.Invalidate();SetStatus(Status::UnsupportedGuides);return 0;
     }
     const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
-    auto state=static_cast<std::uint32_t>(main.neural_state);
+    auto state=static_cast<std::uint32_t>(source.neural_state);
     if(!aux.nr_handle) {
         if(!nr_dual::dx12::RecordCreationInputs(pipelines,slot.dual_spatial,list,state)){SetStatus(Status::ResourceBudget);return 0;}
-        main.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
+        source.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
         for(unsigned i=0;i<2;++i){auto* resource=i?(g.resample_motion?slot.motion_proxy:prepared.guides.motion):(g.linear_depth?slot.rr_depth:prepared.guides.depth);
             ID3D12Resource_AddRef(resource);aux.dual_create_guides[i]=resource;}
         void* handle=nullptr;const auto created=CreateSignedNrFeature(list,aux,feature,&handle);
         aux.nr_handle=static_cast<NgxHandle*>(handle);second_creates.fetch_add(1);
         if(created!=kNgxSuccess||!handle)return Fail(list,primary,aux,created,"Create");
+        if(prepared.full)for(auto& other:g_contexts)if(&other!=&aux&&other.nr_handle==aux.nr_handle)
+            return Fail(list,primary,aux,0xBAD00005u,"Create-layer-identity-alias");
         Log("[dual-nr] independent create parent=%llu auxiliary=%llu N1=%ux%u N2=%ux%u; waiting exact completion, no Evaluate in creation recording.",primary.instance_id,aux.instance_id,primary.width,primary.height,aux.width,aux.height);
         SetStatus(Status::CreatePending);return 0;
     }
@@ -262,8 +277,8 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     admission.dependencies_pinned=primary.pending_recording_token!=0&&primary.pending_recording_token==aux.pending_recording_token&&main.recording_command_lists!=0&&slot.recording_command_lists!=0;
     admission.current_inputs_and_guides_bound=slot.proxy==surfaces.input&&slot.neural==surfaces.output&&
         slot.capture_params.depth_width==g.depth_width&&slot.capture_params.mv_width==g.motion_bound_width;
-    const auto attempt=nr_dual::dx12::RecordSecond(pipelines,slot.dual_spatial,list,state,prepared.plan,admission,Evaluate,&aux,Clock,&main);
-    main.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
+    const auto attempt=nr_dual::dx12::RecordSecond(pipelines,slot.dual_spatial,list,state,prepared.plan,admission,Evaluate,&aux,Clock,prepared.full?&slot:&main);
+    source.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
     if(attempt.selection==nr_dual::Selection::NoneAfterOpaqueFailure)return Fail(list,primary,aux,attempt.ngx_result,"Evaluate");
     if(!attempt.HasSecond()){aux.dual_history.Invalidate();SetStatus(Status::QueuePending);return 0;}
     aux.guide_history.CommitOnEvaluate(prepared.guides.signature,true);
@@ -272,8 +287,13 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     aux.reset_retry_pending=false;
     aux.dual_history.CommitSuccess(key,primary.evaluations);
     second_evaluations.fetch_add(1);last_primary_instance.store(primary.instance_id);last_second_instance.store(aux.instance_id);last_parent_evaluation.store(primary.evaluations);
-    observation.evaluated=true;
-    if(aux.successful_evaluations_since_reset<=g_config.warmup_after_create){observation.warmup=true;SetStatus(Status::Preparing);return 0;}
+    observation.evaluated=true;prepared.evaluated=true;
+    slot.neural_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    if(aux.successful_evaluations_since_reset<=g_config.warmup_after_create){observation.warmup=true;if(prepared.full)ResolveLayerTiming(list,slot,false);SetStatus(Status::Preparing);return 0;}
+    prepared.adoptable=true;
+    // Only the complete requested chain may classify all layer samples as
+    // stable. The wrapper sets that flag after its last layer is adoptable.
+    if(prepared.full){ResolveLayerTiming(list,slot,false);return 0;}
     main.dual_selected=&slot;main.dual_reduced=attempt.selection==nr_dual::Selection::FusedResidual;
     main.dual_low_width=aux.width;main.dual_low_height=aux.height;main.dual_model_domain=static_cast<unsigned>(surfaces.domain);
     if(main.region_ready) {
@@ -288,3 +308,5 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     return 0;
 }
 }
+
+#include "nr_full_runtime.inl"

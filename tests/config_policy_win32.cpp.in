@@ -13,6 +13,7 @@
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_processing_route.h"
 
 @JITTER_ENUM@
 @CHAIN_CONFIG@
@@ -32,6 +33,8 @@ namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
 enum class BypassReason { WaitingForFeature1, MasterDisabled };
 void SetBypassReason(BypassReason) {}
 template<class... T> void Log(const char *, T...) {}
+namespace nr_source_runtime { unsigned long long CurrentRetryToken(){static unsigned long long source=1;return source++;} }
+@PROCESSING_RUNTIME@
 
 struct Write { std::wstring key, value; bool succeeded; };
 std::vector<Write> writes;
@@ -62,10 +65,9 @@ ULONGLONG TestTick() { return test_tick; }
 @SAME_HISTORY@
 @ACTIVE_TRANSFER@
 @RELOAD_PREFIX@
-    // The omitted suffix observes loaded modules and publishes status; no
-    // additional INI decisions occur after this production prefix.
-    g_config = next;
-    g_enabled_fast.store(next.enabled);
+    // Skip module discovery/log formatting; preserve the actual production
+    // config publication and route reconciliation after those observations.
+@RELOAD_PUBLISH@
 }
 @SAVE_CONFIG@
 @APPLY_CONFIG@
@@ -92,6 +94,9 @@ std::string Bytes() {
 }
 void ResetSession() {
     g_config = {};
+    nr_processing_runtime::session = {};
+    nr_processing_runtime::effective = 0;
+    nr_processing_runtime::next_selection = 1;
     g_config_policy_migration = {};
     g_config_policy_attempted = false;
     g_config_persistence_failed = false;
@@ -275,11 +280,93 @@ void TestCompletedPolicyAndDiagnostic(const std::filesystem::path &directory) {
           !SnapshotConfigPolicyMigrationStatus().visible,
           "new file stores policy without old-setting notification");
 }
+void TestProcessingAndFullReference(const std::filesystem::path& directory) {
+    using Start=nr_processing::Start;
+    Check(!ChainConfig{}.retry_original_on_sr_failure,"native SR retry defaults disabled");
+    ChainConfig legacy_retry;legacy_retry.retry_original_on_sr_failure=true;NormalizeConfig(legacy_retry);
+    Check(!legacy_retry.retry_original_on_sr_failure,"normalization disables legacy same-source native SR retry");
+    for(int mode:{1,2}) {
+        Fixture(L"1.8",L"1.8",1,1,1,mode);
+        Put(L"RetryOriginalOnSRFailure",L"1");
+        auto c=Load();
+        Check(!c.retry_original_on_sr_failure,"legacy retry INI true cannot re-enable native SR retry");
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "legacy Mode maps to the same starting position");
+        Check(!c.nr_full_reference&&c.nr_full_passes==2&&c.compat_percent==100,
+              "old settings keep full reference disabled with safe defaults");
+        Put(L"ProcessingStart",L"invalid");c=Load();
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "invalid new position retains the legacy Mode fallback");
+    }
+    const wchar_t* names[]={L"Before",L"After",L"Present"};
+    const wchar_t* files[]={L"restart-route-before.ini",L"restart-route-after.ini",L"restart-route-present.ini"};
+    for(unsigned route=0;route<3;++route) {
+        Fixture(L"1.8",L"1.8",1,1,1,route==0?1:2);
+        Put(L"ProcessingStart",names[route]);auto c=Load();
+        Check(c.processing_start==static_cast<Start>(route),"explicit ProcessingStart wins over stale Mode");
+        c.nr_full_reference=true;c.nr_full_passes=route+2;c.compat_percent=50+route*25;
+        c.nr_passes=2;c.nr_second_numerator=2;c.nr_second_denominator=3;
+        c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+        Check(ApplyConfig(c,"test full reference save"),"explicit full reference settings apply");
+        Check(Int(L"RetryOriginalOnSRFailure")==0,"saved legacy retry key reflects disabled native SR retry");
+        const auto reloaded=Load();
+        Check(reloaded.processing_start==c.processing_start&&reloaded.nr_full_reference&&
+              reloaded.nr_full_passes==route+2&&reloaded.compat_percent==50+route*25,
+              "new route full reference and compatibility precision round trip");
+        Check(reloaded.nr_second_numerator==2&&reloaded.nr_second_denominator==3,
+              "full reference retains the exact legacy reduced fraction");
+        Check(Int(L"ProcessingSelection",-9)==-9,"session-only selection is never persisted");
+        CopyRestartFixture(directory,files[route]);
+        c=reloaded;c.nr_full_reference=false;
+        Check(ApplyConfig(c,"test disable full reference"),"full reference can be disabled");
+        Check(g_config.nr_second_numerator==2&&g_config.nr_second_denominator==3&&g_config.nr_passes==2,
+              "disabling full reference restores the saved reduced configuration");
+    }
+    for(unsigned value:{0u,1u,2u,3u,4u,5u,UINT_MAX}) {
+        ChainConfig c;c.nr_full_passes=value;c.compat_percent=value;NormalizeConfig(c);
+        const unsigned wanted=value<2?2:value>4?4:value;
+        Check(c.nr_full_passes==wanted,"full reference count stays inside two to four passes");
+        Check(c.compat_percent==(value<50?50:value>100?100:value),"compatibility precision remains fifty to one hundred");
+    }
+    Fixture(L"1.8",L"1.8",1,1,1,2);(void)Load();
+    {
+        nr_processing_runtime::CarrierScope carrier;
+        nr_processing_runtime::Reject(Start::Before,"test input gate");
+        Check(nr_processing_runtime::Effective()==Start::After,"before failure advances to after");
+    }
+    {
+        nr_processing_runtime::CarrierScope carrier;
+        nr_processing_runtime::Reject(Start::After,"test output gate");
+        Check(nr_processing_runtime::Effective()==Start::Present,"after failure advances to Present");
+    }
+    auto c=g_config;c.intensity=1.9f;
+    Check(ApplyConfig(c,"ordinary model edit"),"ordinary model edit accepted");
+    Check(nr_processing_runtime::Effective()==Start::Present&&g_config.processing_start==Start::Before,
+          "ordinary edits preserve fallback without replacing the saved start");
+    (void)Load();
+    Check(nr_processing_runtime::Effective()==Start::Present,"config polling preserves the session fallback");
+    c=g_config;c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+    Check(ApplyConfig(c,"explicit start reselection"),"same start button explicitly retries");
+    Check(nr_processing_runtime::Effective()==Start::Before,"explicit reselection resets to the saved start");
+    const auto saved_bytes=Bytes();const auto saved_config=g_config;
+    nr_f8::g_config_hold=true;c.processing_start=Start::Present;++c.processing_selection;
+    Check(!ApplyConfig(c,"F8-owned UI route edit")&&SameConfig(g_config,saved_config)&&Bytes()==saved_bytes,
+          "F8 owns configuration and blocks ordinary route edits");
+    nr_f8::g_config_hold=false;
+}
 int wmain(int argc, wchar_t **argv) {
     if (argc < 2) return 3;
     InitializeCriticalSection(&g_chain_cs);
     const std::filesystem::path directory = argv[1];
-    if (argc == 7) {
+    if (argc == 8 && std::wcscmp(argv[7],L"processing")==0) {
+        wcscpy_s(g_ini_path,argv[2]);const auto c=Load();
+        Check(static_cast<unsigned>(c.processing_start)==std::wcstoul(argv[3],nullptr,10)&&
+              c.nr_full_passes==std::wcstoul(argv[4],nullptr,10)&&
+              c.compat_percent==std::wcstoul(argv[5],nullptr,10)&&c.nr_full_reference,
+              "fresh process retains new route and full reference selection");
+        Check(c.processing_selection==0,"new process starts a new session selection");
+        Check(c.nr_second_numerator==2&&c.nr_second_denominator==3,"new process retains exact reduced fraction");
+    } else if (argc == 7) {
         wcscpy_s(g_ini_path, argv[2]);
         const auto c = Load();
         Check(c.transfer_strength == std::wcstof(argv[3], nullptr) &&
@@ -294,6 +381,7 @@ int wmain(int argc, wchar_t **argv) {
         wcscpy_s(g_ini_path, (directory / L"fixture.ini").c_str());
         Check(ChainConfig{}.jitter_mode == NrJitterMode::Legacy, "in-memory default jitter is zero");
         TestLegacy(directory); TestFailure(directory); TestCompletedPolicyAndDiagnostic(directory);
+        TestProcessingAndFullReference(directory);
         SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
     }
     std::printf("config policy real Win32: %d checks / %d failures\n", checks, failures);

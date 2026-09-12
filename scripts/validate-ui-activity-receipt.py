@@ -51,7 +51,7 @@ def main():
     names = ('src/nr_ui_activity.h', 'src/nr_ui_activity_runtime.inl', 'src/nr_ui_activity_feedback.inl',
              'src/nr_feedback_text.h', 'src/nr_feedback_limits.h', 'src/nr_feedback_capture.inl',
              'src/nr_settings_ui.inl', 'src/nr_before_sr.cpp', 'tests/ui_activity_receipt_runtime.cpp.in',
-             'tests/ui_activity_test.cpp')
+             'tests/ui_activity_test.cpp', 'src/nr_compat_present_policy.hpp', 'src/nr_fg_consumer.inl')
     paths = {name: (ROOT if name.startswith('tests/') else source_root) / name for name in names}
     inputs = {name: path.read_bytes() for name, path in paths.items()}
     if any(paths[name].read_bytes() != value for name, value in inputs.items()): raise SystemExit('Inputs changed while freezing.')
@@ -72,6 +72,12 @@ def main():
               'scope': 'actual Window, extracted ReadUiActivity/DrawNrActivityStatus/FeedbackAppend and real production value journal/F8 writer; Win32 value locks and CPU threads; scripted clock/atomic/UI APIs', 'runs': []}
     controls = (
         ('production', None, None, None, 'UI_RECEIPT_CPU PASS'),
+        ('omit-compat-publication', 'src/nr_settings_ui.inl', 'NrPublishUiActivity(receipt,site,displayed);\n        return;',
+         '(void)displayed;\n        return;', 'UI_COMPAT_CURRENT'),
+        ('borrow-native-window-for-compat', 'src/nr_settings_ui.inl',
+         'receipt.source=nr_ui_activity::ObservationSource::PresentSnapshot;',
+         'ReadUiActivity(generation,&receipt);\n        receipt.source=nr_ui_activity::ObservationSource::PresentSnapshot;',
+         'UI_COMPAT_NO_NATIVE_COUNTERS'),
         ('old-thread-local-window', 'src/nr_ui_activity_runtime.inl',
          'nr_ui_activity::Window g_nr_ui_activity_window;',
          'thread_local nr_ui_activity::Window g_nr_ui_activity_window;', 'UI_SHARED_WINDOW'),
@@ -104,6 +110,7 @@ def main():
         for token, text in (
             ('// @READ@', definition(ui, 'nr_ui_activity::Sample ReadUiActivity(')),
             ('// @DRAW@', definition(ui, 'void DrawNrActivityStatus(')),
+            ('// @FG_RECENT@', definition(frozen['src/nr_fg_consumer.inl'], 'bool RecentlyRecorded(')),
             ('// @FEEDBACK_SESSION@', definition(capture, 'struct FeedbackSession {') + ';'),
             ('// @FEEDBACK_APPEND@', definition(capture, 'void FeedbackAppend(')),
         ): harness = harness.replace(token, text)

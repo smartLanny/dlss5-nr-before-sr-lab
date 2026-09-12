@@ -41,15 +41,26 @@ class SettingsNotices(unittest.TestCase):
 
 PRELUDE = r'''
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
+#include "nr_processing_route.h"
+#include "nr_compat_present_policy.hpp"
 struct ImVec2 { float x, y; ImVec2(float a, float b) : x(a), y(b) {} };
 struct Style { ImVec2 ItemSpacing{7,7}; };
 enum { ImGuiCol_Button, ImGuiCol_Header };
-struct ChainConfig { int mode=2; };
+struct ChainConfig { int mode=2;nr_processing::Start processing_start=nr_processing::Start::Before;unsigned long long processing_selection=0; };
+namespace nr_processing_runtime {
+std::atomic<unsigned long long> next_selection{1};
+nr_processing::Start actual=nr_processing::Start::After;
+nr_processing::Start Effective(){return actual;}
+}
+namespace nr_compat_present_runtime {
+bool TrySnapshot(nr_compat_present::Observation& value){value={};return true;}
+}
 struct ConfigPolicyMigrationStatus {
     bool visible=false,extra_changed=false,extra_disabled=false,jitter_changed=false;
     bool persisted=false,failed=false;
@@ -81,6 +92,10 @@ void TextWrapped(const char *format, ...) {
     std::vsnprintf(buffer,sizeof(buffer),format,args); va_end(args);
     lines.emplace_back(buffer);
 }
+void TextDisabled(const char *format, ...) {
+    char buffer[2048]{};va_list args;va_start(args,format);
+    std::vsnprintf(buffer,sizeof(buffer),format,args);va_end(args);lines.emplace_back(buffer);
+}
 bool Button(const char *label) {
     ++buttons;
     return dismiss_click && std::strstr(label,"nr-migration-dismiss");
@@ -100,6 +115,7 @@ int GetStyleColorVec4(int) { return 1; }
 void PushStyleColor(int, int) { highlight=true; }
 void PopStyleColor() { highlight=false; }
 float GetFrameHeight() { return 22; }
+float GetFontSize() { return 16; }
 }
 #include "nr_settings_notices_ui.inl"
 void ResetUi(int click=-1) {
@@ -176,18 +192,21 @@ int main() {
 
         ChainConfig config;
         ResetUi(); Check(!DrawProcessingModeBlocks(config,false,false,1),"drawing effective post is read only");
-        Check(config.mode==2&&highlights==std::vector<bool>({false,true}),"fallback highlights effective post while preserving requested pre");
-        ResetUi(1); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==1,"clicking highlighted fallback post can save a different requested preference");
-        config.mode=2;
-        ResetUi(0); Check(!DrawProcessingModeBlocks(config,false,false,1)&&config.mode==2,"clicking requested pre during fallback does not invent an edit");
-        config.mode=1;
+        Check(config.mode==2&&highlights==std::vector<bool>({true,false,false}),"fallback preserves requested highlight and reports actual route separately");
+        Check(Has("F8"),"fallback retains a concrete diagnostic action");
+        ResetUi(1); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==1&&config.processing_start==nr_processing::Start::After,"clicking post saves a different starting preference");
+        config.mode=2;config.processing_start=nr_processing::Start::Before;
+        const auto before_selection=config.processing_selection;
+        ResetUi(0); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==2&&config.processing_selection!=before_selection,"clicking the requested start explicitly retries without changing its saved position");
+        config.mode=1;config.processing_start=nr_processing::Start::After;
         ResetUi(0); Check(DrawProcessingModeBlocks(config,false,false,1)&&config.mode==2,"normal pre selection remains editable");
-        for(int clicked:{0,1}) {
-            config.mode=2;
-            ResetUi(clicked); Check(!DrawProcessingModeBlocks(config,true,false,2)&&config.mode==2,"RR rejects both route mutations even for a synthetic disabled click");
-            Check(highlights==std::vector<bool>({false,true})&&disabled_depth==0,"RR shows post and balances disabled scope");
-            ResetUi(clicked); Check(!DrawProcessingModeBlocks(config,false,true,2)&&config.mode==2,"current compatibility lock rejects both route mutations while preserving requested pre");
-            Check(highlights==std::vector<bool>({false,true})&&disabled_depth==0,"compatibility lock shows post and balances disabled scope");
+        for(int clicked:{0,1,2}) {
+            config={};
+            ResetUi(clicked); Check(DrawProcessingModeBlocks(config,true,false,2)&&static_cast<int>(config.processing_start)==clicked,"RR observation leaves all three requested starts editable");
+            Check(buttons==3&&disabled_depth==0&&nr_processing_runtime::actual==nr_processing::Start::After,"route click changes preference without fabricating actual execution");
+            config={};
+            ResetUi(clicked); Check(DrawProcessingModeBlocks(config,false,true,2)&&static_cast<int>(config.processing_start)==clicked,"automatic fallback does not lock explicit route selection");
+            Check(config.mode==(clicked==1?1:2),"Present preference does not overwrite the legacy Mode adapter");
         }
     }
     std::printf("Settings UI: %u checks, %u failures; production notices and route UI, CPU recorder only\n",checks,failures);

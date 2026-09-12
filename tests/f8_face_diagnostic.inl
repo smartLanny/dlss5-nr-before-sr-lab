@@ -55,6 +55,8 @@ void TestFaceDiagnostic() {
         if(group==4||group==5)expected.local_tone=2.f;
         if(group==6||group==7)expected.local_structure=2.f;
         expected.auto_mask=(group%2)!=0||group==8;expected.skin_structure=0;
+        expected.processing_start=nr_processing::FromLegacy(expected.mode);
+        expected.processing_selection=config.processing_selection;
         Check(SameConfig(config,expected)&&SameConfig(g_session->groups[group].requested,expected),"nine-group table independently matches exact requested settings");
         Check(g_session->groups[group].expected_mode==1&&config.mode==2,"face follows live RR post route while preserving saved route");
         test_clock+=600;Check(SameConfig(SnapshotOverlayConfig().config,expected),"face held settings cannot be overwritten by overlay INI poll");

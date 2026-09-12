@@ -53,6 +53,13 @@ the builder and remains governed by its own license.
 NVIDIA and games
 ----------------
 
-No NVIDIA proprietary DLL, SDK binary/header, neural-network payload, game file,
-or game asset is included. Product names are used only to describe interoperability
-and do not imply affiliation or endorsement.
+The source repository contains no NVIDIA SDK library/header, neural-network
+payload, game file, or game asset. Production nrchain_nvngx.dll binaries link
+the official NVIDIA NGX SDK loader in object-code form to initialize NGX in
+applications that have not initialized it themselves. The SDK is separately
+obtained by the builder from https://github.com/NVIDIA/DLSS (pinned build inputs
+are recorded in scripts/build-nrchain.ps1). NVIDIA SDK portions remain governed
+by the NVIDIA RTX SDKs license at https://github.com/NVIDIA/DLSS/blob/a291cc7d2cc642a51566f3dfd5376f635cd1b284/LICENSE.txt;
+they are not relicensed under this project's license. The signed NR runtime is
+supplied separately. Product names describe interoperability and do not imply
+affiliation or endorsement.

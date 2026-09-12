@@ -17,12 +17,14 @@ enum Reset : unsigned {
     FirstWindow=1u, ClockBackwards=2u, WindowGap=4u, ConfigChanged=8u,
     EpochChanged=16u, CounterRegressed=32u, ConfigReadChanged=64u, EpochReadChanged=128u
 };
-enum class Kind : unsigned { Unavailable, Reset, Held, Updated, Incoherent };
+enum class Kind : unsigned { Unavailable, Reset, Held, Updated, Incoherent, Snapshot };
+enum class ObservationSource : unsigned { NativeWindow, PresentSnapshot, FgRecentRecord };
 enum class Site : unsigned { Top, Feedback, Count };
 enum class Display : unsigned {
     Unavailable, WrongApi, Native, Checking, Intermittent, Observed, QueueTimeout,
     RuntimeUnavailable, CodecUnavailable, RayReconstruction, OtherOwner, Conflict,
-    WaitingForSr, ObserverIncomplete, CommandStateUnknown, Bypassed, NoSubmission
+    WaitingForSr, ObserverIncomplete, CommandStateUnknown, Bypassed, NoSubmission,
+    CompatibilityChecking, FgRecorded, PresentSubmitted, CompatibilityPreparing, CompatibilityBypassed
 };
 struct WindowBefore {
     bool initialized=false;
@@ -97,6 +99,7 @@ public:
 };
 struct ReadReceipt {
     Observation observation{};
+    ObservationSource source=ObservationSource::NativeWindow;
     Count thread_cookie=0,thread_call=0,read_gap_ms=0;
     Count config_argument=0,epoch_entered=0,config_checked=0,epoch_checked=0;
     bool read_gap_known=false,epoch_checked_known=false;

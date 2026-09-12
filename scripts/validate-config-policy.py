@@ -27,6 +27,8 @@ def definition(source, marker, semicolon=False):
 
 def assemble(source):
     reload = definition(source, 'void ReloadConfig(')
+    publish_start = reload.index('    const bool changed = !SameConfig(next, g_config);')
+    publish_end = reload.index('    if (changed || force) {\n        Log(', publish_start)
     helpers = [definition(source, signature) for signature in (
         'float ReadIniFloat(', 'float FiniteOr(', 'int MigrateConfigMode(',
         'bool WriteIniInt(const wchar_t *key, int value) {',
@@ -37,6 +39,7 @@ def assemble(source):
     parts = {
         'JITTER_ENUM': definition(source, 'enum class NrJitterMode', True),
         'CHAIN_CONFIG': definition(source, 'struct ChainConfig', True),
+        'PROCESSING_RUNTIME': (ROOT / 'src/nr_processing_runtime.inl').read_text(encoding='utf-8-sig'),
         'HELPERS': '\n\n'.join(helpers),
         'POLICY_RUNTIME': (ROOT / 'src/nr_config_policy_runtime.inl').read_text(encoding='utf-8-sig'),
         'NORMALIZE': definition(source, 'void NormalizeConfig('),
@@ -44,6 +47,7 @@ def assemble(source):
         'SAME_HISTORY': definition(source, 'bool SameHistoryConfig('),
         'ACTIVE_TRANSFER': definition(source, 'float ActiveTransferStrength('),
         'RELOAD_PREFIX': reload[:reload.index('    const bool shortfuse_loaded =')],
+        'RELOAD_PUBLISH': reload[publish_start:publish_end],
         'SAVE_CONFIG': definition(source, 'bool SaveConfig('),
         'APPLY_CONFIG': definition(source, 'bool ApplyConfig('),
         'SNAPSHOT_CONFIG': definition(source, 'ChainConfig SnapshotConfig('),
@@ -99,6 +103,15 @@ def main():
                                  strength, enabled, jitter, '1.73'], text=True, capture_output=True)
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
+    for name, route, passes, percent in (
+        ('restart-route-before.ini', '0', '2', '50'),
+        ('restart-route-after.ini', '1', '3', '75'),
+        ('restart-route-present.ini', '2', '4', '100'),
+    ):
+        result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
+                                 route, passes, percent, '1', 'processing'], text=True, capture_output=True)
+        assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
+        restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
     negatives = []
     mutations = (
         ('repeat-jitter', 'if (g_config_policy_attempted) return;',
@@ -114,6 +127,15 @@ def main():
          'if (!force && false) return;', 'polling never overwrites'),
         ('f8-writes-ini', 'persist_to_ini && !preview_only ? SaveConfig(g_config) : true',
          '!preview_only ? SaveConfig(g_config) : true', 'performs no policy or INI writes'),
+        ('reselect-on-config-poll', 'if(session.Select(g_config.processing_start,g_config.processing_selection)) {',
+         'if(session.Select(g_config.processing_start,++g_config.processing_selection)) {',
+         'ordinary edits preserve fallback'),
+        ('discard-present-preference', '_wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :',
+         'false ? nr_processing::Start::Present :', 'explicit ProcessingStart wins'),
+        ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,2u,4u);',
+         '(void)config.nr_full_passes;', 'full reference count stays'),
+        ('allow-legacy-native-sr-retry', 'config.retry_original_on_sr_failure=false;',
+         '(void)config.retry_original_on_sr_failure;', 'normalization disables legacy same-source'),
     )
     if args.negative_control:
         for name, original, mutation, expected in mutations:
@@ -131,7 +153,7 @@ def main():
         'negative_controls': negatives,
     }
     (directory / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
-    print('PASS five fresh-process restarts; receipt:', directory / 'validation.json')
+    print(f'PASS {len(restarts)} fresh-process restarts; receipt:', directory / 'validation.json')
 
 
 if __name__ == '__main__':

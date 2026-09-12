@@ -35,6 +35,7 @@ HARNESS=r'''
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_processing_route.h"
 #include "nr_model_controls.h"
 #include "nr_work_config.h"
 #include "nr_config_policy.h"
@@ -52,6 +53,8 @@ std::atomic<unsigned long long> g_next_config_poll_tick{0},g_nr_successful_evalu
 ULONGLONG g_config_read_tick=0;
 namespace nr_f8 {std::atomic<bool> g_config_hold{false};}
 void Log(const char*,...) {}
+namespace nr_source_runtime {unsigned long long CurrentRetryToken(){static unsigned long long source=1;return source++;}}
+#include "nr_processing_runtime.inl"
 enum class BypassReason {WaitingForFeature1,MasterDisabled};
 void SetBypassReason(BypassReason) {}
 void RecordWorkRequestStatus(nr_work_config::Status) {}
@@ -376,7 +379,8 @@ def main():
     stream=(ROOT/'src/nr_f8_stream.inl').read_text(encoding='utf-8')
     stage=(ROOT/'src/nr_stage_capture.inl').read_text(encoding='utf-8')
     dispatch=definition(core,'void DispatchCodec(')
-    assert 'const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;' in ui
+    assert 'const bool before_sr = !compatibility_mode && !rr_guarded && !compatibility_post &&' in ui
+    assert 'nr_processing_runtime::Effective()==nr_processing::Start::Before;' in ui
     assert 'DrawLightStyleControls(next,before_sr' in ui
     assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
     apply_settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')

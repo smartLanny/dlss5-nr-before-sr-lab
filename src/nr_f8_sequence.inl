@@ -41,6 +41,8 @@ struct Session {
     unsigned long long id = 0, started = 0;
     Options options = {};
     ChainConfig original = {};
+    nr_processing::Session processing_original{};
+    bool processing_saved=false,processing_restored=false;
     nr_post_settings::Options post_original = {};
     Group groups[kGroups] = {};
     unsigned group = 0, group_count = 3;
@@ -146,6 +148,13 @@ bool RequestCore() {
     return accepted;
 }
 bool RequestWithOptions(const Options &options) {
+    // Present has its own current-source capture. Never run the native-stage
+    // comparison controller against a Present image or relabel its stages.
+    if(nr_processing_runtime::PresentSelected()) {
+        const bool capture=nr_compat_present_runtime::RequestCapture();
+        const bool report=RequestCore();
+        return capture||report;
+    }
     AcquireSRWLockExclusive(&g_control);
     const bool face = options.comparison == Comparison::FaceDiagnostic;
     const bool valid_face = !face || (!options.full_screen &&
@@ -175,7 +184,11 @@ bool RequestFullscreen(Comparison kind = Comparison::Current) {
     return RequestWithOptions({kind, false, 0, 0, true});
 }
 ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index) {
-    if (kind == Comparison::FaceDiagnostic) return nr_face_diagnostic::GroupConfig(base,index);
+    if(kind==Comparison::FaceDiagnostic) {
+        auto c=nr_face_diagnostic::GroupConfig(base,index);
+        c.processing_start=nr_processing::FromLegacy(c.mode);
+        return c;
+    }
     ChainConfig c=base;
     if (kind==Comparison::ShareMatrix) {
         c.enabled=index!=0;
@@ -193,7 +206,10 @@ ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index
         if (kind==Comparison::Protection) { c.mode=2; c.detail_stability=index==0?0.f:1.f; }
         if (kind==Comparison::Jitter) c.jitter_mode=index==0?NrJitterMode::Legacy:NrJitterMode::GameInputPixel;
     }
-    if (kind!=Comparison::Current) NormalizeConfig(c);
+    if (kind!=Comparison::Current) {
+        c.processing_start=nr_processing::FromLegacy(c.mode);
+        NormalizeConfig(c);
+    }
     return c;
 }
 unsigned GroupPostPercent(Comparison kind,unsigned index,unsigned fallback) {
@@ -437,7 +453,7 @@ DWORD WINAPI PackageWorker(void *opaque) {
         "artifact.addonSha256=%s\nartifact.identityStatus=%s\n"
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
         kSourceCommit, kSourceDirty ? 1 : 0, module_identity.sha256, module_identity.status);nr_bundle::Result result={};result.status=nr_bundle::Status::Failed;
-    bool complete=s->restored && s->post_restored && !s->partial;
+    bool complete=s->restored && s->post_restored && s->processing_restored && !s->partial;
     const bool face=s->options.comparison==Comparison::FaceDiagnostic;
     if(face)for(unsigned i=0;i<s->group_count;++i) {
         auto &g=s->groups[i];
@@ -448,6 +464,7 @@ DWORD WINAPI PackageWorker(void *opaque) {
     for(unsigned i=0;i<s->group_count;++i)complete=Complete(s->groups[i]) && complete;
     FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\npostConfig.restored=%d\nconfig.writesToIni=0\ncapture.order=sequential; keep the scene and camera fixed\ncapture.sameFrameClaim=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
         s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->post_restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
+    FeedbackAppend(s->activity,"processingSession.restored=%d\n",s->processing_restored);
     FeedbackAppend(s->activity,"capture.fullScreen=%d\ncapture.displayFile=original-runtime-screenshot; no crop or resize\ncapture.gpuPlanes=%s\n",
         s->options.full_screen, s->options.full_screen?"not-requested":"bounded-ROI-and-optional-overview");
     if(face)FeedbackAppend(s->activity,"faceDiagnostic.version=1\nfaceDiagnostic.centerX=%.9g\nfaceDiagnostic.centerY=%.9g\nfaceDiagnostic.roiTarget=1\nfaceDiagnostic.stability=minimum-3000ms-and-64-NR-evaluations-after-reset; exact-fence-ROI-before-display-request\nfaceDiagnostic.displayWidth=%u\nfaceDiagnostic.displayHeight=%u\nfaceDiagnostic.selectionSourceWidth=%u\nfaceDiagnostic.selectionSourceHeight=%u\nfaceDiagnostic.moduleInventory=paired-core-package\nfaceDiagnostic.isMaskProof=0\n",
@@ -543,7 +560,9 @@ DWORD WINAPI PackageWorker(void *opaque) {
 
 void StartGroup(Session &s) {
     const unsigned index=s.group;
-    const ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
+    ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
+    if(s.options.comparison!=Comparison::Current)
+        requested.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);
     const bool face=s.options.comparison==Comparison::FaceDiagnostic;
     const bool rr_pre_skip=s.options.comparison!=Comparison::Current && !face && requested.enabled && requested.mode==2 &&
         IsRayReconstructionRouteObserved();
@@ -571,9 +590,21 @@ void StartGroup(Session &s) {
 }
 void Finish(Session *s) {
     AcquireSRWLockExclusive(&g_lock);g_session=nullptr;g_status.store(Status::Packaging);ReleaseSRWLockExclusive(&g_lock);
+    // CRITICAL_SECTION is recursive: keep the existing ApplyConfig transaction
+    // and restore its companion route value atomically before a carrier can run.
+    // g_lock is already released; never reverse the controller's lock order.
+    EnterCriticalSection(&g_chain_cs);
     if(s->options.comparison!=Comparison::Current)ApplyConfig(s->original,"F8 restore original",false);
+    s->processing_restored=s->options.comparison==Comparison::Current;
+    if(s->options.comparison!=Comparison::Current && s->processing_saved) {
+        nr_processing_runtime::session=s->processing_original;
+        nr_processing_runtime::effective.store(static_cast<unsigned>(s->processing_original.Current()),std::memory_order_release);
+        g_history_generation.fetch_add(1,std::memory_order_relaxed);
+        s->processing_restored=true;
+    }
+    ChainConfig restored=g_config;restored.perf_epoch=s->original.perf_epoch;
+    LeaveCriticalSection(&g_chain_cs);
     if(UsesPostOptions(s->options.comparison))nr_post_settings::RequestForCapture(s->post_original);
-    ChainConfig restored=SnapshotConfig();restored.perf_epoch=s->original.perf_epoch;
     s->restored=SameConfig(s->original,restored);
     s->post_restored=!UsesPostOptions(s->options.comparison) || nr_post_settings::Read().percent==s->post_original.percent;
     if(s->options.comparison==Comparison::FaceDiagnostic) {
@@ -676,12 +707,17 @@ void Present(reshade::api::effect_runtime *runtime) {
         EnterCriticalSection(&g_chain_cs);
         bool expected_hold=false;
         const bool acquired_hold=StageCaptureStatus()==0 && g_config_hold.compare_exchange_strong(expected_hold,true);
+        if(acquired_hold) {
+            s->original=g_config;
+            s->processing_original=nr_processing_runtime::session;
+            s->processing_saved=true;
+        }
         LeaveCriticalSection(&g_chain_cs);
         if(!acquired_hold) {
             delete s;UnchangedFaceFailure("another diagnostic owns the configuration; no settings changed");
             g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
         }
-        s->original=SnapshotConfig();s->post_original=nr_post_settings::Read();
+        s->post_original=nr_post_settings::Read();
         FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
         AcquireSRWLockExclusive(&g_lock);g_session=s;g_status.store(Status::Running);ReleaseSRWLockExclusive(&g_lock);
         StartGroup(*s);
@@ -752,6 +788,34 @@ void DrawCoreStatus() {
     }
     DrawCoreTextStatus(UseChineseUi());
 }
+void DrawCompatibilityCapture(bool zh,bool report_busy) {
+    const unsigned present=nr_compat_present_runtime::CaptureStatus(false),fg=nr_compat_present_runtime::CaptureStatus(true);
+    const unsigned present_workers=nr_compat_present_runtime::CaptureWorkers(false),fg_workers=nr_compat_present_runtime::CaptureWorkers(true);
+    ImGui::TextWrapped("%s",zh?"F7：捕获当前兼容路径的各层数据，不切换画面设置；原生七组矩阵不适用于此路径。":"F7 captures each layer of the current compatibility path without changing picture settings. The native seven-group matrix does not apply here.");
+    ImGui::TextWrapped("%s",nr_compat_present_runtime::CaptureUsesFg()
+        ?(zh?"下次请求：帧生成前的当前来源。":"Next request: the current source before frame generation.")
+        :(zh?"下次请求：当前 Present 兼容处理。":"Next request: current Present compatibility processing."));
+    const bool pending=present==1||fg==1||present_workers||fg_workers;
+    ImGui::BeginDisabled(report_busy||pending);
+    static bool declined=false;
+    if(ImGui::Button(zh?"采集当前兼容路径各层（F7）":"Capture current compatibility layers (F7)"))declined=!RequestFullscreen();
+    ImGui::EndDisabled();
+    if(declined)ImGui::TextWrapped("%s",zh?"本次请求未被接受，请等待当前工作完成后再试。":"This request was not accepted; retry after the current work finishes.");
+    const auto state=[&](bool is_fg,unsigned value,unsigned workers) {
+        if(value==0)return;
+        const char* route=is_fg?"FG":"Present";
+        if(value==3)ImGui::TextWrapped(zh?"%s 各层捕获失败；请按 F8 保存报告。":"%s layer capture failed; save an F8 report.",route);
+        else if(value==2&&!workers) {
+            ImGui::TextWrapped(zh?"%s 各层数据已导出。":"%s layer data exported.",route);
+            ImGui::TextWrapped("%s",is_fg?"Documents/DLSS5-FG-Capture":"Documents/DLSS5-Present-Capture");
+        } else if(workers)ImGui::TextWrapped(zh?"%s 正在导出各层数据。":"%s layer data is being exported.",route);
+        else if(value==1)ImGui::TextWrapped(zh?"%s 请求待完成：等待可捕获的当前画面和已提交工作完成。":"%s request pending: waiting for a capturable current frame and completion of submitted work.",route);
+        else ImGui::TextWrapped(zh?"%s 捕获状态暂不可用；请按 F8 保存报告。":"%s capture status is unavailable; save an F8 report.",route);
+    };
+    state(false,present,present_workers);state(true,fg,fg_workers);
+    ImGui::TextWrapped("%s",zh?"这些文件是当前处理层的数据，不是游戏原生阶段截图，也不代表最终屏幕输出。":"These files describe current processing layers, not native game-stage screenshots or final screen output.");
+}
+
 void DrawControls() {
     const auto state=g_status.load();
     const bool use_chinese_ui=UseChineseUi();
@@ -764,12 +828,16 @@ void DrawControls() {
     if(ImGui::Button(use_chinese_ui?"生成反馈 TXT（F8，推荐）":"Save feedback TXT (F8, recommended)"))RequestCore();
     F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。成功写完一个带时间、游戏、版本名的 TXT 后自动复制文件路径；不复制正文、不生成 ZIP、不采图片、不改设置。TXT 上限 192 KiB。":"For bypass and compatibility issues. After one named TXT is written successfully, its file path is copied automatically. No report text, ZIP, images or setting changes. Bounded report ceiling: 192 KiB.");
     ImGui::EndDisabled();
+    const bool compatibility=nr_processing_runtime::PresentSelected();
+    if(compatibility)DrawCompatibilityCapture(use_chinese_ui,busy);
     if(!busy) {
         static int key=VK_F8;
+        if(!compatibility) {
         if(ImGui::Button(use_chinese_ui?"采集全屏原图（F7）":"Capture full-screen original (F7)"))RequestFullscreen();
         F8Tooltip(use_chinese_ui?"保存当前完整游戏画面，不裁切、不缩小。":"Save the entire game view without cropping or resizing.");
         if(ImGui::Button(use_chinese_ui?"七组画面对比：全屏原图":"Seven-group full-screen comparison"))RequestFullscreen(Comparison::ShareMatrix);
         F8Tooltip(use_chinese_ui?"依次保存关闭 NR、NR→SR 50/75/100、SR→NR 50/75/100。保持镜头不动，完成或取消后恢复设置。开启 RR 时跳过 NR→SR。":"Capture NR off, NR-before-SR 50/75/100 and SR-before-NR 50/75/100 in order. Keep the camera still. Original settings are restored. RR skips NR-before-SR groups.");
+        }
         if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
             key=static_cast<int>(g_hotkey.load());
             if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(nr_feedback_text::CoreHotkey(static_cast<unsigned>(key)));
@@ -779,13 +847,13 @@ void DrawControls() {
             if(ImGui::Button(use_chinese_ui?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
             ImGui::TreePop();
         }
-    } else {
+    } else if(!compatibility) {
         AcquireSRWLockShared(&g_lock);
         if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，截图%s":"Group %u/%u, screenshot %s",s.group+1,s.group_count,g.shot_received?(use_chinese_ui?"已保存":"saved"):(use_chinese_ui?"等待中":"pending"));}
         ReleaseSRWLockShared(&g_lock);
         if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
-    if(state==Status::Complete || state==Status::Partial || state==Status::Failed) {
+    if(!compatibility && (state==Status::Complete || state==Status::Partial || state==Status::Failed)) {
         ImGui::TextWrapped("%s",state==Status::Complete?(use_chinese_ui?"图像补充包已生成，请与新核心包一起提交。":"Image supplement saved; submit its paired core package too."):state==Status::Partial?(use_chinese_ui?"图像补充包部分完成，缺失原因已记录。":"Image supplement partially complete; missing-data reasons included."):(use_chinese_ui?"图像采集失败或已取消，请检查核心包及磁盘空间。":"Image capture failed or was cancelled; inspect the core package and disk space."));
         char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}

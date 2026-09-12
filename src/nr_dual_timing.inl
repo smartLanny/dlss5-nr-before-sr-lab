@@ -5,6 +5,22 @@ std::atomic<unsigned long long> time_warmup_samples{0};
 std::atomic<double> time_median[kTimeStages]{},time_p95[kTimeStages]{},time_last[kTimeStages]{};
 double time_values[kTimeStages][kTimeWindow]{};
 unsigned time_count=0,time_cursor=0,time_generation=0;
+struct FullLayerTiming {
+    double values[kTimeWindow]{};unsigned count=0,cursor=0,generation=0;
+    std::atomic<unsigned> samples{0},config{0};
+    std::atomic<double> last{0},median{0},p95{0};
+};
+FullLayerTiming full_time[4]{};
+void RecordFullTiming(unsigned layer,unsigned generation,double ms) {
+    if(layer>=4||!std::isfinite(ms)||ms>10000)return;
+    auto& out=full_time[layer];
+    if(out.generation!=generation){out.generation=generation;out.count=out.cursor=0;}
+    out.values[out.cursor]=ms;out.cursor=(out.cursor+1)%kTimeWindow;
+    out.count=std::min(out.count+1,kTimeWindow);
+    double sorted[kTimeWindow]{};std::copy_n(out.values,out.count,sorted);std::sort(sorted,sorted+out.count);
+    out.last.store(ms);out.median.store(out.count&1?sorted[out.count/2]:(sorted[out.count/2-1]+sorted[out.count/2])*.5);
+    out.p95.store(sorted[(out.count*95+99)/100-1]);out.config.store(generation);out.samples.store(out.count);
+}
 void CollectTiming(NrSlot& slot) {
     if(!slot.dual_time_pending||!CanMutateSlotLocked(slot))return;
     if(!slot.dual_time_fence||!slot.dual_time_queue) {
@@ -24,6 +40,14 @@ void CollectTiming(NrSlot& slot) {
     const D3D12_RANGE empty{0,0};ID3D12Resource_Unmap(slot.dual_time_readback,0,&empty);
     if(slot.dual_time_generation!=g_config_generation.load())return;
     if(!slot.dual_time_stable){time_warmup_samples.fetch_add(1);return;}
+    if(slot.dual_full_timing_layer) {
+        const unsigned first=slot.dual_full_timing_layer==1?0u:4u;
+        const unsigned pair=3u<<first;
+        if((slot.dual_time_mask&pair)!=pair||ticks[first+1]<ticks[first])return;
+        RecordFullTiming(slot.dual_full_timing_layer-1,slot.dual_time_generation,
+            double(ticks[first+1]-ticks[first])*1000.0/double(frequency));
+        return;
+    }
     double ms[kTimeStages]{};
     for(unsigned i=0;i<kTimeStages;++i) {
         const unsigned pair=3u<<(i*2);
@@ -47,9 +71,10 @@ void CollectTiming(NrSlot& slot) {
     time_config.store(time_generation,std::memory_order_release);
     time_samples.store(time_count,std::memory_order_release);second_completed.fetch_add(1);
 }
-bool PrepareTiming(ID3D12Device* device,NrSlot& slot) {
+bool PrepareTiming(ID3D12Device* device,NrSlot& slot,unsigned full_layer=0) {
     if(!CanMutateSlotLocked(slot))return false;
     CollectTiming(slot);
+    slot.dual_full_timing_layer=full_layer;
     slot.dual_time_active=false;slot.dual_time_mask=0;slot.dual_time_stable=false;
     slot.dual_time_token=slot.dual_time_fence=0;slot.dual_time_queue=nullptr;
     if(!slot.dual_time_heap) {
@@ -90,5 +115,16 @@ void ResolveTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool visible) {
             begin,i-begin,slot.dual_time_readback,SIZE_T(begin)*sizeof(UINT64));
     }
     slot.dual_time_pending=slot.dual_time_mask!=0;slot.dual_time_active=false;
+}
+void ResolveLayerTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool stable) {
+    if(!slot.dual_time_active||fatal_result.load())return;
+    slot.dual_time_stable=stable&&StageCaptureStatus()==0&&!nr_f8::IsActive()&&!nr_replay::Active();
+    const unsigned pair=3u<<4;
+    if((slot.dual_time_mask&pair)==pair) {
+        ID3D12GraphicsCommandList_ResolveQueryData(list,slot.dual_time_heap,D3D12_QUERY_TYPE_TIMESTAMP,
+            4,2,slot.dual_time_readback,4*sizeof(UINT64));
+        slot.dual_time_pending=true;
+    }
+    slot.dual_time_active=false;
 }
 }

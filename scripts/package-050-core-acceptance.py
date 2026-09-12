@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the verified beta0.5-dline14 D-line and compatibility integration, without carrier.
+"""Package the verified beta0.5-dline15 D-line and compatibility integration, without carrier.
 
 This is NOT the multi-API/Manager OTA packager. It never changes games or INI,
 includes no runtime/model/private log, and will not overwrite existing output.
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline14'
+VERSION = 'beta0.5-dline15'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -34,8 +34,167 @@ def checked_file(root: Path, name: str, expected: str) -> bytes:
 def git(*args: str) -> str:
     return subprocess.check_output(['git', '-C', str(ROOT), *args], text=True).strip()
 
+def checked_activation(path: Path | None, source_manifest: str, core_source: str,
+                       bridge: str, host_source: str) -> dict:
+    if path is None:
+        raise ValueError('Same-source real ReShade cold activation evidence required before packaging.')
+    value = load(path)
+    if (value.get('schema') != 'real-reshade-no-native-dlss-activation-v1'
+            or value.get('result') != 0 or value.get('compile_only') is not False
+            or value.get('host_unchanged') is not True
+            or value.get('host_sources_unchanged') is not True
+            or value.get('production_sources_unchanged') is not True
+            or value.get('source_manifest_sha256') != source_manifest
+            or value.get('core_source_sha256') != core_source
+            or value.get('production_bridge_sha256') != bridge
+            or value.get('host_source_sha256') != host_source):
+        raise ValueError('Real ReShade cold activation evidence does not match the frozen production source.')
+    hosts={name.replace('\\','/'):digest for name,digest in value.get('host_sources_at_compile',{}).items()}
+    if not {'tests/compat_nodlss_ngx_host.cpp','tests/compat_present_ngx_host.cpp'}.issubset(hosts):
+        raise ValueError('Real ReShade activation host dependency identity is incomplete.')
+    if hosts['tests/compat_nodlss_ngx_host.cpp'] != host_source:
+        raise ValueError('Real ReShade activation entry identity differs.')
+    for name,digest in hosts.items():checked_file(ROOT,name,digest)
+    commands = {item['name']: item for item in value.get('commands', [])}
+    if not {'compile-no-dlss-host', 'run-no-dlss-1', 'run-no-dlss-4'}.issubset(commands):
+        raise ValueError('Actual ReShade one/four-layer cold runs are required.')
+    for name, item in commands.items():
+        if item.get('exit') != 0:
+            raise ValueError('A real ReShade cold run failed.')
+        log = checked_file(path.parent, Path(item['log']).name, item['sha256'])
+        if name.startswith('run-no-dlss-') and b'PASS NO_DLSS_ACTIVATION' not in log:
+            raise ValueError('Missing actual ReShade cold runtime completion.')
+    for passes in (1, 4):
+        name = f'no-dlss-p{passes}.rgba'
+        info = value.get('outputs', {}).get(name, {})
+        if info.get('bytes') != 640 * 360 * 4:
+            raise ValueError('Missing actual ReShade cold readback output.')
+        checked_file(path.parent, name, info['sha256'])
+    # Keep private command paths, logs and captures out of distributable metadata.
+    return {key: value[key] for key in ('schema', 'source_manifest_sha256',
+        'core_source_sha256', 'host_source_sha256', 'production_bridge_sha256', 'reshade_sha256', 'scope')}
+
+
+def checked_gpu_report(path: Path | None, kind: str, source_manifest: str,
+                       core_source: str, bridge: str) -> dict:
+    if path is None:
+        raise ValueError(f'Same-source independent {kind} GPU evidence required.')
+    value = load(path)
+    expected_schema = {'present': 'real-ngx-present-host-v1','native-fg': 'real-ngx-native-fg-host-v1',
+                       'mfg': 'real-ngx-mfg-all-indexed-outputs-v1'}[kind]
+    reported_bridge = value.get('production_bridge_sha256', value.get('artifacts', {}).get('nrchain_nvngx.dll'))
+    if (value.get('schema') != expected_schema or value.get('result') != 0
+            or value.get('compile_only') is not False
+            or value.get('production_sources_unchanged') is not True
+            or value.get('source_manifest_sha256') != source_manifest
+            or value.get('core_source_sha256') != core_source or reported_bridge != bridge):
+        raise ValueError(f'Independent {kind} evidence differs from frozen production source.')
+    commands = {item['name']: item for item in value.get('commands', [])}
+    for item in commands.values():
+        if item.get('exit', item.get('exit_code')) != 0:
+            raise ValueError(f'An independent {kind} command failed.')
+        checked_file(path.parent, Path(item['log']).name, item['sha256'])
+    summary = {key: value[key] for key in ('schema', 'source_manifest_sha256', 'core_source_sha256', 'scope')}
+    summary['production_bridge_sha256'] = bridge
+    summary['receipt_sha256'] = sha(path.read_bytes())
+    if kind == 'present':
+        if (value.get('case') != 'all' or value.get('cold_bootstrap') is not True
+                or value.get('present_capture_cases_checked') != 5
+                or value.get('host_sources_unchanged') is not True
+                or value.get('host_source_sha256') != sha((ROOT/'tests/compat_present_ngx_host.cpp').read_bytes())):
+            raise ValueError('Cold Present full five-case capture validation required.')
+        required={'compile-host','run-1-100','run-2-100','run-3-100','run-4-100','run-2-50'}
+        if not required.issubset(commands):raise ValueError('Missing actual Present run records.')
+        captures=value.get('present_nrf_captures',{});metadata=value.get('present_nrf_metadata',{})
+        if len(captures) != 12 or len(metadata) != 12:raise ValueError('Incomplete Present layer capture set.')
+        for name,info in captures.items():
+            data=checked_file(path.parent,name,info['sha256'])
+            if len(data) != info['bytes'] or len(data) <= 6080:raise ValueError('Incomplete Present NRF payload.')
+        for name,info in metadata.items():
+            data=checked_file(path.parent,name,info['sha256']);content=json.loads(data.decode('utf-8-sig'))
+            if content != info['content'] or content.get('schema') != 'present-nr-observed-frame-v1' or content.get('complete') is not True:
+                raise ValueError('Incomplete actual Present layer metadata.')
+        summary.update(scenarios=5,nrf_files=12,
+            image_validation={Path(name).name:info for name,info in captures.items()})
+    elif kind == 'native-fg':
+        required = {'compile-bootstrap','compile-host','run-1-100','run-2-100','run-3-100',
+            'run-4-100','run-2-50','quadrant-nr0-fg0','quadrant-nr1-fg0','quadrant-nr0-fg1',
+            'hudless-1-1','hudless-1-2','hudless-4-1','hudless-4-2','fault-control-1','fault-control-2'}
+        if not required.issubset(commands) or value.get('host_sources_unchanged') is not True:
+            raise ValueError('Complete native FG/NR/HUD/failure-control scenarios are required.')
+        hosts={name.replace('\\','/'):digest for name,digest in value.get('host_sources_at_compile',{}).items()}
+        if not {'tests/fg_consumer_ngx_host.cpp','tests/fg_consumer_hud_fixture.inl',
+                'tests/fg_consumer_capture_fixture.inl','tests/compat_native_fg_bootstrap.cpp',
+                'tests/compat_present_ngx_host.cpp'}.issubset(hosts):
+            raise ValueError('Native FG host dependency identity is incomplete.')
+        for name, digest in hosts.items():
+            checked_file(ROOT, name, digest)
+        if value.get('host_source_sha256') != sha((ROOT/'tests/fg_consumer_ngx_host.cpp').read_bytes()):
+            raise ValueError('Native FG host differs from the committed host.')
+        comparison = value.get('four_quadrant_pixel_comparison', {})
+        for name in ('ConsumerBackbuffer','OutputReal','OutputInterpolated'):
+            if comparison.get(name+'_NRoff_vs_NRon_pixels',0) <= 0:
+                raise ValueError('Missing native FG NR-on/off actual pixel comparison.')
+        if comparison.get('NRoff_consumer_FGoff_vs_FGon_pixels') != 0:
+            raise ValueError('NR-off native FG input changed unexpectedly.')
+        if value.get('nrf_requests_checked',0) < 9 or len(value.get('nrf_captures',{})) < 22:
+            raise ValueError('Native FG layer capture validation is incomplete.')
+        for name, info in value['nrf_captures'].items():
+            data = checked_file(path.parent,name,info['sha256'])
+            if len(data) != info['bytes']:raise ValueError('FG NRF size differs.')
+        for field in ('captures','png_previews'):
+            if not value.get(field):raise ValueError('Missing native FG image validation.')
+            for name,info in value[field].items():
+                data=checked_file(path.parent,name,info['sha256'] if isinstance(info,dict) else info)
+                if isinstance(info,dict) and len(data) != info['bytes']:raise ValueError('Native FG image size differs.')
+        summary.update(scenarios=14,capture_requests=value['nrf_requests_checked'],
+            nrf_files=len(value['nrf_captures']),rgba_files=len(value['captures']),png_files=len(value['png_previews']),
+            pixel_comparisons=comparison,
+            image_validation={field:{Path(name).name:info for name,info in value[field].items()}
+                for field in ('captures','png_previews','nrf_captures')})
+    else:
+        maximum = value.get('runtime_max_generated',0)
+        if not 2 <= maximum <= 16 or value.get('all_reported_modes_completed') is not True or value.get('source_unchanged') is not True:
+            raise ValueError('All reported native MFG indexed modes must complete.')
+        for name,digest in value.get('source_hashes',{}).items():
+            checked_file(ROOT,'tests/'+Path(name).name,digest)
+        if not {'fg_consumer_ngx_host.cpp','compat_native_mfg_bootstrap.cpp','fg_multiframe_ngx_host.cpp',
+                'fg_consumer_hud_fixture.inl','fg_consumer_capture_fixture.inl','compat_present_ngx_host.cpp'}.issubset(
+                    {Path(name).name for name in value.get('source_hashes',{})}):
+            raise ValueError('MFG transitive host identity is incomplete.')
+        cases = value.get('cases',[])
+        expected={(count,1,1) for count in range(1,maximum+1)}|{(maximum,4,1),(maximum,1,0)}
+        if {(case['generated'],case['passes'],case['nr']) for case in cases} != expected:
+            raise ValueError('Missing MFG count, full NR or NR-off case.')
+        required = {'compile-mfg-bootstrap','compile-mfg-host'} | {
+            f'run-generated-{count}-nr{nr}-passes{passes}' for count,passes,nr in expected}
+        if not required.issubset(commands):
+            raise ValueError('MFG case rows lack actual successful run records.')
+        compact=[]
+        for case in cases:
+            count=case['generated']; captures=case.get('captures',{})
+            if case.get('exit') != 0 or case.get('outputs') != 24*count or len(captures) != 24*count:
+                raise ValueError('Incomplete indexed MFG outputs.')
+            eligible=case.get('eligible_by_index',{})
+            if set(eligible) != {str(i) for i in range(1,count+1)} or min(eligible.values()) < 4:
+                raise ValueError('MFG interpolation eligibility missing for an output index.')
+            folder=path.parent/f"generated-{count}-nr{case['nr']}-passes{case['passes']}"/'mfg'
+            for name,info in captures.items():
+                if info.get('bytes') != 640*360*4 or (not info.get('disabled') and info.get('pixels_overwritten_from_prefill',0)<640*360//2):
+                    raise ValueError('Invalid MFG indexed GPU readback.')
+                checked_file(folder,name,info['sha256'])
+            item={key:case[key] for key in ('generated','multiplier','passes','nr','outputs','eligible_by_index')}
+            item['image_validation']={Path(name).name:info for name,info in captures.items()}
+            compact.append(item)
+        summary.update(runtime_max_generated=maximum,max_multiplier=maximum+1,cases=compact,
+            indexed_outputs=sum(case['outputs'] for case in cases))
+    return summary
+
+
 def package(build: Path, output: Path, face_runtime_root: Path | None = None,
-            face_model: Path | None = None, face_model_license: Path | None = None) -> dict:
+            face_model: Path | None = None, face_model_license: Path | None = None,
+            activation_evidence: Path | None = None, native_fg_evidence: Path | None = None,
+            mfg_evidence: Path | None = None, present_evidence: Path | None = None) -> dict:
     if output.exists():
         raise ValueError('Output already exists; preserve all previous packages.')
     build = build.resolve(strict=True)
@@ -54,10 +213,26 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             or result.get('game_runtime_verified') is not False
             or result.get('five_percent_performance_gate') != 'unmeasured'
             or manifest.get('source_commit') != commit
+            or manifest.get('development_snapshot') is True
+            or manifest.get('source_dirty') is True
             or manifest['integration'].get('source_commit') != commit
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {
+        'production cold NGX bootstrap warm reuse bounded retry and compiled negative controls CPU',
+        'full NR two to four pass plan and partial failure policy CPU',
+        'full NR production wrapper serial inputs ownership and opaque failure CPU',
+        'source-frame ownership current-copy and submitted-queue ordering CPU',
+        'processing route sticky suffix reselection and bounded source retry CPU',
+        'UI compatibility receipt explicit observation origin and no native Window borrowing CPU',
+        'full NR two to four same-size spatial layers and exact retired readback WARP; synthetic model',
+        'Present conversion and initialization production SM5 entries compiled',
+        'Present fullscreen blit and exact joined FG HUD shader production SM5 entries compiled',
+        'Present SDR HDR conversion RT copyback and source alpha WARP; synthetic edit',
+        'FG HUD SDR scRGB PQ alpha coverage protected pixels and identity WARP; synthetic neural',
+        'owned source guide transport and resource fence reuse WARP; no NGX or FG inference',
+        'FG capture one to four layer readback and exact submitted ledger WARP; handoff substitute',
+        'tests/test_compat_capture_ui.py',
         'NR2 observation window, preserved scales, per-layer model parameters and bilingual UI contracts',
         'actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU',
         'actual ReShade dual device identity; legacy refusal and cross-adapter/budget negative controls; no NGX',
@@ -185,13 +360,26 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two beta0.5-dline14 language cores and only the owned bridge.')
+        raise ValueError('Expected two beta0.5-dline15 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
-    notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE14_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    activation = checked_activation(activation_evidence, result['source_manifest_sha256'],
+        manifest['files']['core/src/nr_before_sr.cpp'], artifacts['nrchain_nvngx.dll']['sha256'],
+        sha((ROOT / 'tests/compat_nodlss_ngx_host.cpp').read_bytes()))
+    gpu_evidence = {kind:checked_gpu_report(path,kind,result['source_manifest_sha256'],
+        manifest['files']['core/src/nr_before_sr.cpp'],artifacts['nrchain_nvngx.dll']['sha256'])
+        for kind,path in (('present',present_evidence),('native-fg',native_fg_evidence),('mfg',mfg_evidence))}
+    ngx_build = json.loads(checked_file(binary_root, 'nrchain-build.json', result['nrchain_build_receipt_sha256']).decode('utf-8-sig'))
+    if (ngx_build.get('schema') != 'nrchain-official-ngx-build-v1' or ngx_build.get('crt') != 'static /MT'
+            or ngx_build.get('binary_sha256') != artifacts['nrchain_nvngx.dll']['sha256']):
+        raise ValueError('Official SDK production bridge provenance mismatch.')
+    ngx_license = checked_file(binary_root, 'NVIDIA-NGX-LICENSE.txt', 'dc2778a3283427285984cdb5b3f7f03eae7d8a06057f672f2999c5ee7fd4f67d')
+    ngx_license = ngx_license.decode('windows-1252').encode('utf-8')
+    notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes() + b'\n\nNVIDIA RTX SDKs license (official loader object code)\n' + ngx_license
+    guides = {language: (ROOT / f'docs/testing/DLINE15_CORE_ACCEPTANCE.{language}.md').read_bytes()
+              for language in ('zh-CN', 'en')}
     face_assets = {}
     receipt = json.loads(checked_file(binary_root, 'face-backend.json', result['face_backend_receipt_sha256']))
     if receipt['enabled'] != result['face_backend_enabled']:
@@ -221,11 +409,16 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             'source_manifest_sha256': sha(manifest_bytes),
             'validation_sha256': sha((build / 'validation.json').read_bytes()),
             'scope': 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA',
-            'single_nr_default': True, 'max_nr_passes': 2, 'dual_nr_default': False,
+            'single_nr_default': True, 'max_nr_passes': 4, 'dual_nr_default': False,
+            'full_size_reference_default': False, 'full_size_reference_passes': [2, 3, 4],
+            'processing_starts': ['Before', 'After', 'Present'],
+            'processing_fallback': 'selected suffix; sticky until explicit reselection or process restart',
+            'native_sr_forwarding': 'exactly once per intercepted native SR call; no invented SR on no-DLSS route',
+            'legacy_native_sr_retry_disabled': True,
             'dual_nr_scales': 'manual rational 25%-100%; whole-scene matched residual',
             'generic_residual_default': False, 'generic_residual_domain': 'normalized D model storage; final D guards retained', 'experimental_algorithms_default_off': True,
             'light_style': 'D pre/post controls and three candidate presets; neutral by default',
-            'compatibility_source': '6a0ad7684683993328a7a98a9bea83ac76b01a64',
+            'compatibility_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
             'rr_depth_adapter': '0.4.7 standard positive view-Z adapter and verified device identity; integration awaits owner game test',
             'post_light_style_warp_verified': True, 'post_light_style_game_verified': False,
             'skin_protection_runtime': False,
@@ -240,19 +433,26 @@ def package(build: Path, output: Path, face_runtime_root: Path | None = None,
             'saved_extra_policy_version': 1,
             'jitter_policy_version': 1,
             'jitter_migration': 'once off, then respect user re-enable; native SR unchanged',
-            'abc_new_changes_merged': False,
+            'abc_new_changes_merged': True,
             'optional_layer_probe': 'metadata observer retained; region adapter separately validates and snapshots supported RR inputs',
             'model_baseline_comparison': 'manual seven-control reset with generation-bound undo; not a face-fix claim',
             'face_diagnostic': 'nine transient model-control groups; selected ROI and complete PNGs; exact picture restore; no face algorithm change',
             'source_verified': True, 'compile_verified': True, 'warp_verified': True,
-            'nvidia_feature18_verified': False, 'game_runtime_verified': False,
+            'nvidia_feature18_verified': True, 'game_runtime_verified': False, 'physical_present_verified': False,
+            'verification': {'focused_cpu_warp_runner': {'verified':True,'nvidia_feature18_tested':False},
+                'independent_real_nvidia': {'activation':activation,**gpu_evidence},
+                'game_runtime_verified':False,'physical_present_verified':False,'whole_frame_performance':'unmeasured'},
             'five_percent_performance_gate': 'unmeasured', 'carrier_included': False,
             'ini_included': False, 'vendor_runtime_included': False,
+            'official_ngx_sdk_loader_embedded': True, 'ngx_sdk_build': ngx_build,
+            'real_reshade_cold_activation_verified': True, 'activation_evidence': activation,
             'binaries': {name: artifacts[name] for name in (addon, 'nrchain_nvngx.dll')},
         }
         entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
-'README.zh-CN.md': guide, 'LICENSES.txt': notice,
-                   'DLINE11_CORE_ACCEPTANCE.zh-CN.md': (ROOT / 'docs/testing/DLINE11_CORE_ACCEPTANCE.zh-CN.md').read_bytes(),
+'README.md': guides[language], 'LICENSES.txt': notice,
+                   'GPU-VALIDATION.json': json.dumps(provenance['verification'],ensure_ascii=False,indent=2).encode('utf-8'),
+                   'DLINE15_GAME_ACCEPTANCE.zh-CN.md': (ROOT / 'docs/testing/DLINE15_GAME_ACCEPTANCE.zh-CN.md').read_bytes(),
+                   'DLINE15_BUILD_VALIDATION_20260912.md': (ROOT / 'docs/testing/DLINE15_BUILD_VALIDATION_20260912.md').read_bytes(),
                    'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
         entries.update(face_assets)
         entries['SHA256.json'] = json.dumps({n: sha(v) for n, v in entries.items()}, ensure_ascii=False, indent=2).encode('utf-8')
@@ -278,5 +478,10 @@ if __name__ == '__main__':
     parser.add_argument('--face-runtime-root', type=Path)
     parser.add_argument('--face-model', type=Path)
     parser.add_argument('--face-model-license', type=Path)
+    parser.add_argument('--activation-evidence', type=Path, required=True)
+    parser.add_argument('--native-fg-evidence', type=Path, required=True)
+    parser.add_argument('--mfg-evidence', type=Path, required=True)
+    parser.add_argument('--present-evidence', type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(package(args.build, args.output, args.face_runtime_root, args.face_model, args.face_model_license), ensure_ascii=False, indent=2))
+    print(json.dumps(package(args.build, args.output, args.face_runtime_root, args.face_model, args.face_model_license,
+        args.activation_evidence, args.native_fg_evidence, args.mfg_evidence, args.present_evidence), ensure_ascii=False, indent=2))

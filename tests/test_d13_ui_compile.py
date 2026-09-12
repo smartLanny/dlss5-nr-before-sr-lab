@@ -1,4 +1,4 @@
-"""Compile the small D13 menu adapters with a CPU-only ImGui recorder.
+"""Compile the retained D13 and new D15 menu adapters with a CPU ImGui recorder.
 
 The fixture checks that the new quick/details split and the single light
 method selector remain ordinary UI code. It does not construct Core, NGX,
@@ -37,11 +37,21 @@ PRELUDE = r'''
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include "nr_dual_observation.hpp"
+#include "nr_processing_route.h"
+#include "nr_compat_present_policy.hpp"
 struct ImVec2 { float x, y; ImVec2(float a=0, float b=0) : x(a), y(b) {} };
+struct ImVec4 { float x=0,y=0,z=0,w=1; };
+enum { ImGuiCol_Button, ImGuiCol_Header };
 struct ChainConfig {
     unsigned nr_passes=1, nr_second_numerator=1, nr_second_denominator=1;
     bool generic_residual=false, region_enabled=false;
+    bool nr_full_reference=false;
+    unsigned nr_full_passes=2;
+    nr_processing::Start processing_start=nr_processing::Start::Before;
+    unsigned long long processing_selection=0;
+    int mode=2;
 };
 bool chinese=false;
 bool UseChineseUi() { return chinese; }
@@ -55,11 +65,28 @@ UiSnapshot current{};
 inline UiSnapshot SnapshotUi() noexcept { return current; }
 }
 std::string rendered;
+std::vector<std::string> buttons;
+unsigned disabled=0;
 namespace ImGui {
 void SeparatorText(const char*) {}
-bool Checkbox(const char*, bool*) { return false; }
+bool Checkbox(const char* label, bool* value) {
+    if(disabled || click.empty() || std::strstr(label,click.c_str())==nullptr)return false;
+    *value=!*value;return true;
+}
 bool SliderFloat(const char*, float*, float, float, const char*) { return false; }
-bool Button(const char* label) { return !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
+bool Button(const char* label,ImVec2 = {}) { buttons.emplace_back(label); return !disabled && !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
+void BeginDisabled(bool value=true) { if(value)++disabled; }
+void EndDisabled() { if(disabled)--disabled; }
+struct Style { ImVec2 ItemSpacing{8,4}; } style;
+Style& GetStyle(){return style;}
+float GetFontSize(){return 16;}
+float GetFrameHeight(){return 24;}
+const ImVec4& GetStyleColorVec4(int){static ImVec4 color;return color;}
+void PushStyleColor(int,const ImVec4&){}
+void PopStyleColor(){}
+void PushID(const char*){}
+void PushID(int){}
+void PopID(){}
 bool CollapsingHeader(const char*) { return show_more; }
 bool Combo(const char*, int* value, const char*) {
     if (!combo_changed) return false;
@@ -73,6 +100,7 @@ void AlignTextToFramePadding() {}
 void SetNextItemWidth(float) {}
 }
 void SettingsTooltip(const char*) {}
+float SettingsContentWidth(){return 600;}
 void SettingsNote(const char*) {}
 void SettingsField(const char*) {}
 bool SettingsSliderFloat(const char*, const char*, float*, float, float, const char*) { return false; }
@@ -80,6 +108,15 @@ std::atomic<unsigned> g_config_generation{1};
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
 namespace nr_dual_capture { std::atomic<unsigned> status{0}; }
 void RequestStageCapture() {}
+namespace nr_processing_runtime {
+std::atomic<unsigned long long> next_selection{1};
+nr_processing::Session session;
+nr_processing::Start Effective(){return session.Current();}
+}
+namespace nr_compat_present_runtime {
+nr_compat_present::Observation current{};
+bool TrySnapshot(nr_compat_present::Observation& value){value=current;return true;}
+}
 namespace nr_dual_runtime {
 enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending, Active,
     UnsupportedGuides, ResourceBudget, QueuePending, SlotPending, Failed,
@@ -104,7 +141,8 @@ class D13UiCompile(unittest.TestCase):
         dual = (ROOT / "src" / "nr_dual_ui.inl").read_text(encoding="utf-8")
         settings = (ROOT / "src" / "nr_settings_ui.inl").read_text(encoding="utf-8")
         selector = definition(settings, "unsigned DrawLightAdjustmentMethodSelector(")
-        main = selector + r'''
+        processing = definition(settings, "bool DrawProcessingModeBlocks(")
+        main = selector + processing + r'''
 int main() {
     ChainConfig c; c.nr_passes=2; c.nr_second_numerator=2; c.nr_second_denominator=3;
     show_more=true; click="2/3";
@@ -133,7 +171,44 @@ int main() {
     if(rendered.find("restart the game")==std::string::npos ||
         rendered.find("waiting for the requested settings")!=std::string::npos)return 6;
     nr_dual_runtime::DrawDetailsUi();
+    for(bool zh:{false,true}) {
+        chinese=zh;c.nr_full_reference=false;c.nr_full_passes=2;
+        c.nr_second_numerator=2;c.nr_second_denominator=3;
+        click=zh?"完整同尺寸对照":"Full-size reference";
+        changed=discrete=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        if(!c.nr_full_reference||!changed||!discrete)return 7;
+        for(unsigned pass:{2u,3u,4u}){
+            click="###full-passes-"+std::to_string(pass);changed=discrete=false;
+            nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+            if(c.nr_full_passes!=pass||!changed||!discrete)return 8;
+        }
+        click="50%";changed=discrete=false;
+        nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        if(c.nr_second_numerator!=2||c.nr_second_denominator!=3||changed||discrete)return 9;
+        click=zh?"完整同尺寸对照":"Full-size reference";
+        nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        if(c.nr_full_reference||c.nr_second_numerator!=2||c.nr_second_denominator!=3)return 10;
+        const char* labelsEn[]={"Enhance first","Upscale first","Compatibility"};
+        const char* labelsZh[]={"先增强，后放大","先放大，后增强","兼容模式"};
+        for(unsigned route=0;route<3;++route){
+            const auto previous=c.processing_selection;const int oldmode=c.mode;
+            click=zh?labelsZh[route]:labelsEn[route];buttons.clear();
+            if(!DrawProcessingModeBlocks(c,true,true,1)||buttons.size()!=3||
+               static_cast<unsigned>(c.processing_start)!=route||c.processing_selection==previous)return 11;
+            if(c.mode!=(route<2?(route==0?2:1):oldmode))return 12;
+            const auto selected=c.processing_selection;
+            if(!DrawProcessingModeBlocks(c,true,true,1)||c.processing_selection==selected)return 13;
+        }
+        c.processing_start=nr_processing::Start::Before;c.mode=2;const auto saved=c.processing_selection;
+        nr_processing_runtime::session.Select(nr_processing::Start::Present,100);
+        nr_compat_present_runtime::current.color_only=true;
+        click.clear();rendered.clear();
+        if(DrawProcessingModeBlocks(c,true,true,1)||c.processing_start!=nr_processing::Start::Before||
+           c.processing_selection!=saved||c.mode!=2)return 14;
+        if(rendered.find("F8")==std::string::npos||rendered.find(zh?"纯颜色":"Color-only")==std::string::npos)return 15;
+    }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
+    std::puts("D15 UI adapters: three routes/reselection/fallback and full 2-4 controls compiled");
     return 0;
 }
 '''

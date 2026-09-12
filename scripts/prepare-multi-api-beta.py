@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline14'
-DISPLAY_VERSION = '0.5-dline14'
+VERSION = 'beta0.5-dline15'
+DISPLAY_VERSION = '0.5-dline15'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -32,7 +32,7 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'config/nr_before_sr.ini': '416869e00a4f69478d0461c56bda849877ec0b24',
-    'scripts/build.ps1': 'a8304aa6b3b3818eab0f0950501cc26c37c2e46e',
+    'scripts/build.ps1': '2f048e0522ecd4aa6456f789ac1ae7c25e848d9d',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -46,9 +46,9 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
-    'src/interop/nr_rr_post_runtime.inl': '4d4c7301197d0e83c9ee99e42b08ea8c6c29d4c7',
-    'src/nr_before_sr.cpp': '81e097fc16a538c40ca3b2a1f5f061c8d5dd1098',
-    'src/nr_before_sr.rc': '74b4ee1e81fd0ca72dc4f30504f78c1a4958a04a',
+    'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
+    'src/nr_before_sr.cpp': 'b5d8af891a344564c6b963647e837d0a7103fc24',
+    'src/nr_before_sr.rc': '60519add11805f582561c77cc43cb30eaac0e6a2',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_codec_descriptors.inl': 'd05ff8f9656b9a9803be0bf6fb0bf2d4eccbe0e2',
@@ -67,26 +67,26 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
     'src/nr_descriptor_provenance_runtime.inl': '73b6a25f23ea6b6198db6f3ad46f97b37c48d982',
     'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
-    'src/nr_dual_capture.inl': '56e523bfd5bcbd54e2ea91be541ba82e87bcd240',
+    'src/nr_dual_capture.inl': 'cb9cf9f38cf0fcf76e2c2619380b3f34a71b3829',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
     'src/nr_dual_downsample.hlsl': 'd930d3c881f6bbc940a30ab000a638d799ac2287',
     'src/nr_dual_embedded.hpp': '0eb3836e79802d42e9d62136f779ae11388d6107',
     'src/nr_dual_lifetime.hpp': '33119e1c92269636feb757eaa5073164ac8d5a8b',
     'src/nr_dual_math.hlsli': '252fa37b70640f31b47828170b666240cfc630fe',
     'src/nr_dual_observation.hpp': 'a5ae692324f1c6ce33c22a5aa8996b21993bbe97',
-    'src/nr_dual_pass.hpp': 'd99d01db74c104f352275a23af6d7d03e1d20eba',
+    'src/nr_dual_pass.hpp': '4ce4799b3926de10dde85dea8e4695e7225a8520',
     'src/nr_dual_residual.hlsl': '545307f5dff6c461ce6830e09cc35695b4861cd0',
     'src/nr_dual_resolve.hlsli': 'dfd746ca6bcc7faab5a2f22c224dcaa26ed3781d',
     'src/nr_dual_resolve_cached.hlsli': 'fce4454d5039019237f4cfe08d5db7c2a8fa92a5',
-    'src/nr_dual_runtime.inl': 'cc76334cb7142db4e9c0ba13f1a9d3f507b47976',
+    'src/nr_dual_runtime.inl': '4954281a5a17e736adc5aec3e8618321d6c8a37b',
     'src/nr_dual_spatial_d3d12.cpp': '767143762eb40e763288f640c0b9fcf86a266466',
     'src/nr_dual_spatial_d3d12.hpp': '35ade5e1d880d59cab360dfb8c2eabfb147f4833',
-    'src/nr_dual_status_runtime.inl': '5e6403b12b13388270f5e7c3304bea50542b9ee6',
-    'src/nr_dual_timing.inl': 'd77dd926b77172629bc104946fd7d0bccb13085a',
-    'src/nr_dual_ui.inl': '3d49d143f8928f3ad422c70acda4ff8385cb11ae',
+    'src/nr_dual_status_runtime.inl': 'cf7e1e86b8c514adbc6ee434e7e9eed51fa91ade',
+    'src/nr_dual_timing.inl': 'd2b4fde5a2d3da23460b6c7478ed40b7f262e400',
+    'src/nr_dual_ui.inl': 'a976e86f0312fca127f76c406cc0dca4707e92f1',
     'src/nr_exposure_semantic_evidence.inl': '405c6e41036bfcc9ac088541cbc9e61831ad7a13',
     'src/nr_f8_gpu.inl': '4f71892f4d3586949e85f9ca80b75535e4854f6f',
-    'src/nr_f8_sequence.inl': 'aa5d2df96d9e7683da024098a074558efa94c09c',
+    'src/nr_f8_sequence.inl': '5944fb98c2f81a71846a216246e23ad07d24ab2b',
     'src/nr_f8_stream.inl': 'd5c8144c4ee0b0a519df694a0e82823f4b0fdc1a',
     'src/nr_face_capture_geometry.h': '52204086ba8064ca655c075763af7d6cfe0ba4f1',
     'src/nr_face_detector.cpp': '3f03311705df5400d9a893732eaf4c3beea27130',
@@ -99,7 +99,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
     'src/nr_face_worker.h': '29ac5085dee8a9a4715838a6f037c9d3859f89f1',
-    'src/nr_feedback_capture.inl': 'c7e22fd9d36a53a70c738cf1ebda6d9a97f2ad3c',
+    'src/nr_feedback_capture.inl': '573f9fec8ae22b17522350e43646d24fe2e16402',
     'src/nr_feedback_core.inl': '644c6ed5266488250f574da14a74b2ead5b1bd01',
     'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
     'src/nr_feedback_picture.inl': 'bfa3934cc3d6263ba2a19939f5bbe77d19eb89db',
@@ -119,11 +119,11 @@ INTEGRATION_CORE_PINS = {
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
     'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
     'src/nr_native_format_runtime.inl': 'f249e545f5dc1bc6def1bfbcece7407f777cbb64',
-    'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
+    'src/nr_ngx_lifecycle.inl': '9ecfbc3cfd0c433b29a73ac5d4943c2d75da07eb',
     'src/nr_optional_layer_probe.h': '7a39868c9c688bf65739695665c236da891f4977',
     'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
-    'src/nr_post_boundary_native.inl': '2c44059549d6ef78476f1b98432b4f42dea1dd0a',
-    'src/nr_post_boundary_runtime.inl': '6fd85eb0ecd0a74259e6554d0939abae95283f7e',
+    'src/nr_post_boundary_native.inl': '7773eac6a15025f201d1d888b74353eb1e1b2a05',
+    'src/nr_post_boundary_runtime.inl': '8653482aa9023c26dd967eb98c8cc568073f19ad',
     'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
     'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
@@ -144,20 +144,48 @@ INTEGRATION_CORE_PINS = {
     'src/nr_rr_depth_adapter.inl': 'c81643bc04a2fc67cf5d9e63e088bc3a9b7cb9de',
     'src/nr_rr_depth_projection.h': '8cb9c11b7750935f425e6c1dc2d6786fa804c9ad',
     'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
-    'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
+    'src/nr_runtime_load_evidence.inl': '3910e7dc5933346715d8c9676c9934085c751c59',
     'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
     'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
-    'src/nr_settings_ui.inl': '24199c452e72c59d162679bab8f63ff7dd144db8',
+    'src/nr_settings_ui.inl': '5c25e9c0efd4e4ffbcd77ee49caca175052cc059',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
     'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
     'src/nr_timing_feedback.inl': '479daf02b3e915bfa35cb19dfc3620a125265327',
-    'src/nr_ui_activity.h': '87c3ebf0f915a86daf365315103e1bc8be7be264',
-    'src/nr_ui_activity_feedback.inl': '1128c75f9564e407a21557babefb87c28d7782d8',
+    'src/nr_ui_activity.h': 'e253a492224758ab9757562ff133215a0cf0989f',
+    'src/nr_ui_activity_feedback.inl': 'a5b58e91e9ebde28d39c76d706076984ef2b35fa',
     'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
+    'scripts/build-nrchain.ps1': 'c5ca99542ec902192f02558a86e72ef21aea44b5',
+    'src/nr_compat_present_events.inl': '1bd3037f3f7fbc7e218a845988993299fe9cd087',
+    'src/nr_compat_present_feedback.inl': '2c5d010d68f9549a197b14704199327ffdaf3bb2',
+    'src/nr_compat_present_models.inl': '1a5c6910b2d7da5d4ec715afe194615fc5b638f7',
+    'src/nr_compat_present_policy.hpp': '9eeab166244878a4ddaea1fd328de6b6bdc73eb5',
+    'src/nr_compat_present_resources.inl': '62d5e75514396ec064b3f84b3a997a83c68ab01e',
+    'src/nr_compat_present_runtime.inl': '3d6a1e05e009a81e6d729b7c308ab29341c00e2d',
+    'src/nr_compat_present_shader.h': '758909e400925084e894a2a30483f5b6816a532c',
+    'src/nr_fg_capture.inl': 'a6738f4a6caf8664431a5759dbbf33ffd9396706',
+    'src/nr_fg_consumer.inl': 'e628b564e9364991b39e29e23f2f863b64ea9893',
+    'src/nr_fg_contract.hpp': '2bfd2d9e42172bb5cf5202001a5625d8804f0bf7',
+    'src/nr_fg_hud_runtime.inl': '56ecc6a205bc91e5df36b2e738ef775935367607',
+    'src/nr_fg_hud_shader.h': '8198d78dbd6c4cafa9cc53aac284b0e1996e26ff',
+    'src/nr_fg_streamline.inl': '15f84d2e31c14dfe3755469f4371006b9cd564f8',
+    'src/nr_full_capture.inl': '2761ef827a8a1f9a24e71d0c37db6272ac7c5356',
+    'src/nr_full_feedback.inl': 'a4aadc551a13ef285a46b81732af5d1d302f6fd0',
+    'src/nr_full_pass.hpp': '10c6236bad520175955d9d609095148b5c18bb23',
+    'src/nr_full_runtime.inl': '8264d4697cc0135abbd6f20aefddf6e9b32968d9',
+    'src/nr_present_capture.inl': 'caa777f80fc0d8d44dbcf7b906680bd50c7a2672',
+    'src/nr_processing_route.h': '96e18d402be408a9f6d67f25c68bb40dfe5d48be',
+    'src/nr_processing_runtime.inl': 'd30446da191215cd297294729f6d321a1407ef8f',
+    'src/nr_source_frame.hpp': '296f0816846a2bb2ee02feae692bb6cb7edaa243',
+    'src/nr_source_frame_forward.inl': '0d93adda0ed265270d5986bc0417cc474fecf2e4',
+    'src/nr_source_frame_runtime.inl': 'e12ff37628169f467891d1dd7143210b907737bc',
+    'src/nr_source_observer.inl': '941467649f0546bbe85417d534f9738f03cfe9a9',
+    'src/nr_source_transport.inl': '06905fbfee3e529b059c48466bbc5c717645923c',
+    'src/nr_source_views.inl': '2d909758aa22be7f2dd0baaf29025df9e2de41d7',
+    'src/nrchain_nvngx.cpp': '6bd0f12f291290915b5499c6988f75ee5b53c5a0',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -210,7 +238,7 @@ def configure(core: Path):
         previous_prepare(core_root, upstream, stage)
         # The historical archive exports only build.ps1 from scripts. Copy the
         # explicitly pinned shader compiler inputs into this candidate as well.
-        for relative in ('scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py'):
+        for relative in ('scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
             (stage / 'core' / relative).write_bytes(git(core_root, 'show', 'HEAD:' + relative))
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
@@ -231,6 +259,15 @@ def file_hashes(root: Path) -> dict[str, str]:
     return result
 
 def finalize(core: Path, stage: Path, source: str) -> None:
+    # The legacy exporter substitutes two Git probes with fixed metadata. A
+    # script-local LASTEXITCODE shadows the global variable that native tools
+    # update, so a failed compiler could incorrectly proceed to linking.
+    build = stage / 'core/scripts/build.ps1'
+    build_text = build.read_text(encoding='utf-8')
+    if build_text.count('\n$LASTEXITCODE = 0\n') != 2:
+        raise ValueError('Generated build source-identity status anchors changed')
+    build.write_text(build_text.replace('\n$LASTEXITCODE = 0\n',
+        '\n$global:LASTEXITCODE = 0\n'), encoding='utf-8', newline='\n')
     runtime = stage / 'core/src/nr_before_sr.cpp'
     runtime_text = runtime.read_text(encoding='utf-8')
     old_rr_meter = 'if (signature.rr_bypass) return "A1-native-RR-bypass";'
@@ -271,7 +308,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline14 beta' not in resource_text:
+    if '0.5.1 dline15 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -282,7 +319,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.14',
+        'core_pe_version': '0.5.1.15',
         'cumulative_corefix_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
         'cumulative_corefix_dependencies': [218,219,220,221,230,232,238,240,241,242,243,245],
         # Retain the original dual-parent field for existing artifact readers.

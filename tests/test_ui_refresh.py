@@ -170,9 +170,13 @@ class UiRefreshContract(unittest.TestCase):
                        self.ui.index('void DrawColorControls(')]
         self.assertIn('bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,\n'
                       '    bool compatible_post_locked, int effective_mode)', mode)
-        self.assertIn('const bool mode_guarded = rr_guarded || compatible_post_locked;', mode)
-        self.assertIn('mode_guarded ? 1 : effective_mode', mode)
-        self.assertIn('clicked && !mode_guarded && next.mode != requested_mode', mode)
+        self.assertIn('for(unsigned i=0;i<3;++i)', mode)
+        self.assertIn('const bool selected=next.processing_start==route;', mode)
+        self.assertIn('next.processing_start=route;', mode)
+        self.assertIn('next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1', mode)
+        self.assertIn('const auto actual=nr_processing_runtime::Effective();', mode)
+        self.assertIn('if(actual!=next.processing_start)', mode)
+        self.assertNotIn('mode_guarded', mode)
         self.assertNotIn('clicked && !rr_guarded && !selected', mode)
         self.assertIn('DrawProcessingModeBlocks(next, rr_guarded, compatibility_post, compatibility_post ? 1 : next.mode)',
                       self.ui)
@@ -206,8 +210,9 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("not guaranteed face detection", self.ui)
 
     def test_d13_common_controls_keep_precision_and_face_order(self):
-        self.assertIn('"Enhance first###route-option", "先增强，后放大###route-option"', self.ui)
-        self.assertIn('"Upscale first###route-option", "先放大，后增强###route-option"', self.ui)
+        self.assertIn('zh?"先增强，后放大":"Enhance first"', self.ui)
+        self.assertIn('zh?"先放大，后增强":"Upscale first"', self.ui)
+        self.assertIn('zh?"兼容模式":"Compatibility"', self.ui)
         picture_start = self.ui.index('if (ImGui::BeginTabItem(ui("Picture###nr-picture"')
         feedback_start = self.ui.index('if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics"')
         picture = self.ui[picture_start:feedback_start]

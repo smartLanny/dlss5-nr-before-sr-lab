@@ -43,6 +43,7 @@ FIELDS = {
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
 PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch'}
+UI_RESET_FIELDS={'processing_start','processing_selection','compat_percent','nr_full_reference','nr_full_passes'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
 # current model recommendation and the protection gate enabled.
@@ -64,7 +65,11 @@ def check_wiring(cpp,ui,helper):
  picture=draw.index('ImGui::BeginTabItem(ui("Picture###nr-picture"')
  assert picture < draw.index('if (collecting) ImGui::BeginDisabled();',picture) < call
  assert call < draw.index('if (collecting) ImGui::EndDisabled();',picture)
- assert 'changed = true;' in draw[call:call+100]
+ reset_block=draw[call:draw.index('    SettingsTooltip(',call)]
+ assert 'changed = true;' in reset_block
+ assert 'next.processing_start=nr_processing::Start::Before;' in reset_block
+ assert 'next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);' in reset_block
+ assert 'next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=2;' in reset_block
  assert 'ApplySettingsOverlay(pending,pending_generation,' in draw
  settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
  assert 'ApplyLightStyleOverlay(next, expected_generation,' in settings
@@ -95,9 +100,9 @@ def main():
  config=configparser.ConfigParser();config.read(root/'config/nr_before_sr.ini',encoding='utf-8-sig')
  values=config['NRBeforeSR'];struct=definition(cpp,'struct ChainConfig {')+';'
  declared=set()
- for declaration in re.findall(r'^\s*(?:bool|int|float|unsigned(?: int)?|NrJitterMode)\s+([^;]+);',struct,re.M):
+ for declaration in re.findall(r'^\s*(?:bool|int|float|unsigned(?: int| long long)?|NrJitterMode|nr_processing::Start)\s+([^;]+);',struct,re.M):
   declared.update(re.findall(r'\b('+IDENTIFIER+r')\s*=',declaration))
- expected_fields=set(FIELDS)|PRESERVED
+ expected_fields=set(FIELDS)|PRESERVED|UI_RESET_FIELDS
  assert declared==expected_fields,f'Unclassified fields: {declared^expected_fields}'
  if a.negative_control:
   marker='next.color_strength = 1.0f;';assert helper.count(marker)==1
@@ -122,6 +127,7 @@ def main():
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_processing_route.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}

@@ -3,7 +3,9 @@
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT,
     [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
-    [string]$CodecCacheRoot
+    [string]$CodecCacheRoot,
+    [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
+    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,10 +142,8 @@ if ($CodecCacheRoot) { $CodecCacheArgs = @('--cache-from', (Resolve-Path -Litera
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_codec_precompiled.h') -PathType Leaf)){throw 'Frozen shader artifact generation failed.'}
 $Common += '-DNR_CODEC_PRECOMPILED=1'
 
-$BridgeSource = Join-Path $ProjectRoot 'src\nrchain_nvngx.cpp'
-$BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
-& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject
-if ($LASTEXITCODE -ne 0) { throw "C++ compilation failed: $BridgeSource" }
+& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
+if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
 
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
 
@@ -156,7 +156,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline14-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline15-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -165,7 +165,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline14-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline15-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -200,13 +200,6 @@ foreach ($AddonBuild in $AddonBuilds) {
 }
 
 $BridgeOutput = Join-Path $Build 'nrchain_nvngx.dll'
-$BridgeLinkArgs = @(
-    '-shared', '-static', '-flto', '-Wl,--gc-sections', '-Wl,--strip-all',
-    '-Wl,--no-insert-timestamp',
-    $BridgeObject, '-o', $BridgeOutput, '-lkernel32', '-ld3d12', '-luuid'
-)
-& $CppCompiler @BridgeLinkArgs
-if ($LASTEXITCODE -ne 0) { throw 'Bridge link failed.' }
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'config\nr_before_sr.ini') `
           -Destination (Join-Path $Build 'nr_before_sr.ini') -Force

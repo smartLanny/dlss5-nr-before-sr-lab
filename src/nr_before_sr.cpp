@@ -56,6 +56,11 @@
 #include "nr_dual_spatial_d3d12.hpp"
 #include "nr_dual_lifetime.hpp"
 #include "nr_descriptor_plan.h"
+#include "nr_processing_route.h"
+#include "nr_source_frame.hpp"
+#include "nr_fg_contract.hpp"
+#include "nr_compat_present_policy.hpp"
+#include "nr_fg_hud_shader.h"
 #if NR_CODEC_PRECOMPILED
 #include "../build/nr_codec_precompiled.h"
 #endif
@@ -73,6 +78,7 @@
 
 namespace {
 
+#include "nr_source_frame_forward.inl"
 #include "nr_runtime_timing.inl"
 #include "nr_ui_activity_runtime.inl"
 #include "nr_submitted_fence_wait.inl"
@@ -84,11 +90,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline14";
+constexpr const char *kAddonVersion = "beta0.5-dline15";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline14";
+constexpr const char *kBuildIdentity = "beta0.5-dline15";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -876,6 +882,9 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 struct ChainConfig {
     bool enabled = false;
     int mode = 2;
+    nr_processing::Start processing_start=nr_processing::Start::Before;
+    unsigned long long processing_selection=0; // Session-only explicit reselection.
+    unsigned compat_percent=100;
     bool identity_use_original = false;
     // V2 composition treats this as a multiplicative log-ratio exponent.
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
@@ -896,6 +905,8 @@ struct ChainConfig {
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     unsigned region_version=1;
     unsigned nr_passes=1;
+    bool nr_full_reference=false;
+    unsigned nr_full_passes=2;
     unsigned nr_second_numerator=1,nr_second_denominator=2;
     bool generic_residual=false;
     float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
@@ -930,7 +941,7 @@ struct ChainConfig {
     float proxy_scale = 1.0f;
     bool experimental_peak_shoulder = false;
     unsigned int warmup_after_create = 2;
-    bool retry_original_on_sr_failure = true;
+    bool retry_original_on_sr_failure = false; // Legacy key retained; no same-source native SR retry.
     int depth_mode = -1;
     float intensity = 1.2f;
     float local_tone = 1.0f;
@@ -1006,6 +1017,29 @@ std::atomic<unsigned int> g_config_generation{1};
 // Composition-only edits must not reset temporal Feature 18 history. This
 // generation changes only when the model input/guide/history contract changes.
 std::atomic<unsigned int> g_history_generation{1};
+#include "nr_processing_runtime.inl"
+namespace nr_compat_present_runtime {
+bool RequestCapture();
+unsigned CaptureStatus(bool fg);
+unsigned CaptureWorkers(bool fg);
+bool CaptureUsesFg();
+bool InlineDrainReady();
+bool TrySnapshot(nr_compat_present::Observation&);
+void Register(bool);
+}
+struct FeedbackSession;
+namespace nr_fg_runtime {
+void AppendFeedback(FeedbackSession&,const char*);
+void CollectRetired();
+bool CapturePreferred();
+}
+namespace nr_fg_capture {
+bool RequestCapture();
+void Collect();
+void Submit(unsigned long long,void*,unsigned long long);
+void Invalidate(unsigned long long,bool);
+void Composition(const void*,unsigned,unsigned,unsigned);
+}
 std::atomic<bool> g_config_persistence_failed{false};
 std::atomic<unsigned long> g_config_persistence_error{ERROR_SUCCESS};
 std::atomic<unsigned long long> g_nr_successful_evaluations{0};
@@ -1319,6 +1353,8 @@ float FiniteOr(float value, float fallback) {
 
 bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled && a.mode == b.mode &&
+           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
+           a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.work_mode == b.work_mode &&
            a.custom_work_scale == b.custom_work_scale &&
            a.proxy_scale == b.proxy_scale &&
@@ -1439,6 +1475,10 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 #include "nr_config_policy_runtime.inl"
 
 void NormalizeConfig(ChainConfig &config) {
+    config.retry_original_on_sr_failure=false;
+    if(!nr_processing::Valid(config.processing_start))config.processing_start=nr_processing::FromLegacy(config.mode);
+    config.compat_percent=std::clamp(config.compat_percent,50u,100u);
+    config.nr_full_passes=std::clamp(config.nr_full_passes,2u,4u);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
     config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
@@ -1498,6 +1538,8 @@ void NormalizeConfig(ChainConfig &config) {
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled &&
+           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
+           a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.mode == b.mode &&
            a.identity_use_original == b.identity_use_original &&
            a.transfer_strength == b.transfer_strength &&
@@ -1580,6 +1622,13 @@ void ReloadConfig(bool force = false) {
     next.transfer_strength = ReadConfiguredTransferStrength(configured_mode);
     next.post_transfer_strength = next.transfer_strength;
     next.mode = MigrateConfigMode(config_version, configured_mode);
+    wchar_t processing_start[32]{};
+    GetPrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",L"",processing_start,32,g_ini_path);
+    next.processing_start = _wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :
+        _wcsicmp(processing_start,L"After")==0 ? nr_processing::Start::After :
+        _wcsicmp(processing_start,L"Before")==0 ? nr_processing::Start::Before : nr_processing::FromLegacy(next.mode);
+    next.processing_selection=g_config.processing_selection;
+    next.compat_percent=GetPrivateProfileIntW(L"NRBeforeSR",L"CompatPostPercent",100,g_ini_path);
     if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
         // Upgrade metadata without changing a saved front/post preference.
         // Missing/invalid modes use the NR -> SR installation default.
@@ -1630,6 +1679,8 @@ void ReloadConfig(bool force = false) {
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
     next.region_version=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionCompositionVersion",1,g_ini_path);
     next.nr_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRPasses",1,g_ini_path);
+    next.nr_full_reference=GetPrivateProfileIntW(L"NRBeforeSR",L"NRFullReference",0,g_ini_path)!=0;
+    next.nr_full_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRFullPasses",2,g_ini_path);
     next.nr_second_numerator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleNumerator",1,g_ini_path);
     next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",2,g_ini_path);
     next.generic_residual=GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualExperiment",0,g_ini_path)!=0;
@@ -1749,6 +1800,7 @@ void ReloadConfig(bool force = false) {
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
     g_config = next;
+    nr_processing_runtime::Reconcile();
     g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     if (changed || force) {
@@ -1846,6 +1898,11 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
     record_write(WriteIniInt(L"RegionCompositionVersion",static_cast<int>(config.region_version)));
     record_write(WriteIniInt(L"NRPasses",config.nr_passes));
+    record_write(WritePrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",
+        config.processing_start==nr_processing::Start::Present?L"Present":config.processing_start==nr_processing::Start::After?L"After":L"Before",g_ini_path)!=FALSE);
+    record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
+    record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
+    record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
     record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
     record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
     record_write(WriteIniInt(L"GenericResidualExperiment",config.generic_residual?1:0));
@@ -1990,6 +2047,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     const bool history_changed = !SameHistoryConfig(next, g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
+    nr_processing_runtime::Reconcile();
     g_config_read_tick = GetTickCount64();
     g_next_config_poll_tick.store(g_config_read_tick + 500,
                                   std::memory_order_relaxed);
@@ -2234,6 +2292,8 @@ struct NrApi {
     BridgeReleaseFn bridge_release = nullptr;
     bool initialized = false;
     bool failed = false;
+    ULONGLONG bootstrap_retry_after = 0;
+    bool bootstrap_required = false;
 };
 
 NrApi g_nr_api = {};
@@ -2261,6 +2321,9 @@ bool EnsureNrApi(ID3D12Device *device) {
     ScopedSrwExclusive api_guard(&g_nr_api_lock);
     if (g_nr_api.initialized) return true;
     if (g_nr_api.failed || device == nullptr) { SetBypassReason(BypassReason::RuntimeUnavailable); return false; }
+    if (g_nr_api.bootstrap_retry_after && GetTickCount64() < g_nr_api.bootstrap_retry_after) {
+        SetBypassReason(BypassReason::RuntimeUnavailable); return false;
+    }
 
     wchar_t directory[MAX_PATH] = {};
     wchar_t bridge_path[MAX_PATH] = {};
@@ -2273,9 +2336,11 @@ bool EnsureNrApi(ID3D12Device *device) {
     evidence.stage = "load-modules";
     evidence.present[0] = RuntimeRegularFile(bridge_path);
     evidence.present[1] = RuntimeRegularFile(signed_path);
-    RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
+    if (!g_nr_api.bridge_module)
+        RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
+    if (!g_nr_api.signed_module)
+        RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
     wchar_t exe_directory[MAX_PATH] = {};
     if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
@@ -2304,6 +2369,33 @@ bool EnsureNrApi(ID3D12Device *device) {
         }
     }
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+    g_nr_api.bootstrap_required = g_nr_api.bootstrap_required || core == nullptr;
+    if (g_nr_api.bootstrap_required && evidence.loaded[0] && evidence.loaded[1]) {
+        using BootstrapFn = NgxResult (*)(ID3D12Device *);
+        const auto bootstrap = reinterpret_cast<BootstrapFn>(GetProcAddress(
+            g_nr_api.bridge_module, "NRChain_Bootstrap"));
+        evidence.stage = "official-core-bootstrap";
+        evidence.bootstrap_attempted = true;
+        evidence.bootstrap_result = bootstrap ? bootstrap(device) : 0xBAD00012u;
+        core = GetModuleHandleW(L"_nvngx.dll");
+        evidence.bootstrap_succeeded = evidence.bootstrap_result == kNgxSuccess && core;
+        Log("NR official SDK cold bootstrap result=0x%08X coreLoaded=%d export=%d",
+            evidence.bootstrap_result, core != nullptr, bootstrap != nullptr);
+        if (!evidence.bootstrap_succeeded) {
+            evidence.loaded[2] = core != nullptr;
+            evidence.present[2] = evidence.loaded[2];
+            evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
+            for (unsigned i = 0; i < 3; ++i)
+                evidence.classes[i] = RuntimeClassifyLoad(evidence.present[i], evidence.loaded[i], evidence.errors[i]);
+            // A missing driver/core must not permanently disable a no-DLSS
+            // process. Also retry Init when its failed attempt loaded the DLL.
+            g_nr_api.bootstrap_retry_after = GetTickCount64() + 5000;
+            RecordRuntimeLoadEvidence(evidence);
+            SetBypassReason(BypassReason::RuntimeUnavailable); return false;
+        }
+        g_nr_api.bootstrap_required = false;
+        g_nr_api.bootstrap_retry_after = 0;
+    }
     evidence.loaded[2] = core != nullptr;
     evidence.present[2] = evidence.loaded[2];
     evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
@@ -5034,6 +5126,7 @@ struct NrSlot {
     LifecycleQueue* dual_time_queue=nullptr;
     unsigned long long dual_time_token=0,dual_time_fence=0;
     unsigned dual_time_mask=0,dual_time_generation=0;
+    unsigned dual_full_timing_layer=0;
     bool dual_time_active=false,dual_time_pending=false,dual_time_stable=false,dual_time_reduced=false;
     NrContext* dual_owner=nullptr;
     ID3D12Resource* dual_guides[2]={};
@@ -5489,7 +5582,7 @@ std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 nr_f8_gpu::CaptureRing g_f8_gpu;
 #include "nr_replay_gpu.inl"
 namespace nr_replay { Recorder recorder; void Collect(); }
-namespace nr_dual_capture {nr_replay::Recorder recorder;void Collect();}
+namespace nr_dual_capture {nr_replay::Recorder recorder;void Collect();void Invalidate(std::uint64_t,bool);void Submit(std::uint64_t,void*,std::uint64_t);void Composition(unsigned,const void*,unsigned,unsigned,unsigned);}
 #include "nr_face_tracker_gpu.inl"
 namespace nr_face_runtime {
     nr_face_gpu::Tracker* tracker=nullptr;
@@ -6666,6 +6759,8 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         record->slots[record->slot_count++] = &slot;
         ++slot.recording_command_lists;
     }
+    nr_source_runtime::MarkPrivateRecorded();
+    nr_processing_runtime::MarkRecorded();
     return true;
 }
 
@@ -6773,7 +6868,8 @@ void DetachLifecycleCommandListTokenLocked(
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_replay::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
-    nr_dual_capture::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_dual_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_fg_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
@@ -7135,7 +7231,8 @@ bool CaptureSubmissionBatchLocked(
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
         nr_replay::recorder.Submit(record->token,queue_state,batch.fence_value);
-        nr_dual_capture::recorder.Submit(record->token,queue_state,batch.fence_value);
+        nr_dual_capture::Submit(record->token,queue_state,batch.fence_value);
+        nr_fg_capture::Submit(record->token,queue_state,batch.fence_value);
         nr_face_runtime::Submit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
@@ -8815,8 +8912,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     }
     if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
-    if(any_combine)nr_dual_capture::recorder.Composition(slot.dual_capture_index,&constants,
+    if(any_combine)nr_dual_capture::Composition(slot.dual_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
+    if(any_combine)nr_fg_capture::Composition(&constants,kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12PipelineState* selected_pipeline=pipeline;
@@ -9866,6 +9964,8 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 const FeatureRecord &feature,
                                 void **out_handle) {
     (void)feature;
+    nr_source_runtime::MarkPrivateRecorded();
+    nr_processing_runtime::MarkRecorded();
     *out_handle = nullptr;
     SetInt(context.params, "DLSS.Feature.Create.Flags",
            context.bound_create_flags);
@@ -9973,6 +10073,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     // calls still receive the untouched handle supplied by their caller.
     if (feature.context_handle) sr_handle = feature.context_handle;
     Substitution substitution = {};
+    if(nr_processing_runtime::Effective()!=nr_processing::Start::Before || !nr_compat_present_runtime::InlineDrainReady())return substitution;
+    if (!nr_source_runtime::InlineAllowed(2)){nr_processing_runtime::BlockSource();return substitution;}
     if (!g_config.enabled || g_config.mode != 2 || feature.feature_id != 1 ||
         command_list == nullptr || sr_params == nullptr) return substitution;
 
@@ -10594,6 +10696,7 @@ void RestoreSubstitution(Substitution &substitution) {
 }
 
 struct PostSrSubstitution {
+    bool opaque_failure_is_fatal=false;
     nr_native_clear::Receipt prepared_clear_request;
     nr_native_clear::Invocation current_clear_request;
     bool active = false;
@@ -10676,6 +10779,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     // calls still receive the untouched handle supplied by their caller.
     if (feature.context_handle) sr_handle = feature.context_handle;
     PostSrSubstitution substitution = {};
+    if(nr_processing_runtime::PresentSelected() || !nr_compat_present_runtime::InlineDrainReady())return substitution;
+    if (!nr_source_runtime::InlineAllowed(1)){nr_processing_runtime::BlockSource();return substitution;}
     if (!g_config.enabled ||
         !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
         command_list == nullptr || sr_params == nullptr) return substitution;
@@ -11082,8 +11187,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     NrContext &context = *substitution.context;
     NrSlot &slot = *substitution.slot;
     struct TimingEnd {
-        ID3D12GraphicsCommandList* list;NrSlot& slot;bool visible=false;
-        ~TimingEnd(){nr_dual_runtime::ResolveTiming(list,slot,visible);}
+        ID3D12GraphicsCommandList* list;NrSlot& slot;bool visible=false,safe=true;
+        ~TimingEnd(){if(safe)nr_dual_runtime::ResolveTiming(list,slot,visible);}
     } timing{command_list,slot};
     const unsigned int width = substitution.width;
     const unsigned int height = substitution.height;
@@ -11153,6 +11258,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             width, height, substitution.guide_width, substitution.guide_height,
             created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            if(substitution.opaque_failure_is_fatal){
+                substitution.fatal_recording=created?created:0xBAD00005u;
+                context.create_dependencies_quarantined=true;timing.safe=false;return false;
+            }
             NrRecoveryRecord(g_nr_recovery_carrier ? g_nr_recovery_carrier->tokens[g_nr_recovery_carrier->selected_role] : nr_recovery::Token{},
                 nr_recovery::Stage::NrCreate, false, created);
             SetBypassReason(context.create_dependencies_quarantined
@@ -11194,9 +11303,14 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             context.params, nullptr);
 #endif
     }
-    nr_dual_runtime::Stamp(command_list,slot,1);
+    if(evaluated==kNgxSuccess||!substitution.opaque_failure_is_fatal)
+        nr_dual_runtime::Stamp(command_list,slot,1);
     NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
+        if(substitution.opaque_failure_is_fatal){
+            substitution.fatal_recording=evaluated;context.lifecycle_dependencies_quarantined=true;
+            timing.safe=false;return false;
+        }
         if (evaluated == 0xBAD00001u) {
             g_post_sr_runtime_rejected.store(true, std::memory_order_relaxed);
         }
@@ -11240,7 +11354,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     }
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,context,slot,substitution.dual_prepared,feature,color_contract);
-    if(substitution.fatal_recording)return false;
+    if(substitution.fatal_recording){timing.safe=false;return false;}
     nr_dual_runtime::Stamp(command_list,slot,6);
     const bool post_color_field=g_config.low_grid_color_edit_field;
     const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
@@ -11342,6 +11456,14 @@ bool AllowExperimentalNullPsoCarrier() {
 #include "nr_command_state.inl"
 #include "nr_native_format_hooks.inl"
 #include "nr_post_boundary_native.inl"
+// ReShade is built with MSVC. Its small C++ resource return wrappers do not
+// share MinGW's return ABI; native COM exposes an unambiguous out parameter.
+bool NrAcquireSwapchainBuffer(reshade::api::swapchain* chain,unsigned index,ID3D12Resource** output){
+    if(!output)return false;*output=nullptr;if(!chain)return false;
+    auto* native=reinterpret_cast<IDXGISwapChain*>(chain->get_native());
+    return native&&SUCCEEDED(IDXGISwapChain_GetBuffer(native,index,IID_ID3D12Resource,reinterpret_cast<void**>(output)))&&*output;
+}
+#include "nr_source_frame_runtime.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -11490,17 +11612,20 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     // bootstrap lists before creating DLSS Feature 1.
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
     if (queue == nullptr) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
     const D3D12_COMMAND_QUEUE_DESC queue_desc =
         ID3D12CommandQueue_GetDesc(queue);
     if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
@@ -11541,6 +11666,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         !may_have_lifecycle_work || !batch_has_lifecycle_token) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
@@ -11555,6 +11681,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     if (queue_state == nullptr ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
@@ -11607,6 +11734,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         execute_timing.record.detail.fence_target = batch.fence_value;
 #endif
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
 #if defined(NR_HAS_TIMING)
         execute_timing.record.detail.flags |= nr_timing::ApiReturned;
 #endif
@@ -11721,6 +11849,7 @@ HRESULT ProcessCommandListReset(
     unsigned long long token = 0;
     ReadLifecycleToken(command_list, token);
     const HRESULT result = original(command_list, allocator, initial_state);
+    nr_source_runtime::OnReset(command_list,SUCCEEDED(result));
     OnCommandStateResetResult(command_list, result, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
@@ -12291,8 +12420,18 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // to Mode2 on every Evaluate.
     g_compat_fallback_tick.store(0,std::memory_order_release);
     RetirePostBoundaryBeforeEvaluate();
+    nr_processing_runtime::CarrierScope processing_carrier;
+    if(nr_processing_runtime::PresentSelected()) {
+        LeaveCriticalSection(&g_chain_cs);rr_transaction.Release();
+        return NrCallNativeWithFormatObservation(original,command_list,handle,params,callback,feature.generation);
+    }
     NativeCommandStateScope before_state(command_list);
     if (!before_state.active) {
+        // Neither inline boundary can restore this list. Present must independently
+        // prove its own source, queue and completion before doing any work.
+        if(nr_processing_runtime::Effective()==nr_processing::Start::Before)
+            nr_processing_runtime::Reject(nr_processing::Start::Before,"command-state-unverified");
+        nr_processing_runtime::Reject(nr_processing::Start::After,"command-state-unverified");
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
@@ -12301,11 +12440,6 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     Substitution before_sr{};
     PostSrSubstitution after_sr{};
     const auto prepare_before = [&] { return PrepareBeforeSr(before_state.command_list, handle, params, feature); };
-    const auto can_fallback = [&](const Substitution& candidate) {
-        return !candidate.fatal_recording && nr_pre_fallback::CanAttempt(
-            candidate.compatibility_fallback, candidate.active, candidate.fallback_cause) &&
-            (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
-    };
     const auto observe_fallback = [&] {
         if (before_sr.compatibility_fallback) {
             g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
@@ -12318,25 +12452,31 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             Log("[compat-route] pre input rejected; requestedMode=2 fallbackAttempt=post-NR reason=%d count=%llu; post admission and native SR success remain required. Saved preference retained; F8 feedback requested.",
                 g_compat_fallback_reason.load(),count);
     };
+    bool compatibility_fallback=false;
+    if(nr_processing_runtime::Effective()==nr_processing::Start::Before) {
+        before_sr=prepare_before();
+        if(!before_sr.active && !before_sr.fatal_recording && !nr_processing_runtime::Recorded()) {
+            nr_processing_runtime::Reject(nr_processing::Start::Before,
+                BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed))));
+            compatibility_fallback=nr_processing_runtime::Effective()==nr_processing::Start::After;
+            if(compatibility_fallback)observe_fallback();
+        }
+    }
+    if(!before_sr.fatal_recording && !nr_processing_runtime::Recorded() &&
+       nr_processing_runtime::Effective()==nr_processing::Start::After) {
+        compatibility_fallback=g_config.mode==2;
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
-    const bool compatibility_fallback = nr_route::Prepare(before_sr, after_sr,
-        [] { return NrRoutePostLocked(); }, prepare_before, can_fallback, observe_fallback,
-        [&](bool fallback) {
-            if (before_sr.fatal_recording) return PostSrSubstitution{};
-            const bool attempt = fallback || g_config.mode == 1;
-            if (attempt) NrRouteAttemptPost();
-            auto prepared = PrepareAfterSr(before_state.command_list, handle, params, feature, fallback);
-            if (attempt) NrRoutePostPrepared(prepared.active,
-                prepared.slot ? prepared.slot->recovery_token : nr_recovery::Token{});
-            return prepared;
-        });
-#else
-    before_sr = prepare_before();
-    const bool compatibility_fallback = can_fallback(before_sr);
-    if (compatibility_fallback) observe_fallback();
-    if (!before_sr.fatal_recording)
-        after_sr = PrepareAfterSr(before_state.command_list, handle, params, feature, compatibility_fallback);
+        NrRouteAttemptPost();
 #endif
+        after_sr=PrepareAfterSr(before_state.command_list,handle,params,feature,compatibility_fallback);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+        NrRoutePostPrepared(after_sr.active,after_sr.slot?after_sr.slot->recovery_token:nr_recovery::Token{});
+#endif
+        if(!after_sr.active && !after_sr.fatal_recording && !nr_processing_runtime::Recorded())
+            nr_processing_runtime::Reject(nr_processing::Start::After,
+                BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed))));
+    }
+
     if (before_sr.fatal_recording) {
         before_state.AbandonAfterOpaqueFailure();
         LeaveCriticalSection(&g_chain_cs); rr_transaction.Release();
@@ -12393,25 +12533,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return result;
     }
-    if (used_before_sr && result != kNgxSuccess &&
-        g_config.retry_original_on_sr_failure) {
-        Log("%s failed with NR-derived Color: 0x%08X (%s); retrying original Color.",
-            FeatureName(feature.feature_id), result, ResultName(result));
-        result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
-        retried_original_color = true;
-        Log("Original-Color %s retry result=0x%08X (%s).",
-            FeatureName(feature.feature_id), result, ResultName(result));
-        if (rr_transaction.transaction_aborted() ||
-            g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
-            Log("Feature 1 retry observed an RR ownership transition; "
-                "remaining plugin work is suppressed and dependencies are "
-                "quarantined.");
-            QuarantineAbortedRrTransactionLocked(command_list);
-            LeaveCriticalSection(&g_chain_cs);
-            rr_transaction.Release();
-            return result;
-        }
-    }
+    if(used_before_sr&&result!=kNgxSuccess)
+        Log("Native SR returned 0x%08X after NR; original parameters restored, no second native Evaluate for this source.",result);
     if (used_before_sr && result == kNgxSuccess &&
         !retried_original_color) {
         if (!RecordVisibleTransferLocked(command_list, feature.generation, 2))
@@ -12437,9 +12560,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                 }
                 after_state.Restore();
             } else if (after_sr.redirected_output) {
-                Log("[command-state] post-SR state unavailable; native SR is "
-                    "re-evaluated to its original Output without NR work.");
-                result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
+                // A second opaque SR call is not a restoration operation.
+                // Retain the original return and quarantine this unproven output.
+                QuarantineAbortedRrTransactionLocked(command_list);
+                Log("Post-SR state unavailable after redirected output; no duplicate native SR. Save F8 and restart.");
             } else {
                 static unsigned int post_state_failures = 0;
                 const unsigned int count = ++post_state_failures;
@@ -12450,25 +12574,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                         "no Feature18 call was made.", state.reason, count);
                 }
             }
-        } else if (after_sr.redirected_output &&
-                   g_config.retry_original_on_sr_failure) {
-            Log("%s failed while targeting the post-upscaling intermediate: "
-                "0x%08X (%s); retrying the original Output.",
-                FeatureName(feature.feature_id), result, ResultName(result));
-            result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
-            Log("Original-Output %s retry result=0x%08X (%s).",
-                FeatureName(feature.feature_id), result, ResultName(result));
-            if (rr_transaction.transaction_aborted() ||
-                g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
-                Log("Feature 1 output retry observed an RR ownership "
-                    "transition; dependencies are quarantined.");
-                QuarantineAbortedRrTransactionLocked(command_list);
-                LeaveCriticalSection(&g_chain_cs);
-                rr_transaction.Release();
-                return result;
-            }
+        } else if(after_sr.redirected_output) {
+            Log("Native SR returned 0x%08X with a redirected output; original parameters restored, no duplicate native Evaluate.",result);
         }
     }
+
     if (rr_transaction.transaction_aborted() ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
         Log("RR ownership changed while finalizing the modified Feature 1 "
@@ -12495,8 +12605,16 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     g_inside_ngx_evaluate = true;
-    const NgxResult result = ProcessEvaluate(
+    if(!g_enabled_fast.load(std::memory_order_acquire)) {
+        const auto result=ProcessEvaluate(original,command_list,handle,params,callback);
+        g_inside_ngx_evaluate=false;return result;
+    }
+    const auto source_feature=FindFeature(handle);
+    nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);
+    const NgxResult source_fatal=source_scope.FatalResult();
+    const NgxResult result = source_fatal?source_fatal:ProcessEvaluate(
         original, command_list, handle, params, callback);
+    source_scope.Finish(result);
     g_inside_ngx_evaluate = false;
     return result;
 }
@@ -13107,10 +13225,11 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     const bool may_learn_affinity =
         g_carrier_evaluations.load(std::memory_order_acquire) != 0 &&
         g_enabled_fast.load(std::memory_order_acquire);
-    // This event fires for virtually every game submission. Before Feature 1,
-    // while F6 is off, and whenever no NR work exists it must be a true atomic
-    // no-op that never unwraps a ReShade proxy or calls into D3D12.
-    if (!has_lifecycle_work && !may_learn_affinity) return;
+    const bool may_observe_source=nr_source_runtime::MayObserveSubmission();
+    // A verified application write can bootstrap color-only Present without
+    // any reconstruction feature. With NR off and no in-flight work, keep the
+    // atomic fast path and never unwrap a ReShade proxy.
+    if (!has_lifecycle_work && !may_learn_affinity && !may_observe_source) return;
     if (!IsD3D12GraphicsQueue(queue) || command_list == nullptr)
         return;
 
@@ -13119,6 +13238,13 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
     if (native_command_list == nullptr || native_queue == nullptr) return;
+    bool source_queue_observed=false;
+    if(may_observe_source&&nr_source_runtime::HasPendingSubmission(command_list)){
+        source_queue_observed=EnsureNativeQueueExecuteHook(queue);
+        if(!source_queue_observed){static std::atomic<unsigned> reports{0};
+            if(reports.fetch_add(1,std::memory_order_relaxed)<3)
+                Log("[source-observer] actual queue hook unavailable; pre-submit event is not a completion receipt. Current output remains unverified.");}
+    }
 
     // Do not patch ExecuteCommandLists during device/queue bootstrap. After the
     // first real Feature 1 evaluation, this pre-submit ReShade event already
@@ -13147,7 +13273,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     // Install the exact-fence native hook only when this concrete submission
     // contains plugin GPU work. The event runs before ReShade invokes native
     // ExecuteCommandLists, so the current submission is still captured.
-    if (!EnsureNativeQueueExecuteHook(queue))
+    if (!source_queue_observed && !EnsureNativeQueueExecuteHook(queue))
         MarkLifecycleUncertain("could not install post-submit queue hook");
 }
 
@@ -13926,7 +14052,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
             nr_f8::OpenWindow();
             runtime->open_overlay(true, reshade::api::input_source::keyboard);
         }
-        Log("[feedback] F7 image supplement request=%s; paired report plus original-resolution display screenshot; no raw ROI planes.",
+        Log("[feedback] F7 image supplement request=%s; current-path capture with paired report; source domain and export status remain explicit in feedback.",
             accepted ? "accepted" : "busy");
     }
     stage_key_was_down = stage_key_is_down;
@@ -14023,6 +14149,9 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // SR wrapper. A one-second in-memory rescan records that transition and
     // installs any newly available lifecycle observers. It never scans disk.
     PollNgxLifecycleModules(false);
+    nr_source_runtime::PollStreamline();
+    nr_fg_runtime::CollectRetired();
+    nr_fg_capture::Collect();
     nr_post_settings::Poll();
     // No Feature 1 means there cannot be an NR context or fence to retire. Keep
     // early engine Presents away from lifecycle tables entirely.
@@ -14675,19 +14804,27 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
     // Diagnostics only presents observations, avoiding duplicate actions.
 }
 
+#include "nr_compat_present_runtime.inl"
+namespace nr_fg_capture {
+void Start(ID3D12GraphicsCommandList*,const nr_source_frame::Source&,NrContext&);
+void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
+    nr_compat_present_runtime::Context&,NrContext&,NrSlot&,const NrGuideBinding&,const nr_dual_runtime::Prepared&,bool);
+}
+#include "nr_fg_consumer.inl"
+#include "nr_fg_capture.inl"
 #include "nr_settings_ui.inl"
 
 } // namespace
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline14 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline15 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline14 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline15 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -14763,6 +14900,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnDestroyCommandList);
         RegisterPostBoundaryEvents(true);
         reshade::register_event<reshade::addon_event::present>(OnPresent);
+        nr_compat_present_runtime::Register(true);
+        nr_fg_runtime::Register();
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -14786,7 +14925,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
             RegisterPostBoundaryEvents(false);
-            reshade::unregister_event<reshade::addon_event::present>(OnPresent);
+            nr_compat_present_runtime::Register(false);
+        reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
                 OnDestroyCommandList);
             reshade::unregister_event<reshade::addon_event::reset_command_list>(
@@ -14812,6 +14952,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         RegisterPostBoundaryEvents(false);
+        nr_compat_present_runtime::Register(false);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);

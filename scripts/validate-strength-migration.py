@@ -36,6 +36,7 @@ harness = r'''
 #include <cwchar>
 #include <iterator>
 #include "nr_work_config.h"
+#include "nr_processing_route.h"
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CONFIG
 // ReloadConfig retains the current process's transient diagnostic preview.

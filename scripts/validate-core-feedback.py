@@ -45,6 +45,8 @@ HARNESS = r'''
 #include "nr_diagnostic_bundle.inl"
 #include "nr_dual_observation.hpp"
 #include "nr_compatibility_verdict.h"
+#include "nr_processing_route.h"
+#include "nr_compat_present_policy.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -131,9 +133,31 @@ const char *RefusalName(Refusal value) {
 }
 // Serialization seams: no secondary GPU/NGX successes are fabricated.
 namespace nr_dual_runtime {
+FULL_SNAPSHOT
+FullSnapshot fixture_full;
+bool fixture_full_busy=false;
+bool TrySnapshotFull(FullSnapshot& out){if(fixture_full_busy)return false;out=fixture_full;return true;}
 std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{0},second_height{0},fatal_result{0},time_samples{0},time_config{0};
 std::atomic<unsigned long long> second_creates{0},second_evaluations{0},second_completed{0},last_primary_instance{0},last_second_instance{0},last_parent_evaluation{0},time_warmup_samples{0};
 std::atomic<double> time_last[7]{},time_median[7]{},time_p95[7]{};
+}
+namespace nr_compat_present_runtime {
+nr_compat_present::Observation fixture_present;
+bool fixture_present_busy=false;
+bool TrySnapshot(nr_compat_present::Observation& out){if(fixture_present_busy)return false;out=fixture_present;return true;}
+unsigned fixture_capture_status[2]{},fixture_capture_workers[2]{};
+bool fixture_capture_fg=false;
+unsigned CaptureStatus(bool fg){return fixture_capture_status[fg];}
+unsigned CaptureWorkers(bool fg){return fixture_capture_workers[fg];}
+bool CaptureUsesFg(){return fixture_capture_fg;}
+}
+namespace nr_processing_runtime {
+nr_processing::Start fixture_effective=nr_processing::Start::Before;
+nr_processing::Start Effective(){return fixture_effective;}
+}
+namespace nr_fg_runtime {
+std::atomic<unsigned long long> attempts{0},recorded{0},adopted{0},unknown_inputs{0},hudless_waiting{0};
+FG_FEEDBACK
 }
 // The coordinator fixture supplies a coherent pair; it does not run NGX.
 // Keep the production FeedbackAppendActivity body intact while making its
@@ -267,6 +291,56 @@ int main(int argc,char **argv) {
     for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress after diagnostic\n";
     put(carrier_log,bridge_content);
     reshade::api::effect_runtime runtime;
+    {
+        // Synthetic snapshot values test the real serialization body only.
+        // They are never interpreted as GPU/NGX evidence from this harness.
+        nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
+        nr_dual_runtime::fixture_full.enabled=true;
+        nr_dual_runtime::fixture_full.requested=4;
+        nr_dual_runtime::fixture_full.adopted=3;
+        nr_dual_runtime::fixture_full.layers[2].instance=42;
+        nr_compat_present_runtime::fixture_present.source=101;
+        nr_compat_present_runtime::fixture_present.submitted_source=100;
+        nr_compat_present_runtime::fixture_present.completed_source=99;
+        nr_fg_runtime::attempts=7;nr_fg_runtime::recorded=5;nr_fg_runtime::adopted=3;
+        nr_compat_present_runtime::fixture_capture_status[0]=1;nr_compat_present_runtime::fixture_capture_status[1]=3;
+        nr_compat_present_runtime::fixture_capture_workers[1]=2;nr_compat_present_runtime::fixture_capture_fg=true;
+        const auto current=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*current,"sample");
+        check(std::strstr(current->report,"sample.processing.actual=Present\n"),"actual effective route reaches feedback with sample prefix");
+        check(std::strstr(current->report,"sample.fullNR.requestedPasses=4\n") &&
+              std::strstr(current->report,"sample.fullNR.lastAdoptedPasses=3\n") &&
+              std::strstr(current->report,"sample.fullNR.layer3=instance:42,"),
+              "full requested/adopted counts and layer identities serialize independently");
+        check(std::strstr(current->report,"sample.compatPost.source=101\n") &&
+              std::strstr(current->report,"sample.compatPost.submittedSource=100\n") &&
+              std::strstr(current->report,"sample.compatPost.completedSource=99\n"),
+              "Present source submission and completion remain distinct");
+        check(std::strstr(current->report,"sample.fgConsumer.attempted=7\n") &&
+              std::strstr(current->report,"sample.fgConsumer.recorded=5\n") &&
+              std::strstr(current->report,"sample.fgConsumer.composed=3\n"),
+              "FG attempted recorded and composed counters remain separate with sample prefix");
+        check(std::strstr(current->report,"sample.compatCapture.presentStatus=1\n")&&
+              std::strstr(current->report,"sample.compatCapture.fgStatus=3\n")&&
+              std::strstr(current->report,"sample.compatCapture.fgExportWorkers=2\n")&&
+              std::strstr(current->report,"sample.compatCapture.nextRequestRoute=FG\n"),
+              "F8 retains separate current capture status workers and next request route");
+        nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=true;
+        const auto busy=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*busy,"sample");
+        check(std::strstr(busy->report,"sample.fullNR.snapshot=busy\n") &&
+              !std::strstr(busy->report,"sample.fullNR.lastAdoptedPasses="),
+              "busy full snapshot never serializes stale adopted counts");
+        check(std::strstr(busy->report,"sample.compatPost.status=snapshot-busy-no-old-data-reused\n") &&
+              !std::strstr(busy->report,"compatPost.source="),
+              "busy Present snapshot never serializes stale source identity");
+        nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
+        nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
+        nr_processing_runtime::fixture_effective=nr_processing::Start::Before;
+        nr_fg_runtime::attempts=0;nr_fg_runtime::recorded=0;nr_fg_runtime::adopted=0;
+        nr_compat_present_runtime::fixture_capture_status[0]=nr_compat_present_runtime::fixture_capture_status[1]=0;
+        nr_compat_present_runtime::fixture_capture_workers[1]=0;nr_compat_present_runtime::fixture_capture_fg=false;
+    }
     {
         ChainConfig frozen{};frozen.region_enabled=true;frozen.region_preview=3;
         for(unsigned i=0;i<11;++i)frozen.region_gains[i]=.25f*float(i);
@@ -611,6 +685,8 @@ def production_values():
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
         'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
+        'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
+        'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
         'SESSION': definition(legacy, 'struct FeedbackSession', True),

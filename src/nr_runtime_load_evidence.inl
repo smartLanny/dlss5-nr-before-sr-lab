@@ -8,6 +8,9 @@ struct RuntimeLoadEvidence {
     unsigned classes[3] = {};
     unsigned missing_exports = 0;
     unsigned init_result = 0;
+    bool bootstrap_attempted = false;
+    bool bootstrap_succeeded = false;
+    unsigned bootstrap_result = 0;
     const char *stage = "not-attempted";
     const char *search = "addon-directory";
     ULONGLONG sampled_at = 0;

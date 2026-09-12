@@ -28,6 +28,26 @@ const char *UiStateText(nr_dual_status_runtime::UiState value, bool zh) {
     return zh ? "二次 AI：状态未知" : "Second AI: unknown state";
 }
 
+template<class Config>
+bool DrawFullReferenceControls(Config& next,bool& changed,bool& discrete,bool zh) {
+    if constexpr(requires {next.nr_full_reference;next.nr_full_passes;}) {
+        if(ImGui::Checkbox(zh?"完整同尺寸对照":"Full-size reference",&next.nr_full_reference)) {
+            changed=true;discrete=true;
+        }
+        if(next.nr_full_reference) {
+            for(unsigned passes=2;passes<=4;++passes) {
+                if(passes!=2)ImGui::SameLine();
+                const char* labels[]={"2###full-passes-2","3###full-passes-3","4###full-passes-4"};
+                if(ImGui::Button(labels[passes-2])){next.nr_full_passes=passes;changed=true;discrete=true;}
+            }
+            ImGui::TextDisabled(zh?"请求：同尺寸 %u 层":"Requested: %u full-size passes",next.nr_full_passes);
+            SettingsTooltip(zh?"每层使用独立模型状态，尺寸均与第一层相同；仅最后合成一次。原有低分二次比例保留，关闭完整对照后恢复。":"Each pass has independent model state at the first pass size; composition runs once. The saved reduced second-pass scale returns when this reference is disabled.");
+            return true;
+        }
+    }
+    return false;
+}
+
 // Keep the frequently used controls next to the first NR scale. Detailed
 // observations belong on the feedback page so the home page stays readable.
 void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
@@ -38,7 +58,9 @@ void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
     if(ImGui::Checkbox(zh?"启用二次 AI 增强":"Enable second AI enhancement",&enabled)){
         next.nr_passes=enabled?2:1;changed=true;discrete=true;
     }
-    if(!enabled)return;
+    const bool full=DrawFullReferenceControls(next,changed,discrete,zh);
+    if(!enabled&&!full)return;
+    if(full)ImGui::BeginDisabled();
     float percent=100.f*next.nr_second_numerator/next.nr_second_denominator;
     if(SettingsSliderFloat(zh?"第二次 AI 处理比例":"Second AI processing scale","##dual-scale",
         &percent,25.f,100.f,"%.0f%%")){
@@ -66,6 +88,7 @@ void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
         }
         SettingsTooltip(zh?"保留原有精确 2/3 请求与保存值；滑块或常用按钮仍可改成百分比。":"Keeps the historical exact 2/3 request and saved fraction; the slider and common buttons remain percentage based.");
     }
+    if(full)ImGui::EndDisabled();
     const auto snapshot = nr_dual_status_runtime::SnapshotUi();
     if (snapshot.state != nr_dual_status_runtime::UiState::Failed && (has_pending || changed)) {
         ImGui::TextDisabled("%s", zh ? "二次 AI：等待请求的设置生效" :

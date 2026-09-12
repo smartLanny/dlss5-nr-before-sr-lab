@@ -367,6 +367,7 @@ void ForgetObservedFeature(const NgxHandle *handle, unsigned long long generatio
     }
     RecountNgxOwnersLocked();
     ReleaseSRWLockExclusive(&g_feature_lock);
+    nr_source_runtime::RetireFeature(handle,generation);
 }
 
 void ObserveNgxEvaluate(const NgxHandle *handle) {

@@ -359,6 +359,7 @@ struct NrTuningSignature {
 };
 struct ChainConfig {
     bool enabled = false;
+    bool nr_full_reference = false;
     unsigned int nr_passes = 1;
     unsigned int warmup_after_create = 2;
 };
@@ -522,6 +523,15 @@ int main() {
     Check(!SnapshotUiAndSecondary().binding.dual.generation_matches_config &&
               !SnapshotUiAndSecondary().binding.region.generation_matches_config,
           "paired binding evidence marks stale generations against current config");
+    g_config_generation.store(5);g_config.nr_passes=1;g_config.nr_full_reference=true;
+    Check(SnapshotUi().state==UiState::WaitingForFrame,
+          "full reference enables observation while reduced second pass is off");
+    RecordObservation(primary,&aux,true,true,true,false);
+    Check(SnapshotUi().counts.eligible_primary==1&&SnapshotUi().counts.final_adopted==1,
+          "full reference retains actual adoption observation");
+    g_config.nr_full_reference=false;
+    Check(SnapshotUi().state==UiState::Off,
+          "disabling both full and reduced paths immediately hides old activity");
     std::printf("Runtime adapter: %u checks, 0 failures\n", checks);
     return 0;
 }

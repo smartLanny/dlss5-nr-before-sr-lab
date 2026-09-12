@@ -269,6 +269,10 @@ void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
 }
 #endif
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#include "nr_compat_present_feedback.inl"
+#include "nr_full_feedback.inl"
+    FeedbackAppend(s,"%s.processing.actual=%s\n%s.processing.policy=selected-suffix; sticky-until-explicit-selection-or-restart\n",
+        prefix,nr_processing::Name(nr_processing_runtime::Effective()),prefix);
 
     FeedbackAppend(s,"%s.dual.statusLegend=0:off,1:primary-warmup,2:secondary-warmup,3:create-pending,4:recorded,5:guides,6:resources-budget,7:queue,8:slot,9:fatal,10:device-identity,11:pipeline,12:resource-contract\n",prefix);
     FeedbackAppend(s,"%s.dual.status=%u\n%s.dual.primary=%ux%u\n%s.dual.secondary=%ux%u\n"
@@ -482,6 +486,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, load.present[0] ? 1 : 0, prefix, load.present[1] ? 1 : 0, prefix, load.present[2] ? 1 : 0,
         prefix, RuntimeLoadClassName(load.classes[0]), prefix, RuntimeLoadClassName(load.classes[1]),
         prefix, RuntimeLoadClassName(load.classes[2]), prefix, load.search);
+    FeedbackAppend(s, "%s.runtime.coldBootstrapAttempted=%d\n%s.runtime.coldBootstrapSucceeded=%d\n%s.runtime.coldBootstrapResult=0x%X\n",
+        prefix, load.bootstrap_attempted, prefix, load.bootstrap_succeeded, prefix, load.bootstrap_result);
     FeedbackAppend(s, "%s.scope.config=%u\n%s.scope.epoch=%llu\n%s.scope.featureGeneration=%llu\n%s.scope.mode=%d\n"
         "%s.scope.nrSuccess=%llu\n%s.scope.transferSubmitted=%llu\n%s.queue.admitted=%llu\n%s.queue.unknownBypasses=%llu\n"
         "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n%s.queue.retiredAdmitted=%llu\n"

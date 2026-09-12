@@ -29,6 +29,7 @@ harness = r'''
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include "nr_processing_route.h"
 BUILD_IDENTITY
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
@@ -103,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="nr-screenshot-label-") as temporary:
     for language in (0, 1):
         binary = Path(temporary) / f"test-{language}.exe"
         subprocess.run([args.compiler,"-std=c++20","-O2","-static","-Wall","-Wextra","-Werror",
-            f"-DNR_UI_CHINESE={language}",str(cpp),"-o",str(binary)],check=True)
+            "-I",str(root / "src"),f"-DNR_UI_CHINESE={language}",str(cpp),"-o",str(binary)],check=True)
         outputs.append(subprocess.check_output([str(binary)],text=True))
     assert outputs[0] == outputs[1], "Chinese/English screenshot labels differ"
     print(outputs[0],end="")

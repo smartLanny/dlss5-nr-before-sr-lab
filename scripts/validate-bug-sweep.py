@@ -46,6 +46,7 @@ PREAMBLE = r'''
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_processing_route.h"
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
     ++checks;

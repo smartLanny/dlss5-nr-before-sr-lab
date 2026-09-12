@@ -57,6 +57,7 @@ parts = {
     "NORMALIZE_CONFIG": definition(source, "void NormalizeConfig("),
     "SAME_CONFIG": definition(source, "bool SameConfig("),
     "ACTIVE_TRANSFER": definition(source, "float ActiveTransferStrength("),
+    "PROCESSING_RUNTIME": (root / "src/nr_processing_runtime.inl").read_text(encoding="utf-8-sig"),
     "CAPTURE_GRID": definition((root / "src/nr_stage_capture.inl").read_text(encoding="utf-8-sig"), "bool ComputeStageCaptureGrid("),
     "PRODUCTION_SEQUENCE": sequence[:sequence.index("void F8Tooltip(")] + "\n} // namespace nr_f8\n",
 }
@@ -140,6 +141,9 @@ if not args.gpu:
 if args.negative_control:
     assert not args.gpu, 'Controller mutations must not run the GPU fixture'
     mutations={
+        'omit-processing-session-restore': ('nr_processing_runtime::session=s->processing_original;', '(void)s->processing_original;'),
+        'omit-transient-route-selection': ('requested.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);', '(void)requested.processing_selection;'),
+        'legacy-mode-only-matrix': ('c.processing_start=nr_processing::FromLegacy(c.mode);\n        NormalizeConfig(c);', 'NormalizeConfig(c);'),
         'screenshot-before-gpu': ('(!face || g.frames[0].valid)', 'true'),
         'ignore-applied-tuning': ('!nr_face_diagnostic::MatchesApplied(g.requested,info.identity.tuning)', 'false'),
         'ignore-geometry-change': ('s->face_geometry_set && !SameFaceGeometry(s->face_geometry,info)', 'false'),
@@ -157,5 +161,5 @@ if args.negative_control:
         assert run.returncode==1 and 'FAIL:' in run.stderr,(name,run.returncode,run.stderr)
         results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip()})
     (latest/'face-negative-controls.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
-    print(f'Face diagnostic: {len(mutations)} compiled behavioral negative controls rejected PASS')
+    print(f'F8 controller: {len(mutations)} compiled face/matrix behavioral negative controls rejected PASS')
 print("F8 controller: production Present/callback/readback/stream/restore/ZIP PASS; " + ("real WARP shader/ring/fence, synthetic NR input" if args.gpu else "GPU/NGX are seams"))

@@ -3,6 +3,14 @@
 #include "nr_precision_ui.h"
 #include "nr_model_controls.h"
 
+// Pure value access for the earlier F7/F8 UI; capture implementations are fully
+// defined before this settings include. No render lock or GPU call is needed.
+namespace nr_compat_present_runtime {
+unsigned CaptureStatus(bool fg){return fg?nr_fg_capture::status.load(std::memory_order_acquire):nr_present_capture::status.load(std::memory_order_acquire);}
+unsigned CaptureWorkers(bool fg){return fg?nr_fg_capture::workers.load(std::memory_order_acquire):nr_dual_capture::workers.load(std::memory_order_acquire);}
+bool CaptureUsesFg(){return nr_fg_runtime::CapturePreferred();}
+}
+
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
 // Keep the name identical across languages, versions and both cleanup paths.
@@ -143,41 +151,44 @@ OverlayApplyResult ApplySettingsOverlay(ChainConfig next, unsigned expected_gene
 
 bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
     bool compatible_post_locked, int effective_mode) {
-    const bool zh = UseChineseUi();
-    const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
-    const char *labels[] = {
-        ui("Enhance first###route-option", "先增强，后放大###route-option"),
-        ui("Upscale first###route-option", "先放大，后增强###route-option")};
-    const float width = std::max(1.0f,
-        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
-    bool changed = false;
-    const bool mode_guarded = rr_guarded || compatible_post_locked;
+    (void)rr_guarded; (void)compatible_post_locked; (void)effective_mode;
+    const bool zh=UseChineseUi(); bool changed=false;
+    const char* labels[]={zh?"先增强，后放大":"Enhance first",
+        zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
+    const float width=std::max(1.f,(SettingsContentWidth()-2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
+    const bool stacked=width<ImGui::GetFontSize()*6.f;
     ImGui::PushID("nr-processing-mode");
-    if (mode_guarded) ImGui::BeginDisabled();
-    for (int option = 0; option < 2; ++option) {
-        if (option != 0) ImGui::SameLine();
-        ImGui::PushID(option);
-        const int requested_mode = option == 0 ? 2 : 1;
-        const int shown_mode = mode_guarded ? 1 : effective_mode;
-        const bool selected = shown_mode == requested_mode;
-        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
-            ImGui::GetStyleColorVec4(ImGuiCol_Header));
-        const bool clicked = ImGui::Button(labels[option],
-            ImVec2(width, ImGui::GetFrameHeight() * 1.25f));
-        if (selected) ImGui::PopStyleColor();
-        if (clicked && !mode_guarded && next.mode != requested_mode) {
-            next.mode = requested_mode;
-            changed = true;
+    for(unsigned i=0;i<3;++i){
+        if(i&&!stacked)ImGui::SameLine();
+        ImGui::PushID(static_cast<int>(i));
+        const auto route=static_cast<nr_processing::Start>(i);
+        const bool selected=next.processing_start==route;
+        if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        if(ImGui::Button(labels[i],ImVec2(stacked?SettingsContentWidth():width,ImGui::GetFrameHeight()*1.25f))){
+            next.processing_start=route;
+            next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);
+            if(i<2)next.mode=i==0?2:1;
+            changed=true; // Clicking the already-selected button explicitly retries its starting point.
         }
-        SettingsTooltip(option == 0 ? ui(
-            "NR enhances the game's input before native SR upscaling. RR or a pre-SR compatibility guard can force the effective route to post-SR while retaining this preference.",
-            "AI 先处理游戏输入，再由原生 SR 放大。RR 或前置兼容保护可能强制实际路线改为后置，但会保留你的前置选择。") : ui(
-            "Native SR upscales first, then NR enhances the larger image. RR always uses this effective post-SR route; when selectable, clicking saves post-SR as your preference.",
-            "先由原生 SR 放大，再由 AI 处理更大画面。RR 实际总是采用后置路线；可选择时点击会保存后置偏好。"));
+        if(selected)ImGui::PopStyleColor();
+        SettingsTooltip(i==0?(zh?"先增强游戏场景，再由原生 SR 放大。不兼容时自动尝试后置，再尝试兼容模式。":"Enhances the scene before native SR. Automatically tries post-SR and then compatibility when unavailable."):
+            i==1?(zh?"原生 SR／RR 完成后增强；不兼容时自动尝试兼容模式。":"Enhances the native SR/RR result. Automatically tries compatibility when unavailable."):
+            (zh?"处理接近输出的整张游戏画面，可能包含字幕和界面。缺少原生运动和深度数据时采用纯颜色处理，运动稳定性及细节可能变化。开销取决于 AI 渲染精度和层数；当前帧无法处理时保留游戏输出，并提示按 F8 提交日志。":"Processes the game image near presentation, possibly including subtitles and HUD. Without native motion/depth data it uses color-only processing; motion stability and detail may change. Cost depends on precision and pass count. Unsupported frames retain game output; press F8 and submit logs."));
         ImGui::PopID();
     }
-    if (mode_guarded) ImGui::EndDisabled();
     ImGui::PopID();
+    const auto actual=nr_processing_runtime::Effective();
+    const char* names[]={zh?"先增强，后放大":"Enhance first",zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
+    ImGui::TextWrapped(zh?"实际处理位置：%s":"Actual processing position: %s",names[static_cast<unsigned>(actual)]);
+    if(actual!=next.processing_start)
+        ImGui::TextWrapped("%s",zh?"已自动切换兼容路径，可能存在兼容问题。请按 F8 收集日志并提交；点击按钮可重新尝试所选位置。":"Compatibility fallback is active. A compatibility issue may exist: press F8 and submit logs. Click a route to retry it.");
+    if(actual==nr_processing::Start::Present){
+        nr_compat_present::Observation status{};
+        if(nr_compat_present_runtime::TrySnapshot(status)){
+            ImGui::TextDisabled(zh?"主层 %u × %u，%u 层":"Primary %u x %u, %u passes",status.work_width,status.work_height,status.passes);
+            if(status.color_only)ImGui::TextWrapped("%s",zh?"当前使用纯颜色兼容处理；运动和界面表现需要实测。":"Color-only compatibility processing; motion and HUD quality require testing.");
+        }
+    }
     return changed;
 }
 
@@ -467,6 +478,40 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
                           const ChainConfig &config,unsigned generation,nr_ui_activity::Site site) {
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
+    if(nr_processing_runtime::PresentSelected() && config.enabled && ActiveTransferStrength(config)>0.000001f){
+        // This branch observes compatibility state, not the native counter
+        // Window. Publish its real display with explicitly unavailable counter
+        // tuples so a previous inline receipt cannot masquerade as this UI.
+        nr_ui_activity::ReadReceipt receipt{};
+        receipt.source=nr_ui_activity::ObservationSource::PresentSnapshot;
+        receipt.config_argument=generation;
+        receipt.observation.now=GetTickCount64();
+        receipt.observation.input_scope.config=generation;
+        receipt.observation.kind=nr_ui_activity::Kind::Snapshot;
+        NrUiActivityReadIdentity(NrUiActivityThread(),receipt,receipt.observation.now);
+        using Display=nr_ui_activity::Display;
+        Display displayed=Display::CompatibilityBypassed;
+        nr_compat_present::Observation cp{};
+        if(nr_fg_runtime::RecentlyRecorded(generation)) {
+            receipt.source=nr_ui_activity::ObservationSource::FgRecentRecord;
+            displayed=Display::FgRecorded;
+            ImGui::TextWrapped("%s",ui("Compatibility processing recorded before frame generation. Use F6 to compare the picture.","兼容模式已在帧生成前记录增强处理，按 F6 对比实际效果。"));
+        } else if(!nr_compat_present_runtime::TrySnapshot(cp)) {
+            displayed=Display::CompatibilityChecking;
+            receipt.observation.kind=nr_ui_activity::Kind::Unavailable;
+            ImGui::TextWrapped("%s",ui("Checking compatibility processing...","正在检查兼容模式……"));
+        } else if(cp.status==nr_compat_present::Status::Submitted || cp.status==nr_compat_present::Status::Completed) {
+            displayed=Display::PresentSubmitted;
+            ImGui::TextWrapped("%s",ui("Compatibility processing submitted. Use F6 to compare the picture.","兼容模式已提交增强画面，按 F6 对比实际效果。"));
+        } else if(cp.status==nr_compat_present::Status::Creating || cp.status==nr_compat_present::Status::Preparing ||
+                cp.status==nr_compat_present::Status::Switching || cp.status==nr_compat_present::Status::Draining || cp.status==nr_compat_present::Status::Busy ||
+                cp.status==nr_compat_present::Status::RetryBackoff) {
+            displayed=Display::CompatibilityPreparing;
+            ImGui::TextWrapped("%s",ui("Compatibility processing is preparing or waiting for in-flight work.","兼容模式正在准备，或等待已提交的工作完成。"));
+        } else ImGui::TextWrapped("%s",ui("This frame could not use compatibility processing. A compatibility issue may exist: press F8 and submit logs.","当前帧未能进行兼容处理，可能存在兼容问题。请按 F8 收集日志并提交。"));
+        NrPublishUiActivity(receipt,site,displayed);
+        return;
+    }
     nr_ui_activity::ReadReceipt receipt{};
     const auto activity=ReadUiActivity(generation,&receipt);
     using Display=nr_ui_activity::Display;
@@ -645,6 +690,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     changed |= apply_discrete_edit;
     if (ImGui::Button(ui("Restore default picture settings", "一键恢复默认画质"))) {
         RestoreRecommendedPictureSettings(next);
+        next.processing_start=nr_processing::Start::Before;
+        next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+        next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=2;
         changed = true;
         pending_picture_reset = true;
         pending_model_action = nr_model_controls::Action::None;
@@ -691,7 +739,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (rr_guarded) DrawPostRouteStatus();
     if (compatibility_post) DrawCompatibilityFallbackNotice(compatibility_snapshot);
-    const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;
+    const bool compatibility_mode=next.processing_start==nr_processing::Start::Present ||
+        (!has_pending && nr_processing_runtime::PresentSelected());
+    const bool before_sr = !compatibility_mode && !rr_guarded && !compatibility_post &&
+        nr_processing_runtime::Effective()==nr_processing::Start::Before;
 #if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;
     // These atomics are historical observations, NOT a coherent frame tuple.
@@ -704,14 +755,16 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         post_precision = static_cast<float>(post_options.percent);
         observed_post_precision = post_options.percent;
     }
-    float precision = effective_post ? post_precision :
+    float precision = compatibility_mode ? static_cast<float>(next.compat_percent) : effective_post ? post_precision :
         nr_precision_ui::LegacyEstimate(next.work_mode, next.custom_work_scale,
             g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
             g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
     precision = std::clamp(precision, 50.0f, 100.0f);
     if (SettingsSliderFloat(ui("AI rendering precision", "AI 渲染精度"),
             "##nr-processing-precision", &precision, 50.0f, 100.0f, "%.0f%%")) {
-        if (effective_post) {
+        if (compatibility_mode) {
+            next.compat_percent=static_cast<unsigned>(std::lround(precision));changed=true;
+        } else if (effective_post) {
             post_precision = precision;
         } else {
             const auto request = nr_precision_ui::Resolve(precision, true);
@@ -722,7 +775,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             }
         }
     }
-    if (effective_post && ImGui::IsItemDeactivatedAfterEdit()) {
+    if (effective_post && !compatibility_mode && ImGui::IsItemDeactivatedAfterEdit()) {
         post_options.percent = static_cast<unsigned>(std::lround(post_precision));
         if (nr_post_settings::Request(post_options))
             observed_post_precision = post_options.percent;
@@ -1030,7 +1083,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             else if (jitter_snapshot.status == JitterStatus::Pending)
                 jitter_text = ui("Jitter: waiting for the requested settings to apply.", "Jitter：等待请求的设置生效。");
             ImGui::TextDisabled("%s", jitter_text);
-            changed |= ImGui::Checkbox(ui("Retry original SR on failure", "失败时重试原始 SR"), &next.retry_original_on_sr_failure);
             changed |= ImGui::Checkbox(ui("Run NR but discard its picture", "运行 NR 但丢弃其画面（诊断）"), &next.identity_use_original);
             int warmup = static_cast<int>(next.warmup_after_create);
             if (SettingsSliderInt(ui("Warm-up frames", "预热帧数"),

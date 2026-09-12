@@ -1,0 +1,74 @@
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <d3d12.h>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <cwchar>
+#include <stdexcept>
+#include <initializer_list>
+using NgxResult=std::uint32_t;
+constexpr NgxResult kNgxSuccess=1;
+struct NgxParams;
+enum class BypassReason {RuntimeUnavailable};
+void SetBypassReason(BypassReason){}
+void Log(const char*,...){}
+const char* ResultName(NgxResult){return "test-result";}
+wchar_t g_log_path[MAX_PATH]=L"C:\\private\\nr.log";
+bool core_loaded=false,bootstrap_export=true,fail_loads_core=false,bridge_present=true;
+unsigned bootstrap_result=1,bootstrap_calls=0,init_calls=0,load_calls=0;
+ULONGLONG now=100;
+HMODULE FakeCore(LPCWSTR){return core_loaded?reinterpret_cast<HMODULE>(3):nullptr;}
+HMODULE FakeLoad(LPCWSTR path,HANDLE,DWORD flags){
+    if(flags!=(LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_SYSTEM32))throw std::runtime_error("restricted loader flags");
+    ++load_calls;
+    if(std::wcsstr(path,L"nrchain")){if(!bridge_present){SetLastError(126);return nullptr;}return reinterpret_cast<HMODULE>(1);}
+    return reinterpret_cast<HMODULE>(2);
+}
+DWORD FakeAttributes(LPCWSTR){return FILE_ATTRIBUTE_NORMAL;}
+ULONGLONG FakeClock(){return now;}
+NgxResult Bootstrap(ID3D12Device*){++bootstrap_calls;if(bootstrap_result==1||fail_loads_core)core_loaded=true;return bootstrap_result;}
+NgxResult SignedInit(void*,unsigned long long,const wchar_t*,ID3D12Device*,std::uint32_t,const void*){++init_calls;return 1;}
+void Noop(){}
+FARPROC FakeProc(HMODULE,LPCSTR name){
+    if(!std::strcmp(name,"NRChain_Bootstrap"))return bootstrap_export?reinterpret_cast<FARPROC>(Bootstrap):nullptr;
+    if(!std::strcmp(name,"NRChain_Init"))return reinterpret_cast<FARPROC>(SignedInit);
+    return reinterpret_cast<FARPROC>(Noop);
+}
+#define LoadLibraryExW FakeLoad
+#define GetModuleHandleW FakeCore
+#define GetProcAddress FakeProc
+#define GetFileAttributesW FakeAttributes
+#define GetTickCount64 FakeClock
+// @PRODUCTION@
+unsigned checks=0;
+void Check(bool value,const char* message){++checks;if(!value)throw std::runtime_error(message);}
+void Reset(){g_nr_api={};g_runtime_load_evidence={};core_loaded=false;bootstrap_export=true;fail_loads_core=false;bridge_present=true;
+    bootstrap_result=1;bootstrap_calls=init_calls=load_calls=0;now=100;}
+int main(){try{
+    auto* device=reinterpret_cast<ID3D12Device*>(1);
+    Reset();Check(!EnsureNrApi(nullptr)&&load_calls==0,"null device cannot load or initialize");
+    Reset();core_loaded=true;Check(EnsureNrApi(device),"reuse preexisting core");
+    Check(bootstrap_calls==0&&init_calls==1,"warm core does not reinitialize host SDK");
+    Check(!SnapshotRuntimeLoadEvidence().bootstrap_attempted,"warm observation is not cold evidence");
+    Reset();Check(EnsureNrApi(device),"cold production EnsureNrApi succeeds");
+    Check(bootstrap_calls==1&&init_calls==1&&load_calls==2,"one real bootstrap before signed init");
+    auto receipt=SnapshotRuntimeLoadEvidence();Check(receipt.bootstrap_attempted&&receipt.bootstrap_succeeded&&receipt.bootstrap_result==1,"cold evidence published");
+    Check(EnsureNrApi(device)&&bootstrap_calls==1&&init_calls==1&&load_calls==2,"initialized fast path repeats no API work");
+    for(bool loaded_on_failure:{false,true}){
+        Reset();fail_loads_core=loaded_on_failure;bootstrap_result=0xBAD00007u;
+        Check(!EnsureNrApi(device),"failed official init refuses signed feature");
+        Check(!g_nr_api.failed&&g_nr_api.bootstrap_required&&g_nr_api.bootstrap_retry_after==5100,"cold failure is bounded retry, not permanent bypass");
+        Check(init_calls==0&&bootstrap_calls==1&&load_calls==2,"failed bootstrap never invokes signed init");
+        Check(!EnsureNrApi(device)&&bootstrap_calls==1&&load_calls==2,"retry interval performs no reload/API work");
+        now=5099;Check(!EnsureNrApi(device)&&bootstrap_calls==1,"retry remains bounded before deadline");
+        now=5100;bootstrap_result=1;Check(EnsureNrApi(device),"retry works even when failed Init loaded the module");
+        Check(bootstrap_calls==2&&init_calls==1&&load_calls==2,"retry reuses loaded bridges without refcount leaks");
+        Check(!g_nr_api.bootstrap_required&&!g_nr_api.bootstrap_retry_after,"successful init clears retry state");
+    }
+    Reset();bootstrap_export=false;Check(!EnsureNrApi(device)&&!g_nr_api.failed&&init_calls==0,"old bridge cannot fake a successful cold initialization");
+    Check(SnapshotRuntimeLoadEvidence().bootstrap_result==0xBAD00012u,"missing official bootstrap export is explicit");
+    Reset();bridge_present=false;Check(!EnsureNrApi(device)&&g_nr_api.failed&&bootstrap_calls==0,"broken installed bridge retains repair-required policy");
+    std::printf("PASS actual EnsureNrApi cold/warm/retry policy: %u checks\n",checks);return 0;
+}catch(const std::exception& e){std::fprintf(stderr,"COLD_POLICY_ORACLE: %s\n",e.what());return 1;}}

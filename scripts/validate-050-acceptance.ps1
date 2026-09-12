@@ -7,6 +7,8 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$ReShadeDllPath,
     [string]$CodecCacheRoot,
+    [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
+    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
     [switch]$RunWarp
 )
 # Focused acceptance of the configuration/wiring slice, not the full historical
@@ -18,6 +20,8 @@ $Output = [IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $Output) { throw 'OutputRoot exists; preserve previous evidence.' }
 $Tracked = @(& git -C $Root status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0 -or $Tracked.Count) { throw 'Commit reviewed source before exact-source validation.' }
+$UntrackedInputs = @(& git -C $Root ls-files --others --exclude-standard -- src scripts tests config third_party docs/testing)
+if ($LASTEXITCODE -ne 0 -or $UntrackedInputs.Count) { throw 'Commit the explicit production, test and packaging input inventory before exact-source validation.' }
 $Commit = (& git -C $Root rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve source commit.' }
 $Toolchain = (Resolve-Path -LiteralPath $ToolchainRoot).Path
@@ -50,6 +54,9 @@ try {
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     $env:NR_RESHADE_ROOT = $ReShade
     $env:NR_LLVM_BIN = Join-Path $Toolchain 'bin'
+    & python (Join-Path $PSScriptRoot 'validate-nr-api-cold-policy.py') --compiler $Compiler
+    if ($LASTEXITCODE) { throw 'Production cold NGX bootstrap/retry policy failed.' }
+    $Checks.Add('production cold NGX bootstrap warm reuse bounded retry and compiled negative controls CPU')
     if ((Get-FileHash -LiteralPath $DirectionalBaseline -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c681b208ef320b1b9fbd497e3c46485bf3836296a084cd4a741a2b179f1c8208' -or
         (Get-FileHash -LiteralPath $DirectionalManifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'The generated D4 reference does not match the frozen acceptance source.' }
     $Checks.Add('frozen generated D4 directional reference source')
@@ -58,7 +65,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline14') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline15') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
     if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
@@ -70,6 +77,27 @@ try {
     & $DualPolicy
     if($LASTEXITCODE){throw 'Dual policy admission/opaque failure contract failed.'}
     $Checks.Add('dual policy admission/history and independent matched-residual numeric oracle')
+    $FullPolicy = Join-Path $Output 'full-nr-policy.exe'
+    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_full_policy_test.cpp') -o $FullPolicy
+    if ($LASTEXITCODE) { throw 'Full NR policy compile failed.' }
+    & $FullPolicy
+    if ($LASTEXITCODE) { throw 'Full NR two to four pass admission/failure policy failed.' }
+    $Checks.Add('full NR two to four pass plan and partial failure policy CPU')
+    $FullRuntime = Join-Path $Output 'full-nr-runtime.exe'
+    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_full_runtime_test.cpp') -o $FullRuntime
+    if ($LASTEXITCODE) { throw 'Full NR production wrapper compile failed.' }
+    & $FullRuntime
+    if ($LASTEXITCODE) { throw 'Full NR production wrapper chaining and ownership failed.' }
+    $Checks.Add('full NR production wrapper serial inputs ownership and opaque failure CPU')
+    & python (Join-Path $PSScriptRoot 'validate-source-frame.py') --compiler $Compiler --output (Join-Path $Output 'source-frame-cpu')
+    if ($LASTEXITCODE) { throw 'Source-frame ownership/queue ordering CPU gate failed.' }
+    $Checks.Add('source-frame ownership current-copy and submitted-queue ordering CPU')
+    $ProcessingRoute = Join-Path $Output 'processing-route.exe'
+    & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_processing_route_test.cpp') -o $ProcessingRoute
+    if ($LASTEXITCODE) { throw 'Processing route session compile failed.' }
+    & $ProcessingRoute
+    if ($LASTEXITCODE) { throw 'Processing route suffix/reselection/source retry policy failed.' }
+    $Checks.Add('processing route sticky suffix reselection and bounded source retry CPU')
     & python (Join-Path $Root 'tests/test_nr_dual_observation.py') --compiler $Compiler
     if($LASTEXITCODE){throw 'NR2 current observation/defaults/two-layer model parameter contract failed.'}
     & python (Join-Path $Root 'tests/test_d13_ui_compile.py')
@@ -127,6 +155,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-ui-activity-receipt.py') --compiler $Compiler --source-root (Join-Path $Stage 'core') --output (Join-Path $Output 'ui-activity-receipt-runtime-cpu')
     if ($LASTEXITCODE) { throw 'Actual UI observation and display receipt gate failed.' }
     $Checks.Add('ui-activity-receipt-runtime-cpu')
+    $Checks.Add('UI compatibility receipt explicit observation origin and no native Window borrowing CPU')
     $ProbePolicy = Join-Path $Output 'probe-policy.exe'
     & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/probe_policy_test.cpp') -o $ProbePolicy
     if ($LASTEXITCODE) { throw 'Probe policy compile failed.' }
@@ -183,7 +212,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-first-recording.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'First-recording old-policy negative control failed.' }
     $Checks.Add('first-recording old-policy CPU negative control')
-    foreach ($Test in @('tests/test_settings_notices_ui.py', 'tests/test_face_selection_ui.py', 'tests/test_runtime_timing_summary.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
+    foreach ($Test in @('tests/test_settings_notices_ui.py', 'tests/test_face_selection_ui.py', 'tests/test_runtime_timing_summary.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_compat_capture_ui.py', 'tests/test_lighting_edge_weights.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -228,9 +257,11 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-post-transform.py') --negative-control
     if ($LASTEXITCODE) { throw 'Post transformation provenance negative controls failed.' }
     $Checks.Add('post transformation exact adapter pair and negative controls')
-    & (Join-Path $PSScriptRoot 'validate-codec-shader.ps1') -Source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
+    & (Join-Path $PSScriptRoot 'validate-codec-shader.ps1') -Source (Join-Path $Stage 'core/src/nr_before_sr.cpp') -AdditionalShaderSource @((Join-Path $Stage 'core/src/nr_compat_present_shader.h')) -PresentHudShaderSource (Join-Path $Stage 'core/src/nr_fg_hud_shader.h')
     $Checks.Add('all staged production SM5 entries compiled')
-    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -CodecCacheRoot $CodecCacheRoot
+    $Checks.Add('Present conversion and initialization production SM5 entries compiled')
+    $Checks.Add('Present fullscreen blit and exact joined FG HUD shader production SM5 entries compiled')
+    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -CodecCacheRoot $CodecCacheRoot -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
     $Checks.Add('full staged bilingual Core and nrchain compile/link')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -PostLightStyle -CompileOnly
     $Checks.Add('generated legacy-post light fixture compiled without GPU dispatch')
@@ -249,6 +280,30 @@ if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the du
 
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -DualGeneric
         $Checks.Add('dual spatial/fused residual and generic production WARP; synthetic NR; opaque failure retained')
+        $FullSpatial = Join-Path $Output 'full-nr-spatial-warp.exe'
+        & $Compiler -std=c++20 -O2 -static -Wall -Wextra -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_full_spatial_warp.cpp') (Join-Path $Stage 'core/src/nr_dual_spatial_d3d12.cpp') -ld3d12 -ldxgi -ld3dcompiler -ldxguid -o $FullSpatial
+        if ($LASTEXITCODE) { throw 'Full NR spatial WARP fixture compile failed.' }
+        & $FullSpatial
+        if ($LASTEXITCODE) { throw 'Full NR spatial serial chain/fence/readback WARP failed.' }
+        $Checks.Add('full NR two to four same-size spatial layers and exact retired readback WARP; synthetic model')
+        $PresentUtility = Join-Path $Output 'present-utility-warp.exe'
+        & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/compat_present_utility_gpu.cpp') -ld3d12 -ldxgi -ld3dcompiler -ldxguid -o $PresentUtility
+        if ($LASTEXITCODE) { throw 'Production Present utility WARP fixture compile failed.' }
+        & $PresentUtility
+        if ($LASTEXITCODE) { throw 'Present conversion RT copyback and alpha preservation WARP failed.' }
+        $Checks.Add('Present SDR HDR conversion RT copyback and source alpha WARP; synthetic edit')
+        $HudUtility = Join-Path $Output 'fg-hud-utility-warp.exe'
+        & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/fg_hud_utility_gpu.cpp') -ld3d12 -ldxgi -ld3dcompiler -ldxguid -o $HudUtility
+        if ($LASTEXITCODE) { throw 'Production FG HUD utility WARP fixture compile failed.' }
+        & $HudUtility
+        if ($LASTEXITCODE) { throw 'FG HUD SDR HDR alpha and protection WARP failed.' }
+        $Checks.Add('FG HUD SDR scRGB PQ alpha coverage protected pixels and identity WARP; synthetic neural')
+        & python (Join-Path $PSScriptRoot 'validate-source-transport.py') --compiler $Compiler --output (Join-Path $Output 'source-transport-warp')
+        if ($LASTEXITCODE) { throw 'Actual source guide transport resource and fence reuse WARP failed.' }
+        $Checks.Add('owned source guide transport and resource fence reuse WARP; no NGX or FG inference')
+        & python (Join-Path $PSScriptRoot 'validate-fg-capture.py') --compiler $Compiler --output (Join-Path $Output 'fg-capture-warp')
+        if ($LASTEXITCODE) { throw 'Actual FG capture readback and exact submission ledger WARP failed.' }
+        $Checks.Add('FG capture one to four layer readback and exact submitted ledger WARP; handoff substitute')
 
         & (Join-Path $PSScriptRoot 'validate-replay.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'replay')
         $Checks.Add('full-input replay actual WARP capture and independent reader; isolated model lab compile')
@@ -311,10 +366,10 @@ if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the du
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $ExpectedPeVersion = [Version]'0.5.1.14'
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline14' -or [Version]$Manifest.integration.core_pe_version -ne $ExpectedPeVersion) { throw 'Source identity or PE version mismatch.' }
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline14*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline14 Core artifacts.' }
+    $ExpectedPeVersion = [Version]'0.5.1.15'
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline15' -or [Version]$Manifest.integration.core_pe_version -ne $ExpectedPeVersion) { throw 'Source identity or PE version mismatch.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline15*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline15 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
@@ -353,6 +408,7 @@ if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the du
         carrier_compiled=$false;
         face_backend_enabled=([bool]$env:DLSS5_FACE_RUNTIME_ROOT);
         face_backend_receipt_sha256=$(if(Test-Path -LiteralPath (Join-Path $Stage 'core/build/face-backend.json')){(Get-FileHash -LiteralPath (Join-Path $Stage 'core/build/face-backend.json')).Hash.ToLowerInvariant()}else{$null});
+        nrchain_build_receipt_sha256=$(if(Test-Path -LiteralPath (Join-Path $Stage 'core/build/nrchain-build.json')){(Get-FileHash -LiteralPath (Join-Path $Stage 'core/build/nrchain-build.json')).Hash.ToLowerInvariant()}else{$null});
         log_sha256=(Get-FileHash -LiteralPath (Join-Path $Output 'validation.log')).Hash.ToLowerInvariant()
     }
     $Result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $Output 'validation.json') -Encoding UTF8
