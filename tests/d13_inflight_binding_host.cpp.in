@@ -12,6 +12,16 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <atomic>
+// These are recording-boundary notifications, not synthetic source ownership
+// or route admission. The real frame/route ledgers have independent fixtures.
+namespace nr_source_runtime {
+std::atomic<unsigned> recording_notifications{0};
+void MarkPrivateRecorded() { ++recording_notifications; }
+}
+namespace nr_processing_runtime {
+std::atomic<unsigned> recording_notifications{0};
+void MarkRecorded() { ++recording_notifications; }
+}
 #include <array>
 #include <cstdint>
 #include <cstdio>

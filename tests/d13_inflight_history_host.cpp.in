@@ -5,6 +5,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <d3d12.h>
 #include "nr_dual_pass.hpp"
 
 using NgxResult = std::uint32_t;
@@ -20,8 +22,10 @@ struct GuideHistory {
 struct NrSlot {
     NrSlot *dual_selected = nullptr;
     bool dual_reduced = false;
+    D3D12_RESOURCE_STATES neural_state = D3D12_RESOURCE_STATE_COMMON;
 };
 struct NrContext {
+    unsigned layer_index = 1; // This regression always exercises legacy P2.
     std::uint64_t instance_id = 0;
     std::uint64_t history_generation = 1;
     std::uint64_t evaluations = 0;
@@ -38,7 +42,11 @@ struct Prepared {
     nr_dual::Plan plan{};
     struct { GuideSignature signature{}; } guides;
     std::uint64_t queue_identity = 7001;
+    bool full = false, evaluated = false, adoptable = false;
 };
+// Full-chain timing belongs to its independent production/GPU fixtures. An
+// accidental full-chain branch here must fail, never receive a fake timestamp.
+void ResolveLayerTiming(ID3D12GraphicsCommandList *, NrSlot &, bool) { std::abort(); }
 struct Config { unsigned warmup_after_create = 2; } g_config;
 std::atomic<unsigned long long> second_evaluations{0};
 std::atomic<unsigned long long> last_primary_instance{0};
@@ -70,6 +78,7 @@ NgxResult RunHistoryStep(NrContext &primary, NrSlot &main, Prepared &prepared,
                          std::uint64_t queue_identity = 7001) {
     auto &aux = *prepared.context;
     auto &slot = *prepared.slot;
+    ID3D12GraphicsCommandList *list = nullptr; // No GPU work in this history host.
     main.dual_selected = nullptr;
     main.dual_reduced = false;
     primary.evaluations = parent_evaluation;

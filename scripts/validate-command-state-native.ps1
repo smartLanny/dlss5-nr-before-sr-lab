@@ -18,18 +18,30 @@ if ($FirstRecordingNegativeControl) {
     $production=$production.Replace($needle,'record->state->first_recording_observed = false; // old no-first-recording baseline')
 }
 $main = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
-# Both callbacks in the actual route coordinator must use the resolved native
-# interface captured by before_state, including a locked compatibility route.
-foreach ($expression in @(
+# Both entries in the current Session suffix must use the resolved native
+# interface captured by before_state. Dispatch behavior has a compiled fixture;
+# these integration assertions retain the resolved-interface/state contract.
+$integrationExpressions = @(
     'const auto prepare_before = \[&\]\s*\{\s*return PrepareBeforeSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature\);\s*\};',
-    'const bool compatibility_fallback = nr_route::Prepare\(\s*before_sr,\s*after_sr,\s*\[\]\s*\{\s*return NrRoutePostLocked\(\);\s*\},\s*prepare_before,\s*can_fallback,\s*observe_fallback,\s*\[&\]\(bool fallback\)\s*\{',
-    'auto prepared = PrepareAfterSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature,\s*fallback\);[\s\S]*?return prepared;\s*\}\);',
+    'if\(nr_processing_runtime::Effective\(\)==nr_processing::Start::Before\)\s*\{\s*before_sr=prepare_before\(\);',
+    'if\(!before_sr.fatal_recording && !nr_processing_runtime::Recorded\(\) &&\s*nr_processing_runtime::Effective\(\)==nr_processing::Start::After\)\s*\{[\s\S]*?after_sr=PrepareAfterSr\(\s*before_state.command_list,\s*handle,\s*params,\s*feature,\s*compatibility_fallback\);',
     'before_state.Restore\(\);\s*if \(!before_sr.active && !after_sr.active\)',
     'NativeCommandStateScope after_state\(command_list\);[\s\S]*?FinishAfterSr\(after_state.command_list,',
-    'const HRESULT result = original\(command_list, allocator, initial_state\);\s*OnCommandStateResetResult\(command_list, result, initial_state\);'
-)) {
+    'const HRESULT result = original\(command_list, allocator, initial_state\);\s*nr_source_runtime::OnReset\(command_list,SUCCEEDED\(result\)\);\s*OnCommandStateResetResult\(command_list, result, initial_state\);'
+)
+foreach ($expression in $integrationExpressions) {
     if ($main -notmatch $expression) { throw "Command-state integration invariant missing: $expression" }
 }
+# Keep the pointer-domain checks sensitive to the original defect: a private
+# route must not receive the unresolved application/proxy command-list pointer.
+foreach ($entry in @('PrepareBeforeSr', 'PrepareAfterSr')) {
+    $anchor = "$entry(before_state.command_list,"
+    if (!$main.Contains($anchor)) { throw "Resolved-interface inverse anchor missing: $entry" }
+    $inverse = $main.Replace($anchor, "$entry(command_list,")
+    $rejected = @($integrationExpressions | Where-Object { $inverse -notmatch $_ })
+    if (!$rejected.Count) { throw "Resolved-interface inverse control missed: $entry" }
+}
+Write-Output 'Current Session resolved-interface assertions and both raw-list inverse controls passed.'
 $harness = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_state_native_harness.cpp.in') -Raw
 $harness = $harness.Replace('// @PRODUCTION_COMMAND_STATE@', $production)
 $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_null_native.inl') -Raw
