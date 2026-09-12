@@ -45,6 +45,28 @@ std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0
             fixture = Path(directory) / "rr_post_diagnostics_fixture.cpp"
             source_text = source.read_text(encoding="utf-8").replace(
                 "../../src/", (ROOT / "src").as_posix() + "/")
+            # RR now shares the real sticky processing Session. Keep that
+            # implementation intact and supply only its config/source inputs;
+            # each existing case is an independent explicit route selection.
+            stubs += '\n#include <cmath>\n#include "' + (ROOT / "src/nr_processing_route.h").as_posix() + '"\n'
+            config = 'struct ChainConfig { bool enabled=true, identity_use_original=false, color_protection=true; float post_transfer_strength=1; int mode=2; };'
+            self.assertEqual(source_text.count(config), 1)
+            source_text = source_text.replace(config, config[:-2] + '''
+    float transfer_strength=1;
+    nr_processing::Start processing_start=nr_processing::Start::Before;
+    unsigned long long processing_selection=1;
+};''')
+            rr_include = '#include "' + (ROOT / "src/interop/nr_rr_post_runtime.inl").as_posix() + '"'
+            self.assertEqual(source_text.count(rr_include), 1)
+            source_text = source_text.replace(rr_include, '''
+namespace nr_source_runtime { unsigned long long CurrentRetryToken() { return 1; } }
+#include "''' + (ROOT / "src/nr_processing_runtime.inl").as_posix() + '"\n' + rr_include)
+            reset = 'g_config={}; g_config.mode=requested_mode;'
+            self.assertEqual(source_text.count(reset), 1)
+            source_text = source_text.replace(reset, reset + '''
+            g_config.processing_start=nr_processing::FromLegacy(requested_mode);
+            g_config.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+''')
             fixture.write_text(stubs + source_text, encoding="utf-8")
             for optimization in ("-O0", "-O2"):
                 suffix = ".exe" if os.name == "nt" else ""

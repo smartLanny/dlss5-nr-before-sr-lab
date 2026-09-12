@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Freeze and execute production route policy/runtime/gate and recovery/F8 boundaries on CPU."""
+"""Execute current production suffix plus retained route-proof/recovery/F8 CPU controls."""
 import argparse
 import hashlib
+import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,7 +37,9 @@ def main():
              'src/nr_resource_recovery.h', 'src/nr_resource_semantics.h', 'src/nr_native_format.h',
              'src/interop/nr_format_access.h', 'src/nr_compatibility_verdict.h',
              'src/nr_before_sr.cpp', 'src/nr_resource_recovery_runtime.inl',
-             'src/interop/nr_post_feedback.inl', 'tests/route_compatibility_runtime.cpp.in')
+             'src/interop/nr_post_feedback.inl', 'src/nr_processing_route.h', 'src/nr_processing_runtime.inl',
+             'src/nr_native_format_runtime.inl', 'src/nr_native_clear_request.h', 'src/nr_pre_fallback.h',
+             'tests/route_compatibility_runtime.cpp.in', 'tests/test_compat_route.py')
     source_root = args.source_root.resolve(strict=True)
     paths = {name: (ROOT if name.startswith('tests/') else source_root) / name for name in names}
     inputs = {name: path.read_bytes() for name, path in paths.items()}
@@ -54,13 +60,29 @@ def main():
     output.mkdir(parents=True)
     if receipt:
         (output / 'input-stage-receipt.json').write_bytes(receipt)
+    # D15 uses the processing Session for actual dispatch. Execute the exact
+    # frozen suffix, not the retired nr_route::Prepare orchestration wrapper.
+    # The latter remains below as a historical policy comparison; its proof,
+    # recovery and F8 observers are still connected to the production path.
+    spec=importlib.util.spec_from_file_location('current_suffix_contract',ROOT/'tests/test_compat_route.py')
+    suffix_test=importlib.util.module_from_spec(spec);spec.loader.exec_module(suffix_test)
+    suffix_test.ROOT=source_root;suffix_test.CORE=source_root/'src/nr_before_sr.cpp'
+    os.environ['COMPAT_ROUTE_TEST_CXX']=str(compiler)
+    stream=io.StringIO()
+    tested=unittest.TextTestRunner(stream=stream,verbosity=2).run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(suffix_test.CompatibilityRoute))
+    (output/'current-suffix.log').write_text(stream.getvalue(),encoding='utf-8')
+    print(stream.getvalue())
+    if not tested.wasSuccessful() or tested.skipped:
+        raise SystemExit('Current frozen production suffix contract did not pass.')
     result = {'schema': 1, 'status': 'running', 'inputs': {name: sha(data) for name, data in inputs.items()},
               'source_root': str(source_root), 'fixture_root': str(ROOT),
               'source_stage_manifest_path': str(receipt_path) if receipt else None,
               'source_stage_receipt_sha256': sha(receipt) if receipt else None,
               'source_stage_scope': receipt_metadata.get('scope') if receipt_metadata else None,
               'compiler_sha256': sha(compiler.read_bytes()), 'gpu_executed': False, 'nvidia_nr': False,
-              'scope': 'Actual route policy/runtime/prepare coordinator and extracted recovery/F8 producers; resource/native/NR boundaries scripted; real Win32 value locks.', 'runs': []}
+              'current_production_suffix_verified':True,
+              'scope': 'Current frozen ProcessEvaluate suffix and early guards; retained route proof/runtime/recovery/F8 observers, with historical Prepare comparison; resource/native/NR boundaries scripted; real Win32 value locks.', 'runs': []}
     controls = (
         ('production', None, None, None, 'ROUTE_CPU PASS'),
         ('unknown-pre-is-not-rejection', 'src/nr_route_compatibility.h',
@@ -96,8 +118,10 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value, encoding='utf-8')
         core = text_inputs['src/nr_before_sr.cpp']
-        if 'nr_route::Prepare(before_sr, after_sr,' not in core:
-            raise SystemExit('The tested prepare gate is not connected to ProcessEvaluate.')
+        for anchor in ('nr_processing_runtime::CarrierScope processing_carrier;',
+                       'NrRouteCarrierScope route_carrier(params, feature);',
+                       'NrRouteAttemptPost();','NrRoutePostPrepared(after_sr.active,'):
+            if anchor not in core:raise SystemExit('Current route observer/dispatch disconnected: '+anchor)
         feedback = text_inputs['src/interop/nr_post_feedback.inl']
         start = feedback.index('    const auto route=SnapshotNrRoute();')
         feedback = feedback[start:feedback.index('#endif', start)]

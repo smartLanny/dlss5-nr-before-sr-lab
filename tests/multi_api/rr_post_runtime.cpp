@@ -2,6 +2,7 @@
 // No Windows/NGX or game-runtime claim. Checks ordering, exact native result,
 // no retry, retained feature identity, and requested Mode2 never overwritten.
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +21,7 @@
 #define LeaveCriticalSection RrTestLeaveCriticalSection
 #endif
 #include "src/interop/nr_post_compat.h"
+#include "src/nr_processing_route.h"
 using NgxResult=std::int32_t;
 struct ID3D12GraphicsCommandList{};struct NgxHandle{};struct NgxParams{};
 #if defined(NR_RR_TIMING_TEST)
@@ -40,7 +42,12 @@ struct FeatureRecord{const NgxHandle* handle=nullptr;int feature_id=-1;unsigned 
 void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
 using EvaluateFeatureFn=NgxResult(*)(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*);
 constexpr NgxResult kNgxSuccess=1;
-struct Config{bool enabled=true,identity_use_original=false;int mode=2;float post_transfer_strength=1;} g_config;
+struct Config{
+ bool enabled=true,identity_use_original=false;int mode=2;float post_transfer_strength=1,transfer_strength=1;
+ nr_processing::Start processing_start=nr_processing::Start::Before;
+ unsigned long long processing_selection=1;
+} g_config;
+std::atomic<unsigned long long> g_history_generation{0};
 std::atomic<int> g_last_carrier_feature{-1};std::atomic<bool> g_rr_guard_was_active{false};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{0},g_pipeline_eligible_carriers{0};
 std::atomic<bool> g_feature_tracking_uncertain{false},g_lifecycle_tracking_uncertain{false};
@@ -126,6 +133,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList*,const NgxParams*,const FeatureReco
 FeatureRecord FindFeature(const NgxHandle*){return current;}
 void QuarantineAbortedRrTransactionLocked(ID3D12GraphicsCommandList*){++quarantines;}
 void Log(const char*,...){}
+// Use the actual sticky route implementation. Only the source identity input
+// is a fixture value; this test does not observe native frame ownership.
+namespace nr_source_runtime {unsigned long long CurrentRetryToken(){return 1;}}
+#include "src/nr_processing_runtime.inl"
 #include "src/interop/nr_rr_post_runtime.inl"
 NgxResult Native(ID3D12GraphicsCommandList* c,const NgxHandle* h,const NgxParams* p,void* cb){
  ++native_calls;CHECK(c==&command&&h==&handle&&p==&params&&cb==&callback);
@@ -148,6 +159,8 @@ void Reset(){
  nr_dual_runtime::stamp_calls=0;
  native_calls=finishes=prepares=quarantines=scopes=restores=stage=chain_depth=gate_depth=0;
  current={&handle,13,7};result=1;g_config={};g_config.mode=2;
+ // Reset separates independent cases through the public selection contract.
+ g_config.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
  g_feature_tracking_uncertain=false;g_lifecycle_tracking_uncertain=false;
  g_rr_ownership_gate_owner=0;concurrent_aborts=0;
  nr_post_settings::options={};nr_post_settings::rr_recorded=0;

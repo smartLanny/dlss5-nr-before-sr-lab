@@ -22,6 +22,21 @@ struct NrRecoveryCarrierScope {
 };
 void NrRecoveryRetireFeature(unsigned long long) {}
 void NrPrepareFormatObservation(ID3D12GraphicsCommandList *) {}
+struct FeatureRecord;
+namespace nr_source_runtime {
+// Source ownership and GPU transport have independent production hosts. This
+// lifecycle fixture supplies their boundary result and records calls; it does
+// not claim to simulate those modules or manufacture a valid source frame.
+std::atomic<NgxResult> injected_fatal{0}, finished_result{0};
+std::atomic<unsigned int> evaluate_entries{0}, finishes{0}, retirements{0};
+void RetireFeature(const NgxHandle *, unsigned long long) { ++retirements; }
+struct EvaluateScope {
+    EvaluateScope(ID3D12GraphicsCommandList *, const NgxHandle *,
+                  const NgxParams *, const FeatureRecord &) { ++evaluate_entries; }
+    NgxResult FatalResult() const { return injected_fatal.load(); }
+    void Finish(NgxResult result) { finished_result=result; ++finishes; }
+};
+}
 namespace nr_post_settings {
 struct Snapshot { bool rr=false; };
 Snapshot Read() { return {}; } // This lifecycle fixture records no RR rendering.
@@ -159,6 +174,8 @@ void Reset() {
     g_enabled_fast=true;g_generic_renodx_conflict=false;g_shortfuse_nr_enabled=false;
     nr_dual_runtime::fatal_carrier.store(nullptr,std::memory_order_release);
     nr_dual_runtime::fatal_result.store(0,std::memory_order_release);
+    nr_source_runtime::injected_fatal=0;nr_source_runtime::finished_result=0;
+    nr_source_runtime::evaluate_entries=0;nr_source_runtime::finishes=0;nr_source_runtime::retirements=0;
     native_evals=native_releases=plugin_attempts=0;retired.clear();
     create_fails=outer_fails=null_create=alias_pointer=nested_create=cross_list=false;
     nested_release=nested_evaluate=second_child=release_recreates=false;
@@ -175,9 +192,12 @@ int main() {
     Check(HookCoreEvaluate(&list,&inner_handle,&params,nullptr)==0xCAFE && native_evals==1 && plugin_attempts==1 && !g_feature_tracking_uncertain,"direct core alias reaches native once and known admission");
     nested_evaluate=true; native_evals=plugin_attempts=0;
     Check(HookEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==1 && plugin_attempts==1,"nested Evaluate only one plugin admission");
+    Check(nr_source_runtime::evaluate_entries==2 && nr_source_runtime::finishes==2 &&
+          nr_source_runtime::finished_result==0xCAFE,"nested Evaluate owns one source boundary and preserves its native result");
     g_contexts[0]={h,a.generation,false};
     nested_release=true;
     Check(HookRelease(h)==kNgxSuccess && Live()==0 && native_releases==2,"both observed Release layers retired");
+    Check(nr_source_runtime::retirements==2,"both native lifecycle releases notify source retirement");
     Check(g_ngx_pending_retirement_count==1 && !g_contexts[0].retired,"Release queues one canonical retirement without the chain lock");
     EnterCriticalSection(&g_chain_cs);DrainNgxFeatureRetirementsLocked();LeaveCriticalSection(&g_chain_cs);
     Check(g_contexts[0].retired && g_ngx_pending_retirement_count==0,"actual collector retires matching canonical generation");
@@ -255,6 +275,17 @@ int main() {
     Check(HookCoreEvaluate(&list,fatal_handle,&params,nullptr)==0xBADC0DEu &&
           native_evals==native_before_fatal && g_external_nr_handles==0,
           "fatal early guard returns exact status without an extra native Evaluate or external owner");
+    Reset(); HookCoreCreate(&list,1,&params,&h);
+    nr_source_runtime::injected_fatal=0xBADF011u;
+    Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xBADF011u && native_evals==0 &&
+          plugin_attempts==0 && nr_source_runtime::finishes==1 &&
+          nr_source_runtime::finished_result==0xBADF011u && !g_inside_ngx_evaluate,
+          "SOURCE_FATAL_ORACLE: pre-consumer fatal closes dispatch without native Evaluate and restores nesting");
+    g_enabled_fast=false;
+    const auto source_entries_before_disabled=nr_source_runtime::evaluate_entries.load();
+    Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==1 &&
+          nr_source_runtime::evaluate_entries==source_entries_before_disabled,
+          "disabled dispatch performs no source-boundary work");
     Reset(); {
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate bridge(NgxLayer::PrivateBridge,&list,18,&params);
