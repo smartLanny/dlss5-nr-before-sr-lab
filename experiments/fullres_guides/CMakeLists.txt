@@ -42,3 +42,12 @@ if(NR_OF_BUILD_ADDON)
   set_target_properties(nr_fullres_guides PROPERTIES PREFIX "" SUFFIX ".addon64")
   # No Core package, NVIDIA runtime, Manager payload, installer or automatic deployment.
 endif()
+
+add_executable(fullres_geometry_tests test_geometry.cpp)
+target_compile_features(fullres_geometry_tests PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(fullres_geometry_tests PRIVATE /W4 /WX)
+else()
+  target_compile_options(fullres_geometry_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME fullres_geometry COMMAND fullres_geometry_tests)

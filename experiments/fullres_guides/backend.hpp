@@ -1,5 +1,5 @@
 #pragma once
-#include "policy.hpp"
+#include "geometry.hpp"
 #include <d3d12.h>
 #include <memory>
 #include <string>
@@ -11,11 +11,11 @@ struct Result {
     bool reset = true;
     std::uint32_t grid = 0;
 };
-// One in-flight sample, no hidden input resizing and no vendor-to-vendor retry.
+// One in-flight sample, only explicit 100%/50% input sizing and no vendor-to-vendor retry.
 // This probe does NOT call Feature18, SR, FG, or replace the existing Core.
 class Session {
 public:
-    Session(ID3D12Device *device, Backend backend, Extent extent);
+    Session(ID3D12Device *device, Backend backend, Extent extent, FlowScale scale = FlowScale::full);
     ~Session();
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
@@ -26,6 +26,8 @@ public:
     const char *status() const noexcept;
     Backend backend() const noexcept;
     Extent extent() const noexcept;
+    Extent flow_extent() const noexcept;
+    FlowScale scale() const noexcept;
     // Caller records source->snapshot on its OWN known ReShade list. Snapshot
     // enters and leaves each complete sample in COPY_DEST. Never pass a game
     // resource into a private queue. Mark before recording even the first copy.

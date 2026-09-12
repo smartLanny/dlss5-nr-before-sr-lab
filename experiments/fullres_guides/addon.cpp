@@ -21,7 +21,7 @@ HMODULE self=nullptr;
 std::mutex state_mutex;
 struct State {
     bool enabled=false, sdr_confirmed=false, unavailable=false, captured_this_effects=false;
-    int method=1, preview=0;
+    int method=1, preview=0, scale_percent=100;
     uint64_t stream=0,epoch=1,frame=0,signal=0,shown=0,reference=0;
     bool depth_binding=false;
     uint32_t depth_width=0,depth_height=0,grid=0;
@@ -73,17 +73,23 @@ void overlay(api::effect_runtime* r) {
     if(!lock.owns_lock())return;
     auto& s=state(r);
     ImGui::TextUnformatted("Full-resolution guide experiment / 输入实验");
-    ImGui::TextWrapped("AMDOF / NVOF on the exact captured image. No OF input resize. This probe does NOT feed D14 NR yet.");
+    ImGui::TextWrapped("AMDOF / NVOF, 100% or 50% OF input. NR Color and Depth are not resized. This probe does NOT feed D14 NR yet.");
     bool history_changed=ImGui::Checkbox("Enable input probe (experimental)",&s.enabled);
     bool changed=history_changed;
     history_changed|=ImGui::Checkbox("SDR source, Core NR OFF and FG OFF (guide-only test)",&s.sdr_confirmed);
     changed|=history_changed;
     int choice=s.method-1;
     if(ImGui::Combo("Synthetic motion",&choice,"AMDOF (FidelityFX)\0NVOF (NVIDIA)\0")){s.method=choice+1;changed=true;}
+    int scale_choice=s.scale_percent==50?1:0;
+    if(ImGui::Combo("OF input resolution",&scale_choice,"100% (reference)\0" "50% (performance experiment)\0")) {
+        s.scale_percent=scale_choice==1?50:100; history_changed=true; changed=true;
+    }
     changed|=ImGui::Combo("Preview",&s.preview,"Original\0Motion XY / magnitude\0Generic Depth (raw)\0");
     ImGui::TextWrapped("Native priority is preserved in the original Core. Enabling this standalone probe explicitly computes synthetic motion for comparison; it does not select the Core's guides.");
     ImGui::Text("Full input: %u x %u; motion grid: %u",
         s.session?s.session->extent().width:0,s.session?s.session->extent().height:0,s.grid);
+    ImGui::Text("OF input: %u x %u; requested scale: %d%%",
+        s.session?s.session->flow_extent().width:0,s.session?s.session->flow_extent().height:0,s.scale_percent);
     ImGui::Text("Last completed pair: %llu -> %llu; capture age: %llu",
         static_cast<unsigned long long>(s.shown),static_cast<unsigned long long>(s.reference),
         static_cast<unsigned long long>(s.shown?s.frame-s.shown:0));
@@ -142,14 +148,14 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
         }
         auto* native_queue=reinterpret_cast<ID3D12CommandQueue*>(queue->get_native());
         const auto backend=static_cast<Backend>(s.method);
-        if(s.session && (!(s.session->extent()==e) || s.session->backend()!=backend || s.producer_queue.Get()!=native_queue)) {
+        if(s.session && (!(s.session->extent()==e) || s.session->backend()!=backend || s.session->scale()!=static_cast<FlowScale>(s.scale_percent) || s.producer_queue.Get()!=native_queue)) {
             set_int(r,"NRGuideReady",0);
-            if(!retire(s)){s.status="Draining old exact queue/fences before backend/extent change; no replacement yet.";return;}
+            if(!retire(s)){s.status="Draining old exact queue/fences before backend/scale/extent change; no replacement yet.";return;}
         }
         if(!s.session) {
             pin_module();
             auto* native_device=reinterpret_cast<ID3D12Device*>(device->get_native());
-            s.session=std::make_unique<Session>(native_device,backend,e);
+            s.session=std::make_unique<Session>(native_device,backend,e,static_cast<FlowScale>(s.scale_percent));
             if(!s.session->initialized()){report(s,s.session->status());options(r,s);return;}
             const auto h=native_device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&s.producer));
             if(FAILED(h)){report(s,"Source fence could not be created.");options(r,s);return;}
@@ -180,7 +186,7 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
             report(s,s.session->status());options(r,s);return;
         }
         set_int(r,"NRGuideReady",s.shown?1:0);
-        s.status="Full-resolution capture submitted. Preview contains the last completed pair; NR integration still pending.";
+        s.status="Capture submitted at the selected OF scale. Preview contains the last completed pair; NR integration still pending.";
     }catch(const std::exception& e){if(s.session)s.session->poison(e.what());report(s,e.what());options(r,s);}
     catch(...){if(s.session)s.session->poison("Unexpected capture error");report(s,"Unexpected capture error; experiment stopped.");options(r,s);}
 }
@@ -201,7 +207,7 @@ void destroyed(api::effect_runtime* r) {
 }
 }
 extern "C" __declspec(dllexport) const char *NAME="NR FullRes Guides (unverified experiment)";
-extern "C" __declspec(dllexport) const char *DESCRIPTION="D14 companion input probe: AMD/NVIDIA full-resolution optical flow and Generic Depth preview. No NR integration.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION="D14 companion input probe: AMD/NVIDIA 100% or 50% optical flow and Generic Depth preview. No NR integration.";
 BOOL APIENTRY DllMain(HMODULE module,DWORD reason,LPVOID) {
     if(reason==DLL_PROCESS_ATTACH) {
         self=module;

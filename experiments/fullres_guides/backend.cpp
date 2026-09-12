@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include "backend.hpp"
+#include "shader_source.hpp"
 #include <windows.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -42,35 +43,14 @@ ComPtr<ID3D12Resource> texture(ID3D12Device *device, Extent size, DXGI_FORMAT fo
         nullptr, IID_PPV_ARGS(&result)), "texture allocation failed (full extent retained)");
     return result;
 }
-// Deliberately identical pixel coordinates: NO resampling/downsampling here.
-// Motion is a block estimate expanded at its native units, not extra motion detail.
-constexpr char shader[] = R"hlsl(
-cbuffer Params : register(b0) { uint Width; uint Height; uint Grid; uint Reset; float Unit; };
-#ifdef PREP
-Texture2D<float4> Source : register(t0);
-RWTexture2D<float> Luma : register(u0);
-[numthreads(8,8,1)] void CS(uint3 p : SV_DispatchThreadID) {
-    if (p.x >= Width || p.y >= Height) return;
-    float3 c = saturate(Source.Load(int3(p.xy,0)).rgb);
-    Luma[p.xy] = dot(c, float3(0.2126, 0.7152, 0.0722));
-}
-#else
-Texture2D<int2> Raw : register(t0);
-RWTexture2D<float2> Flow : register(u0);
-[numthreads(8,8,1)] void CS(uint3 p : SV_DispatchThreadID) {
-    if (p.x >= Width || p.y >= Height) return;
-    float2 v = 0;
-    if (Reset == 0) v = float2(Raw.Load(int3(p.xy / Grid,0))) * Unit;
-    Flow[p.xy] = v;
-}
-#endif
-)hlsl";
 struct Pass {
     ComPtr<ID3D12RootSignature> root;
     ComPtr<ID3D12PipelineState> pso;
     ComPtr<ID3D12DescriptorHeap> heap;
     UINT stride = 0;
-    void create(ID3D12Device *device, bool prep) {
+    bool preparation = false;
+    void create(ID3D12Device *device, bool prep, bool rgba = false) {
+        preparation = prep;
         D3D12_DESCRIPTOR_RANGE ranges[2]{};
         ranges[0] = {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, 0};
         ranges[1] = {D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0, 1};
@@ -78,14 +58,14 @@ struct Pass {
         params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[0].DescriptorTable = {2, ranges};
         params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        params[1].Constants = {0, 0, 5};
+        params[1].Constants = {0, 0, 8};
         D3D12_ROOT_SIGNATURE_DESC desc{};
         desc.NumParameters = 2; desc.pParameters = params;
         ComPtr<ID3DBlob> blob, errors;
         hr(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &errors), "root signature");
         hr(device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&root)), "root creation");
-        D3D_SHADER_MACRO macros[] = {{"PREP", "1"}, {nullptr, nullptr}};
-        hr(D3DCompile(shader, sizeof(shader)-1, "nr-fullres-guide-conversion", prep ? macros : nullptr,
+        D3D_SHADER_MACRO macros[] = {{"PREP", "1"}, {rgba ? "PREP_RGBA" : nullptr, "1"}, {nullptr, nullptr}};
+        hr(D3DCompile(guide_shader, sizeof(guide_shader)-1, "nr-fullres-guide-conversion", prep ? macros : nullptr,
             nullptr, "CS", "cs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &blob, &errors), "conversion shader compile");
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
         pd.pRootSignature = root.Get(); pd.CS = {blob->GetBufferPointer(), blob->GetBufferSize()};
@@ -108,14 +88,14 @@ struct Pass {
         uav.Format = dst_format; uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         device->CreateUnorderedAccessView(dst, nullptr, &uav, h);
     }
-    void run(ID3D12GraphicsCommandList *list, Extent size, UINT grid, bool reset, float unit) {
-        struct Constants { UINT w, h, grid, reset; float unit; } c{size.width,size.height,grid,reset?1u:0u,unit};
-        static_assert(sizeof(c) == 20);
+    void run(ID3D12GraphicsCommandList *list, Geometry geometry, Backend backend, UINT grid, bool reset) {
+        const auto c = shader_constants(geometry, backend, grid, reset);
+        const auto size = preparation ? geometry.flow : geometry.source;
         ID3D12DescriptorHeap *heaps[]{heap.Get()};
         list->SetDescriptorHeaps(1, heaps); list->SetComputeRootSignature(root.Get());
         list->SetPipelineState(pso.Get());
         list->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
-        list->SetComputeRoot32BitConstants(1,5,&c,0);
+        list->SetComputeRoot32BitConstants(1,8,&c,0);
         list->Dispatch(grid_extent(size.width,8),grid_extent(size.height,8),1);
     }
 };
@@ -127,10 +107,10 @@ struct Session::Impl {
     ComPtr<ID3D12CommandAllocator> prep_alloc, finish_alloc;
     ComPtr<ID3D12GraphicsCommandList> prep_list, finish_list;
     ComPtr<ID3D12Fence> done, prep_done, of_done, registered, producer;
-    ComPtr<ID3D12Resource> snapshot, raw, dense, scd;
+    ComPtr<ID3D12Resource> snapshot, raw, dense, scd, amd_input;
     std::array<ComPtr<ID3D12Resource>,2> luma;
     Pass convert, prepare;
-    Backend selected; Extent size;
+    Backend selected; Extent size; FlowScale requested_scale; Geometry dimensions;
     History history; Result last{};
     std::unique_ptr<FfxOpticalflowContext> amd;
     bool amd_created = false;
@@ -145,7 +125,7 @@ struct Session::Impl {
     bool ready=false, failed=false, capture_unpublished=false, execution_unpublished=false;
     bool registration_unresolved=false;
     std::string message="not initialized";
-    explicit Impl(Backend b, Extent e):selected(b),size(e) {}
+    explicit Impl(Backend b, Extent e, FlowScale scale):selected(b),size(e),requested_scale(scale),dimensions(geometry(e,scale)) {}
     bool idle() const noexcept {
         return !failed && !execution_unpublished && (!done_value || completed(done->GetCompletedValue(),done_value));
     }
@@ -191,7 +171,7 @@ struct Session::Impl {
         registration_unresolved=false;
     }
     void init(ID3D12Device *d) {
-        require(d && size.valid() && valid_backend(selected),"invalid device/backend/extent");
+        require(d && dimensions.valid() && valid_backend(selected) && valid_scale(requested_scale),"invalid device/backend/extent");
         require(size.width<=16384 && size.height<=16384,"D3D12 extent limit; no automatic resize");
         // This experiment puts an explicit budget on its own planes, not total SDK VRAM.
         require(uint64_t(size.width)*size.height<=16777216ull,"full-resolution plane budget exceeded; no downsample fallback");
@@ -209,14 +189,19 @@ struct Session::Impl {
             hr(d->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL,&sm,sizeof(sm)),"AMD OF shader model query");
             hr(d->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1,&caps,sizeof(caps)),"AMD OF wave query");
             require(sm.HighestShaderModel>=D3D_SHADER_MODEL_6_2 && caps.WaveOps,"AMD OF requires SM6.2 and wave operations");
-            require(size.width>=128 && size.height>=128,"AMD OF pyramid requires a larger source; input is not resized");
+            require(dimensions.flow.width>=128 && dimensions.flow.height>=128,"Selected AMD OF input is below the probe minimum; no automatic scale change");
             scratch.resize(ffxGetScratchMemorySizeDX12(FFX_OPTICALFLOW_CONTEXT_COUNT));
             FfxOpticalflowContextDescription description{};
-            description.resolution={size.width,size.height}; // Exact source extent, never a quality cap.
+            description.resolution={dimensions.flow.width,dimensions.flow.height}; // Only the explicit 100/50 selection.
             require(ffxGetInterfaceDX12(&description.backendInterface,ffxGetDeviceDX12(d),scratch.data(),scratch.size(),FFX_OPTICALFLOW_CONTEXT_COUNT)==FFX_OK,"FFX DX12 interface");
             amd=std::make_unique<FfxOpticalflowContext>();
             require(ffxOpticalflowContextCreate(amd.get(),&description)==FFX_OK,"FFX optical flow context");
             amd_created=true;
+            if (requested_scale == FlowScale::half) {
+                amd_input=texture(d,dimensions.flow,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,write);
+                prepare.create(d,true,true);
+                prepare.bind(d,snapshot.Get(),DXGI_FORMAT_R8G8B8A8_UNORM,amd_input.Get(),DXGI_FORMAT_R8G8B8A8_UNORM);
+            }
             scd=texture(d,{3,1},DXGI_FORMAT_R32_UINT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,write);
         } else {
             nv_module=LoadLibraryExW(L"nvofapi64.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -236,7 +221,7 @@ struct Session::Impl {
             for (UINT candidate : {1u,2u,4u}) if(std::find(grids.begin(),grids.end(),candidate)!=grids.end()){grid=candidate;break;}
             require(grid!=0,"NVOF has no supported output grid");
             NV_OF_INIT_PARAMS p{};
-            p.width=size.width; p.height=size.height;
+            p.width=dimensions.flow.width; p.height=dimensions.flow.height;
             p.outGridSize=static_cast<NV_OF_OUTPUT_VECTOR_GRID_SIZE>(grid);
             p.hintGridSize=NV_OF_HINT_VECTOR_GRID_SIZE_UNDEFINED;
             p.mode=NV_OF_MODE_OPTICALFLOW; p.perfLevel=NV_OF_PERF_LEVEL_SLOW;
@@ -244,21 +229,21 @@ struct Session::Impl {
             p.disparityRange=NV_OF_STEREO_DISPARITY_RANGE_UNDEFINED;
             p.enableRoi=NV_OF_FALSE; p.predDirection=NV_OF_PRED_DIRECTION_FORWARD;
             p.enableGlobalFlow=NV_OF_FALSE; p.inputBufferFormat=NV_OF_BUFFER_FORMAT_GRAYSCALE8;
-            require(nv.nvOFInit(nv_session,&p)==NV_OF_SUCCESS,"NVOF rejected full extent/quality; no downsample fallback");
+            require(nv.nvOFInit(nv_session,&p)==NV_OF_SUCCESS,"NVOF rejected selected extent/quality; no automatic scale change");
             require(nv_format(NV_OF_BUFFER_USAGE_INPUT,DXGI_FORMAT_R8_UNORM) &&
                 nv_format(NV_OF_BUFFER_USAGE_OUTPUT,DXGI_FORMAT_R16G16_SINT),"NVOF required formats unavailable");
             prepare.create(d,true);
             for(size_t i=0;i<2;++i) {
-                luma[i]=texture(d,size,DXGI_FORMAT_R8_UNORM,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COMMON);
+                luma[i]=texture(d,dimensions.flow,DXGI_FORMAT_R8_UNORM,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COMMON);
                 register_nv(luma[i].Get(),luma_handle[i]);
             }
         }
-        raw=texture(d,{grid_extent(size.width,grid),grid_extent(size.height,grid)},DXGI_FORMAT_R16G16_SINT,
+        raw=texture(d,{grid_extent(dimensions.flow.width,grid),grid_extent(dimensions.flow.height,grid)},DXGI_FORMAT_R16G16_SINT,
             selected==Backend::amd?D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS:D3D12_RESOURCE_FLAG_NONE,
             selected==Backend::amd?write:D3D12_RESOURCE_STATE_COMMON);
         if(selected==Backend::nvidia) register_nv(raw.Get(),raw_handle);
         convert.bind(d,raw.Get(),DXGI_FORMAT_R16G16_SINT,dense.Get(),DXGI_FORMAT_R32G32_FLOAT);
-        ready=true; message="ready; exact full-size input; no NR/SR/FG connected";
+        ready=true; message="ready; explicit 100/50 OF input; no NR/SR/FG connected";
     }
     bool cleanup() noexcept {
         if(amd_created) { if(ffxOpticalflowContextDestroy(amd.get())!=FFX_OK)return false; amd_created=false; }
@@ -279,7 +264,7 @@ struct Session::Impl {
     }
 };
 
-Session::Session(ID3D12Device *device, Backend b, Extent size):p_(std::make_unique<Impl>(b,size)) {
+Session::Session(ID3D12Device *device, Backend b, Extent size, FlowScale scale):p_(std::make_unique<Impl>(b,size,scale)) {
     try {p_->init(device);} catch(const std::exception& e){p_->message=e.what();p_->ready=false;}
 }
 Session::~Session() {
@@ -294,6 +279,8 @@ bool Session::faulted() const noexcept{return !p_ || p_->failed;}
 const char* Session::status() const noexcept{return p_?p_->message.c_str():"no session";}
 Backend Session::backend() const noexcept{return p_->selected;}
 Extent Session::extent() const noexcept{return p_->size;}
+Extent Session::flow_extent() const noexcept{return p_->dimensions.flow;}
+FlowScale Session::scale() const noexcept{return p_->requested_scale;}
 ID3D12Resource* Session::snapshot() const noexcept{return p_->snapshot.Get();}
 void Session::mark_capture_recorded() noexcept {p_->capture_unpublished=true;}
 void Session::poison(const char *reason) noexcept {p_->fault(reason);}
@@ -315,18 +302,25 @@ bool Session::submit(ID3D12Fence *producer,uint64_t value,const Frame& frame) no
         auto* list=p.prep_list.Get();
         barrier(list,p.snapshot.Get(),D3D12_RESOURCE_STATE_COPY_DEST,read);
         if(p.selected==Backend::amd) {
+            auto* input=p.snapshot.Get();
+            if(p.amd_input) {
+                p.prepare.run(list,p.dimensions,p.selected,1,false);
+                barrier(list,p.amd_input.Get(),write,read);
+                input=p.amd_input.Get();
+            }
             FfxOpticalflowDispatchDescription job{};
             job.commandList=ffxGetCommandListDX12(list);
-            job.color=ffxGetResourceDX12(p.snapshot.Get(),ffxGetResourceDescriptionDX12(p.snapshot.Get()),L"Full-size SDR source",FFX_RESOURCE_STATE_COMPUTE_READ);
+            job.color=ffxGetResourceDX12(input,ffxGetResourceDescriptionDX12(input),L"Selected OF SDR input",FFX_RESOURCE_STATE_COMPUTE_READ);
             job.opticalFlowVector=ffxGetResourceDX12(p.raw.Get(),ffxGetResourceDescriptionDX12(p.raw.Get()),L"AMD block flow",FFX_RESOURCE_STATE_UNORDERED_ACCESS);
             job.opticalFlowSCD=ffxGetResourceDX12(p.scd.Get(),ffxGetResourceDescriptionDX12(p.scd.Get()),L"AMD scene cut",FFX_RESOURCE_STATE_UNORDERED_ACCESS);
             job.reset=pair.reset;job.backbufferTransferFunction=0;job.minMaxLuminance={0,1};
             require(ffxOpticalflowContextDispatch(p.amd.get(),&job)==FFX_OK,"AMD OF dispatch failed; session latched");
+            if(p.amd_input)barrier(list,p.amd_input.Get(),read,write);
         } else {
             const auto i=p.current_luma;
             p.prepare.bind(p.device.Get(),p.snapshot.Get(),DXGI_FORMAT_R8G8B8A8_UNORM,p.luma[i].Get(),DXGI_FORMAT_R8_UNORM);
             barrier(list,p.luma[i].Get(),D3D12_RESOURCE_STATE_COMMON,write);
-            p.prepare.run(list,p.size,1,false,1);
+            p.prepare.run(list,p.dimensions,p.selected,1,false);
             barrier(list,p.luma[i].Get(),write,D3D12_RESOURCE_STATE_COMMON);
         }
         barrier(list,p.snapshot.Get(),read,D3D12_RESOURCE_STATE_COPY_DEST);
@@ -352,7 +346,7 @@ bool Session::submit(ID3D12Fence *producer,uint64_t value,const Frame& frame) no
         const auto raw_state=p.selected==Backend::amd?write:D3D12_RESOURCE_STATE_COMMON;
         barrier(list,p.raw.Get(),raw_state,read);
         barrier(list,p.dense.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,write);
-        p.convert.run(list,p.size,p.grid,pair.reset,p.selected==Backend::amd?1.0f:1.0f/32.0f);
+        p.convert.run(list,p.dimensions,p.selected,p.grid,pair.reset);
         barrier(list,p.dense.Get(),write,D3D12_RESOURCE_STATE_COPY_SOURCE);
         barrier(list,p.raw.Get(),read,raw_state);
         hr(list->Close(),"finish close");lists[0]=list;
