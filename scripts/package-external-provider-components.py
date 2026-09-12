@@ -222,11 +222,11 @@ def prepare(input_root: Path, output_root: Path, source_commit: str) -> None:
         raise ValueError("The retained legacy input does not contain ReShade64.dll")
 
     entries = [
-        ("feeder-stable-external-of-r2", "feeder-stable-external-of-r1", "0.15.1", "stable-optical-flow-amd-static", ["dx12"],
-         ["same-frame-output", "integrated-amd-of-100-50", "nvof-source-present"]),
-        ("feeder-preview-external-of-r2", "feeder-preview-external-of-r1", "1.16.0-beta.1", "preview-optical-flow-amd-static", ["dx12"],
-         ["same-frame-output", "integrated-amd-of-100-50", "nvof-source-present"]),
-        ("feeder-legacy-host-d15-r2", "feeder-legacy-host-d15-r1", "0.15.1-d15-adapter-r2", "legacy-ipc-v9", ["dx9", "dx10", "dx11", "dx12"],
+        ("feeder-stable-external-of-r3", "feeder-stable-external-of-r1", "0.15.1", "stable-optical-flow-amd-static", ["dx12"],
+         ["same-frame-output", "single-owner-optical-flow", "integrated-amd-of-100-50"]),
+        ("feeder-preview-external-of-r3", "feeder-preview-external-of-r1", "1.16.0-beta.1", "preview-optical-flow-amd-static", ["dx12"],
+         ["same-frame-output", "single-owner-optical-flow", "integrated-amd-of-100-50"]),
+        ("feeder-legacy-host-d16-r3", "feeder-legacy-host-d15-r1", "0.15.1-d16-adapter-r3", "legacy-ipc-v9", ["dx9", "dx10", "dx11", "dx12"],
          ["same-frame-output", "ipc-exact-frame-completion", "host-vort-guides"]),
     ]
     index = []
