@@ -48,14 +48,18 @@ Resource ResourceOf(ID3D12Resource* resource) {
 struct Rect {unsigned x=0,y=0,width=0,height=0;};
 struct NativeInputs {
     Source source{};
-    ID3D12Resource *color=nullptr,*depth=nullptr,*motion=nullptr,*hudless=nullptr,*ui=nullptr,*ui_alpha=nullptr,*distortion=nullptr;
-    Rect color_rect{},depth_rect{},motion_rect{},hudless_rect{};
+    ID3D12Resource *color=nullptr,*depth=nullptr,*motion=nullptr,*output=nullptr,*hudless=nullptr,*ui=nullptr,*ui_alpha=nullptr,*distortion=nullptr;
+    Rect color_rect{},depth_rect{},motion_rect{},output_rect{},hudless_rect{};
     float motion_scale_x=0,motion_scale_y=0,jitter_x=0,jitter_y=0;
     bool motion_scale_known=false,jitter_known=false,depth_inverted=false,hdr=false,reset=true,paused=false;
     bool fg=false,states_known=false;
+    // FG publishes normalized motion scales. External providers publish either
+    // normalized or source-pixel scales explicitly at the wire boundary.
+    bool motion_scale_normalized=false;
     // FG jitter is clip space and is deliberately not mislabeled source pixels.
     bool jitter_clip_space=false;
-    unsigned color_state=0,depth_state=0,motion_state=0;
+    unsigned color_state=0,depth_state=0,motion_state=0,output_state=0;
+    bool output_state_known=false;
     unsigned hudless_state=0,ui_state=0,ui_alpha_state=0;
     bool hudless_state_known=false,ui_state_known=false,ui_alpha_state_known=false;
     unsigned encoding=0;
@@ -152,6 +156,30 @@ Source ProducerSource(Id handle,Id epoch,Id supplied=0) {
     if(!stream||stream==UINT64_MAX)return {};
     *free={handle,epoch,supplied?supplied:1,stream};return {stream,epoch,supplied?supplied:1};
 }
+// External producers have two public identity axes. Map the pair to an internal
+// opaque handle instead of folding 64-bit values and accepting collisions.
+struct ExternalProducer {Id provider=0,view=0,epoch=0,handle=0;};
+ExternalProducer external_producers[64]{};
+Source PublishExternalSource(Id provider,Id view,Id epoch,Id frame,Id device) {
+    if(!provider||!view||!epoch||!frame||!device)return {};
+    Lock lock;ExternalProducer* free=nullptr;
+    for(auto& item:external_producers){
+        if(item.provider==provider&&item.view==view&&item.epoch==epoch){
+            ObserveNativeProducer(item.handle,epoch,device);
+            return ProducerSource(item.handle,epoch,frame);
+        }
+        if(!item.handle&&!free)free=&item;
+    }
+    if(!free)return {};
+    const auto handle=source_objects.fetch_add(1,std::memory_order_relaxed);
+    if(!handle||handle==UINT64_MAX)return {};
+    *free={provider,view,epoch,handle};ObserveNativeProducer(handle,epoch,device);
+    return ProducerSource(handle,epoch,frame);
+}
+void RetireExternalProvider(Id provider) {
+    if(!provider)return;Lock lock;
+    for(auto& item:external_producers)if(item.provider==provider){RetireProducer(item.handle,item.epoch);item={};}
+}
 // Streamline adapter publishes the API's public frame token value, not its
 // pointer and not a newly fabricated slGetNewFrameToken call.
 thread_local Source sl_source{},sl_present_source{};
@@ -193,7 +221,7 @@ Rect ReadRect(const NgxParams* params,ID3D12Resource* resource,const char* prefi
     return r;
 }
 NativeInputs ReadFgInputs(const NgxParams* params) {
-    NativeInputs input{};input.fg=true;input.jitter_clip_space=true;
+    NativeInputs input{};input.fg=true;input.jitter_clip_space=true;input.motion_scale_normalized=true;
     ReadFgResource(params,nr_fg_contract::backbuffer,input.color);ReadFgResource(params,nr_fg_contract::depth,input.depth);
     ReadFgResource(params,nr_fg_contract::motion,input.motion);ReadFgResource(params,nr_fg_contract::hudless,input.hudless);
     ReadFgResource(params,nr_fg_contract::ui,input.ui);ReadFgResource(params,nr_fg_contract::ui_alpha,input.ui_alpha);
@@ -243,7 +271,8 @@ NrGuideBinding FgGuides(const NativeInputs& input) {
     s.motion_bound_width=s.motion_source_width;s.motion_bound_height=s.motion_source_height;
     s.color_x=input.color_rect.x;s.color_y=input.color_rect.y;
     // Official FG scales normalize to [-1,1]; NR scales describe raster pixels.
-    s.motion_scale_x=input.motion_scale_x*input.color_rect.width;s.motion_scale_y=input.motion_scale_y*input.color_rect.height;
+    s.motion_scale_x=input.motion_scale_x*(input.motion_scale_normalized?input.color_rect.width:1u);
+    s.motion_scale_y=input.motion_scale_y*(input.motion_scale_normalized?input.color_rect.height:1u);
     g.has_motion_scale_x=g.has_motion_scale_y=g.valid_motion_scale_x=g.valid_motion_scale_y=true;
     s.depth_inverted=input.depth_inverted?1:0;s.normalized_create_flags=(input.hdr?1:0)|(input.depth_inverted?8:0);
     if(s.motion_source_width!=input.color_rect.width||s.motion_source_height!=input.color_rect.height)s.normalized_create_flags|=2;
@@ -285,7 +314,7 @@ struct EvaluateScope {
     EvaluateScope* previous=nullptr;ID3D12GraphicsCommandList* list=nullptr;
     ID3D12Resource *output=nullptr,*generated=nullptr,*real=nullptr;
     Source source{};Ticket ticket{};NativeInputs inputs{};Id retry_token=0;
-    int feature=0;bool active=false,finished=false,private_recorded=false;NgxResult fatal=0;
+    int feature=0;bool active=false,finished=false,private_recorded=false,defer_completion=false;NgxResult fatal=0;
     EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,int feature_id,Id generation)
         :previous(evaluation),list(commands),feature(feature_id) {
         if(previous||!commands||!handle||!params||!generation||(feature!=1&&feature!=13&&feature!=11))return;
@@ -330,6 +359,30 @@ struct EvaluateScope {
     }
     EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,const FeatureRecord& record)
         :EvaluateScope(commands,handle,params,record.feature_id,record.generation){}
+    // External frames enter the same source claim and retry state as native FG.
+    // The producer owns Execute/Signal, so a recorded ticket can be detached and
+    // completed only after its declared fence is actually observed.
+    EvaluateScope(ID3D12GraphicsCommandList* commands,Source external,const NativeInputs& native)
+        :previous(evaluation),list(commands),source(external),inputs(native),feature(0) {
+        if(previous||!commands||!source)return;
+        active=true;evaluation=this;
+        {Lock lock;retry_token=RetryToken(source);}
+        if(!retry_token){active=false;evaluation=previous;return;}
+        EnterCriticalSection(&g_chain_cs);nr_processing_runtime::Reconcile();
+        const bool enabled=nr_processing_runtime::work_enabled.load(std::memory_order_acquire);
+        if(enabled)
+            nr_processing_runtime::MissingInlineAtPresent(retry_token);
+        LeaveCriticalSection(&g_chain_cs);
+        if(!enabled){active=false;evaluation=previous;return;}
+        if(nr_processing_runtime::PresentSelected()){
+            Lock lock;if(ProducerActive(source)&&claims.Available(source)&&!claims.WasRecorded(source))
+                ticket=claims.Begin({source,Role::Application},Point::Present);
+        }
+    }
+    Ticket DeferRecordedCompletion(){
+        if(!active||!ticket||!private_recorded||fatal)return {};
+        defer_completion=true;return ticket;
+    }
     NgxResult FatalResult() const {return fatal;}
     void Finish(NgxResult result) {
         if(!active||finished)return;finished=true;Lock lock;
@@ -351,7 +404,7 @@ struct EvaluateScope {
         if(lineage.PendingList(recording))source_receipts_pending.store(true,std::memory_order_release);
     }
     ~EvaluateScope(){if(!active)return;Lock lock;
-        if(ticket){if(private_recorded)claims.RetainRecorded(ticket);else claims.RejectBeforeWork(ticket);}
+        if(ticket){if(private_recorded){if(!defer_completion)claims.RetainRecorded(ticket);}else claims.RejectBeforeWork(ticket);}
         evaluation=previous;
     }
 };

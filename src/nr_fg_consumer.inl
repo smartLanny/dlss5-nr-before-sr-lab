@@ -144,8 +144,13 @@ void Draw(Session& s,ID3D12GraphicsCommandList* list,ID3D12Resource* buffer,ID3D
     Transition(list,buffer,state,static_cast<D3D12_RESOURCE_STATES>(original_state));
 }
 #include "nr_fg_hud_runtime.inl"
-bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& original){
+bool ConsumeDetailed(ID3D12GraphicsCommandList* commands,const NativeInputs& original,bool* writeback){
+    if(writeback)*writeback=false;
     NativeInputs input=original;
+    auto* destination=original.output?original.output:original.color;
+    const auto destination_rect=original.output?original.output_rect:original.color_rect;
+    const unsigned destination_state=original.output?original.output_state:original.color_state;
+    const bool destination_state_known=original.output?original.output_state_known:original.states_known;
     const bool hudless=original.hudless!=nullptr;
     if(hudless){
         if(!original.hudless_state_known||!original.color||original.color==original.hudless){++unknown_inputs;return false;}
@@ -165,12 +170,15 @@ bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& original){
     // compute/bundle list must continue unchanged until a compute adapter exists.
     if(ID3D12GraphicsCommandList_GetType(commands)!=D3D12_COMMAND_LIST_TYPE_DIRECT){++unknown_inputs;return false;}
     if(input.distortion){++unknown_inputs;return false;}
-    if(!input.color||!input.depth||!input.motion||!input.states_known||!input.encoding||input.paused){++unknown_inputs;return false;}
-    const auto desc=ID3D12Resource_GetDesc(input.color);
+    if(!input.color||!input.depth||!input.motion||!destination||!input.states_known||!destination_state_known||!input.encoding||input.paused){++unknown_inputs;return false;}
+    const auto desc=ID3D12Resource_GetDesc(input.color),target_desc=ID3D12Resource_GetDesc(destination);
     const unsigned w=input.color_rect.width,h=input.color_rect.height;
     if(!w||!h||input.color_rect.x||input.color_rect.y||desc.Width!=w||desc.Height!=h||
        desc.DepthOrArraySize!=1||desc.MipLevels!=1||desc.SampleDesc.Count!=1||
-       (ID3D12Resource_GetDesc(original.color).Flags&D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)==0)return false;
+       destination_rect.x||destination_rect.y||destination_rect.width!=w||destination_rect.height!=h||
+       target_desc.Width!=w||target_desc.Height!=h||target_desc.Format!=desc.Format||
+       target_desc.DepthOrArraySize!=1||target_desc.MipLevels!=1||target_desc.SampleDesc.Count!=1||
+       (target_desc.Flags&D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)==0)return false;
     auto guides=nr_source_runtime::FgGuides(input);if(!guides.depth||guides.signature.linear_depth)return false;
     ScopedRrOwnershipGate ownership(true,true,true);if(!ownership.acquired()||ownership.is_nested())return false;
     EnterCriticalSection(&g_chain_cs);
@@ -184,7 +192,7 @@ bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& original){
     NativeCommandStateScope state(commands);if(!state.active)return false;auto* list=state.command_list;
     ID3D12Device* device=nullptr;if(FAILED(ID3D12GraphicsCommandList_GetDevice(list,IID_ID3D12Device,reinterpret_cast<void**>(&device)))||!device)return false;
     struct DeviceRelease {ID3D12Device*& device;~DeviceRelease(){ReleaseCom(device);}} device_release{device};
-    for(auto* resource:{input.color,input.depth,input.motion,original.color,original.ui_alpha}){if(!resource)continue;ID3D12Device* owner=nullptr;
+    for(auto* resource:{input.color,input.depth,input.motion,destination,original.ui_alpha}){if(!resource)continue;ID3D12Device* owner=nullptr;
         const bool same=SUCCEEDED(ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void**>(&owner)))&&IsSameRrDepthDevice(device,owner);
         ReleaseCom(owner);if(!same)return false;}
     if(!EnsureNrApi(device)||!EnsureCodec(device)){reject_build("fg-consumer-runtime-or-codec-not-ready");return false;}
@@ -192,7 +200,7 @@ bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& original){
     if(!BuildImages(*session,device,input,w,h)){ReleaseImages(*session);reject_build("fg-consumer-resource-build-failed");return false;}
     auto& s=*session;auto& c=s.images;
     if(hudless&&!BuildHud(s,original)){if(Idle(s)){RetireContextForHandle(Handle(s));ReleaseImages(s);}return false;}
-    auto* rtv=Rtv(s,original.color);if(!rtv)return false;
+    auto* rtv=Rtv(s,destination);if(!rtv)return false;
     auto* scene_rtv=hudless?Rtv(s,s.scene_encoded):nullptr;if(hudless&&!scene_rtv)return false;
     // Private producer sentinel, never registered as a Feature1 or used for a
     // native call. The existing Core still owns all Feature18 instances.
@@ -276,11 +284,12 @@ bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& original){
             ID3D12GraphicsCommandList_CopyResource(list,original.hudless,s.scene_encoded);
             Transition(list,original.hudless,state,static_cast<D3D12_RESOURCE_STATES>(original.hudless_state));
             DrawHud(s,list,original,rtv);
-        }else Draw(s,list,input.color,rtv,input.color_state);
+        }else Draw(s,list,destination,rtv,destination_state);
         ++adopted;nr_processing_runtime::Adopted(nr_processing::Start::Present);
         last_adopted_generation.store(g_config_generation.load(),std::memory_order_relaxed);
-        last_adopted_tick.store(GetTickCount64(),std::memory_order_release);}
+        last_adopted_tick.store(GetTickCount64(),std::memory_order_release);if(writeback)*writeback=true;}
     return true;
 }
+bool Consume(ID3D12GraphicsCommandList* commands,const NativeInputs& input){return ConsumeDetailed(commands,input,nullptr);}
 void Register(){nr_source_runtime::SetFgConsumer(Consume);}
 } // namespace nr_fg_runtime

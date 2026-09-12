@@ -61,6 +61,7 @@
 #include "nr_fg_contract.hpp"
 #include "nr_compat_present_policy.hpp"
 #include "nr_fg_hud_shader.h"
+#include "interop/nr_external_provider_feedback.h"
 #if NR_CODEC_PRECOMPILED
 #include "../build/nr_codec_precompiled.h"
 #endif
@@ -11610,7 +11611,9 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     // private-data traffic when no command list currently owns Feature 18
     // work. This is also the safe startup path for engines that submit many
     // bootstrap lists before creating DLSS Feature 1.
-    if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0) {
+    if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0 &&
+        !(g_enabled_fast.load(std::memory_order_acquire) &&
+          nr_external_provider_feedback::affinity_train.load(std::memory_order_acquire))) {
         original(queue, count, command_lists);
         nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
@@ -12196,7 +12199,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // the hot NGX path. Configuration polling happens from Present, so this
     // branch avoids parameter lookups, rendering locks, instrumentation and
     // GPU work; only a rate-limited bypass-state transition may be published.
+    const bool external_provider_owned=
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0;
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
+        external_provider_owned ||
         OtherNrOwnerActive() ||
         g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
@@ -12204,6 +12210,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
         if (!g_enabled_fast.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::MasterDisabled);
+        else if (external_provider_owned)
+            SetBypassReason(BypassReason::ExternalNrOwner);
         else if (OtherNrOwnerActive())
             SetBypassReason(OtherNrOwnerBypassReason());
         else if (g_module_rescan_in_progress.load(std::memory_order_relaxed))
@@ -12398,12 +12406,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         !g_config.identity_use_original &&
         ActiveTransferStrength(g_config) <= 0.000001f;
     if (!g_config.enabled || zero_transfer_native ||
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 ||
         OtherNrOwnerActive()) {
         SetBypassReason(!g_config.enabled
             ? BypassReason::MasterDisabled
-            : (OtherNrOwnerActive()
+            : (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_relaxed)!=0
+                ? BypassReason::ExternalNrOwner
+                : (OtherNrOwnerActive()
                 ? OtherNrOwnerBypassReason()
-                : BypassReason::None));
+                : BypassReason::None)));
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
                                                         std::memory_order_relaxed);
@@ -13035,12 +13046,16 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
     return status == MH_OK;
 }
 
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue);
 bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     if (queue == nullptr || queue->get_device() == nullptr ||
         queue->get_device()->get_api() != reshade::api::device_api::d3d12)
         return true;
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
+    return EnsureNativeQueueExecuteHookForNative(native_queue);
+}
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue) {
     if (native_queue == nullptr) return false;
     const D3D12_COMMAND_QUEUE_DESC queue_desc =
         ID3D12CommandQueue_GetDesc(native_queue);
@@ -14812,6 +14827,7 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 }
 #include "nr_fg_consumer.inl"
 #include "nr_fg_capture.inl"
+#include "interop/nr_external_provider_consumer.inl"
 #include "nr_settings_ui.inl"
 
 } // namespace

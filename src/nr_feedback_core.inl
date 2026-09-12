@@ -408,6 +408,17 @@ DWORD WINAPI Worker(void *opaque) {
         const auto &identity = EnsureRuntimeIdentityOnWorker();
         FeedbackAppend(s, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\nartifact.addonSha256=%s\nartifact.identityStatus=%s\n",
             kSourceCommit, kSourceDirty ? 1 : 0, identity.sha256, identity.status);
+        FeedbackAppend(s,
+            "external.owner=%llu\nexternal.provenance=%s\nexternal.reason=%s\n"
+            "external.admittedFrames=%llu\nexternal.recordedWritebacks=%llu\nexternal.submitCalls=%llu\n"
+            "external.pendingCompletions=%u\nexternal.completedFrames=%llu\nexternal.completionFailures=%llu\n"
+            "external.contract=Submit/writeback mean commands recorded; completedFrames requires the declared producer fence\n",
+            nr_external_provider_feedback::owner_provider_id.load(),
+            NrGuideProvenanceName(static_cast<NrGuideProvenance>(nr_external_provider_feedback::last_provenance.load())),
+            NrExternalProviderReasonName(static_cast<NrExternalProviderReason>(nr_external_provider_feedback::last_reason.load())),
+            nr_external_provider_feedback::admitted_frames.load(),nr_external_provider_feedback::writeback_frames.load(),
+            nr_external_provider_feedback::external_submits.load(),nr_external_provider_feedback::pending_completions.load(),
+            nr_external_provider_feedback::completion_frames.load(),nr_external_provider_feedback::completion_failures.load());
         Modules(s);
         session->carrier_log = FindCarrierLog(s);
         FingerprintRuntimeFiles(s, *session);
