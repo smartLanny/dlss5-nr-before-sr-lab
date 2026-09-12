@@ -1,5 +1,15 @@
 # 统一开发与测试交接入口
 
+## 2026-09-13 D16：#164 下一刀（文档，无生产改动）
+
+D16 线 tip 仍是 `codex/dx12-compat-multipass-20260912@3c13f69119ddb0a0c1246f0348eb15c8aac64f76`。
+没有更清晰的已合并 tip；#257/#258/#259/#256 都是未合入的独立候选。
+
+**下一编码刀（已排序）：** 1) 审 [PR #257](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/257) Present 有界重探；2) #190 源/Present 血统，禁止伪造 source；3) #2 TYPELESS 仍走现有 resolver 的当前代视图观察。
+
+不要把 Opti/Reno/NIGos/Magpie/XeSS 做成 Native 强制中间件或第二套 NR Core。
+完整路径图、风险与「不要做」：[D16_COMPAT_NEXT_SLICES_20260913.md](D16_COMPAT_NEXT_SLICES_20260913.md)。
+
 ## 2026-09-11 D14：累计 Corefix.1–8 移植（本地验收通过）
 
 维护者要求将 PR #245 的完整累计分支移植到当前 0.5，来源固定为
