@@ -1,5 +1,7 @@
 // Same-recording, owned guide copies. No CPU waits, borrowed texture history,
 // guessed states, or copies on an unrelated presentation queue.
+#include "nr_native_guide_snapshot.inl"
+#include "nr_source_guide_diagnostics.inl"
 struct GuideCopy {
     Source source{};Recording recording{};NrGuideBinding guides{};
     NrGuideSignature source_signature{};
@@ -8,6 +10,8 @@ struct GuideCopy {
     Id producer_value=0,consumer_value=0,queue=0,bytes=0,opportunity=0;
     unsigned output_width=0,output_height=0,config_generation=0;
     unsigned owned_state[2]{};
+    NativeGuideSnapshotObjects snapshot{};
+    bool shader_snapshot=false;
     bool reserved=false,recorded=false,native_result_known=false,native_succeeded=false;
     bool submitted=false,acquired=false,consumed=false,inline_processed=false,fg_consumed=false,retired=false,poisoned=false;
 };
@@ -58,6 +62,7 @@ void BeginNativeReceiptOpportunity(Source source,Id device) {Lock lock;BeginNati
 void CompleteNativeReceiptLocked(Source source,bool succeeded) {
     for(auto& c:guide_copies)if(c.source==source&&c.recorded&&!c.native_result_known){
         c.native_result_known=true;c.native_succeeded=succeeded;
+        if(succeeded)++guide_receipt_diagnostics.native_success;else ++guide_receipt_diagnostics.native_failure;
     }
 }
 void CompleteNativeReceipt(Source source,bool succeeded) {Lock lock;CompleteNativeReceiptLocked(source,succeeded);}
@@ -89,6 +94,7 @@ void CollectGuideInputs() {
 }
 void ClearGuideCopy(GuideCopy& c) {
     for(auto& p:c.inputs)ReleaseCom(p);for(auto& p:c.owned)ReleaseCom(p);
+    ReleaseNativeGuideSnapshot(c.snapshot);
     ReleaseCom(c.producer_fence);ReleaseCom(c.consumer_fence);c={};
 }
 bool MakeGuideCopy(ID3D12Device* device,ID3D12Resource* input,unsigned width,unsigned height,
@@ -106,21 +112,73 @@ bool MakeGuideCopy(ID3D12Device* device,ID3D12Resource* input,unsigned width,uns
     bytes+=allocation.SizeInBytes;return true;
 }
 bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBinding& input,
-    unsigned output_width,unsigned output_height,unsigned config_generation) {
+    unsigned output_width,unsigned output_height,unsigned config_generation,bool native_read_boundary=false) {
+    GuideCaptureAttempt diagnostic(source);GuideCaptureStage("capture-disabled-or-missing-input");
     if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire)||!source||!list||!input.depth||!input.motion||
        input.signature.linear_depth||!output_width||!output_height||output_width>16384||output_height>16384)return false;
     const auto depth_desc=ID3D12Resource_GetDesc(input.depth);
-    if((depth_desc.Flags&D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)!=0 &&
-       (input.signature.depth_x||input.signature.depth_y||input.signature.depth_width!=depth_desc.Width||input.signature.depth_height!=depth_desc.Height))return false;
-    GuideCopy* selected=nullptr;unsigned before[2]{};Recording recording{};
+    const auto motion_desc=ID3D12Resource_GetDesc(input.motion);
+    const auto& sig=input.signature;
+    if(active_guide_capture){auto& d=*active_guide_capture;d.config=config_generation;
+        d.depth_physical_width=static_cast<unsigned>(depth_desc.Width);d.depth_physical_height=depth_desc.Height;
+        d.depth_x=sig.depth_x;d.depth_y=sig.depth_y;d.depth_width=sig.depth_width;d.depth_height=sig.depth_height;
+        d.motion_width=sig.motion_source_width;d.motion_height=sig.motion_source_height;
+        d.output_width=output_width;d.output_height=output_height;}
+    if(!NativeGuideRectFits(depth_desc,sig.depth_x,sig.depth_y,sig.depth_width,sig.depth_height)||
+       !NativeGuideRectFits(motion_desc,sig.motion_x,sig.motion_y,sig.motion_source_width,sig.motion_source_height))
+        return GuideCaptureDecline("invalid-guide-subrect");
+    if(native_read_boundary&&(!input.valid_motion_scale_x||!input.valid_motion_scale_y))
+        return GuideCaptureDecline("native-motion-scale-unverified");
+    const bool full_depth=(depth_desc.Flags&D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)!=0;
+    GuideCopy* selected=nullptr;unsigned before[2]{};bool known[2]{};bool shader_snapshot=false;Recording recording{};
+    // Lazily created only on the shader fallback. Destruction restores the
+    // exact native bindings; copy-only capture does not pay for this envelope.
+    std::unique_ptr<NativeCommandStateScope> native_state;
+    bool snapshot_commands_recorded=false;
+    struct DiscardUnmodifiedCapture {
+        std::unique_ptr<NativeCommandStateScope>& state;bool& modified;
+        ~DiscardUnmodifiedCapture(){if(state&&!modified)state->active=false;}
+    } discard_unmodified{native_state,snapshot_commands_recorded};
     {
-        Lock lock;recording=RecordingOf(list);if(!recording)return false;
+        Lock lock;recording=RecordingOf(list);
+        if(!recording)return GuideCaptureDecline("recording-identity-unavailable");
+        known[0]=StateOf(recording,ResourceOf(input.depth),before[0]);
+        known[1]=StateOf(recording,ResourceOf(input.motion),before[1]);
+    }
+    if(active_guide_capture){active_guide_capture->depth_state_observed=known[0];active_guide_capture->motion_state_observed=known[1];}
+    if(!known[0]||!known[1]) {
+        if(!native_read_boundary)return GuideCaptureDecline("guide-state-unobserved-outside-NGX");
+        // NGX's input seam is shader-readable, not necessarily one particular
+        // legacy StateBefore. Never invent a barrier from an unobserved state.
+        // A contradictory observed state is NOT converted into missing evidence.
+        constexpr unsigned read=static_cast<unsigned>(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        constexpr unsigned other_read=static_cast<unsigned>(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)|
+            static_cast<unsigned>(D3D12_RESOURCE_STATE_DEPTH_READ)|static_cast<unsigned>(D3D12_RESOURCE_STATE_COPY_SOURCE);
+        for(unsigned i=0;i<2;++i)if(known[i]&&(!(before[i]&read)||(before[i]&~(read|other_read))))
+            return GuideCaptureDecline("native-guide-read-state-conflict");
+        native_state.reset(new(std::nothrow) NativeCommandStateScope(list));
+        if(!native_state||!native_state->active)return GuideCaptureDecline("guide-command-state-unavailable");
+        list=native_state->command_list;shader_snapshot=true;
+        if(active_guide_capture)active_guide_capture->shader_snapshot=true;
+    }
+    const unsigned depth_copy_width=shader_snapshot||!full_depth?sig.depth_width:static_cast<unsigned>(depth_desc.Width);
+    const unsigned depth_copy_height=shader_snapshot||!full_depth?sig.depth_height:depth_desc.Height;
+    const DXGI_FORMAT depth_copy_format=shader_snapshot?DXGI_FORMAT_R32_FLOAT:depth_desc.Format;
+    const DXGI_FORMAT motion_copy_format=shader_snapshot?NativeGuideMotionCopyFormat(motion_desc.Format):motion_desc.Format;
+    {
+        Lock lock;recording=RecordingOf(list);if(!recording)return GuideCaptureDecline("recording-identity-unavailable");
         const auto* stream=ReceiptStreamFor(source,false);
-        if(!stream||stream->device!=recording.device||stream->latest_sequence!=source.sequence||!stream->latest_opportunity)return false;
-        for(auto& copy:guide_copies)if(copy.source==source&&copy.recorded&&!copy.poisoned)return true;
-        if(!StateOf(recording,ResourceOf(input.depth),before[0])||!StateOf(recording,ResourceOf(input.motion),before[1]))return false;
-        for(auto& copy:guide_copies)if(GuideReusable(copy)){selected=&copy;break;}
-        if(!selected)return false;
+        if(!stream||stream->device!=recording.device||stream->latest_sequence!=source.sequence||!stream->latest_opportunity)
+            return GuideCaptureDecline("source-opportunity-or-device-mismatch");
+        for(auto& copy:guide_copies)if(copy.source==source&&copy.recorded&&!copy.poisoned){GuideCaptureStage("already-recorded");return true;}
+        // Prefer genuinely empty or consumed slots to a fresh unconsumed
+        // receipt. Do not overwrite the last ready frame with an unsubmitted one.
+        for(auto& copy:guide_copies)if(GuideReusable(copy)&&(!copy.recorded||copy.consumed||copy.retired||copy.inline_processed||copy.fg_consumed)){selected=&copy;break;}
+        if(!selected)for(auto& copy:guide_copies)if(GuideReusable(copy)){
+            const auto* old=ReceiptStreamFor(copy.source,false);
+            if(!old||(old->latest_sequence>copy.source.sequence&&old->latest_sequence-copy.source.sequence>1)){selected=&copy;break;}
+        }
+        if(!selected)return GuideCaptureDecline("guide-slots-busy");
         selected->reserved=true;
     }
     // Texture allocations and all command recording happen without source_lock:
@@ -135,24 +193,34 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
             SUCCEEDED(ID3D12Resource_GetDevice(input.motion,IID_ID3D12Device,reinterpret_cast<void**>(&motion_device)))&&
             IsSameRrDepthDevice(device,depth_device)&&IsSameRrDepthDevice(device,motion_device);
         ReleaseCom(depth_device);ReleaseCom(motion_device);made=same;}
-    bool reuse=made&&c.owned[0]&&c.owned[1]&&c.producer_fence;
+    if(made&&shader_snapshot)made=NativeGuideViewSupported(device,NativeGuideDepthView(depth_desc.Format),false)&&
+        NativeGuideViewSupported(device,NativeGuideMotionView(motion_desc.Format),false)&&
+        NativeGuideViewSupported(device,depth_copy_format,true)&&NativeGuideViewSupported(device,motion_copy_format,true);
+    GuideCaptureStage(made?"guide-allocation-or-pipeline":"guide-device-or-view-support");
+    bool reuse=made&&c.owned[0]&&c.owned[1]&&c.producer_fence&&c.shader_snapshot==shader_snapshot;
     if(reuse){const auto d=ID3D12Resource_GetDesc(c.owned[0]),m=ID3D12Resource_GetDesc(c.owned[1]);
-        const auto dm=ID3D12Resource_GetDesc(input.depth),mm=ID3D12Resource_GetDesc(input.motion);
         ID3D12Device* owner=nullptr;
         reuse=SUCCEEDED(ID3D12Resource_GetDevice(c.owned[0],IID_ID3D12Device,reinterpret_cast<void**>(&owner)))&&
-            IsSameRrDepthDevice(device,owner)&&d.Width==input.signature.depth_width&&d.Height==input.signature.depth_height&&d.Format==dm.Format&&
-            m.Width==input.signature.motion_source_width&&m.Height==input.signature.motion_source_height&&m.Format==mm.Format;
+            IsSameRrDepthDevice(device,owner)&&d.Width==depth_copy_width&&d.Height==depth_copy_height&&d.Format==depth_copy_format&&
+            m.Width==sig.motion_source_width&&m.Height==sig.motion_source_height&&m.Format==motion_copy_format;
         ReleaseCom(owner);}
     if(!reuse){ClearGuideCopy(c);c.reserved=true;
         Id all_bytes=0;{Lock lock;for(const auto& copy:guide_copies)if(&copy!=selected)all_bytes+=copy.bytes;}
         c.bytes=all_bytes;
-        if(made)made=MakeGuideCopy(device,input.depth,input.signature.depth_width,input.signature.depth_height,c.owned[0],c.bytes)&&
-            MakeGuideCopy(device,input.motion,input.signature.motion_source_width,input.signature.motion_source_height,c.owned[1],c.bytes)&&
-            SUCCEEDED(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&c.producer_fence)));
+        if(made){
+            if(shader_snapshot)made=MakeNativeGuidePlane(device,depth_copy_width,depth_copy_height,depth_copy_format,c.owned[0],c.bytes,guide_budget)&&
+                MakeNativeGuidePlane(device,sig.motion_source_width,sig.motion_source_height,motion_copy_format,c.owned[1],c.bytes,guide_budget);
+            else made=MakeGuideCopy(device,input.depth,depth_copy_width,depth_copy_height,c.owned[0],c.bytes)&&
+                MakeGuideCopy(device,input.motion,sig.motion_source_width,sig.motion_source_height,c.owned[1],c.bytes);
+            if(made)made=SUCCEEDED(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&c.producer_fence)));
+        }
         c.bytes-=all_bytes;
     }else {for(auto& resource:c.inputs)ReleaseCom(resource);ReleaseCom(c.consumer_fence);c.consumer_value=0;}
+    if(made&&shader_snapshot){made=BuildNativeGuideSnapshot(device,c.snapshot);
+        if(made)BindNativeGuideSnapshot(device,c.snapshot,input,c.owned[0],c.owned[1]);}
     ReleaseCom(device);
     if(!made){ClearGuideCopy(c);{Lock lock;*selected={};}ReleaseSRWLockExclusive(&guide_allocation_lock);return false;}
+    c.shader_snapshot=shader_snapshot;
     c.source=source;c.recording=recording;c.output_width=output_width;c.output_height=output_height;c.config_generation=config_generation;
     {Lock lock;const auto* stream=ReceiptStreamFor(source,false);c.opportunity=stream?stream->latest_opportunity:0;}
     c.source_signature=input.signature;c.recorded=c.native_result_known=c.native_succeeded=c.submitted=false;
@@ -165,7 +233,9 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
     auto& s=c.guides.signature;
     const unsigned widths[]={s.depth_width,s.motion_source_width},heights[]={s.depth_height,s.motion_source_height};
     const unsigned xs[]={s.depth_x,s.motion_x},ys[]={s.depth_y,s.motion_y};
-    for(unsigned i=0;i<2;++i){
+    GuideCaptureStage("recording-guide-copy");
+    if(shader_snapshot){snapshot_commands_recorded=true;RecordNativeGuideSnapshot(list,c.snapshot,input,c.owned[0],c.owned[1],c.owned_state);}
+    else for(unsigned i=0;i<2;++i){
         auto input_state=static_cast<D3D12_RESOURCE_STATES>(before[i]);auto output_state=static_cast<D3D12_RESOURCE_STATES>(c.owned_state[i]);
         Transition(list,c.inputs[i],input_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
         Transition(list,c.owned[i],output_state,D3D12_RESOURCE_STATE_COPY_DEST);
@@ -179,14 +249,18 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
         Transition(list,c.owned[i],output_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         c.owned_state[i]=static_cast<unsigned>(output_state);
     }
-    s.depth_physical_width=s.depth_width;s.depth_physical_height=s.depth_height;s.depth_x=s.depth_y=0;
+    s.depth_physical_width=depth_copy_width;s.depth_physical_height=depth_copy_height;
+    if(shader_snapshot||!full_depth)s.depth_x=s.depth_y=0; // full DSV copy retains its real active subrect
+    if(shader_snapshot){s.depth_format=static_cast<unsigned>(depth_copy_format);s.motion_format=static_cast<unsigned>(motion_copy_format);}
+    if(native_state)native_state->Restore();
     s.motion_physical_width=s.motion_source_width;s.motion_physical_height=s.motion_source_height;s.motion_x=s.motion_y=0;
     s.motion_bound_width=s.motion_source_width;s.motion_bound_height=s.motion_source_height;s.resample_motion=false;
     // Keep the actual native-input jitter receipt. Present binding separately
     // marks that it is not an observed output-color jitter phase.
     {Lock lock;c.reserved=false;c.recorded=true;*selected=c;
         guides_awaiting_submission.store(true,std::memory_order_release);
-        guides_awaiting_retirement.store(true,std::memory_order_release);}return true;
+        guides_awaiting_retirement.store(true,std::memory_order_release);}
+    GuideCaptureStage("recorded");return true;
 }
 // Called immediately after the real intercepted Execute, while the Core still
 // serializes that queue's Execute/Signal transaction. It adds a completion fence
@@ -196,8 +270,8 @@ void GuideCopiesSubmitted(ID3D12CommandQueue* queue,Recording recording,bool suc
         if(!succeeded||!queue||!c.producer_fence){c.poisoned=true;continue;}
         if(c.producer_value==UINT64_MAX){c.poisoned=true;continue;}
         c.queue=QueueOf(queue);if(!c.queue){c.poisoned=true;continue;}++c.producer_value;
-        if(FAILED(ID3D12CommandQueue_Signal(queue,c.producer_fence,c.producer_value))){c.poisoned=true;continue;}
-        c.submitted=true;
+        if(FAILED(ID3D12CommandQueue_Signal(queue,c.producer_fence,c.producer_value))){c.poisoned=true;++guide_receipt_diagnostics.signal_failure;continue;}
+        c.submitted=true;++guide_receipt_diagnostics.submitted;
     }
     bool pending=false;for(const auto& c:guide_copies)pending|=c.recorded&&!c.submitted&&!c.poisoned;
     guides_awaiting_submission.store(pending,std::memory_order_release);
@@ -209,15 +283,19 @@ nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigne
         const auto* device=ReceiptDeviceFor(c.recording.device,false);
         candidates[i]={c.source.stream,c.source.epoch,c.source.sequence,stream?stream->latest_sequence:0,
             c.opportunity,device?device->latest:0,c.recording.device,c.queue,c.producer_value,c.config_generation,
-            c.output_width,c.output_height,c.recorded,c.native_result_known,
+            c.output_width,c.output_height,c.recorded&&!c.reserved&&!c.acquired,c.native_result_known,
             c.native_succeeded,c.submitted,c.consumed,c.inline_processed,c.fg_consumed,c.poisoned||c.retired};}
     const nr_late_present::Request request{device,width,height,config_generation,
         known_generated,known_fg_consumed,known_inline_processed};
     auto selected=nr_late_present::Select(request,candidates,8);
+    guide_receipt_diagnostics.present_width=width;guide_receipt_diagnostics.present_height=height;
+    guide_receipt_diagnostics.selection=selected.decision;
+
     if(!selected)return selected;
     auto& c=guide_copies[selected.index];
     const auto done=ID3D12Fence_GetCompletedValue(c.producer_fence);if(done==UINT64_MAX){c.poisoned=true;
-        selected.decision=nr_late_present::Decision::NativeFailed;return selected;}
+        selected.decision=nr_late_present::Decision::NativeFailed;guide_receipt_diagnostics.selection=selected.decision;return selected;}
+    ++guide_receipt_diagnostics.selected;
     c.acquired=true;present_guides=&c;present_lease.source=c.source;
     present_lease.source_id=c.source.sequence;present_lease.role=Role::Application;present_lease.guides=c.guides;
     present_lease.source_signature=c.source_signature;present_lease.guides_owned=present_lease.guides_current=true;

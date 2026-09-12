@@ -65,9 +65,17 @@ void Receipt(const char* phase,ID3D12Resource* resource){
 
 namespace late_host {
 using namespace host_ngx;
+bool SameComObject(IUnknown* first,IUnknown* second) {
+    if(first==second)return true;
+    IUnknown *first_identity=nullptr,*second_identity=nullptr;
+    const bool first_ok=ResolveRrDepthDeviceIdentity(first,&first_identity);
+    const bool second_ok=ResolveRrDepthDeviceIdentity(second,&second_identity);
+    const bool same=first_ok&&second_ok&&first_identity==second_identity;
+    ReleaseCom(first_identity);ReleaseCom(second_identity);return same;
+}
 struct Guides {
     ID3D12Resource *depth=nullptr,*motion=nullptr,*uploads[2]{};
-    NrGuideBinding binding{};
+    NrGuideBinding binding{};NgxParams* params=nullptr;FeatureRecord feature{};
     void Init(Io& io) {
         io.Reset();
         for(unsigned i=0;i<2;++i){
@@ -93,6 +101,12 @@ struct Guides {
         auto& s=binding.signature;s.depth_physical_width=s.motion_physical_width=s.color_physical_width=s.depth_width=s.motion_source_width=s.motion_bound_width=Io::width;
         s.depth_physical_height=s.motion_physical_height=s.color_physical_height=s.depth_height=s.motion_source_height=s.motion_bound_height=Io::height;
         s.depth_format=DXGI_FORMAT_R32_FLOAT;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;s.color_format=DXGI_FORMAT_R8G8B8A8_UNORM;s.motion_scale_x=s.motion_scale_y=1;
+        Check(g_nr_api.allocate(&params)==kNgxSuccess&&params,"actual NGX parameter object for capture entry");
+        feature.feature_id=1;feature.generation=1;feature.create_flags=0;feature.width=Io::width;feature.height=Io::height;feature.out_width=Io::width;feature.out_height=Io::height;
+        SetResource(params,"Color",io.backbuffer);SetResource(params,"Output",io.backbuffer);SetResource(params,"Depth",depth);SetResource(params,"MotionVectors",motion);
+        SetUInt(params,"Width",Io::width);SetUInt(params,"Height",Io::height);SetUInt(params,"OutWidth",Io::width);SetUInt(params,"OutHeight",Io::height);
+        SetUInt(params,"DLSS.Render.Subrect.Dimensions.Width",Io::width);SetUInt(params,"DLSS.Render.Subrect.Dimensions.Height",Io::height);
+        SetFloat(params,"MV.Scale.X",1);SetFloat(params,"MV.Scale.Y",1);SetFloat(params,"Jitter.Offset.X",0);SetFloat(params,"Jitter.Offset.Y",0);
     }
     void Produce(Io& io,unsigned frame) {
         namespace S=nr_source_runtime;
@@ -102,7 +116,30 @@ struct Guides {
         S::BeginNativeReceiptOpportunity(source);
         for(auto* image:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;Transition(io.list,image,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(io.list,image,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
         binding.game_reset=frame==0?1:0;
-        Check(S::CaptureGuides(io.list,source,binding,Io::width,Io::height),"production owned guide capture from controlled successful seam");
+        SetUInt(params,"Reset",frame==0?1:0);
+        // Real inputs remain NON_PIXEL_SHADER_RESOURCE; only observer evidence is absent.
+        {S::Lock lock;for(auto& state:S::resource_states)if(state.resource==S::ResourceOf(depth)||state.resource==S::ResourceOf(motion))state={};}
+        ID3D12GraphicsCommandList_SetPipelineState(io.list,g_codec.encode);ID3D12GraphicsCommandList_SetComputeRootSignature(io.list,g_codec.root);
+        void* predicate_data=nullptr;D3D12_RANGE predicate_read{0,sizeof(UINT64)};Hr(ID3D12Resource_Map(io.upload,0,&predicate_read,&predicate_data),"map predicate input");
+        UINT64 predicate_value=0;std::memcpy(&predicate_value,predicate_data,sizeof(predicate_value));D3D12_RANGE predicate_written{};ID3D12Resource_Unmap(io.upload,0,&predicate_written);
+        Check(predicate_value!=0,"nonzero EQUAL_ZERO predicate blocks an unguarded private dispatch");
+        ID3D12GraphicsCommandList_SetPredication(io.list,io.upload,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
+        S::CaptureNgxGuides(io.list,params,feature,source);
+        S::GuideReceiptDiagnostics d{};Check(S::TryGuideReceiptDiagnostics(d),"capture entry diagnostic published");
+        std::printf("capture stage=%s shader=%d\n",d.last.stage,d.last.shader_snapshot);
+        if(std::strcmp(d.last.stage,"guide-command-state-unavailable")==0&&frame<4){
+            S::CompleteNativeReceipt(source,true);io.Submit();return; // fresh hook publication needs the next real Reset
+        }
+        Check(std::strcmp(d.last.stage,"recorded")==0&&d.last.shader_snapshot,"real CaptureNgxGuides binding and shader transport recorded");
+        NativeCommandState restored{};Check(CaptureNativeCommandState(io.list,restored),"capture native restored state");
+        Check(restored.pipeline==g_codec.encode&&restored.roots[0]==g_codec.root,"native PSO and compute root restored after guide snapshot");
+        const bool raw_predicate=restored.predicate==io.upload;
+        const bool same_predicate=SameComObject(reinterpret_cast<IUnknown*>(restored.predicate),reinterpret_cast<IUnknown*>(io.upload));
+        std::printf("predicate rawSame=%u identitySame=%u recorded=%u offset=%llu operation=%u\n",raw_predicate,same_predicate,
+            !!(restored.dynamic.recorded&kDynamicPredicate),static_cast<unsigned long long>(restored.dynamic.predicate_offset),unsigned(restored.dynamic.predicate_operation));
+        Check(same_predicate&&(restored.dynamic.recorded&kDynamicPredicate)&&restored.dynamic.predicate_offset==0&&
+            restored.dynamic.predicate_operation==D3D12_PREDICATION_OP_EQUAL_ZERO,"native predicate identity and parameters restored after private snapshot");ReleaseNativeCommandState(restored);
+        ID3D12GraphicsCommandList_SetPredication(io.list,nullptr,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
         S::CompleteNativeReceipt(source,true);
         io.Submit();
     }
@@ -145,6 +182,7 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         for(unsigned n=0;n<3;++n){io.backbuffer=buffers[IDXGISwapChain3_GetCurrentBackBufferIndex(swap)];io.Fill();capture_io=&io;Hr(IDXGISwapChain3_Present(swap,0,0),"no-guide Present");Check(!compat::current&&compat::observation.submitted==0&&captured_changed==0,"no native guides means no NR and identity output");}
         ID3D12CommandQueue* producer_queue=queue;ID3D12CommandQueue_AddRef(producer_queue);
         if(cross){ReleaseCom(producer_queue);Hr(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&producer_queue)),"second real producer queue");}
+        Check(EnsureNrApi(device)&&EnsureCodec(device),"native runtime and codec for true capture entry");
         Io producer;producer.Init(device,producer_queue);late_host::Guides guides;guides.Init(producer);
         unsigned changed_frames=0;bool duplicate_checked=false;unsigned long long previous_source=0;
         for(unsigned frame=0;frame<48&&changed_frames<4;++frame){

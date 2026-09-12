@@ -478,6 +478,9 @@ void RestoreNativeCommandState(ID3D12GraphicsCommandList *command_list,
         }
     }
     if (restore_dummy) RestoreCommandDynamicState(command_list, state);
+    else if (state.dynamic.recorded & kDynamicPredicate)
+        ID3D12GraphicsCommandList_SetPredication(command_list, state.predicate,
+            state.dynamic.predicate_offset, state.dynamic.predicate_operation);
     if (state.pipeline != nullptr) ID3D12GraphicsCommandList_SetPipelineState(command_list, state.pipeline);
     else if (state.raytracing_pipeline != nullptr) {
         ID3D12GraphicsCommandList4 *extended = nullptr;
@@ -1270,11 +1273,12 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     NR_ADD_STATE_HOOK(Set##NAME##RootConstantBufferView); NR_ADD_STATE_HOOK(Set##NAME##RootShaderResourceView); \
     NR_ADD_STATE_HOOK(Set##NAME##RootUnorderedAccessView)
     NR_ADD_STATE_STAGE(Compute); NR_ADD_STATE_STAGE(Graphics);
+    // Private guide dispatch clears predication even with a normal PSO.
+    NR_ADD_STATE_HOOK(SetPredication);
     if (allow_null_pso) {
         NR_ADD_STATE_HOOK(IASetPrimitiveTopology); NR_ADD_STATE_HOOK(RSSetViewports); NR_ADD_STATE_HOOK(RSSetScissorRects);
         NR_ADD_STATE_HOOK(OMSetBlendFactor); NR_ADD_STATE_HOOK(OMSetStencilRef); NR_ADD_STATE_HOOK(IASetIndexBuffer);
         NR_ADD_STATE_HOOK(IASetVertexBuffers); NR_ADD_STATE_HOOK(SOSetTargets); NR_ADD_STATE_HOOK(OMSetRenderTargets);
-        NR_ADD_STATE_HOOK(SetPredication);
     }
 #undef NR_ADD_STATE_STAGE
 #undef NR_ADD_STATE_HOOK

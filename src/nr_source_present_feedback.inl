@@ -49,3 +49,24 @@
             "compatSource.scope=last-CanPresent-decision; ordinal and producer fence are not source-frame identity\n");
     } else append_compat("%s","compatSource.decision=unobserved-or-snapshot-busy\n");
 }
+
+// Snapshot of the actual guide producer; absence of a selected receipt is not its root cause.
+{
+    nr_source_runtime::GuideReceiptDiagnostics d{};
+    if(nr_source_runtime::TryGuideReceiptDiagnostics(d)) {
+        const auto n=[](auto v){return static_cast<unsigned long long>(v);};
+        const auto& c=d.last;
+        append_compat("guideReceipt.captureStage=%s\nguideReceipt.config=%u\nguideReceipt.source=%llu,%llu,%llu\n"
+            "guideReceipt.captureAttempts=%llu\nguideReceipt.recorded=%llu\nguideReceipt.nativeSuccess=%llu\n"
+            "guideReceipt.nativeFailure=%llu\nguideReceipt.submitted=%llu\nguideReceipt.signalFailure=%llu\n"
+            "guideReceipt.selected=%llu\nguideReceipt.transport=%s\nguideReceipt.observedStates=%u,%u\n"
+            "guideReceipt.depthPhysical=%ux%u\nguideReceipt.depthActive=%u,%u,%u,%u\n"
+            "guideReceipt.motionActive=%ux%u\nguideReceipt.nativeOutput=%ux%u\nguideReceipt.presentOutput=%ux%u\n"
+            "guideReceipt.selection=%s\n",
+            c.stage,c.config,n(c.source.stream),n(c.source.epoch),n(c.source.sequence),n(d.attempts),n(d.recorded),
+            n(d.native_success),n(d.native_failure),n(d.submitted),n(d.signal_failure),n(d.selected),
+            (std::strcmp(c.stage,"recorded")!=0?"not-recorded":c.shader_snapshot?"native-input-shader-snapshot":"observed-state-copy"),c.depth_state_observed?1u:0u,c.motion_state_observed?1u:0u,
+            c.depth_physical_width,c.depth_physical_height,c.depth_x,c.depth_y,c.depth_width,c.depth_height,
+            c.motion_width,c.motion_height,c.output_width,c.output_height,d.present_width,d.present_height,nr_late_present::Name(d.selection));
+    } else append_compat("%s","guideReceipt.captureStage=snapshot-busy\n");
+}

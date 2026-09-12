@@ -5,12 +5,17 @@
 #define WIDL_C_INLINE_WRAPPERS
 #include <windows.h>
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <dxgi1_4.h>
+#include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
 #include "nr_guide_contract.h"
@@ -34,7 +39,7 @@ template<class... T>bool ResolveNrGuideBinding(T&&...){return false;}
 template<class... T>bool ResolveRrLinearDepth(T&&...){return false;}
 unsigned checks=0;
 void Check(bool value,const char* why){++checks;if(!value)throw std::runtime_error(why);}
-void Hr(HRESULT value,const char* why){Check(SUCCEEDED(value),why);}
+void Hr(HRESULT value,const char* why){if(FAILED(value))std::fprintf(stderr,"HRESULT %s=0x%08lX\n",why,static_cast<unsigned long>(value));Check(SUCCEEDED(value),why);}
 template<class T>void ReleaseCom(T*& object){if(object){IUnknown_Release(reinterpret_cast<IUnknown*>(object));object=nullptr;}}
 namespace transport {void OnBarrier(ID3D12GraphicsCommandList*,unsigned,const D3D12_RESOURCE_BARRIER*);}
 void Transition(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES& state,D3D12_RESOURCE_STATES next){
@@ -58,8 +63,8 @@ namespace transport {
 using namespace nr_source_frame;
 // The surrounding Core recording/state observers are controlled test inputs;
 // all allocations, command copies, transitions, queues and fences are real WARP.
-SRWLOCK lock=SRWLOCK_INIT;
-struct Lock{Lock(){AcquireSRWLockExclusive(&lock);}~Lock(){ReleaseSRWLockExclusive(&lock);}};
+SRWLOCK source_lock=SRWLOCK_INIT;
+struct Lock{Lock(){AcquireSRWLockExclusive(&source_lock);}~Lock(){ReleaseSRWLockExclusive(&source_lock);}};
 Id recording_reset=1;nr_source_frame::Lineage lineage;nr_source_frame::Claims claims;
 std::atomic<bool> source_receipts_pending{false};
 std::atomic<Id> source_objects{1};
@@ -74,6 +79,13 @@ struct PresentLease{
     unsigned source_age=0,output_width=0,output_height=0;
 } present_lease;
 thread_local Ticket present_ticket{};thread_local bool present_recorded=false;
+// Admission-only fixture seam for the production shader path. Real command
+// state capture/restoration is exercised by the full-Core host, not claimed here.
+struct NativeCommandStateScope{
+    ID3D12GraphicsCommandList* command_list=nullptr;bool active=true;
+    explicit NativeCommandStateScope(ID3D12GraphicsCommandList* list):command_list(list){}
+    void Restore(){}
+};
 #include "nr_source_transport.inl"
 Id RetryToken(Source source){return source.sequence;}
 // @ACTUAL_CAPTURE_NGX_GUIDES@
@@ -123,10 +135,11 @@ ID3D12Resource* Buffer(ID3D12Device* device,UINT64 size,D3D12_HEAP_TYPE type){
     ID3D12Resource* resource=nullptr;Hr(ID3D12Device_CreateCommittedResource(device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
         type==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&resource)),"buffer");return resource;
 }
-ID3D12Resource* Input(Harness& h,DXGI_FORMAT format,unsigned components,ID3D12Resource*& upload){
+ID3D12Resource* Input(Harness& h,DXGI_FORMAT format,unsigned components,ID3D12Resource*& upload,
+    D3D12_RESOURCE_FLAGS flags=D3D12_RESOURCE_FLAG_NONE){
     D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
     D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=desc.Height=8;
-    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;ID3D12Resource* resource=nullptr;
+    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;desc.Flags=flags;ID3D12Resource* resource=nullptr;
     Hr(ID3D12Device_CreateCommittedResource(h.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&resource)),"input texture");
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;ID3D12Device_GetCopyableFootprints(h.device,&desc,0,1,0,&footprint,nullptr,nullptr,&size);
     upload=Buffer(h.device,size,D3D12_HEAP_TYPE_UPLOAD);unsigned char* mapped=nullptr;D3D12_RANGE none{};
@@ -174,7 +187,185 @@ void Verify(Readback& r,unsigned x0,unsigned y0,unsigned components){unsigned ch
         Check(value==float((y+y0)*100+(x+x0)*10+c)+0.25f,"owned crop preserves exact guide bytes");}
     D3D12_RANGE none{};ID3D12Resource_Unmap(r.buffer,0,&none);ReleaseCom(r.buffer);
 }
-int main(){try{InitializeCriticalSection(&g_chain_cs);Harness h;ID3D12Resource *depth_upload=nullptr,*motion_upload=nullptr;
+struct RawReadback{
+    ID3D12Resource* buffer=nullptr;D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    UINT rows=0;UINT64 row_bytes=0,size=0;
+};
+RawReadback ReadRaw(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES before){
+    RawReadback r;const auto desc=ID3D12Resource_GetDesc(resource);
+    ID3D12Device_GetCopyableFootprints(device,&desc,0,1,0,&r.footprint,&r.rows,&r.row_bytes,&r.size);
+    r.buffer=Buffer(device,r.size,D3D12_HEAP_TYPE_READBACK);
+    auto state=before;Transition(list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=resource;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    to.pResource=r.buffer;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=r.footprint;
+    ID3D12GraphicsCommandList_CopyTextureRegion(list,&to,0,0,0,&from,nullptr);
+    Transition(list,resource,state,before);return r;
+}
+std::vector<unsigned char> Compact(RawReadback& r){
+    unsigned char* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(r.size)};
+    Hr(ID3D12Resource_Map(r.buffer,0,&range,reinterpret_cast<void**>(&mapped)),"raw readback map");
+    std::vector<unsigned char> result(static_cast<size_t>(r.row_bytes)*r.rows);
+    for(UINT y=0;y<r.rows;++y)std::memcpy(result.data()+static_cast<size_t>(y*r.row_bytes),
+        mapped+r.footprint.Offset+static_cast<size_t>(y)*r.footprint.Footprint.RowPitch,static_cast<size_t>(r.row_bytes));
+    D3D12_RANGE none{};ID3D12Resource_Unmap(r.buffer,0,&none);ReleaseCom(r.buffer);return result;
+}
+struct DepthStencilInput{ID3D12Resource* resource=nullptr;ID3D12DescriptorHeap* heap=nullptr;};
+DepthStencilInput DepthStencil(Harness& h,unsigned width,unsigned height,const D3D12_RECT& active){
+    DepthStencilInput out;D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=width;desc.Height=height;
+    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=DXGI_FORMAT_R32G8X24_TYPELESS;
+    desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;D3D12_CLEAR_VALUE clear{};clear.Format=DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+    clear.DepthStencil={0.125f,0};Hr(ID3D12Device_CreateCommittedResource(h.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,&clear,IID_ID3D12Resource,reinterpret_cast<void**>(&out.resource)),"padded depth-stencil input");
+    D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_DSV;hd.NumDescriptors=1;
+    Hr(ID3D12Device_CreateDescriptorHeap(h.device,&hd,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&out.heap)),"depth descriptor heap");
+    D3D12_DEPTH_STENCIL_VIEW_DESC view{};view.Format=DXGI_FORMAT_D32_FLOAT_S8X24_UINT;view.ViewDimension=D3D12_DSV_DIMENSION_TEXTURE2D;
+    const auto handle=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(out.heap);ID3D12Device_CreateDepthStencilView(h.device,out.resource,&view,handle);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(h.list,handle,D3D12_CLEAR_FLAG_DEPTH,0.125f,0,0,nullptr);
+    ID3D12GraphicsCommandList_ClearDepthStencilView(h.list,handle,D3D12_CLEAR_FLAG_DEPTH,0.625f,0,1,&active);
+    auto state=D3D12_RESOURCE_STATE_DEPTH_WRITE;Transition(h.list,out.resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return out;
+}
+std::uint16_t HalfPattern(unsigned x,unsigned y,unsigned component){
+    static constexpr std::uint16_t values[]={0x3800,0xb800,0x3400,0xb400,0x3c00,0xbc00};
+    return values[(x+3*y+component)%std::size(values)];
+}
+ID3D12Resource* HalfMotion(Harness& h,unsigned width,unsigned height,ID3D12Resource*& upload){
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=width;desc.Height=height;
+    desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=DXGI_FORMAT_R16G16_FLOAT;
+    ID3D12Resource* result=nullptr;Hr(ID3D12Device_CreateCommittedResource(h.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+        D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&result)),"signed half motion input");
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 size=0;ID3D12Device_GetCopyableFootprints(h.device,&desc,0,1,0,&fp,nullptr,nullptr,&size);
+    upload=Buffer(h.device,size,D3D12_HEAP_TYPE_UPLOAD);unsigned char* mapped=nullptr;D3D12_RANGE none{};
+    Hr(ID3D12Resource_Map(upload,0,&none,reinterpret_cast<void**>(&mapped)),"half motion upload map");std::memset(mapped,0,size);
+    for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x)for(unsigned c=0;c<2;++c){
+        const auto value=HalfPattern(x,y,c);std::memcpy(mapped+fp.Offset+y*fp.Footprint.RowPitch+(x*2+c)*2,&value,2);}
+    ID3D12Resource_Unmap(upload,0,nullptr);D3D12_TEXTURE_COPY_LOCATION from{},to{};
+    from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
+    to.pResource=result;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);
+    auto state=D3D12_RESOURCE_STATE_COPY_DEST;Transition(h.list,result,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return result;
+}
+void ObserveReadable(ID3D12GraphicsCommandList* list,ID3D12Resource* resource){
+    auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    Transition(list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+}
+void ResetTransportCase(){
+    using namespace transport;present_guides=nullptr;present_lease={};present_ticket={};present_recorded=false;
+    for(auto& copy:guide_copies)ClearGuideCopy(copy);for(auto& stream:receipt_streams)stream={};for(auto& device:receipt_devices)device={};
+    next_receipt_opportunity=1;guides_awaiting_submission=false;guides_awaiting_retirement=false;guide_receipt_diagnostics={};
+}
+struct OwnedPixels{std::vector<unsigned char> depth,motion;UINT64 depth_row=0,motion_row=0;};
+OwnedPixels ConsumeOwned(Harness& h,transport::GuideCopy& copy,nr_source_frame::Source source,unsigned output_width,unsigned output_height,unsigned config){
+    using namespace transport;ID3D12CommandQueue* queue=nullptr;D3D12_COMMAND_QUEUE_DESC desc{};
+    Hr(ID3D12Device_CreateCommandQueue(h.device,&desc,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue)),"guide consumer queue");
+    const auto selected=AcquirePresentGuides(RecordingOf(h.list).device,output_width,output_height,false,false,false,QueueOf(queue),config);
+    Check(selected&&present_lease.cross_queue_wait&&present_lease.producer_fence==copy.producer_fence&&
+        present_lease.producer_value==copy.producer_value,"exact producer receipt selected for WARP consumer");
+    Label claim{source,Role::Application};present_ticket=claims.Begin(claim,Point::Present);Check(bool(present_ticket),"guide pixel claim begins");
+    Consumer consumer(h.device,queue);Check(BeginPresentReceiptWork(queue),"consumer waits on exact producer fence");
+    auto depth=ReadRaw(consumer.device,consumer.list,copy.owned[0],static_cast<D3D12_RESOURCE_STATES>(copy.owned_state[0]));
+    auto motion=ReadRaw(consumer.device,consumer.list,copy.owned[1],static_cast<D3D12_RESOURCE_STATES>(copy.owned_state[1]));
+    OwnedPixels pixels;pixels.depth_row=depth.row_bytes;pixels.motion_row=motion.row_bytes;
+    consumer.Submit();ReleasePresentGuides(consumer.fence,consumer.value,true);consumer.Wait();
+    pixels.depth=Compact(depth);pixels.motion=Compact(motion);
+    Check(claims.Complete(present_ticket,true,true),"guide pixel claim completes at consumer fence");present_ticket={};present_recorded=false;
+    Check(GuideReusable(copy),"producer and consumer exact fences permit guide reuse");ReleaseCom(queue);return pixels;
+}
+void CompareCrop(const std::vector<unsigned char>& source,UINT64 source_row,unsigned x,unsigned y,
+    const std::vector<unsigned char>& output,UINT64 output_row,unsigned width,unsigned height,unsigned bytes_per_pixel,const char* why){
+    for(unsigned row=0;row<height;++row)Check(std::memcmp(source.data()+(row+y)*source_row+x*bytes_per_pixel,
+        output.data()+row*output_row,width*bytes_per_pixel)==0,why);
+}
+void RunPaddedDepthCopyCase(){
+    ResetTransportCase();Harness h;constexpr unsigned width=2228,physical_height=1256,active_height=1253;
+    const D3D12_RECT active{0,0,static_cast<LONG>(width),static_cast<LONG>(active_height)};
+    auto depth=DepthStencil(h,width,physical_height,active);ID3D12Resource* motion_upload=nullptr;
+    auto* motion=HalfMotion(h,width,active_height,motion_upload);h.Submit(false);h.Wait();ReleaseCom(depth.heap);ReleaseCom(motion_upload);
+    h.Reset();auto depth_before_read=ReadRaw(h.device,h.list,depth.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    auto motion_before_read=ReadRaw(h.device,h.list,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit(false);h.Wait();
+    auto depth_before=Compact(depth_before_read),motion_before=Compact(motion_before_read);
+    h.Reset();ObserveReadable(h.list,depth.resource);ObserveReadable(h.list,motion);
+    NrGuideBinding guides{};guides.depth=depth.resource;guides.motion=motion;auto& s=guides.signature;
+    s.depth_width=s.motion_source_width=width;s.depth_height=s.motion_source_height=active_height;
+    s.depth_physical_width=width;s.depth_physical_height=physical_height;s.motion_physical_width=width;s.motion_physical_height=active_height;
+    s.motion_bound_width=width;s.motion_bound_height=active_height;s.depth_format=DXGI_FORMAT_R32G8X24_TYPELESS;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;
+    s.motion_scale_x=2228;s.motion_scale_y=-1253;guides.valid_motion_scale_x=guides.valid_motion_scale_y=true;guides.jitter.known=true;
+    using namespace transport;const Source source{901,1,1};const auto device=RecordingOf(h.list).device;BeginNativeReceiptOpportunity(source,device);
+    Check(CaptureGuides(h.list,source,guides,width,active_height,17,true),"NTE padded depth guide capture records");auto& copy=guide_copies[0];
+    Check(!copy.shader_snapshot&&copy.source_signature.depth_physical_width==width&&
+        copy.source_signature.depth_physical_height==physical_height&&copy.source_signature.depth_height==active_height&&
+        copy.guides.signature.depth_physical_width==width&&
+        copy.guides.signature.depth_physical_height==physical_height&&copy.guides.signature.depth_height==active_height&&
+        ID3D12Resource_GetDesc(copy.owned[0]).Height==physical_height,"full depth-stencil copy preserves padded physical layout and active height");
+    CompleteNativeReceipt(source,true);h.Submit(true);h.Wait();Check(FenceDone(copy.producer_fence,copy.producer_value),"padded guide producer fence completes exactly");
+    h.Reset();auto depth_after_read=ReadRaw(h.device,h.list,depth.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    auto motion_after_read=ReadRaw(h.device,h.list,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit(false);h.Wait();
+    const auto depth_after=Compact(depth_after_read),motion_after=Compact(motion_after_read);
+    Check(depth_before==depth_after&&motion_before==motion_after,"full-subresource capture leaves padded depth and signed half motion sources unchanged");
+    const auto owned=ConsumeOwned(h,copy,source,width,active_height,17);
+    Check(depth_before==owned.depth,"full depth-stencil subresource bytes reach the owned padded guide");
+    CompareCrop(motion_before,width*4,0,0,owned.motion,owned.motion_row,width,active_height,4,"signed half motion pixels reach owned guide exactly");
+    bool positive=false,negative=false;for(size_t i=0;i+1<owned.motion.size();i+=2){std::uint16_t value=0;std::memcpy(&value,owned.motion.data()+i,2);
+        positive|=(value&0x8000)==0;negative|=(value&0x8000)!=0;}Check(positive&&negative,"owned motion retains positive and negative half values");
+    CollectGuideInputs();ResetTransportCase();ReleaseCom(depth.resource);ReleaseCom(motion);
+}
+void RunNativeShaderSnapshotCase(){
+    ResetTransportCase();Harness h;const D3D12_RECT active{3,4,14,11};auto depth=DepthStencil(h,19,13,active);
+    ID3D12Resource* motion_upload=nullptr;auto* motion=HalfMotion(h,17,12,motion_upload);
+    auto* predicate_upload=Buffer(h.device,8,D3D12_HEAP_TYPE_UPLOAD);auto* predicate=Buffer(h.device,8,D3D12_HEAP_TYPE_DEFAULT);
+    void* mapped=nullptr;D3D12_RANGE none{};Hr(ID3D12Resource_Map(predicate_upload,0,&none,&mapped),"predicate upload map");
+    *static_cast<UINT64*>(mapped)=1;ID3D12Resource_Unmap(predicate_upload,0,nullptr);ID3D12GraphicsCommandList_CopyBufferRegion(h.list,predicate,0,predicate_upload,0,8);
+    auto predicate_state=D3D12_RESOURCE_STATE_COPY_DEST;Transition(h.list,predicate,predicate_state,D3D12_RESOURCE_STATE_PREDICATION);
+    h.Submit(false);h.Wait();ReleaseCom(depth.heap);ReleaseCom(motion_upload);ReleaseCom(predicate_upload);
+    h.Reset();auto depth_before_read=ReadRaw(h.device,h.list,depth.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    auto motion_before_read=ReadRaw(h.device,h.list,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit(false);h.Wait();
+    auto depth_before=Compact(depth_before_read),motion_before=Compact(motion_before_read);h.Reset();
+    ID3D12GraphicsCommandList_SetPredication(h.list,predicate,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
+    NrGuideBinding guides{};guides.depth=depth.resource;guides.motion=motion;auto& s=guides.signature;
+    s.depth_x=3;s.depth_y=4;s.depth_width=11;s.depth_height=7;s.depth_physical_width=19;s.depth_physical_height=13;
+    s.motion_x=2;s.motion_y=3;s.motion_source_width=11;s.motion_source_height=7;s.motion_physical_width=17;s.motion_physical_height=12;
+    s.motion_bound_width=11;s.motion_bound_height=7;s.depth_format=DXGI_FORMAT_R32G8X24_TYPELESS;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;
+    s.motion_scale_x=2228;s.motion_scale_y=-1253;guides.valid_motion_scale_x=guides.valid_motion_scale_y=true;guides.jitter.known=true;
+    using namespace transport;const Source source{902,1,1};const auto device=RecordingOf(h.list).device;BeginNativeReceiptOpportunity(source,device);
+    Check(CaptureGuides(h.list,source,guides,11,7,18,true),"unknown native-seam state uses real shader snapshot");auto& copy=guide_copies[0];
+    unsigned observed=0;Check(copy.shader_snapshot&&!StateOf(RecordingOf(h.list),ResourceOf(depth.resource),observed)&&
+        !StateOf(RecordingOf(h.list),ResourceOf(motion),observed),"shader snapshot does not fabricate input state or input barriers");
+    Check(copy.source_signature.depth_x==3&&copy.source_signature.depth_y==4&&copy.source_signature.depth_physical_width==19&&
+        copy.source_signature.depth_physical_height==13&&copy.guides.signature.depth_x==0&&copy.guides.signature.depth_y==0&&
+        copy.guides.signature.depth_physical_width==11&&copy.guides.signature.depth_physical_height==7&&
+        copy.guides.signature.motion_format==DXGI_FORMAT_R16G16_FLOAT&&copy.guides.signature.motion_scale_x==2228&&
+        copy.guides.signature.motion_scale_y==-1253&&copy.guides.jitter.known,
+        "nonzero source origin, signed scale and physical layout remain distinct from cropped owned guides");
+    CompleteNativeReceipt(source,true);h.Submit(true);h.Wait();Check(FenceDone(copy.producer_fence,copy.producer_value),"shader guide producer fence completes exactly");
+    h.Reset();auto depth_after_read=ReadRaw(h.device,h.list,depth.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    auto motion_after_read=ReadRaw(h.device,h.list,motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);h.Submit(false);h.Wait();
+    const auto depth_after=Compact(depth_after_read),motion_after=Compact(motion_after_read);
+    Check(depth_before==depth_after&&motion_before==motion_after,"shader snapshot leaves nonzero-origin depth and motion sources unchanged");
+    const auto owned=ConsumeOwned(h,copy,source,11,7,18);
+    for(unsigned y=0;y<7;++y)for(unsigned x=0;x<11;++x){float value=0;std::memcpy(&value,owned.depth.data()+y*owned.depth_row+x*4,4);
+        Check(value==0.625f,"predicate-cleared shader copies active depth pixels");}
+    CompareCrop(motion_before,17*4,2,3,owned.motion,owned.motion_row,11,7,4,"shader copies signed half motion from nonzero origin");
+    CollectGuideInputs();ResetTransportCase();ReleaseCom(depth.resource);ReleaseCom(motion);ReleaseCom(predicate);
+}
+void RunContradictoryNativeStateCase(){
+    ResetTransportCase();Harness h;ID3D12Resource *du=nullptr,*mu=nullptr;
+    auto* depth=Input(h,DXGI_FORMAT_R32_FLOAT,1,du,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    auto* motion=HalfMotion(h,8,8,mu);auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    Transition(h.list,depth,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    h.Submit(false);h.Wait();h.Reset();
+    Transition(h.list,depth,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Transition(h.list,depth,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS); // depth known contradictory; motion unknown in this recording
+    NrGuideBinding guides{};guides.depth=depth;guides.motion=motion;guides.signature.depth_width=guides.signature.motion_source_width=8;
+    guides.signature.depth_height=guides.signature.motion_source_height=8;guides.valid_motion_scale_x=guides.valid_motion_scale_y=true;
+    using namespace transport;const Source source{903,1,1};BeginNativeReceiptOpportunity(source,RecordingOf(h.list).device);
+    Check(!CaptureGuides(h.list,source,guides,8,8,19,true),"actual contradictory tracked state refuses native-seam shader fallback");
+    Check(std::strcmp(guide_receipt_diagnostics.last.stage,"native-guide-read-state-conflict")==0,
+        "contradictory native state has an exact refusal diagnostic");
+    h.Submit(false);h.Wait();ResetTransportCase();ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(du);ReleaseCom(mu);
+}
+int main(){try{InitializeCriticalSection(&g_chain_cs);
+    RunPaddedDepthCopyCase();RunNativeShaderSnapshotCase();RunContradictoryNativeStateCase();
+    Harness h;ID3D12Resource *depth_upload=nullptr,*motion_upload=nullptr;
     auto* depth=Input(h,DXGI_FORMAT_R32_FLOAT,1,depth_upload);auto* motion=Input(h,DXGI_FORMAT_R32G32_FLOAT,2,motion_upload);
     NrGuideBinding g{};g.depth=depth;g.motion=motion;g.signature.depth_x=1;g.signature.depth_y=2;
     g.signature.motion_x=2;g.signature.motion_y=1;g.signature.depth_width=g.signature.motion_source_width=4;

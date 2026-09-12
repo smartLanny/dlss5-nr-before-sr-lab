@@ -344,10 +344,12 @@ NrGuideBinding FgGuides(const NativeInputs& input) {
 }
 void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,const FeatureRecord& feature,Source source) {
     if(!source||!params||!nr_processing_runtime::PresentSelected())return;
+    GuideCaptureAttempt capture_diagnostic(source);GuideCaptureStage("configuration-disabled");
     // Scalar configuration is snapshotted under the same Core lock as other
     // native guide binding; command copies execute after releasing that lock.
     struct ConfigLock{bool held=true;ConfigLock(){EnterCriticalSection(&g_chain_cs);}void Release(){if(held){LeaveCriticalSection(&g_chain_cs);held=false;}}~ConfigLock(){Release();}} config_lock;
     if(!g_config.enabled||g_config.identity_use_original||!std::isfinite(g_config.transfer_strength)||g_config.transfer_strength<=0.000001f)return;
+    GuideCaptureStage("runtime-or-owner-blocked");
     if(g_nr_failed_create_process_latched.load(std::memory_order_acquire)||g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)||
        OtherNrOwnerActive()||g_codec.failed)return;
     AcquireSRWLockShared(&g_nr_api_lock);const bool api_failed=g_nr_api.failed;ReleaseSRWLockShared(&g_nr_api_lock);
@@ -357,8 +359,10 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     // Resolve a provisional fallback before paying for its guide transport.
     // Otherwise a skipped previous frame could trigger Present copies and then
     // return to inline NR later in CarrierScope for this same new source.
+    GuideCaptureStage("route-not-ready");
     nr_processing_runtime::BeginSource(retry);
     if(!nr_processing_runtime::session.Ready(nr_processing::Start::Present,retry))return;
+    GuideCaptureStage("native-resource-or-output-extent");
     ID3D12Resource* color=nullptr;ID3D12Resource* output=nullptr;
     if(!GetResource(params,"Color",&color)||!GetResource(params,"Output",&output))return;
     unsigned x=0,y=0,ox=0,oy=0,rw=0,rh=0,ow=0,oh=0;
@@ -367,9 +371,10 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     if(!ResolveRenderExtentFromEvaluate(params,feature,color,x,y,rw,rh)||
        !ResolveOutputExtentFromEvaluate(params,feature,output,ox,oy,rw,rh,ow,oh))return;
     NrGuideBinding guides{};
+    GuideCaptureStage("native-guide-binding");
     const bool resolved=ResolveNrGuideBinding(params,feature,1,ow,oh,rw,rh,color,x,y,CodecColorMode::Automatic,guides)&&
        ResolveRrLinearDepth(params,feature,guides);
-    config_lock.Release();if(resolved)(void)CaptureGuides(list,source,guides,ow,oh,config_generation);
+    config_lock.Release();if(resolved)(void)CaptureGuides(list,source,guides,ow,oh,config_generation,true);
 }
 // Callback executes at the last actual FG input consumer, BEFORE the original
 // FG call. It must preserve native state and update both scene/HUDless and final
