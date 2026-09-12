@@ -13,18 +13,20 @@ template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateSrv(ID3D12Device* dev
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     g_nr_descriptors.Finish(descriptor_write);
 #endif
+    const bool valid = desc && desc->ViewDimension == D3D12_SRV_DIMENSION_TEXTURE2D &&
+        desc->Shader4ComponentMapping == D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING &&
+        desc->Texture2D.MostDetailedMip == 0 &&
+        (desc->Texture2D.MipLevels == 1 || desc->Texture2D.MipLevels == UINT_MAX) &&
+        desc->Texture2D.PlaneSlice == 0 && desc->Texture2D.ResourceMinLODClamp == 0;
+    const unsigned format = desc ? static_cast<unsigned>(desc->Format) : 0;
+    NrObserveLifetimeCreateView(device, resource, nr_native_format::Role::Color, format, valid);
     auto* scope = g_nr_native_format_scope;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     if (!scope || !NrDescriptorFormatScopeMatches(*scope,0,device,resource)) return;
 #else
     if (!scope || scope->device != device || resource != scope->resources[0] || !resource) return;
 #endif
-    const bool valid = desc && desc->ViewDimension == D3D12_SRV_DIMENSION_TEXTURE2D &&
-        desc->Shader4ComponentMapping == D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING &&
-        desc->Texture2D.MostDetailedMip == 0 &&
-        (desc->Texture2D.MipLevels == 1 || desc->Texture2D.MipLevels == UINT_MAX) &&
-        desc->Texture2D.PlaneSlice == 0 && desc->Texture2D.ResourceMinLODClamp == 0;
-    scope->views[0].Observe(desc ? static_cast<unsigned>(desc->Format) : 0, valid);
+    scope->views[0].Observe(format, valid);
 }
 template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateUav(ID3D12Device* device,
         ID3D12Resource* resource, ID3D12Resource* counter,
@@ -37,15 +39,17 @@ template <unsigned I> void STDMETHODCALLTYPE NrFormatCreateUav(ID3D12Device* dev
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     g_nr_descriptors.Finish(descriptor_write);
 #endif
+    const bool valid = !counter && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_TEXTURE2D &&
+        desc->Texture2D.MipSlice == 0 && desc->Texture2D.PlaneSlice == 0;
+    const unsigned format = desc ? static_cast<unsigned>(desc->Format) : 0;
+    NrObserveLifetimeCreateView(device, resource, nr_native_format::Role::Output, format, valid);
     auto* scope = g_nr_native_format_scope;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     if (!scope || !NrDescriptorFormatScopeMatches(*scope,1,device,resource)) return;
 #else
     if (!scope || scope->device != device || resource != scope->resources[1] || !resource) return;
 #endif
-    const bool valid = !counter && desc && desc->ViewDimension == D3D12_UAV_DIMENSION_TEXTURE2D &&
-        desc->Texture2D.MipSlice == 0 && desc->Texture2D.PlaneSlice == 0;
-    scope->views[1].Observe(desc ? static_cast<unsigned>(desc->Format) : 0, valid);
+    scope->views[1].Observe(format, valid);
 }
 void* const g_nr_format_srv_detours[4] = {
     reinterpret_cast<void*>(&NrFormatCreateSrv<0>), reinterpret_cast<void*>(&NrFormatCreateSrv<1>),

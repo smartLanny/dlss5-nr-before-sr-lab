@@ -754,6 +754,9 @@ void LatchConcurrentRrOwnershipChange(const char *operation) {
         "without waiting and any active modified Feature 1 transaction aborts");
 }
 
+void NrRetainFormatFeatureObservations(unsigned long long feature) noexcept;
+void NrInvalidateFormatFeatureObservations(unsigned long long feature) noexcept;
+
 #include "nr_ngx_lifecycle.inl"
 
 void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *params) {
@@ -772,6 +775,8 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
             record.generation =
                 g_feature_generation.fetch_add(1, std::memory_order_relaxed);
         }
+        if (record.generation)
+            NrRetainFormatFeatureObservations(record.generation);
     }
     const bool known_width = GetUInt(params, "Width", &record.width);
     const bool known_height = GetUInt(params, "Height", &record.height);
@@ -8258,6 +8263,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     const auto external_view = NrResolveColorView(device, external, external_desc,
         feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
+    const NrFormatOwnViewScope own_views;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
 
@@ -8410,6 +8416,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     const auto current_view = NrResolveColorView(device, external, desc,
         context.feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!current_view) return nullptr;
+    const NrFormatOwnViewScope own_views;
     const auto recovery_token = NrRecoveryBegin(current_view, post_sr);
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;

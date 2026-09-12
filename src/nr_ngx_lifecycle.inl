@@ -376,11 +376,12 @@ FeatureRecord FindObservedFeature(const NgxHandle *handle) {
 }
 
 void ForgetObservedFeature(const NgxHandle *handle, unsigned long long generation) {
+    unsigned long long retired_generation = 0;
     AcquireSRWLockExclusive(&g_feature_lock);
     for (auto &r : g_features) {
         if (r.handle != handle || r.layer != g_ngx_layer ||
             (generation && r.generation != generation)) continue;
-        const auto retired_generation = r.generation;
+        retired_generation = r.generation;
         RecordNgxLifecycleLocked(5, r, kNgxSuccess);
         r = {};
         // One layer's Release does not prove every related wrapper disappeared.
@@ -392,6 +393,8 @@ void ForgetObservedFeature(const NgxHandle *handle, unsigned long long generatio
     }
     RecountNgxOwnersLocked();
     ReleaseSRWLockExclusive(&g_feature_lock);
+    if (retired_generation)
+        NrInvalidateFormatFeatureObservations(retired_generation);
     nr_source_runtime::RetireFeature(handle,generation);
 }
 
