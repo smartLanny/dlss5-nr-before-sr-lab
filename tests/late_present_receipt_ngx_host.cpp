@@ -182,8 +182,15 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         for(unsigned n=0;n<3;++n){io.backbuffer=buffers[IDXGISwapChain3_GetCurrentBackBufferIndex(swap)];io.Fill();capture_io=&io;Hr(IDXGISwapChain3_Present(swap,0,0),"no-guide Present");Check(!compat::current&&compat::observation.submitted==0&&captured_changed==0,"no native guides means no NR and identity output");}
         ID3D12CommandQueue* producer_queue=queue;ID3D12CommandQueue_AddRef(producer_queue);
         if(cross){ReleaseCom(producer_queue);Hr(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&producer_queue)),"second real producer queue");}
-        Check(EnsureNrApi(device)&&EnsureCodec(device),"native runtime and codec for true capture entry");
-        Io producer;producer.Init(device,producer_queue);late_host::Guides guides;guides.Init(producer);
+        Io producer;producer.Init(device,producer_queue);
+        ID3D12Device* native_device=nullptr;{
+            NrPostBoundaryAliasScope native_scope(producer.list);const auto native_recording=SnapshotPostBoundaryList(producer.list);
+            Check(native_recording.known&&native_recording.address,"native command-list identity for test runtime initialization");
+            auto* native_list=reinterpret_cast<ID3D12GraphicsCommandList*>(native_recording.address);
+            Hr(ID3D12GraphicsCommandList_GetDevice(native_list,IID_ID3D12Device,reinterpret_cast<void**>(&native_device)),"native device for test runtime initialization");
+        }
+        Check(EnsureNrApi(native_device)&&EnsureCodec(native_device),"native runtime and codec for true capture entry");ReleaseCom(native_device);
+        late_host::Guides guides;guides.Init(producer);
         unsigned changed_frames=0;bool duplicate_checked=false;unsigned long long previous_source=0;
         for(unsigned frame=0;frame<48&&changed_frames<4;++frame){
             Pump();io.backbuffer=buffers[IDXGISwapChain3_GetCurrentBackBufferIndex(swap)];io.Fill();guides.Produce(producer,frame);
