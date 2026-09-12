@@ -54,6 +54,7 @@
 #include "nr_pre_fallback.h"
 #include "nr_face_worker.h"
 #include "nr_dual_spatial_d3d12.hpp"
+#include "nr_full_pass.hpp"
 #include "nr_dual_lifetime.hpp"
 #include "nr_descriptor_plan.h"
 #include "nr_processing_route.h"
