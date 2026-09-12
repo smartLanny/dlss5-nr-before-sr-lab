@@ -1,5 +1,6 @@
 // Include after nr_post_boundary_native.inl and guide/NGX definitions, before
 // ProcessEvaluate. nr_source_frame.hpp/nr_fg_contract.hpp go outside namespace.
+#include "nr_late_present_receipt.hpp"
 namespace nr_source_runtime {
 using nr_source_frame::Id;
 using nr_source_frame::Source;
@@ -32,13 +33,26 @@ bool TryPresentObservation(PresentObservation& out){
     ReleaseSRWLockShared(&source_lock);return ready;
 }
 PresentDecision PresentDecisionFor(const PresentObservation& value){
-    if(value.promotion_blocked_by_native_producer)return PresentDecision::NativeProducerBlocked;
     if(value.label.role==Role::Generated)return PresentDecision::GeneratedLabel;
-    if(value.label.role==Role::Retired)return PresentDecision::RetiredLabel;
-    if(value.reject_mask&nr_source_frame::PresentRejectNoApplication)return PresentDecision::UnknownLabel;
     if(value.reject_mask&nr_source_frame::PresentRejectFgConsumed)return PresentDecision::FgConsumed;
-    if(value.reject_mask&nr_source_frame::PresentRejectUnsubmitted)return PresentDecision::Unsubmitted;
-    if(value.reject_mask&nr_source_frame::PresentRejectWrongQueue)return PresentDecision::WrongQueue;
+    if(value.reject_mask&nr_source_frame::PresentRejectProcessed)return PresentDecision::InlineProcessed;
+    switch(static_cast<nr_late_present::Decision>(value.receipt_decision)){
+    case nr_late_present::Decision::NativeResultPending:return PresentDecision::ReceiptPending;
+    case nr_late_present::Decision::NativeFailed:return PresentDecision::NativeFailed;
+    case nr_late_present::Decision::WrongDevice:return PresentDecision::ReceiptDeviceMismatch;
+    case nr_late_present::Decision::WrongExtent:return PresentDecision::ReceiptExtentMismatch;
+    case nr_late_present::Decision::WrongConfig:return PresentDecision::ReceiptConfigMismatch;
+    case nr_late_present::Decision::Expired:return PresentDecision::ReceiptExpired;
+    case nr_late_present::Decision::AlreadyConsumed:return PresentDecision::ReceiptConsumed;
+    case nr_late_present::Decision::Ambiguous:return PresentDecision::ReceiptAmbiguous;
+    case nr_late_present::Decision::KnownGenerated:return PresentDecision::GeneratedLabel;
+    case nr_late_present::Decision::KnownFgConsumed:return PresentDecision::FgConsumed;
+    case nr_late_present::Decision::KnownInlineProcessed:return PresentDecision::InlineProcessed;
+    case nr_late_present::Decision::Unsubmitted:return PresentDecision::Unsubmitted;
+    case nr_late_present::Decision::None:
+    case nr_late_present::Decision::NoReceipt:
+    case nr_late_present::Decision::Accepted:return PresentDecision::ReceiptUnavailable;
+    }
     return PresentDecision::Accepted;
 }
 Id ObjectId(ID3D12Object* object) {
@@ -57,13 +71,52 @@ Id DeviceOf(ID3D12DeviceChild* object) {
 }
 Id QueueOf(ID3D12CommandQueue* queue){return ObjectId(reinterpret_cast<ID3D12Object*>(queue));}
 #include "nr_source_observer.inl"
+struct CoreRecordingDevice {Id list=0,lifetime=0,device=0;};
+CoreRecordingDevice core_recording_devices[256]{};
+unsigned next_core_recording_device=0;
+Id CoreRecordingDeviceOfLocked(const nr_post_boundary::List& core) {
+    for(const auto& entry:core_recording_devices)
+        if(entry.list==core.address&&entry.lifetime==core.token)return entry.device;
+    return 0;
+}
+void RememberCoreRecordingDeviceLocked(const nr_post_boundary::List& core,Id device) {
+    if(!core.known||!core.address||!core.token||!device)return;
+    for(auto& entry:core_recording_devices)if(entry.list==core.address&&entry.lifetime==core.token){entry.device=device;return;}
+    core_recording_devices[next_core_recording_device]={core.address,core.token,device};
+    next_core_recording_device=(next_core_recording_device+1)%std::size(core_recording_devices);
+}
+// Source Evaluate construction is a cold boundary. Resolve the real device
+// cookie here so recording hooks and Execute only read bounded value records.
+void SeedCoreRecordingDevice(ID3D12GraphicsCommandList* list) {
+    if(!list)return;Lock lock;
+    const auto core=SnapshotPostBoundaryList(list);
+    if(!core.known||core.reset==UINT64_MAX)return;
+    RememberCoreRecordingDeviceLocked(core,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(list)));
+}
 Recording RecordingOf(ID3D12GraphicsCommandList* list) {
-    if(HasObservedList(list))return ObservedRecording(list);
-    const auto observed=SnapshotPostBoundaryList(list);
-    if(!observed.known)return {};
-    // Core counts the first open recording as reset 0; +1 reserves zero as unknown.
-    if(observed.reset==UINT64_MAX)return {};
-    return {observed.address,observed.token,observed.reset+1,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(list))};
+    // Prefer the canonical Core receipt whenever it exists. That keeps a
+    // validated proxy alias and its native Execute in one generation domain,
+    // even if the separate source observer becomes ready between the two.
+    const auto owned=ObservedRecording(list);
+    const auto core=SnapshotPostBoundaryList(list);
+    if(core.known) {
+        // Core counts the first open recording as reset 0; +1 reserves zero as unknown.
+        if(core.reset==UINT64_MAX)return {};
+        Id device=owned.device;
+        // Entries cache their device cookie before hook publication. This also
+        // covers ready=false without calling COM from a native command hook.
+        for(unsigned i=0;i<256;++i)if(observed_lists[i].native==list ||
+                reinterpret_cast<Id>(observed_lists[i].native)==core.address) {
+            if(!device)device=observed_lists[i].device;break;
+        }
+        if(!device)device=CoreRecordingDeviceOfLocked(core);
+        if(!device)return {};
+        RememberCoreRecordingDeviceLocked(core,device);
+        return {core.address,core.token,core.reset+1,device};
+    }
+    // A refused/installing source observer is not an identity veto: the Core
+    // lookup above still had its chance before this independent-domain fallback.
+    return owned;
 }
 Resource ResourceOf(ID3D12Resource* resource) {
     if(!resource)return {};
@@ -90,8 +143,12 @@ struct PresentLease {
     Role role=Role::Unknown;
     NativeInputs inputs{};
     NrGuideBinding guides{};
+    NrGuideSignature source_signature{};
     bool guides_owned=false,guides_current=false;
-    Id queue=0;
+    bool source_jitter_known=false,output_jitter_known=false,cross_queue_wait=false;
+    Id queue=0,producer_queue=0,producer_value=0;
+    ID3D12Fence* producer_fence=nullptr;
+    unsigned source_age=0,output_width=0,output_height=0;
 };
 thread_local PresentLease present_lease{};
 thread_local Ticket present_ticket{};
@@ -158,10 +215,12 @@ Id RetryToken(Source source){
     return 0;
 }
 bool ProducerActive(Source source){for(const auto& p:producers)if(p.stream==source.stream&&p.epoch==source.epoch)return true;return false;}
+void RetireReceiptStreamLocked(Id stream,Id epoch);
 void RetireProducer(Id handle,Id epoch=0){
     for(auto& p:producers)if(p.handle==handle&&(!epoch||p.epoch==epoch)){
         for(auto& retry:retry_identities)if(retry.source.stream==p.stream&&retry.source.epoch==p.epoch)retry={};
-        lineage.RetireSource(p.stream,p.epoch);claims.RetireStream(p.stream,p.epoch);p={};}
+        lineage.RetireSource(p.stream,p.epoch);claims.RetireStream(p.stream,p.epoch);
+        RetireReceiptStreamLocked(p.stream,p.epoch);p={};}
 }
 void RetireFeature(const NgxHandle* handle,unsigned long long generation){Lock lock;RetireProducer(reinterpret_cast<Id>(handle),generation);}
 void RetireSwapchain(reshade::api::swapchain* chain){Lock lock;RetireProducer(reinterpret_cast<Id>(chain));}
@@ -238,6 +297,15 @@ NativeInputs ReadFgInputs(const NgxParams* params) {
     return input;
 }
 #include "nr_source_transport.inl"
+void BeginNativeReceiptOpportunity(Source source) {
+    Lock lock;Id device=0;
+    for(const auto& producer:producers)if(producer.stream==source.stream&&producer.epoch==source.epoch){device=producer.device;break;}
+    BeginNativeReceiptOpportunityLocked(source,device);
+}
+bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBinding& input,
+    unsigned output_width,unsigned output_height) {
+    return CaptureGuides(list,source,input,output_width,output_height,g_config_generation.load(std::memory_order_relaxed));
+}
 bool SourceGuidesAwaitSubmission(){return guides_awaiting_submission.load(std::memory_order_acquire);}
 bool HasPendingSubmission(reshade::api::command_list* owner){
     if(!MayObserveSubmission()||!owner||!owner->get_device()||owner->get_device()->get_api()!=reshade::api::device_api::d3d12)return false;
@@ -284,6 +352,7 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
        OtherNrOwnerActive()||g_codec.failed)return;
     AcquireSRWLockShared(&g_nr_api_lock);const bool api_failed=g_nr_api.failed;ReleaseSRWLockShared(&g_nr_api_lock);
     if(api_failed)return;
+    const unsigned config_generation=g_config_generation.load(std::memory_order_relaxed);
     Id retry=0;{Lock lock;retry=RetryToken(source);}
     // Resolve a provisional fallback before paying for its guide transport.
     // Otherwise a skipped previous frame could trigger Present copies and then
@@ -300,7 +369,7 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     NrGuideBinding guides{};
     const bool resolved=ResolveNrGuideBinding(params,feature,1,ow,oh,rw,rh,color,x,y,CodecColorMode::Automatic,guides)&&
        ResolveRrLinearDepth(params,feature,guides);
-    config_lock.Release();if(resolved)(void)CaptureGuides(list,source,guides);
+    config_lock.Release();if(resolved)(void)CaptureGuides(list,source,guides,ow,oh,config_generation);
 }
 // Callback executes at the last actual FG input consumer, BEFORE the original
 // FG call. It must preserve native state and update both scene/HUDless and final
@@ -319,6 +388,7 @@ struct EvaluateScope {
         :previous(evaluation),list(commands),feature(feature_id) {
         if(previous||!commands||!handle||!params||!generation||(feature!=1&&feature!=13&&feature!=11))return;
         if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire))return;
+        SeedCoreRecordingDevice(commands);
         active=true;evaluation=this;
         {Lock lock;ObserveNativeProducer(reinterpret_cast<Id>(handle),generation,RecordingOf(commands).device);}
         FgConsumer consume=nullptr;
@@ -334,6 +404,8 @@ struct EvaluateScope {
         }else{
             GetResource(params,"Output",&output);
             Lock lock;source=sl_source?sl_source:ProducerSource(reinterpret_cast<Id>(handle),generation);
+            Id device=0;for(const auto& producer:producers)if(producer.handle==reinterpret_cast<Id>(handle)&&producer.epoch==generation){device=producer.device;break;}
+            BeginNativeReceiptOpportunityLocked(source,device);
         }
         {Lock lock;retry_token=RetryToken(source);}
         // No source lock is held across private/GPU or native callbacks.
@@ -363,10 +435,11 @@ struct EvaluateScope {
     void Finish(NgxResult result) {
         if(!active||finished)return;finished=true;Lock lock;
         const auto recording=RecordingOf(list);
+        if(feature==1||feature==13)CompleteNativeReceiptLocked(source,result==kNgxSuccess);
         if(result==kNgxSuccess){
             const auto application=ProducerActive(source)?Role::Application:Role::Retired;
             Label app{source,application};app.processed=claims.WasRecorded(source);app.encoding=inputs.encoding;
-            if(feature==11){app.fg_consumed=true;claims.ConsumeFg(source);}
+            if(feature==11){app.fg_consumed=true;claims.ConsumeFg(source);MarkReceiptFgConsumedLocked(source);}
             if(output)lineage.Set(recording,ResourceOf(output),app);
             if(feature==11){
                 if(real)lineage.Set(recording,ResourceOf(real),app);
@@ -400,7 +473,8 @@ bool InlineAllowed(unsigned route) {
 }
 void MarkPrivateRecorded() {
     Lock lock;
-    if(evaluation&&evaluation->ticket){claims.Record(evaluation->ticket);evaluation->private_recorded=true;}
+    if(evaluation&&evaluation->ticket){claims.Record(evaluation->ticket);evaluation->private_recorded=true;
+        MarkReceiptInlineProcessedLocked(evaluation->ticket.source);}
     else if(present_ticket){claims.Record(present_ticket);present_recorded=true;}
 }
 void OnExecute(ID3D12CommandQueue* queue,unsigned count,ID3D12CommandList*const* lists,bool succeeded) {
@@ -410,23 +484,26 @@ void OnExecute(ID3D12CommandQueue* queue,unsigned count,ID3D12CommandList*const*
     Id queue_identity=0;
     for(unsigned i=0;i<count;++i)if(lists[i]){
         auto* native=reinterpret_cast<ID3D12GraphicsCommandList*>(lists[i]);
-        const auto own=ObservedRecording(native);
-        const auto observed=own?nr_post_boundary::List{own.list,own.lifetime,own.reset-1,own.device,true}:SnapshotPostBoundaryList(native);
-        if(!observed.known||observed.reset==UINT64_MAX)continue;
+        const auto recording=RecordingOf(native);if(!recording)continue;
         bool guides=false;for(const auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
-            copy.recording.list==observed.address&&copy.recording.lifetime==observed.token){guides=true;break;}
-        if(!guides&&(!enabled||!lineage.TracksList(observed.address,observed.token)))continue;
+            copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime){guides=true;break;}
+        if(!guides&&(!enabled||!lineage.TracksList(recording.list,recording.lifetime)))continue;
         if(!queue_identity)queue_identity=QueueOf(queue);if(!queue_identity)continue;
         // Only a list with an actual source receipt pays for the device cookie.
-        const Recording recording=own?own:Recording{observed.address,observed.token,observed.reset+1,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(lists[i]))};
-        if(enabled)lineage.Submit(recording,queue_identity,succeeded);GuideCopiesSubmitted(queue,recording,succeeded);
+        if(enabled)lineage.Submit(recording,queue_identity,succeeded);
+        // Capture owns the recording identity chosen while the commands were
+        // actually appended. Observer readiness can change before Execute, so
+        // submit matching copies by stable list lifetime using their own token.
+        for(auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
+            copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime)
+            GuideCopiesSubmitted(queue,copy.recording,succeeded);
     }
     source_receipts_pending.store(lineage.AnyPending()||guides_awaiting_submission.load(std::memory_order_relaxed),std::memory_order_release);
 }
 void OnReset(ID3D12GraphicsCommandList* list,bool succeeded) {
     if(!succeeded||!list)return;
     if(!nr_processing_runtime::work_enabled.load(std::memory_order_relaxed)&&!guides_awaiting_submission.load(std::memory_order_acquire)){
-        Lock lock;const auto recording=ObservedRecording(list);if(!recording)return;
+        Lock lock;const auto recording=RecordingOf(list);if(!recording)return;
         lineage.Reset(recording);for(auto& state:resource_states)if(state.recording.list==recording.list&&state.recording.lifetime==recording.lifetime)state={};
         AdvanceObservedList(list);source_receipts_pending.store(lineage.AnyPending(),std::memory_order_release);return;
     }
@@ -546,28 +623,49 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
     present_resource=ResourceOf(buffer);auto label=lineage.Lookup(present_resource);
     diagnostic.lookup=label;diagnostic.native_producer_on_device=NativeProducerOnDevice(present_resource.device);
     diagnostic.promotion_eligible=nr_source_frame::PresentPromotionEligible(label,queue_identity);
-    diagnostic.promotion_blocked_by_native_producer=diagnostic.promotion_eligible&&diagnostic.native_producer_on_device;
-    // A new, explicitly targeted output write at the application Present
-    // boundary is sufficient for history-free color processing. This does not
-    // claim a camera/temporal frame identity. Generated output is never promoted.
-    if(diagnostic.promotion_eligible&&!diagnostic.native_producer_on_device){
-        const auto device=ResourceOf(buffer).device;
-        label.source=ProducerSource(reinterpret_cast<Id>(chain),device,label.content);label.role=Role::Application;
+    diagnostic.promotion_blocked_by_native_producer=false;
+    const auto desc=ID3D12Resource_GetDesc(buffer);
+    const bool known_generated=label.role==Role::Generated;
+    const bool known_fg_consumed=label.fg_consumed;
+    const bool known_inline_processed=label.processed;
+    auto selected=AcquirePresentGuides(present_resource.device,desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,
+        desc.Height,known_generated,known_fg_consumed,known_inline_processed,queue_identity,
+        g_config_generation.load(std::memory_order_relaxed));
+    diagnostic.receipt_decision=static_cast<unsigned>(selected.decision);diagnostic.receipt_age=selected.age;
+    diagnostic.receipt_device_age=selected.device_age;
+    diagnostic.label=label;
+    if(!selected){
+        if(known_generated)diagnostic.reject_mask|=nr_source_frame::PresentRejectNoApplication;
+        if(known_fg_consumed)diagnostic.reject_mask|=nr_source_frame::PresentRejectFgConsumed;
+        if(known_inline_processed)diagnostic.reject_mask|=nr_source_frame::PresentRejectProcessed;
+        diagnostic.reject_mask|=nr_source_frame::PresentRejectReceipt;
+        diagnostic.decision=PresentDecisionFor(diagnostic);PublishPresentObservationLocked(diagnostic);return false;
     }
-    diagnostic.label=label;diagnostic.reject_mask=nr_source_frame::PresentRejectMask(label,queue_identity,diagnostic.native_producer_on_device);
-    present_lease.source=label.source;present_lease.source_id=label.content?label.content:label.source.sequence;
-    present_lease.role=label.role;present_lease.queue=label.queue;
-    if(diagnostic.reject_mask){diagnostic.decision=PresentDecisionFor(diagnostic);PublishPresentObservationLocked(diagnostic);return false;}
-    present_ticket=claims.Begin(label,Point::Present);
+    diagnostic.receipt_stream=present_lease.source.stream;diagnostic.receipt_epoch=present_lease.source.epoch;
+    diagnostic.receipt_sequence=present_lease.source.sequence;diagnostic.receipt_queue=present_lease.producer_queue;
+    diagnostic.receipt_fence=present_lease.producer_value;diagnostic.receipt_output_width=present_lease.output_width;
+    diagnostic.receipt_output_height=present_lease.output_height;diagnostic.receipt_cross_queue_wait=present_lease.cross_queue_wait;
+    const auto& source_signature=present_lease.source_signature;
+    diagnostic.receipt_depth_x=source_signature.depth_x;diagnostic.receipt_depth_y=source_signature.depth_y;
+    diagnostic.receipt_depth_width=source_signature.depth_width;diagnostic.receipt_depth_height=source_signature.depth_height;
+    diagnostic.receipt_motion_x=source_signature.motion_x;diagnostic.receipt_motion_y=source_signature.motion_y;
+    diagnostic.receipt_motion_width=source_signature.motion_source_width;diagnostic.receipt_motion_height=source_signature.motion_source_height;
+    diagnostic.receipt_motion_scale_x=source_signature.motion_scale_x;diagnostic.receipt_motion_scale_y=source_signature.motion_scale_y;
+    diagnostic.receipt_game_reset=present_lease.guides.game_reset!=0;
+    diagnostic.receipt_source_jitter_known=present_lease.source_jitter_known;
+    diagnostic.receipt_output_jitter_known=present_lease.output_jitter_known;
+    Label receipt_label{present_lease.source,Role::Application};receipt_label.submitted=true;
+    receipt_label.queue=present_lease.producer_queue;diagnostic.label=receipt_label;
+    present_ticket=claims.Begin(receipt_label,Point::Present);
     if(!present_ticket){diagnostic.claim_reason=static_cast<Id>(claims.reason);diagnostic.decision=PresentDecision::ClaimRejected;
         PublishPresentObservationLocked(diagnostic);return false;}
     diagnostic.claim_started=true;diagnostic.accepted=true;diagnostic.decision=PresentDecision::Accepted;
-    PublishPresentObservationLocked(diagnostic);AcquirePresentGuides(label.source,label.queue);return true;
+    PublishPresentObservationLocked(diagnostic);return true;
 }
 Id PresentSourceId(){return present_lease.source_id;}
 Id PresentRetryToken(){Lock lock;return RetryToken(present_lease.source);}
 const PresentLease& CurrentPresentLease(){return present_lease;}
-void MarkPresentRecorded(){MarkPrivateRecorded();}
+bool MarkPresentRecorded(ID3D12CommandQueue* queue){Lock lock;return BeginPresentReceiptWork(queue);}
 void CompletePresent(ID3D12Fence* fence,Id value) {
     if(!present_ticket)return;Lock lock;
     if(!fence||!value)return;

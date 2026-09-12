@@ -14,6 +14,8 @@ namespace source_producers {
 using namespace nr_source_frame;
 std::atomic<Id> source_objects{1};Claims claims;Lineage lineage;
 struct Lock {~Lock(){}};
+// Guide texture retirement is exercised by the separate WARP transport test.
+void RetireReceiptStreamLocked(Id,Id){}
 // @SOURCE_PRODUCERS@
 }
 unsigned checks=0;
@@ -56,10 +58,10 @@ int main(){
     {PresentObservation snapshot{};snapshot.ordinal=1;snapshot.decision=PresentDecision::Accepted;snapshot.accepted=true;
      const auto copy=snapshot;Check(copy.ordinal==1&&copy.decision==PresentDecision::Accepted&&copy.accepted,
            "Present snapshot copies as a bounded value");
-     for(unsigned i=0;i<=static_cast<unsigned>(PresentDecision::Accepted);++i)
+     for(unsigned i=0;i<=static_cast<unsigned>(PresentDecision::InlineProcessed);++i)
          Check(std::strcmp(PresentDecisionName(static_cast<PresentDecision>(i)),"invalid")!=0,
                "Present decision enum has a name");
-     Check(std::strcmp(PresentDecisionName(static_cast<PresentDecision>(static_cast<unsigned>(PresentDecision::Accepted)+1)),"invalid")==0,
+     Check(std::strcmp(PresentDecisionName(static_cast<PresentDecision>(static_cast<unsigned>(PresentDecision::InlineProcessed)+1)),"invalid")==0,
            "Present decision enum rejects out-of-range values");}
     {Claims c;Check(!c.Begin({},Point::Present),"unknown source excluded");
      auto g=App();g.role=Role::Generated;Check(!c.Begin(g,Point::Present),"generated frames excluded");

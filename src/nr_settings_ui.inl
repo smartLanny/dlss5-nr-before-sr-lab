@@ -173,7 +173,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
         if(selected)ImGui::PopStyleColor();
         SettingsTooltip(i==0?(zh?"先增强游戏场景，再由原生 SR 放大。不兼容时自动尝试后置，再尝试兼容模式。":"Enhances the scene before native SR. Automatically tries post-SR and then compatibility when unavailable."):
             i==1?(zh?"原生 SR／RR 完成后增强；不兼容时自动尝试兼容模式。":"Enhances the native SR/RR result. Automatically tries compatibility when unavailable."):
-            (zh?"处理接近输出的整张游戏画面，可能包含字幕和界面。缺少原生运动和深度数据时采用纯颜色处理，运动稳定性及细节可能变化。开销取决于 AI 渲染精度和层数；当前帧无法处理时保留游戏输出，并提示按 F8 提交日志。":"Processes the game image near presentation, possibly including subtitles and HUD. Without native motion/depth data it uses color-only processing; motion stability and detail may change. Cost depends on precision and pass count. Unsupported frames retain game output; press F8 and submit logs."));
+            (zh?"处理接近输出的整张游戏画面，可能包含字幕和界面。使用近期已提交的原生 SR／RR 深度和运动数据；缺少可信数据时跳过当前帧。开销取决于 AI 渲染精度和层数；兼容问题请按 F8 收集日志。":"Processes the game image near presentation, possibly including subtitles and HUD. Uses recent submitted native SR/RR depth and motion; skips frames without trusted inputs. Cost depends on precision and pass count. Press F8 to collect compatibility logs."));
         ImGui::PopID();
     }
     ImGui::PopID();
@@ -186,7 +186,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
         nr_compat_present::Observation status{};
         if(nr_compat_present_runtime::TrySnapshot(status)){
             ImGui::TextDisabled(zh?"主层 %u × %u，%u 层":"Primary %u x %u, %u passes",status.work_width,status.work_height,status.passes);
-            if(status.color_only)ImGui::TextWrapped("%s",zh?"当前使用纯颜色兼容处理；运动和界面表现需要实测。":"Color-only compatibility processing; motion and HUD quality require testing.");
+            if(status.color_only)ImGui::TextWrapped("%s",zh?"当前尚无可用原生导引回执；保留游戏原画面。":"No usable native guide receipt yet; retaining the game image.");
         }
     }
     return changed;

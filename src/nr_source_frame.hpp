@@ -52,14 +52,19 @@ struct Label {
 enum class PresentDecision : unsigned {
     Unobserved, InvalidArguments, UnsupportedApi, QueueIdentityUnavailable,
     UnknownLabel, GeneratedLabel, RetiredLabel, NativeProducerBlocked,
-    FgConsumed, Unsubmitted, WrongQueue, ClaimRejected, Accepted
+    FgConsumed, Unsubmitted, WrongQueue, ClaimRejected, Accepted,
+    ReceiptUnavailable, ReceiptPending, NativeFailed, ReceiptDeviceMismatch,
+    ReceiptExtentMismatch, ReceiptConfigMismatch, ReceiptExpired, ReceiptConsumed, ReceiptAmbiguous,
+    InlineProcessed
 };
 enum PresentRejectFlag : unsigned {
     PresentRejectNoApplication = 1u << 0,
     PresentRejectFgConsumed = 1u << 1,
     PresentRejectUnsubmitted = 1u << 2,
     PresentRejectWrongQueue = 1u << 3,
-    PresentRejectNativeProducer = 1u << 4
+    PresentRejectNativeProducer = 1u << 4,
+    PresentRejectProcessed = 1u << 5,
+    PresentRejectReceipt = 1u << 6
 };
 struct PresentObservation {
     Id ordinal=0,queue_identity=0,claim_reason=0;
@@ -68,6 +73,13 @@ struct PresentObservation {
     Label lookup{},label{};
     bool native_producer_on_device=false,promotion_eligible=false,
         promotion_blocked_by_native_producer=false,claim_started=false,accepted=false;
+    unsigned receipt_decision=0,receipt_age=0,receipt_device_age=0,receipt_output_width=0,receipt_output_height=0;
+    unsigned receipt_depth_x=0,receipt_depth_y=0,receipt_depth_width=0,receipt_depth_height=0;
+    unsigned receipt_motion_x=0,receipt_motion_y=0,receipt_motion_width=0,receipt_motion_height=0;
+    float receipt_motion_scale_x=0,receipt_motion_scale_y=0;
+    Id receipt_stream=0,receipt_epoch=0,receipt_sequence=0,receipt_queue=0,receipt_fence=0;
+    bool receipt_cross_queue_wait=false,receipt_game_reset=false;
+    bool receipt_source_jitter_known=false,receipt_output_jitter_known=false;
 };
 inline const char* PresentDecisionName(PresentDecision value) noexcept {
     switch(value){
@@ -84,6 +96,16 @@ inline const char* PresentDecisionName(PresentDecision value) noexcept {
     case PresentDecision::WrongQueue:return "wrong-queue";
     case PresentDecision::ClaimRejected:return "claim-rejected";
     case PresentDecision::Accepted:return "accepted";
+    case PresentDecision::ReceiptUnavailable:return "receipt-unavailable";
+    case PresentDecision::ReceiptPending:return "receipt-native-result-pending";
+    case PresentDecision::NativeFailed:return "receipt-native-failed";
+    case PresentDecision::ReceiptDeviceMismatch:return "receipt-device-mismatch";
+    case PresentDecision::ReceiptExtentMismatch:return "receipt-output-extent-mismatch";
+    case PresentDecision::ReceiptConfigMismatch:return "receipt-config-mismatch";
+    case PresentDecision::ReceiptExpired:return "receipt-expired";
+    case PresentDecision::ReceiptConsumed:return "receipt-consumed";
+    case PresentDecision::ReceiptAmbiguous:return "receipt-ambiguous-producers";
+    case PresentDecision::InlineProcessed:return "inline-processed";
     }
     return "invalid";
 }

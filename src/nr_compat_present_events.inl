@@ -57,16 +57,6 @@ bool CreateLayer(Context& c,Layer& l,ID3D12GraphicsCommandList* list) {
 }
 bool Bootstrap(Context& c,unsigned slot,unsigned long long source) {
     auto* list=c.flights[slot].list;
-    // Never hand NGX an uninitialized guide allocation. These are explicitly
-    // synthetic far depth/zero motion, not recovered engine information.
-    for(auto& l:c.layers){if(!l.depth)continue;
-        Transition(list,l.depth,l.depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Transition(list,l.motion,l.motion_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        Utility(c,list,l.init_input,c.init,{l.context.width,l.context.height});
-        UavBarrier(list,l.depth);UavBarrier(list,l.motion);
-        Transition(list,l.depth,l.depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        Transition(list,l.motion,l.motion_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    }
     Transition(list,c.image.proxy,c.image.proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Utility(c,list,c.layers[0].init_input,c.init_color,c.work);UavBarrier(list,c.image.proxy);
     Transition(list,c.image.proxy,c.image.proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -145,7 +135,7 @@ bool Frame(Context& c,unsigned slot,ID3D12Resource* backbuffer,unsigned long lon
             admission.creation_completion_proven=c.timeline.Ready(ID3D12Fence_GetCompletedValue(c.fence));
             admission.recording_and_queue_admitted=!c.timeline.Poisoned()&&c.queue&&c.device;
             admission.dependencies_pinned=c.recorded&&c.layers[i].spatial&&f.backbuffer;
-            admission.current_inputs_and_guides_bound=l.binding.proxy&&l.binding.neural&&l.depth&&l.motion;
+            admission.current_inputs_and_guides_bound=l.binding.proxy&&l.binding.neural&&l.frame_guides.depth&&l.frame_guides.motion;
             const auto result2=nr_dual::dx12::RecordSecond(c.spatial_pipelines,l.spatial,list,state,l.plan,admission,Evaluate,&l);
             parent.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
             if(!result2.HasSecond()){Poison(c,result2.ngx_result,"Evaluate-later");return false;}
@@ -241,6 +231,7 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     const auto reject_build=[retry_token](const char* reason){nr_processing_runtime::RejectBeforePresentWork(retry_token,reason);};
     const auto& source_lease=nr_source_runtime::CurrentPresentLease();
     const bool native_guides=NativeGuideAvailable(source_lease);
+    if(!native_guides){ReleaseCom(device);SetStatus(Status::MissingNativeGuides);return;}
     const auto work=nr_compat_present::WorkExtent(source,g_config.compat_percent);
     const unsigned passes=RequestedPasses(g_config);
     const unsigned numerator=g_config.nr_second_numerator;
@@ -285,19 +276,17 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         if(!previous||previous.stream!=now.stream||previous.epoch!=now.epoch||previous.sequence==UINT64_MAX||previous.sequence+1!=now.sequence)
             c.native_guides.game_reset=1;
     }
-    observation.color_only=!c.uses_native_guides;observation.reset_each_frame=!c.uses_native_guides;
+    observation.color_only=false;observation.reset_each_frame=false;
     const auto done=Collect(c);if(done==UINT64_MAX)return;
     if(c.create_fence&&!c.timeline.Ready(done)){SetStatus(Status::Creating);return;}
     const int index=c.timeline.Free(done);if(index<0){SetStatus(Status::Busy);return;}
     auto& flight=c.flights[unsigned(index)];
     if(FAILED(ID3D12CommandAllocator_Reset(flight.allocator))||
        FAILED(ID3D12GraphicsCommandList_Reset(flight.list,flight.allocator,nullptr))){Poison(c,0xBAD00002u,"Reset-private-list");return;}
-    // Flush only the actual present queue's pending immediate work, once it is
-    // known we will record. Never flush a second guessed runtime/compute queue.
-    queue->flush_immediate_command_list();
     const auto serial=nr_source_runtime::PresentSourceId();
     if(!serial){SetStatus(Status::SourceUnavailable);return;}
-    observation.source=serial;nr_source_runtime::MarkPresentRecorded();
+    if(!nr_source_runtime::MarkPresentRecorded(native_queue)){SetStatus(Status::Poisoned);return;}
+    observation.source=serial;
     nr_processing_runtime::MarkRecorded();
     if(!c.layers[0].context.nr_handle){
         HMODULE self=nullptr;

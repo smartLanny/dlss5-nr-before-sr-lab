@@ -2,13 +2,21 @@
 // guessed states, or copies on an unrelated presentation queue.
 struct GuideCopy {
     Source source{};Recording recording{};NrGuideBinding guides{};
+    NrGuideSignature source_signature{};
     ID3D12Resource* inputs[2]{};ID3D12Resource* owned[2]{};
     ID3D12Fence *producer_fence=nullptr,*consumer_fence=nullptr;
-    Id producer_value=0,consumer_value=0,queue=0,bytes=0;
+    Id producer_value=0,consumer_value=0,queue=0,bytes=0,opportunity=0;
+    unsigned output_width=0,output_height=0,config_generation=0;
     unsigned owned_state[2]{};
-    bool reserved=false,recorded=false,submitted=false,acquired=false,poisoned=false;
+    bool reserved=false,recorded=false,native_result_known=false,native_succeeded=false;
+    bool submitted=false,acquired=false,consumed=false,inline_processed=false,fg_consumed=false,retired=false,poisoned=false;
 };
 GuideCopy guide_copies[8]{};
+struct ReceiptStream {Id stream=0,epoch=0,device=0,latest_sequence=0,latest_opportunity=0;};
+ReceiptStream receipt_streams[64]{};
+struct DeviceOpportunity {Id device=0,latest=0;};
+DeviceOpportunity receipt_devices[16]{};
+Id next_receipt_opportunity=1;
 std::atomic<bool> guides_awaiting_submission{false};
 std::atomic<bool> guides_awaiting_retirement{false};
 thread_local GuideCopy* present_guides=nullptr;
@@ -23,6 +31,45 @@ bool GuideReusable(GuideCopy& c) {
     if(!c.recorded)return true;
     return c.submitted&&FenceDone(c.producer_fence,c.producer_value)&&
         (!c.consumer_fence||FenceDone(c.consumer_fence,c.consumer_value));
+}
+ReceiptStream* ReceiptStreamFor(Source source,bool create) {
+    ReceiptStream* free=nullptr;
+    for(auto& stream:receipt_streams){
+        if(stream.stream==source.stream&&stream.epoch==source.epoch)return &stream;
+        if(!stream.stream&&!free)free=&stream;
+    }
+    if(create&&free)*free={source.stream,source.epoch,0,0,0};
+    return create?free:nullptr;
+}
+DeviceOpportunity* ReceiptDeviceFor(Id device,bool create) {
+    DeviceOpportunity* free=nullptr;
+    for(auto& item:receipt_devices){if(item.device==device)return &item;if(!item.device&&!free)free=&item;}
+    if(create&&free)*free={device,0};return create?free:nullptr;
+}
+void BeginNativeReceiptOpportunityLocked(Source source,Id device) {
+    if(!source||!device||next_receipt_opportunity==UINT64_MAX)return;
+    auto* stream=ReceiptStreamFor(source,true);auto* owner=ReceiptDeviceFor(device,true);
+    if(!stream||!owner||stream->latest_sequence>=source.sequence)return;
+    const auto opportunity=next_receipt_opportunity++;
+    stream->device=device;stream->latest_sequence=source.sequence;stream->latest_opportunity=opportunity;
+    owner->latest=opportunity;
+}
+void BeginNativeReceiptOpportunity(Source source,Id device) {Lock lock;BeginNativeReceiptOpportunityLocked(source,device);}
+void CompleteNativeReceiptLocked(Source source,bool succeeded) {
+    for(auto& c:guide_copies)if(c.source==source&&c.recorded&&!c.native_result_known){
+        c.native_result_known=true;c.native_succeeded=succeeded;
+    }
+}
+void CompleteNativeReceipt(Source source,bool succeeded) {Lock lock;CompleteNativeReceiptLocked(source,succeeded);}
+void MarkReceiptInlineProcessedLocked(Source source) {
+    for(auto& c:guide_copies)if(c.source==source)c.inline_processed=true;
+}
+void MarkReceiptFgConsumedLocked(Source source) {
+    for(auto& c:guide_copies)if(c.source==source)c.fg_consumed=true;
+}
+void RetireReceiptStreamLocked(Id stream,Id epoch) {
+    for(auto& item:receipt_streams)if(item.stream==stream&&item.epoch==epoch)item={};
+    for(auto& c:guide_copies)if(c.source.stream==stream&&c.source.epoch==epoch)c.retired=true;
 }
 void CollectGuideInputs() {
     if(!guides_awaiting_retirement.load(std::memory_order_acquire))return;
@@ -58,14 +105,18 @@ bool MakeGuideCopy(ID3D12Device* device,ID3D12Resource* input,unsigned width,uns
         D3D12_RESOURCE_STATE_COMMON,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&output))))return false;
     bytes+=allocation.SizeInBytes;return true;
 }
-bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBinding& input) {
-    if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire)||!source||!list||!input.depth||!input.motion||input.signature.linear_depth)return false;
+bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBinding& input,
+    unsigned output_width,unsigned output_height,unsigned config_generation) {
+    if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire)||!source||!list||!input.depth||!input.motion||
+       input.signature.linear_depth||!output_width||!output_height||output_width>16384||output_height>16384)return false;
     const auto depth_desc=ID3D12Resource_GetDesc(input.depth);
     if((depth_desc.Flags&D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)!=0 &&
        (input.signature.depth_x||input.signature.depth_y||input.signature.depth_width!=depth_desc.Width||input.signature.depth_height!=depth_desc.Height))return false;
     GuideCopy* selected=nullptr;unsigned before[2]{};Recording recording{};
     {
         Lock lock;recording=RecordingOf(list);if(!recording)return false;
+        const auto* stream=ReceiptStreamFor(source,false);
+        if(!stream||stream->device!=recording.device||stream->latest_sequence!=source.sequence||!stream->latest_opportunity)return false;
         for(auto& copy:guide_copies)if(copy.source==source&&copy.recorded&&!copy.poisoned)return true;
         if(!StateOf(recording,ResourceOf(input.depth),before[0])||!StateOf(recording,ResourceOf(input.motion),before[1]))return false;
         for(auto& copy:guide_copies)if(GuideReusable(copy)){selected=&copy;break;}
@@ -102,7 +153,10 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
     }else {for(auto& resource:c.inputs)ReleaseCom(resource);ReleaseCom(c.consumer_fence);c.consumer_value=0;}
     ReleaseCom(device);
     if(!made){ClearGuideCopy(c);{Lock lock;*selected={};}ReleaseSRWLockExclusive(&guide_allocation_lock);return false;}
-    c.source=source;c.recording=recording;c.recorded=c.submitted=false;c.queue=0;
+    c.source=source;c.recording=recording;c.output_width=output_width;c.output_height=output_height;c.config_generation=config_generation;
+    {Lock lock;const auto* stream=ReceiptStreamFor(source,false);c.opportunity=stream?stream->latest_opportunity:0;}
+    c.source_signature=input.signature;c.recorded=c.native_result_known=c.native_succeeded=c.submitted=false;
+    c.acquired=c.consumed=c.inline_processed=c.fg_consumed=c.retired=c.poisoned=false;c.queue=0;
     {Lock lock;selected->bytes=c.bytes;}
     ReleaseSRWLockExclusive(&guide_allocation_lock);
     c.inputs[0]=input.depth;c.inputs[1]=input.motion;
@@ -128,9 +182,8 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
     s.depth_physical_width=s.depth_width;s.depth_physical_height=s.depth_height;s.depth_x=s.depth_y=0;
     s.motion_physical_width=s.motion_source_width;s.motion_physical_height=s.motion_source_height;s.motion_x=s.motion_y=0;
     s.motion_bound_width=s.motion_source_width;s.motion_bound_height=s.motion_source_height;s.resample_motion=false;
-    // Present follows reconstruction/post-processing; raw camera jitter is not
-    // automatically the phase of the presented color plane.
-    c.guides.jitter.known=false;
+    // Keep the actual native-input jitter receipt. Present binding separately
+    // marks that it is not an observed output-color jitter phase.
     {Lock lock;c.reserved=false;c.recorded=true;*selected=c;
         guides_awaiting_submission.store(true,std::memory_order_release);
         guides_awaiting_retirement.store(true,std::memory_order_release);}return true;
@@ -149,14 +202,44 @@ void GuideCopiesSubmitted(ID3D12CommandQueue* queue,Recording recording,bool suc
     bool pending=false;for(const auto& c:guide_copies)pending|=c.recorded&&!c.submitted&&!c.poisoned;
     guides_awaiting_submission.store(pending,std::memory_order_release);
 }
-void AcquirePresentGuides(Source source,Id queue) {
-    for(auto& c:guide_copies)if(c.source==source&&c.recorded&&c.submitted&&!c.poisoned&&!c.reserved&&c.queue==queue){
-        const auto done=ID3D12Fence_GetCompletedValue(c.producer_fence);if(done==UINT64_MAX){c.poisoned=true;continue;}
-        // A later read on the identical queue is ordered even before CPU sees
-        // completion. The consumer fence below prevents subsequent pool reuse.
-        c.acquired=true;present_guides=&c;present_lease.guides=c.guides;
-        present_lease.guides_owned=present_lease.guides_current=true;return;
+nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigned height,
+    bool known_generated,bool known_fg_consumed,bool known_inline_processed,Id present_queue,unsigned config_generation) {
+    nr_late_present::Candidate candidates[8]{};
+    for(unsigned i=0;i<8;++i){const auto& c=guide_copies[i];const auto* stream=ReceiptStreamFor(c.source,false);
+        const auto* device=ReceiptDeviceFor(c.recording.device,false);
+        candidates[i]={c.source.stream,c.source.epoch,c.source.sequence,stream?stream->latest_sequence:0,
+            c.opportunity,device?device->latest:0,c.recording.device,c.queue,c.producer_value,c.config_generation,
+            c.output_width,c.output_height,c.recorded,c.native_result_known,
+            c.native_succeeded,c.submitted,c.consumed,c.inline_processed,c.fg_consumed,c.poisoned||c.retired};}
+    const nr_late_present::Request request{device,width,height,config_generation,
+        known_generated,known_fg_consumed,known_inline_processed};
+    auto selected=nr_late_present::Select(request,candidates,8);
+    if(!selected)return selected;
+    auto& c=guide_copies[selected.index];
+    const auto done=ID3D12Fence_GetCompletedValue(c.producer_fence);if(done==UINT64_MAX){c.poisoned=true;
+        selected.decision=nr_late_present::Decision::NativeFailed;return selected;}
+    c.acquired=true;present_guides=&c;present_lease.source=c.source;
+    present_lease.source_id=c.source.sequence;present_lease.role=Role::Application;present_lease.guides=c.guides;
+    present_lease.source_signature=c.source_signature;present_lease.guides_owned=present_lease.guides_current=true;
+    present_lease.source_jitter_known=c.guides.jitter.known;present_lease.output_jitter_known=false;
+    present_lease.producer_fence=c.producer_fence;present_lease.producer_value=c.producer_value;
+    present_lease.producer_queue=c.queue;present_lease.queue=present_queue;present_lease.source_age=selected.age;
+    present_lease.cross_queue_wait=c.queue!=present_queue;present_lease.output_width=c.output_width;present_lease.output_height=c.output_height;
+    return selected;
+}
+bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
+    if(!present_guides||!present_ticket||!queue)return false;
+    auto& c=*present_guides;
+    // Consumption is irreversible at the first private GPU operation. A failed
+    // queue wait or later opaque failure must never retry this source.
+    c.consumed=true;
+    if(!claims.Record(present_ticket))return false;
+    present_recorded=true;
+    if(c.queue==QueueOf(queue))return true;
+    if(!c.producer_fence||!c.producer_value||FAILED(ID3D12CommandQueue_Wait(queue,c.producer_fence,c.producer_value))){
+        c.poisoned=true;return false;
     }
+    return true;
 }
 void ReleasePresentGuides(ID3D12Fence* fence,Id value,bool recorded) {
     if(!present_guides)return;auto& c=*present_guides;

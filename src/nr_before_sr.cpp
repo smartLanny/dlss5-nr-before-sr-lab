@@ -91,11 +91,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline16";
+constexpr const char *kAddonVersion = "beta0.5-dline17";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline16";
+constexpr const char *kBuildIdentity = "beta0.5-dline17";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -12565,6 +12565,9 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         !retried_original_color) {
         if (!RecordVisibleTransferLocked(command_list, feature.generation, 2))
             SetBypassReason(BypassReason::LifecycleIsolation);
+        // The game's successful SR call consumed the substituted NR input.
+        // Clear this entry's prior retry backoff only at that adoption point.
+        nr_processing_runtime::Adopted(nr_processing::Start::Before);
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
@@ -12577,8 +12580,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
                 NrRoutePostFinished(post_recorded);
 #endif
-                if (post_recorded && compatibility_fallback)
-                    ++g_compat_fallback_recorded;
+                if (post_recorded) {
+                    nr_processing_runtime::Adopted(nr_processing::Start::After);
+                    if (compatibility_fallback) ++g_compat_fallback_recorded;
+                }
                 if(after_sr.fatal_recording){
                     after_state.AbandonAfterOpaqueFailure();
                     before_state.AbandonAfterOpaqueFailure();
@@ -12635,6 +12640,11 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
         const auto result=ProcessEvaluate(original,command_list,handle,params,callback);
         g_inside_ngx_evaluate=false;return result;
     }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    // Keep the cold, fully validated proxy-to-native list identity alive for
+    // source capture and Finish as well as for the enclosed native call.
+    NrPostBoundaryAliasScope source_list_alias(command_list);
+#endif
     const auto source_feature=FindFeature(handle);
     nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);
     const NgxResult source_fatal=source_scope.FatalResult();
@@ -14844,13 +14854,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline16 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline17 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline16 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline17 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

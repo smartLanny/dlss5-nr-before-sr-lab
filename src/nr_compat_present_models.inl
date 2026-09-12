@@ -38,18 +38,6 @@ void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {
     ID3D12GraphicsCommandList_SetPipelineState(list,shader);
     ID3D12GraphicsCommandList_Dispatch(list,(k.width+7)/8,(k.height+7)/8,1);
 }
-NrGuideBinding SyntheticGuides(const Layer& l,bool hdr) {
-    NrGuideBinding g{};g.depth=l.depth;g.motion=l.motion;g.game_reset=1;
-    auto& s=g.signature;s.depth_width=s.motion_source_width=s.motion_bound_width=l.context.width;
-    s.depth_height=s.motion_source_height=s.motion_bound_height=l.context.height;
-    s.depth_physical_width=s.motion_physical_width=s.color_physical_width=l.context.width;
-    s.depth_physical_height=s.motion_physical_height=s.color_physical_height=l.context.height;
-    s.depth_format=DXGI_FORMAT_R32_FLOAT;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;s.color_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
-    s.normalized_create_flags=hdr?1:0;s.depth_inverted=0;s.motion_scale_x=s.motion_scale_y=1;
-    g.has_motion_scale_x=g.has_motion_scale_y=g.valid_motion_scale_x=g.valid_motion_scale_y=true;
-    g.jitter.known=false; // not a fabricated game-phase value
-    return g;
-}
 FeatureRecord SyntheticFeature(const Context& c){FeatureRecord f{};f.feature_id=18;f.generation=c.generation;f.create_flags=c.encoding==Encoding::Srgb?0:1;return f;}
 bool NativeGuideAvailable(const nr_source_runtime::PresentLease& lease) {
     const auto& g=lease.guides;
@@ -60,7 +48,6 @@ bool NativeGuideAvailable(const nr_source_runtime::PresentLease& lease) {
         g.valid_motion_scale_x&&g.valid_motion_scale_y;
 }
 NrGuideBinding LayerGuides(const Context& c,const Layer& l) {
-    if(!c.uses_native_guides)return SyntheticGuides(l,c.encoding!=Encoding::Srgb);
     auto guides=c.native_guides;auto& signature=guides.signature;
     // Preserve the established post-NR guide units. Low-resolution MV is
     // expressed by the actual guide extent/create flag, not a second scaling.
@@ -68,6 +55,10 @@ NrGuideBinding LayerGuides(const Context& c,const Layer& l) {
     signature.normalized_create_flags |= c.encoding==Encoding::Srgb?0:1;
     if(signature.motion_bound_width!=l.context.width||signature.motion_bound_height!=l.context.height)
         signature.normalized_create_flags|=2;
+    // The receipt preserves the native input jitter separately. No callback
+    // observes a post-reconstruction output jitter phase, so Present must bind
+    // that phase as unknown rather than relabeling the captured source phase.
+    guides.jitter.known=false;
     return guides;
 }
 bool Bind(Context& c,Layer& l,NgxParams* params) {
@@ -114,10 +105,10 @@ bool Release(Context*& ptr) {
     for(auto& f:c.flights){ReleaseCom(f.backbuffer);ReleaseCom(f.timing_readback);ReleaseCom(f.rtv);ReleaseCom(f.list);ReleaseCom(f.allocator);}
     for(unsigned i=0;i<c.passes;++i){auto& l=c.layers[i];
         if(l.spatial&&!nr_dual::dx12::DestroySpatialSlotAfterRetirement(l.spatial,RetireProof,&c))return false;
-        ReleaseCom(l.init_input);ReleaseCom(l.init_output);ReleaseCom(l.depth);ReleaseCom(l.motion);}
+        ReleaseCom(l.init_input);ReleaseCom(l.init_output);}
     if(c.spatial_pipelines&&!nr_dual::dx12::DestroyPipelinesAfterRetirement(c.spatial_pipelines,RetireProof,&c))return false;
     ReleaseCom(c.image.heap);ReleaseCom(c.image.source);ReleaseCom(c.image.result);ReleaseCom(c.image.proxy);ReleaseCom(c.image.neural);
-    ReleaseCom(c.raw);ReleaseCom(c.io);ReleaseCom(c.blit);ReleaseCom(c.convert);ReleaseCom(c.init);ReleaseCom(c.init_color);ReleaseCom(c.util_root);
+    ReleaseCom(c.raw);ReleaseCom(c.io);ReleaseCom(c.blit);ReleaseCom(c.convert);ReleaseCom(c.init_color);ReleaseCom(c.util_root);
     ReleaseCom(c.timestamps);ReleaseCom(c.fence);ReleaseCom(c.queue);ReleaseCom(c.device);delete ptr;ptr=nullptr;has_context.store(false,std::memory_order_release);return true;
 }
 // The original Core destroys NGX Features outside the chain lock. Preserve
@@ -218,10 +209,8 @@ bool Build(Context& c) {
         model.tuning_signature=c.tuning;model.tuning_signature_initialized=true;
         model.bound_create_flags=LayerGuides(c,l).signature.normalized_create_flags;model.bound_perf_quality=5;
         model.codec_color_mode=c.image.codec_color_mode;model.codec_color_mode_initialized=true;
-        if(!Texture(c,e,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,&l.depth)||
-           !Texture(c,e,DXGI_FORMAT_R16G16_FLOAT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,&l.motion)||
-           !Table(c,&l.init_input,l.binding.proxy,l.depth,l.motion)||
-           !Table(c,&l.init_output,l.binding.neural,l.depth,l.motion)||!AllocateParameters(c,model.params))return false;
+        if(!Table(c,&l.init_input,l.binding.proxy)||!Table(c,&l.init_output,l.binding.neural)||
+           !AllocateParameters(c,model.params))return false;
         for(auto& p:l.evaluation_params)if(!AllocateParameters(c,p))return false;
     }
     D3D12_DESCRIPTOR_HEAP_DESC heap{};heap.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;

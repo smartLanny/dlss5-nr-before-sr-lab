@@ -13,6 +13,10 @@ bool TryEnterCriticalSection(int*){return true;}
 void LeaveCriticalSection(int*){}
 void Log(const char*,...){}
 namespace nr_source_runtime {unsigned long long source=1;unsigned long long CurrentRetryToken(){return source;}}
+namespace nr_compat_present_runtime {
+bool InlineDrainReady(){return true;}
+bool NativeNrDrained(){return true;}
+}
 #include "../src/nr_processing_runtime.inl"
 int main(){
     using namespace nr_processing_runtime;

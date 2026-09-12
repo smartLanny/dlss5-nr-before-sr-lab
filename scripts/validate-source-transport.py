@@ -45,13 +45,15 @@ def main():
     (output/'run.log').write_text(run.stdout+run.stderr,encoding='utf-8')
     negative_caught=args.default_view_negative and run.returncode!=0 and 'default RTV' in run.stderr
     passed=negative_caught if args.default_view_negative else run.returncode==0
-    receipt={'success':passed,'scope':'Actual owned guide copies and resource/fence reuse on D3D12 WARP',
-             'warp_verified':run.returncode==0,'ngx_verified':False,'fg_verified':False,'game_verified':False,'stdout':run.stdout,
-             'source_sha256':hashlib.sha256((root/'src/nr_source_transport.inl').read_bytes()).hexdigest(),
-             'runtime_sha256':hashlib.sha256((root/'src/nr_source_frame_runtime.inl').read_bytes()).hexdigest(),
-             'views_sha256':hashlib.sha256((root/'src/nr_source_views.inl').read_bytes()).hexdigest(),
+    receipt={'success':passed,'scope':'Actual native-success receipt gating, owned guide copies, blocked cross-queue GPU wait/readback, and resource/fence reuse on D3D12 WARP',
+              'warp_verified':run.returncode==0,'ngx_verified':False,'fg_verified':False,'game_verified':False,'stdout':run.stdout,
+              'source_sha256':hashlib.sha256((root/'src/nr_source_transport.inl').read_bytes()).hexdigest(),
+              'runtime_sha256':hashlib.sha256((root/'src/nr_source_frame_runtime.inl').read_bytes()).hexdigest(),
+              'receipt_policy_sha256':hashlib.sha256((root/'src/nr_late_present_receipt.hpp').read_bytes()).hexdigest(),
+              'views_sha256':hashlib.sha256((root/'src/nr_source_views.inl').read_bytes()).hexdigest(),
              'default_view_negative':args.default_view_negative,'negative_caught':negative_caught,'stderr':run.stderr,
-             'enhanced_barrier_scope':'production callback invalidation tested; actual enhanced GPU barriers not executed'}
+              'cross_queue_scope':'producer queue is deliberately GPU-blocked; consumer queue Waits on the exact receipt fence before readback; no CPU producer wait or flush',
+              'enhanced_barrier_scope':'production callback invalidation tested; actual enhanced GPU barriers not executed'}
     (output/'validation.json').write_text(json.dumps(receipt,indent=2)+'\n',encoding='utf-8')
     print(run.stdout,end='')
     if negative_caught:print('default-view negative control: old explicit-type-only rule rejected as expected')

@@ -94,8 +94,127 @@ class CompatibilityRoute(unittest.TestCase):
     def setUpClass(cls):
         cls.source = CORE.read_text(encoding="utf-8")
         cls.process = _function_block(cls.source, "NgxResult ProcessEvaluate(")
+        cls.dispatch = _function_block(cls.source, "NgxResult DispatchEvaluate(")
         cls.before = _function_block(cls.source, "Substitution PrepareBeforeSr(")
         cls.after = _function_block(cls.source, "PostSrSubstitution PrepareAfterSr(")
+        source_runtime = (CORE.parent / "nr_source_frame_runtime.inl").read_text(encoding="utf-8")
+        cls.source_runtime = source_runtime
+        cls.recording = _function_block(source_runtime, "Recording RecordingOf(")
+        support = source_runtime.index("struct CoreRecordingDevice")
+        cls.recording_support = source_runtime[support:source_runtime.index("Recording RecordingOf(", support)]
+
+    def test_source_scope_uses_validated_alias_for_its_full_lifetime(self):
+        alias = self.dispatch.index("NrPostBoundaryAliasScope source_list_alias(command_list);")
+        source = self.dispatch.index("nr_source_runtime::EvaluateScope source_scope(")
+        process = self.dispatch.index("ProcessEvaluate(", source)
+        finish = self.dispatch.index("source_scope.Finish(result);", process)
+        self.assertLess(alias, source)
+        self.assertLess(source, process)
+        self.assertLess(process, finish)
+        self.assertEqual(self.dispatch.count("NrPostBoundaryAliasScope source_list_alias(command_list);"), 1)
+        constructor = self.source_runtime.index(
+            "EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,int feature_id,Id generation)"
+        )
+        seed = self.source_runtime.index("SeedCoreRecordingDevice(commands);", constructor)
+        locked_lookup = self.source_runtime.index("{Lock lock;ObserveNativeProducer", seed)
+        self.assertLess(seed, locked_lookup)
+
+    def test_recording_identity_falls_back_to_exact_core_receipt(self):
+        compiler = _compiler_command()
+        if compiler is None:
+            self.skipTest("no host C++ compiler")
+        harness = f'''
+#include <cassert>
+#include <cstdint>
+#include <climits>
+#include <iterator>
+struct ID3D12GraphicsCommandList {{}};
+struct ID3D12DeviceChild {{}};
+using Id = std::uint64_t;
+struct Recording {{
+    Id list=0,lifetime=0,reset=0,device=0;
+    explicit operator bool() const {{ return list&&lifetime&&reset&&device; }}
+}};
+namespace nr_post_boundary {{
+struct List {{ Id address=0,token=0,reset=0,device=0;bool known=false; }};
+}}
+bool observer_exists=false;
+unsigned has_observer_calls=0,snapshot_calls=0,device_calls=0;
+Id device_cookie=44;
+Recording owned{{}};
+nr_post_boundary::List core{{}};
+struct ObservedSourceList {{ID3D12GraphicsCommandList* native=nullptr;Id lifetime=0,device=0;}};
+ObservedSourceList observed_lists[256]{{}};
+int lock_depth=0;
+struct Lock {{Lock(){{++lock_depth;}}~Lock(){{--lock_depth;}}}};
+bool HasObservedList(ID3D12GraphicsCommandList*) {{ ++has_observer_calls;return observer_exists; }}
+Recording ObservedRecording(ID3D12GraphicsCommandList*) {{ return owned; }}
+nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList*) {{ ++snapshot_calls;return core; }}
+Id DeviceOf(ID3D12DeviceChild*) {{ ++device_calls;return device_cookie; }}
+{self.recording_support}
+{self.recording}
+int main() {{
+    ID3D12GraphicsCommandList list,proxy;
+    owned={{11,12,13,14}};core={{}};
+    auto value=RecordingOf(&list);
+    assert(value.list==11&&value.lifetime==12&&value.reset==13&&value.device==14);
+    assert(snapshot_calls==1&&device_calls==0);
+
+    // The headless NativeFG contract: exact Core identity, no ReShade source
+    // observer. Hot lookup fails closed until the real cold Evaluate boundary
+    // reads and caches the device cookie once.
+    owned={{}};core={{21,22,3,23,true}};
+    value=RecordingOf(&list);assert(!value&&device_calls==0);
+    SeedCoreRecordingDevice(&list);value=RecordingOf(&list);
+    assert(value.list==21&&value.lifetime==22&&value.reset==4&&value.device==44);
+    assert(device_calls==1);
+
+    // A validated proxy seed is keyed by canonical Core list/token; the later
+    // native pointer reads the same identity without another COM/device call.
+    core={{31,32,4,33,true}};device_cookie=54;SeedCoreRecordingDevice(&proxy);
+    const auto proxy_seeded=RecordingOf(&proxy);value=RecordingOf(&list);
+    assert(proxy_seeded.list==31&&proxy_seeded.lifetime==32&&proxy_seeded.reset==5&&proxy_seeded.device==54);
+    assert(value.list==proxy_seeded.list&&value.lifetime==proxy_seeded.lifetime&&
+           value.reset==proxy_seeded.reset&&value.device==proxy_seeded.device&&device_calls==2);
+    core.token=33;value=RecordingOf(&list);
+    assert(!value&&device_calls==2);
+
+    // A canonical Core identity wins before and after source-observer readiness
+    // changes, so capture cannot switch generation domains mid-recording.
+    owned={{}};observer_exists=true;core={{41,42,5,43,true}};
+    observed_lists[0]={{&proxy,71,44}};
+    const auto captured=RecordingOf(&proxy);
+    owned={{91,92,93,44}};
+    value=RecordingOf(&list);
+    assert(captured.list==41&&captured.lifetime==42&&captured.reset==6&&captured.device==44);
+    assert(value.list==captured.list&&value.lifetime==captured.lifetime&&
+           value.reset==captured.reset&&value.device==captured.device);
+    // Execute can arrive on the canonical native pointer without a source
+    // observer entry; the exact Core token reuses the bounded device mapping.
+    owned={{}};observed_lists[0]={{}};value=RecordingOf(&list);
+    assert(value.list==captured.list&&value.lifetime==captured.lifetime&&
+           value.reset==captured.reset&&value.device==captured.device);
+    assert(has_observer_calls==0&&device_calls==2);
+
+    core={{51,52,UINT64_MAX,53,true}};SeedCoreRecordingDevice(&list);value=RecordingOf(&list);
+    assert(!value&&device_calls==2);
+    owned={{91,92,93,94}};core={{51,52,0,53,false}};value=RecordingOf(&list);
+    assert(value.list==91&&value.lifetime==92&&value.reset==93&&value.device==94);
+}}
+'''
+        with tempfile.TemporaryDirectory(prefix="recording-identity-") as temp:
+            temp_path = Path(temp)
+            source_path = temp_path / "recording_identity.cpp"
+            exe_path = temp_path / ("recording_identity.exe" if os.name == "nt" else "recording_identity")
+            source_path.write_text(harness, encoding="utf-8")
+            built = subprocess.run(
+                [compiler, "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror",
+                 "-static", "-static-libgcc", "-static-libstdc++", str(source_path), "-o", str(exe_path)],
+                capture_output=True, text=True, timeout=45,
+            )
+            self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+            ran = subprocess.run([str(exe_path)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
 
     def test_actual_preparation_and_early_guard_contract(self):
         """Keep fail-closed guards and the four pre-Color fallback sites exact."""
@@ -172,6 +291,22 @@ class CompatibilityRoute(unittest.TestCase):
             "FinishAfterSr(after_state.command_list, params, feature, after_sr)",
             self.process,
         )
+        before_success = self.process.index("if (used_before_sr && result == kNgxSuccess")
+        before_ack = self.process.index(
+            "nr_processing_runtime::Adopted(nr_processing::Start::Before);",
+            before_success,
+        )
+        after_branch = self.process.index("if (used_after_sr)", before_ack)
+        after_finish = self.process.index("const bool post_recorded = FinishAfterSr(", after_branch)
+        after_ack = self.process.index(
+            "nr_processing_runtime::Adopted(nr_processing::Start::After);",
+            after_finish,
+        )
+        self.assertLess(before_success, before_ack)
+        self.assertLess(before_ack, after_branch)
+        self.assertLess(after_finish, after_ack)
+        self.assertIn("if (post_recorded)", self.process[after_finish:after_ack])
+        self.assertEqual(self.process.count("nr_processing_runtime::Adopted("), 2)
 
     def test_extracted_process_evaluate_suffix_route_matrix(self):
         """Run the exact post-preparation route with dependency-only stubs."""
@@ -270,6 +405,7 @@ int g_restore_calls = 0;
 NgxResult g_native_result = kNgxSuccess;
 
 void EnterCriticalSection(int*) {{}}
+bool TryEnterCriticalSection(int*) {{ return true; }}
 void LeaveCriticalSection(int*) {{}}
 unsigned long long GetTickCount64() {{ return g_now++; }}
 void SetBypassReason(BypassReason reason) {{
@@ -283,6 +419,10 @@ const char* FeatureName(int) {{ return "Feature 1"; }}
 const char* ResultName(NgxResult) {{ return "fixture"; }}
 void TrackDlssResolution(const NgxParams*, const FeatureRecord&) {{}}
 bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList*, unsigned long long, int) {{ return true; }}
+namespace nr_compat_present_runtime {{
+bool InlineDrainReady() {{ return true; }}
+bool NativeNrDrained() {{ return false; }}
+}}
 void RestoreSubstitution(const Substitution&) {{ ++g_restore_calls; }}
 void RestorePostSrParameters(const PostSrSubstitution&) {{ ++g_restore_calls; }}
 void QuarantineAbortedRrTransactionLocked(ID3D12GraphicsCommandList*) {{}}
@@ -408,7 +548,8 @@ int main() {{
         check(result == kNgxSuccess && g_native_calls == 1 && g_finish_calls == 1 &&
               g_compat_fallback_recorded.load() == 1 && g_compat_fallback_cause.load() == cause &&
               nr_processing_runtime::Effective() == Start::After &&
-              nr_processing_runtime::session.Requested() == Start::Before,
+              nr_processing_runtime::session.Requested() == Start::Before &&
+              nr_processing_runtime::session.Retained() == Start::After,
               "eligible-colour-cause-post-once-and-reason-published");
         reset();
         g_before.active = true; g_before.compatibility_fallback = true;
@@ -443,10 +584,14 @@ int main() {{
     check(g_config.processing_start == Start::Before && g_config.mode == 2 &&
           nr_processing_runtime::session.Requested() == Start::Before,
           "fallback-preserves-saved-start-and-legacy-mode");
+    // No private Present work was recorded or adopted on the first carrier, so
+    // the retained route is still the requested Before entry. A new source
+    // retries the requested suffix once, then reaches Present again; the
+    // native call remains exactly once per carrier.
     result = ProcessRoute(&command, &handle, &params, callback);
-    check(result == kNgxSuccess && g_prepare_before_calls == 1 && g_prepare_after_calls == 1 &&
+    check(result == kNgxSuccess && g_prepare_before_calls == 2 && g_prepare_after_calls == 2 &&
           g_native_calls == 2 && !g_finish_calls && nr_processing_runtime::PresentSelected(),
-          "session-fallback-persists-and-native-called-once-per-carrier");
+          "unadopted-present-retries-requested-route-on-new-source");
 
     for (bool blocked : {{false, true}}) {{
         reset(); g_after_recorded = !blocked; g_after_source_blocked = blocked;
@@ -536,8 +681,9 @@ int main() {{
     g_after_admitted = true; g_native_result = kNgxFailure;
     result = ProcessRoute(&command, &handle, &params, callback);
     check(result == kNgxFailure && g_native_calls == 1 &&
-          g_finish_calls == 0 && g_compat_fallback_recorded.load() == 0,
-          "native-failure-no-finish");
+          g_finish_calls == 0 && g_compat_fallback_recorded.load() == 0 &&
+          nr_processing_runtime::session.Retained() == Start::After,
+          "native-failure-retains-recorded-after-route-without-finish");
     std::cout << "PASS: " << checks << " production suffix checks\\n";
     return 0;
 }}

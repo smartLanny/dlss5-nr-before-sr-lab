@@ -12,6 +12,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "nr_source_frame.hpp"
+#include "nr_late_present_receipt.hpp"
 #include "nr_guide_contract.h"
 #include "nr_f8_types.h"
 #include "nr_processing_route.h"
@@ -21,6 +22,7 @@ struct Config {bool enabled=true,identity_use_original=false;float transfer_stre
 struct Api {bool initialized=false,failed=false;}g_nr_api;
 struct Codec {bool failed=false;}g_codec;
 std::atomic<bool> g_nr_failed_create_process_latched{false},g_lifecycle_tracking_uncertain{false};
+std::atomic<unsigned> g_config_generation{0};
 bool other_nr_owner=false;bool OtherNrOwnerActive(){return other_nr_owner;}
 struct NgxParams{};struct FeatureRecord{};enum class CodecColorMode{Automatic};
 unsigned resource_parameter_reads=0;
@@ -58,13 +60,20 @@ using namespace nr_source_frame;
 // all allocations, command copies, transitions, queues and fences are real WARP.
 SRWLOCK lock=SRWLOCK_INIT;
 struct Lock{Lock(){AcquireSRWLockExclusive(&lock);}~Lock(){ReleaseSRWLockExclusive(&lock);}};
-Id recording_reset=1;nr_source_frame::Lineage lineage;std::atomic<bool> source_receipts_pending{false};
+Id recording_reset=1;nr_source_frame::Lineage lineage;nr_source_frame::Claims claims;
+std::atomic<bool> source_receipts_pending{false};
 std::atomic<Id> source_objects{1};
 // @ACTUAL_OBJECT_COOKIES@
 Recording RecordingOf(ID3D12GraphicsCommandList* list){return {reinterpret_cast<Id>(list),ObjectId(reinterpret_cast<ID3D12Object*>(list)),recording_reset,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(list))};}
 Resource ResourceOf(ID3D12Resource* resource){return resource?Resource{reinterpret_cast<Id>(resource),ObjectId(reinterpret_cast<ID3D12Object*>(resource)),DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(resource)),0}:Resource{};}
 // @ACTUAL_SOURCE_STATES@
-struct PresentLease{NrGuideBinding guides{};bool guides_owned=false,guides_current=false;} present_lease;
+struct PresentLease{
+    Source source{};Id source_id=0;Role role=Role::Unknown;NrGuideBinding guides{};NrGuideSignature source_signature{};
+    bool guides_owned=false,guides_current=false,source_jitter_known=false,output_jitter_known=false,cross_queue_wait=false;
+    Id queue=0,producer_queue=0,producer_value=0;ID3D12Fence* producer_fence=nullptr;
+    unsigned source_age=0,output_width=0,output_height=0;
+} present_lease;
+thread_local Ticket present_ticket{};thread_local bool present_recorded=false;
 #include "nr_source_transport.inl"
 Id RetryToken(Source source){return source.sequence;}
 // @ACTUAL_CAPTURE_NGX_GUIDES@
@@ -92,6 +101,20 @@ struct Harness {
     void Wait(){Hr(ID3D12Fence_SetEventOnCompletion(fence,value,event),"completion event");Check(WaitForSingleObject(event,10000)==WAIT_OBJECT_0,"bounded completion");Check(ID3D12Fence_GetCompletedValue(fence)>=value,"completed fence");}
     void Reset(){Hr(ID3D12CommandAllocator_Reset(allocator),"allocator reset");Hr(ID3D12GraphicsCommandList_Reset(list,allocator,nullptr),"list reset");++transport::recording_reset;}
     ~Harness(){if(event)CloseHandle(event);ReleaseCom(fence);ReleaseCom(list);ReleaseCom(allocator);ReleaseCom(queue);ReleaseCom(device);}
+};
+struct Consumer {
+    ID3D12Device* device=nullptr;ID3D12CommandQueue* queue=nullptr;ID3D12CommandAllocator* allocator=nullptr;
+    ID3D12GraphicsCommandList* list=nullptr;ID3D12Fence* fence=nullptr;HANDLE event=nullptr;UINT64 value=0;
+    Consumer(ID3D12Device* d,ID3D12CommandQueue* q):device(d),queue(q){ID3D12Device_AddRef(device);ID3D12CommandQueue_AddRef(queue);
+        Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void**>(&allocator)),"consumer allocator");
+        Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,IID_ID3D12GraphicsCommandList,reinterpret_cast<void**>(&list)),"consumer list");
+        Hr(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&fence)),"consumer fence");
+        event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Check(event!=nullptr,"consumer event");}
+    void Submit(){Hr(ID3D12GraphicsCommandList_Close(list),"consumer close");ID3D12CommandList* lists[]={reinterpret_cast<ID3D12CommandList*>(list)};
+        ID3D12CommandQueue_ExecuteCommandLists(queue,1,lists);Hr(ID3D12CommandQueue_Signal(queue,fence,++value),"consumer signal");}
+    void Wait(){Hr(ID3D12Fence_SetEventOnCompletion(fence,value,event),"consumer completion event");
+        Check(WaitForSingleObject(event,10000)==WAIT_OBJECT_0,"bounded consumer completion");}
+    ~Consumer(){if(event)CloseHandle(event);ReleaseCom(fence);ReleaseCom(list);ReleaseCom(allocator);ReleaseCom(queue);ReleaseCom(device);}
 };
 ID3D12Resource* Buffer(ID3D12Device* device,UINT64 size,D3D12_HEAP_TYPE type){
     D3D12_HEAP_PROPERTIES heap{};heap.Type=type;heap.CreationNodeMask=heap.VisibleNodeMask=1;
@@ -137,12 +160,12 @@ void CheckViewClear(Harness& h,ID3D12Resource* native,reshade::api::resource_vie
     lineage.Reset(recording);lineage.Forget(resource);OnSourceDestroyView(&owner,view);
 }
 struct Readback{ID3D12Resource* buffer=nullptr;D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;};
-Readback Read(Harness& h,ID3D12Resource* resource){Readback r;const auto desc=ID3D12Resource_GetDesc(resource);
-    ID3D12Device_GetCopyableFootprints(h.device,&desc,0,1,0,&r.footprint,nullptr,nullptr,&r.size);r.buffer=Buffer(h.device,r.size,D3D12_HEAP_TYPE_READBACK);
-    auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+Readback Read(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D12Resource* resource){Readback r;const auto desc=ID3D12Resource_GetDesc(resource);
+    ID3D12Device_GetCopyableFootprints(device,&desc,0,1,0,&r.footprint,nullptr,nullptr,&r.size);r.buffer=Buffer(device,r.size,D3D12_HEAP_TYPE_READBACK);
+    auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;Transition(list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
     D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=resource;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     to.pResource=r.buffer;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=r.footprint;
-    ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return r;
+    ID3D12GraphicsCommandList_CopyTextureRegion(list,&to,0,0,0,&from,nullptr);Transition(list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return r;
 }
 void Verify(Readback& r,unsigned x0,unsigned y0,unsigned components){unsigned char* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(r.size)};
     Hr(ID3D12Resource_Map(r.buffer,0,&range,reinterpret_cast<void**>(&mapped)),"readback map");
@@ -156,7 +179,8 @@ int main(){try{InitializeCriticalSection(&g_chain_cs);Harness h;ID3D12Resource *
     NrGuideBinding g{};g.depth=depth;g.motion=motion;g.signature.depth_x=1;g.signature.depth_y=2;
     g.signature.motion_x=2;g.signature.motion_y=1;g.signature.depth_width=g.signature.motion_source_width=4;
     g.signature.depth_height=g.signature.motion_source_height=3;
-    using namespace transport;Source first{1,1,1};
+    using namespace transport;Source first{1,1,1};const auto device_id=RecordingOf(h.list).device;
+    BeginNativeReceiptOpportunity(first,device_id);
     reshade::api::device owner;reshade::api::resource_view view{4567};reshade::api::resource_view_desc view_desc;
     const auto objects_before=source_objects.load();nr_processing_runtime::work_enabled=false;
     OnSourceInitView(&owner,{reinterpret_cast<Id>(depth)},reshade::api::resource_usage::render_target,view_desc,view);
@@ -195,33 +219,67 @@ int main(){try{InitializeCriticalSection(&g_chain_cs);Harness h;ID3D12Resource *
     unsigned observed=0;Check(StateOf(RecordingOf(h.list),ResourceOf(depth),observed)&&observed==D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,"actual legacy transition establishes source read state");
     OnEnhancedBarrier(h.list);
     Check(!StateOf(RecordingOf(h.list),ResourceOf(depth),observed),"enhanced boundary invalidates older legacy state");
-    Check(!CaptureGuides(h.list,first,g),"legacy-to-enhanced unknown entry does not allocate or record");
+    Check(!CaptureGuides(h.list,first,g,8,8,0),"legacy-to-enhanced unknown entry does not allocate or record");
     for(auto* resource:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
-    g.signature.linear_depth=true;Check(!CaptureGuides(h.list,first,g),"RR linear raw depth is not a normalized guide");g.signature.linear_depth=false;
-    nr_processing_runtime::work_enabled=false;Check(!CaptureGuides(h.list,first,g),"F6/zero strength performs no guide work");nr_processing_runtime::work_enabled=true;
-    Check(CaptureGuides(h.list,first,g),"record actual native copy");auto& copy=guide_copies[0];
+    g.signature.linear_depth=true;Check(!CaptureGuides(h.list,first,g,8,8,0),"RR linear raw depth is not a normalized guide");g.signature.linear_depth=false;
+    nr_processing_runtime::work_enabled=false;Check(!CaptureGuides(h.list,first,g,8,8,0),"F6/zero strength performs no guide work");nr_processing_runtime::work_enabled=true;
+    Check(CaptureGuides(h.list,first,g,8,8,0),"record actual native copy");auto& copy=guide_copies[0];
     auto* owned_depth=copy.owned[0];auto* owned_motion=copy.owned[1];auto* producer_fence=copy.producer_fence;
     Check(owned_depth!=depth&&owned_motion!=motion&&copy.recorded&&!copy.submitted,"guides are owned and not falsely submitted");
-    Check(CaptureGuides(h.list,first,g)&&!guide_copies[1].recorded,"duplicate source cannot duplicate copies");
-    AcquirePresentGuides(first,QueueOf(h.queue));Check(!present_guides,"unsubmitted guide lease rejected");
-    h.Submit(true);h.Wait();Check(copy.submitted&&FenceDone(copy.producer_fence,copy.producer_value),"actual producer fence completes");
-    AcquirePresentGuides(first,123);Check(!present_guides,"wrong queue cannot acquire guides");
+    Check(copy.source_signature.depth_x==1&&copy.source_signature.depth_y==2&&copy.guides.signature.depth_x==0&&
+        copy.output_width==8&&copy.output_height==8,"receipt preserves source subrect separately from owned copy coordinates");
+    Check(CaptureGuides(h.list,first,g,8,8,0)&&!guide_copies[1].recorded,"duplicate source cannot duplicate copies");
+    auto selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(h.queue),0);
+    Check(!selected&&selected.decision==nr_late_present::Decision::NativeResultPending&&!present_guides,"pre-success copy cannot become a receipt");
+    CompleteNativeReceipt(first,true);
+    selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(h.queue),0);
+    Check(!selected&&selected.decision==nr_late_present::Decision::Unsubmitted&&!present_guides,"successful but unsubmitted receipt rejected");
+    ID3D12Fence* producer_gate=nullptr;Hr(ID3D12Device_CreateFence(h.device,0,D3D12_FENCE_FLAG_NONE,
+        IID_ID3D12Fence,reinterpret_cast<void**>(&producer_gate)),"producer blocker fence");
+    Hr(ID3D12CommandQueue_Wait(h.queue,producer_gate,1),"enqueue producer blocker");
+    h.Submit(true);Check(copy.submitted&&!FenceDone(copy.producer_fence,copy.producer_value),
+        "actual Execute publishes an intentionally incomplete producer fence");
     ID3D12CommandQueue* another_queue=nullptr;D3D12_COMMAND_QUEUE_DESC queue_desc{};
     Hr(ID3D12Device_CreateCommandQueue(h.device,&queue_desc,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&another_queue)),"other real queue");
     Check(QueueOf(another_queue)!=QueueOf(h.queue),"queue generation is an object cookie rather than a reused address proof");
-    AcquirePresentGuides(first,QueueOf(another_queue));Check(!present_guides,"different real queue cookie cannot borrow producer proof");ReleaseCom(another_queue);
-    AcquirePresentGuides(first,QueueOf(h.queue));Check(present_guides==&copy&&present_lease.guides_owned&&present_lease.guides_current,"same source same queue acquires owned current guides");
-    Check(!GuideReusable(copy),"acquired guide cannot be overwritten");
-    h.Reset();auto d=Read(h,owned_depth);auto m=Read(h,owned_motion);h.Submit(false);
-    ReleasePresentGuides(h.fence,h.value,true);h.Wait();Verify(d,1,2,1);Verify(m,2,1,2);
+    selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(another_queue),0);
+    Check(selected&&present_guides==&copy&&present_lease.cross_queue_wait,"same-device queue mismatch acquires exact receipt for GPU wait");
+    Label claim{first,Role::Application};present_ticket=claims.Begin(claim,Point::Present);Check(bool(present_ticket),"receipt source claim begins");
+    {Consumer consumer(h.device,another_queue);
+        Check(BeginPresentReceiptWork(another_queue)&&present_recorded&&copy.consumed,"private work consumes receipt and records cross-queue GPU wait");
+        auto d=Read(consumer.device,consumer.list,owned_depth);auto m=Read(consumer.device,consumer.list,owned_motion);consumer.Submit();
+        Check(!FenceDone(consumer.fence,consumer.value),"consumer remains blocked behind exact producer fence");
+        Hr(ID3D12Fence_Signal(producer_gate,1),"release producer blocker");
+        ReleasePresentGuides(consumer.fence,consumer.value,true);consumer.Wait();Verify(d,1,2,1);Verify(m,2,1,2);
+        Check(claims.Complete(present_ticket,true,true),"consumer completion closes exact source claim");present_ticket={};present_recorded=false;}
+    selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(h.queue),0);
+    Check(!selected&&selected.decision==nr_late_present::Decision::AlreadyConsumed,"actual source cannot run twice");
+    h.Wait();ReleaseCom(producer_gate);ReleaseCom(another_queue);
     CollectGuideInputs();Check(!copy.inputs[0]&&!copy.inputs[1],"original application references retire at producer fence");
     Check(GuideReusable(copy),"exact consumer fence permits pool reuse");h.Reset();
     for(auto* resource:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
-    Check(CaptureGuides(h.list,{1,1,2},g),"next source records reused texture");
+    const Source second{1,1,2};BeginNativeReceiptOpportunity(second,device_id);
+    Check(CaptureGuides(h.list,second,g,8,8,0),"next source records reused texture");CompleteNativeReceipt(second,true);
     Check(copy.owned[0]==owned_depth&&copy.owned[1]==owned_motion&&copy.producer_fence==producer_fence,"same format and extent reuse allocations and producer fence");
     h.Submit(true);h.Wait();Check(copy.producer_value==2,"reused producer fence has monotonic real value");
+    selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(h.queue),0);
+    Check(selected&&!present_lease.cross_queue_wait,"same producer/Present queue needs no explicit wait");
+    claim={second,Role::Application};present_ticket=claims.Begin(claim,Point::Present);Check(bool(present_ticket)&&BeginPresentReceiptWork(h.queue),"same-queue private work consumes ordered receipt");
+    h.Reset();auto d2=Read(h.device,h.list,owned_depth);auto m2=Read(h.device,h.list,owned_motion);h.Submit(false);
+    ReleasePresentGuides(h.fence,h.value,true);h.Wait();Verify(d2,1,2,1);Verify(m2,2,1,2);
+    Check(claims.Complete(present_ticket,true,true),"same-queue consumer completion closes claim");present_ticket={};present_recorded=false;
+    h.Reset();for(auto* resource:{depth,motion}){auto state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        Transition(h.list,resource,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Transition(h.list,resource,state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+    const Source failed{1,1,3};BeginNativeReceiptOpportunity(failed,device_id);
+    Check(CaptureGuides(h.list,failed,g,8,8,0),"failed native attempt still records owned pre-call copy");
+    CompleteNativeReceipt(failed,false);h.Submit(true);h.Wait();
+    selected=AcquirePresentGuides(device_id,8,8,false,false,false,QueueOf(h.queue),0);
+    Check(!selected&&selected.decision==nr_late_present::Decision::NativeFailed&&!present_guides,
+        "actual failed native result never becomes an eligible Present receipt");
+    CollectGuideInputs();Check(GuideReusable(copy)&&!copy.inputs[0]&&!copy.inputs[1],
+        "failed native receipt retires bounded copy inputs and returns slot after exact producer fence");
     CollectGuideInputs();for(auto& item:guide_copies)ClearGuideCopy(item);
     ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(depth_upload);ReleaseCom(motion_upload);
     std::printf("source-transport WARP: %u checks passed; NGX/FG inference not tested\n",checks);return 0;

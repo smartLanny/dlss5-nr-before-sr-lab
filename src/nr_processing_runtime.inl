@@ -1,4 +1,5 @@
 // Included after ChainConfig, atomics and chain lock; no GPU work here.
+namespace nr_compat_present_runtime {bool InlineDrainReady();bool NativeNrDrained();}
 namespace nr_processing_runtime {
 using Start=nr_processing::Start;
 nr_processing::Session session;
@@ -65,6 +66,19 @@ struct CarrierScope {
     CarrierScope():previous_recorded(private_recorded),previous_blocked(source_blocked),previous_serial(carrier_serial) {
         Reconcile();private_recorded=false;source_blocked=false;
         carrier_serial=nr_source_runtime::CurrentRetryToken();
+        // Only a real native carrier is a preferred-route probe opportunity.
+        // Present-only callbacks cannot promote a route or fabricate a source.
+        // Once armed, Session::Ready stops new fallback work so its last exact
+        // fence can drain. No Flush, CPU wait, claim reset or forced retirement.
+        if(session.ObserveNativeSource(carrier_serial) &&
+           session.ReprobeRequested(nr_compat_present_runtime::InlineDrainReady() &&
+                                    nr_compat_present_runtime::NativeNrDrained())) {
+            effective.store(static_cast<unsigned>(session.Current()),std::memory_order_release);
+            g_history_generation.fetch_add(1,std::memory_order_relaxed);
+            Log("[processing-route] requested=%s actual=%s retained=%s reason=%s; native preflight still required.",
+                nr_processing::Name(session.Requested()),nr_processing::Name(session.Current()),
+                nr_processing::Name(session.Retained()),session.Reason());
+        }
         BeginSource(carrier_serial);
     }
     ~CarrierScope(){private_recorded=previous_recorded;source_blocked=previous_blocked;carrier_serial=previous_serial;}

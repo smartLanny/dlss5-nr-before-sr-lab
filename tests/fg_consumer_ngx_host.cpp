@@ -40,12 +40,18 @@ void InitGuides(Io& io,ID3D12Resource* depth,ID3D12Resource* motion){
     nr_compat_present_runtime::Context init{};init.device=io.device;init.format=DXGI_FORMAT_R8G8B8A8_UNORM;init.source=init.work={Io::width,Io::height};
     init.encoding=nr_compat_present::Encoding::Srgb;
     Check(nr_compat_present_runtime::MakePipelines(init),"real guide initialization shader");ID3D12DescriptorHeap* table=nullptr;
+    // Synthetic guides belong to this controlled FG fixture, never Present production.
+    ID3D12PipelineState* fixture_init=nullptr;
+    ID3DBlob* shader=nr_compat_present_runtime::CompileUtility("InitCS","cs_5_0");Check(shader!=nullptr,"fixture guide shader compiled");
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline{};pipeline.pRootSignature=init.util_root;
+    pipeline.CS={ID3D10Blob_GetBufferPointer(shader),ID3D10Blob_GetBufferSize(shader)};
+    Hr(ID3D12Device_CreateComputePipelineState(io.device,&pipeline,IID_ID3D12PipelineState,reinterpret_cast<void**>(&fixture_init)),"fixture guide pipeline");ReleaseCom(shader);
     Check(nr_compat_present_runtime::Table(init,&table,nullptr,depth,motion),"guide initialization descriptors");
     io.Reset();auto ds=D3D12_RESOURCE_STATE_COMMON,ms=D3D12_RESOURCE_STATE_COMMON;
     Transition(io.list,depth,ds,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);Transition(io.list,motion,ms,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    nr_compat_present_runtime::Utility(init,io.list,table,init.init,init.work);UavBarrier(io.list,depth);UavBarrier(io.list,motion);
+    nr_compat_present_runtime::Utility(init,io.list,table,fixture_init,init.work);UavBarrier(io.list,depth);UavBarrier(io.list,motion);
     Transition(io.list,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(io.list,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);io.Submit();
-    ReleaseCom(table);ReleaseCom(init.blit);ReleaseCom(init.convert);ReleaseCom(init.init);ReleaseCom(init.init_color);ReleaseCom(init.util_root);
+    ReleaseCom(table);ReleaseCom(init.blit);ReleaseCom(init.convert);ReleaseCom(fixture_init);ReleaseCom(init.init_color);ReleaseCom(init.util_root);
 }
 #include "fg_consumer_hud_fixture.inl"
 #if defined(NR_HOST_FG_CAPTURE)

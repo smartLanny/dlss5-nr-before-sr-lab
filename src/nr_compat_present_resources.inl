@@ -11,10 +11,7 @@ struct Layer {
     NgxParams* evaluation_params[kFlightCount]{};
     nr_dual::dx12::SpatialSlot* spatial=nullptr;
     nr_dual::Plan plan{};
-    ID3D12Resource *depth=nullptr,*motion=nullptr;
     ID3D12DescriptorHeap *init_input=nullptr,*init_output=nullptr;
-    D3D12_RESOURCE_STATES depth_state=D3D12_RESOURCE_STATE_COMMON;
-    D3D12_RESOURCE_STATES motion_state=D3D12_RESOURCE_STATE_COMMON;
 };
 struct Flight {
     ID3D12CommandAllocator* allocator=nullptr;
@@ -35,7 +32,7 @@ struct Context {
     ID3D12QueryHeap* timestamps=nullptr;
     unsigned long long timestamp_frequency=0;
     ID3D12RootSignature* util_root=nullptr;
-    ID3D12PipelineState *convert=nullptr,*init=nullptr,*init_color=nullptr,*blit=nullptr;
+    ID3D12PipelineState *convert=nullptr,*init_color=nullptr,*blit=nullptr;
     ID3D12DescriptorHeap* io=nullptr;
     ID3D12Resource* raw=nullptr;
     D3D12_RESOURCE_STATES raw_state=D3D12_RESOURCE_STATE_COMMON;
@@ -152,14 +149,12 @@ bool MakePipelines(Context& c) {
         ID3D10Blob_GetBufferPointer(serialized),ID3D10Blob_GetBufferSize(serialized),
         IID_ID3D12RootSignature,reinterpret_cast<void**>(&c.util_root));
     ReleaseCom(serialized);if(FAILED(hr))return false;
-    ID3DBlob *convert=CompileUtility("ConvertCS","cs_5_0"),*init=CompileUtility("InitCS","cs_5_0"),
+    ID3DBlob *convert=CompileUtility("ConvertCS","cs_5_0"),
         *vs=CompileUtility("FullscreenVS","vs_5_0"),*ps=CompileUtility("BlitPS","ps_5_0");
-    if(!convert||!init||!vs||!ps){ReleaseCom(convert);ReleaseCom(init);ReleaseCom(vs);ReleaseCom(ps);return false;}
+    if(!convert||!vs||!ps){ReleaseCom(convert);ReleaseCom(vs);ReleaseCom(ps);return false;}
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute{};compute.pRootSignature=c.util_root;
     compute.CS={ID3D10Blob_GetBufferPointer(convert),ID3D10Blob_GetBufferSize(convert)};
     hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.convert));
-    if(SUCCEEDED(hr)) {compute.CS={ID3D10Blob_GetBufferPointer(init),ID3D10Blob_GetBufferSize(init)};
-        hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init));}
     ID3DBlob* init_color=CompileUtility("InitColorCS","cs_5_0");
     if(!init_color)hr=E_FAIL;
     if(SUCCEEDED(hr)){compute.CS={ID3D10Blob_GetBufferPointer(init_color),ID3D10Blob_GetBufferSize(init_color)};
@@ -179,7 +174,7 @@ bool MakePipelines(Context& c) {
     draw.PrimitiveTopologyType=D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     draw.NumRenderTargets=1;draw.RTVFormats[0]=c.format;draw.SampleDesc.Count=1;
     if(SUCCEEDED(hr))hr=ID3D12Device_CreateGraphicsPipelineState(c.device,&draw,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.blit));
-    ReleaseCom(convert);ReleaseCom(init);ReleaseCom(vs);ReleaseCom(ps);return SUCCEEDED(hr);
+    ReleaseCom(convert);ReleaseCom(vs);ReleaseCom(ps);return SUCCEEDED(hr);
 }
 bool Texture(Context& c,Extent e,DXGI_FORMAT format,D3D12_RESOURCE_FLAGS flags,ID3D12Resource** out) {
     if(!nr_compat_present::Valid(e))return false;

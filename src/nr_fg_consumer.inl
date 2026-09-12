@@ -52,7 +52,7 @@ void ReleaseImages(Session& s){
     // Caller proved no GPU use. Core slots still retain any resources referenced
     // by deferred NGX teardown, independently of these transport references.
     auto& c=s.images;ReleaseCom(c.raw);ReleaseCom(c.image.source);ReleaseCom(c.image.result);
-    ReleaseCom(c.io);ReleaseCom(c.blit);ReleaseCom(c.convert);ReleaseCom(c.init);ReleaseCom(c.init_color);ReleaseCom(c.util_root);
+    ReleaseCom(c.io);ReleaseCom(c.blit);ReleaseCom(c.convert);ReleaseCom(c.init_color);ReleaseCom(c.util_root);
     for(auto& r:s.rtvs){ReleaseCom(r.heap);r={};}
     ReleaseCom(s.full_raw);ReleaseCom(s.alpha_raw);ReleaseCom(s.scene_encoded);
     ReleaseCom(s.hud_root);ReleaseCom(s.hud_pso);ReleaseCom(s.hud_heap);
