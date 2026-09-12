@@ -2,8 +2,8 @@
 
 ## 2026-09-13 D16：外部 Provider 与光流输入候选（仅完成 Windows 编译）
 
-本候选把 D16 冻结源 `fa583e1d4d3fb887272e761d77d7640f3117ddbe`
-与外部输入实现合成于私有构建源 `7b056439a981b1392d66d40a746a9fbd2299ca94`。
+本候选把最终 D16 冻结源 `3c13f69119ddb0a0c1246f0348eb15c8aac64f76`
+与外部输入实现合成于私有构建源 `3d4f1fc51b5f5b6917479ac2bc4fd043056d2181`。
 公开 PR 使用经过仓库边界审计的显式源码导出，因此公开提交号与该私有构建源不同；
 两者的生产源码由清单逐文件绑定，私有构建证据和产物不进入源码仓库。
 
@@ -12,7 +12,8 @@ Submit 只表示同帧处理与回填命令已经录制；Provider 必须提供�
 fence，Core 在观察到该值后才完成 claim。外部 Color、Depth 和 MV 进入现有
 `SourceFrame`/Claims 及同一 NR 消费路径，不创建第二个 NR 所有者。D16 保留原生
 Feature1 优先、三入口准入和失败快照，并将完整多层范围扩到 2–5 层；第 3–5 层
-沿用第二层实际比例。
+沿用第二层实际比例。最终 D16 增量还细分 hook/NGX 隔离失败日志，并在复制
+NGX guides 前先解析本帧 Source 路线，避免同一帧被重复运输；这没有放宽既有准入。
 
 官方 Feeder 0.15.1 与 1.16.0-beta.1 的适配源均已生成并完成 x64 Windows
 编译。集成光流默认关闭，开启时由同一个 Feeder 快照 Color/Depth，以 AMD 或
@@ -27,9 +28,11 @@ x86、DX9、DX10、DX11 宿主 IPC v9 和 Vulkan profile 运输的可复现适�
 ReShade、vendor SDK 或已编译运输文件；Manager 从独立组件库存注入同版本 Core、
 `nrchain_nvngx.dll`、生成配置及共享 NR runtime。
 
-`7b056439` 的 canonical generated stage 完成中英文 Core Windows 编译：中文
-SHA256 `93ceb82f32e9963292d8f832ad82e21c165eb4cbfb1d6360213f26f030b7fccb`，
-英文 `0b95bbce08dfa56da2a9b5d172266f60f5b887b810a85f90e659ff1775eca1dd`，
+`3d4f1fc5` 的 canonical generated stage 完成中英文 Core Windows 编译，
+source manifest SHA256 为
+`c64d1656995fb99233c5da945173a88d8cca12ad71c5192b4537cb71061b910b`。中文 Core
+SHA256 `abcdd2c6cf8855224973b187338d6cf308c1f7360c023c5e2f6736ea4e749c38`，
+英文 `4929c549bdaa5c725b9a338b1393896c01fd1514ad6a52877985479737029d8c`，
 同源 chain `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2`，
 生成配置 `84cb54bea2d2fcdd0ede005741d413a80f082d960752be1ae8912c28cd0204a8`。
 这是编译和 PE 导出边界；本批依维护者要求没有运行新增 CPU/WARP、GPU、游戏或
