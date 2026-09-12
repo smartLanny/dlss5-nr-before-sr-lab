@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cstdio>
 #include <stdexcept>
 #include <vector>
 
@@ -21,7 +22,12 @@ namespace {
 constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 constexpr auto write = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 void require(bool value, const char *what) { if (!value) throw std::runtime_error(what); }
-void hr(HRESULT value, const char *what) { require(SUCCEEDED(value), what); }
+void hr(HRESULT value, const char *what) {
+    if (SUCCEEDED(value)) return;
+    char message[256]{};
+    std::snprintf(message, sizeof(message), "%s (HRESULT 0x%08lX)", what, static_cast<unsigned long>(value));
+    throw std::runtime_error(message);
+}
 void barrier(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
              D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
     if (from == to) return;
@@ -122,6 +128,8 @@ struct Session::Impl {
     NvOFGPUBufferHandle raw_handle = nullptr;
     uint64_t done_value=0, producer_value=0, reg_value=0, of_value=0, prep_value=0;
     UINT grid=8, current_luma=0;
+    uint64_t submitted_at=0;
+    static constexpr uint64_t timeout_ms=5000;
     bool ready=false, failed=false, capture_unpublished=false, execution_unpublished=false;
     bool registration_unresolved=false;
     std::string message="not initialized";
@@ -274,6 +282,15 @@ Session::~Session() {
 }
 bool Session::initialized() const noexcept{return p_ && p_->ready;}
 bool Session::idle() const noexcept{return p_ && p_->idle();}
+Progress Session::poll() noexcept {
+    auto& p=*p_;
+    if(p.failed || !p.ready)return Progress::failed;
+    const auto value=p.done?p.done->GetCompletedValue():0;
+    const auto progress=fence_progress(p.done_value,value,p.submitted_at,GetTickCount64(),Impl::timeout_ms);
+    if(progress==Progress::removed)p.fault("OF device removed; resources quarantined. Collect a BUG report.");
+    if(progress==Progress::timed_out)p.fault("OF completion exceeded 5000 ms; session stopped, resources retained. Collect a BUG report.");
+    return progress;
+}
 bool Session::safe_to_destroy() const noexcept{return p_ && p_->safe();}
 bool Session::faulted() const noexcept{return !p_ || p_->failed;}
 const char* Session::status() const noexcept{return p_?p_->message.c_str():"no session";}
@@ -284,8 +301,9 @@ FlowScale Session::scale() const noexcept{return p_->requested_scale;}
 ID3D12Resource* Session::snapshot() const noexcept{return p_->snapshot.Get();}
 void Session::mark_capture_recorded() noexcept {p_->capture_unpublished=true;}
 void Session::poison(const char *reason) noexcept {p_->fault(reason);}
-bool Session::result(Result &out) const noexcept {
-    if(!initialized() || !idle() || !p_->last.current) return false;
+bool Session::result(const Frame &view, Result &out) const noexcept {
+    out={};
+    if(!initialized() || !idle() || !preview_matches(p_->last.source,view)) return false;
     out=p_->last;return true;
 }
 bool Session::submit(ID3D12Fence *producer,uint64_t value,const Frame& frame) noexcept {
@@ -293,6 +311,9 @@ bool Session::submit(ID3D12Fence *producer,uint64_t value,const Frame& frame) no
     if(!initialized() || !p.idle() || !producer || !value || value==UINT64_MAX || !p.capture_unpublished) return false;
     const auto pair=p.history.plan(frame,p.selected);
     if(!pair.accepted || !(frame.extent==p.size)) {p.fault("invalid source frame or pair");return false;}
+    if(p.done_value>=UINT64_MAX-1 || p.prep_value>=UINT64_MAX-1 || p.of_value>=UINT64_MAX-1) {
+        p.fault("OF fence sequence exhausted; restart the session safely.");return false;
+    }
     // The published game signal also retires any read of our previous output.
     p.producer=producer;p.producer_value=value;p.capture_unpublished=false;
     try {
@@ -353,9 +374,9 @@ bool Session::submit(ID3D12Fence *producer,uint64_t value,const Frame& frame) no
         p.queue->ExecuteCommandLists(1,lists);
         const uint64_t completion=p.done_value+1;
         hr(p.queue->Signal(p.done.Get(),completion),"completion signal failed; resources retained");
-        p.done_value=completion;p.execution_unpublished=false;
+        p.done_value=completion;p.submitted_at=GetTickCount64();p.execution_unpublished=false;
         require(p.history.commit(frame,p.selected,true),"history commit failed");
-        p.last.flow=p.dense.Get();
+        p.last.flow=p.dense.Get();p.last.source=frame;
         p.last.current=frame.sequence;p.last.reference=pair.reference;p.last.reset=pair.reset;p.last.grid=p.grid;
         if(p.selected==Backend::nvidia)p.current_luma=1-p.current_luma;
         p.message="submitted; wait for real GPU completion before preview (not NR)";

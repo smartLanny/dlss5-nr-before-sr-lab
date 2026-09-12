@@ -48,9 +48,10 @@ void set_int(api::effect_runtime* r,const char* key,int value) {
 void options(api::effect_runtime* r,State& s) {
     const auto capture=r->find_technique(effect,"NRGuideCapture");
     const auto preview=r->find_technique(effect,"NRGuidePreview");
-    const bool active=s.enabled && s.sdr_confirmed && !s.unavailable;
-    if(capture.handle)r->set_technique_state(capture,active);
-    if(preview.handle)r->set_technique_state(preview,active && s.preview!=0);
+    const bool active=capture_enabled(s.enabled,s.sdr_confirmed,s.unavailable);
+    if(capture.handle && r->get_technique_state(capture)!=active)r->set_technique_state(capture,active);
+    const bool show=active && s.preview!=0;
+    if(preview.handle && r->get_technique_state(preview)!=show)r->set_technique_state(preview,show);
     set_int(r,"NRGuideView",active?s.preview:0);
     set_int(r,"NRGuideReady",active && s.shown?1:0);
 }
@@ -79,7 +80,7 @@ void overlay(api::effect_runtime* r) {
     history_changed|=ImGui::Checkbox("SDR source, Core NR OFF and FG OFF (guide-only test)",&s.sdr_confirmed);
     changed|=history_changed;
     int choice=s.method-1;
-    if(ImGui::Combo("Synthetic motion",&choice,"AMDOF (FidelityFX)\0NVOF (NVIDIA)\0")){s.method=choice+1;changed=true;}
+    if(ImGui::Combo("Synthetic motion",&choice,"AMDOF (FidelityFX)\0NVOF (NVIDIA)\0")){s.method=choice+1;history_changed=true;changed=true;}
     int scale_choice=s.scale_percent==50?1:0;
     if(ImGui::Combo("OF input resolution",&scale_choice,"100% (reference)\0" "50% (performance experiment)\0")) {
         s.scale_percent=scale_choice==1?50:100; history_changed=true; changed=true;
@@ -98,7 +99,7 @@ void overlay(api::effect_runtime* r) {
     if(s.session)ImGui::TextWrapped("Provider: %s",s.session->status());
     ImGui::TextWrapped("A motion preview can be older than the current image. It is never presented as current-frame NR output. Native rendering, SR and FG are untouched.");
     if(s.unavailable)ImGui::TextWrapped("Bypassed: collect ReShade.log and report the backend, dimensions and failure. Do not keep toggling a failed session; restart the game.");
-    if(history_changed)++s.epoch;
+    if(history_changed){++s.epoch;s.shown=s.reference=0;s.grid=0;}
     if(changed)options(r,s);
 }
 api::resource binding(api::effect_runtime* r,const char* name) {
@@ -127,6 +128,7 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
     if(tech.handle!=r->find_technique(effect,"NRGuideCapture").handle)return;
     if(s.captured_this_effects)return;
     s.captured_this_effects=true;
+    set_int(r,"NRGuideCaptured",1);
     ++s.frame;
     try {
         auto* device=r->get_device();
@@ -148,6 +150,10 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
         }
         auto* native_queue=reinterpret_cast<ID3D12CommandQueue*>(queue->get_native());
         const auto backend=static_cast<Backend>(s.method);
+        if(s.session) {
+            s.session->poll();
+            if(s.session->faulted()){report(s,s.session->status());options(r,s);return;}
+        }
         if(s.session && (!(s.session->extent()==e) || s.session->backend()!=backend || s.session->scale()!=static_cast<FlowScale>(s.scale_percent) || s.producer_queue.Get()!=native_queue)) {
             set_int(r,"NRGuideReady",0);
             if(!retire(s)){s.status="Draining old exact queue/fences before backend/scale/extent change; no replacement yet.";return;}
@@ -166,7 +172,8 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
         // Mark BEFORE recording any command referring to private session resources.
         s.session->mark_capture_recorded();
         Result result{};
-        if(s.session->result(result) && result.current!=s.shown) {
+        const Frame view{s.stream,s.epoch,s.frame,e,false};
+        if(s.session->result(view,result) && result.current!=s.shown) {
             commands->barrier(flow,api::resource_usage::shader_resource,api::resource_usage::copy_dest);
             commands->copy_resource(api::resource{reinterpret_cast<uint64_t>(result.flow)},flow);
             commands->barrier(flow,api::resource_usage::copy_dest,api::resource_usage::shader_resource);
@@ -192,7 +199,11 @@ void rendered(api::effect_runtime* r,api::effect_technique tech,api::command_lis
 }
 void begin_effects(api::effect_runtime* r,api::command_list*,api::resource_view,api::resource_view) {
     std::lock_guard<std::mutex> lock(state_mutex);
-    auto it=states.find(r);if(it!=states.end())it->second->captured_this_effects=false;
+    auto& s=state(r);s.captured_this_effects=false;
+    // A preset/manual technique toggle must not bypass the default-off consent.
+    options(r,s);
+    set_int(r,"NRGuideCaptured",0);
+    if(!capture_enabled(s.enabled,s.sdr_confirmed,s.unavailable))set_int(r,"NRGuideReady",0);
 }
 void reloaded(api::effect_runtime* r) {
     std::lock_guard<std::mutex> lock(state_mutex);

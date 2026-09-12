@@ -1,5 +1,6 @@
 #pragma once
 #include "geometry.hpp"
+#include "probe_state.hpp"
 #include <d3d12.h>
 #include <memory>
 #include <string>
@@ -7,6 +8,7 @@
 namespace nr::fullres {
 struct Result {
     ID3D12Resource *flow = nullptr;     // RG32_FLOAT, COPY_SOURCE; current -> reference, source pixels
+    Frame source{}; // Actual submitted source; never inferred from the next capture.
     std::uint64_t current = 0, reference = 0;
     bool reset = true;
     std::uint32_t grid = 0;
@@ -21,6 +23,7 @@ public:
     Session &operator=(const Session &) = delete;
     bool initialized() const noexcept;
     bool idle() const noexcept;
+    Progress poll() noexcept; // Bounded wait diagnostics; never releases busy resources.
     bool safe_to_destroy() const noexcept;
     bool faulted() const noexcept;
     const char *status() const noexcept;
@@ -37,7 +40,7 @@ public:
     // producer signal also covers any preceding output->ReShade copy.
     bool submit(ID3D12Fence *producer, std::uint64_t value, const Frame &frame) noexcept;
     void poison(const char *reason) noexcept;
-    bool result(Result &out) const noexcept; // only after exact non-removed completion
+    bool result(const Frame &view, Result &out) const noexcept; // Same epoch, exact completion; preview only
 private:
     struct Impl;
     std::unique_ptr<Impl> p_;

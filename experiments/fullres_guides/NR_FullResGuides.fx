@@ -10,6 +10,7 @@ sampler2D NRGuideDepthCopy { Texture=NRGuideDepth; MinFilter=POINT; MagFilter=PO
 sampler2D NRGuideMotion { Texture=NRGuideFlow; MinFilter=POINT; MagFilter=POINT; };
 uniform int NRGuideView=0;
 uniform int NRGuideReady=0;
+uniform int NRGuideCaptured=0;
 uniform int NRGuideDepthAvailable=0;
 struct Captured { float4 color:SV_Target0; float depth:SV_Target1; };
 Captured Capture(float4 position:SV_Position,float2 uv:TEXCOORD) {
@@ -19,6 +20,8 @@ Captured Capture(float4 position:SV_Position,float2 uv:TEXCOORD) {
     return r;
 }
 float4 Preview(float4 position:SV_Position,float2 uv:TEXCOORD):SV_Target {
+    // Wrong effect order must never show a previous capture as the original.
+    if(NRGuideCaptured==0)return tex2D(ReShade::BackBuffer,uv);
     if(NRGuideView==2) {
         if(NRGuideDepthAvailable==0)return float4(0.3,0,0.3,1);
         float d=tex2D(NRGuideDepthCopy,uv).x;
