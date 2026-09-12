@@ -70,7 +70,8 @@ bool CreateCompleted(NrContext& context) {
 LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     NrContext& primary,NrSlot& main,const NgxParams* params,const FeatureRecord& feature,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
-    unsigned x,unsigned y,CodecColorMode color_mode, unsigned layer_index=1, NrSlot* input=nullptr, bool full=false) {
+    unsigned x,unsigned y,CodecColorMode color_mode, unsigned layer_index=1, NrSlot* input=nullptr, bool full=false,
+    const nr_dual::dx12::Surfaces* residual_base=nullptr) {
     auto& source=input?*input:main;
     if(layer_index==1)ClearSelection(main);
     binding_reason.store(nr_binding::Refusal::None);
@@ -84,8 +85,11 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     if(fatal_result.load()){SetStatus(Status::Failed);return {};}
     if(!primary.nr_handle||!primary.instance_id||g_config.identity_use_original||
        primary.successful_evaluations_since_reset<=g_config.warmup_after_create){SetStatus(Status::PrimaryWarming);return {};}
-    const auto plan=nr_dual::MakePlan({2,full?nr_dual::Scale{1,1}:nr_dual::Scale{g_config.nr_second_numerator,g_config.nr_second_denominator}},
+    const auto first_plan=nr_dual::MakePlan({2,{g_config.nr_second_numerator,g_config.nr_second_denominator}},
         {primary.width,primary.height},{{1,1},{16384,16384},{1,1}});
+    if(!first_plan){SetStatus(Status::ResourceBudget);return {};}
+    const auto plan=full&&layer_index>1?nr_dual::MakePlan({2,{1,1}},first_plan.secondary,
+        {{1,1},{16384,16384},{1,1}}):first_plan;
     if(!plan){SetStatus(Status::ResourceBudget);return {};}
     primary_width.store(primary.width);primary_height.store(primary.height);
     second_width.store(plan.secondary.width);second_height.store(plan.secondary.height);
@@ -117,17 +121,20 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     if(index>=8){SetStatus(Status::SlotPending);return {};}
     auto& slot=aux->slots[index];
     if(slot.key&&slot.key!=source.neural){aux->retired=true;SetStatus(Status::SlotPending);return {};}
+    if(slot.dual_spatial&&!nr_dual::dx12::MatchesResidualBase(slot.dual_spatial,residual_base)){
+        aux->retired=true;SetStatus(Status::SlotPending);return {};
+    }
     if(!slot.dual_spatial && (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))){SetStatus(Status::SlotPending);return {};}
     const auto domain=color_mode==CodecColorMode::ModelEncodedValueDomain ||
         ((feature.create_flags&1)==0 && color_mode==CodecColorMode::Automatic)
         ?nr_dual::ModelDomain::DirectValue:nr_dual::ModelDomain::SrgbProxy;
-    if(plan.path==nr_dual::Path::MatchedResidual && !EnsureCodecSet(static_cast<unsigned>(domain),g_config.face_protection||g_config.face_preview)){SetStatus(Status::ResourceBudget);return {};}
+    if((plan.path==nr_dual::Path::MatchedResidual||residual_base) && !EnsureCodecSet(static_cast<unsigned>(domain),g_config.face_protection||g_config.face_preview)){SetStatus(Status::ResourceBudget);return {};}
     if(!slot.dual_spatial) {
         const auto available=g_dual_allocated_bytes.load()<kDualTotalBudget?
             std::min(kDualSlotBudget,kDualTotalBudget-g_dual_allocated_bytes.load()):0ull;
         std::string error;
         nr_dual::dx12::SpatialError failure{};
-        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,source.neural,plan,domain,available,error,IsSameRrDepthDevice,&failure);
+        slot.dual_spatial=nr_dual::dx12::CreateSpatialSlot(pipelines,source.neural,plan,domain,available,error,IsSameRrDepthDevice,&failure,residual_base);
         if(!slot.dual_spatial){Unavailable(failure==nr_dual::dx12::SpatialError::DeviceIdentity?Status::DeviceIdentity:
             failure==nr_dual::dx12::SpatialError::Contract?Status::ResourceContract:Status::ResourceBudget,error);return {};}
         slot.dual_owner=aux;slot.dual_bytes=nr_dual::dx12::SlotBytes(slot.dual_spatial);
@@ -174,7 +181,7 @@ void SealOne(ID3D12GraphicsCommandList* list,NrSlot& main,LayerPrepared& prepare
     if(!prepared)return;
     auto& slot=*prepared.slot;auto& aux=*prepared.context;
     const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
-    const bool reduced=prepared.plan.path==nr_dual::Path::MatchedResidual;
+    const bool reduced=surfaces.low_delta!=nullptr;
     nr_binding::Plan bindings{};bindings.primary_owner=&main;bindings.secondary_owner=&slot;
     bindings.retained[0]=prepared.guides.depth;bindings.retained[1]=prepared.guides.motion;
     WriteCodecDescriptorSet(g_codec.device,slot,nullptr,&bindings.heaps[nr_binding::Codec]);

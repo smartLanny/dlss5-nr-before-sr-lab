@@ -70,9 +70,9 @@ int wmain(int argc,wchar_t** argv){
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
         Check(argc==4,"usage: host runtime-directory passes scale-percent");const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
-        Check(passes>=1&&passes<=4&&(scale==100||(passes==2&&scale==50)),"bounded scenario");
+        Check(passes>=1&&passes<=5&&(scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
-        g_config.nr_passes=passes>1?2:1;g_config.nr_full_reference=passes>1&&scale==100;g_config.nr_full_passes=std::max(2u,passes);
+        g_config.nr_passes=passes>1?2:1;g_config.nr_full_reference=passes>2;g_config.nr_full_passes=std::max(2u,passes);
         g_config.nr_second_numerator=scale;g_config.nr_second_denominator=100;g_config.warmup_after_create=2;
         g_config.transfer_strength=1.0f;g_config_generation.store(1);
         swprintf_s(g_log_path,L"%ls\\present-ngx.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);
@@ -123,6 +123,7 @@ int wmain(int argc,wchar_t** argv){
             "requested real Present capture exported every layer after exact fence");
         wchar_t documents[768]{};Hr(SHGetFolderPathW(nullptr,CSIDL_PERSONAL,nullptr,SHGFP_TYPE_CURRENT,documents),"capture documents");
         const auto request=present::nr_present_capture::consumed;Check(request!=0,"capture consumed real request");
+        std::vector<unsigned char> previous_neural;
         for(unsigned layer=0;layer<passes;++layer){
             wchar_t path[1400]{},output[1400]{},metadata[1400]{};
             swprintf_s(path,L"%ls\\DLSS5-Present-Capture\\%lu-%llu-%llu\\observed-frame.nrf",documents,GetCurrentProcessId(),request,(request<<8)|layer);
@@ -139,6 +140,10 @@ int wmain(int argc,wchar_t** argv){
             Check(ReadFile(file,payload.data(),static_cast<DWORD>(payload.size()),&got,nullptr)&&got==payload.size(),"actual GPU capture payload read");CloseHandle(file);
             const auto& input=header.planes[unsigned(nr_replay::Role::Proxy)];const auto& neural=header.planes[unsigned(nr_replay::Role::Neural)];
             Check(input.bytes==neural.bytes&&input.encoding==neural.encoding&&std::memcmp(payload.data()+input.offset,payload.data()+neural.offset,static_cast<std::size_t>(input.bytes))!=0,"actual signed NR captured output differs from captured model input");
+            if(layer&&(scale==100||layer>1))Check(input.bytes==previous_neural.size()&&
+                std::memcmp(payload.data()+input.offset,previous_neural.data(),previous_neural.size())==0,
+                "next actual NR input equals the entire preceding output at the shared auxiliary raster");
+            previous_neural.assign(payload.begin()+neural.offset,payload.begin()+neural.offset+neural.bytes);
             swprintf_s(output,L"%ls\\capture-p%u-s%u-layer%u.nrf",argv[1],passes,scale,layer+1);Check(CopyFileW(path,output,TRUE)!=FALSE,"copy capture into immutable test evidence");
             swprintf_s(metadata,L"%ls\\DLSS5-Present-Capture\\%lu-%llu-%llu\\metadata.json",documents,GetCurrentProcessId(),request,(request<<8)|layer);
             swprintf_s(output,L"%ls\\capture-p%u-s%u-layer%u.json",argv[1],passes,scale,layer+1);Check(CopyFileW(metadata,output,TRUE)!=FALSE,"copy independent capture role metadata");

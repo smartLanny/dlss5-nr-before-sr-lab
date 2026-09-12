@@ -2,7 +2,7 @@ using nr_compat_present::Status;
 using nr_compat_present::Encoding;
 using nr_compat_present::Extent;
 using nr_compat_present::Observation;
-constexpr unsigned kFlightCount=3, kPassLimit=4;
+constexpr unsigned kFlightCount=3, kPassLimit=5;
 constexpr unsigned long long kOwnedBudget=1024ull*1024*1024; // excludes NGX internal allocations
 struct Layer {
     NrContext context{};

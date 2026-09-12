@@ -2,7 +2,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <atomic>
+#include <cstring>
+#include <type_traits>
 using namespace nr_source_frame;
+static_assert(std::is_trivially_copyable_v<PresentObservation>,"Present snapshot remains a lock-copyable value");
 // The validation runner inserts the unchanged production producer registry.
 // No graphics interfaces are called by this registry; retire types are opaque.
 struct NgxHandle {};
@@ -35,6 +38,29 @@ int main(){
      auto newer=c.Begin(App(2),Point::After);Check(bool(newer),"new source admitted");
      Check(c.RejectBeforeWork(newer),"new source rollback preserves old highwater");
      Check(!c.Begin(App(),Point::Present),"old frame stays consumed");}
+    {auto exact=App();exact.role=Role::Unknown;exact.content=7;exact.exact_write=true;exact.submitted=true;exact.queue=10;
+     Check(PresentPromotionEligible(exact,10),"exact unknown Present write is a promotion candidate");
+     Check(PresentRejectMask(exact,10,false)==0,"unowned exact write can promote when no native producer exists");
+     const auto blocked=PresentRejectMask(exact,10,true);
+     Check((blocked&PresentRejectNativeProducer)!=0&&
+           (blocked&PresentRejectNoApplication)!=0,"native producer blocks heuristic Present promotion");
+     auto app=App();app.content=8;app.submitted=true;app.queue=10;
+     Check(!PresentPromotionEligible(app,10)&&PresentRejectMask(app,10,false)==0,
+           "known submitted application source bypasses heuristic promotion");
+     app.submitted=false;Check((PresentRejectMask(app,10,false)&PresentRejectUnsubmitted)!=0,
+           "unsubmitted application source is rejected");
+     app.submitted=true;app.queue=11;Check((PresentRejectMask(app,10,false)&PresentRejectWrongQueue)!=0,
+           "application source on another queue is rejected");
+     app.queue=10;app.fg_consumed=true;Check((PresentRejectMask(app,10,false)&PresentRejectFgConsumed)!=0,
+           "FG-consumed source is rejected at Present");}
+    {PresentObservation snapshot{};snapshot.ordinal=1;snapshot.decision=PresentDecision::Accepted;snapshot.accepted=true;
+     const auto copy=snapshot;Check(copy.ordinal==1&&copy.decision==PresentDecision::Accepted&&copy.accepted,
+           "Present snapshot copies as a bounded value");
+     for(unsigned i=0;i<=static_cast<unsigned>(PresentDecision::Accepted);++i)
+         Check(std::strcmp(PresentDecisionName(static_cast<PresentDecision>(i)),"invalid")!=0,
+               "Present decision enum has a name");
+     Check(std::strcmp(PresentDecisionName(static_cast<PresentDecision>(static_cast<unsigned>(PresentDecision::Accepted)+1)),"invalid")==0,
+           "Present decision enum rejects out-of-range values");}
     {Claims c;Check(!c.Begin({},Point::Present),"unknown source excluded");
      auto g=App();g.role=Role::Generated;Check(!c.Begin(g,Point::Present),"generated frames excluded");
      auto t=c.Begin(App(),Point::After);Check(!c.Complete(t,true,true),"completion without recorded poisons");}

@@ -524,12 +524,15 @@ int main() {
               !SnapshotUiAndSecondary().binding.region.generation_matches_config,
           "paired binding evidence marks stale generations against current config");
     g_config_generation.store(5);g_config.nr_passes=1;g_config.nr_full_reference=true;
+    Check(SnapshotUi().state==UiState::Off,
+          "full reference alone cannot enable observation while second AI is off");
+    g_config.nr_passes=2;
     Check(SnapshotUi().state==UiState::WaitingForFrame,
-          "full reference enables observation while reduced second pass is off");
+          "full reference is effective only with the second AI switch");
     RecordObservation(primary,&aux,true,true,true,false);
     Check(SnapshotUi().counts.eligible_primary==1&&SnapshotUi().counts.final_adopted==1,
           "full reference retains actual adoption observation");
-    g_config.nr_full_reference=false;
+    g_config.nr_full_reference=false;g_config.nr_passes=1;
     Check(SnapshotUi().state==UiState::Off,
           "disabling both full and reduced paths immediately hides old activity");
     std::printf("Runtime adapter: %u checks, 0 failures\n", checks);

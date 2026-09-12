@@ -89,7 +89,7 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace host
         const unsigned hud_mode=argc>6?std::wcstoul(argv[6],nullptr,10):0,fault_mode=argc>7?std::wcstoul(argv[7],nullptr,10):0;
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=nr_enabled;g_enabled_fast=nr_enabled;
         g_config.processing_start=nr_processing::Start::Present;g_config.processing_selection=1;
-        g_config.nr_passes=passes>1?2:1;g_config.nr_full_reference=passes>1&&scale==100;g_config.nr_full_passes=std::max(2u,passes);
+        g_config.nr_passes=passes>1?2:1;g_config.nr_full_reference=passes>2;g_config.nr_full_passes=std::max(2u,passes);
         g_config.nr_second_numerator=scale;g_config.nr_second_denominator=100;g_config.warmup_after_create=2;g_config.compat_percent=100;g_config.transfer_strength=1;
         nr_processing_runtime::Reconcile();g_config_generation=1;g_original_queue_execute[0]=host_fg::Execute;
         swprintf_s(g_log_path,L"%ls\\fg-consumer-%u-%u-%u-%u-hud%u-fault%u.log",argv[1],passes,scale,nr_enabled,fg_enabled,hud_mode,fault_mode);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);

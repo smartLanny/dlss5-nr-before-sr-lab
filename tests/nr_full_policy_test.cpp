@@ -15,7 +15,7 @@ int main(){try {
     Check(nr_full::Settings{}.passes==2,"default pass count two");
     for(unsigned n=0;n<7;++n) {
         auto p=nr_full::MakePlan({true,n},{1920,1080});
-        Check(bool(p)==(n>=2&&n<=4),"only complete two to four layers");
+        Check(bool(p)==(n>=2&&n<=5),"only complete two to five layers");
         if(!p)continue;
         for(unsigned i=0;i<n-1;++i) {
             Check(p.layers[i].path==nr_dual::Path::DirectSecond,"full layers never use residual resize");
@@ -38,18 +38,27 @@ int main(){try {
         }
     }
     Check(!nr_full::MakePlan({true,4},{0,1080}),"invalid raster refused");
-    std::array<nr_dual::AuxHistory,3> histories;
-    for(unsigned layer=1;layer<=3;++layer) {
+    std::array<nr_dual::AuxHistory,4> histories;
+    for(unsigned layer=1;layer<=4;++layer) {
         nr_dual::LayerKey key{layer,100,4,200+layer,{1920,1080}};
         Check(histories[layer-1].NeedsReset(key,10,false),"independent cold history");
         Check(histories[layer-1].CommitSuccess(key,10),"each auxiliary owns history");
         Check(!histories[layer-1].NeedsReset(key,11,false),"continuous root evaluation");
         Check(histories[layer-1].NeedsReset(key,12,false),"skipped source resets");
-        for(unsigned other=1;other<=3;++other)if(other!=layer)
+        for(unsigned other=1;other<=4;++other)if(other!=layer)
             Check(histories[other-1].NeedsReset(key,11,false),"history cannot be borrowed from sibling");
     }
     nr_dual::AuxHistory history;
-    Check(!history.CommitSuccess({4,1,1,1,{1,1}},1),"reject fifth layer");
+    Check(!history.CommitSuccess({5,1,1,1,{1,1}},1),"reject sixth layer");
+    for(unsigned n=3;n<=5;++n)for(auto scale:{nr_dual::Scale{1,2},nr_dual::Scale{2,3},nr_dual::Scale{3,4}}) {
+        const auto p=nr_full::MakePlan({true,n,scale},{1920,1080});
+        Check(p&&p.reduced,"scaled multilayer plan admitted");
+        const nr_dual::Extent expected{1920*scale.numerator/scale.denominator,1080*scale.numerator/scale.denominator};
+        for(unsigned i=0;i<n-1;++i) {
+            Check(p.layers[i].secondary==expected,"all auxiliary layers follow the second scale without compounding");
+            Check(p.layers[i].path==(i?nr_dual::Path::DirectSecond:nr_dual::Path::MatchedResidual),"only first auxiliary reduces input");
+        }
+    }
     Check(nr_dual::MakePlan({2,{1,2}},{1920,1080},{}).path==nr_dual::Path::MatchedResidual,"legacy reduced path unchanged");
     std::cout<<"PASS "<<checks<<" CPU full-chain checks; synthetic backend, not GPU/NGX\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

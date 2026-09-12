@@ -10,9 +10,9 @@ struct FullLayerTiming {
     std::atomic<unsigned> samples{0},config{0};
     std::atomic<double> last{0},median{0},p95{0};
 };
-FullLayerTiming full_time[4]{};
+FullLayerTiming full_time[nr_full::kMaxPasses]{};
 void RecordFullTiming(unsigned layer,unsigned generation,double ms) {
-    if(layer>=4||!std::isfinite(ms)||ms>10000)return;
+    if(layer>=nr_full::kMaxPasses||!std::isfinite(ms)||ms>10000)return;
     auto& out=full_time[layer];
     if(out.generation!=generation){out.generation=generation;out.count=out.cursor=0;}
     out.values[out.cursor]=ms;out.cursor=(out.cursor+1)%kTimeWindow;

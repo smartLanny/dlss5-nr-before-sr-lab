@@ -243,8 +243,8 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     const bool native_guides=NativeGuideAvailable(source_lease);
     const auto work=nr_compat_present::WorkExtent(source,g_config.compat_percent);
     const unsigned passes=RequestedPasses(g_config);
-    const unsigned numerator=FullReference(g_config)?1:g_config.nr_second_numerator;
-    const unsigned denominator=FullReference(g_config)?1:g_config.nr_second_denominator;
+    const unsigned numerator=g_config.nr_second_numerator;
+    const unsigned denominator=g_config.nr_second_denominator;
     auto tuning=CurrentNrTuningSignature();tuning.input_filter=0;
     if(!nr_compat_present::Valid(work)){ReleaseCom(device);SetStatus(Status::UnsupportedSurface);return;}
     if(current&&(current->owner!=chain||current->queue!=native_queue||!IsSameRrDepthDevice(current->device,device)||
@@ -298,6 +298,7 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     const auto serial=nr_source_runtime::PresentSourceId();
     if(!serial){SetStatus(Status::SourceUnavailable);return;}
     observation.source=serial;nr_source_runtime::MarkPresentRecorded();
+    nr_processing_runtime::MarkRecorded();
     if(!c.layers[0].context.nr_handle){
         HMODULE self=nullptr;
         if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,

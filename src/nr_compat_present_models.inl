@@ -136,12 +136,13 @@ bool RetireCurrent() {
     return released;
 }
 template<class Config> unsigned RequestedPasses(const Config& config) {
+    if(config.nr_passes!=2)return 1;
     if constexpr(requires {config.nr_full_reference;config.nr_full_passes;})
-        if(config.nr_full_reference)return std::clamp(config.nr_full_passes,2u,kPassLimit);
-    return config.nr_passes==2?2:1;
+        if(config.nr_full_reference)return std::clamp(config.nr_full_passes,3u,kPassLimit);
+    return 2;
 }
 template<class Config> bool FullReference(const Config& config) {
-    if constexpr(requires {config.nr_full_reference;})return config.nr_full_reference;
+    if constexpr(requires {config.nr_full_reference;})return config.nr_passes==2&&config.nr_full_reference;
     return false;
 }
 bool AllocateParameters(Context& c,NgxParams*& p) {
@@ -192,13 +193,20 @@ bool Build(Context& c) {
     }
     if(c.passes>1){std::string error;c.spatial_pipelines=nr_dual::dx12::CreatePipelines(c.device,error);if(!c.spatial_pipelines)return false;}
     for(unsigned i=0;i<c.passes;++i){auto& l=c.layers[i];Extent e=c.work;
-        if(i){const bool reduced=c.passes==2&&(c.numerator!=c.denominator);
-            l.plan=nr_dual::MakePlan({2,{reduced?c.numerator:1u,reduced?c.denominator:1u}},
+        if(i){
+            const auto first=nr_dual::MakePlan({2,{c.numerator,c.denominator}},
                 {c.work.width,c.work.height},{{1,1},{16384,16384},{1,1}});
+            if(!first)return false;
+            l.plan=i==1?first:nr_dual::MakePlan({2,{1,1}},first.secondary,
+                {{1,1},{16384,16384},{1,1}});
             if(!l.plan)return false;
             ID3D12Resource* parent=i==1?c.image.neural:c.layers[i-1].binding.neural;
+            nr_dual::dx12::Surfaces residual_base{};
+            const bool cumulative=i>1&&i==c.passes-1&&first.path==nr_dual::Path::MatchedResidual;
+            if(cumulative)residual_base=nr_dual::dx12::GetSurfaces(c.layers[1].spatial);
             std::string error;l.spatial=nr_dual::dx12::CreateSpatialSlot(c.spatial_pipelines,parent,l.plan,
-                nr_dual::ModelDomain::SrgbProxy,kOwnedBudget-c.bytes,error,IsSameRrDepthDevice);
+                nr_dual::ModelDomain::SrgbProxy,kOwnedBudget-c.bytes,error,IsSameRrDepthDevice,
+                nullptr,cumulative?&residual_base:nullptr);
             if(!l.spatial)return false;
             const auto bytes=nr_dual::dx12::SlotBytes(l.spatial);
             if(!nr_compat_present::Fits(c.bytes,bytes,kOwnedBudget))return false;c.bytes+=bytes;
@@ -220,7 +228,7 @@ bool Build(Context& c) {
     heap.NumDescriptors=kCodecDescriptorCount;heap.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if(FAILED(ID3D12Device_CreateDescriptorHeap(c.device,&heap,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&c.image.heap))))return false;
     if(c.passes>1){const auto surfaces=nr_dual::dx12::GetSurfaces(c.layers[c.passes-1].spatial);
-        const bool reduced=c.passes==2&&c.layers[1].plan.path==nr_dual::Path::MatchedResidual;
+        const bool reduced=surfaces.low_delta!=nullptr;
         WriteCodecDescriptorSet(c.device,c.image,c.image.heap,nullptr,&surfaces,reduced);
         c.image.dual_reduced=reduced;c.image.dual_low_width=surfaces.secondary_extent.width;
         c.image.dual_low_height=surfaces.secondary_extent.height;c.image.dual_model_domain=static_cast<unsigned>(surfaces.domain);

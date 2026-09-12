@@ -45,6 +45,64 @@ struct Label {
     unsigned encoding=0;
     bool KnownApplication() const noexcept { return bool(source) && role==Role::Application; }
 };
+
+// A bounded, pointer-free snapshot of the last Present source decision. The
+// runtime publishes this separately from the thread-local lease so a later UI
+// or feedback read can explain a refusal without exposing COM addresses.
+enum class PresentDecision : unsigned {
+    Unobserved, InvalidArguments, UnsupportedApi, QueueIdentityUnavailable,
+    UnknownLabel, GeneratedLabel, RetiredLabel, NativeProducerBlocked,
+    FgConsumed, Unsubmitted, WrongQueue, ClaimRejected, Accepted
+};
+enum PresentRejectFlag : unsigned {
+    PresentRejectNoApplication = 1u << 0,
+    PresentRejectFgConsumed = 1u << 1,
+    PresentRejectUnsubmitted = 1u << 2,
+    PresentRejectWrongQueue = 1u << 3,
+    PresentRejectNativeProducer = 1u << 4
+};
+struct PresentObservation {
+    Id ordinal=0,queue_identity=0,claim_reason=0;
+    PresentDecision decision=PresentDecision::Unobserved;
+    unsigned reject_mask=0;
+    Label lookup{},label{};
+    bool native_producer_on_device=false,promotion_eligible=false,
+        promotion_blocked_by_native_producer=false,claim_started=false,accepted=false;
+};
+inline const char* PresentDecisionName(PresentDecision value) noexcept {
+    switch(value){
+    case PresentDecision::Unobserved:return "unobserved";
+    case PresentDecision::InvalidArguments:return "invalid-arguments";
+    case PresentDecision::UnsupportedApi:return "unsupported-api";
+    case PresentDecision::QueueIdentityUnavailable:return "queue-identity-unavailable";
+    case PresentDecision::UnknownLabel:return "unknown-label";
+    case PresentDecision::GeneratedLabel:return "generated-label";
+    case PresentDecision::RetiredLabel:return "retired-label";
+    case PresentDecision::NativeProducerBlocked:return "native-producer-blocked";
+    case PresentDecision::FgConsumed:return "fg-consumed";
+    case PresentDecision::Unsubmitted:return "unsubmitted";
+    case PresentDecision::WrongQueue:return "wrong-queue";
+    case PresentDecision::ClaimRejected:return "claim-rejected";
+    case PresentDecision::Accepted:return "accepted";
+    }
+    return "invalid";
+}
+inline bool PresentPromotionEligible(const Label& label,Id queue) noexcept {
+    return queue&&label.role==Role::Unknown&&!label.tainted&&!label.processed&&
+        !label.fg_consumed&&label.exact_write&&label.content&&label.submitted&&
+        label.queue==queue;
+}
+inline unsigned PresentRejectMask(const Label& label,Id queue,bool native_producer) noexcept {
+    const bool promotion=PresentPromotionEligible(label,queue);
+    unsigned mask=0;
+    if(promotion&&native_producer)mask|=PresentRejectNativeProducer;
+    const bool application=label.KnownApplication()||(promotion&&!native_producer);
+    if(!application)mask|=PresentRejectNoApplication;
+    if(label.fg_consumed)mask|=PresentRejectFgConsumed;
+    if(!label.submitted)mask|=PresentRejectUnsubmitted;
+    if(label.queue!=queue)mask|=PresentRejectWrongQueue;
+    return mask;
+}
 struct Ticket {
     Source source{};
     Id attempt=0;

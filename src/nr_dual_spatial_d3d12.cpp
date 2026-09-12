@@ -94,6 +94,7 @@ struct SpatialSlot {
     ID3D12Resource* second = nullptr;
     ID3D12Resource* valid = nullptr;
     ID3D12Resource* delta = nullptr;
+    ID3D12Resource *residual_base=nullptr,*residual_valid=nullptr;
     ID3D12DescriptorHeap* delta_heap = nullptr;
     std::uint32_t delta_state = D3D12_RESOURCE_STATE_COMMON;
     ID3D12DescriptorHeap* down_heap = nullptr;
@@ -110,6 +111,7 @@ namespace {
 void DropSlot(SpatialSlot* s) noexcept {
     if (!s) return;
     Drop(s->delta_heap);Drop(s->delta);
+    Drop(s->residual_base);Drop(s->residual_valid);
     Drop(s->down_heap); Drop(s->valid); Drop(s->second); Drop(s->low_input); Drop(s->primary);
     if (s->owner && s->owner->live_slots) --s->owner->live_slots;
     delete s;
@@ -180,7 +182,7 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error) {
 SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
                               const Plan& plan, ModelDomain domain,
                               std::uint64_t available, std::string& error,
-                              DeviceIdentityFn compare,SpatialError* failure) {
+                              DeviceIdentityFn compare,SpatialError* failure,const Surfaces* residual_base) {
     error.clear();
     if(failure)*failure=SpatialError::Contract;
     if (!p || !p->device || p->poisoned || !first || !plan || plan.path == Path::Single ||
@@ -199,14 +201,32 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
         (d.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) != 0) {
         error = "Primary must be a compact, ordinary owned FP16 texture, not a padded/game/aliased view"; return nullptr;
     }
+    const bool downsample=plan.path==Path::MatchedResidual;
+    const bool cumulative=residual_base!=nullptr;
+    if(cumulative) {
+        auto compact=[&](ID3D12Resource* r,DXGI_FORMAT format) {
+            if(!r||!SameDevice(p->device,r,compare))return false;
+            const auto d=r->GetDesc();
+            return d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&d.Width==plan.secondary.width&&
+                d.Height==plan.secondary.height&&d.DepthOrArraySize==1&&d.MipLevels==1&&
+                d.SampleDesc.Count==1&&d.Format==format&&
+                !(d.Flags&(D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE|D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS));
+        };
+        if(downsample||plan.primary!=plan.secondary||residual_base->secondary_extent!=plan.secondary||
+           residual_base->domain!=domain||!compact(residual_base->input,DXGI_FORMAT_R16G16B16A16_FLOAT)||
+           !compact(residual_base->low_valid,DXGI_FORMAT_R32_UINT)) {
+            error="Cumulative residual requires the pinned first reduced input and matching validity raster";return nullptr;
+        }
+    }
+    const bool residual=downsample||cumulative;
     const auto color = Description(plan.secondary, DXGI_FORMAT_R16G16B16A16_FLOAT);
     const auto mask = Description(plan.secondary, DXGI_FORMAT_R32_UINT);
     const auto delta = Description(plan.secondary, DXGI_FORMAT_R32G32B32A32_FLOAT);
     const auto color_bytes = AllocBytes(p->device, color);
-    const auto mask_bytes = plan.path == Path::MatchedResidual ? AllocBytes(p->device, mask) : 0;
-    const auto delta_bytes=plan.path==Path::MatchedResidual?AllocBytes(p->device,delta):0;
-    const auto total = plan.path == Path::MatchedResidual ? 2 * color_bytes + mask_bytes + delta_bytes : color_bytes;
-    if (!color_bytes || (plan.path == Path::MatchedResidual && (!mask_bytes||!delta_bytes)) || total > available) {
+    const auto mask_bytes = downsample ? AllocBytes(p->device, mask) : 0;
+    const auto delta_bytes=residual?AllocBytes(p->device,delta):0;
+    const auto total = color_bytes+(downsample?color_bytes+mask_bytes:0)+delta_bytes;
+    if (!color_bytes || (downsample&&!mask_bytes) || (residual&&!delta_bytes) || total > available) {
         if(failure)*failure=SpatialError::Budget;
         error = "Secondary texture allocation exceeds the remaining Core budget"; return nullptr;
     }
@@ -216,19 +236,23 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
     s->owner = p; ++p->live_slots;
     s->plan = plan; s->domain = domain; s->bytes = total;
     s->primary = first; first->AddRef();
+    if(cumulative) {
+        s->residual_base=residual_base->input;s->residual_base->AddRef();
+        s->residual_valid=residual_base->low_valid;s->residual_valid->AddRef();
+    }
     if (!MakeTexture(p->device, color, &s->second, L"NRDual.SecondAnswer")) {
         error = "Secondary answer allocation failed"; DropSlot(s); return nullptr;
     }
-    if (plan.path == Path::DirectSecond) {if(failure)*failure=SpatialError::None;return s;} // No extra full-size intermediate.
-    if (!MakeTexture(p->device, color, &s->low_input, L"NRDual.LowInput") ||
-        !MakeTexture(p->device, mask, &s->valid, L"NRDual.LowValid") ||
+    if (!residual) {if(failure)*failure=SpatialError::None;return s;}
+    if ((downsample&&(!MakeTexture(p->device, color, &s->low_input, L"NRDual.LowInput") ||
+        !MakeTexture(p->device, mask, &s->valid, L"NRDual.LowValid"))) ||
         !MakeTexture(p->device, delta, &s->delta, L"NRDual.LowMatchedDelta")) {
         error = "Low input/validity allocation failed"; DropSlot(s); return nullptr;
     }
     D3D12_DESCRIPTOR_HEAP_DESC heap{};
     heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; heap.NumDescriptors = 5;
     heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (FAILED(p->device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&s->down_heap))) || !s->down_heap) {
+    if (downsample&&(FAILED(p->device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&s->down_heap))) || !s->down_heap)) {
         error = "Downsample descriptor allocation failed"; DropSlot(s); return nullptr;
     }
     if(FAILED(p->device->CreateDescriptorHeap(&heap,IID_PPV_ARGS(&s->delta_heap)))||!s->delta_heap){error="Residual descriptor allocation failed";DropSlot(s);return nullptr;}
@@ -242,19 +266,25 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
         auto cpu=h->GetCPUDescriptorHandleForHeapStart();cpu.ptr+=std::size_t(i)*increment;
         D3D12_UNORDERED_ACCESS_VIEW_DESC d{};d.Format=format;d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
         p->device->CreateUnorderedAccessView(resource,nullptr,&d,cpu);};
-    srv(s->down_heap,0,first,DXGI_FORMAT_R16G16B16A16_FLOAT);
-    srv(s->down_heap,1,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(s->down_heap,2,nullptr,DXGI_FORMAT_R32_UINT);
-    uav(s->down_heap,3,s->low_input,DXGI_FORMAT_R16G16B16A16_FLOAT);uav(s->down_heap,4,s->valid,DXGI_FORMAT_R32_UINT);
-    srv(s->delta_heap,0,s->low_input,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(s->delta_heap,1,s->second,DXGI_FORMAT_R16G16B16A16_FLOAT);
-    srv(s->delta_heap,2,s->valid,DXGI_FORMAT_R32_UINT);uav(s->delta_heap,3,s->delta,DXGI_FORMAT_R32G32B32A32_FLOAT);
+    if(downsample) {
+        srv(s->down_heap,0,first,DXGI_FORMAT_R16G16B16A16_FLOAT);
+        srv(s->down_heap,1,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(s->down_heap,2,nullptr,DXGI_FORMAT_R32_UINT);
+        uav(s->down_heap,3,s->low_input,DXGI_FORMAT_R16G16B16A16_FLOAT);uav(s->down_heap,4,s->valid,DXGI_FORMAT_R32_UINT);
+    }
+    srv(s->delta_heap,0,cumulative?s->residual_base:s->low_input,DXGI_FORMAT_R16G16B16A16_FLOAT);srv(s->delta_heap,1,s->second,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    srv(s->delta_heap,2,cumulative?s->residual_valid:s->valid,DXGI_FORMAT_R32_UINT);uav(s->delta_heap,3,s->delta,DXGI_FORMAT_R32G32B32A32_FLOAT);
     uav(s->delta_heap,4,nullptr,DXGI_FORMAT_R32_UINT);
     if(failure)*failure=SpatialError::None;
     return s;
 }
 Surfaces GetSurfaces(const SpatialSlot* s) noexcept {
     if (!s) return {};
-    return {s->primary, s->low_input ? s->low_input : s->primary, s->second, s->valid,
+    return {s->primary, s->low_input ? s->low_input : s->primary, s->second, s->residual_valid?s->residual_valid:s->valid,
             s->plan.primary, s->plan.secondary, s->domain,s->delta};
+}
+bool MatchesResidualBase(const SpatialSlot* s,const Surfaces* base) noexcept {
+    return s&&(base?(s->residual_base==base->input&&s->residual_valid==base->low_valid):
+        (!s->residual_base&&!s->residual_valid));
 }
 std::uint64_t SlotBytes(const SpatialSlot* s) noexcept { return s ? s->bytes : 0; }
 
@@ -321,7 +351,7 @@ Attempt RecordSecond(Pipelines* p, SpatialSlot* s, ID3D12GraphicsCommandList* li
         }
         void MakeOutputReadable() {
             Barrier(list, s->second, s->second_state, ReadState);
-            if(s->plan.path==Path::MatchedResidual) {
+            if(s->delta) {
                 Clock(12);
                 Barrier(list,s->delta,s->delta_state,WriteState);
                 list->SetDescriptorHeaps(1,&s->delta_heap);list->SetComputeRootSignature(p->root);

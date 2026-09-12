@@ -104,9 +104,9 @@ def main():
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
     for name, route, passes, percent in (
-        ('restart-route-before.ini', '0', '2', '50'),
-        ('restart-route-after.ini', '1', '3', '75'),
-        ('restart-route-present.ini', '2', '4', '100'),
+        ('restart-route-before.ini', '0', '3', '50'),
+        ('restart-route-after.ini', '1', '4', '75'),
+        ('restart-route-present.ini', '2', '5', '100'),
     ):
         result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
                                  route, passes, percent, '1', 'processing'], text=True, capture_output=True)
@@ -132,8 +132,8 @@ def main():
          'ordinary edits preserve fallback'),
         ('discard-present-preference', '_wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :',
          'false ? nr_processing::Start::Present :', 'explicit ProcessingStart wins'),
-        ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,2u,4u);',
-         '(void)config.nr_full_passes;', 'full reference count stays'),
+        ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);',
+         '(void)config.nr_full_passes;', 'more-layer count stays'),
         ('allow-legacy-native-sr-retry', 'config.retry_original_on_sr_failure=false;',
          '(void)config.retry_original_on_sr_failure;', 'normalization disables legacy same-source'),
     )

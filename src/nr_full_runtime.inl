@@ -2,7 +2,7 @@
 // exactly one final composition and the game still owns its original SR call.
 namespace nr_dual_runtime {
 std::atomic<unsigned> full_requested{0},full_prepared{0},full_adopted{0};
-std::atomic<unsigned long long> full_instance[4]{},full_evaluations[4]{};
+std::atomic<unsigned long long> full_instance[nr_full::kMaxPasses]{},full_evaluations[nr_full::kMaxPasses]{};
 unsigned full_generation=0,full_mode=0;
 unsigned long long full_root=0,full_recorded_adoptions=0;
 
@@ -11,11 +11,12 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
     unsigned x,unsigned y,CodecColorMode color_mode) {
     Prepared result{};
-    const nr_full::Settings setting{g_config.nr_full_reference,g_config.nr_full_passes};
+    const nr_full::Settings setting{g_config.nr_passes==2&&g_config.nr_full_reference,g_config.nr_full_passes,
+        {g_config.nr_second_numerator,g_config.nr_second_denominator}};
     const auto generation=g_config_generation.load(std::memory_order_relaxed);
     if(full_generation!=generation||full_root!=primary.instance_id) {
         full_generation=generation;full_root=primary.instance_id;full_recorded_adoptions=0;
-        for(unsigned i=0;i<4;++i){full_instance[i].store(0);full_evaluations[i].store(0);}
+        for(unsigned i=0;i<nr_full::kMaxPasses;++i){full_instance[i].store(0);full_evaluations[i].store(0);}
     }
     full_mode=primary.mode;
     full_requested.store(setting.enabled?setting.passes:0);full_prepared.store(0);full_adopted.store(0);
@@ -29,14 +30,18 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         return result;
     }
     ClearSelection(main);
-    if(!nr_full::MakePlan(setting,{primary.width,primary.height})) {
+    const auto plan=nr_full::MakePlan(setting,{primary.width,primary.height});
+    if(!plan) {
         SetStatus(Status::ResourceContract);return result;
     }
     result.full=true;result.requested=setting.passes;
     NrSlot* source=&main;
     for(unsigned i=0;i<setting.passes-1;++i) {
+        nr_dual::dx12::Surfaces residual_base{};
+        const bool cumulative=plan.reduced&&i>0&&i==setting.passes-2;
+        if(cumulative)residual_base=nr_dual::dx12::GetSurfaces(result.layers[0].slot->dual_spatial);
         auto stage=PrepareOne(device,list,primary,main,params,feature,render_width,render_height,
-            original,x,y,color_mode,i+1,source,true);
+            original,x,y,color_mode,i+1,source,true,cumulative?&residual_base:nullptr);
         if(!stage)break;
         // No two full-reference layers may share an NGX parameter block or
         // live feature, including siblings which have the same dimensions.
@@ -91,11 +96,11 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
             auto& selected=prepared.layers[last];auto& aux=*selected.context;
             const auto surfaces=nr_dual::dx12::GetSurfaces(selected.slot->dual_spatial);
             main.dual_selected=selected.slot;main.dual_binding=selected.binding;
-            main.dual_reduced=false;main.dual_low_width=aux.width;main.dual_low_height=aux.height;
+            main.dual_reduced=surfaces.low_delta!=nullptr;main.dual_low_width=aux.width;main.dual_low_height=aux.height;
             main.dual_model_domain=static_cast<unsigned>(surfaces.domain);
             if(main.region_ready) {
                 main.region_constants[16]=aux.width;main.region_constants[17]=aux.height;
-                main.region_constants[18]=0;main.region_constants[19]=main.dual_model_domain;
+                main.region_constants[18]=main.dual_reduced?1u:0u;main.region_constants[19]=main.dual_model_domain;
             }
             // Capture the already evaluated planes; never rerun a layer for F7.
             for(unsigned i=0;i<prepared.prepared;++i) {
@@ -121,17 +126,17 @@ struct FullSnapshot {
     unsigned generation=0,mode=0,requested=0,prepared=0,adopted=0;
     unsigned long long root=0,recorded_adoptions=0;
     struct Layer {unsigned long long instance=0,evaluations=0;unsigned samples=0;
-        bool timing_current=false;double last=0,median=0,p95=0;} layers[4]{};
+        bool timing_current=false;double last=0,median=0,p95=0;} layers[nr_full::kMaxPasses]{};
 };
 bool TrySnapshotFull(FullSnapshot& out) {
     if(!TryEnterCriticalSection(&g_chain_cs))return false;
     out={};out.generation=g_config_generation.load(std::memory_order_relaxed);
-    out.enabled=g_config.nr_full_reference;out.scope_matches=out.enabled&&full_generation==out.generation;
+    out.enabled=g_config.nr_passes==2&&g_config.nr_full_reference;out.scope_matches=out.enabled&&full_generation==out.generation;
     out.mode=full_mode;out.requested=g_config.nr_full_passes;
     if(out.scope_matches) {
         out.root=full_root;out.prepared=full_prepared.load();out.adopted=full_adopted.load();
         out.recorded_adoptions=full_recorded_adoptions;
-        for(unsigned i=0;i<4;++i) {
+        for(unsigned i=0;i<nr_full::kMaxPasses;++i) {
             auto& layer=out.layers[i];layer.instance=full_instance[i].load();layer.evaluations=full_evaluations[i].load();
             const auto& timing=full_time[i];layer.timing_current=timing.config.load()==out.generation;
             if(layer.timing_current){layer.samples=timing.samples.load();layer.last=timing.last.load();

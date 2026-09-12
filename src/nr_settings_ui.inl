@@ -649,13 +649,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
     ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
     ImGui::TextDisabled("%s", kAddonVersion);
-    if (ImGui::CollapsingHeader(ui("About and links", "作者与链接"))) {
-        ImGui::TextDisabled("%s", use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
-        ImGui::TextDisabled("%s", kOfficialReleaseUrl);
-        ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
-        if (kChineseUi && !use_chinese_ui)
-            ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
-    }
+    SettingsSection(ui("About and links", "作者与链接"));
+    ImGui::TextDisabled("%s", use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
+    ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+    ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
+    if (kChineseUi && !use_chinese_ui)
+        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     // Keep controls stationary while live status text changes (#121).
     ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.25f), true);
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
@@ -692,7 +691,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         RestoreRecommendedPictureSettings(next);
         next.processing_start=nr_processing::Start::Before;
         next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
-        next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=2;
+        next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=3;
         changed = true;
         pending_picture_reset = true;
         pending_model_action = nr_model_controls::Action::None;

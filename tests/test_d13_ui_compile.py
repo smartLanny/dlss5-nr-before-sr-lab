@@ -145,14 +145,26 @@ class D13UiCompile(unittest.TestCase):
         main = selector + processing + r'''
 int main() {
     ChainConfig c; c.nr_passes=2; c.nr_second_numerator=2; c.nr_second_denominator=3;
-    show_more=true; click="2/3";
+    show_more=true; click.clear();
     bool changed=false, discrete=false;
     nr_dual_runtime::DrawQuickUi(c, changed, discrete);
-    if (c.nr_second_numerator!=2 || c.nr_second_denominator!=3 || !changed || !discrete) return 1;
-    c.nr_second_numerator=1; c.nr_second_denominator=2; changed=discrete=false;
-    show_more=false; click="50%";
+    if (c.nr_second_numerator!=2 || c.nr_second_denominator!=3 || changed || discrete) return 1;
+    if (std::find(buttons.begin(),buttons.end(),"50%###dual-scale-50")!=buttons.end() ||
+        std::find(buttons.begin(),buttons.end(),"75%###dual-scale-75")!=buttons.end() ||
+        std::find(buttons.begin(),buttons.end(),"100%###dual-scale-100")!=buttons.end()) return 2;
+    c.nr_full_reference=false; c.nr_full_passes=2; changed=discrete=false;
+    click="Enable more layers";
     nr_dual_runtime::DrawQuickUi(c, changed, discrete);
-    if (c.nr_second_numerator!=1 || c.nr_second_denominator!=2) return 2;
+    if (!c.nr_full_reference || !changed || !discrete) return 3;
+    for(unsigned pass:{3u,4u,5u}){
+        click="###full-passes-"+std::to_string(pass);changed=discrete=false;
+        nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        if(c.nr_full_passes!=pass||!changed||!discrete)return 4;
+    }
+    c.nr_passes=1; changed=discrete=false; click="Enable more layers";
+    nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+    if (!c.nr_full_reference || changed || discrete) return 5;
+    c.nr_passes=2; click.clear();
     c.generic_residual=false; c.region_enabled=false; combo_changed=true; combo_value=1;
     changed=discrete=false;
     if (DrawLightAdjustmentMethodSelector(c, changed, discrete)!=1 ||
@@ -172,22 +184,22 @@ int main() {
         rendered.find("waiting for the requested settings")!=std::string::npos)return 6;
     nr_dual_runtime::DrawDetailsUi();
     for(bool zh:{false,true}) {
-        chinese=zh;c.nr_full_reference=false;c.nr_full_passes=2;
+        chinese=zh;c.nr_passes=2;c.nr_full_reference=false;c.nr_full_passes=2;
         c.nr_second_numerator=2;c.nr_second_denominator=3;
-        click=zh?"完整同尺寸对照":"Full-size reference";
+        click=zh?"启用更多层":"Enable more layers";
         changed=discrete=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
         if(!c.nr_full_reference||!changed||!discrete)return 7;
-        for(unsigned pass:{2u,3u,4u}){
+        for(unsigned pass:{3u,4u,5u}){
             click="###full-passes-"+std::to_string(pass);changed=discrete=false;
             nr_dual_runtime::DrawQuickUi(c,changed,discrete);
             if(c.nr_full_passes!=pass||!changed||!discrete)return 8;
         }
-        click="50%";changed=discrete=false;
+        c.nr_passes=1;click=zh?"启用更多层":"Enable more layers";changed=discrete=false;
         nr_dual_runtime::DrawQuickUi(c,changed,discrete);
-        if(c.nr_second_numerator!=2||c.nr_second_denominator!=3||changed||discrete)return 9;
-        click=zh?"完整同尺寸对照":"Full-size reference";
+        if(!c.nr_full_reference||changed||discrete)return 9;
+        c.nr_passes=2;click.clear();changed=discrete=false;
         nr_dual_runtime::DrawQuickUi(c,changed,discrete);
-        if(c.nr_full_reference||c.nr_second_numerator!=2||c.nr_second_denominator!=3)return 10;
+        if(!c.nr_full_reference||c.nr_full_passes!=5)return 10;
         const char* labelsEn[]={"Enhance first","Upscale first","Compatibility"};
         const char* labelsZh[]={"先增强，后放大","先放大，后增强","兼容模式"};
         for(unsigned route=0;route<3;++route){
@@ -208,7 +220,7 @@ int main() {
         if(rendered.find("F8")==std::string::npos||rendered.find(zh?"纯颜色":"Color-only")==std::string::npos)return 15;
     }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
-    std::puts("D15 UI adapters: three routes/reselection/fallback and full 2-4 controls compiled");
+    std::puts("D16 UI adapters: three routes/reselection/fallback and more-layer 3-5 controls compiled");
     return 0;
 }
 '''

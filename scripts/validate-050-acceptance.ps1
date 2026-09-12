@@ -65,7 +65,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline15') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline16') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     & python (Join-Path $PSScriptRoot 'embed-dual-shaders.py') --check
     if($LASTEXITCODE){throw 'Actual dual shader embedding differs.'}
@@ -81,8 +81,8 @@ try {
     & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_full_policy_test.cpp') -o $FullPolicy
     if ($LASTEXITCODE) { throw 'Full NR policy compile failed.' }
     & $FullPolicy
-    if ($LASTEXITCODE) { throw 'Full NR two to four pass admission/failure policy failed.' }
-    $Checks.Add('full NR two to four pass plan and partial failure policy CPU')
+    if ($LASTEXITCODE) { throw 'Full NR two to five pass admission/failure policy failed.' }
+    $Checks.Add('full NR two to five pass plan and partial failure policy CPU')
     $FullRuntime = Join-Path $Output 'full-nr-runtime.exe'
     & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/nr_full_runtime_test.cpp') -o $FullRuntime
     if ($LASTEXITCODE) { throw 'Full NR production wrapper compile failed.' }
@@ -285,7 +285,7 @@ if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the du
         if ($LASTEXITCODE) { throw 'Full NR spatial WARP fixture compile failed.' }
         & $FullSpatial
         if ($LASTEXITCODE) { throw 'Full NR spatial serial chain/fence/readback WARP failed.' }
-        $Checks.Add('full NR two to four same-size spatial layers and exact retired readback WARP; synthetic model')
+        $Checks.Add('full NR two to five same-size spatial layers and exact retired readback WARP; synthetic model')
         $PresentUtility = Join-Path $Output 'present-utility-warp.exe'
         & $Compiler -std=c++20 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/compat_present_utility_gpu.cpp') -ld3d12 -ldxgi -ld3dcompiler -ldxguid -o $PresentUtility
         if ($LASTEXITCODE) { throw 'Production Present utility WARP fixture compile failed.' }
@@ -367,8 +367,8 @@ if (-not $ReShadeDllPath) { throw 'Actual ReShade runtime is required for the du
     }
     $CoreBuild = Join-Path $Stage 'core/build'
     $ExpectedPeVersion = [Version]'0.5.1.15'
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline15' -or [Version]$Manifest.integration.core_pe_version -ne $ExpectedPeVersion) { throw 'Source identity or PE version mismatch.' }
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline15*.addon64')
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline16' -or [Version]$Manifest.integration.core_pe_version -ne $ExpectedPeVersion) { throw 'Source identity or PE version mismatch.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline16*.addon64')
     if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline15 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {

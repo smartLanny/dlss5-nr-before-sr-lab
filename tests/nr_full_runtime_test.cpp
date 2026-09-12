@@ -21,11 +21,11 @@ struct NrSlot {
     unsigned dual_low_width=0,dual_low_height=0,dual_model_domain=0;
     unsigned region_constants[20]{};
 };
-struct Config {bool nr_full_reference=false;unsigned nr_full_passes=2,nr_passes=1,warmup_after_create=1;}g_config;
+struct Config {bool nr_full_reference=false;unsigned nr_full_passes=2,nr_passes=1,nr_second_numerator=1,nr_second_denominator=1,warmup_after_create=1;}g_config;
 std::atomic<unsigned> g_config_generation{1};int g_chain_cs=0;
 bool lock_available=true;
 bool TryEnterCriticalSection(int*){return lock_available;}void LeaveCriticalSection(int*){}
-NrContext g_contexts[5]{};NrSlot slots[3]{};NrBindingPacket packets[3]{};
+NrContext g_contexts[5]{};NrSlot slots[4]{};NrBindingPacket packets[4]{};
 unsigned checks=0,prepared_calls=0,run_calls=0,captures=0,stop_prepare=99,stop_run=99;
 bool opaque=false,alias=false,poison=false,legacy=false;
 void Check(bool b,const char* why){++checks;if(!b)throw std::runtime_error(why);}
@@ -33,13 +33,13 @@ void MarkLifecycleUncertain(const char*){poison=true;}
 int StageCaptureStatus(){return 0;}
 namespace nr_f8 {bool IsActive(){return false;}}
 namespace nr_replay {bool Active(){return false;}}
-namespace nr_dual::dx12 {struct Surfaces{nr_dual::ModelDomain domain{};};Surfaces GetSurfaces(void*){return {};}}
+namespace nr_dual::dx12 {struct Surfaces{nr_dual::ModelDomain domain{};void* low_delta=nullptr;};Surfaces GetSurfaces(void*){return {};}}
 namespace nr_full_capture {
 void Begin(ID3D12GraphicsCommandList*,NrContext&,NrSlot&,NrContext&,NrSlot&,NrSlot&,const NrGuideBinding&,unsigned,unsigned){++captures;}
 }
 namespace nr_dual_status_runtime {void RecordObservation(NrContext&,NrContext*,bool,bool,bool,bool){}}
 namespace nr_dual_runtime {
-struct FullTime {std::atomic<unsigned> samples{0},config{0};std::atomic<double> last{0},median{0},p95{0};}full_time[4]{};
+struct FullTime {std::atomic<unsigned> samples{0},config{0};std::atomic<double> last{0},median{0},p95{0};}full_time[5]{};
 enum class Status {Off,ResourceContract,Failed,Active};Status current_status{};
 struct LayerPrepared {
     NrContext* context=nullptr;NrSlot* slot=nullptr;nr_dual::Plan plan{};NrGuideBinding guides{};
@@ -47,12 +47,12 @@ struct LayerPrepared {
     bool evaluated=false,adoptable=false,full=false;
     explicit operator bool()const{return context&&slot&&bool(plan);}
 };
-struct Prepared:LayerPrepared {std::array<LayerPrepared,3> layers{};unsigned requested=0,prepared=0;};
+struct Prepared:LayerPrepared {std::array<LayerPrepared,4> layers{};unsigned requested=0,prepared=0;};
 void SetStatus(Status s){current_status=s;}
 void ClearSelection(NrSlot& s){s.dual_selected=nullptr;s.dual_binding=nullptr;}
 LayerPrepared PrepareOne(ID3D12Device*,ID3D12GraphicsCommandList*,NrContext& primary,NrSlot& main,
     const NgxParams*,const FeatureRecord&,unsigned,unsigned,ID3D12Resource*,unsigned,unsigned,
-    CodecColorMode,unsigned layer=1,NrSlot* input=nullptr,bool full=false) {
+    CodecColorMode,unsigned layer=1,NrSlot* input=nullptr,bool full=false,const nr_dual::dx12::Surfaces* =nullptr) {
     ++prepared_calls;legacy=!full;
     if(layer==stop_prepare)return {};
     auto& c=g_contexts[layer];c.instance_id=primary.instance_id+layer;c.parent_instance_id=primary.instance_id;
@@ -77,8 +77,8 @@ void Reset(){for(auto& c:g_contexts)c={};for(auto& s:slots)s={};prepared_calls=r
 int main(){try {
     using namespace nr_dual_runtime;ID3D12Device device;ID3D12GraphicsCommandList list;
     FeatureRecord feature;ColorContract color;NgxParams params;ID3D12Resource resource;
-    for(unsigned n=2;n<=4;++n) {
-        Reset();g_config.nr_full_reference=true;g_config.nr_full_passes=n;
+    for(unsigned n=2;n<=5;++n) {
+        Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=n;
         NrContext root;root.instance_id=100;NrSlot main;main.value=10;
         auto p=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
         Check(p.prepared==n-1&&p.requested==n,"production prepares requested independent layers");
@@ -91,18 +91,18 @@ int main(){try {
             "current configuration snapshot reports actual adopted pass count");
         lock_available=false;Check(!TrySnapshotFull(snapshot),"feedback never waits for render lock");lock_available=true;
         for(unsigned failure=1;failure<n;++failure) {
-            Reset();g_config.nr_full_reference=true;g_config.nr_full_passes=n;stop_run=failure;opaque=true;
+            Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=n;stop_run=failure;opaque=true;
             auto q=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
             Seal(&list,main,q);Check(Run(&list,root,main,q,feature,color)==0xBAD00005u,"opaque failure returned to original caller");
             Check(run_calls==failure&&captures==0&&main.dual_selected==nullptr,"no later work or final adoption after opaque failure");
         }
     }
-    Reset();g_config.nr_full_reference=true;g_config.nr_full_passes=4;stop_prepare=3;
+    Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=4;stop_prepare=3;
     NrContext root;root.instance_id=100;NrSlot main;main.value=10;
     auto p=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
     Seal(&list,main,p);Run(&list,root,main,p,feature,color);
     Check(!main.dual_selected&&captures==0&&run_calls==2,"incomplete preparation never advertises full chain");
-    Reset();g_config.nr_full_reference=true;g_config.nr_full_passes=4;alias=true;
+    Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=4;alias=true;
     auto bad=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
     Check(!bad&&poison&&run_calls==0,"sibling parameter alias rejected before execution");
     Reset();auto old=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);

@@ -271,7 +271,7 @@ void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #include "nr_compat_present_feedback.inl"
 #include "nr_full_feedback.inl"
-    FeedbackAppend(s,"%s.processing.actual=%s\n%s.processing.policy=selected-suffix; sticky-until-explicit-selection-or-restart\n",
+    FeedbackAppend(s,"%s.processing.actual=%s\n%s.processing.policy=selected-suffix; unstarted-fallback-is-provisional; private-work-or-adoption-retains-route\n",
         prefix,nr_processing::Name(nr_processing_runtime::Effective()),prefix);
 
     FeedbackAppend(s,"%s.dual.statusLegend=0:off,1:primary-warmup,2:secondary-warmup,3:create-pending,4:recorded,5:guides,6:resources-budget,7:queue,8:slot,9:fatal,10:device-identity,11:pipeline,12:resource-contract\n",prefix);
