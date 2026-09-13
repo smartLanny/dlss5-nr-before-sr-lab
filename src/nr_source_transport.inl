@@ -276,14 +276,14 @@ void GuideCopiesSubmitted(ID3D12CommandQueue* queue,Recording recording,bool suc
     bool pending=false;for(const auto& c:guide_copies)pending|=c.recorded&&!c.submitted&&!c.poisoned;
     guides_awaiting_submission.store(pending,std::memory_order_release);
 }
-// CPU-only consumer preflight; not source-frame proof or GPU completion.
+// CPU-only advisory consumer hint; not source-frame proof or GPU completion.
 nr_present_mapping::Demands<8> present_demands;
 Id present_demand_skips=0;
 bool PresentAutomaticViewportScale() { return true; }
 bool PresentDemandNeedsCapture(Source source,unsigned config,unsigned width,unsigned height) {
     Lock lock;
     const auto* stream=ReceiptStreamFor(source,false);
-    const bool needed=stream && present_demands.Needed(stream->device,config,
+    const bool needed=!stream || present_demands.Needed(stream->device,config,
         {width,height},true);
     if(!needed && present_demand_skips!=UINT64_MAX)++present_demand_skips;
     return needed;

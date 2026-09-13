@@ -1,5 +1,6 @@
 param(
     [switch]$Clean,
+    [switch]$DescriptorProfile,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT,
     [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
@@ -25,7 +26,12 @@ $CCompiler = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-clang.exe'
 $CppCompiler = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-clang++.exe'
 $WindRes = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-windres.exe'
 $MinHook = Join-Path $ProjectRoot 'third_party\minhook'
-$Build = Join-Path $ProjectRoot 'build'
+$DescriptorProfileValue = if ($DescriptorProfile) { 1 } else { 0 }
+$BuildMode = if ($DescriptorProfile) { 'measurement' } else { 'ordinary' }
+$BuildLeaf = if ($DescriptorProfile) { 'build-profile' } else { 'build' }
+# ProjectRoot is the staged source/core directory in the delivery layout.
+# Keep the profile as a sibling so it can never overwrite ordinary outputs.
+$Build = Join-Path $ProjectRoot $BuildLeaf
 $Objects = Join-Path $Build 'obj'
 
 foreach ($Required in @(
@@ -60,6 +66,7 @@ $SourceDirty = if ($TrackedChanges.Count -eq 0) { '0' } else { '1' }
 
 $Common = @(
     '-O2', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
+    "-DNR_DESCRIPTOR_PROFILE=$DescriptorProfileValue",
     '-flto',
     '-finput-charset=UTF-8',
     '-ffunction-sections', '-fdata-sections',
@@ -134,7 +141,9 @@ if($LASTEXITCODE){throw 'Second NR spatial module compilation failed.'}
 $ObjectFiles += $DualObject
 
 $CodecCompiler=Join-Path $Build 'compile-codec-artifact.exe'
-& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' (Join-Path $PSScriptRoot 'compile-codec-artifact.cpp') '-ld3dcompiler' '-o' $CodecCompiler
+& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' `
+    "-DNR_DESCRIPTOR_PROFILE=$DescriptorProfileValue" `
+    (Join-Path $PSScriptRoot 'compile-codec-artifact.cpp') '-ld3dcompiler' '-o' $CodecCompiler
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $CodecCompiler -PathType Leaf)){throw 'Codec artifact compiler build failed.'}
 $CodecCacheArgs = @()
 if ($CodecCacheRoot) { $CodecCacheArgs = @('--cache-from', (Resolve-Path -LiteralPath $CodecCacheRoot).Path) }
@@ -204,8 +213,33 @@ $BridgeOutput = Join-Path $Build 'nrchain_nvngx.dll'
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'config\nr_before_sr.ini') `
           -Destination (Join-Path $Build 'nr_before_sr.ini') -Force
 
+$ArtifactRows = @()
 foreach ($Output in $AddonOutputs + $BridgeOutput) {
-    $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Output).Hash
+    if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) {
+        throw "Expected build output missing: $Output"
+    }
+    $Item = Get-Item -LiteralPath $Output
+    $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Output).Hash.ToLowerInvariant()
+    $ArtifactRows += [ordered]@{
+        name = $Item.Name
+        bytes = [int64]$Item.Length
+        sha256 = $Hash
+        kind = if ($Item.Name -ieq 'nrchain_nvngx.dll') { 'bridge' } else { 'addon' }
+    }
     Write-Host "Built: $Output"
     Write-Host "SHA256: $Hash"
 }
+
+$AddonVariantRows = @($ArtifactRows | Where-Object { $_.kind -eq 'addon' })
+$BridgeVariantRows = @($ArtifactRows | Where-Object { $_.kind -eq 'bridge' })
+[ordered]@{
+    schema = 'nr-build-variant-v1'
+    mode = $BuildMode
+    NR_DESCRIPTOR_PROFILE = $DescriptorProfileValue
+    sourcecommit = $SourceCommit
+    source_dirty = [int]$SourceDirty
+    build_directory = $BuildLeaf
+    addons = $AddonVariantRows
+    bridge = $BridgeVariantRows
+    artifacts = $ArtifactRows
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Build 'build-variant.json') -Encoding utf8

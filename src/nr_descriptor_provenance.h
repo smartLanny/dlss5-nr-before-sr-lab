@@ -10,6 +10,16 @@
 // object and never grants rendering permission. The adapter brackets real API
 // writes with Begin/Finish; overlapping writes and changed copy sources lose
 // evidence instead of choosing whichever observer happened to finish last.
+// Optional measurement build: one clock pair per metadata API batch, never
+// per descriptor. No lock covers the native D3D12 call. The duration includes
+// time acquiring the metadata mutex; it is CPU wall time, not GPU work/FPS.
+#ifndef NR_DESCRIPTOR_PROFILE
+#define NR_DESCRIPTOR_PROFILE 0
+#endif
+#if NR_DESCRIPTOR_PROFILE
+#include <chrono>
+#endif
+
 namespace nr_descriptor {
 using Id = std::uint64_t;
 enum class Kind : unsigned { Unknown, Srv, Uav, Rtv, Other };
@@ -168,6 +178,9 @@ struct Counters {
     PoolCounters heaps,resources,cpu_slots,gpu_slots;
     Id gpu_shadow_skipped_calls=0,gpu_shadow_skipped_descriptors=0;
     bool gpu_mirror=true;
+    bool profile_enabled=NR_DESCRIPTOR_PROFILE!=0;
+    Id heap_retire_slot_visits=0,unknown_slot_visits=0,copy_begin_batches=0,copy_finish_batches=0;
+    Id copy_begin_cpu_ns=0,copy_finish_cpu_ns=0,heap_retire_cpu_ns=0,unknown_cpu_ns=0;
 };
 struct Inventory {
     struct Format { unsigned format=0,count=0;Kind kind=Kind::Unknown; };
@@ -177,6 +190,10 @@ struct Inventory {
     Format formats[6];
 };
 inline void Increment(Id &value) { if(value!=std::numeric_limits<Id>::max())++value; }
+
+inline void AddCount(Id& value,Id amount) noexcept {
+    value=amount>std::numeric_limits<Id>::max()-value?std::numeric_limits<Id>::max():value+amount;
+}
 
 // Full-key tables keep live objects until an actual retirement. Empty buckets
 // end a probe; deletion repairs the cluster instead of accumulating tombstones.
@@ -226,6 +243,7 @@ class Registry {
         View value;
         Id incarnation=0;
         unsigned pending=0,chain=0,older=0,newer=0;
+        unsigned heap_older=0,heap_newer=0;
         bool overlap=false;
     };
     // Chained full-key index and a free list use fixed storage. Only completed
@@ -234,6 +252,11 @@ class Registry {
         static_assert(Capacity>0);
         std::array<Slot,Capacity> values{};
         std::array<unsigned,Capacity> buckets{};
+        // Independent intrusive heap-membership index. LRU, exact slot hash,
+        // and pending/incarnation semantics are unchanged.
+        static constexpr unsigned HeapBuckets=HeapCapacity*2;
+        std::array<unsigned,HeapBuckets> heap_buckets{};
+        static unsigned HeapHash(Id id){return LiveTable<Resource,HeapCapacity>::Hash(id);}
         unsigned free=1,oldest=0,newest=0,active=0;
         Slots(){for(unsigned i=0;i<Capacity;++i)values[i].chain=i+1<Capacity?i+2:0;}
         static unsigned Hash(Id heap,unsigned index) {
@@ -262,6 +285,9 @@ class Registry {
             const auto n=Number(s);auto *link=&buckets[Hash(s.stamp.heap,s.stamp.index)];
             while(*link && *link!=n)link=&values[*link-1].chain;
             if(*link)*link=s.chain;
+            if(s.heap_older)values[s.heap_older-1].heap_newer=s.heap_newer;
+            else heap_buckets[HeapHash(s.stamp.heap)]=s.heap_newer;
+            if(s.heap_newer)values[s.heap_newer-1].heap_older=s.heap_older;
             RemoveLru(s);s={};s.chain=free;free=n;--active;
         }
         Slot *Allocate(Id heap,unsigned index,Id incarnation,PoolCounters &counter) {
@@ -271,10 +297,22 @@ class Registry {
             }
             const auto n=free;auto &s=values[n-1];free=s.chain;s={};++active;
             s.stamp.heap=heap;s.stamp.index=index;s.incarnation=incarnation;
-            const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;return &s;
+            const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;
+            const auto hh=HeapHash(heap);s.heap_newer=heap_buckets[hh];
+            if(s.heap_newer)values[s.heap_newer-1].heap_older=n;
+            heap_buckets[hh]=n;return &s;
         }
-        void RetireHeap(Id id) {
-            for(auto &s:values)if(s.stamp.heap==id)Erase(s);
+        template<class Fn> Id ForHeap(Id id,Fn&& fn) {
+            Id visited=0;
+            for(auto n=heap_buckets[HeapHash(id)];n;) {
+                auto& s=values[n-1];const auto next=s.heap_newer;++visited;
+                if(s.stamp.heap==id)fn(s);
+                n=next; // callback may erase THIS slot; never borrow afterward
+            }
+            return visited;
+        }
+        Id RetireHeap(Id id) {
+            return ForHeap(id,[&](Slot& s){Erase(s);});
         }
     };
     struct Range {Id base=0,end=0,prefix_end=0;unsigned heap=0;};
@@ -293,6 +331,23 @@ class Registry {
     struct AddressLink {Id id=0,object=0;}; // key is COM address; value is lifetime ID
     LiveTable<AddressLink,ResourceCapacity> resource_addresses;
     LiveTable<AddressLink,HeapCapacity> heap_addresses;
+    static Id ProfileNow() noexcept {
+#if NR_DESCRIPTOR_PROFILE
+        return static_cast<Id>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+#else
+        return 0;
+#endif
+    }
+    struct ProfileScope {
+        Id started;Id& total;
+        ~ProfileScope() {
+#if NR_DESCRIPTOR_PROFILE
+            const auto end=ProfileNow();
+            if(end>=started)AddCount(total,end-started);
+#endif
+        }
+    };
     struct Location {const Heap *heap=nullptr;unsigned index=0;};
     void SealStartup(){
         if((startup_state.load(std::memory_order_acquire)&2u)==0)
@@ -342,26 +397,33 @@ class Registry {
     void InvalidateUnknownSlotsLocked(const UnknownCopy *scope=nullptr) {
         if(revision==std::numeric_limits<Id>::max()) {InvalidateLocked();return;}
         ++revision;
-        const auto invalidate=[&](auto &pool) {
-            for(auto &slot:pool.values) {
-                if(!slot.stamp.heap)continue;
-                const auto *heap=HeapId(slot.stamp.heap);
-                if(!heap)continue;
-                const bool masked=scope?UnknownScopeMasksLocked(*scope,
-                    heap->cpu+static_cast<Id>(slot.stamp.index)*heap->stride,heap->type):
-                    UnknownMaskedLocked(*heap,slot.stamp.index);
-                if(!masked)continue;
+        // Scope overlap is only a cheap candidate filter. Per-slot handle/type
+        // checks below still decide the exact invalidation, including unaligned
+        // ranges and live overlapping heaps. No omitted range becomes known.
+        for(unsigned i=0;i<cpu_range_count;++i) {
+            const auto& range=cpu_ranges[i];const auto& heap=heaps.values[range.heap];
+            bool possible=!scope || (scope->active&&scope->all);
+            if(scope&&scope->active&&!scope->all&&scope->ranges) {
+                for(unsigned j=0;j<scope->count;++j) {
+                    const auto& r=scope->ranges[j];
+                    if(r.type==heap.type&&r.first<=range.end&&range.base<=r.last){possible=true;break;}
+                }
+            }
+            if(!possible)continue;
+            const auto invalidate=[&](Slot& slot) {
+                const auto handle=heap.cpu+static_cast<Id>(slot.stamp.index)*heap.stride;
+                const bool masked=scope?UnknownScopeMasksLocked(*scope,handle,heap.type):
+                    UnknownMaskedLocked(heap,slot.stamp.index);
+                if(!masked)return;
                 slot.value={};
-                // Keep the invalidation local to this heap slot.  A stale
-                // epoch makes readers report SlotUnknown, which preserves the
-                // distinction from a known empty descriptor while leaving
-                // unrelated slots in the current registry epoch.
                 slot.stamp.epoch=epoch?epoch-1:0;
                 slot.stamp.revision=revision;
                 if(slot.pending)slot.overlap=true;
-            }
-        };
-        invalidate(cpu_slots);invalidate(gpu_slots);
+            };
+            const auto visited=heap.shader_visible?gpu_slots.ForHeap(heap.id,invalidate):
+                cpu_slots.ForHeap(heap.id,invalidate);
+            AddCount(counters.unknown_slot_visits,visited);
+        }
     }
     bool ResourceCurrent(const Resource &r) const {
         if(!r || counters.resources.coverage_lost)return false;
@@ -480,6 +542,7 @@ class Registry {
     void InvalidateLocked(){Increment(epoch);Increment(counters.invalidations);}
 private:
     Write BeginCopyLocked(Id destination,Id source,unsigned type) {
+        SealStartup();
         if(UnknownCpuHandleLocked(destination,type)) {
             Increment(counters.unknown_writes);Increment(counters.copies);
             Write write;write.copy=true;return write;
@@ -594,13 +657,17 @@ public:
         if(resources.Erase(id))Increment(counters.resources_retired);
     }
     void RetireHeap(Id id) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.heap_retire_cpu_ns};
         if(const auto *h=heaps.Find(id)) {
             const auto *link=heap_addresses.Find(h->address);
             if(link && link->object==id)heap_addresses.Erase(h->address);
         }
         if(heaps.Erase(id)) {
-            cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);RebuildRanges();Increment(counters.heaps_retired);
+            AddCount(counters.heap_retire_slot_visits,cpu_slots.RetireHeap(id));
+            AddCount(counters.heap_retire_slot_visits,gpu_slots.RetireHeap(id));
+            RebuildRanges();Increment(counters.heaps_retired);
         }
     }
     void RetireDevice(Id device) {
@@ -617,7 +684,9 @@ public:
             const auto &h=heaps.values[i];if(h.id && h.device==device) {
                 const auto id=h.id;const auto *link=heap_addresses.Find(h.address);
                 if(link && link->object==id)heap_addresses.Erase(h.address);
-                cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);heaps.Erase(id);Increment(counters.heaps_retired);
+                AddCount(counters.heap_retire_slot_visits,cpu_slots.RetireHeap(id));
+                AddCount(counters.heap_retire_slot_visits,gpu_slots.RetireHeap(id));
+                heaps.Erase(id);Increment(counters.heaps_retired);
             }else ++i;
         }
         RebuildRanges();
@@ -658,9 +727,11 @@ public:
     // A malformed range is treated as a global unknown window so a bad
     // observer cannot publish a guessed descriptor value.
     void BeginUnknownCopy(UnknownCopy &scope,const UnknownRange *ranges,unsigned count,bool all=false) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
-        SealStartup();
+        ProfileScope profile{profile_started,counters.unknown_cpu_ns};
         if(scope.active)return;
+        SealStartup();
         const bool global=all || !UnknownRangesValid(ranges,count);
         scope.ranges=global?nullptr:ranges;scope.count=global?0:count;
         scope.all=global;scope.next=nullptr;scope.active=true;
@@ -669,7 +740,9 @@ public:
         else if(count){Increment(counters.scoped_copies);InvalidateUnknownSlotsLocked(&scope);}
     }
     void EndUnknownCopy(UnknownCopy &scope) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.unknown_cpu_ns};
         if(!scope.active)return;
         const bool global=scope.all;
         if(global)InvalidateLocked();
@@ -686,17 +759,23 @@ public:
         return BeginLocked(Locate(cpu,type,false),value);
     }
     Write BeginCopy(Id destination,Id source,unsigned type) {
-        SealStartup();std::lock_guard guard(mutex);return BeginCopyLocked(destination,source,type);
+        std::lock_guard guard(mutex);return BeginCopyLocked(destination,source,type);
     }
     void BeginCopies(unsigned count,const Id* destinations,const Id* sources,
                      unsigned type,Write* writes) {
         if(!count || !destinations || !sources || !writes)return;
-        SealStartup();std::lock_guard guard(mutex);
+        const auto profile_started=ProfileNow();
+        std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.copy_begin_cpu_ns};
+        Increment(counters.copy_begin_batches);
         for(unsigned i=0;i<count;++i)writes[i]=BeginCopyLocked(destinations[i],sources[i],type);
     }
     void FinishCopies(unsigned count,const Write* writes) {
         if(!count || !writes)return;
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.copy_finish_cpu_ns};
+        Increment(counters.copy_finish_batches);
         for(unsigned i=0;i<count;++i) {
             const auto& write=writes[i];if(!write.destination.heap)continue;
             const auto* h=HeapId(write.destination.heap);if(!h)continue;
@@ -789,3 +868,4 @@ inline const char *ReasonName(Reason reason) {
     }
 }
 } // namespace nr_descriptor
+

@@ -9,7 +9,7 @@ def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def main():
     sys.stdout.reconfigure(encoding='utf-8',errors='replace');p=argparse.ArgumentParser()
     p.add_argument('--baseline',type=Path,required=True);p.add_argument('--core',type=Path,required=True);p.add_argument('--reshade-dll',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','scaled','motion','all'],default='single');a=p.parse_args()
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','scaled','motion','all'],default='single');p.add_argument('--measurement',action='store_true');a=p.parse_args()
     baseline_path=a.baseline.resolve(strict=True);baseline=json.loads(baseline_path.read_text(encoding='utf-8'));old_core=Path(baseline['core']);core=a.core.resolve(strict=True)
     source_manifest=(core.parent/'source-manifest.json').resolve(strict=True);source_manifest_sha256=sha(source_manifest)
     def production_sources():return {f.relative_to(core).as_posix():sha(f) for f in (core/'src').rglob('*') if f.is_file()}
@@ -24,13 +24,16 @@ def main():
     command=next(c['command'] for c in baseline['commands'] if c['name']=='compile-host')[:]
     command=[x for x in command if x not in ['-DNR_HOST_NATIVE_FG=1','-DNR_HOST_FG_CAPTURE=1']]
     command=[x.replace(str(old_core),str(core)).replace(old_core.as_posix(),core.as_posix()) for x in command]
+    build_root=core/('build-profile' if a.measurement else 'build')
+    if a.measurement:command=[x.replace(str(core/'build'),str(build_root)).replace((core/'build').as_posix(),build_root.as_posix()) for x in command]
+    command.append('-DNR_DESCRIPTOR_PROFILE='+str(int(a.measurement)))
     old_host=next(x for x in command if x.endswith('fg_consumer_ngx_host.cpp'));command[command.index(old_host)]=str(host);command[command.index('-o')+1]=str(binary)
     command.append('-ldbghelp')
     code=run(command,'compile-late-present-host')
     if not code:
         shutil.copy2(a.reshade_dll.resolve(strict=True),out/'dxgi.dll')
         for filename in ['nvngx_dlssnr.dll']:shutil.copy2(baseline_path.parent/filename,out/filename)
-        shutil.copy2(core/'build/nrchain_nvngx.dll',out/'nrchain_nvngx.dll')
+        shutil.copy2(build_root/'nrchain_nvngx.dll',out/'nrchain_nvngx.dll')
         (out/'ReShade.ini').write_text('[GENERAL]\nNoEffectCache=1\nNoDebugInfo=1\n[OVERLAY]\nTutorialProgress=4\nShowClock=0\nShowFPS=0\nShowFrameTime=0\n',encoding='utf-8')
         if not a.compile_only:
             cases=[(1,0,False),(1,1,False),(4,1,False)] if a.case=='all' else [(1,1,a.case in ('scaled','motion'))]
@@ -43,6 +46,7 @@ def main():
     if not unchanged or not host_unchanged:code=1
     report={'schema':'real-reshade-late-present-receipt-v1','result':code,'compile_only':a.compile_only,'case':a.case,'core':str(core),'core_source_sha256':sha(core/'src/nr_before_sr.cpp'),'source_manifest_sha256':source_manifest_sha256,'production_sources_start':production_start,'production_sources_end':production_end,'production_sources_unchanged':unchanged,'host_source_sha256':host_hash,'host_unchanged':sha(host)==host_hash,'reshade_sha256':sha(a.reshade_dll),'commands':commands,'scope':'real ReShade callbacks and production OnPresent with controlled native-seam receipt metadata; real guide copies, queue fences and signed NR; no real native SR or game claim'}
     report['production_bridge_sha256']=sha(out/'nrchain_nvngx.dll') if (out/'nrchain_nvngx.dll').is_file() else None
+    report['descriptor_profile']=int(a.measurement)
     report['host_sources_at_compile']=host_sources;report['host_sources_unchanged']=host_unchanged
     report['result']=code
     (out/'validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8');return code

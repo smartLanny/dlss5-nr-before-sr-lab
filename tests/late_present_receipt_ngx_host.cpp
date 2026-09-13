@@ -133,7 +133,7 @@ struct Guides {
         S::GuideReceiptDiagnostics d{};Check(S::TryGuideReceiptDiagnostics(d),"capture entry diagnostic published");
         std::printf("capture stage=%s shader=%d\n",d.last.stage,d.last.shader_snapshot);
         if((std::strcmp(d.last.stage,"guide-command-state-unavailable")==0&&frame<4)||
-           std::strcmp(d.last.stage,"consumer-demand-rejected-before-snapshot")==0){
+           std::strcmp(d.last.stage,"consumer-known-extents-incompatible-before-snapshot")==0){
             ID3D12GraphicsCommandList_SetPredication(io.list,nullptr,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
             S::CompleteNativeReceipt(source,true);io.Submit();return; // fresh hook publication needs the next real Reset
         }
@@ -253,6 +253,9 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         for(unsigned i=0;i<3;++i)Hr(IDXGISwapChain3_Present(swap,0,0),"disabled receipt Present");
         Check(compat::observation.submitted==submitted&&!compat::current,"F6 off stops NR and retires completed context");
         auto source=nr_source_runtime::Source{1,1,999};Check(!nr_source_runtime::CaptureGuides(producer.list,source,guides.binding,Io::width,Io::height),"F6 off adds no owned guide copy");
+        const auto descriptor_mode=g_nr_descriptors.SnapshotCounters();
+        Check(descriptor_mode.gpu_mirror&&descriptor_mode.profile_enabled==(NR_DESCRIPTOR_PROFILE!=0),"regular and measurement hosts preserve full mirror and report their real compiled profile flag");
+        std::printf("descriptor profileEnabled=%d gpuMirror=%d\n",descriptor_mode.profile_enabled,descriptor_mode.gpu_mirror);
         std::printf("PASS LATE_PRESENT_RECEIPT checks=%u layers=%u crossQueue=%d scaled=%d nativeOutput=%ux%u present=%ux%u adopted=%u realReShade=1 realNR=1 nativeSeam=controlled; not real SR or game verification\n",
             checks,passes,cross,scaled,guides.output_width,guides.output_height,Io::width,Io::height,changed_frames);
         return 0;

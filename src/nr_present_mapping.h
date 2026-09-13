@@ -39,6 +39,12 @@ inline const char* Name(const Plan& p) noexcept {
     return !p?"unmapped":!p.scaled?"exact-extent":p.rounded_aspect?
         "inferred-whole-viewport-rounded":"inferred-whole-viewport-scale";
 }
+inline bool ScaleToModel(float& x,float& y,Extent from,Extent to) noexcept;
+// Conservative keeps the established layer units. Only the explicit experiment
+// requests P -> model-raster rebasing; size inequality alone is not evidence.
+inline bool CompensateLayerMotion(float& x,float& y,Extent present,Extent model,unsigned mode) noexcept {
+    return mode!=1 || ScaleToModel(x,y,present,model);
+}
 // Input units must already be the Core's native-output-raster contract. This
 // helper does not convert raw NGX or normalized-UV motion automatically.
 inline bool ScaleToModel(float& x,float& y,Extent from,Extent to) noexcept {
@@ -50,17 +56,16 @@ inline bool ScaleToModel(float& x,float& y,Extent from,Extent to) noexcept {
     if(!std::isfinite(a)||!std::isfinite(b)||a==0.f||b==0.f)return false;
     x=a;y=b;return true; // all-or-nothing; no partially rebased binding
 }
-// Conservative keeps the established layer units. Only the explicit experiment
-// requests P -> model-raster rebasing; size inequality alone is not evidence.
-inline bool CompensateLayerMotion(float& x,float& y,Extent present,Extent model,unsigned mode) noexcept {
-    return mode!=1 || ScaleToModel(x,y,present,model);
-}
-// Metadata preflight only; never retires GPU work, borrows stale guides, or
-// grants consumption. The actual current buffer is checked again in Select.
+// Advisory geometry hint, NOT producer admission. A missing/partial cache must
+// allow observation to bootstrap (including a user enabling DLSS much later).
+// Only a complete known set with no compatible extent can avoid GPU snapshots.
+// Publish runs in CanPresent even when no receipt has ever been selected.
 template<unsigned Capacity> class Demands {
+    static_assert(Capacity>0);
     struct Target {std::uint64_t chain=0,device=0;unsigned config=0;Extent size{};};
     std::array<Target,Capacity> targets{};
-    bool overflow=false;
+    bool incomplete=false;
+    unsigned next=0;
 public:
     void Publish(std::uint64_t chain,std::uint64_t device,unsigned config,Extent size) noexcept {
         if(!chain||!device)return;
@@ -69,20 +74,29 @@ public:
             if(t.chain==chain){slot=&t;break;}
             if(!t.chain&&!slot)slot=&t;
         }
-        if(!slot){overflow=true;return;}
+        if(!slot) {
+            // Loss of hint coverage must NEVER become a permanent rejection.
+            // Keep recent positive hints, conservatively retry on a miss.
+            incomplete=true;slot=&targets[next];next=(next+1)%Capacity;
+        }
         *slot={chain,device,config,size};
     }
     void Forget(std::uint64_t chain) noexcept {
         for(auto& t:targets)if(t.chain==chain)t={};
     }
     bool Needed(std::uint64_t device,unsigned config,Extent native,bool automatic=true) const noexcept {
-        if(!device||!config||overflow)return false;
-        const Target* selected=nullptr;
+        if(!device||!config||!Valid(native))return true;
+        bool observed=false,unknown=incomplete;
         for(const auto& t:targets)if(t.chain&&t.device==device&&t.config==config) {
-            if(selected)return false;
-            selected=&t;
+            observed=true;
+            if(!Valid(t.size)){unknown=true;continue;}
+            if(Map(native,t.size,automatic))return true; // ANY consumer, not exactly one
         }
-        return selected&&bool(Map(native,selected->size,automatic));
+        // Config change, cold start, forgotten chain, or capacity pressure is
+        // observation-missing, not 'DLSS permanently unsupported'. No backoff
+        // counter, history reset, INI latch, or main-swapchain guess is used.
+        return !observed||unknown;
     }
 };
 } // namespace nr_present_mapping
+

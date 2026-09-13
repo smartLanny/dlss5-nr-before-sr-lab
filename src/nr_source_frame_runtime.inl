@@ -376,7 +376,7 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     // not read/copy Output here, so a nonzero Output atlas origin alone is not
     // a reason to reject its independently bounded Depth/MV active regions.
     if(!PresentDemandNeedsCapture(source,config_generation,ow,oh)) {
-        GuideCaptureStage("consumer-demand-rejected-before-snapshot");return;
+        GuideCaptureStage("consumer-known-extents-incompatible-before-snapshot");return;
     }
     NrGuideBinding guides{};
     GuideCaptureStage("native-guide-binding");

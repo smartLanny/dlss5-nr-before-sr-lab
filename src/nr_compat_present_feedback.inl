@@ -23,12 +23,36 @@
 #include "nr_source_present_feedback.inl"
     {
         const auto ds=g_nr_descriptors.SnapshotCounters();
+        append_compat("descriptor.r3Policy=full-mirror;heap-membership-index;range-local-invalidation;no-enabled-gate\n"
+            "descriptor.heapRetireSlotVisits=%llu\ndescriptor.unknownSlotVisits=%llu\n"
+            "descriptor.copyBeginBatches=%llu\ndescriptor.copyFinishBatches=%llu\n"
+            "descriptor.profileEnabled=%d\n",
+            static_cast<unsigned long long>(ds.heap_retire_slot_visits),
+            static_cast<unsigned long long>(ds.unknown_slot_visits),
+            static_cast<unsigned long long>(ds.copy_begin_batches),
+            static_cast<unsigned long long>(ds.copy_finish_batches),ds.profile_enabled?1:0);
+        if(ds.profile_enabled) {
+            append_compat("descriptor.copyBeginCpuNs=%llu\ndescriptor.copyFinishCpuNs=%llu\n"
+                "descriptor.heapRetireCpuNs=%llu\ndescriptor.unknownCpuNs=%llu\n"
+                "descriptor.profileMeaning=CPU-wall-including-metadata-lock-wait;native-call-excluded;not-GPU-or-FPS\n",
+                static_cast<unsigned long long>(ds.copy_begin_cpu_ns),
+                static_cast<unsigned long long>(ds.copy_finish_cpu_ns),
+                static_cast<unsigned long long>(ds.heap_retire_cpu_ns),
+                static_cast<unsigned long long>(ds.unknown_cpu_ns));
+        } else append_compat("descriptor.profileMeaning=unavailable;NR_DESCRIPTOR_PROFILE-build-required\n");
+    }
+
+    {
+        const auto ds=g_nr_descriptors.SnapshotCounters();
         append_compat("descriptor.gpuMirror=%d\ndescriptor.gpuShadowSkippedCalls=%llu\n"
             "descriptor.gpuShadowSkippedDescriptors=%llu\n"
             "descriptor.copyMetadata=batch-lock;native-call-outside-lock;full-mirror-default\n",
             ds.gpu_mirror?1:0,static_cast<unsigned long long>(ds.gpu_shadow_skipped_calls),
             static_cast<unsigned long long>(ds.gpu_shadow_skipped_descriptors));
     }
+
+    append_compat("guideReceipt.demandPolicy=advisory;unknown-retries;any-compatible-consumer;no-permanent-rejection\n"
+        "guideReceipt.selectionPolicy=exact-admissible-first;scaled-fallback-only;ambiguity-within-tier\n");
 
     {
         if(TryAcquireSRWLockShared(&nr_source_runtime::source_lock)) {

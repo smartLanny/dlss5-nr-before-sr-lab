@@ -71,6 +71,10 @@ inline Selection Select(const Request& request,const Candidate* candidates,std::
     if(!candidates||!count)return {invalid,Decision::NoReceipt,0,0};
 
     Decision refused=Decision::NoReceipt;
+    // Preserve the old exact-extent route before considering NEW inferred
+    // candidates. A scaled ambiguity must not hide a later exact candidate.
+    const unsigned tiers=request.automatic_full_viewport_scale?2u:1u;
+    for(unsigned tier=0;tier<tiers;++tier) {
     std::size_t selected=invalid;
     unsigned selected_age=0,selected_device_age=0;
     for(std::size_t i=0;i<count;++i){const auto& c=candidates[i];
@@ -80,10 +84,12 @@ inline Selection Select(const Request& request,const Candidate* candidates,std::
         if(!c.native_succeeded){refused=Decision::NativeFailed;continue;}
         if(!c.submitted||!c.producer_queue||!c.producer_fence_value){refused=Decision::Unsubmitted;continue;}
         if(c.device!=request.device){refused=Decision::WrongDevice;continue;}
-        if(!nr_present_mapping::Map({c.output_width,c.output_height},
-            {request.output_width,request.output_height},request.automatic_full_viewport_scale)) {
+        const auto mapping=nr_present_mapping::Map({c.output_width,c.output_height},
+            {request.output_width,request.output_height},request.automatic_full_viewport_scale);
+        if(!mapping) {
             refused=Decision::WrongExtent;continue;
         }
+        if(mapping.scaled!=(tier!=0))continue;
         if(request.config_generation&&c.config_generation!=request.config_generation){refused=Decision::WrongConfig;continue;}
         if(c.consumed||c.inline_processed||c.fg_consumed){refused=Decision::AlreadyConsumed;continue;}
         if(!c.stream||!c.epoch||!c.sequence||c.latest_sequence<c.sequence||c.latest_sequence-c.sequence>1||
@@ -103,7 +109,8 @@ inline Selection Select(const Request& request,const Candidate* candidates,std::
         // disambiguated safely by guessed recency or callback order.
         return {invalid,Decision::Ambiguous,0,0};
     }
-    if(selected==invalid)return {invalid,refused,0,0};
-    return {selected,Decision::Accepted,selected_age,selected_device_age};
+    if(selected!=invalid)return {selected,Decision::Accepted,selected_age,selected_device_age};
+    }
+    return {invalid,refused,0,0};
 }
 } // namespace nr_late_present

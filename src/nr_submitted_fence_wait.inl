@@ -15,6 +15,9 @@ struct NrSubmittedFenceWaitResult {
     NrFenceWaitMethod method = NrFenceWaitMethod::NotWaited;
     NrFenceWaitFallback fallback = NrFenceWaitFallback::None;
     HRESULT registration_result = S_OK;
+    // Counts waits on a strictly earlier registration of this SAME fence.
+    // The caller's exact target remains the only completion predicate.
+    unsigned earlier_event_waits = 0;
 };
 void NrFenceEventNotification(NrSubmittedFenceEvent& event, bool notification_observed = false) {
     if (!event.registered_fence || !event.event) return;
@@ -87,7 +90,20 @@ NrSubmittedFenceWaitResult WaitForNrSubmittedFence(ID3D12Fence* fence, std::uint
         if (mode == nr_timing::WaitMode::Event && !event_attempted) {
             event_attempted = true;
             use_event = ArmNrSubmittedFenceEvent(fence, target, event, result);
-            result.method = use_event ? NrFenceWaitMethod::Event : NrFenceWaitMethod::PollingFallback;
+            if (!use_event && result.fallback == NrFenceWaitFallback::EarlierRegistration &&
+                event.event && event.registered_fence == fence &&
+                event.registered_value != 0 && event.registered_value < target) {
+                // Another context on this retirement queue may have left an
+                // earlier registration. Drain it using the existing event,
+                // then re-arm for our target. Do NOT overwrite its registration,
+                // wait for a later/foreign fence, or call the earlier value
+                // completion of our work. The original deadline covers BOTH.
+                use_event = true;
+                result.fallback = NrFenceWaitFallback::None;
+                ++result.earlier_event_waits;
+            }
+            result.method = use_event ? NrFenceWaitMethod::Event :
+                (event_used ? NrFenceWaitMethod::EventThenPolling : NrFenceWaitMethod::PollingFallback);
         }
         if (use_event) {
             event_used = true;
@@ -100,8 +116,16 @@ NrSubmittedFenceWaitResult WaitForNrSubmittedFence(ID3D12Fence* fence, std::uint
             // Event delivery wakes immediately; no global timer change/spin.
             const auto remaining = static_cast<DWORD>(std::max(1.0L, std::ceil(static_cast<long double>(budget_ms) - elapsed_before_wait)));
             const DWORD waited = WaitForSingleObject(event.event, remaining);
-            if (waited == WAIT_OBJECT_0) NrFenceEventNotification(event, true);
-            else if (waited != WAIT_TIMEOUT) {
+            if (waited == WAIT_OBJECT_0) {
+                NrFenceEventNotification(event, true);
+                if (!event.registered_fence) {
+                    // The next iteration checks the requested target FIRST.
+                    // Only if still incomplete will it register that exact
+                    // target. A stale signal retains its registration instead.
+                    use_event = false;
+                    event_attempted = false;
+                }
+            } else if (waited != WAIT_TIMEOUT) {
                 result.fallback = NrFenceWaitFallback::WaitFailed;
                 result.registration_result = HRESULT_FROM_WIN32(GetLastError());
                 result.method = NrFenceWaitMethod::EventThenPolling; use_event = false;
