@@ -177,6 +177,11 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
         ImGui::PopID();
     }
     ImGui::PopID();
+    if(ImGui::Checkbox(zh?"下次仍用此手动起点":"Remember manual start",
+                       &next.remember_processing_start))changed=true;
+    SettingsTooltip(zh?
+        "未勾选：每次启动优先 NRSR，失败再尝试 SRNR 和兼容模式。本次手动选择仍会保留到退出，F6 和定时读配置不会覆盖它。自动回退不会保存成下次默认。":
+        "Unchecked: start with NR before SR, then try post-SR and compatibility if unavailable. A manual choice lasts for this session and survives F6 and config polling. Automatic fallback is never saved as the next launch default.");
     nr_processing::Snapshot route_snapshot{};
     const auto actual=nr_processing_runtime::TrySnapshot(route_snapshot)?route_snapshot.current:nr_processing_runtime::Effective();
     const char* names[]={zh?"先增强，后放大":"Enhance first",zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
@@ -479,6 +484,7 @@ nr_ui_activity::Sample ReadUiActivity(unsigned config_generation,
 
 void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
                           const ChainConfig &config,unsigned generation,nr_ui_activity::Site site) {
+    if(static_cast<unsigned>(site)==0u)DrawPerformanceRouteNotice(config); // D21 top-panel only
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
     nr_processing::Snapshot route_snapshot{};
@@ -1039,11 +1045,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed |= ImGui::Checkbox(ui("Allow experimental HDR colour", "允许实验 HDR 调色"), &next.allow_unverified_hdr_color);
         SettingsTooltip(ui("Allows colour edits for an unverified HDR input. Turn off if colour shifts or flicker appear; the AI colour slider never changes this permission.", "当前 HDR 颜色无法确认时，允许尝试 AI 调色。出现偏色或闪烁时关闭；调整 AI 色彩强度不会自动开启此项。"));
         changed |= ImGui::Checkbox(ui("Low-overhead descriptor mode (experimental)",
-            "描述符低开销模式（实验）"), &next.descriptor_low_overhead);
+            "描述符低开销记录（推荐）"), &next.descriptor_low_overhead);
         SettingsTooltip(ui(
             "Only reduces the shader-visible descriptor diagnostic mirror. CPU format restoration and real API calls stay unchanged. It may reduce troubleshooting evidence and does not guarantee a speedup. Off by default; restart the game to take effect.",
             "只减少 shader-visible 描述符诊断镜像；CPU 格式恢复与真实 API 照常。可能降低问题定位证据，不保证提速。默认关闭，重启游戏生效。"));
         const bool descriptor_low_active=NrDescriptorLowOverheadActive();
+        ImGui::TextWrapped("%s",UseChineseUi()?
+            "默认使用低开销描述符记录。关闭此选项会在下次启动启用完整 GPU 描述符诊断；它不是画质档位，会增加常驻开销。两种方式均保留原生调用和必要 CPU 视图／生命周期记录。":
+            "Low-overhead descriptor tracking is the default. Unchecking enables full GPU descriptor diagnostics on the next launch; this is not a quality setting and adds resident overhead. Native calls and required CPU-view/lifetime tracking remain in both modes.");
         SettingsNote(next.descriptor_low_overhead!=descriptor_low_active
             ? ui("Descriptor preference changed; restart the game to apply it.","描述符设置已更改，需重启游戏生效。")
             : descriptor_low_active?ui("Active: low-overhead descriptor mode.","当前生效：描述符低开销模式。")

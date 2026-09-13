@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline20'
-DISPLAY_VERSION = '0.5-dline20'
+VERSION = 'beta0.5-dline21'
+DISPLAY_VERSION = '0.5-dline21'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -32,8 +32,8 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
-    'config/nr_before_sr.ini': 'dd746281c553b3637fd77e7c6958c844defe67d2',
-    'scripts/build.ps1': '1ea1284a5bc60ce4eb8af55c5f28aef657fb894a',
+    'config/nr_before_sr.ini': '61e867927202de3c1566bb391ee5e1167d9f35b0',
+    'scripts/build.ps1': 'bc34f7958d95a634f7c0ca7fa8be6fd1843a1153',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -48,8 +48,8 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': '6aa87b2565d9f646bba20936ee272c51e4a3aee0',
-    'src/nr_before_sr.rc': '3a87072d1100b5f3e7bf122f5918b0ba1a493d2b',
+    'src/nr_before_sr.cpp': '2a6d9fedb955268a993a76910d6f03c6d332ec3b',
+    'src/nr_before_sr.rc': '782550f536c4de76f4c06dfc8a7843fed3711d62',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_codec_descriptors.inl': 'd05ff8f9656b9a9803be0bf6fb0bf2d4eccbe0e2',
@@ -66,7 +66,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance.h': 'd3a87641950db3de2631ebebdead4f4b244c0a06',
     'src/nr_descriptor_provenance_commands.inl': '29a3f47109ad04899b5f4b48788827bf2c497106',
     'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
-    'src/nr_descriptor_provenance_runtime.inl': 'a9e06754136bb8a3150fbf3b3eb7c3d7b8713060',
+    'src/nr_descriptor_provenance_runtime.inl': '85e594a54371e7005734fdc532662f6e969bbc9e',
     'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
     'src/nr_dual_capture.inl': 'cb9cf9f38cf0fcf76e2c2619380b3f34a71b3829',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
@@ -149,7 +149,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
     'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
-    'src/nr_settings_ui.inl': '711a1bc129274acd6abc86a73763130a2c6c2781',
+    'src/nr_settings_ui.inl': 'c3aaa0eb19f759a4c35cb2bee0074be82daffa25',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
@@ -161,7 +161,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'scripts/build-nrchain.ps1': 'c5ca99542ec902192f02558a86e72ef21aea44b5',
     'src/nr_compat_present_events.inl': '77c9bc875f741d50336dcc7c7bed03a3df038686',
-    'src/nr_compat_present_feedback.inl': 'b769a194deaa117bc4f54add66e51a6dcdf33b3f',
+    'src/nr_compat_present_feedback.inl': 'c5fce0bf49ec7d12cb6c9647be3a55ff9f13e9a0',
     'src/nr_compat_present_models.inl': '621cf953abd897f2c054c2c3d75d63e56a5b31a2',
     'src/nr_compat_present_policy.hpp': '2fc3475add347ea2923e6ef021af05769b618e2c',
     'src/nr_compat_present_resources.inl': 'ef414232f53b49f642e3df53f56d544a1a4d30c2',
@@ -193,6 +193,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_source_guide_diagnostics.inl': 'e11157f5f2e7a56e24aa248b0ca83b1f28a142b7',
     'src/nr_fg_presentation.h': '177e84c8700fdd7d394769fd492c6d998208a1bb',
     'src/nr_descriptor_scratch.h': '95e1f7f2bee0d89f6c313852cfc6053a2ab97096',
+    'src/nr_launch_preferences.h': '043acfb423894a3cb223cb3f98898bff931ccc83',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -245,7 +246,7 @@ def configure(core: Path):
         previous_prepare(core_root, upstream, stage)
         # The historical archive exports only build.ps1 from scripts. Copy the
         # explicitly pinned shader compiler inputs into this candidate as well.
-        for relative in ('src/nr_present_mapping.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
+        for relative in ('src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
             (stage / 'core' / relative).write_bytes(git(core_root, 'show', 'HEAD:' + relative))
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
@@ -315,7 +316,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline20 beta' not in resource_text:
+    if '0.5.1 dline21 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -326,7 +327,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.20',
+        'core_pe_version': '0.5.1.21',
         'cumulative_corefix_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
         'cumulative_corefix_dependencies': [218,219,220,221,230,232,238,240,241,242,243,245],
         # Retain the original dual-parent field for existing artifact readers.

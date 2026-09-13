@@ -3,7 +3,9 @@
 // heap or resource whose destruction they report.
 // Runtime selection is accepted only before the first registry observation.
 // A racing observer seals the default full mirror; no live registry is rebuilt.
-nr_descriptor::Registry<> g_nr_descriptors;
+// The startup race also defaults to low-overhead metadata. Explicit
+// full diagnostics must be configured before the first observation.
+nr_descriptor::Registry<> g_nr_descriptors{false};
 bool NrDescriptorConfigureStartup(bool low_overhead) {
     return g_nr_descriptors.ConfigureStartup(!low_overhead);
 }
@@ -118,6 +120,17 @@ bool NrDescriptorObserveDeviceLayer(ID3D12Device *device) {
 }
 nr_descriptor::Resource NrDescriptorTrackResource(ID3D12Device *device,ID3D12Resource *resource) {
     if(!device || !resource)return {};
+    // Only canonical CreateView observations publish this address index. Its
+    // COM-lifetime notification removes the entry on actual destruction; it
+    // never owns the texture. Repeated native views can therefore reuse the
+    // already-proven identity without GetDevice/AddRef/Release and private-data
+    // publication on every view. Wrapper addresses and coverage gaps still use
+    // the original validation path below. No source/admission rule is relaxed.
+    const auto coverage=NrDescriptorDeviceCoverage(device);
+    if(coverage.ready && coverage.native_address==reinterpret_cast<nr_descriptor::Id>(device)) {
+        const auto cached=g_nr_descriptors.ResourceAt(reinterpret_cast<nr_descriptor::Id>(resource));
+        if(cached && cached.device==coverage.device)return cached;
+    }
     const auto device_id=NrFormatDeviceIdentity(device);
     if(!device_id)return {};
     ID3D12Device *owner=nullptr;

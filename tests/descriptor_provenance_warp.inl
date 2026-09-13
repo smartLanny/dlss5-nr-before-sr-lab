@@ -157,6 +157,8 @@ void ReadPixels(queue_test::Fixture &f,ID3D12Resource *resource,bool expect_red_
 }
 void Run() {
     queue_test::Fixture f;g_config_generation.store(9);
+    Check(NrDescriptorConfigureStartup(false)&&!NrDescriptorLowOverheadActive(),
+        "full-mirror WARP fixture explicitly requests paired GPU provenance before observation");
     Texture output,other;MakeTexture(f,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);MakeTexture(f,other,D3D12_RESOURCE_STATE_RENDER_TARGET);
     // This heap and view predate all observers. Their valid native contents must
     // remain unknown to provenance even when copied through a later hook.

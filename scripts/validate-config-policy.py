@@ -52,6 +52,7 @@ def assemble(source):
         'APPLY_CONFIG': definition(source, 'bool ApplyConfig('),
         'SNAPSHOT_CONFIG': definition(source, 'ChainConfig SnapshotConfig('),
         'POLL_CONFIG': definition(source, 'void PollConfigFromPresent('),
+        'TOGGLE_MASTER': definition(source, 'void ToggleMasterFromHotkey('),
     }
     code = (ROOT / 'tests/config_policy_win32.cpp.in').read_text(encoding='utf-8-sig')
     for name, value in parts.items():
@@ -112,6 +113,16 @@ def main():
                                  route, passes, percent, '1', 'processing'], text=True, capture_output=True)
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
+    for name, route, remember in (
+        ('launch-empty.ini', '0', '0'),
+        ('launch-old-present.ini', '0', '0'),
+        ('launch-remember-after.ini', '1', '1'),
+        ('launch-remember-present.ini', '2', '1'),
+    ):
+        result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
+                                 route, remember, 'launch'], text=True, capture_output=True)
+        assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
+        restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
     negatives = []
     mutations = (
         ('repeat-jitter', 'if (g_config_policy_attempted) return;',
@@ -130,8 +141,13 @@ def main():
         ('reselect-on-config-poll', 'if(session.Select(g_config.processing_start,g_config.processing_selection)) {',
          'if(session.Select(g_config.processing_start,++g_config.processing_selection)) {',
          'ordinary edits preserve fallback'),
-        ('discard-present-preference', '_wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :',
-         'false ? nr_processing::Start::Present :', 'explicit ProcessingStart wins'),
+        ('remember-resets-history',
+         'return a.enabled == b.enabled && a.mode == b.mode &&\n'
+         '           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&',
+         'return a.enabled == b.enabled && a.mode == b.mode &&\n'
+         '           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&\n'
+         '           a.remember_processing_start==b.remember_processing_start &&',
+         'remember-only preference does not reset route history'),
         ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);',
          '(void)config.nr_full_passes;', 'more-layer count stays'),
         ('allow-legacy-native-sr-retry', 'config.retry_original_on_sr_failure=false;',
@@ -148,6 +164,8 @@ def main():
     receipt = {
         'passed': True, 'scope': 'production config prefix/normalization/apply/save; real Win32 INI; no GPU/NR/game',
         'source_sha256': hashlib.sha256(args.source.read_bytes()).hexdigest(),
+        'launch_preferences_sha256': hashlib.sha256(
+            (ROOT / 'src/nr_launch_preferences.h').read_bytes()).hexdigest(),
         'harness_sha256': hashlib.sha256(code.encode()).hexdigest(),
         'suite': output.strip(), 'fresh_process_restarts': restarts,
         'negative_controls': negatives,

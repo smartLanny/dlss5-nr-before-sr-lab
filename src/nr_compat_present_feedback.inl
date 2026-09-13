@@ -23,7 +23,19 @@
 #include "nr_source_present_feedback.inl"
     {
         const auto ds=g_nr_descriptors.SnapshotCounters();
-        append_compat("descriptor.r3Policy=full-mirror;heap-membership-index;range-local-invalidation;no-enabled-gate\n"
+        // Decimal milliseconds avoid the generic pointer-looking integer
+        // redactor. Keep original Ns fields for old parsers; unavailable remains
+        // unavailable, and these CPU wall times are not additive GPU frame time.
+#if defined(NR_DESCRIPTOR_PROFILE) && NR_DESCRIPTOR_PROFILE
+        append_compat(
+            "descriptor.copyBeginCpuMs=%.6f\ndescriptor.copyFinishCpuMs=%.6f\n"
+            "descriptor.heapRetireCpuMs=%.6f\ndescriptor.unknownCpuMs=%.6f\n",
+            static_cast<double>(ds.copy_begin_cpu_ns)/1000000.0,
+            static_cast<double>(ds.copy_finish_cpu_ns)/1000000.0,
+            static_cast<double>(ds.heap_retire_cpu_ns)/1000000.0,
+            static_cast<double>(ds.unknown_cpu_ns)/1000000.0);
+#endif
+        append_compat("descriptor.r3Policy=startup-selected-mirror;heap-membership-index;range-local-invalidation;no-enabled-gate\n"
             "descriptor.heapRetireSlotVisits=%llu\ndescriptor.unknownSlotVisits=%llu\n"
             "descriptor.copyBeginBatches=%llu\ndescriptor.copyFinishBatches=%llu\n"
             "descriptor.profileEnabled=%d\n",
@@ -46,7 +58,7 @@
         const auto ds=g_nr_descriptors.SnapshotCounters();
         append_compat("descriptor.gpuMirror=%d\ndescriptor.gpuShadowSkippedCalls=%llu\n"
             "descriptor.gpuShadowSkippedDescriptors=%llu\n"
-            "descriptor.copyMetadata=batch-lock;native-call-outside-lock;full-mirror-default\n",
+            "descriptor.copyMetadata=batch-lock;native-call-outside-lock;low-overhead-default;full-gpu-diagnostics-opt-in\n",
             ds.gpu_mirror?1:0,static_cast<unsigned long long>(ds.gpu_shadow_skipped_calls),
             static_cast<unsigned long long>(ds.gpu_shadow_skipped_descriptors));
     }

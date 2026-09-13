@@ -37,6 +37,7 @@ def main():
                         'omit-end-ui-receipt', 'redact-ui-decimals',
                         'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
     parser.add_argument('--compile-only', action='store_true')
+    parser.add_argument('--descriptor-profile', action='store_true', help='Compile the real descriptor timing formatter used by the measurement variant.')
     args = parser.parse_args()
     source = args.source_root.resolve(strict=True)
     out = args.output_dir.resolve()
@@ -155,6 +156,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     c_compiler = compiler.with_name(compiler.name.replace('clang++', 'clang'))
     reshade = args.reshade.resolve(strict=True)
     common = ['-O1', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
+              '-DNR_DESCRIPTOR_PROFILE=' + str(int(args.descriptor_profile)),
               '-DNR_SOURCE_COMMIT="' + source_commit + '"',
               '-ffunction-sections', '-fdata-sections',
               '-I' + str(snapshot / 'third_party/minhook/include'),
@@ -258,6 +260,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
                  for case in case_names for path in sorted((out / case).rglob('*'))
                  if path.is_file() and path.suffix in ('.txt', '.json')]
     receipt = {'gate': 'assembled Core F8 timing/probe serialization CPU',
+               'descriptor_profile': int(args.descriptor_profile),
                'passed': not args.compile_only and len(cases) == len(case_names) and all(case['expected_result'] for case in cases),
                'production_translation_unit': True, 'source_function_extraction': False,
                'source_root': str(source), 'original_source_sha256': inputs, 'compiled_source_sha256': final_inputs,

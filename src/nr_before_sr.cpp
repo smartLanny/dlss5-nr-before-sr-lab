@@ -58,6 +58,7 @@
 #include "nr_dual_lifetime.hpp"
 #include "nr_descriptor_plan.h"
 #include "nr_processing_route.h"
+#include "nr_launch_preferences.h"
 #include "nr_fg_presentation.h"
 #include "nr_descriptor_scratch.h"
 #include "nr_source_frame.hpp"
@@ -93,11 +94,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline20";
+constexpr const char *kAddonVersion = "beta0.5-dline21";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline20";
+constexpr const char *kBuildIdentity = "beta0.5-dline21";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -883,10 +884,14 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 #include "nr_generic_residual.h"
 #include "nr_replay_format.h"
 
+struct ChainConfig;
+void DrawPerformanceRouteNotice(const ChainConfig&);
+
 struct ChainConfig {
     bool enabled = false;
     int mode = 2;
     nr_processing::Start processing_start=nr_processing::Start::Before;
+    bool remember_processing_start=false; // Explicit persistent manual-route preference.
     unsigned long long processing_selection=0; // Session-only explicit reselection.
     unsigned compat_percent=100;
     bool identity_use_original = false;
@@ -966,7 +971,7 @@ struct ChainConfig {
     // Persistent developer preference. The descriptor mirror implementation
     // consumes this at process startup; changing it in the overlay requires a
     // game restart to affect the running process.
-    bool descriptor_low_overhead = false;
+    bool descriptor_low_overhead = true;
     // 0 keeps the conservative automatic/D18 unit contract; 1 is an explicit
     // P-to-layer-NR compensation comparison request.
     unsigned present_mv_compensation = 0;
@@ -1553,6 +1558,7 @@ void NormalizeConfig(ChainConfig &config) {
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
+           a.remember_processing_start==b.remember_processing_start &&
            a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.mode == b.mode &&
            a.identity_use_original == b.identity_use_original &&
@@ -1643,7 +1649,17 @@ void ReloadConfig(bool force = false) {
     next.processing_start = _wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :
         _wcsicmp(processing_start,L"After")==0 ? nr_processing::Start::After :
         _wcsicmp(processing_start,L"Before")==0 ? nr_processing::Start::Before : nr_processing::FromLegacy(next.mode);
+    next.remember_processing_start=GetPrivateProfileIntW(
+        L"NRBeforeSR",L"RememberProcessingStart",0,g_ini_path)!=0;
     next.processing_selection=g_config.processing_selection;
+    // ReloadConfig is serialized by the existing Core configuration lock.
+    // A persistence-only checkbox change must not reselect or reprobe a route.
+    static bool processing_launch_resolved=false;
+    next.processing_start=static_cast<nr_processing::Start>(nr_launch_preferences::Select(
+        static_cast<unsigned>(next.processing_start),static_cast<unsigned>(g_config.processing_start),
+        next.remember_processing_start,next.processing_selection,processing_launch_resolved));
+    processing_launch_resolved=true;
+    next.mode=nr_launch_preferences::LegacyMode(static_cast<unsigned>(next.processing_start),next.mode);
     next.compat_percent=GetPrivateProfileIntW(L"NRBeforeSR",L"CompatPostPercent",100,g_ini_path);
     if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
         // Upgrade metadata without changing a saved front/post preference.
@@ -1792,8 +1808,12 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
+    // Full GPU mirroring is diagnostic work, not the native CPU-view
+    // admission contract. D21 defaults to the existing low-overhead path even
+    // for an old implicit DescriptorLowOverhead=0. Explicit full tracing is
+    // still available in the same developer control, on the next process.
     next.descriptor_low_overhead = GetPrivateProfileIntW(
-        L"NRBeforeSR", L"DescriptorLowOverhead", 0, g_ini_path) != 0;
+        L"NRBeforeSR", L"DescriptorFullGpuDiagnostics", 0, g_ini_path) == 0;
     next.present_mv_compensation = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"PresentMvCompensation", 0, g_ini_path));
     ApplyConfigPolicyMigrations(next, new_work_file);
@@ -1944,6 +1964,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"NRPasses",config.nr_passes));
     record_write(WritePrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",
         config.processing_start==nr_processing::Start::Present?L"Present":config.processing_start==nr_processing::Start::After?L"After":L"Before",g_ini_path)!=FALSE);
+    record_write(WriteIniInt(L"RememberProcessingStart", config.remember_processing_start ? 1 : 0));
     record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
     record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
     record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
@@ -2009,6 +2030,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
     record_write(WriteIniInt(L"DescriptorLowOverhead",
                              config.descriptor_low_overhead ? 1 : 0));
+    record_write(WriteIniInt(L"DescriptorFullGpuDiagnostics", config.descriptor_low_overhead ? 0 : 1));
     record_write(WriteIniInt(L"PresentMvCompensation",
                              static_cast<int>(config.present_mv_compensation)));
     // The concrete mode/strength/master values and shared-strength marker
@@ -14247,6 +14269,31 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
 
+// D21: UI-only notice. No retry, migration, resource lifetime or rendering
+// decision is performed from the overlay. Counters do not prove final pixels.
+void DrawPerformanceRouteNotice(const ChainConfig& config) {
+    const bool zh=UseChineseUi();
+#if defined(NR_DESCRIPTOR_PROFILE) && NR_DESCRIPTOR_PROFILE
+    ImGui::TextWrapped("%s",zh?
+        "当前为性能测量版：最终帧率请用常规版验收；本版会额外记录 CPU 耗时。":
+        "Measurement build: use the ordinary build for final FPS acceptance; this build records extra CPU timings.");
+#endif
+    if(!config.enabled)return;
+    if(static_cast<unsigned>(g_module_observer_fault.load(std::memory_order_relaxed))!=0u ||
+       g_feature_tracking_uncertain.load(std::memory_order_relaxed)) {
+        ImGui::TextWrapped("%s",zh?
+            "入口或生命周期观察不完整，当前保留游戏原输出。请按 F8 保存报告并上报；F6 只能对照开关，不能清除此类进程保护。":
+            "Entry/lifetime observation is incomplete; game output is retained. Save and report F8. F6 is an on/off comparison, not a way to clear this process protection.");
+        return;
+    }
+    nr_processing::Snapshot route{};
+    if(nr_processing_runtime::TrySnapshot(route)&&route.current!=config.processing_start) {
+        ImGui::TextWrapped("%s",zh?
+            "当前并非所选起点：已自动尝试后续路径。F6 可对照开关；异常时按 F8 保存报告并上报。点击所选路线可重新尝试，不会改写默认启动顺序。":
+            "The actual route differs from your selection. A later route is being tried. Compare with F6; save/report F8 for unexpected behavior. Click the selected route to retry; automatic fallback does not change the launch default.");
+    }
+}
+
 void DrawNrActivityStatus(reshade::api::effect_runtime *,const ChainConfig &,unsigned,nr_ui_activity::Site);
 
 void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
@@ -14877,13 +14924,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline20 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline21 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline20 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

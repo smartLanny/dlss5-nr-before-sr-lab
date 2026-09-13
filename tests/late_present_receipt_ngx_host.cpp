@@ -266,7 +266,7 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         Check(compat::observation.submitted==submitted&&!compat::current,"F6 off stops NR and retires completed context");
         auto source=nr_source_runtime::Source{1,1,999};Check(!nr_source_runtime::CaptureGuides(producer.list,source,guides.binding,Io::width,Io::height),"F6 off adds no owned guide copy");
         const auto descriptor_mode=g_nr_descriptors.SnapshotCounters();
-        Check(descriptor_mode.gpu_mirror&&descriptor_mode.profile_enabled==(NR_DESCRIPTOR_PROFILE!=0),"regular and measurement hosts preserve full mirror and report their real compiled profile flag");
+        Check(!descriptor_mode.gpu_mirror&&descriptor_mode.profile_enabled==(NR_DESCRIPTOR_PROFILE!=0),"regular and measurement hosts exercise the normal low-overhead default and report their real compiled profile flag");
         std::printf("descriptor profileEnabled=%d gpuMirror=%d\n",descriptor_mode.profile_enabled,descriptor_mode.gpu_mirror);
         std::printf("PASS LATE_PRESENT_RECEIPT checks=%u layers=%u crossQueue=%d scaled=%d nativeOutput=%ux%u present=%ux%u adopted=%u realReShade=1 realNR=1 nativeSeam=controlled; not real SR or game verification\n",
             checks,passes,cross,scaled,guides.output_width,guides.output_height,Io::width,Io::height,changed_frames);

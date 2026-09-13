@@ -728,6 +728,48 @@ void CheckAllSourcesCapacity(const std::filesystem::path &directory) {
     std::printf("FULL_CORE_F8_ALL_SOURCES bytes=%zu capacity=%zu\n",disk.size(),nr_feedback_single::kTextLimit);
 }
 
+void CheckDescriptorMillisecondsThroughCollector(const std::filesystem::path& directory) {
+    const nr_descriptor::Id destination=100006,source=100000;
+    nr_descriptor::Write write;
+    g_nr_descriptors.BeginCopies(1,&destination,&source,0,&write);
+    g_nr_descriptors.FinishCopies(1,&write);
+    const auto counters=g_nr_descriptors.SnapshotCounters();
+    auto session=std::make_unique<nr_core_feedback::CoreSession>();
+    const auto folder=directory/L"descriptor-ms";std::filesystem::create_directory(folder);
+    session->snapshot_ok=true;session->serial=50;
+    wcscpy_s(session->directory,folder.c_str());wcscpy_s(session->exe,(folder/L"descriptor-ms.exe").c_str());
+    GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
+    FeedbackAppendActivity(session->activity,"end");
+    const std::string raw(session->activity.report,session->activity.report_used);
+#if NR_DESCRIPTOR_PROFILE
+    char expected[64]{};std::snprintf(expected,sizeof(expected),"%.6f",static_cast<double>(counters.copy_finish_cpu_ns)/1000000.0);
+    Check(counters.copy_finish_cpu_ns>0&&Value(raw,"end.descriptor.copyFinishCpuMs")==expected&&
+          !Value(raw,"end.descriptor.copyFinishCpuNs").empty(),"D21_REAL_DESCRIPTOR_MS_AND_LEGACY_NS");
+#else
+    Check(Value(raw,"end.descriptor.copyFinishCpuMs").empty()&&
+          Value(raw,"end.descriptor.profileMeaning").find("unavailable")!=std::string::npos,
+          "D21_ORDINARY_TIMING_UNAVAILABLE_NOT_ZERO");
+#endif
+    // Large-value privacy fixture, not a measured duration. It traverses the
+    // unchanged actual metadata sanitizer, final writer and disk output.
+    FeedbackAppend(session->activity,"fixture.big.copyFinishCpuMs=%.6f\nfixture.big.copyFinishCpuNs=%llu\nfixture.pointer=0x123456789ABCDEF0\nfixture.path=C:\\fixture-private\\report\n",
+        94402658600.0/1000000.0,94402658600ull);
+    const auto result=nr_core_feedback::CollectSingleText(*session,true);
+    Check(result.text&&result.complete&&result.error==ERROR_SUCCESS,"D21_DESCRIPTOR_MS_FINAL_TEXT_COMPLETE");
+    if(result.text){
+        const auto disk=Read(result.path);
+        Check(disk==*result.text&&Value(disk,"fixture.big.copyFinishCpuMs")=="94402.658600",
+            "D21_LARGE_DECIMAL_MS_SURVIVES_REAL_PRIVACY_AND_DISK");
+        Check(disk.find("0x123456789ABCDEF0")==std::string::npos&&disk.find("C:\\fixture-private")==std::string::npos,
+            "D21_DESCRIPTOR_MS_DOES_NOT_EXEMPT_POINTERS_OR_PATHS");
+#if NR_DESCRIPTOR_PROFILE
+        Check(Value(disk,"end.descriptor.copyFinishCpuMs")==Value(raw,"end.descriptor.copyFinishCpuMs"),
+            "D21_ACTUAL_DESCRIPTOR_MS_ROUNDTRIP");
+#else
+        Check(Value(disk,"end.descriptor.copyFinishCpuMs").empty(),"D21_ORDINARY_DOES_NOT_FABRICATE_MS");
+#endif
+    }
+}
 int Run(const std::filesystem::path &directory, bool missing_clock) {
     std::filesystem::create_directories(directory);
     InitializeCriticalSection(&g_chain_cs);
@@ -858,6 +900,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     CheckReadonlyBoundaryThroughCollector(directory);
     CheckPrivacyThroughCollector(directory);
     CheckAllSourcesCapacity(directory);
+    CheckDescriptorMillisecondsThroughCollector(directory);
     Check(NrUiActivityThread().calls==ui_calls&&!g_nr_ui_activity_window.Inspect().initialized,
           "FULL_CORE_F8_UI_NO_OBSERVE");
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",

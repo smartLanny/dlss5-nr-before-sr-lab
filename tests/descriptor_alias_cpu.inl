@@ -841,6 +841,7 @@ void ConcurrentIdentityPublication() {
     SetInterface(&local,kNrDescriptorLifetime,nullptr);objects.erase(&local);
 }
 void Run() {
+    Check(NrDescriptorConfigureStartup(false),"full diagnostic alias fixture explicitly requests GPU mirror");
     Check(!NrDescriptorLowOverheadActive(),"full GPU descriptor mirror is the startup default");
     Initialize();
     const auto failures=g_nr_descriptor_lifetime_failures.load();
@@ -973,6 +974,18 @@ void RunLowOverhead() {
     Check(g_nr_descriptors.StartupSealed()&&!NrDescriptorConfigureStartup(false)&&
           NrDescriptorLowOverheadActive()&&NrDescriptorConfigureStartup(true),
         "sealed low-overhead registry rejects restoration but accepts the same effective selection");
+    CommandStateMetaContract meta;meta.known=true;meta.device_identity=command_device_identity;
+    CommandCreationInfo creation;creation.serial=2;creation.method=1;creation.initial_pso=true;creation.device_identity=command_device_identity;
+    Check(RegisterCreatedCommandStateList(&native_list,meta,creation),
+        "low-overhead path registers the actual command recording");
+    const auto token=ReadCommandStateToken(&native_list);
+    auto *record=FindCommandStateTokenLocked(token);
+    Check(record!=nullptr,"low-overhead path finds the registered command recording");
+    record->state=new NativeCommandState;record->state->known=true;record->hooks_ready=true;
+    CommandStateAssign(record->state->pipeline,reinterpret_cast<ID3D12PipelineState *>(&pso));
+    CommandStateAssign(record->state->heaps[0],&native_gpu);
+    Check(NrDescriptorBoundHeap(&native_list)==g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_gpu)).id,
+        "low-overhead path binds the actual shader-visible heap for the current command");
     D3D12_UNORDERED_ACCESS_VIEW_DESC desc{};desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
     NrFormatCreateUav<0>(&native_device,&resource,nullptr,&desc,CpuBase(&native_cpu));
     const auto cpu=g_nr_descriptors.Cpu(cpu_state.cpu,0,nr_descriptor::Kind::Uav);
@@ -988,6 +1001,44 @@ void RunLowOverhead() {
         "low-overhead mode leaves GPU provenance unknown and records the skipped shadow");
     Check(g_nr_descriptors.Current(cpu)&&NrDescriptorLowOverheadActive(),
         "rejected live restoration cannot erase CPU evidence or revive omitted GPU evidence");
+    Params params;NgxHandle handle{995};const FLOAT values[]={0,0,1,1};
+    const auto clear=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
+        return kNgxSuccess;
+    };
+    const auto clear_before=driver_clears;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,905);
+    Check(driver_clears==clear_before+1&&last_clear.list==&native_list&&last_clear.cpu.ptr==cpu_state.cpu&&
+          last_clear.resource==&resource,"low-overhead typeless Output uses the actual native ClearUAV once");
+    const auto key=NrFormatKey(&native_device,&resource,905,true);
+    const auto prepared=NrNativeClearCandidate(key,g_config_generation.load(std::memory_order_acquire));
+    Check(prepared&&prepared.format==28&&prepared.resource==g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(&resource)).id&&
+          prepared.resource_address==reinterpret_cast<std::uint64_t>(&resource),
+        "typeless Output plus the current CPU typed Clear forms a fresh low-overhead request");
+    nr_native_clear::Invocation fresh;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,905,&fresh,&prepared);
+    // This is the production validator used by FinishAfterSr. The missing GPU
+    // shadow is intentionally legal when the exact CPU request and bound heap
+    // are still current.
+    Check(NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,fresh),
+        "low-overhead GPU-unknown CPU Clear passes the real fresh-request validator");
+    const auto unknown_use=SnapshotNrDescriptorUse();
+    Check(unknown_use.unknown==1&&!unknown_use.after_native_valid&&!unknown_use.at_submit_valid,
+        "low-overhead fresh validation keeps the GPU shadow unknown");
+    auto wrong_device=fresh;wrong_device.request.key.device=NrFormatDeviceIdentity(&other_device);
+    Check(wrong_device.request.key.device!=fresh.request.key.device&&
+          !NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,wrong_device),
+        "low-overhead same-resource Clear with the wrong device is rejected");
+    const auto conflict_clear=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC conflicting=desc;conflicting.Format=DXGI_FORMAT_R8G8B8A8_UINT;
+        auto spare=CpuBase(&native_cpu);spare.ptr+=32;
+        NrFormatCreateUav<0>(&native_device,&resource,nullptr,&conflicting,spare);return kNgxSuccess;
+    };
+    nr_native_clear::Invocation conflicting;
+    NrCallNativeWithFormatObservation(conflict_clear,&native_list,&handle,&params.base,nullptr,905,&conflicting,&prepared);
+    Check(conflicting.request&&!NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,conflicting),
+        "low-overhead same-resource conflicting format is rejected by the real validator");
     std::printf("PASS %u assertions; startup low-overhead production hooks; original native calls preserved; synthetic COM CPU only\n",checks);
 }
 }
