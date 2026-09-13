@@ -22,6 +22,7 @@
 #endif
 #include "src/interop/nr_post_compat.h"
 #include "src/nr_processing_route.h"
+#include "src/nr_fg_presentation.h"
 using NgxResult=std::int32_t;
 struct ID3D12GraphicsCommandList{};struct NgxHandle{};struct NgxParams{};
 #if defined(NR_RR_TIMING_TEST)
@@ -48,6 +49,7 @@ struct Config{
  unsigned long long processing_selection=1;
 } g_config;
 std::atomic<unsigned long long> g_history_generation{0};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 std::atomic<int> g_last_carrier_feature{-1};std::atomic<bool> g_rr_guard_was_active{false};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{0},g_pipeline_eligible_carriers{0};
 std::atomic<bool> g_feature_tracking_uncertain{false},g_lifecycle_tracking_uncertain{false};

@@ -329,6 +329,7 @@ int main() {{
 #include "nr_pre_fallback.h"
 #include "nr_native_clear_request.h"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 
 struct ID3D12GraphicsCommandList {{}};
 struct NgxHandle {{ int id = 1; }};
@@ -385,6 +386,7 @@ std::atomic<unsigned int> g_compat_fallback_config{{0}};
 std::atomic<unsigned long long> g_compat_fallback_attempts{{0}};
 std::atomic<unsigned long long> g_compat_fallback_recorded{{0}};
 std::atomic<unsigned long long> g_pipeline_eligible_carriers{{0}};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 int g_chain_cs = 0;
 unsigned long long g_now = 1;
 Substitution g_before;

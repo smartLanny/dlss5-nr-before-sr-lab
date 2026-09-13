@@ -21,7 +21,7 @@ struct NrDescriptorLifetime {
     std::atomic<ULONG> references{1};
     nr_descriptor::Id id=0,device=0,address=0,semantic_resource=0;
     NrDescriptorObject kind=NrDescriptorObject::Resource;
-    bool armed=false;
+    std::atomic<bool> armed{false};
 };
 bool PinHookAddress(const void *,const char *,HMODULE);
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
@@ -40,7 +40,7 @@ ULONG STDMETHODCALLTYPE NrDescriptorLifetimeRelease(IUnknown *object) {
     auto *value=reinterpret_cast<NrDescriptorLifetime *>(object);
     const auto remaining=value->references.fetch_sub(1,std::memory_order_acq_rel)-1;
     if(!remaining) {
-        if(value->armed) {
+        if(value->armed.load(std::memory_order_acquire)) {
             if(value->kind==NrDescriptorObject::Heap)g_nr_descriptors.RetireHeap(value->id);
             else if(value->kind==NrDescriptorObject::Device) {
                 g_nr_descriptors.RetireDevice(value->device);
@@ -67,20 +67,25 @@ nr_descriptor::Id NrDescriptorObjectIdentity(ID3D12Object *object,NrDescriptorOb
     static const bool pinned=PinHookAddress(reinterpret_cast<const void *>(&NrDescriptorLifetimeRelease),
         "descriptor evidence lifetime",nullptr);
     if(!pinned)return 0;
-    // Cold per-object publication is serialized separately from value records.
-    // SetPrivateDataInterface may release an old notification, so it must never
-    // run under the value-registry mutex or a command-state lock.
-    std::lock_guard identity_guard(g_nr_descriptor_identity_mutex);
-    IUnknown *existing=nullptr;UINT bytes=sizeof(existing);
-    if(SUCCEEDED(ID3D12Object_GetPrivateData(object,kNrDescriptorLifetime,&bytes,&existing)) &&
-       bytes==sizeof(existing) && existing) {
-        // The AddRef'd interface is attached to this COM lifetime. Wrappers may
-        // forward it while exposing a different object address and CPU domain.
-        const auto *receipt=reinterpret_cast<const NrDescriptorLifetime *>(existing);
-        const auto id=existing->lpVtbl==&kNrDescriptorLifetimeVtable && receipt->armed && receipt->kind==kind && receipt->device==device &&
-            (kind!=NrDescriptorObject::Resource || receipt->semantic_resource==semantic_resource)?receipt->id:0;
+    // Hot views validate an AddRef-held object-local receipt without taking a
+    // process-wide publication mutex. A concurrent first attachment can be
+    // unarmed and returns unknown; it is never replaced or accepted early.
+    const auto lookup=[&](bool& found)->nr_descriptor::Id {
+        IUnknown* existing=nullptr;UINT bytes=sizeof(existing);
+        if(FAILED(ID3D12Object_GetPrivateData(object,kNrDescriptorLifetime,&bytes,&existing))||
+           bytes!=sizeof(existing)||!existing)return 0;
+        found=true;
+        const auto* receipt=reinterpret_cast<const NrDescriptorLifetime*>(existing);
+        const auto id=existing->lpVtbl==&kNrDescriptorLifetimeVtable &&
+            receipt->armed.load(std::memory_order_acquire) && receipt->kind==kind && receipt->device==device &&
+            (kind!=NrDescriptorObject::Resource||receipt->semantic_resource==semantic_resource)?receipt->id:0;
         IUnknown_Release(existing);return id;
-    }
+    };
+    bool found=false;auto cached=lookup(found);if(found)return cached;
+    // Only first publication is serialized. The second lookup prevents two
+    // first observers from attaching different identities to one COM lifetime.
+    std::lock_guard identity_guard(g_nr_descriptor_identity_mutex);
+    cached=lookup(found);if(found)return cached;
     auto *receipt=new(std::nothrow) NrDescriptorLifetime;
     if(!receipt){g_nr_descriptor_lifetime_failures.fetch_add(1,std::memory_order_relaxed);return 0;}
     receipt->iface.lpVtbl=&kNrDescriptorLifetimeVtable;
@@ -88,7 +93,7 @@ nr_descriptor::Id NrDescriptorObjectIdentity(ID3D12Object *object,NrDescriptorOb
     receipt->device=device;receipt->address=reinterpret_cast<nr_descriptor::Id>(object);receipt->kind=kind;
     receipt->semantic_resource=semantic_resource;
     const bool attached=SUCCEEDED(ID3D12Object_SetPrivateDataInterface(object,kNrDescriptorLifetime,&receipt->iface));
-    receipt->armed=attached;
+    receipt->armed.store(attached,std::memory_order_release);
     const auto id=attached?receipt->id:0;
     NrDescriptorLifetimeRelease(&receipt->iface);
     if(!id)g_nr_descriptor_lifetime_failures.fetch_add(1,std::memory_order_relaxed);
@@ -208,7 +213,7 @@ nr_descriptor::Write NrDescriptorBeginRtv(ID3D12Device *device,ID3D12Resource *r
 // Unrelated views remain usable; observation limits are not native API limits.
 struct NrDescriptorCopy {
     static constexpr unsigned kMaximum=256;
-    std::unique_ptr<nr_descriptor::Write[]> writes;
+    nr_descriptor::ScratchBuffer<nr_descriptor::Write,kMaximum> writes;
     std::unique_ptr<nr_descriptor::UnknownRange[]> ranges;
     nr_descriptor::UnknownCopy unknown;
     unsigned count=0;
@@ -266,7 +271,7 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
     }
     if(!destination_count)return;
     if(!stride){unknown_destinations();return;}
-    copy.writes.reset(new(std::nothrow) nr_descriptor::Write[static_cast<unsigned>(destination_count)]);
+    (void)copy.writes.Acquire(static_cast<unsigned>(destination_count));
     if(!copy.writes){unknown_destinations();return;}
     nr_descriptor::Id destination_ids[NrDescriptorCopy::kMaximum]{};
     nr_descriptor::Id source_ids[NrDescriptorCopy::kMaximum]{};
@@ -280,8 +285,11 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
         if(destination_handle<destination[destination_range].ptr || source_handle<source[source_range].ptr) {
             unknown_destinations();return;
         }
-        destination_ids[copy.count]=destination_handle;source_ids[copy.count]=source_handle;++copy.count;
+        destination_ids[n]=destination_handle;source_ids[n]=source_handle;
     }
+    // Cached tickets belong to an earlier call until BeginCopies replaces them.
+    // Failed preflight must never finish any of those previous writes.
+    copy.count=static_cast<unsigned>(destination_count);
     g_nr_descriptors.BeginCopies(copy.count,destination_ids,source_ids,
         static_cast<unsigned>(type),copy.writes.get());
 }

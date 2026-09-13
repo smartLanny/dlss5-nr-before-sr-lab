@@ -48,6 +48,7 @@ def main():
     receipt={'success':passed,'scope':'Actual native-success receipt gating, padded depth-stencil/full-subresource guide copies, native-seam HLSL snapshots, blocked cross-queue GPU wait/readback, and resource/fence reuse on D3D12 WARP',
               'warp_verified':run.returncode==0,'ngx_verified':False,'fg_verified':False,'game_verified':False,'stdout':run.stdout,
               'source_sha256':hashlib.sha256((root/'src/nr_source_transport.inl').read_bytes()).hexdigest(),
+              'fg_presentation_sha256':hashlib.sha256((root/'src/nr_fg_presentation.h').read_bytes()).hexdigest(),
               'native_guide_snapshot_sha256':hashlib.sha256((root/'src/nr_native_guide_snapshot.inl').read_bytes()).hexdigest(),
               'runtime_sha256':hashlib.sha256((root/'src/nr_source_frame_runtime.inl').read_bytes()).hexdigest(),
               'receipt_policy_sha256':hashlib.sha256((root/'src/nr_late_present_receipt.hpp').read_bytes()).hexdigest(),

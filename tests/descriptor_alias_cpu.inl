@@ -32,12 +32,14 @@ struct State {
     bool descriptor_interface_unavailable=false;
 };
 std::map<void *,State *> objects;
+std::recursive_mutex private_storage_mutex;
 State &Object(void *self){return *objects.at(self);}
 State &Storage(void *self){auto *s=&Object(self);while(s->private_owner)s=s->private_owner;return *s;}
 ULONG STDMETHODCALLTYPE AddRef(void *self){return ++Object(self).references;}
 ULONG STDMETHODCALLTYPE Release(void *self){return --Object(self).references;}
 HRESULT STDMETHODCALLTYPE Query(void *self,REFIID,void **out){if(!out)return E_POINTER;*out=self;AddRef(self);return S_OK;}
 HRESULT STDMETHODCALLTYPE GetPrivate(void *self,REFGUID guid,UINT *size,void *data) {
+    std::lock_guard guard(private_storage_mutex);
     ++private_reads;
     if(Storage(self).descriptor_interface_unavailable && IsEqualGUID(guid,kNrDescriptorLifetime))return E_FAIL;
     if(!size)return E_POINTER;
@@ -52,6 +54,7 @@ HRESULT STDMETHODCALLTYPE GetPrivate(void *self,REFGUID guid,UINT *size,void *da
     return S_OK;
 }
 HRESULT STDMETHODCALLTYPE SetPrivate(void *self,REFGUID guid,UINT size,const void *data) {
+    std::lock_guard guard(private_storage_mutex);
     auto &values=Storage(self).values;const auto key=GuidKey(guid);
     IUnknown *old=nullptr;
     if(auto found=values.find(key);found!=values.end()){old=found->second.object;values.erase(found);}
@@ -59,6 +62,7 @@ HRESULT STDMETHODCALLTYPE SetPrivate(void *self,REFGUID guid,UINT size,const voi
     if(old)IUnknown_Release(old);return S_OK;
 }
 HRESULT STDMETHODCALLTYPE SetInterface(void *self,REFGUID guid,const IUnknown *data) {
+    std::lock_guard guard(private_storage_mutex);
     if(Storage(self).descriptor_interface_unavailable && IsEqualGUID(guid,kNrDescriptorLifetime))return E_FAIL;
     auto &values=Storage(self).values;const auto key=GuidKey(guid);
     IUnknown *old=nullptr;
@@ -770,6 +774,72 @@ void CopyScopeUnrelatedOracle() {
         after.cpu_slots.evictions==before.cpu_slots.evictions,
         "COPY_SCOPE_UNRELATED_ORACLE");
 }
+void CachedCopyFailurePreflight() {
+    const auto type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    const nr_descriptor::Heap isolated{0xa020,device_identity,0xa0200,0xa20000,0,2,32,static_cast<unsigned>(type),false};
+    Check(g_nr_descriptors.ObserveHeap(isolated),"failed-copy oracle has an isolated destination heap");
+    const D3D12_CPU_DESCRIPTOR_HANDLE destination{static_cast<SIZE_T>(isolated.cpu)};
+    const auto source=CpuBase(&native_cpu);
+    { NrDescriptorCopy warm; NrDescriptorBeginCopy(warm,&native_device,1,&destination,nullptr,1,&source,nullptr,type);
+      Check(warm.count==1,"scratch cache primed by a real descriptor begin"); }
+    const auto before=g_nr_descriptors.SnapshotCounters();
+    // Invalid second address is rejected before any native copy is called.
+    const D3D12_CPU_DESCRIPTOR_HANDLE invalid_source{std::numeric_limits<SIZE_T>::max()-15};
+    const UINT two=2;
+    { NrDescriptorCopy failed;
+      NrDescriptorBeginCopy(failed,&native_device,1,&destination,&two,1,&invalid_source,&two,type);
+      Check(failed.unknown.active&&failed.count==0,
+          "partial address preflight never owns reused write tickets"); }
+    const auto after=g_nr_descriptors.SnapshotCounters();
+    Check(after.copy_finish_batches==before.copy_finish_batches,
+        "failed cached preflight cannot finish a previous copy batch");
+    g_nr_descriptors.RetireHeap(isolated.id);
+}
+void CachedIdentityDoesNotWaitForPublication() {
+    const auto expected=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&native_device),NrDescriptorObject::Device,device_identity);
+    struct Work { HANDLE done; nr_descriptor::Id result=0; } work{CreateEventW(nullptr,TRUE,FALSE,nullptr)};
+    Check(work.done&&expected,"cached identity lock oracle initialized");
+    g_nr_descriptor_identity_mutex.lock();
+    HANDLE worker=CreateThread(nullptr,0,[](void *argument)->DWORD {
+        auto &w=*static_cast<Work *>(argument);
+        w.result=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&proxy_device),NrDescriptorObject::Device,device_identity);
+        SetEvent(w.done);return 0;
+    },&work,0,nullptr);
+    const auto ready=worker?WaitForSingleObject(work.done,1000):WAIT_FAILED;
+    g_nr_descriptor_identity_mutex.unlock();
+    const auto joined=worker?WaitForSingleObject(worker,5000):WAIT_FAILED;
+    if(worker)CloseHandle(worker);CloseHandle(work.done);
+    Check(joined==WAIT_OBJECT_0&&ready==WAIT_OBJECT_0&&work.result==expected,
+        "published proxy identity completes while another thread owns publication mutex");
+}
+void ConcurrentIdentityPublication() {
+    ID3D12Device local{&device_table};State state;objects.emplace(&local,&state);
+    const auto before=g_nr_descriptor_ids.load();
+    std::atomic<bool> start{false};std::array<nr_descriptor::Id,8> results{};
+    std::vector<std::thread> workers;
+    for(unsigned i=0;i<results.size();++i)workers.emplace_back([&,i] {
+        while(!start.load(std::memory_order_acquire))std::this_thread::yield();
+        results[i]=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    });
+    start.store(true,std::memory_order_release);for(auto& worker:workers)worker.join();
+    const auto published=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    Check(published&&g_nr_descriptor_ids.load()==before+1,
+        "concurrent first observers publish exactly one object identity");
+    for(auto value:results)Check(!value||value==published,"racing lookup is unknown or the one published identity");
+    SetInterface(&local,kNrDescriptorLifetime,nullptr);
+    auto* incomplete=new NrDescriptorLifetime;incomplete->iface.lpVtbl=&kNrDescriptorLifetimeVtable;
+    incomplete->kind=NrDescriptorObject::Device;incomplete->device=device_identity;incomplete->id=g_nr_descriptor_ids.fetch_add(1);
+    SetInterface(&local,kNrDescriptorLifetime,&incomplete->iface);
+    Check(!NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity),
+        "attached unarmed identity is neither accepted nor replaced");
+    incomplete->armed.store(true,std::memory_order_release);
+    Check(NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity)==incomplete->id,
+        "same attached identity becomes visible only after publication");
+    NrDescriptorLifetimeRelease(&incomplete->iface);SetInterface(&local,kNrDescriptorLifetime,nullptr);
+    const auto replacement=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    Check(replacement&&replacement!=published,"reused object address receives a new lifetime identity");
+    SetInterface(&local,kNrDescriptorLifetime,nullptr);objects.erase(&local);
+}
 void Run() {
     Check(!NrDescriptorLowOverheadActive(),"full GPU descriptor mirror is the startup default");
     Initialize();
@@ -881,7 +951,9 @@ void Run() {
     Check(!NrFormatEvidence(NrFormatKey(&native_device,&resource,701,true)).Resolved()&&
           !NrFormatEvidence(NrFormatKey(&native_device,&resource,702,true)).Resolved(),
         "neither cached-use control nor successful proxy clear promotes diagnostics into the admission ledger");
+    CachedIdentityDoesNotWaitForPublication();CachedCopyFailurePreflight();
     NativeClearRequests();LedgerEvents();CopyScopeUnrelatedOracle();DescriptorWindowRetirement();IdentityNegatives();
+    ConcurrentIdentityPublication();
     std::printf("PASS %u assertions; full production TU; synthetic COM CPU only; D3D devices=0 GPU submits=0 NGX=0\n",checks);
 }
 void RunLowOverhead() {

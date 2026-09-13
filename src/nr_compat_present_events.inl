@@ -184,6 +184,15 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         if(current&&!RetireCurrent()){if(!current->timeline.Poisoned())SetStatus(Status::Draining);return;}
         SetStatus(Status::Off);return;
     }
+    // DLSSG may own/pace a second presentation queue without an intercepted
+    // Feature11 Evaluate. A recent SR receipt does not identify its generated
+    // backbuffer. Do not queue a wait or mutate that surface. A supported
+    // native-SR After path or exact FG-input consumer may handle the
+    // application image before FG. Unsupported boundaries skip safely.
+    if(g_fg_presentation_policy.Read().late_owned){
+        if(current&&!RetireCurrent()){SetStatus(Status::Draining);return;}
+        SetStatus(Status::FgBoundaryOwned);return;
+    }
     const unsigned config=g_config_generation.load(std::memory_order_relaxed);
     if(stable_config!=config){stable_config=config;settled_presents=0;}
     if(!queue||!chain||!chain->get_device()||chain->get_device()->get_api()!=reshade::api::device_api::d3d12){SetStatus(Status::UnsupportedApi);return;}
@@ -284,12 +293,17 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     const auto done=Collect(c);if(done==UINT64_MAX)return;
     if(c.create_fence&&!c.timeline.Ready(done)){SetStatus(Status::Creating);return;}
     const int index=c.timeline.Free(done);if(index<0){SetStatus(Status::Busy);return;}
+    const auto serial=nr_source_runtime::PresentSourceId();
+    if(!serial){SetStatus(Status::SourceUnavailable);return;}
     auto& flight=c.flights[unsigned(index)];
     if(FAILED(ID3D12CommandAllocator_Reset(flight.allocator))||
        FAILED(ID3D12GraphicsCommandList_Reset(flight.list,flight.allocator,nullptr))){Poison(c,0xBAD00002u,"Reset-private-list");return;}
-    const auto serial=nr_source_runtime::PresentSourceId();
-    if(!serial){SetStatus(Status::SourceUnavailable);return;}
-    if(!nr_source_runtime::MarkPresentRecorded(native_queue)){SetStatus(Status::Poisoned);return;}
+    if(!nr_source_runtime::MarkPresentRecorded(native_queue)){
+        // A last-moment ownership change cancels an empty private recording.
+        // Leave it closed so an Off transition can reuse the free flight.
+        if(FAILED(ID3D12GraphicsCommandList_Close(flight.list))){Poison(c,0xBAD00002u,"Close-cancelled-private-list");return;}
+        SetStatus(nr_source_runtime::PresentWorkBlockedByFg()?Status::FgBoundaryOwned:Status::Poisoned);return;
+    }
     observation.source=serial;
     nr_processing_runtime::MarkRecorded();
     if(!c.layers[0].context.nr_handle){

@@ -58,6 +58,8 @@
 #include "nr_dual_lifetime.hpp"
 #include "nr_descriptor_plan.h"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
+#include "nr_descriptor_scratch.h"
 #include "nr_source_frame.hpp"
 #include "nr_fg_contract.hpp"
 #include "nr_compat_present_policy.hpp"
@@ -91,11 +93,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline19";
+constexpr const char *kAddonVersion = "beta0.5-dline20";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline19";
+constexpr const char *kBuildIdentity = "beta0.5-dline20";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -627,6 +629,7 @@ std::atomic<unsigned long long> g_feature1_successful_creates{0};
 // after switching back to Feature 1; a cached handle does not own every later
 // SR evaluation. Actual calls and the transaction gate determine routing.
 std::atomic<unsigned int> g_live_rr_handles{0};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
 // while RR ownership is being established.
@@ -14874,13 +14877,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline19 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline20 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline19 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline20 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -13,6 +13,11 @@ using SetTagsFn=int(*)(const void*,const void*,const void*,unsigned,void*);
 using EvaluateFn=int(*)(unsigned,const void*,const void*const*,unsigned,void*);
 using GetFunctionFn=int(*)(unsigned,const char*,void*&);
 using MarkerFn=int(*)(unsigned,const void*);
+using FgOptionsFn=int(*)(const void*,const void*);
+std::atomic<FgOptionsFn> fg_options{nullptr};
+struct FgOptionsPrefix {Base base;unsigned mode,num_frames;};
+static_assert(offsetof(FgOptionsPrefix,mode)==32 && sizeof(FgOptionsPrefix)==40);
+const GUID fg_options_type={0xfac5f1cb,0x2dfd,0x4f36,{0xa1,0xe6,0x3a,0x9e,0x86,0x52,0x56,0xc5}};
 SetConstantsFn constants=nullptr;SetTagsFn tags=nullptr;EvaluateFn evaluate=nullptr;
 GetFunctionFn get_function=nullptr;MarkerFn marker=nullptr;
 std::atomic<bool> enabled{false};
@@ -94,8 +99,29 @@ bool Install(void* target,void* detour,void** original){
         selected->target=target;selected->original=original;}
     const auto result=MH_EnableHook(target);selected->enabled=result==MH_OK||result==MH_ERROR_ENABLED;return selected->enabled;
 }
+int HookFgOptions(const void* viewport,const void* options){
+    const auto original=fg_options.load(std::memory_order_acquire);
+    if(!original)return -1; // function is only published after the original target
+    const auto lifecycle=g_fg_presentation_policy.Lifecycle();
+    const auto result=original(viewport,options);
+    unsigned view=0;
+    if(result==0&&options&&ViewValue(viewport,view)){
+        const auto& value=*static_cast<const FgOptionsPrefix*>(options);
+        if(value.base.version>=1&&value.base.version<=5&&IsEqualGUID(value.base.type,fg_options_type))
+            (void)g_fg_presentation_policy.Options(view,value.mode,true,lifecycle);
+    }
+    return result;
+}
 int HookGetFunction(unsigned feature,const char* name,void*& function){
     const auto result=get_function(feature,name,function);
+    if(result==0&&feature==1000&&function&&name&&std::strcmp(name,"slDLSSGSetOptions")==0){
+        const auto original=reinterpret_cast<FgOptionsFn>(function);
+        FgOptionsFn expected=nullptr;
+        if(original!=&HookFgOptions && (fg_options.compare_exchange_strong(expected,original,std::memory_order_acq_rel)||expected==original))
+            function=reinterpret_cast<void*>(&HookFgOptions);
+        // Observe successful app calls only. No SDK polling/setting changes,
+        // and no stop-the-world hook installation inside this factory callback.
+    }
     if(result==0&&function&&name&&std::strcmp(name,"slPCLSetMarker")==0&&enabled.load(std::memory_order_relaxed)){
         AcquireSRWLockExclusive(&install_lock);
         (void)Install(function,reinterpret_cast<void*>(&HookMarker),reinterpret_cast<void**>(&marker));

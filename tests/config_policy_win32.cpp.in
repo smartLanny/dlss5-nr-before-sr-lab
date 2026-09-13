@@ -14,10 +14,12 @@
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 
 @JITTER_ENUM@
 @CHAIN_CONFIG@
 ChainConfig g_config;
+nr_fg_presentation::Policy g_fg_presentation_policy;
 wchar_t g_ini_path[MAX_PATH]{};
 CRITICAL_SECTION g_chain_cs;
 ULONGLONG g_config_read_tick = 0, test_tick = 10000;

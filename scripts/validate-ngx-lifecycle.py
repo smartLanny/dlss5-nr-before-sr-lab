@@ -91,6 +91,7 @@ def main() -> None:
         'lifecycle': args.source.parent / 'nr_ngx_lifecycle.inl',
         'feedback': args.source.parent / 'nr_feedback_capture.inl',
         'rr_dispatch': args.source.parent / 'interop/nr_rr_post_runtime.inl',
+        'fg_presentation': args.source.parent / 'nr_fg_presentation.h',
         'harness': ROOT / 'tests/ngx_lifecycle_harness.cpp.in',
         'runner': Path(__file__),
     }

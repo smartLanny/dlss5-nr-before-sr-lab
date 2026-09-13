@@ -21,6 +21,7 @@
 #include "nr_guide_contract.h"
 #include "nr_f8_types.h"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 // @ACTUAL_GUIDE_BINDING@
 CRITICAL_SECTION g_chain_cs;SRWLOCK g_nr_api_lock=SRWLOCK_INIT;
 struct Config {bool enabled=true,identity_use_original=false;float transfer_strength=1;} g_config;
@@ -29,6 +30,7 @@ struct Codec {bool failed=false;}g_codec;
 std::atomic<bool> g_nr_failed_create_process_latched{false},g_lifecycle_tracking_uncertain{false};
 std::atomic<unsigned> g_config_generation{0};
 bool other_nr_owner=false;bool OtherNrOwnerActive(){return other_nr_owner;}
+nr_fg_presentation::Policy g_fg_presentation_policy;
 struct NgxParams{};struct FeatureRecord{};enum class CodecColorMode{Automatic};
 unsigned resource_parameter_reads=0;
 bool GetResource(const NgxParams*,const char*,ID3D12Resource**){++resource_parameter_reads;return false;}

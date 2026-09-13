@@ -24,6 +24,7 @@ Id next_receipt_opportunity=1;
 std::atomic<bool> guides_awaiting_submission{false};
 std::atomic<bool> guides_awaiting_retirement{false};
 thread_local GuideCopy* present_guides=nullptr;
+thread_local bool present_blocked_by_fg=false;
 constexpr Id guide_budget=256ull*1024*1024;
 SRWLOCK guide_allocation_lock=SRWLOCK_INIT;
 bool FenceDone(ID3D12Fence* fence,Id value) {
@@ -330,7 +331,9 @@ nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigne
     return selected;
 }
 bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
+    present_blocked_by_fg=false;
     if(!present_guides||!present_ticket||!queue)return false;
+    if(g_fg_presentation_policy.Read().late_owned){present_blocked_by_fg=true;return false;}
     auto& c=*present_guides;
     // Consumption is irreversible at the first private GPU operation. A failed
     // queue wait or later opaque failure must never retry this source.
@@ -343,6 +346,7 @@ bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
     }
     return true;
 }
+bool PresentWorkBlockedByFg(){return present_blocked_by_fg;}
 void ReleasePresentGuides(ID3D12Fence* fence,Id value,bool recorded) {
     if(!present_guides)return;auto& c=*present_guides;
     if(recorded){if(!fence||!value){c.poisoned=true;}

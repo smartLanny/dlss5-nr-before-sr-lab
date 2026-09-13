@@ -173,14 +173,17 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
         if(selected)ImGui::PopStyleColor();
         SettingsTooltip(i==0?(zh?"先增强游戏场景，再由原生 SR 放大。不兼容时自动尝试后置，再尝试兼容模式。":"Enhances the scene before native SR. Automatically tries post-SR and then compatibility when unavailable."):
             i==1?(zh?"原生 SR／RR 完成后增强；不兼容时自动尝试兼容模式。":"Enhances the native SR/RR result. Automatically tries compatibility when unavailable."):
-            (zh?"处理接近输出的整张游戏画面，可能包含字幕和界面。使用近期已提交的原生 SR／RR 深度和运动数据；缺少可信数据时跳过当前帧。开销取决于 AI 渲染精度和层数；兼容问题请按 F8 收集日志。":"Processes the game image near presentation, possibly including subtitles and HUD. Uses recent submitted native SR/RR depth and motion; skips frames without trusted inputs. Cost depends on precision and pass count. Press F8 to collect compatibility logs."));
+            (zh?"处理接近输出的整张游戏画面，可能包含字幕和界面。使用近期已提交的原生 SR／RR 深度和运动数据；缺少可信数据时跳过当前帧。FG 接管呈现时，在可用的原生 SR 后、FG 前增强，沿用后置精度；没有合法入口时跳过。关闭 FG 后恢复兼容模式精度。开销取决于 AI 渲染精度和层数；兼容问题请按 F8 收集日志。":"Processes the game image near presentation, possibly including subtitles and HUD. Uses recent submitted native SR/RR depth and motion; skips frames without trusted inputs. When FG owns presentation, uses an available post-SR, pre-FG route and its precision; skips without a valid entry. Disabling FG restores compatibility precision. Cost depends on precision and pass count. Press F8 to collect logs."));
         ImGui::PopID();
     }
     ImGui::PopID();
-    const auto actual=nr_processing_runtime::Effective();
+    nr_processing::Snapshot route_snapshot{};
+    const auto actual=nr_processing_runtime::TrySnapshot(route_snapshot)?route_snapshot.current:nr_processing_runtime::Effective();
     const char* names[]={zh?"先增强，后放大":"Enhance first",zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
     ImGui::TextWrapped(zh?"实际处理位置：%s":"Actual processing position: %s",names[static_cast<unsigned>(actual)]);
-    if(actual!=next.processing_start)
+    if(nr_processing_runtime::FgRedirectRequested())
+        ImGui::TextWrapped("%s",zh?"FG 已接管呈现，当前在原生 SR 后、FG 前尝试增强，沿用后置精度；FG 设置和所选起点保持。":"FG owns presentation. NR uses an available post-SR, pre-FG entry with post-SR precision. FG settings and your selected start are preserved.");
+    else if(actual!=next.processing_start)
         ImGui::TextWrapped("%s",zh?"已自动切换兼容路径，可能存在兼容问题。请按 F8 收集日志并提交；点击按钮可重新尝试所选位置。":"Compatibility fallback is active. A compatibility issue may exist: press F8 and submit logs. Click a route to retry it.");
     if(actual==nr_processing::Start::Present){
         nr_compat_present::Observation status{};
@@ -478,7 +481,10 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
                           const ChainConfig &config,unsigned generation,nr_ui_activity::Site site) {
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
-    if(nr_processing_runtime::PresentSelected() && config.enabled && ActiveTransferStrength(config)>0.000001f){
+    nr_processing::Snapshot route_snapshot{};
+    const bool actual_present=nr_processing_runtime::TrySnapshot(route_snapshot)?
+        route_snapshot.current==nr_processing::Start::Present:nr_processing_runtime::PresentSelected();
+    if(actual_present && config.enabled && ActiveTransferStrength(config)>0.000001f){
         // This branch observes compatibility state, not the native counter
         // Window. Publish its real display with explicitly unavailable counter
         // tuples so a previous inline receipt cannot masquerade as this UI.
@@ -738,8 +744,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (rr_guarded) DrawPostRouteStatus();
     if (compatibility_post) DrawCompatibilityFallbackNotice(compatibility_snapshot);
-    const bool compatibility_mode=next.processing_start==nr_processing::Start::Present ||
-        (!has_pending && nr_processing_runtime::PresentSelected());
+    const bool compatibility_mode=!nr_processing_runtime::FgRedirectRequested() &&
+        (next.processing_start==nr_processing::Start::Present ||
+        (!has_pending && nr_processing_runtime::PresentSelected()));
     const bool before_sr = !compatibility_mode && !rr_guarded && !compatibility_post &&
         nr_processing_runtime::Effective()==nr_processing::Start::Before;
 #if NR_HAS_DETAIL_STABILITY

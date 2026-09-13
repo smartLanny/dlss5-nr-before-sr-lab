@@ -36,6 +36,7 @@ HARNESS=r'''
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 #include "nr_model_controls.h"
 #include "nr_work_config.h"
 #include "nr_config_policy.h"
@@ -43,6 +44,7 @@ HARNESS=r'''
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 ChainConfig g_config;
+nr_fg_presentation::Policy g_fg_presentation_policy;
 CRITICAL_SECTION g_chain_cs;
 wchar_t g_ini_path[MAX_PATH]={};
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};

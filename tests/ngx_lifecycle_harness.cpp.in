@@ -10,6 +10,11 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include "nr_fg_presentation.h"
+// The generated lifecycle harness includes the actual production declaration
+// block, which owns the single Policy object. Keep the fixture dependency
+// explicit without defining a second object.
+extern nr_fg_presentation::Policy g_fg_presentation_policy;
 using NgxResult = unsigned int;
 constexpr NgxResult kNgxSuccess = 1, kNgxFeatureNotFound = 2;
 struct NgxHandle { unsigned int id = 0; };

@@ -231,12 +231,23 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         Check(EnsureNrApi(native_device)&&EnsureCodec(native_device),"native runtime and codec for true capture entry");ReleaseCom(native_device);
         late_host::Guides guides;guides.Init(producer,scaled?Io::width/2:Io::width,scaled?Io::height/2:Io::height,scaled);
         if(motion)g_config.compat_percent=50;
-        unsigned changed_frames=0;bool duplicate_checked=false;unsigned long long previous_source=0,old_mode_generation=0;
+        unsigned changed_frames=0;bool duplicate_checked=false,fg_guard_checked=false;unsigned long long previous_source=0,old_mode_generation=0;
         for(unsigned frame=0;frame<48&&changed_frames<4;++frame){
             Pump();io.backbuffer=buffers[IDXGISwapChain3_GetCurrentBackBufferIndex(swap)];io.Fill();guides.Produce(producer,frame);
             // Deliberately make lineage unknown without altering the guide receipt.
             {nr_source_runtime::Lock lock;nr_source_runtime::lineage.InvalidateDevice(nr_source_runtime::RecordingOf(producer.list));}
             capture_io=&io;auto before=compat::observation.submitted;
+            if(changed_frames==2&&!fg_guard_checked&&!motion){
+                // Ownership evidence is controlled here. ReShade, the existing
+                // flight retirement and final buffer readback remain real.
+                g_fg_presentation_policy.Inventory(1,1);
+                const auto evaluations=compat::observation.evaluated[0];
+                Hr(IDXGISwapChain3_Present(swap,0,0),"controlled FG-owned real Present");
+                Check(compat::observation.status==nr_compat_present::Status::FgBoundaryOwned&&
+                    compat::observation.submitted==before&&compat::observation.evaluated[0]==evaluations&&captured_changed==0,
+                    "FG ownership rejects late NR before opaque work and preserves current output");
+                g_fg_presentation_policy.Inventory(0,0);fg_guard_checked=true;continue;
+            }
             Hr(IDXGISwapChain3_Present(swap,0,0),"receipt-gated real Present");
             auto after=compat::observation.submitted;
             nr_source_frame::PresentObservation receipt{};Check(nr_source_runtime::TryPresentObservation(receipt),"Present diagnostic available");
@@ -248,6 +259,7 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
             }
         }
         Check(changed_frames==4&&duplicate_checked,"four sustained receipt-gated real NR outputs");
+        Check(motion||fg_guard_checked,"late NR resumes after controlled FG ownership is released");
         Check(compat::current&&compat::current->uses_native_guides,"native owned guides selected without synthetic fallback");
         auto submitted=compat::observation.submitted;g_config.enabled=false;g_enabled_fast=false;nr_processing_runtime::Reconcile();
         for(unsigned i=0;i<3;++i)Hr(IDXGISwapChain3_Present(swap,0,0),"disabled receipt Present");

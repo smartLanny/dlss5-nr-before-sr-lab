@@ -7,6 +7,7 @@
 #include <cstring>
 #include <stdexcept>
 #include "../src/nr_source_frame.hpp"
+#include "../src/nr_fg_presentation.h"
 // CPU contract test of the actual adapter. SDK calls and MinHook outcomes are
 // explicit doubles; this does not claim Streamline/NVIDIA execution.
 enum MH_STATUS{MH_OK,MH_ERROR_ALREADY_INITIALIZED,MH_ERROR_ENABLED,MH_ERROR_MEMORY_ALLOC};
@@ -15,6 +16,7 @@ MH_STATUS MH_Initialize(){return MH_OK;}
 MH_STATUS MH_CreateHook(void* target,void*,void** original){++creates;*original=target;return MH_OK;}
 MH_STATUS MH_EnableHook(void*){++enables;return enable_failure?MH_ERROR_MEMORY_ALLOC:MH_OK;}
 namespace nr_processing_runtime{std::atomic<bool> work_enabled{true};}
+nr_fg_presentation::Policy g_fg_presentation_policy;
 namespace adapter {
 using nr_source_frame::Id;using nr_source_frame::Source;
 SRWLOCK source_lock=SRWLOCK_INIT;
@@ -31,6 +33,17 @@ int FakeConstants(const void*,const void*,const void*){return constants_result;}
 int FakeTags(const void*,const void*,const void*,unsigned,void*){return constants_result;}
 int FakeEvaluate(unsigned,const void*,const void*const*,unsigned,void*){seen=adapter::sl_source;return 0;}
 int FakeMarker(unsigned,const void*){return 0;}
+int fg_options_result=0;bool advance_options_lifecycle=false;
+const void* seen_options_view=nullptr;const void* seen_options=nullptr;
+int FakeFgOptions(const void* viewport,const void* options){
+    seen_options_view=viewport;seen_options=options;
+    if(advance_options_lifecycle){g_fg_presentation_policy.BeginCreate();g_fg_presentation_policy.EndCreate();}
+    return fg_options_result;
+}
+int FakeGetFunction(unsigned feature,const char* name,void*& function){
+    if(feature==1000&&name&&std::strcmp(name,"slDLSSGSetOptions")==0){function=reinterpret_cast<void*>(&FakeFgOptions);return 0;}
+    return -9;
+}
 unsigned FrameSequence(const void* pointer){return *reinterpret_cast<const unsigned*>(static_cast<const unsigned char*>(pointer)+sizeof(adapter::sl_wire::Frame));}
 struct Token{adapter::sl_wire::Frame header{};unsigned value=0;};
 int main(){try{using namespace adapter;using namespace adapter::sl_wire;
@@ -41,7 +54,8 @@ int main(){try{using namespace adapter;using namespace adapter::sl_wire;
     token.header.base.version=2;Check(!FrameValue(&token,value),"unknown frame ABI version rejected");token.header.base.version=1;
     viewport.base.version=2;Check(!ViewValue(&viewport,value),"unknown viewport ABI rejected");viewport.base.version=1;
     Check(ViewValue(&viewport,value)&&value==7,"public viewport identity read");
-    provider=GetModuleHandleW(nullptr);constants=FakeConstants;tags=FakeTags;evaluate=FakeEvaluate;marker=FakeMarker;enabled=true;
+    provider=GetModuleHandleW(nullptr);constants=FakeConstants;tags=FakeTags;evaluate=FakeEvaluate;
+    get_function=FakeGetFunction;marker=FakeMarker;enabled=true;
     Check(HookConstants(nullptr,&token,&viewport)==0,"original constants result preserved");auto first=OneView(&token);
     Check(bool(first)&&first.sequence==1,"frame zero published with nonzero internal source");
     HookTags(&token,&viewport,nullptr,0,nullptr);Check(OneView(&token)==first,"constants and tag observation share one identity");
@@ -60,6 +74,38 @@ int main(){try{using namespace adapter;using namespace adapter::sl_wire;
     Check(creates==1&&enables==1,"one owned disabled hook retained");enable_failure=false;
     Check(Install(reinterpret_cast<void*>(&FakeMarker),reinterpret_cast<void*>(&HookMarker),&original)&&Ready(&original),"owned disabled hook can retry enable");
     Check(creates==1&&enables==2,"retry does not create duplicate hook or adopt foreign trampoline");
+    void* options_function=nullptr;
+    Check(HookGetFunction(1000,"slDLSSGSetOptions",options_function)==0&&
+        options_function==reinterpret_cast<void*>(&HookFgOptions),"real feature factory result is wrapped");
+    FgOptionsPrefix options{};options.base.type=fg_options_type;options.base.version=5;options.mode=1;
+    g_fg_presentation_policy.Inventory(1,1);
+    auto set_options=reinterpret_cast<FgOptionsFn>(options_function);
+    Check(set_options(&viewport,&options)==0&&seen_options_view==&viewport&&seen_options==&options&&
+        g_fg_presentation_policy.Read().reason==nr_fg_presentation::Reason::OptionsEnabled,
+        "successful On passes exact arguments and records public ABI");
+    options.mode=0;Check(set_options(&viewport,&options)==0&&!g_fg_presentation_policy.Read().late_owned,
+        "successful Off overrides the current live handle");
+    GUID unknown=options.base.type;unknown.Data1^=1;options.base.type=unknown;options.mode=1;
+    Check(set_options(&viewport,&options)==0&&!g_fg_presentation_policy.Read().late_owned,
+        "unknown options GUID cannot change ownership");
+    options.base.type=fg_options_type;options.base.version=6;
+    Check(set_options(&viewport,&options)==0&&!g_fg_presentation_policy.Read().late_owned,
+        "future options version is not parsed as known");
+    options.base.version=5;fg_options_result=-17;
+    Check(set_options(&viewport,&options)==-17&&!g_fg_presentation_policy.Read().late_owned,
+        "failed original On result is returned and ignored");
+    fg_options_result=0;Check(set_options(&viewport,&options)==0&&g_fg_presentation_policy.Read().late_owned,
+        "successful On is observed after the original returns");
+    options.mode=0;fg_options_result=-23;
+    Check(set_options(&viewport,&options)==-23&&g_fg_presentation_policy.Read().late_owned,
+        "failed original Off result cannot authorize final Present");
+    fg_options_result=0;Check(set_options(&viewport,&options)==0&&!g_fg_presentation_policy.Read().late_owned,
+        "successful Off restores the current lifetime before rollover test");
+    options.mode=1;advance_options_lifecycle=true;
+    Check(set_options(&viewport,&options)==0&&g_fg_presentation_policy.Read().options==0&&
+        g_fg_presentation_policy.Read().reason==nr_fg_presentation::Reason::LiveHandleModeUnknown,
+        "successful call crossing Feature11 lifecycle cannot publish stale options");
+    advance_options_lifecycle=false;
     next_poll=GetTickCount64()+10000;const auto before=creates;Poll();Check(creates==before,"poll honors backoff");
     std::printf("Streamline source adapter CPU: %u checks passed; SDK/FG execution not tested\n",checks);return 0;
 }catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());return 1;}}

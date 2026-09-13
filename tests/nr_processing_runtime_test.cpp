@@ -1,5 +1,6 @@
 // Production route adapter; command admission and GPU work are explicit seams.
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 #include <atomic>
 #include <cmath>
 #include <cassert>
@@ -8,6 +9,7 @@ struct Config {bool enabled=true,identity_use_original=false;float transfer_stre
     nr_processing::Start processing_start=nr_processing::Start::After;
     unsigned long long processing_selection=1;}g_config;
 std::atomic<unsigned> g_history_generation{1};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 int g_chain_cs=0;
 bool TryEnterCriticalSection(int*){return true;}
 void LeaveCriticalSection(int*){}

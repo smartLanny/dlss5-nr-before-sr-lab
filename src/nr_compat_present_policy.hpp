@@ -13,7 +13,7 @@ enum class Status : unsigned {
     Off, Switching, AwaitingConsent, MissingNativeGuides, SourceUnavailable,
     UnsupportedApi, UnsupportedSurface, WrongDeviceOrQueue, OtherNrOwner,
     Budget, Preparing, Creating, Busy, Submitted, Completed, Draining,
-    BuildFailure, Poisoned, RetryBackoff
+    BuildFailure, Poisoned, RetryBackoff, FgBoundaryOwned
 };
 inline const char* Name(Status s) noexcept {
     switch (s) {
@@ -32,6 +32,7 @@ inline const char* Name(Status s) noexcept {
     case Status::BuildFailure:return "resource-or-shader-build-failed";
     case Status::Poisoned:return "quarantined-restart-required";
     case Status::RetryBackoff:return "waiting-for-source-frame-retry";
+    case Status::FgBoundaryOwned:return "FG-owns-Present; final-surface-NR-skipped";
     }
     return "invalid";
 }

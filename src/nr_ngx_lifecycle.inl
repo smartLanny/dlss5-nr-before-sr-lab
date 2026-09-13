@@ -163,7 +163,7 @@ NgxLifecycleEvidence SnapshotNgxLifecycleEvidence() {
 }
 
 void RecountNgxOwnersLocked() {
-    unsigned int rr = 0, external = 0;
+    unsigned int rr = 0, external = 0, fg = 0, reconstruction = 0;
     for (std::size_t i = 0; i < std::size(g_features); ++i) {
         const auto &r = g_features[i];
         if (!r.handle) continue;
@@ -173,9 +173,15 @@ void RecountNgxOwnersLocked() {
                 first = false;
         if (!first) continue;
         if (r.feature_id == 13) ++rr;
+        if (r.owner == NgxOwner::Game && r.feature_id == 11) ++fg;
+        // Generated product cores connect Feature13 to ProcessRrPost; both
+        // supported reconstruction carriers create CarrierScope only where a
+        // real native After operation can be attempted.
+        if (r.owner == NgxOwner::Game && (r.feature_id == 1 || r.feature_id == 13)) ++reconstruction;
         if (r.owner == NgxOwner::ExternalNr) ++external;
     }
     g_live_rr_handles.store(rr, std::memory_order_release);
+    g_fg_presentation_policy.Inventory(fg,reconstruction);
     g_external_nr_handles.store(external, std::memory_order_release);
 }
 
@@ -194,6 +200,7 @@ struct ScopedNgxCreate {
     bool private_nr;
     bool private_origin_uncertain;
     bool finished = false;
+    nr_fg_presentation::Creating fg_creation{g_fg_presentation_policy,feature==11};
     ScopedNgxCreate(NgxLayer entry, ID3D12GraphicsCommandList *command_list, int id,
                     const NgxParams *params)
         : layer(entry), list(command_list), params_identity(params), feature(id),
