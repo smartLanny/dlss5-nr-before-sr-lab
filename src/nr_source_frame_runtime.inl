@@ -223,7 +223,8 @@ void RetireProducer(Id handle,Id epoch=0){
         RetireReceiptStreamLocked(p.stream,p.epoch);p={};}
 }
 void RetireFeature(const NgxHandle* handle,unsigned long long generation){Lock lock;RetireProducer(reinterpret_cast<Id>(handle),generation);}
-void RetireSwapchain(reshade::api::swapchain* chain){Lock lock;RetireProducer(reinterpret_cast<Id>(chain));}
+void ForgetPresentDemand(Id chain);
+void RetireSwapchain(reshade::api::swapchain* chain){Lock lock;ForgetPresentDemand(reinterpret_cast<Id>(chain));RetireProducer(reinterpret_cast<Id>(chain));}
 Source ProducerSource(Id handle,Id epoch,Id supplied=0) {
     if(!handle||!epoch)return {};
     Producer* free=nullptr;
@@ -297,6 +298,7 @@ NativeInputs ReadFgInputs(const NgxParams* params) {
     return input;
 }
 #include "nr_source_transport.inl"
+void ForgetPresentDemand(Id chain){present_demands.Forget(chain);}
 void BeginNativeReceiptOpportunity(Source source) {
     Lock lock;Id device=0;
     for(const auto& producer:producers)if(producer.stream==source.stream&&producer.epoch==source.epoch){device=producer.device;break;}
@@ -370,6 +372,12 @@ void CaptureNgxGuides(ID3D12GraphicsCommandList* list,const NgxParams* params,co
     GetUInt(params,"DLSS.Output.Subrect.Base.X",&ox);GetUInt(params,"DLSS.Output.Subrect.Base.Y",&oy);
     if(!ResolveRenderExtentFromEvaluate(params,feature,color,x,y,rw,rh)||
        !ResolveOutputExtentFromEvaluate(params,feature,output,ox,oy,rw,rh,ow,oh))return;
+    // ResolveOutputExtent already selected a bounded logical viewport. We do
+    // not read/copy Output here, so a nonzero Output atlas origin alone is not
+    // a reason to reject its independently bounded Depth/MV active regions.
+    if(!PresentDemandNeedsCapture(source,config_generation,ow,oh)) {
+        GuideCaptureStage("consumer-demand-rejected-before-snapshot");return;
+    }
     NrGuideBinding guides{};
     GuideCaptureStage("native-guide-binding");
     const bool resolved=ResolveNrGuideBinding(params,feature,1,ow,oh,rw,rh,color,x,y,CodecColorMode::Automatic,guides)&&
@@ -630,6 +638,9 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
     diagnostic.promotion_eligible=nr_source_frame::PresentPromotionEligible(label,queue_identity);
     diagnostic.promotion_blocked_by_native_producer=false;
     const auto desc=ID3D12Resource_GetDesc(buffer);
+    present_demands.Publish(reinterpret_cast<Id>(chain),present_resource.device,
+        g_config_generation.load(std::memory_order_relaxed),
+        {desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,desc.Height});
     const bool known_generated=label.role==Role::Generated;
     const bool known_fg_consumed=label.fg_consumed;
     const bool known_inline_processed=label.processed;

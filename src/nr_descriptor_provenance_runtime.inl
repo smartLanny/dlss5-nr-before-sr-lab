@@ -1,7 +1,15 @@
 // Included after NrNativeFormatScope. All COM calls are outside the value
 // registry's mutex. Lifetime notifications own metadata only, never the device,
 // heap or resource whose destruction they report.
+// Runtime selection is accepted only before the first registry observation.
+// A racing observer seals the default full mirror; no live registry is rebuilt.
 nr_descriptor::Registry<> g_nr_descriptors;
+bool NrDescriptorConfigureStartup(bool low_overhead) {
+    return g_nr_descriptors.ConfigureStartup(!low_overhead);
+}
+bool NrDescriptorLowOverheadActive() {
+    return !g_nr_descriptors.GpuMirrorEnabled();
+}
 extern std::atomic<unsigned long long> g_carrier_evaluations;
 std::mutex g_nr_descriptor_identity_mutex;
 std::atomic<std::uint64_t> g_nr_descriptor_ids{1},g_nr_descriptor_lifetime_failures{0};
@@ -205,7 +213,7 @@ struct NrDescriptorCopy {
     nr_descriptor::UnknownCopy unknown;
     unsigned count=0;
     ~NrDescriptorCopy(){
-        for(unsigned i=0;i<count;++i)g_nr_descriptors.Finish(writes[i]);
+        g_nr_descriptors.FinishCopies(count,writes.get());
         if(unknown.active)g_nr_descriptors.EndUnknownCopy(unknown);
     }
     NrDescriptorCopy()=default;
@@ -216,6 +224,12 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
         const D3D12_CPU_DESCRIPTOR_HANDLE *destination,const UINT *destination_sizes,UINT sources,
         const D3D12_CPU_DESCRIPTOR_HANDLE *source,const UINT *source_sizes,D3D12_DESCRIPTOR_HEAP_TYPE type) {
     if(!NrDescriptorObserveDeviceLayer(device) || (type!=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV && type!=D3D12_DESCRIPTOR_HEAP_TYPE_RTV))return;
+    // Keep all CPU destinations on the exact existing writer path. A whole
+    // shader-visible destination is optional diagnostic metadata only; it is
+    // deliberately SlotUnknown, so the existing current CPU-clear contract
+    // must still validate resource, view, call, and actual bound heap.
+    if(g_nr_descriptors.SkipGpuDestinations(destinations,destination,destination_sizes,
+            static_cast<unsigned>(type)))return;
     const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,type);
     const auto unknown_destinations=[&]() {
         // This small RAII object exists even if either allocation fails. Unknown
@@ -254,6 +268,8 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
     if(!stride){unknown_destinations();return;}
     copy.writes.reset(new(std::nothrow) nr_descriptor::Write[static_cast<unsigned>(destination_count)]);
     if(!copy.writes){unknown_destinations();return;}
+    nr_descriptor::Id destination_ids[NrDescriptorCopy::kMaximum]{};
+    nr_descriptor::Id source_ids[NrDescriptorCopy::kMaximum]{};
     unsigned destination_range=0,destination_offset=0,source_range=0,source_offset=0;
     for(std::uint64_t n=0;n<destination_count;++n) {
         while(destination_range<destinations && destination_offset==(destination_sizes?destination_sizes[destination_range]:1)) {++destination_range;destination_offset=0;}
@@ -264,8 +280,10 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
         if(destination_handle<destination[destination_range].ptr || source_handle<source[source_range].ptr) {
             unknown_destinations();return;
         }
-        copy.writes[copy.count++]=g_nr_descriptors.BeginCopy(destination_handle,source_handle,static_cast<unsigned>(type));
+        destination_ids[copy.count]=destination_handle;source_ids[copy.count]=source_handle;++copy.count;
     }
+    g_nr_descriptors.BeginCopies(copy.count,destination_ids,source_ids,
+        static_cast<unsigned>(type),copy.writes.get());
 }
 bool NrDescriptorFormatScopeMatches(const NrNativeFormatScope &scope,unsigned role,
         ID3D12Device *device,ID3D12Resource *resource) {

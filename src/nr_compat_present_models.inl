@@ -49,8 +49,10 @@ bool NativeGuideAvailable(const nr_source_runtime::PresentLease& lease) {
 }
 NrGuideBinding LayerGuides(const Context& c,const Layer& l) {
     auto guides=c.native_guides;auto& signature=guides.signature;
-    // Preserve the established post-NR guide units. Low-resolution MV is
-    // expressed by the actual guide extent/create flag, not a second scaling.
+    // Selection is frozen with the context. A change retires its old flights
+    // before rebuilding; it never changes the interpretation of an in-flight bind.
+    if(!nr_present_mapping::CompensateLayerMotion(signature.motion_scale_x,signature.motion_scale_y,
+        {c.source.width,c.source.height},{l.context.width,l.context.height},c.motion_compensation))return {};
     signature.normalized_create_flags &= ~3;
     signature.normalized_create_flags |= c.encoding==Encoding::Srgb?0:1;
     if(signature.motion_bound_width!=l.context.width||signature.motion_bound_height!=l.context.height)

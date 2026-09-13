@@ -276,6 +276,19 @@ void GuideCopiesSubmitted(ID3D12CommandQueue* queue,Recording recording,bool suc
     bool pending=false;for(const auto& c:guide_copies)pending|=c.recorded&&!c.submitted&&!c.poisoned;
     guides_awaiting_submission.store(pending,std::memory_order_release);
 }
+// CPU-only consumer preflight; not source-frame proof or GPU completion.
+nr_present_mapping::Demands<8> present_demands;
+Id present_demand_skips=0;
+bool PresentAutomaticViewportScale() { return true; }
+bool PresentDemandNeedsCapture(Source source,unsigned config,unsigned width,unsigned height) {
+    Lock lock;
+    const auto* stream=ReceiptStreamFor(source,false);
+    const bool needed=stream && present_demands.Needed(stream->device,config,
+        {width,height},true);
+    if(!needed && present_demand_skips!=UINT64_MAX)++present_demand_skips;
+    return needed;
+}
+
 nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigned height,
     bool known_generated,bool known_fg_consumed,bool known_inline_processed,Id present_queue,unsigned config_generation) {
     nr_late_present::Candidate candidates[8]{};
@@ -285,8 +298,9 @@ nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigne
             c.opportunity,device?device->latest:0,c.recording.device,c.queue,c.producer_value,c.config_generation,
             c.output_width,c.output_height,c.recorded&&!c.reserved&&!c.acquired,c.native_result_known,
             c.native_succeeded,c.submitted,c.consumed,c.inline_processed,c.fg_consumed,c.poisoned||c.retired};}
-    const nr_late_present::Request request{device,width,height,config_generation,
+    nr_late_present::Request request{device,width,height,config_generation,
         known_generated,known_fg_consumed,known_inline_processed};
+    request.automatic_full_viewport_scale=PresentAutomaticViewportScale();
     auto selected=nr_late_present::Select(request,candidates,8);
     guide_receipt_diagnostics.present_width=width;guide_receipt_diagnostics.present_height=height;
     guide_receipt_diagnostics.selection=selected.decision;
@@ -295,10 +309,20 @@ nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigne
     auto& c=guide_copies[selected.index];
     const auto done=ID3D12Fence_GetCompletedValue(c.producer_fence);if(done==UINT64_MAX){c.poisoned=true;
         selected.decision=nr_late_present::Decision::NativeFailed;guide_receipt_diagnostics.selection=selected.decision;return selected;}
+
+    float mapped_x=c.guides.signature.motion_scale_x,mapped_y=c.guides.signature.motion_scale_y;
+    if(!nr_present_mapping::ScaleToModel(mapped_x,mapped_y,
+            {c.output_width,c.output_height},{width,height})) {
+        selected.decision=nr_late_present::Decision::WrongExtent;
+        guide_receipt_diagnostics.selection=selected.decision;return selected;
+    }
     ++guide_receipt_diagnostics.selected;
     c.acquired=true;present_guides=&c;present_lease.source=c.source;
     present_lease.source_id=c.source.sequence;present_lease.role=Role::Application;present_lease.guides=c.guides;
     present_lease.source_signature=c.source_signature;present_lease.guides_owned=present_lease.guides_current=true;
+    // O -> actual P only. No texture resample and no extra model pass.
+    present_lease.guides.signature.motion_scale_x=mapped_x;
+    present_lease.guides.signature.motion_scale_y=mapped_y;
     present_lease.source_jitter_known=c.guides.jitter.known;present_lease.output_jitter_known=false;
     present_lease.producer_fence=c.producer_fence;present_lease.producer_value=c.producer_value;
     present_lease.producer_queue=c.queue;present_lease.queue=present_queue;present_lease.source_age=selected.age;

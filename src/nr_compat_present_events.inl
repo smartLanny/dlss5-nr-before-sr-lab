@@ -241,6 +241,8 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     if(current&&(current->owner!=chain||current->queue!=native_queue||!IsSameRrDepthDevice(current->device,device)||
         !(current->source==source)||!(current->work==work)||current->encoding!=encoding||current->format!=desc.Format||
         current->passes!=passes||current->numerator!=numerator||current->denominator!=denominator||!SameNrTuningSignature(current->tuning,tuning)||
+        current->motion_compensation!=g_config.present_mv_compensation||
+        current->native_output.width!=source_lease.output_width||current->native_output.height!=source_lease.output_height||
         current->uses_native_guides!=native_guides||(native_guides&&!SameNrGuideStorageContract(current->native_contract,source_lease.guides.signature)))){
         const bool retired=RetireCurrent();ReleaseCom(device);
         if(!retired){if(!current->timeline.Poisoned())SetStatus(Status::Draining);return;}
@@ -254,6 +256,8 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         if(!c){ReleaseCom(device);reject_build("present-context-allocation-failed");SetStatus(Status::Budget);return;}
         c->device=device;device=nullptr;c->queue=native_queue;ID3D12CommandQueue_AddRef(native_queue);
         c->owner=chain;c->source=source;c->work=work;c->encoding=encoding;c->format=desc.Format;
+        c->native_output={source_lease.output_width,source_lease.output_height};
+        c->motion_compensation=g_config.present_mv_compensation;
         c->uses_native_guides=native_guides;c->native_guides=source_lease.guides;c->native_contract=source_lease.guides.signature;
         if(next_generation==UINT64_MAX){ReleaseCom(c->queue);ReleaseCom(c->device);delete c;SetStatus(Status::BuildFailure);return;}
         c->passes=passes;c->numerator=numerator;c->denominator=denominator;c->tuning=tuning;c->generation=next_generation++;

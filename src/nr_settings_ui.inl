@@ -1031,6 +1031,29 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 #endif
         changed |= ImGui::Checkbox(ui("Allow experimental HDR colour", "允许实验 HDR 调色"), &next.allow_unverified_hdr_color);
         SettingsTooltip(ui("Allows colour edits for an unverified HDR input. Turn off if colour shifts or flicker appear; the AI colour slider never changes this permission.", "当前 HDR 颜色无法确认时，允许尝试 AI 调色。出现偏色或闪烁时关闭；调整 AI 色彩强度不会自动开启此项。"));
+        changed |= ImGui::Checkbox(ui("Low-overhead descriptor mode (experimental)",
+            "描述符低开销模式（实验）"), &next.descriptor_low_overhead);
+        SettingsTooltip(ui(
+            "Only reduces the shader-visible descriptor diagnostic mirror. CPU format restoration and real API calls stay unchanged. It may reduce troubleshooting evidence and does not guarantee a speedup. Off by default; restart the game to take effect.",
+            "只减少 shader-visible 描述符诊断镜像；CPU 格式恢复与真实 API 照常。可能降低问题定位证据，不保证提速。默认关闭，重启游戏生效。"));
+        const bool descriptor_low_active=NrDescriptorLowOverheadActive();
+        SettingsNote(next.descriptor_low_overhead!=descriptor_low_active
+            ? ui("Descriptor preference changed; restart the game to apply it.","描述符设置已更改，需重启游戏生效。")
+            : descriptor_low_active?ui("Active: low-overhead descriptor mode.","当前生效：描述符低开销模式。")
+            : ui("Active: full descriptor mirror.","当前生效：完整描述符镜像。"));
+        int present_mv_compensation = static_cast<int>(next.present_mv_compensation);
+        if (ImGui::Combo(ui("Motion Vector size compensation",
+                "Motion Vector 尺寸补偿"), &present_mv_compensation,
+                ui("Conservative automatic\0Force compensation\0",
+                   "保守自动\0强制补偿\0"))) {
+            next.present_mv_compensation = present_mv_compensation == 1 ? 1u : 0u;
+            changed = true;
+        }
+        SettingsTooltip(ui(
+            "Applies to compatibility mode. Conservative automatic preserves the required native-output-to-Present conversion and existing per-layer motion units. Force additionally scales motion by each NR layer's size relative to Present. Compare static views and camera turns: ghosting or flicker may improve or worsen. Both use real motion vectors. A change waits for current work to finish and rebuilds NR state; no game restart is needed.",
+            "只影响兼容模式。保守自动保留必要的原生输出→Present 转换及现有每层运动向量单位；强制补偿额外按每层 NR 相对 Present 的尺寸比例缩放。两项都使用真实运动向量。请对照静止画面与转动视角，拖影或闪烁可能改善，也可能加重。切换会等待当前处理完成并重新建立 NR 状态，无需重启游戏。"));
+        SettingsNote(ui("Descriptor mode needs a game restart. Motion compensation changes during the current session.",
+            "描述符模式需重启游戏生效；Motion Vector 补偿可在本次运行中切换。"));
         SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));
         const unsigned render_width = g_last_dlss_input_width.load(std::memory_order_relaxed);
         const unsigned render_height = g_last_dlss_input_height.load(std::memory_order_relaxed);

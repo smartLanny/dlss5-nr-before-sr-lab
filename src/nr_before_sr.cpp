@@ -91,11 +91,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline18";
+constexpr const char *kAddonVersion = "beta0.5-dline19";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline18";
+constexpr const char *kBuildIdentity = "beta0.5-dline19";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -960,6 +960,13 @@ struct ChainConfig {
     // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
     // converting from the game's SR input grid to the NR work grid.
     NrJitterMode jitter_mode = NrJitterMode::Legacy;
+    // Persistent developer preference. The descriptor mirror implementation
+    // consumes this at process startup; changing it in the overlay requires a
+    // game restart to affect the running process.
+    bool descriptor_low_overhead = false;
+    // 0 keeps the conservative automatic/D18 unit contract; 1 is an explicit
+    // P-to-layer-NR compensation comparison request.
+    unsigned present_mv_compensation = 0;
 };
 
 ChainConfig g_config = {};
@@ -1026,6 +1033,7 @@ unsigned CaptureWorkers(bool fg);
 bool CaptureUsesFg();
 bool InlineDrainReady();
 bool TrySnapshot(nr_compat_present::Observation&);
+bool TrySnapshotExperimentModes(unsigned&,unsigned&,bool&,bool&);
 void Register(bool);
 }
 struct FeedbackSession;
@@ -1535,6 +1543,8 @@ void NormalizeConfig(ChainConfig &config) {
     const int jitter_mode = static_cast<int>(config.jitter_mode);
     config.jitter_mode = jitter_mode == static_cast<int>(NrJitterMode::GameInputPixel)
         ? NrJitterMode::GameInputPixel : NrJitterMode::Legacy;
+    config.present_mv_compensation =
+        config.present_mv_compensation == 1u ? 1u : 0u;
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
@@ -1594,7 +1604,9 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.ui_correction == b.ui_correction &&
            a.perf_epoch == b.perf_epoch &&
            a.r8_output_encoding == b.r8_output_encoding &&
-           a.jitter_mode == b.jitter_mode;
+           a.jitter_mode == b.jitter_mode &&
+           a.descriptor_low_overhead == b.descriptor_low_overhead &&
+           a.present_mv_compensation == b.present_mv_compensation;
 }
 
 void ReloadConfig(bool force = false) {
@@ -1777,6 +1789,10 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
+    next.descriptor_low_overhead = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"DescriptorLowOverhead", 0, g_ini_path) != 0;
+    next.present_mv_compensation = static_cast<unsigned int>(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"PresentMvCompensation", 0, g_ini_path));
     ApplyConfigPolicyMigrations(next, new_work_file);
     NormalizeConfig(next);
 
@@ -1988,6 +2004,10 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
+    record_write(WriteIniInt(L"DescriptorLowOverhead",
+                             config.descriptor_low_overhead ? 1 : 0));
+    record_write(WriteIniInt(L"PresentMvCompensation",
+                             static_cast<int>(config.present_mv_compensation)));
     // The concrete mode/strength/master values and shared-strength marker
     // precede the one-time policy markers. Never certify a partial save.
     if (ok) record_write(WriteIniInt(L"ExtraStrengthPolicyVersion",
@@ -14854,13 +14874,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline18 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline19 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline18 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline19 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -14917,6 +14937,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             kChineseUi ? "zh-CN" : "en",
             addon_leaf_utf8, kBuildIdentity, kSourceCommit, kSourceDirty ? 1 : 0);
         ReloadConfig(true);
+        const bool descriptor_startup_applied=NrDescriptorConfigureStartup(g_config.descriptor_low_overhead);
+        Log("[descriptor] startup lowOverheadRequested=%d lowOverheadActive=%d applied=%d; later preference changes require a new process.",
+            g_config.descriptor_low_overhead?1:0,NrDescriptorLowOverheadActive()?1:0,descriptor_startup_applied?1:0);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");
             return FALSE;

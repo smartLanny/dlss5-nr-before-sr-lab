@@ -73,10 +73,13 @@ bool SameComObject(IUnknown* first,IUnknown* second) {
     const bool same=first_ok&&second_ok&&first_identity==second_identity;
     ReleaseCom(first_identity);ReleaseCom(second_identity);return same;
 }
+bool SameFloat(float first,float second){return std::fabs(first-second)<=0.000001f;}
 struct Guides {
     ID3D12Resource *depth=nullptr,*motion=nullptr,*uploads[2]{};
     NrGuideBinding binding{};NgxParams* params=nullptr;FeatureRecord feature{};
-    void Init(Io& io) {
+    unsigned output_width=Io::width,output_height=Io::height;float input_mv_x=1,input_mv_y=1;
+    void Init(Io& io,unsigned width=Io::width,unsigned height=Io::height,bool signed_motion=false) {
+        output_width=width;output_height=height;input_mv_y=signed_motion?-1.f:1.f;
         io.Reset();
         for(unsigned i=0;i<2;++i){
             D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -98,15 +101,17 @@ struct Guides {
         }
         io.Submit();
         binding.depth=depth;binding.motion=motion;binding.has_motion_scale_x=binding.has_motion_scale_y=binding.valid_motion_scale_x=binding.valid_motion_scale_y=true;
-        auto& s=binding.signature;s.depth_physical_width=s.motion_physical_width=s.color_physical_width=s.depth_width=s.motion_source_width=s.motion_bound_width=Io::width;
-        s.depth_physical_height=s.motion_physical_height=s.color_physical_height=s.depth_height=s.motion_source_height=s.motion_bound_height=Io::height;
-        s.depth_format=DXGI_FORMAT_R32_FLOAT;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;s.color_format=DXGI_FORMAT_R8G8B8A8_UNORM;s.motion_scale_x=s.motion_scale_y=1;
+        auto& s=binding.signature;s.depth_physical_width=s.motion_physical_width=s.color_physical_width=Io::width;
+        s.depth_width=s.motion_source_width=s.motion_bound_width=output_width;
+        s.depth_physical_height=s.motion_physical_height=s.color_physical_height=Io::height;
+        s.depth_height=s.motion_source_height=s.motion_bound_height=output_height;
+        s.depth_format=DXGI_FORMAT_R32_FLOAT;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;s.color_format=DXGI_FORMAT_R8G8B8A8_UNORM;s.motion_scale_x=input_mv_x;s.motion_scale_y=input_mv_y;
         Check(g_nr_api.allocate(&params)==kNgxSuccess&&params,"actual NGX parameter object for capture entry");
-        feature.feature_id=1;feature.generation=1;feature.create_flags=0;feature.width=Io::width;feature.height=Io::height;feature.out_width=Io::width;feature.out_height=Io::height;
+        feature.feature_id=1;feature.generation=1;feature.create_flags=0;feature.width=output_width;feature.height=output_height;feature.out_width=output_width;feature.out_height=output_height;
         SetResource(params,"Color",io.backbuffer);SetResource(params,"Output",io.backbuffer);SetResource(params,"Depth",depth);SetResource(params,"MotionVectors",motion);
-        SetUInt(params,"Width",Io::width);SetUInt(params,"Height",Io::height);SetUInt(params,"OutWidth",Io::width);SetUInt(params,"OutHeight",Io::height);
-        SetUInt(params,"DLSS.Render.Subrect.Dimensions.Width",Io::width);SetUInt(params,"DLSS.Render.Subrect.Dimensions.Height",Io::height);
-        SetFloat(params,"MV.Scale.X",1);SetFloat(params,"MV.Scale.Y",1);SetFloat(params,"Jitter.Offset.X",0);SetFloat(params,"Jitter.Offset.Y",0);
+        SetUInt(params,"Width",output_width);SetUInt(params,"Height",output_height);SetUInt(params,"OutWidth",output_width);SetUInt(params,"OutHeight",output_height);
+        SetUInt(params,"DLSS.Render.Subrect.Dimensions.Width",output_width);SetUInt(params,"DLSS.Render.Subrect.Dimensions.Height",output_height);
+        SetFloat(params,"MV.Scale.X",input_mv_x);SetFloat(params,"MV.Scale.Y",input_mv_y);SetFloat(params,"Jitter.Offset.X",0);SetFloat(params,"Jitter.Offset.Y",0);
     }
     void Produce(Io& io,unsigned frame) {
         namespace S=nr_source_runtime;
@@ -127,7 +132,9 @@ struct Guides {
         S::CaptureNgxGuides(io.list,params,feature,source);
         S::GuideReceiptDiagnostics d{};Check(S::TryGuideReceiptDiagnostics(d),"capture entry diagnostic published");
         std::printf("capture stage=%s shader=%d\n",d.last.stage,d.last.shader_snapshot);
-        if(std::strcmp(d.last.stage,"guide-command-state-unavailable")==0&&frame<4){
+        if((std::strcmp(d.last.stage,"guide-command-state-unavailable")==0&&frame<4)||
+           std::strcmp(d.last.stage,"consumer-demand-rejected-before-snapshot")==0){
+            ID3D12GraphicsCommandList_SetPredication(io.list,nullptr,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
             S::CompleteNativeReceipt(source,true);io.Submit();return; // fresh hook publication needs the next real Reset
         }
         Check(std::strcmp(d.last.stage,"recorded")==0&&d.last.shader_snapshot,"real CaptureNgxGuides binding and shader transport recorded");
@@ -144,17 +151,49 @@ struct Guides {
         io.Submit();
     }
 };
+void CheckMappedMotionScale(const Guides& guides,unsigned long long source) {
+    namespace compat=nr_compat_present_runtime;const auto& lease=nr_source_runtime::CurrentPresentLease();
+    const float expected_x=guides.input_mv_x*Io::width/guides.output_width;
+    const float expected_y=guides.input_mv_y*Io::height/guides.output_height;
+    Check(lease.output_width==guides.output_width&&lease.output_height==guides.output_height&&
+        SameFloat(lease.guides.signature.motion_scale_x,expected_x)&&SameFloat(lease.guides.signature.motion_scale_y,expected_y),
+        "AcquirePresentGuides rebases signed motion scale from native Output to Present raster");
+    Check(compat::current&&compat::current->native_output.width==guides.output_width&&compat::current->native_output.height==guides.output_height&&
+        SameFloat(compat::current->native_guides.signature.motion_scale_x,expected_x)&&SameFloat(compat::current->native_guides.signature.motion_scale_y,expected_y),
+        "Present context retains the native Output identity and mapped guide lease");
+    const bool forced=compat::current->motion_compensation==1;
+    const float model_x=forced?expected_x*compat::current->layers[0].context.width/Io::width:expected_x;
+    const float model_y=forced?expected_y*compat::current->layers[0].context.height/Io::height:expected_y;
+    bool actual_parameters=false;for(unsigned slot=0;slot<compat::kFlightCount;++slot)if(compat::current->flights[slot].source==source){
+        float x=0,y=0;auto* params=compat::current->layers[0].evaluation_params[slot];
+        actual_parameters=GetFloat(params,"DLSSNR.MVecScaleX",&x)&&GetFloat(params,"DLSSNR.MVecScaleY",&y)&&
+            SameFloat(x,model_x)&&SameFloat(y,model_y);if(actual_parameters)break;}
+    Check(actual_parameters,"real NVIDIA Evaluate parameters receive the mapped signed motion scale");
+    std::printf("mapping native=%ux%u present=%ux%u leaseScale=%.3f,%.3f modelScale=%.3f,%.3f forced=%d\n",guides.output_width,guides.output_height,
+        Io::width,Io::height,double(lease.guides.signature.motion_scale_x),double(lease.guides.signature.motion_scale_y),double(model_x),double(model_y),forced);
+}
 }
 int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodlss_test;namespace compat=nr_compat_present_runtime;
     std::setvbuf(stdout,nullptr,_IONBF,0);SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);SetUnhandledExceptionFilter(Crash);
     try {
-        Check(argc==4,"usage late-present runtime-directory passes cross-queue");const unsigned passes=std::wcstoul(argv[2],nullptr,10);Check(passes==1||passes==4,"bounded layer case");
+        Check(argc==4||argc==5,"usage late-present runtime-directory passes cross-queue [scaled|motion]");const unsigned passes=std::wcstoul(argv[2],nullptr,10);Check(passes==1||passes==4,"bounded layer case");
         const bool cross=std::wcstoul(argv[3],nullptr,10)!=0;
+        const bool motion=argc==5&&std::wcscmp(argv[4],L"motion")==0;
+        const bool scaled=argc==5;Check(!scaled||motion||std::wcscmp(argv[4],L"scaled")==0,"bounded mapping case");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast=true;
         g_config.processing_start=nr_processing::Start::Present;g_config.processing_selection=1;g_config.transfer_strength=1;g_config.compat_percent=100;
         g_config.nr_passes=passes==1?1:2;g_config.nr_full_reference=passes==4;g_config.nr_full_passes=passes==4?4:2;g_config.warmup_after_create=2;
         nr_processing_runtime::Reconcile();g_config_generation=1;
         swprintf_s(g_log_path,L"%ls\\late-present-core.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\no-dlss-host.ini",argv[1]);
+        if(motion){
+            auto preference=g_config;preference.descriptor_low_overhead=true;preference.present_mv_compensation=1;
+            Check(SaveConfig(preference),"actual configuration writer saves developer preferences");
+            Check(GetPrivateProfileIntW(L"NRBeforeSR",L"DescriptorLowOverhead",0,g_ini_path)==1&&
+                GetPrivateProfileIntW(L"NRBeforeSR",L"PresentMvCompensation",0,g_ini_path)==1,"both developer preferences persist in INI");
+            preference.present_mv_compensation=77;NormalizeConfig(preference);
+            Check(preference.present_mv_compensation==0,"invalid compensation preference returns to conservative default");
+            Check(SaveConfig(g_config),"restore controlled host defaults before GPU work");
+        }
         Check(GetProcAddress(GetModuleHandleW(L"dxgi.dll"),"ReShadeRegisterAddon")!=nullptr,"actual ReShade DXGI proxy loaded");Register();
         WNDCLASSW wc{};wc.lpfnWndProc=Window;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"NR_Late_Present_Receipt_Test";
         Check(RegisterClassW(&wc)!=0,"hidden window class");auto window=CreateWindowW(wc.lpszClassName,L"Controlled late Present receipt host",WS_OVERLAPPEDWINDOW,0,0,Io::width,Io::height,nullptr,nullptr,wc.hInstance,nullptr);
@@ -190,8 +229,9 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
             Hr(ID3D12GraphicsCommandList_GetDevice(native_list,IID_ID3D12Device,reinterpret_cast<void**>(&native_device)),"native device for test runtime initialization");
         }
         Check(EnsureNrApi(native_device)&&EnsureCodec(native_device),"native runtime and codec for true capture entry");ReleaseCom(native_device);
-        late_host::Guides guides;guides.Init(producer);
-        unsigned changed_frames=0;bool duplicate_checked=false;unsigned long long previous_source=0;
+        late_host::Guides guides;guides.Init(producer,scaled?Io::width/2:Io::width,scaled?Io::height/2:Io::height,scaled);
+        if(motion)g_config.compat_percent=50;
+        unsigned changed_frames=0;bool duplicate_checked=false;unsigned long long previous_source=0,old_mode_generation=0;
         for(unsigned frame=0;frame<48&&changed_frames<4;++frame){
             Pump();io.backbuffer=buffers[IDXGISwapChain3_GetCurrentBackBufferIndex(swap)];io.Fill();guides.Produce(producer,frame);
             // Deliberately make lineage unknown without altering the guide receipt.
@@ -201,8 +241,10 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
             auto after=compat::observation.submitted;
             nr_source_frame::PresentObservation receipt{};Check(nr_source_runtime::TryPresentObservation(receipt),"Present diagnostic available");
             std::printf("frame=%u cross=%d status=%s accepted=%d submitted=%llu changed=%u\n",frame,cross,nr_compat_present::Name(compat::observation.status),receipt.accepted,after,captured_changed);
-            if(after>before){Check(receipt.receipt_cross_queue_wait==cross,"diagnostic reports actual producer/Present queue relation");for(unsigned i=0;i<io.pixels.size();++i)if((io.pixels[i]>>24)!=(io.reference[i]>>24))throw std::runtime_error("Present changed source alpha");Check(true,"actual output alpha preserved");Check(receipt.lookup.role==nr_source_frame::Role::Unknown,"unknown lineage is diagnostic only");Check(captured_changed>0,"production NR changed actual current backbuffer");Check(compat::observation.submitted_source>previous_source,"new receipt for each adopted output");previous_source=compat::observation.submitted_source;++changed_frames;
+            if(after>before){Check(receipt.receipt_cross_queue_wait==cross,"diagnostic reports actual producer/Present queue relation");for(unsigned i=0;i<io.pixels.size();++i)if((io.pixels[i]>>24)!=(io.reference[i]>>24))throw std::runtime_error("Present changed source alpha");Check(true,"actual output alpha preserved");Check(receipt.lookup.role==nr_source_frame::Role::Unknown,"unknown lineage is diagnostic only");Check(captured_changed>0,"production NR changed actual current backbuffer");Check(compat::observation.submitted_source>previous_source,"new receipt for each adopted output");late_host::CheckMappedMotionScale(guides,compat::observation.submitted_source);previous_source=compat::observation.submitted_source;++changed_frames;
                 if(!duplicate_checked){auto count=after;Hr(IDXGISwapChain3_Present(swap,0,0),"duplicate flip one");Hr(IDXGISwapChain3_Present(swap,0,0),"duplicate flip two");Check(compat::observation.submitted==count,"consumed receipt never runs NR on duplicate Present");duplicate_checked=true;}
+                if(motion&&changed_frames>2)Check(compat::current->motion_compensation==1&&compat::current->generation>old_mode_generation,"mode change retired old context before forced model binding");
+                if(motion&&changed_frames==2&&g_config.present_mv_compensation==0){old_mode_generation=compat::current->generation;g_config.present_mv_compensation=1;++g_config_generation;}
             }
         }
         Check(changed_frames==4&&duplicate_checked,"four sustained receipt-gated real NR outputs");
@@ -211,7 +253,8 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
         for(unsigned i=0;i<3;++i)Hr(IDXGISwapChain3_Present(swap,0,0),"disabled receipt Present");
         Check(compat::observation.submitted==submitted&&!compat::current,"F6 off stops NR and retires completed context");
         auto source=nr_source_runtime::Source{1,1,999};Check(!nr_source_runtime::CaptureGuides(producer.list,source,guides.binding,Io::width,Io::height),"F6 off adds no owned guide copy");
-        std::printf("PASS LATE_PRESENT_RECEIPT checks=%u layers=%u crossQueue=%d adopted=%u realReShade=1 realNR=1 nativeSeam=controlled; not real SR or game verification\n",checks,passes,cross,changed_frames);
+        std::printf("PASS LATE_PRESENT_RECEIPT checks=%u layers=%u crossQueue=%d scaled=%d nativeOutput=%ux%u present=%ux%u adopted=%u realReShade=1 realNR=1 nativeSeam=controlled; not real SR or game verification\n",
+            checks,passes,cross,scaled,guides.output_width,guides.output_height,Io::width,Io::height,changed_frames);
         return 0;
     }catch(const std::exception& e){std::fprintf(stderr,"FAIL LATE_PRESENT_RECEIPT %s\n",e.what());return 1;}
 }

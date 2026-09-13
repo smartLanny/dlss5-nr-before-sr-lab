@@ -21,6 +21,33 @@
         }
     };
 #include "nr_source_present_feedback.inl"
+    {
+        const auto ds=g_nr_descriptors.SnapshotCounters();
+        append_compat("descriptor.gpuMirror=%d\ndescriptor.gpuShadowSkippedCalls=%llu\n"
+            "descriptor.gpuShadowSkippedDescriptors=%llu\n"
+            "descriptor.copyMetadata=batch-lock;native-call-outside-lock;full-mirror-default\n",
+            ds.gpu_mirror?1:0,static_cast<unsigned long long>(ds.gpu_shadow_skipped_calls),
+            static_cast<unsigned long long>(ds.gpu_shadow_skipped_descriptors));
+    }
+
+    {
+        if(TryAcquireSRWLockShared(&nr_source_runtime::source_lock)) {
+            const auto skipped=nr_source_runtime::present_demand_skips;
+            ReleaseSRWLockShared(&nr_source_runtime::source_lock);
+            append_compat("guideReceipt.demandSkipped=%llu\n",static_cast<unsigned long long>(skipped));
+        }
+        append_compat("%s","guideReceipt.mappingPolicy=auto-whole-viewport-inference-not-lineage-proof\n"
+            "guideReceipt.guides=real-native-depth-and-motion;not-dummy\n");
+        unsigned requested=0,active=0;bool has_active=false,low_requested=false;
+        if(nr_compat_present_runtime::TrySnapshotExperimentModes(requested,active,has_active,low_requested))
+            append_compat("guideReceipt.modelMotionPolicyRequested=%s\nguideReceipt.modelMotionPolicyActive=%s\n"
+                "descriptor.lowOverheadRequested=%d\ndescriptor.lowOverheadActivation=next-process-start\n",
+                requested==1?"forced-layer-raster-compensation":"conservative-D18-layer-units",
+                !has_active?"no-active-context":active==1?"forced-layer-raster-compensation":"conservative-D18-layer-units",
+                low_requested?1:0);
+        else append_compat("%s","guideReceipt.modelMotionPolicySnapshot=busy\n");
+    }
+
     nr_compat_present::Observation cp{};
     if(nr_compat_present_runtime::TrySnapshot(cp)) {
         append_compat("compatPost.status=%s\ncompatPost.generation=%llu\ncompatPost.inputQuality=%s\n"

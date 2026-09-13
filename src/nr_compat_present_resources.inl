@@ -46,10 +46,11 @@ struct Context {
     NrGuideSignature native_contract{};
     nr_source_frame::Source previous_source{};
     bool uses_native_guides=false;
-    Extent source{},work{};
+    Extent source{},work{},native_output{};
     Encoding encoding=Encoding::Unknown;
     DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
     unsigned passes=1, numerator=1,denominator=1;
+    unsigned motion_compensation=0; // frozen for this context and all its flights
     unsigned long long generation=0,bytes=0,create_fence=0;
     bool recorded=false,opaque_called=false;
     unsigned retirement_error=0;
@@ -67,6 +68,13 @@ thread_local bool inside=false;
 struct Guard {Guard(){EnterCriticalSection(&g_chain_cs);}~Guard(){LeaveCriticalSection(&g_chain_cs);}};
 struct Recursion {Recursion(){inside=true;}~Recursion(){inside=false;}};
 Observation Snapshot(){Guard guard;return observation;}
+bool TrySnapshotExperimentModes(unsigned& requested,unsigned& active,bool& has_active,bool& low_requested) {
+    if(!TryEnterCriticalSection(&g_chain_cs))return false;
+    requested=g_config.present_mv_compensation;
+    has_active=current!=nullptr;active=current?current->motion_compensation:0;
+    low_requested=g_config.descriptor_low_overhead;
+    LeaveCriticalSection(&g_chain_cs);return true;
+}
 void Stamp(Context& c,Flight& f,unsigned local) {
     if(!c.timestamps)return;
     const auto index=static_cast<unsigned>(&f-c.flights)*16u+local;

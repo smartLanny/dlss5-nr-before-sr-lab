@@ -9,7 +9,7 @@ def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def main():
     sys.stdout.reconfigure(encoding='utf-8',errors='replace');p=argparse.ArgumentParser()
     p.add_argument('--baseline',type=Path,required=True);p.add_argument('--core',type=Path,required=True);p.add_argument('--reshade-dll',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','all'],default='single');a=p.parse_args()
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','scaled','motion','all'],default='single');a=p.parse_args()
     baseline_path=a.baseline.resolve(strict=True);baseline=json.loads(baseline_path.read_text(encoding='utf-8'));old_core=Path(baseline['core']);core=a.core.resolve(strict=True)
     source_manifest=(core.parent/'source-manifest.json').resolve(strict=True);source_manifest_sha256=sha(source_manifest)
     def production_sources():return {f.relative_to(core).as_posix():sha(f) for f in (core/'src').rglob('*') if f.is_file()}
@@ -33,8 +33,10 @@ def main():
         shutil.copy2(core/'build/nrchain_nvngx.dll',out/'nrchain_nvngx.dll')
         (out/'ReShade.ini').write_text('[GENERAL]\nNoEffectCache=1\nNoDebugInfo=1\n[OVERLAY]\nTutorialProgress=4\nShowClock=0\nShowFPS=0\nShowFrameTime=0\n',encoding='utf-8')
         if not a.compile_only:
-            for passes,cross in ([(1,0),(1,1),(4,1)] if a.case=='all' else [(1,1)]):
-                code=run([binary,out,passes,cross],f'run-late-present-{passes}-{cross}')
+            cases=[(1,0,False),(1,1,False),(4,1,False)] if a.case=='all' else [(1,1,a.case in ('scaled','motion'))]
+            for passes,cross,scaled in cases:
+                invocation=[binary,out,passes,cross]+([a.case] if scaled else [])
+                code=run(invocation,f'run-late-present-{passes}-{cross}'+('-'+a.case if scaled else ''))
                 if code:break
     production_end=production_sources();unchanged=production_start==production_end and sha(source_manifest)==source_manifest_sha256
     host_unchanged=all(sha(ROOT/name)==digest for name,digest in host_sources.items())

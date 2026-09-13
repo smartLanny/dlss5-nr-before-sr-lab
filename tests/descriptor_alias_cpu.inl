@@ -771,6 +771,7 @@ void CopyScopeUnrelatedOracle() {
         "COPY_SCOPE_UNRELATED_ORACLE");
 }
 void Run() {
+    Check(!NrDescriptorLowOverheadActive(),"full GPU descriptor mirror is the startup default");
     Initialize();
     const auto failures=g_nr_descriptor_lifetime_failures.load();
     const auto device_token=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&native_device),NrDescriptorObject::Device,device_identity);
@@ -788,6 +789,9 @@ void Run() {
     const auto cpu_heap=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_cpu));
     const auto gpu_heap=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_gpu));
     Check(cpu_heap.id&&gpu_heap.id,"native CPU and GPU heap controls are tracked");
+    Check(g_nr_descriptors.StartupSealed()&&!NrDescriptorConfigureStartup(true)&&
+          !NrDescriptorLowOverheadActive(),
+        "first heap observation seals full mirroring and rejects a live low-overhead switch");
     Check(NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&proxy_cpu),NrDescriptorObject::Heap,device_identity)==cpu_heap.id,
         "heap proxy shares the native lifetime without certifying its virtual CPU handle domain");
     NrDescriptorTrackHeap(&proxy_device,&proxy_cpu);NrDescriptorTrackHeap(&proxy_device,&proxy_gpu);
@@ -879,5 +883,39 @@ void Run() {
         "neither cached-use control nor successful proxy clear promotes diagnostics into the admission ledger");
     NativeClearRequests();LedgerEvents();CopyScopeUnrelatedOracle();DescriptorWindowRetirement();IdentityNegatives();
     std::printf("PASS %u assertions; full production TU; synthetic COM CPU only; D3D devices=0 GPU submits=0 NGX=0\n",checks);
+}
+void RunLowOverhead() {
+    Check(NrDescriptorConfigureStartup(true)&&NrDescriptorLowOverheadActive()&&
+          !g_nr_descriptors.StartupSealed(),
+        "low-overhead startup selection applies before observer hooks");
+    Initialize();
+    ID3D12DescriptorHeap *created=nullptr;
+    Check(SUCCEEDED(ID3D12Device_CreateDescriptorHeap(&native_device,&cpu_state.heap,IID_ID3D12DescriptorHeap,
+            reinterpret_cast<void **>(&created)))&&created==&native_cpu,
+        "low-overhead path still observes the native CPU heap");
+    ID3D12DescriptorHeap_Release(created);
+    Check(SUCCEEDED(ID3D12Device_CreateDescriptorHeap(&native_device,&gpu_state.heap,IID_ID3D12DescriptorHeap,
+            reinterpret_cast<void **>(&created)))&&created==&native_gpu,
+        "low-overhead path still observes the native GPU heap lifetime");
+    ID3D12DescriptorHeap_Release(created);
+    Check(g_nr_descriptors.StartupSealed()&&!NrDescriptorConfigureStartup(false)&&
+          NrDescriptorLowOverheadActive()&&NrDescriptorConfigureStartup(true),
+        "sealed low-overhead registry rejects restoration but accepts the same effective selection");
+    D3D12_UNORDERED_ACCESS_VIEW_DESC desc{};desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+    NrFormatCreateUav<0>(&native_device,&resource,nullptr,&desc,CpuBase(&native_cpu));
+    const auto cpu=g_nr_descriptors.Cpu(cpu_state.cpu,0,nr_descriptor::Kind::Uav);
+    Check(cpu&&g_nr_descriptors.Current(cpu),"low-overhead mode preserves current CPU descriptor evidence");
+    const auto copies=driver_copies;const auto before=g_nr_descriptors.SnapshotCounters();
+    NrDescriptorCopyDescriptorsSimple<0>(&native_device,1,CpuBase(&native_gpu),CpuBase(&native_cpu),
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const auto after=g_nr_descriptors.SnapshotCounters();
+    Check(driver_copies==copies+1&&driver_descriptors.at(gpu_state.cpu).resource==&resource,
+        "low-overhead observation still forwards the original native descriptor copy once");
+    Check(!g_nr_descriptors.Gpu(gpu_state.gpu,0)&&after.gpu_shadow_skipped_calls==before.gpu_shadow_skipped_calls+1&&
+          after.gpu_shadow_skipped_descriptors==before.gpu_shadow_skipped_descriptors+1,
+        "low-overhead mode leaves GPU provenance unknown and records the skipped shadow");
+    Check(g_nr_descriptors.Current(cpu)&&NrDescriptorLowOverheadActive(),
+        "rejected live restoration cannot erase CPU evidence or revive omitted GPU evidence");
+    std::printf("PASS %u assertions; startup low-overhead production hooks; original native calls preserved; synthetic COM CPU only\n",checks);
 }
 }

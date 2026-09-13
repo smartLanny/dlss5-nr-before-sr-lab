@@ -313,6 +313,30 @@ void ConcurrentWrites() {
     first.join();second.join();
     Check(registry.SnapshotCounters().overlaps==256,"all forced overlap races are reported exactly once");
 }
+void StartupConfiguration() {
+    using StartupRegistry=Registry<4,4,8,8>;
+    StartupRegistry low;
+    Check(low.ConfigureStartup(false)&&!low.GpuMirrorEnabled()&&!low.StartupSealed(),
+        "startup may select low-overhead GPU omission before observation");
+    low.ObserveResource(output);
+    Check(low.StartupSealed()&&!low.ConfigureStartup(true)&&!low.GpuMirrorEnabled()&&low.ConfigureStartup(false),
+        "first observation seals low-overhead mode and rejects later restoration");
+    StartupRegistry full(true);full.ObserveResource(output);
+    Check(full.StartupSealed()&&!full.ConfigureStartup(false)&&full.GpuMirrorEnabled(),
+        "default full mirror also rejects a live switch to omission");
+    StartupRegistry constructed_low(false);constructed_low.ObserveResource(output);
+    Check(!constructed_low.GpuMirrorEnabled()&&!constructed_low.ConfigureStartup(true),
+        "explicit low-overhead constructor remains compatible and sealed");
+    for(unsigned iteration=0;iteration<256;++iteration) {
+        StartupRegistry raced;std::barrier gate(3);std::atomic<bool> configured=false;
+        std::thread configure([&]{gate.arrive_and_wait();configured=raced.ConfigureStartup(false);});
+        std::thread observe([&]{gate.arrive_and_wait();raced.ObserveResource(output);});
+        gate.arrive_and_wait();configure.join();observe.join();
+        Check(raced.StartupSealed(),"concurrent first observer always seals startup selection");
+        Check(configured.load()!=raced.GpuMirrorEnabled(),
+            "configuration/observation race has one linearized full-or-light result");
+    }
+}
 void CallSnapshots() {
     Check(!SnapshotNrDescriptorUse().call,"empty use ring has no latest native call");
     g_nr_descriptor_next_call=2;g_nr_descriptor_uses[1].call=1;g_nr_descriptor_uses[2].call=2;
@@ -344,6 +368,6 @@ void ClearExtents() {
     Check(sizeof(nr_post_boundary::Window)<4096,"full event windows retain the small worker-stack budget");
 }
 int main() {
-    CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();CompleteKeysAndPools();UnknownCopyScopes();ConcurrentWrites();CallSnapshots();ClearExtents();
+    StartupConfiguration();CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();CompleteKeysAndPools();UnknownCopyScopes();ConcurrentWrites();CallSnapshots();ClearExtents();
     std::printf("PASS descriptor provenance CPU: %u checks; production registry, copy/reuse/retirement/concurrency/range negatives; no GPU\n",checks.load());
 }

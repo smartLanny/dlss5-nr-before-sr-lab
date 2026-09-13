@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include "nr_present_mapping.h"
 
 // Pure admission policy for a native reconstruction receipt captured before
 // the native call and acknowledged only after that call succeeds. Resource and
@@ -52,6 +53,7 @@ struct Request {
     unsigned output_width=0,output_height=0;
     unsigned config_generation=0;
     bool known_generated=false,known_fg_consumed=false,known_inline_processed=false;
+    bool automatic_full_viewport_scale=true;
 };
 
 struct Selection {
@@ -78,7 +80,10 @@ inline Selection Select(const Request& request,const Candidate* candidates,std::
         if(!c.native_succeeded){refused=Decision::NativeFailed;continue;}
         if(!c.submitted||!c.producer_queue||!c.producer_fence_value){refused=Decision::Unsubmitted;continue;}
         if(c.device!=request.device){refused=Decision::WrongDevice;continue;}
-        if(c.output_width!=request.output_width||c.output_height!=request.output_height){refused=Decision::WrongExtent;continue;}
+        if(!nr_present_mapping::Map({c.output_width,c.output_height},
+            {request.output_width,request.output_height},request.automatic_full_viewport_scale)) {
+            refused=Decision::WrongExtent;continue;
+        }
         if(request.config_generation&&c.config_generation!=request.config_generation){refused=Decision::WrongConfig;continue;}
         if(c.consumed||c.inline_processed||c.fg_consumed){refused=Decision::AlreadyConsumed;continue;}
         if(!c.stream||!c.epoch||!c.sequence||c.latest_sequence<c.sequence||c.latest_sequence-c.sequence>1||

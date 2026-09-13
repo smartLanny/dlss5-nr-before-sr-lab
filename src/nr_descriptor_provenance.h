@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <mutex>
@@ -165,6 +166,8 @@ struct Counters {
     Id writes=0, copies=0, unknown_writes=0, overlaps=0, evictions=0, invalidations=0,
        resources_retired=0, heaps_retired=0, scoped_copies=0, global_copies=0;
     PoolCounters heaps,resources,cpu_slots,gpu_slots;
+    Id gpu_shadow_skipped_calls=0,gpu_shadow_skipped_descriptors=0;
+    bool gpu_mirror=true;
 };
 struct Inventory {
     struct Format { unsigned format=0,count=0;Kind kind=Kind::Unknown; };
@@ -285,7 +288,17 @@ class Registry {
     UnknownCopy *unknown_copies=nullptr;
     Id epoch=1,revision=0;
     Counters counters;
+    // Bit 0 selects low-overhead mode; bit 1 seals startup configuration.
+    std::atomic<unsigned> startup_state;
+    struct AddressLink {Id id=0,object=0;}; // key is COM address; value is lifetime ID
+    LiveTable<AddressLink,ResourceCapacity> resource_addresses;
+    LiveTable<AddressLink,HeapCapacity> heap_addresses;
     struct Location {const Heap *heap=nullptr;unsigned index=0;};
+    void SealStartup(){
+        if((startup_state.load(std::memory_order_acquire)&2u)==0)
+            startup_state.fetch_or(2u,std::memory_order_acq_rel);
+    }
+    bool MirrorGpu() const {return (startup_state.load(std::memory_order_acquire)&1u)==0;}
     const Heap *HeapId(Id id) const {return heaps.Find(id);}
     bool UnknownAllLocked() const {
         for(const auto *scope=unknown_copies;scope;scope=scope->next)
@@ -403,6 +416,7 @@ class Registry {
         const auto &h=*where.heap;result.shader_visible=h.shader_visible;
         result.stamp.heap=h.id;result.stamp.index=where.index;
         if(UnknownMaskedLocked(h,where.index)){result.reason=Reason::WritePending;return result;}
+        if(h.shader_visible && !MirrorGpu()){result.reason=Reason::SlotUnknown;return result;}
         const auto *s=FindSlot(h,where.index);
         if(!s || s->stamp.epoch!=epoch){result.reason=Reason::SlotUnknown;return result;}
         result.stamp=s->stamp;
@@ -448,6 +462,9 @@ class Registry {
     }
     Write BeginLocked(const Location &where,const View &value) {
         if(!where.heap){Increment(counters.unknown_writes);return {};}
+        if(where.heap->shader_visible && !MirrorGpu()) {
+            Increment(counters.gpu_shadow_skipped_descriptors);return {};
+        }
         return where.heap->shader_visible?BeginIn(gpu_slots,counters.gpu_slots,where,value):
             BeginIn(cpu_slots,counters.cpu_slots,where,value);
     }
@@ -461,9 +478,60 @@ class Registry {
            (!write.copy || (!write.source.shader_visible && CurrentLocked(write.source))))s->value=write.value;
     }
     void InvalidateLocked(){Increment(epoch);Increment(counters.invalidations);}
+private:
+    Write BeginCopyLocked(Id destination,Id source,unsigned type) {
+        if(UnknownCpuHandleLocked(destination,type)) {
+            Increment(counters.unknown_writes);Increment(counters.copies);
+            Write write;write.copy=true;return write;
+        }
+        const auto from=Read(Locate(source,type,false),Kind::Unknown);
+        if(from && !from.shader_visible)TouchUseLocked(from);
+        auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
+        write.source=from;write.copy=true;Increment(counters.copies);return write;
+    }
 public:
+    // Startup configuration is mutable only before the first valid observation.
+    // Once sealed, omitted GPU descriptors never become known later. CPU view
+    // provenance, lifetimes, and native CPU-clear revalidation are still collected.
+    // Native API calls are NOT skipped.
+    explicit Registry(bool mirror_gpu=true):startup_state(mirror_gpu?0u:1u) {}
+    bool ConfigureStartup(bool mirror_gpu) {
+        const unsigned desired=mirror_gpu?0u:1u;
+        unsigned observed=startup_state.load(std::memory_order_acquire);
+        while((observed&2u)==0) {
+            if(startup_state.compare_exchange_weak(observed,desired,std::memory_order_acq_rel,
+                    std::memory_order_acquire))return true;
+        }
+        return (observed&1u)==desired;
+    }
+    bool GpuMirrorEnabled() const {return MirrorGpu();}
+    bool StartupSealed() const {return (startup_state.load(std::memory_order_acquire)&2u)!=0;}
+    template<class Handle> bool SkipGpuDestinations(unsigned count,const Handle* first,
+            const unsigned* sizes,unsigned type) {
+        if(!count || count>64 || !first)return false;
+        SealStartup();
+        if(MirrorGpu())return false;
+        std::lock_guard guard(mutex);
+        Id descriptors=0;
+        for(unsigned i=0;i<count;++i) {
+            const unsigned size=sizes?sizes[i]:1;
+            if(!size)continue;
+            const auto where=Locate(static_cast<Id>(first[i].ptr),type,false);
+            if(!where.heap || !where.heap->shader_visible ||
+                size>where.heap->count-where.index)return false;
+            if(descriptors>std::numeric_limits<Id>::max()-size)return false;
+            descriptors+=size;
+        }
+        if(!descriptors)return false;
+        Increment(counters.gpu_shadow_skipped_calls);
+        counters.gpu_shadow_skipped_descriptors=descriptors>
+            std::numeric_limits<Id>::max()-counters.gpu_shadow_skipped_descriptors?
+            std::numeric_limits<Id>::max():counters.gpu_shadow_skipped_descriptors+descriptors;
+        return true;
+    }
     void ObserveResource(Resource resource) {
         if(!resource)return;std::lock_guard guard(mutex);
+        SealStartup();
         const auto *old=resources.Find(resource.id);
         if(old) {
             if(old->device!=resource.device || old->address!=resource.address) {
@@ -473,10 +541,13 @@ public:
         }
         // Cold identity publication checks address uniqueness once. Copies and
         // receipt validation consult the flag and full-key index, never scan it.
-        for(const auto &r:resources.values)if(r.id && r.address==resource.address) {
-            Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();break;
+        const auto *address=resource_addresses.Find(resource.address);
+        if(address && address->object!=resource.id) {
+            Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();
         }
         if(!resources.Insert(resource)) {
+            Increment(counters.resources.drops);counters.resources.coverage_lost=true;InvalidateLocked();
+        } else if(!address && !resource_addresses.Insert({resource.address,resource.id})) {
             Increment(counters.resources.drops);counters.resources.coverage_lost=true;InvalidateLocked();
         }
     }
@@ -485,12 +556,17 @@ public:
            (heap.count-1)>((std::numeric_limits<Id>::max()-heap.cpu)/heap.stride) ||
            (heap.gpu && (heap.count-1)>((std::numeric_limits<Id>::max()-heap.gpu)/heap.stride)))return false;
         std::lock_guard guard(mutex);
+        SealStartup();
         if(const auto *old=heaps.Find(heap.id)) {
             if(old->device==heap.device && old->address==heap.address && old->cpu==heap.cpu && old->gpu==heap.gpu &&
                old->count==heap.count && old->stride==heap.stride && old->type==heap.type && old->shader_visible==heap.shader_visible)return true;
             Increment(counters.heaps.ambiguities);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
         }
         if(!heaps.Insert(heap)) {
+            Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
+        }
+        const auto *address=heap_addresses.Find(heap.address);
+        if(!address && !heap_addresses.Insert({heap.address,heap.id})) {
             Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
         }
         // Losing uniqueness must also retire earlier slot revisions; otherwise
@@ -510,10 +586,19 @@ public:
         RebuildRanges();return true;
     }
     void RetireResource(Id id) {
-        std::lock_guard guard(mutex);if(resources.Erase(id))Increment(counters.resources_retired);
+        std::lock_guard guard(mutex);
+        if(const auto *r=resources.Find(id)) {
+            const auto *link=resource_addresses.Find(r->address);
+            if(link && link->object==id)resource_addresses.Erase(r->address);
+        }
+        if(resources.Erase(id))Increment(counters.resources_retired);
     }
     void RetireHeap(Id id) {
         std::lock_guard guard(mutex);
+        if(const auto *h=heaps.Find(id)) {
+            const auto *link=heap_addresses.Find(h->address);
+            if(link && link->object==id)heap_addresses.Erase(h->address);
+        }
         if(heaps.Erase(id)) {
             cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);RebuildRanges();Increment(counters.heaps_retired);
         }
@@ -522,11 +607,17 @@ public:
         std::lock_guard guard(mutex);
         // Erasure may move the next entry into this slot; revisit it.
         for(unsigned i=0;i<resources.values.size();) {
-            const auto &r=resources.values[i];if(r.id && r.device==device){resources.Erase(r.id);Increment(counters.resources_retired);}else ++i;
+            const auto &r=resources.values[i];if(r.id && r.device==device){
+                const auto *link=resource_addresses.Find(r.address);
+                if(link && link->object==r.id)resource_addresses.Erase(r.address);
+                resources.Erase(r.id);Increment(counters.resources_retired);
+            }else ++i;
         }
         for(unsigned i=0;i<heaps.values.size();) {
             const auto &h=heaps.values[i];if(h.id && h.device==device) {
-                const auto id=h.id;cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);heaps.Erase(id);Increment(counters.heaps_retired);
+                const auto id=h.id;const auto *link=heap_addresses.Find(h.address);
+                if(link && link->object==id)heap_addresses.Erase(h.address);
+                cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);heaps.Erase(id);Increment(counters.heaps_retired);
             }else ++i;
         }
         RebuildRanges();
@@ -534,15 +625,18 @@ public:
         // certify that every omitted alias has gone away, even on another device.
     }
     Resource ResourceAt(Id address) const {
-        std::lock_guard guard(mutex);Resource result;
-        if(counters.resources.coverage_lost)return result;
-        for(const auto &r:resources.values)if(r && r.address==address){if(result)return {};result=r;}
-        return result;
+        std::lock_guard guard(mutex);
+        if(!address || counters.resources.coverage_lost)return {};
+        const auto *link=resource_addresses.Find(address);
+        const auto *r=link?resources.Find(link->object):nullptr;
+        return r && r->address==address?*r:Resource{};
     }
     Heap HeapAt(Id address) const {
-        std::lock_guard guard(mutex);Heap result;if(counters.heaps.coverage_lost)return result;
-        for(const auto &h:heaps.values)if(h && h.address==address){if(result)return {};result=h;}
-        return result;
+        std::lock_guard guard(mutex);
+        if(!address || counters.heaps.coverage_lost)return {};
+        const auto *link=heap_addresses.Find(address);
+        const auto *h=link?heaps.Find(link->object):nullptr;
+        return h && h->address==address?*h:Heap{};
     }
     Receipt Cpu(Id handle,unsigned type,Kind expected=Kind::Unknown) const {
         std::lock_guard guard(mutex);
@@ -565,6 +659,7 @@ public:
     // observer cannot publish a guessed descriptor value.
     void BeginUnknownCopy(UnknownCopy &scope,const UnknownRange *ranges,unsigned count,bool all=false) {
         std::lock_guard guard(mutex);
+        SealStartup();
         if(scope.active)return;
         const bool global=all || !UnknownRangesValid(ranges,count);
         scope.ranges=global?nullptr:ranges;scope.count=global?0:count;
@@ -586,22 +681,31 @@ public:
     }
     Write BeginWrite(Id cpu,unsigned type,const View &value) {
         std::lock_guard guard(mutex);
+        SealStartup();
         if(UnknownCpuHandleLocked(cpu,type)){Increment(counters.unknown_writes);return {};}
         return BeginLocked(Locate(cpu,type,false),value);
     }
     Write BeginCopy(Id destination,Id source,unsigned type) {
+        SealStartup();std::lock_guard guard(mutex);return BeginCopyLocked(destination,source,type);
+    }
+    void BeginCopies(unsigned count,const Id* destinations,const Id* sources,
+                     unsigned type,Write* writes) {
+        if(!count || !destinations || !sources || !writes)return;
+        SealStartup();std::lock_guard guard(mutex);
+        for(unsigned i=0;i<count;++i)writes[i]=BeginCopyLocked(destinations[i],sources[i],type);
+    }
+    void FinishCopies(unsigned count,const Write* writes) {
+        if(!count || !writes)return;
         std::lock_guard guard(mutex);
-        if(UnknownCpuHandleLocked(destination,type)) {
-            Increment(counters.unknown_writes);Increment(counters.copies);
-            Write write;write.copy=true;return write;
+        for(unsigned i=0;i<count;++i) {
+            const auto& write=writes[i];if(!write.destination.heap)continue;
+            const auto* h=HeapId(write.destination.heap);if(!h)continue;
+            if(h->shader_visible)FinishIn(gpu_slots,write);else FinishIn(cpu_slots,write);
         }
-        const auto from=Read(Locate(source,type,false),Kind::Unknown);
-        if(from && !from.shader_visible)TouchUseLocked(from);
-        auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
-        write.source=from;write.copy=true;Increment(counters.copies);return write;
     }
     void Finish(const Write &write) {
-        std::lock_guard guard(mutex);if(!write.destination.heap)return;
+        if(!write.destination.heap)return;
+        std::lock_guard guard(mutex);
         const auto *h=HeapId(write.destination.heap);if(!h)return;
         if(h->shader_visible)FinishIn(gpu_slots,write);else FinishIn(cpu_slots,write);
     }
@@ -629,9 +733,10 @@ public:
         }
         pair.reason=Reason::None;TouchUseLocked(pair.cpu);TouchUseLocked(pair.gpu);return pair;
     }
-    void Invalidate(){std::lock_guard guard(mutex);InvalidateLocked();}
+    void Invalidate(){SealStartup();std::lock_guard guard(mutex);InvalidateLocked();}
     Counters SnapshotCounters() const {
         std::lock_guard guard(mutex);auto result=counters;
+        result.gpu_mirror=MirrorGpu();
         result.heaps.active=heaps.active;result.heaps.capacity=HeapCapacity;
         result.resources.active=resources.active;result.resources.capacity=ResourceCapacity;
         result.cpu_slots.active=cpu_slots.active;result.cpu_slots.capacity=CpuSlotCapacity;
