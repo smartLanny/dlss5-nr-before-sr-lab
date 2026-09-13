@@ -138,6 +138,12 @@ void Log(const char*,...){}
 // Use the actual sticky route implementation. Only the source identity input
 // is a fixture value; this test does not observe native frame ownership.
 namespace nr_source_runtime {unsigned long long CurrentRetryToken(){return 1;}}
+// CPU route fixture has no Present worker, native NR flight, fence, or GPU.
+// These only state that its deliberately empty retirement seams are drained.
+namespace nr_compat_present_runtime {
+bool InlineDrainReady(){return true;}
+bool NativeNrDrained(){return true;}
+}
 #include "src/nr_processing_runtime.inl"
 #include "src/interop/nr_rr_post_runtime.inl"
 NgxResult Native(ID3D12GraphicsCommandList* c,const NgxHandle* h,const NgxParams* p,void* cb){

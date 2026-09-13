@@ -32,6 +32,12 @@ std::atomic<unsigned long long> g_nr_successful_evaluations{0};
 bool g_work_config_loaded = false;
 std::atomic<bool> g_work_request_rejected{false};
 namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
+// Config-only CPU fixture owns no GPU work or in-flight Present/native NR.
+// This does not validate production fence retirement.
+namespace nr_compat_present_runtime {
+bool InlineDrainReady(){return true;}
+bool NativeNrDrained(){return true;}
+}
 enum class BypassReason { WaitingForFeature1, MasterDisabled };
 void SetBypassReason(BypassReason) {}
 template<class... T> void Log(const char *, T...) {}
