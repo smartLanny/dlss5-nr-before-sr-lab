@@ -496,8 +496,9 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
     fail_every_write=true;
     c=g_config;c.processing_start=Start::Present;
     c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
-    Check(!ApplyConfig(c,"manual Present with failed save"),
-          "manual route remains live when its INI save fails");
+    Check(ApplyConfig(c,"manual Present with failed save")&&
+          g_config_persistence_failed.load(),
+          "manual route applies live and latches its INI save failure");
     const auto failed_selection=g_config.processing_selection;
     for(unsigned i=0;i<4;++i){test_tick+=1000;PollConfigFromPresent();}
     Check(g_config.processing_start==Start::Present&&
