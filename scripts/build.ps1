@@ -150,6 +150,7 @@ if ($CodecCacheRoot) { $CodecCacheArgs = @('--cache-from', (Resolve-Path -Litera
 & python (Join-Path $PSScriptRoot 'prepare-codec-artifacts.py') --source (Join-Path $ProjectRoot 'src/nr_before_sr.cpp') --compiler $CodecCompiler --output $Build --workers 2 @CodecCacheArgs
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_codec_precompiled.h') -PathType Leaf)){throw 'Frozen shader artifact generation failed.'}
 $Common += '-DNR_CODEC_PRECOMPILED=1'
+$Common += "-I$Build"
 
 & (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
 if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }

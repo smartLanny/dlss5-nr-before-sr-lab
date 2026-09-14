@@ -66,7 +66,7 @@
 #include "nr_compat_present_policy.hpp"
 #include "nr_fg_hud_shader.h"
 #if NR_CODEC_PRECOMPILED
-#include "../build/nr_codec_precompiled.h"
+#include "nr_codec_precompiled.h"
 #endif
 #ifndef NR_FACE_BACKEND
 #define NR_FACE_BACKEND 0
