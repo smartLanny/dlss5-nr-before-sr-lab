@@ -6,14 +6,13 @@
 namespace nr_launch_preferences {
 constexpr unsigned Before=0,After=1,Present=2;
 constexpr bool Valid(unsigned route) noexcept {return route<=Present;}
-constexpr unsigned Select(unsigned persisted,unsigned live,bool remember,
-                          std::uint64_t manual_selection,bool launch_resolved=false) noexcept {
-    // The resolved launch/current choice survives config polling, F6, and
-    // changing whether to remember the choice for the NEXT launch.
-    // A fresh process has no manual selection; legacy Present experiments are
-    // not promoted to the new automatic launch default without explicit opt-in.
-    if(launch_resolved||manual_selection)return Valid(live)?live:Before;
-    return remember&&Valid(persisted)?persisted:Before;
+constexpr unsigned Select(unsigned persisted,unsigned live,
+                          std::uint64_t manual_selection) noexcept {
+    // A manual selection is session-owned so the 500-ms disk poll and F6 cannot
+    // replace it. At process start, every valid persisted route is authoritative;
+    // the caller maps a missing or invalid key through the legacy Mode contract.
+    if(manual_selection)return Valid(live)?live:Before;
+    return Valid(persisted)?persisted:Before;
 }
 constexpr int LegacyMode(unsigned route,int legacy_mode) noexcept {
     return route==Before?2:route==After?1:legacy_mode;

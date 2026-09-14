@@ -94,11 +94,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline21-223fix1";
+constexpr const char *kAddonVersion = "beta0.5-dline21-223fix2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline21-223fix1";
+constexpr const char *kBuildIdentity = "beta0.5-dline21-223fix2";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -891,7 +891,6 @@ struct ChainConfig {
     bool enabled = false;
     int mode = 2;
     nr_processing::Start processing_start=nr_processing::Start::Before;
-    bool remember_processing_start=false; // Explicit persistent manual-route preference.
     unsigned long long processing_selection=0; // Session-only explicit reselection.
     unsigned compat_percent=100;
     bool identity_use_original = false;
@@ -1558,7 +1557,6 @@ void NormalizeConfig(ChainConfig &config) {
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
-           a.remember_processing_start==b.remember_processing_start &&
            a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.mode == b.mode &&
            a.identity_use_original == b.identity_use_original &&
@@ -1649,16 +1647,14 @@ void ReloadConfig(bool force = false) {
     next.processing_start = _wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :
         _wcsicmp(processing_start,L"After")==0 ? nr_processing::Start::After :
         _wcsicmp(processing_start,L"Before")==0 ? nr_processing::Start::Before : nr_processing::FromLegacy(next.mode);
-    next.remember_processing_start=GetPrivateProfileIntW(
-        L"NRBeforeSR",L"RememberProcessingStart",0,g_ini_path)!=0;
     next.processing_selection=g_config.processing_selection;
     // ReloadConfig is serialized by the existing Core configuration lock.
-    // A persistence-only checkbox change must not reselect or reprobe a route.
-    static bool processing_launch_resolved=false;
+    // A session-owned manual selection survives polling and F6. Before any
+    // such selection, an explicit ProcessingStart (or the existing legacy Mode
+    // fallback above) is the process launch request.
     next.processing_start=static_cast<nr_processing::Start>(nr_launch_preferences::Select(
         static_cast<unsigned>(next.processing_start),static_cast<unsigned>(g_config.processing_start),
-        next.remember_processing_start,next.processing_selection,processing_launch_resolved));
-    processing_launch_resolved=true;
+        next.processing_selection));
     next.mode=nr_launch_preferences::LegacyMode(static_cast<unsigned>(next.processing_start),next.mode);
     next.compat_percent=GetPrivateProfileIntW(L"NRBeforeSR",L"CompatPostPercent",100,g_ini_path);
     if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
@@ -1964,7 +1960,6 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"NRPasses",config.nr_passes));
     record_write(WritePrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",
         config.processing_start==nr_processing::Start::Present?L"Present":config.processing_start==nr_processing::Start::After?L"After":L"Before",g_ini_path)!=FALSE);
-    record_write(WriteIniInt(L"RememberProcessingStart", config.remember_processing_start ? 1 : 0));
     record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
     record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
     record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
@@ -15121,13 +15116,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline21-223fix1 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline21-223fix2 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-223fix1 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-223fix2 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

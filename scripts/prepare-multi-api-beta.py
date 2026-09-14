@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-223fix1'
-DISPLAY_VERSION = '0.5-dline21-223fix1'
+VERSION = 'beta0.5-dline21-223fix2'
+DISPLAY_VERSION = '0.5-dline21-223fix2'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -32,8 +32,8 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
-    'config/nr_before_sr.ini': '61e867927202de3c1566bb391ee5e1167d9f35b0',
-    'scripts/build.ps1': 'f1d83120479df4334671ad24bc41105a011dd326',
+    'config/nr_before_sr.ini': '6888e9bfe3e6775e3633e0038b88c368de496636',
+    'scripts/build.ps1': '685ffbb4de94aad598e2ac800232115d5eab947b',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -48,8 +48,8 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': 'f83a225ee837849c1dec6bd2090500fb3711a96d',
-    'src/nr_before_sr.rc': 'ee27140ada46438549ae37aff479c4275c40b71d',
+    'src/nr_before_sr.cpp': '2ab4991b817327a8dbad5e030032f260be720b64',
+    'src/nr_before_sr.rc': '7abf977b7980e1650eea8ee1e89502982f088ab1',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_codec_descriptors.inl': 'd05ff8f9656b9a9803be0bf6fb0bf2d4eccbe0e2',
@@ -149,7 +149,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
     'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
-    'src/nr_settings_ui.inl': 'c3aaa0eb19f759a4c35cb2bee0074be82daffa25',
+    'src/nr_settings_ui.inl': '1de63b5201164c2add94b8cd06872f700845ce3a',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
@@ -193,7 +193,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_source_guide_diagnostics.inl': 'e11157f5f2e7a56e24aa248b0ca83b1f28a142b7',
     'src/nr_fg_presentation.h': '177e84c8700fdd7d394769fd492c6d998208a1bb',
     'src/nr_descriptor_scratch.h': '95e1f7f2bee0d89f6c313852cfc6053a2ab97096',
-    'src/nr_launch_preferences.h': '043acfb423894a3cb223cb3f98898bff931ccc83',
+    'src/nr_launch_preferences.h': '1ab61e676d1b2d1ad35dc324160ad5c1db781a30',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -316,7 +316,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline21-223fix1 beta' not in resource_text:
+    if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -327,7 +327,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.22',
+        'core_pe_version': '0.5.1.23',
         'cumulative_corefix_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
         'cumulative_corefix_dependencies': [218,219,220,221,230,232,238,240,241,242,243,245],
         # Retain the original dual-parent field for existing artifact readers.

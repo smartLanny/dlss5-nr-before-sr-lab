@@ -57,6 +57,8 @@ namespace nr_processing_runtime {
 std::atomic<unsigned long long> next_selection{1};
 nr_processing::Start actual=nr_processing::Start::After;
 nr_processing::Start Effective(){return actual;}
+bool TrySnapshot(nr_processing::Snapshot& value){value={};value.current=actual;return true;}
+bool FgRedirectRequested(){return false;}
 }
 namespace nr_compat_present_runtime {
 bool TrySnapshot(nr_compat_present::Observation& value){value={};return true;}

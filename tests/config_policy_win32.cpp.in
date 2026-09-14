@@ -174,20 +174,27 @@ void PrepareLaunchFixtures(const std::filesystem::path &directory) {
 
     struct LaunchFixture {
         const wchar_t *name;
+        int mode;
         const wchar_t *route;
         const wchar_t *remember;
     };
     for (const auto &entry : {
-             LaunchFixture{L"launch-old-present.ini", L"Present", nullptr},
-             LaunchFixture{L"launch-remember-after.ini", L"After", L"1"},
-             LaunchFixture{L"launch-remember-present.ini", L"Present", L"1"}}) {
+             LaunchFixture{L"launch-legacy-before.ini", 2, nullptr, nullptr},
+             LaunchFixture{L"launch-legacy-after.ini", 1, nullptr, nullptr},
+             LaunchFixture{L"launch-invalid-after.ini", 1, L"invalid", nullptr},
+             LaunchFixture{L"launch-saved-before-r0.ini", 1, L"Before", L"0"},
+             LaunchFixture{L"launch-saved-after-r0.ini", 2, L"After", L"0"},
+             LaunchFixture{L"launch-saved-present-r0.ini", 2, L"Present", L"0"},
+             LaunchFixture{L"launch-saved-before-r1.ini", 1, L"Before", L"1"},
+             LaunchFixture{L"launch-saved-after-r1.ini", 2, L"After", L"1"},
+             LaunchFixture{L"launch-saved-present-r1.ini", 1, L"Present", L"1"}}) {
         ResetSession();
         SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
         DeleteFileW(g_ini_path);
         Put(L"ConfigVersion", L"4");
         Put(L"Enabled", L"1");
-        Put(L"Mode", L"2");
-        Put(L"ProcessingStart", entry.route);
+        Put(L"Mode", entry.mode == 1 ? L"1" : L"2");
+        if (entry.route) Put(L"ProcessingStart", entry.route);
         if (entry.remember) Put(L"RememberProcessingStart", entry.remember);
         CopyRestartFixture(directory, entry.name);
     }
@@ -198,7 +205,7 @@ void TestLegacy(const std::filesystem::path &directory) {
         const auto c = Load();
         Check(c.transfer_strength == 1 && c.post_transfer_strength == 1 && !c.enabled,
               "legacy active zero migrates to one and disabled master");
-        Check(c.mode == 2, "unremembered legacy route normalizes to the Before mode"); ModelPreserved(c);
+        Check(c.mode == mode, "legacy Mode remains the route fallback without ProcessingStart"); ModelPreserved(c);
         Check(writes.size() == 9 && writes[0].key == L"TransferStrength" &&
               writes[0].value == L"0" && writes[1].key == L"PostTransferStrength" &&
               writes[2].key == L"StrengthConfigVersion" &&
@@ -372,13 +379,13 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
         Put(L"RetryOriginalOnSRFailure",L"1");
         auto c=Load();
         Check(!c.retry_original_on_sr_failure,"legacy retry INI true cannot re-enable native SR retry");
-        Check(c.processing_start==Start::Before,
-              "unremembered legacy route uses the performance-first launch default");
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "legacy Mode maps to the existing starting position");
         Check(!c.nr_full_reference&&c.nr_full_passes==3&&c.compat_percent==100,
               "old settings keep full reference disabled with safe defaults");
         Put(L"ProcessingStart",L"invalid");c=Load();
-        Check(c.processing_start==Start::Before,
-              "resolved launch ignores an invalid later disk route");
+        Check(c.processing_start==(mode==1?Start::After:Start::Before),
+              "invalid ProcessingStart uses the legacy Mode fallback");
     }
     const wchar_t* names[]={L"Before",L"After",L"Present"};
     const wchar_t* files[]={L"restart-route-before.ini",L"restart-route-after.ini",L"restart-route-present.ini"};
@@ -387,13 +394,12 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
         auto c=Load();
         c.processing_start=static_cast<Start>(route);
         c.mode=nr_launch_preferences::LegacyMode(route,c.mode);
-        c.remember_processing_start=true;
         c.nr_full_reference=true;c.nr_full_passes=route+3;c.compat_percent=50+route*25;
         c.nr_passes=2;c.nr_second_numerator=2;c.nr_second_denominator=3;
         c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
-        Check(ApplyConfig(c,"test remembered route save"),"explicit remembered route settings apply");
-        Check(Text(L"ProcessingStart")==names[route]&&Int(L"RememberProcessingStart")==1,
-              "route and startup opt-in use their real INI keys");
+        Check(ApplyConfig(c,"test saved route"),"explicit route settings apply");
+        Check(Text(L"ProcessingStart")==names[route]&&Int(L"RememberProcessingStart",-9)==-9,
+              "route uses its real INI key without a Remember key");
         Check(Int(L"RetryOriginalOnSRFailure")==0,"saved legacy retry key reflects disabled native SR retry");
         const auto reloaded=Load();
         Check(reloaded.processing_start==c.processing_start&&reloaded.nr_full_reference&&
@@ -435,30 +441,11 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
     Check(nr_processing_runtime::Effective()==Start::Present,"config polling preserves the session fallback");
 
     const auto stable_selection=g_config.processing_selection;
-    const auto stable_history=g_history_generation.load();
     const auto stable_current=nr_processing_runtime::session.Current();
     const auto stable_retained=nr_processing_runtime::session.Retained();
-    c=g_config;c.remember_processing_start=!c.remember_processing_start;
-    Check(ApplyConfig(c,"remember-only startup preference"),"remember-only preference applies");
-    Check(g_config.processing_selection==stable_selection&&
-          g_history_generation.load()==stable_history&&
-          nr_processing_runtime::session.Current()==stable_current&&
-          nr_processing_runtime::session.Retained()==stable_retained,
-          "remember-only preference does not reset route history or session fallback");
-    Check(Int(L"RememberProcessingStart")==static_cast<int>(g_config.remember_processing_start)&&
-          Text(L"ProcessingStart")==L"Before",
-          "remember-only save preserves the selected route and writes its own key");
-
-    const bool disk_remember=!g_config.remember_processing_start;
-    Put(L"RememberProcessingStart",disk_remember?L"1":L"0");
-    test_tick+=501;PollConfigFromPresent();
-    Check(g_config.remember_processing_start==disk_remember&&
-          g_config.processing_selection==stable_selection&&
-          g_history_generation.load()==stable_history&&
-          nr_processing_runtime::session.Current()==stable_current&&
-          nr_processing_runtime::session.Retained()==stable_retained&&
+    Check(Text(L"ProcessingStart")==L"Before"&&
           nr_processing_runtime::Effective()==Start::Present,
-          "500-ms remember reload preserves manual selection and healthy fallback");
+          "automatic fallback never persists its actual route over the saved start");
 
     const bool enabled_before=g_config.enabled;
     ToggleMasterFromHotkey();
@@ -478,11 +465,11 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
     Check(ApplyConfig(c,"explicit start reselection"),"same start button explicitly retries");
     Check(nr_processing_runtime::Effective()==Start::Before,"explicit reselection resets to the saved start");
 
-    c=g_config;c.processing_start=Start::After;c.mode=1;c.remember_processing_start=false;
+    c=g_config;c.processing_start=Start::After;c.mode=1;
     c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
     Check(ApplyConfig(c,"manual After selection"),"manual route selection applies without startup opt-in");
     const auto manual_selection=g_config.processing_selection;
-    Put(L"ProcessingStart",L"Present");Put(L"RememberProcessingStart",L"0");
+    Put(L"ProcessingStart",L"Present");
     test_tick+=501;PollConfigFromPresent();
     Check(g_config.processing_start==Start::After&&
           g_config.processing_selection==manual_selection&&
@@ -502,6 +489,25 @@ void TestProcessingAndFullReference(const std::filesystem::path& directory) {
     Check(!ApplyConfig(c,"F8-owned UI route edit")&&SameConfig(g_config,saved_config)&&Bytes()==saved_bytes,
           "F8 owns configuration and blocks ordinary route edits");
     nr_f8::g_config_hold=false;
+
+    Fixture(L"1.8",L"1.8",1,1,1,2);(void)Load();
+    Check(SetFileAttributesW(g_ini_path,FILE_ATTRIBUTE_READONLY)!=0,
+          "route write-failure fixture is read-only");
+    fail_every_write=true;
+    c=g_config;c.processing_start=Start::Present;
+    c.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
+    Check(!ApplyConfig(c,"manual Present with failed save"),
+          "manual route remains live when its INI save fails");
+    const auto failed_selection=g_config.processing_selection;
+    for(unsigned i=0;i<4;++i){test_tick+=1000;PollConfigFromPresent();}
+    Check(g_config.processing_start==Start::Present&&
+          g_config.processing_selection==failed_selection&&
+          nr_processing_runtime::session.Current()==Start::Present&&
+          nr_processing_runtime::session.Retained()==Start::Present,
+          "failed route save cannot let polling restore a stale disk route");
+    Check(SetFileAttributesW(g_ini_path,FILE_ATTRIBUTE_NORMAL)!=0,
+          "route write-failure fixture restores write access");
+    fail_every_write=false;
 }
 int wmain(int argc, wchar_t **argv) {
     if (argc < 2) return 3;
@@ -518,12 +524,12 @@ int wmain(int argc, wchar_t **argv) {
     } else if (argc == 6 && std::wcscmp(argv[5],L"launch")==0) {
         wcscpy_s(g_ini_path,argv[2]);const auto c=Load();
         const auto expected=std::wcstoul(argv[3],nullptr,10);
-        const bool remember=std::wcstoul(argv[4],nullptr,10)!=0;
+        const int expected_mode=static_cast<int>(std::wcstol(argv[4],nullptr,10));
         Check(static_cast<unsigned>(c.processing_start)==expected&&
-              c.remember_processing_start==remember&&c.processing_selection==0,
-              "fresh process applies only an opted-in startup route");
-        Check(c.mode==nr_launch_preferences::LegacyMode(expected,2),
-              "fresh process keeps legacy mode consistent with startup route");
+              c.processing_selection==0,
+              "fresh process applies the saved or legacy startup route");
+        Check(c.mode==expected_mode,
+              "fresh process keeps legacy mode consistent with the selected route");
     } else if (argc == 7) {
         wcscpy_s(g_ini_path, argv[2]);
         const auto c = Load();

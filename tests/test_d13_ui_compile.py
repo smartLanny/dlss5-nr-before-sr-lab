@@ -112,6 +112,8 @@ namespace nr_processing_runtime {
 std::atomic<unsigned long long> next_selection{1};
 nr_processing::Session session;
 nr_processing::Start Effective(){return session.Current();}
+bool TrySnapshot(nr_processing::Snapshot& value){value={};value.current=session.Current();return true;}
+bool FgRedirectRequested(){return false;}
 }
 namespace nr_compat_present_runtime {
 nr_compat_present::Observation current{};
@@ -217,7 +219,7 @@ int main() {
         click.clear();rendered.clear();
         if(DrawProcessingModeBlocks(c,true,true,1)||c.processing_start!=nr_processing::Start::Before||
            c.processing_selection!=saved||c.mode!=2)return 14;
-        if(rendered.find("F8")==std::string::npos||rendered.find(zh?"纯颜色":"Color-only")==std::string::npos)return 15;
+        if(rendered.find("F8")==std::string::npos||rendered.find(zh?"尚无可用原生导引回执":"No usable native guide receipt")==std::string::npos)return 15;
     }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
     std::puts("D16 UI adapters: three routes/reselection/fallback and more-layer 3-5 controls compiled");

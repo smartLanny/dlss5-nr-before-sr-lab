@@ -113,14 +113,20 @@ def main():
                                  route, passes, percent, '1', 'processing'], text=True, capture_output=True)
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
-    for name, route, remember in (
-        ('launch-empty.ini', '0', '0'),
-        ('launch-old-present.ini', '0', '0'),
-        ('launch-remember-after.ini', '1', '1'),
-        ('launch-remember-present.ini', '2', '1'),
+    for name, route, mode in (
+        ('launch-empty.ini', '0', '2'),
+        ('launch-legacy-before.ini', '0', '2'),
+        ('launch-legacy-after.ini', '1', '1'),
+        ('launch-invalid-after.ini', '1', '1'),
+        ('launch-saved-before-r0.ini', '0', '2'),
+        ('launch-saved-after-r0.ini', '1', '1'),
+        ('launch-saved-present-r0.ini', '2', '2'),
+        ('launch-saved-before-r1.ini', '0', '2'),
+        ('launch-saved-after-r1.ini', '1', '1'),
+        ('launch-saved-present-r1.ini', '2', '1'),
     ):
         result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
-                                 route, remember, 'launch'], text=True, capture_output=True)
+                                 route, mode, 'launch'], text=True, capture_output=True)
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
     negatives = []
@@ -141,13 +147,6 @@ def main():
         ('reselect-on-config-poll', 'if(session.Select(g_config.processing_start,g_config.processing_selection)) {',
          'if(session.Select(g_config.processing_start,++g_config.processing_selection)) {',
          'ordinary edits preserve fallback'),
-        ('remember-resets-history',
-         'return a.enabled == b.enabled && a.mode == b.mode &&\n'
-         '           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&',
-         'return a.enabled == b.enabled && a.mode == b.mode &&\n'
-         '           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&\n'
-         '           a.remember_processing_start==b.remember_processing_start &&',
-         'remember-only preference does not reset route history'),
         ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);',
          '(void)config.nr_full_passes;', 'more-layer count stays'),
         ('allow-legacy-native-sr-retry', 'config.retry_original_on_sr_failure=false;',
