@@ -33,6 +33,7 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
     names = ['CallNativeCreatePassThrough', 'IsUnknownOutermostEvaluateHandle',
              'ObserveNullEvaluateHandle', 'RecordModuleObserverFault',
              'LatchUnknownFeatureHandle', 'FinishFeature1CreateObservation',
+             'HookLoaderInit', 'HookLoaderInitExt', 'HookLoaderInitProject',
              'OtherNrOwnerActive', 'OtherNrOwnerBypassReason',
              'HookCreate', 'HookCoreCreate', 'HookDlssdCreate',
              'DispatchEvaluate', 'CallNativeEvaluatePassThrough',

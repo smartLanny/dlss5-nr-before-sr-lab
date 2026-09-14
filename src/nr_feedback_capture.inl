@@ -767,7 +767,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.rrCreatesInProgress=%u\n%s.rrEvaluations=%llu\n%s.otherNrOwner=%d\n"
         "%s.genericRenoDxConflict=%d\n%s.moduleObserverFault=%s\n"
         "%s.feature1Preflight=%llu/%llu\n%s.preflightCoreLoaded=%d\n"
-        "%s.preflightDlssdLoaded=%d\n%s.commandSignatureHook=%d\n"
+        "%s.preflightDlssdLoaded=%d\n%s.loaderInitHooksReady=%d\n"
+        "%s.loaderInitCompletions=%llu\n%s.coreLifecycleReady=%d\n"
+        "%s.commandSignatureHook=%d\n"
         "%s.commandSignatureDeferredStart=%d\n%s.commandSignatureObserved=%llu\n"
         "%s.commandSignatureUnknownUses=%llu\n",
         prefix, g_nr_successful_evaluations.load(), prefix, g_nr_transfer_submitted_frames.load(),
@@ -783,6 +785,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         g_feature1_preflight_attempts.load(),
         prefix, g_preflight_core_loaded.load() ? 1 : 0,
         prefix, g_preflight_dlssd_loaded.load() ? 1 : 0,
+        prefix, g_loader_init_hooks_ready.load() ? 1 : 0,
+        prefix, g_loader_init_completions.load(),
+        prefix, g_core_lifecycle_hooks_ready.load() ? 1 : 0,
         prefix, g_command_signature_hook_published.load() ? 1 : 0,
         prefix, g_command_signature_start_deferred.load() ? 1 : 0,
         prefix, g_command_signature_create_calls.load(),

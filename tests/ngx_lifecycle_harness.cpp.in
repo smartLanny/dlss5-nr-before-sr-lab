@@ -19,6 +19,7 @@ using NgxResult = unsigned int;
 constexpr NgxResult kNgxSuccess = 1, kNgxFeatureNotFound = 2;
 struct NgxHandle { unsigned int id = 0; };
 struct ID3D12GraphicsCommandList { unsigned int device = 1; };
+struct ID3D12Device { unsigned int id = 1; };
 struct NgxParams { unsigned int width = 1920, height = 1080, out_width = 3840, out_height = 2160; int flags = 0; };
 // Recovery is outside this focused lifecycle gate. Keep its actual admission
 // and retirement call sites intact while supplying no evidence or side effects.
@@ -49,8 +50,17 @@ Snapshot Read() { return {}; } // This lifecycle fixture records no RR rendering
 using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **);
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, const NgxHandle *, const NgxParams *, void *);
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+using NgxInitFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                               ID3D12Device *, unsigned int);
+using NgxInitExtFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                                  ID3D12Device *, unsigned int, const void *);
+using NgxInitProjectFn = NgxResult (*)(const char *, unsigned int, const char *,
+                                      const wchar_t *, ID3D12Device *,
+                                      const void *, unsigned int);
 // @TYPES@
-unsigned int checks = 0, plugin_attempts = 0, native_evals = 0, native_releases = 0;
+unsigned int checks = 0, plugin_attempts = 0, native_creates = 0,
+    native_evals = 0, native_releases = 0, native_inits = 0,
+    init_completion_callbacks = 0;
 void Check(bool ok, const char *label) { ++checks; if (!ok) { std::fprintf(stderr, "%s\n", label); std::exit(1); } }
 template <class... T> void Log(const char *, T...) {}
 void DumpCreate(const NgxParams *) {}
@@ -93,6 +103,11 @@ BypassReason bypass = BypassReason::None;
 void SetBypassReason(BypassReason r) { bypass = r; }
 bool LatchGenericRenoDxConflictIfLoaded() { return g_generic_renodx_conflict.load(); }
 void PreflightFeature1LifecycleModules() {}
+bool core_create_hook_ready = false;
+void CoverNgxLifecycleAfterInit(const char *) {
+    ++init_completion_callbacks;
+    core_create_hook_ready = true;
+}
 bool IsUpscalingCarrierFeature(int id) { return id == 1; }
 CRITICAL_SECTION g_chain_cs;
 std::vector<const NgxHandle *> retired;
@@ -117,9 +132,38 @@ int child_feature = 1;
 NgxResult release_result = kNgxSuccess;
 std::function<void()> on_create, on_evaluate;
 NgxResult NativeCreate(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **out) {
+    ++native_creates;
     if (on_create) on_create();
     if (out) *out = null_create ? nullptr : (alias_pointer ? &outer_handle : &inner_handle);
     return create_fails ? 0xBAD : kNgxSuccess;
+}
+NgxResult NativeLoaderInit(unsigned long long application_id,
+                           const wchar_t *application_data_path,
+                           ID3D12Device *device, unsigned int sdk_version) {
+    Check(application_id==77 && application_data_path!=nullptr && device!=nullptr &&
+          sdk_version==19,"loader Init ABI forwarded exactly");
+    ++native_inits;
+    return kNgxSuccess;
+}
+NgxResult NativeLoaderInitExt(unsigned long long application_id,
+                              const wchar_t *application_data_path,
+                              ID3D12Device *device, unsigned int sdk_version,
+                              const void *parameters) {
+    Check(application_id==78 && application_data_path!=nullptr && device!=nullptr &&
+          sdk_version==20 && parameters!=nullptr,"loader Init_Ext ABI forwarded exactly");
+    ++native_inits;
+    return 0x102u;
+}
+NgxResult NativeLoaderInitProject(const char *project_id,unsigned int engine_type,
+                                  const char *engine_version,
+                                  const wchar_t *application_data_path,
+                                  ID3D12Device *device,const void *feature_info,
+                                  unsigned int sdk_version) {
+    Check(project_id!=nullptr && engine_type==3 && engine_version!=nullptr &&
+          application_data_path!=nullptr && device!=nullptr && feature_info!=nullptr &&
+          sdk_version==21,"loader Init_ProjectID ABI forwarded exactly");
+    ++native_inits;
+    return kNgxSuccess;
 }
 NgxResult NativeWrapperCreate(ID3D12GraphicsCommandList *l,int id,NgxParams *p,NgxHandle **out) {
     if (nested_create) {
@@ -152,6 +196,9 @@ NgxResult NativeRelease(NgxHandle *h) {
 CreateFeatureFn g_original_create=NativeWrapperCreate,g_original_core_create=NativeCreate,g_original_dlssd_create=NativeCreate;
 EvaluateFeatureFn g_original_evaluate=NativeEvaluate,g_original_evaluate_c=NativeEvaluate,g_original_core_evaluate=NativeEvaluate,g_original_dlssd_evaluate=NativeEvaluate;
 ReleaseFeatureFn g_original_release=NativeRelease,g_original_core_release=NativeRelease,g_original_dlssd_release=NativeRelease;
+NgxInitFn g_original_loader_init=NativeLoaderInit;
+NgxInitExtFn g_original_loader_init_ext=NativeLoaderInitExt;
+NgxInitProjectFn g_original_loader_init_project=NativeLoaderInitProject;
 // @PROCESS@
 // @HOOKS@
 struct FeedbackSession { std::string report; };
@@ -181,14 +228,45 @@ void Reset() {
     nr_dual_runtime::fatal_result.store(0,std::memory_order_release);
     nr_source_runtime::injected_fatal=0;nr_source_runtime::finished_result=0;
     nr_source_runtime::evaluate_entries=0;nr_source_runtime::finishes=0;nr_source_runtime::retirements=0;
-    native_evals=native_releases=plugin_attempts=0;retired.clear();
+    native_creates=native_evals=native_releases=native_inits=plugin_attempts=0;
+    init_completion_callbacks=0;core_create_hook_ready=false;retired.clear();
     create_fails=outer_fails=null_create=alias_pointer=nested_create=cross_list=false;
     nested_release=nested_evaluate=second_child=release_recreates=false;
     release_result=kNgxSuccess;child_feature=1;on_create={};on_evaluate={};
 }
 int main() {
     InitializeCriticalSection(&g_chain_cs);
-    Reset(); nested_create=true; NgxHandle *h=nullptr;
+    // Actual exported Init wrapper returns before it publishes core coverage;
+    // no Present callback or direct test bypass may invoke the core detour first.
+    Reset(); ID3D12Device device; NgxHandle *h=nullptr;
+    Check(HookLoaderInit(77,L"fixture",&device,19)==kNgxSuccess &&
+          native_inits==1 && init_completion_callbacks==1 && core_create_hook_ready,
+          "loader Init completion publishes core coverage before returning");
+    Check(core_create_hook_ready && HookCoreCreate(&list,1,&params,&h)==kNgxSuccess &&
+          h!=nullptr && native_creates==1 && At(NgxLayer::Core,h).handle,
+          "first core Create before Present has a recorded lifecycle");
+    Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==1 &&
+          plugin_attempts==1 && !g_module_observer_gap_detected,
+          "first core Evaluate uses the recorded Create and calls native once");
+
+    // F6-off does not disable lifecycle observation. A later enable consumes
+    // the same observed handle without repeating Init/Create/Evaluate.
+    Reset();g_enabled_fast=false;h=nullptr;int feature_info=9;
+    Check(HookLoaderInitProject("fixture",3,"1",L"fixture",&device,
+          &feature_info,21)==kNgxSuccess && native_inits==1&&core_create_hook_ready,
+          "disabled cold startup still publishes ProjectID Init completion");
+    Check(HookCoreCreate(&list,1,&params,&h)==kNgxSuccess&&native_creates==1&&
+          At(NgxLayer::Core,h).handle,"disabled startup still observes one real Create");
+    g_enabled_fast=true;
+    Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xCAFE&&native_evals==1&&
+          native_inits==1&&native_creates==1&&!g_module_observer_gap_detected,
+          "later enable uses one observed Create and one native Evaluate");
+    Reset();int parameters=5;
+    Check(HookLoaderInitExt(78,L"fixture",&device,20,&parameters)==0x102u&&
+          native_inits==1&&init_completion_callbacks==1,
+          "legacy Init_Ext result and fifth argument remain exact");
+
+    Reset(); nested_create=true; h=nullptr;
     Check(HookCreate(&list,1,&params,&h)==kNgxSuccess && h==&outer_handle,"native outer Create unchanged");
     Check(Live()==2 && At(NgxLayer::Core,&inner_handle).handle,"INNER_CREATE_OBSERVED");
     const auto a=At(NgxLayer::Dlss,h), b=At(NgxLayer::Core,&inner_handle);

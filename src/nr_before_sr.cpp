@@ -94,11 +94,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline21";
+constexpr const char *kAddonVersion = "beta0.5-dline21-223fix1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline21";
+constexpr const char *kBuildIdentity = "beta0.5-dline21-223fix1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -11473,6 +11473,16 @@ using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int,
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *,
                                         const NgxHandle *, const NgxParams *, void *);
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+// These are the exact x64 PE export ABIs used by nvngx.dll/_nvngx.dll. The
+// four-argument Init and five-argument Init_Ext are the snippet boundary;
+// Init_ProjectID is the seven-argument exported form behind the SDK wrapper.
+using NgxInitFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                               ID3D12Device *, unsigned int);
+using NgxInitExtFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                                  ID3D12Device *, unsigned int, const void *);
+using NgxInitProjectFn = NgxResult (*)(const char *, unsigned int, const char *,
+                                      const wchar_t *, ID3D12Device *,
+                                      const void *, unsigned int);
 using ExecuteCommandListsFn = void (STDMETHODCALLTYPE *)(
     ID3D12CommandQueue *, UINT, ID3D12CommandList *const *);
 using ResetCommandListFn = HRESULT (STDMETHODCALLTYPE *)(
@@ -11489,6 +11499,9 @@ EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
 ReleaseFeatureFn g_original_dlssd_release = nullptr;
+NgxInitFn g_original_loader_init = nullptr;
+NgxInitExtFn g_original_loader_init_ext = nullptr;
+NgxInitProjectFn g_original_loader_init_project = nullptr;
 
 NgxResult CallNativeCreatePassThrough(CreateFeatureFn original,
                                       ID3D12GraphicsCommandList *command_list,
@@ -11553,8 +11566,12 @@ std::size_t g_command_list_reset_hook_count = 0;
 SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_present_observer_lock = SRWLOCK_INIT;
+SRWLOCK g_initial_ngx_hook_lock = SRWLOCK_INIT;
 HMODULE g_hooked_core_module = nullptr;
 HMODULE g_hooked_dlssd_module = nullptr;
+HMODULE g_hooked_loader_module = nullptr;
+std::atomic<bool> g_loader_init_hooks_ready{false};
+std::atomic<unsigned long long> g_loader_init_completions{0};
 std::atomic<bool> g_core_lifecycle_hooks_ready{false};
 std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
@@ -13493,6 +13510,44 @@ struct LoadedNgxModule {
     LoadedNgxModule &operator=(const LoadedNgxModule &) = delete;
 };
 
+void CoverNgxLifecycleAfterInit(const char *entry);
+
+NgxResult HookLoaderInit(unsigned long long application_id,
+                         const wchar_t *application_data_path,
+                         ID3D12Device *device, unsigned int sdk_version) {
+    const NgxResult result = g_original_loader_init(
+        application_id, application_data_path, device, sdk_version);
+    // The native call may load _nvngx.dll and nvngx_dlss.dll. Install their
+    // lifecycle hooks only after it returns, outside the loader lock, and
+    // before the game can issue its first CreateFeature.
+    CoverNgxLifecycleAfterInit("D3D12_Init");
+    return result;
+}
+
+NgxResult HookLoaderInitExt(unsigned long long application_id,
+                            const wchar_t *application_data_path,
+                            ID3D12Device *device, unsigned int sdk_version,
+                            const void *parameters) {
+    const NgxResult result = g_original_loader_init_ext(
+        application_id, application_data_path, device, sdk_version, parameters);
+    CoverNgxLifecycleAfterInit("D3D12_Init_Ext");
+    return result;
+}
+
+NgxResult HookLoaderInitProject(const char *project_id,
+                                unsigned int engine_type,
+                                const char *engine_version,
+                                const wchar_t *application_data_path,
+                                ID3D12Device *device,
+                                const void *feature_info,
+                                unsigned int sdk_version) {
+    const NgxResult result = g_original_loader_init_project(
+        project_id, engine_type, engine_version, application_data_path,
+        device, feature_info, sdk_version);
+    CoverNgxLifecycleAfterInit("D3D12_Init_ProjectID");
+    return result;
+}
+
 bool PinHookAddress(const void *address, const char *name,
                     HMODULE expected_module = nullptr) {
     if (address == nullptr) return false;
@@ -13516,7 +13571,7 @@ bool PinHookAddress(const void *address, const char *name,
 // All entries are private to the startup worker, then the module-rescan lock.
 // Operation-specific lookup handles both orders of core/DLSSD forwarding and
 // prevents an Evaluate_C alias from being hooked twice.
-enum class NgxHookOperation { Release, Create, Evaluate };
+enum class NgxHookOperation { Release, Create, Evaluate, Init };
 struct NgxHookTarget {
     NgxHookOperation operation = NgxHookOperation::Release;
     void *target = nullptr;
@@ -13524,7 +13579,7 @@ struct NgxHookTarget {
     bool published = false;
     bool queued = false;
 };
-NgxHookTarget g_ngx_hook_targets[10] = {};
+NgxHookTarget g_ngx_hook_targets[16] = {};
 std::size_t g_ngx_hook_target_count = 0;
 
 NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
@@ -13593,6 +13648,72 @@ void MarkNgxHooksPublished(bool initial_install) {
         if (entry.operation == NgxHookOperation::Evaluate)
             RememberEvaluateHookTarget(entry.target);
     }
+}
+
+bool InstallLoaderInitHooks(HMODULE loader) {
+    if (loader == nullptr) return false;
+    if (g_loader_init_hooks_ready.load(std::memory_order_acquire) &&
+        g_hooked_loader_module == loader)
+        return true;
+    if (!PinHookAddress(loader, "nvngx.dll", loader)) return false;
+    const MH_STATUS initialized = MH_Initialize();
+    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED)
+        return false;
+
+    void *init = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init"));
+    void *init_ext = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init_Ext"));
+    void *init_project = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init_ProjectID"));
+    const bool has_entry = init != nullptr || init_ext != nullptr ||
+                           init_project != nullptr;
+
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);
+    bool queued_any = false;
+    const bool init_ok = init == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init,
+        reinterpret_cast<void *>(&HookLoaderInit),
+        reinterpret_cast<void **>(&g_original_loader_init),
+        "loader D3D12_Init", queued_any);
+    const bool ext_ok = init_ext == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init_ext,
+        reinterpret_cast<void *>(&HookLoaderInitExt),
+        reinterpret_cast<void **>(&g_original_loader_init_ext),
+        "loader D3D12_Init_Ext", queued_any);
+    const bool project_ok = init_project == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init_project,
+        reinterpret_cast<void *>(&HookLoaderInitProject),
+        reinterpret_cast<void **>(&g_original_loader_init_project),
+        "loader D3D12_Init_ProjectID", queued_any);
+    bool applied = true;
+    if (queued_any) {
+        const MH_STATUS status = MH_ApplyQueued();
+        applied = status == MH_OK;
+        Log("[module] MH_ApplyQueued loader Init coverage status=%d",
+            static_cast<int>(status));
+        if (applied) MarkNgxHooksPublished(false);
+    }
+    const bool init_published = init == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init);
+    const bool ext_published = init_ext == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init_ext);
+    const bool project_published = init_project == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init_project);
+    const bool covered = has_entry && init_ok && ext_ok && project_ok &&
+        applied && init_published && ext_published && project_published;
+    if (covered) {
+        g_hooked_loader_module = loader;
+        g_loader_init_hooks_ready.store(true, std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+    Log("[module] loader Init completion coverage: init=%d ext=%d "
+        "project=%d; post-Init lifecycle=%s.",
+        init != nullptr && init_published ? 1 : 0,
+        init_ext != nullptr && ext_published ? 1 : 0,
+        init_project != nullptr && project_published ? 1 : 0,
+        covered ? "covered" : "unavailable");
+    return covered;
 }
 
 struct LateNgxModulePlan {
@@ -13696,7 +13817,12 @@ static_assert(LateLifecycleDiscoveryRequiresIsolation(false, true, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(true, false, false));
 
 void PollNgxLifecycleModules(bool force) {
-    if (!g_evaluate_hooks_ready.load(std::memory_order_acquire)) return;
+    // Loader Init completion can publish core lifecycle coverage before the
+    // optional model wrapper exists. This is still the existing cold/one-second
+    // observer path; no scan is added to the Evaluate hot path.
+    if (!g_evaluate_hooks_ready.load(std::memory_order_acquire) &&
+        !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+        return;
     const ULONGLONG now = GetTickCount64();
     ULONGLONG next = g_next_module_rescan_tick.load(std::memory_order_relaxed);
     if (!force) {
@@ -13709,6 +13835,12 @@ void PollNgxLifecycleModules(bool force) {
                                         std::memory_order_relaxed);
     }
 
+    // The hook table, hooked-module identities and late-discovery decision are
+    // one publication. Initial model installation uses the same outer lock;
+    // this prevents a post-Init scan from reading a half-built target table or
+    // misclassifying it as late activity. Lock order is initial -> rescan ->
+    // evaluate throughout this observer.
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
     AcquireSRWLockExclusive(&g_module_rescan_lock);
     const unsigned long long scan =
         g_module_rescan_count.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -13830,6 +13962,7 @@ void PollNgxLifecycleModules(bool force) {
     }
     g_module_rescan_in_progress.store(false, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_module_rescan_lock);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
 }
 
 bool InstallHooks(HMODULE ngx) {
@@ -13839,6 +13972,10 @@ bool InstallHooks(HMODULE ngx) {
         Log("MH_Initialize failed: %d", static_cast<int>(init));
         return false;
     }
+    LoadedNgxModule loader_ref(L"nvngx.dll");
+    if (loader_ref.handle != nullptr &&
+        !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+        (void)InstallLoaderInitHooks(loader_ref.handle);
     LoadedNgxModule core_ref(L"_nvngx.dll");
     LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
     HMODULE core = core_ref.handle;
@@ -13864,6 +14001,10 @@ bool InstallHooks(HMODULE ngx) {
     g_core_unknown_handle_guard.store(core_plan.evaluate != nullptr,
                                       std::memory_order_release);
 
+    // Loader-Init completion and the worker can converge here from different
+    // threads. Serialize the shared hook table and MinHook publication with
+    // the same lock used by late module scans.
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);
     bool okay = PrepareNgxHook(
         NgxHookOperation::Create, create, reinterpret_cast<void *>(&HookCreate),
         reinterpret_cast<void **>(&g_original_create), "D3D12_CreateFeature");
@@ -13910,7 +14051,10 @@ bool InstallHooks(HMODULE ngx) {
             is_core ? "core ReleaseFeature" : "DLSSD ReleaseFeature");
         plan->prepared = create_ok && evaluate_ok && release_ok;
     }
-    if (!okay) return false;
+    if (!okay) {
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+        return false;
+    }
     if ((core_plan.module != nullptr && !core_plan.prepared) ||
         (dlssd_plan.module != nullptr && !dlssd_plan.prepared)) {
         // Publish isolation before enabling any detour: another thread can
@@ -13933,6 +14077,7 @@ bool InstallHooks(HMODULE ngx) {
                 entry.name, entry.target, static_cast<unsigned long long>(queried),
                 memory.State, memory.Protect, memory.AllocationProtect);
         }
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
         return false;
     }
     MarkNgxHooksPublished(true);
@@ -13946,11 +14091,58 @@ bool InstallHooks(HMODULE ngx) {
             "initial NGX Create/Evaluate/Release lifecycle hooks are incomplete");
     }
     g_evaluate_hooks_ready.store(true, std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     Log("[module] initial scan complete: sr=%p core=%p dlssd=%p.",
         static_cast<void *>(ngx), static_cast<void *>(core),
         static_cast<void *>(dlssd));
     UpdateEvaluateHookActivation();
     return true;
+}
+
+bool EnsureLoaderInitHooks(HMODULE loader) {
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool covered =
+        (g_loader_init_hooks_ready.load(std::memory_order_acquire) &&
+         g_hooked_loader_module == loader) ||
+        InstallLoaderInitHooks(loader);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    return covered;
+}
+
+bool EnsureInitialNgxHooks(HMODULE ngx) {
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool covered =
+        g_evaluate_hooks_ready.load(std::memory_order_acquire) ||
+        InstallHooks(ngx);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    return covered;
+}
+
+void CoverNgxLifecycleAfterInit(const char *entry) {
+    // This callback runs after the real Init export returned. It owns no loader
+    // lock and may safely pin modules and publish MinHook targets. The shared
+    // initial-install lock also closes the small race where Init is entered as
+    // its own hook transaction becomes active.
+    g_loader_init_completions.fetch_add(1, std::memory_order_relaxed);
+    LoadedNgxModule ngx_ref(L"nvngx_dlss.dll");
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool primary_covered = ngx_ref.handle != nullptr &&
+        (g_evaluate_hooks_ready.load(std::memory_order_acquire) ||
+         InstallHooks(ngx_ref.handle));
+    const bool loader_published =
+        g_loader_init_hooks_ready.load(std::memory_order_acquire);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    // Even when Init did not load the model wrapper, its loader transaction is
+    // now fully published and the core can be covered before CreateFeature.
+    if (loader_published || primary_covered)
+        PollNgxLifecycleModules(true);
+    Log("[module] %s returned; primary=%d coreLoaded=%d coreLifecycle=%d "
+        "observerFault=%s.", entry != nullptr ? entry : "D3D12 Init",
+        primary_covered ? 1 : 0,
+        GetModuleHandleW(L"_nvngx.dll") != nullptr ? 1 : 0,
+        g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+        ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+            g_module_observer_fault.load(std::memory_order_relaxed))));
 }
 
 DWORD WINAPI HookWorker(void *) {
@@ -13960,13 +14152,18 @@ DWORD WINAPI HookWorker(void *) {
                        reinterpret_cast<LPCWSTR>(&HookWorker), &pinned);
 
     for (unsigned int attempt = 0; attempt < 24000; ++attempt) {
+        if (g_evaluate_hooks_ready.load(std::memory_order_acquire)) return 0;
+        LoadedNgxModule loader_ref(L"nvngx.dll");
+        if (loader_ref.handle != nullptr &&
+            !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+            (void)EnsureLoaderInitHooks(loader_ref.handle);
         LoadedNgxModule ngx_ref(L"nvngx_dlss.dll");
         HMODULE ngx = ngx_ref.handle;
         if (ngx != nullptr) {
             wchar_t path[MAX_PATH] = {};
             GetModuleFileNameW(ngx, path, MAX_PATH);
             Log("Found SR NGX module: %ls", path);
-            if (InstallHooks(ngx)) {
+            if (EnsureInitialNgxHooks(ngx)) {
                 Log("NGX observer/AI-upscaling hooks active.");
             } else {
                 Log("Hook installation failed; observer is inactive.");
@@ -14924,13 +15121,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline21 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline21-223fix1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-223fix1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -9,17 +9,18 @@
 #include <cwchar>
 #include <functional>
 #include <iterator>
+#include <thread>
 #include <vector>
 
 struct FakeModule {
     const wchar_t *name;
     bool loaded = false;
-    void *exports[4] = {};
+    void *exports[7] = {};
     int refs = 0;
     int pins = 0;
 };
 FakeModule modules[] = {{L"nvngx_dlss.dll"}, {L"_nvngx.dll"},
-    {L"nvngx_dlssd.dll"}, {L"forwarded-owner.dll"}};
+    {L"nvngx_dlssd.dll"}, {L"nvngx.dll"}, {L"forwarded-owner.dll"}};
 struct FakeTarget {
     FakeModule *owner = nullptr;
     bool created = false;
@@ -29,7 +30,7 @@ struct FakeTarget {
     bool fail_queue = false;
     bool fail_pin = false;
 };
-FakeTarget targets[24];
+FakeTarget targets[32];
 unsigned int create_calls = 0, apply_calls = 0;
 bool fail_apply = false;
 std::function<void()> during_apply;
@@ -69,16 +70,24 @@ FARPROC WINAPI FakeGetProcAddress(HMODULE module, LPCSTR name) {
     assert(entry->refs > 0);
     const char *names[] = {"NVSDK_NGX_D3D12_ReleaseFeature",
         "NVSDK_NGX_D3D12_CreateFeature", "NVSDK_NGX_D3D12_EvaluateFeature",
-        "NVSDK_NGX_D3D12_EvaluateFeature_C"};
-    for (int i = 0; i < 4; ++i)
+        "NVSDK_NGX_D3D12_EvaluateFeature_C", "NVSDK_NGX_D3D12_Init",
+        "NVSDK_NGX_D3D12_Init_Ext", "NVSDK_NGX_D3D12_Init_ProjectID"};
+    for (int i = 0; i < 7; ++i)
         if (std::strcmp(name, names[i]) == 0)
             return reinterpret_cast<FARPROC>(entry->exports[i]);
+    return nullptr;
+}
+HMODULE WINAPI FakeGetModuleHandleW(LPCWSTR name) {
+    for (FakeModule &module : modules)
+        if (module.loaded && std::wcscmp(name, module.name) == 0)
+            return reinterpret_cast<HMODULE>(&module);
     return nullptr;
 }
 ULONGLONG WINAPI FakeGetTickCount64() { return 10000; }
 #define GetModuleHandleExW FakeGetModuleHandleExW
 #define FreeLibrary FakeFreeLibrary
 #define GetProcAddress FakeGetProcAddress
+#define GetModuleHandleW FakeGetModuleHandleW
 #define GetTickCount64 FakeGetTickCount64
 
 enum MH_STATUS { MH_OK, MH_ERROR_ALREADY_INITIALIZED, MH_ERROR_ENABLED,
@@ -137,11 +146,22 @@ void HookCoreRelease() {}
 void HookDlssdCreate() {}
 void HookDlssdEvaluate() {}
 void HookDlssdRelease() {}
+struct ID3D12Device {};
+using NgxResult = unsigned int;
 void *g_original_create, *g_original_evaluate, *g_original_evaluate_c;
 void *g_original_release, *g_original_core_create, *g_original_core_evaluate;
 void *g_original_core_release, *g_original_dlssd_create;
 void *g_original_dlssd_evaluate, *g_original_dlssd_release;
-using NgxResult = unsigned int;
+using NgxInitFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                               ID3D12Device *, unsigned int);
+using NgxInitExtFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                                  ID3D12Device *, unsigned int, const void *);
+using NgxInitProjectFn = NgxResult (*)(const char *, unsigned int, const char *,
+                                      const wchar_t *, ID3D12Device *,
+                                      const void *, unsigned int);
+NgxInitFn g_original_loader_init = nullptr;
+NgxInitExtFn g_original_loader_init_ext = nullptr;
+NgxInitProjectFn g_original_loader_init_project = nullptr;
 constexpr NgxResult kNgxSuccess = 1;
 struct NgxHandle {};
 std::atomic<bool> g_evaluate_hooks_ready{false};
@@ -167,8 +187,12 @@ std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_null_feature_evaluations{0};
 std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
 HMODULE g_hooked_core_module = nullptr, g_hooked_dlssd_module = nullptr;
+HMODULE g_hooked_loader_module = nullptr;
+std::atomic<bool> g_loader_init_hooks_ready{false};
+std::atomic<unsigned long long> g_loader_init_completions{0};
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+SRWLOCK g_initial_ngx_hook_lock = SRWLOCK_INIT;
 void LatchRrOwnershipUncertain(const char *, const char *) {
     g_module_observer_gap_detected = true;
 }
@@ -196,6 +220,20 @@ void SetExports(FakeModule &module, int first_target, bool evaluate_c = false) {
             targets[first_target + i].owner = &module;
     }
 }
+void SetLoaderExports(FakeModule &module, int first_target) {
+    module.loaded = true;
+    for (int i = 0; i < 3; ++i) {
+        module.exports[4 + i] = &targets[first_target + i];
+        targets[first_target + i].owner = &module;
+    }
+}
+std::atomic<unsigned int> native_init_calls{0};
+NgxResult NativeLoaderInit(unsigned long long, const wchar_t *, ID3D12Device *,
+                           unsigned int) {
+    SetExports(modules[1], 4);
+    native_init_calls.fetch_add(1, std::memory_order_release);
+    return 0x12345678u;
+}
 void Reset() {
     for (auto &module : modules) {
         assert(module.refs == 0);
@@ -219,7 +257,11 @@ void Reset() {
     g_carrier_evaluations = g_null_feature_evaluations = 0;
     g_next_module_rescan_tick = 0;
     g_hooked_core_module = g_hooked_dlssd_module = nullptr;
+    g_hooked_loader_module = nullptr;
+    g_loader_init_hooks_ready = false;
+    g_loader_init_completions = 0;
     create_calls = apply_calls = 0;
+    native_init_calls = 0;
     fail_apply = false;
     during_apply = {};
     SetExports(modules[0], 0, true);
@@ -238,6 +280,57 @@ void Scan() {
 }
 int main() {
     NgxHandle handle;
+    // The Init detour may start on another thread while its own target is being
+    // published. Its native call completes first, then post-call coverage must
+    // wait for that publication even when the model wrapper is still absent.
+    Reset(); modules[0].loaded = false; SetLoaderExports(modules[3], 12);
+    std::thread concurrent_init;
+    std::atomic<bool> publication_callback_started{false};
+    during_apply = [&] {
+        if (publication_callback_started.exchange(true)) return;
+        g_original_loader_init = NativeLoaderInit;
+        concurrent_init = std::thread([] {
+            ID3D12Device device;
+            assert(HookLoaderInit(7, L"fixture", &device, 19) == 0x12345678u);
+        });
+        while (native_init_calls.load(std::memory_order_acquire) == 0)
+            std::this_thread::yield();
+    };
+    {
+        LoadedNgxModule loader(L"nvngx.dll");
+        assert(EnsureLoaderInitHooks(loader.handle));
+    }
+    concurrent_init.join();
+    during_apply = {};
+    assert(native_init_calls == 1 && g_loader_init_hooks_ready &&
+           g_loader_init_completions == 1);
+    assert(g_core_lifecycle_hooks_ready && targets[4].enabled &&
+           targets[5].enabled && targets[6].enabled);
+    assert(!g_module_observer_gap_detected && g_module_observer_epoch == 2);
+    const auto core_create_epoch=g_module_observer_epoch.load();
+    g_feature1_create_entries=1;g_feature1_create_in_progress=1;
+    SetExports(modules[0],0,true); // The covered core Create loads the model.
+    {
+        LoadedNgxModule primary(L"nvngx_dlss.dll");
+        assert(EnsureInitialNgxHooks(primary.handle));
+    }
+    FinishFeature1CreateObservation(
+        true,kNgxSuccess,&handle,core_create_epoch,"covered core Create");
+    assert(g_evaluate_hooks_ready && g_feature1_create_in_progress==0);
+    assert(!g_module_observer_gap_detected &&
+           g_module_observer_epoch==core_create_epoch);
+
+    Reset(); SetLoaderExports(modules[3], 12); InstallPrimary();
+    assert(g_loader_init_hooks_ready && modules[3].pins > 0);
+    assert(targets[12].enabled && targets[13].enabled && targets[14].enabled);
+    g_original_loader_init = NativeLoaderInit;
+    ID3D12Device device;
+    const unsigned int applies_before_init = apply_calls;
+    assert(HookLoaderInit(7, L"fixture", &device, 19) == 0x12345678u);
+    assert(native_init_calls == 1 && g_core_lifecycle_hooks_ready);
+    assert(targets[4].enabled && targets[5].enabled && targets[6].enabled);
+    assert(apply_calls == applies_before_init + 1);
+
     Reset(); InstallPrimary();
     modules[1].loaded = true; // No exports: never an observer publication.
     g_feature1_successful_creates = 1;
@@ -313,10 +406,10 @@ int main() {
         assert(!IsNgxHookPublished(NgxHookOperation::Create, &targets[5]));
     }
 
-    Reset(); modules[3].loaded = true;
-    targets[3].owner = &modules[3]; // Optional Evaluate_C in another image.
+    Reset(); modules[4].loaded = true;
+    targets[3].owner = &modules[4]; // Optional Evaluate_C in another image.
     InstallPrimary();
-    assert(modules[3].pins == 1 && targets[3].enabled);
+    assert(modules[4].pins == 1 && targets[3].enabled);
     assert(evaluate_targets.size() == 2);
 
     Reset(); SetExports(modules[1], 4);
