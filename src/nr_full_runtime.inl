@@ -11,8 +11,7 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
     unsigned x,unsigned y,CodecColorMode color_mode) {
     Prepared result{};
-    const nr_full::Settings setting{g_config.nr_passes==2&&g_config.nr_full_reference,g_config.nr_full_passes,
-        {g_config.nr_second_numerator,g_config.nr_second_denominator}};
+    const nr_full::Settings setting{g_config.nr_passes==2&&g_config.nr_full_reference,g_config.nr_full_passes};
     const auto generation=g_config_generation.load(std::memory_order_relaxed);
     if(full_generation!=generation||full_root!=primary.instance_id) {
         full_generation=generation;full_root=primary.instance_id;full_recorded_adoptions=0;

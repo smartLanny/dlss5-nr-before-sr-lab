@@ -85,19 +85,20 @@ void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
 // as TransferStrength. This finalization runs for BOTH verified colour and the
 // explicit unverified-HDR opt-in, not just for the latter.
 void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
-    float amplification = ActiveTransferStrength(g_config), bool protect_color = true) {
+    float amplification = ActiveTransferStrength(g_config), bool protect_color = true,
+    nr_color_amplification::ChromaConsumer consumer = nr_color_amplification::ChromaConsumer::GainCoupled) {
     if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
         policy.color_allowed = true;
         policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
         policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
-    const auto budget = nr_color_amplification::Resolve(
-        policy.effective_color_strength, amplification, protect_color);
+    const auto budget = nr_color_amplification::ResolveForConsumer(
+        policy.effective_color_strength, amplification, protect_color, consumer);
     policy.effective_color_strength = policy.color_allowed ? budget.coefficient : 0.0f;
     policy.amplification = budget.amplification;
     policy.amplification_color_limited = policy.color_allowed && budget.limited;
-    // In Mode 1 this is a conservative reduction of the final colour MIX,
-    // not an exact cap on per-channel ratios (unlike Mode 2's log exponent).
+    // Legacy post composition retains its conservative colour MIX reduction.
+    // Shared independent consumers keep their own confidence/ratio/gamut caps.
 }
 
 const char *NrColorReasonName(NrColorReason reason) {

@@ -13,11 +13,20 @@ void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool val
         static_cast<double>(config.region_gains[4]),static_cast<double>(config.region_gains[5]),
         static_cast<double>(config.region_gains[6]),static_cast<double>(config.region_gains[7]),
         static_cast<double>(config.region_gains[8]),static_cast<double>(config.region_gains[9]),static_cast<double>(config.region_gains[10]));
-    FeedbackAppend(s,"requested.nrPasses=%u\nrequested.nrSecondScale=%u/%u\n"
+    FeedbackAppend(s,"requested.nrPasses=%u\narchived.nrSecondScale=%u/%u\n"
         "requested.genericResidual=%d\nrequested.genericGains=%.9g,%.9g,%.9g,%.9g,%.9g\n"
         "requested.genericContract=normalized model-domain directional RGB and relative HSL; D final protection retained; not material masks\n",
         config.nr_passes,config.nr_second_numerator,config.nr_second_denominator,config.generic_residual?1:0,
         static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]));
+    FeedbackAppend(s,"requested.uniformChainVersion=1\nrequested.activeLayers=%u\nrequested.uniformMigrationChangedWork=%d\n",
+        nr_layers::Active(config.nr_layers),config.nr_uniform_migrated?1:0);
+    for(unsigned i=0;i<nr_layers::Count;++i){
+        const auto m=nr_layers::Read(config,i);
+        FeedbackAppend(s,"requested.layer%u.enabled=%d\nrequested.layer%u.model=%.9g,%.9g,%.9g,%.9g,%d,%u,%d\n",
+            i+1,i==0||config.nr_layers[i-1].enabled,i+1,
+            double(m.intensity),double(m.local_structure),double(m.local_tone),double(m.skin_structure),
+            m.auto_mask?1:0,m.style,m.ui_correction?1:0);
+    }
     FeedbackAppend(s,
         "requested.highStrengthProtection=%d\nrequested.layeredEnhancement=%d\n"
         "requested.layerTone=%.9g\nrequested.layerStructure=%.9g\n"

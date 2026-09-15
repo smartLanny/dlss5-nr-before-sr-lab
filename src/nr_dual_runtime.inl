@@ -85,7 +85,7 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     if(fatal_result.load()){SetStatus(Status::Failed);return {};}
     if(!primary.nr_handle||!primary.instance_id||g_config.identity_use_original||
        primary.successful_evaluations_since_reset<=g_config.warmup_after_create){SetStatus(Status::PrimaryWarming);return {};}
-    const auto first_plan=nr_dual::MakePlan({2,{g_config.nr_second_numerator,g_config.nr_second_denominator}},
+    const auto first_plan=nr_dual::MakePlan({2,{1,1}},
         {primary.width,primary.height},{{1,1},{16384,16384},{1,1}});
     if(!first_plan){SetStatus(Status::ResourceBudget);return {};}
     const auto plan=full&&layer_index>1?nr_dual::MakePlan({2,{1,1}},first_plan.secondary,
@@ -103,7 +103,8 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     guides.jitter.known=false;
     auto* aux=FindOrCreateContext(primary.sr_handle,feature.generation,primary.mode,
         plan.secondary.width,plan.secondary.height,color_mode,guides.signature,
-        primary.codec_peak_shoulder,layer_index,primary.instance_id,primary.history_generation);
+        primary.codec_peak_shoulder,layer_index,primary.instance_id,
+        primary.history_generation+g_layer_epochs[layer_index]);
     if(!aux||aux==&primary||aux->retired||aux->failed){SetStatus(Status::SlotPending);return {};}
     if(!CanBeginContextUseLocked(list,*aux,false)){SetStatus(Status::QueuePending);return {};}
     const bool completed=CreateCompleted(*aux);

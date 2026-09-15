@@ -30,4 +30,24 @@ inline Budget Resolve(float colour, float amplification, bool protect = true) {
     }
     return out;
 }
+// Select from the actual compositor after route negotiation, not from the
+// requested UI mode. Legacy composition retains its existing budget.
+enum class ChromaConsumer {
+    GainCoupled,
+    GainIndependent,
+};
+
+inline Budget ResolveForConsumer(float colour, float amplification, bool protect,
+                                 ChromaConsumer consumer) {
+    switch (consumer) {
+    case ChromaConsumer::GainCoupled:
+        return Resolve(colour, amplification, protect);
+    case ChromaConsumer::GainIndependent:
+        // Independent-log and opponent-field consumers already own their
+        // per-pixel bounds. A counter-gain here would attenuate colour twice.
+        // Input validation and all shader admission/identity guards remain.
+        return Resolve(colour, amplification, false);
+    }
+    return {};
+}
 } // namespace nr_color_amplification

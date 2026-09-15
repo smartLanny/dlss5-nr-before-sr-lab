@@ -70,6 +70,7 @@ void SettingsNote(const char *text) {
 }
 
 #include "nr_light_style_ui.inl"
+#include "nr_layers_ui.inl"
 #include "nr_dual_ui.inl"
 #include "nr_face_diagnostic_ui.inl"
 #include "nr_face_region_selection.inl"
@@ -707,33 +708,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0.2 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0.2，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
-    SettingsField(ui("Picture style", "画面风格"));
-    const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
-        ui("Natural###style-option", "自然###style-option"),
-        ui("Cinematic###style-option", "电影###style-option")};
-    const float style_width = std::max(1.0f,
-        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
-    ImGui::PushID("nr-model-style");
-    for (unsigned option = 0; option < 3; ++option) {
-        if (option != 0) ImGui::SameLine();
-        ImGui::PushID(static_cast<int>(option));
-        const bool selected = next.style == option;
-        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
-            ImGui::GetStyleColorVec4(ImGuiCol_Header));
-        const bool clicked = ImGui::Button(style_labels[option],
-            ImVec2(style_width, ImGui::GetFrameHeight() * 1.25f));
-        if (selected) ImGui::PopStyleColor();
-        if (clicked && !selected) {
-            next.style = option;
-            changed = true;
-            apply_discrete_edit = true;
-        }
-        SettingsTooltip(ui("Choose the AI picture style. The selected option stays highlighted; switching briefly reloads the model.",
-            "选择 AI 画面风格。当前选择会高亮显示；切换后模型会短暂重新加载。"));
-        ImGui::PopID();
-    }
-    ImGui::PopID();
-
+    DrawEnergyGateOptions();
     SettingsSection(ui("Processing order", "处理顺序"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const bool compatibility_post = !rr_guarded && next.mode == 2 &&
@@ -767,7 +742,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
             g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
     precision = std::clamp(precision, 50.0f, 100.0f);
-    if (SettingsSliderFloat(ui("AI rendering precision", "AI 渲染精度"),
+    if (SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
             "##nr-processing-precision", &precision, 50.0f, 100.0f, "%.0f%%")) {
         if (compatibility_mode) {
             next.compat_percent=static_cast<unsigned>(std::lround(precision));changed=true;
@@ -789,7 +764,21 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     SettingsTooltip(ui(
         "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. New installs use pre-SR 100% (N=R); existing presets/custom requests are retained. 100% uses the route's full input.",
-        "控制 DLSS5 NR AI 渲染的分辨率。数值越高，通常细节越完整，但会占用更多显卡性能，帧率可能降低。此处只调整 NR，游戏本身的分辨率不变。"));
+        "所有层共用此比例，仅乘一次。前置以游戏 SR 输入尺寸为基准，后置以重建输出为基准；100% 不额外缩小。游戏本身的分辨率不变。"));
+    unsigned observed_base_w=current.base_width,observed_base_h=current.base_height;
+    unsigned observed_work_w=current.work_width,observed_work_h=current.work_height;
+    if (compatibility_mode) {
+        nr_compat_present::Observation dimensions{};
+        if (nr_compat_present_runtime::TrySnapshot(dimensions)) {
+            observed_base_w=dimensions.source_width;observed_base_h=dimensions.source_height;
+            observed_work_w=dimensions.work_width;observed_work_h=dimensions.work_height;
+        } else observed_base_w=observed_base_h=observed_work_w=observed_work_h=0;
+    }
+    if (observed_base_w&&observed_base_h&&observed_work_w&&observed_work_h)
+        ImGui::TextDisabled(ui("Last NR: base %u x %u -> model %u x %u (each layer)",
+            "最近运行：基准 %u × %u → 模型 %u × %u（每层）"),
+            observed_base_w,observed_base_h,observed_work_w,observed_work_h);
+    else SettingsNote(ui("Model dimensions appear after NR runs.","NR 运行后显示实际模型尺寸。"));
     if (before_sr &&
         g_work_request_rejected.load(std::memory_order_acquire)) {
         SettingsNote(ui(
@@ -797,43 +786,21 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    // Keep the second scale immediately beside the first scale. The dual UI
-    // reports only a short state here; measurements and F7 belong to feedback.
-    nr_dual_runtime::DrawQuickUi(next,changed,apply_discrete_edit,has_pending);
-
-    SettingsSection(ui("Model controls", "模型控制"));
-    if (ImGui::Button(ui("Reset model controls###nr-model-reset", "恢复模型基准###nr-model-reset"))) {
-        nr_model_controls::Reset(next);
-        pending_model_action = nr_model_controls::Action::Reset;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    SettingsTooltip(ui("Restores the model controls to their baseline values and leaves route, colour, light and scale requests unchanged.",
-        "恢复模型控制基准，保留额外增强、光影控制、处理路线、颜色与工作比例。"));
-    ImGui::SameLine();
-    ImGui::BeginDisabled(has_pending || changed || !model_undo.Available(current.generation));
-    if (ImGui::Button(ui("Undo model reset###nr-model-undo", "撤销模型基准###nr-model-undo")) &&
-        model_undo.Restore(next, current.generation)) {
-        pending_model_action = nr_model_controls::Action::Undo;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    ImGui::EndDisabled();
-    SettingsTooltip(ui("Restores the seven model controls saved by the last committed model reset. Any later settings change invalidates this snapshot.",
-        "恢复最近一次模型基准操作保存的七项模型设置；后续配置改变后，此快照失效。"));
-    changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
-        "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
-    SettingsTooltip(ui("Tunes the model itself; 1.2 is recommended. Extra enhancement controls the final mix separately.",
-        "控制 AI 生成画面时的处理力度，推荐 1.2；额外增强另行控制最终混合。"));
-    if (next.intensity != 1.2f) {
-        ImGui::TextDisabled("%s", ui("Recommended model strength is 1.2; your saved value is shown above.",
-            "推荐模型强度为 1.2；上方显示的是已保存的设置。"));
-        if (ImGui::Button(ui("Restore model strength 1.2 only###nr-model-default", "仅恢复模型强度 1.2###nr-model-default"))) {
-            next.intensity = 1.2f;
-            changed = true;
-            apply_discrete_edit = true;
+    if (ImGui::CollapsingHeader(ui("Model input brightness", "模型输入亮度"))) {
+        float reference_white=1.f/next.proxy_scale;
+        if (SettingsSliderFloat(ui("Reference white brightness", "参考白亮度"),
+                "##nr-reference-white",&reference_white,.5f,4.f,"%.2fx")) {
+            next.proxy_scale=1.f/reference_white;changed=true;
+        }
+        SettingsTooltip(ui(
+            "Relative white reference for the model's HDR input. 1x keeps the existing mapping. Raising it makes the HDR image seen by NR darker and can change its texture and colour decisions. Uses the existing ProxyScale once; it does not control the display or an external HDR plugin. SDR routes that bypass HDR mapping do not use this setting.",
+            "模型理解 HDR 画面时使用的相对白亮度，1 倍沿用原有映射。调高会让模型看到的 HDR 输入变暗，可能改变纹理和颜色效果。与原 ProxyScale 是同一设置，只作用一次；它不调节显示器或外部 HDR 插件。不经过 HDR 映射的 SDR 路径不使用此项。"));
+        if (ImGui::Button(ui("Reset reference white", "重置参考白亮度"))) {
+            next.proxy_scale=1.f;changed=true;apply_discrete_edit=true;
         }
     }
+    DrawUniformLayerControls(next,changed,apply_discrete_edit);
+    SettingsSection(ui("Final composition", "最终合成"));
     float effect_strength = ActiveTransferStrength(next);
     if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
             "##nr-strength-amplification", &effect_strength, 1.0f, 4.0f, "%.2f")) {
@@ -848,32 +815,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
     // Colour is a common control and stays before the model's face setting.
     DrawColorControls(next, has_pending, changed);
-    if (ImGui::Checkbox(ui("Face adjustment", "人脸调节"), &next.auto_mask)) {
-        if (next.auto_mask && next.skin_structure < 0.f)
-            next.skin_structure = 0.f;
-        changed = true;
-    }
-    SettingsTooltip(ui("Both AI passes use these model face parameters. Recognition is decided by the model and input; this is not an independent face mask or exemption in the final composition.",
-        "两层 AI 都使用这组模型人脸参数。是否识别由模型和输入决定；它不是最终合成里的独立人脸遮罩或保护。"));
-    if (next.auto_mask) {
-        changed |= SettingsSliderFloat(ui("Face detail strength", "人脸细节强度"),
-            "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Independent skin structure request while Face adjustment is enabled. A zero request does not restore the whole face because lighting, colour and final enhancement still apply.",
-            "开启人脸调节后控制已识别皮肤的细节。设为 0 也不会恢复整张脸原图，因为明暗、颜色和最终增强仍会作用于人脸。"));
-    } else {
-        SettingsNote(ui("Face detail follows Overall detail while Face adjustment is off.",
-            "关闭人脸调节时，人脸细节随整体细节变化。"));
-    }
-    if (ImGui::CollapsingHeader(ui("More model controls", "更多模型控制"))) {
-        changed |= SettingsSliderFloat(ui("Local contrast", "局部明暗对比"),
-            "##nr-local-tone", &next.local_tone, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Changes local contrast inside the NR model; it is separate from final blend strength.",
-            "控制 AI 对相邻区域明暗差异的处理，和最终混合强度分开。"));
-        changed |= SettingsSliderFloat(ui("Overall detail", "整体细节强度"),
-            "##nr-local-structure", &next.local_structure, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Adjusts the model's local structure parameter; stronger values can amplify unstable fine detail.",
-            "控制 AI 对全画面纹理和轮廓的处理；调高可能放大不稳定的细节。"));
-    }
     // END PRIMARY MODEL CONTROLS
 
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
@@ -973,9 +914,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     changed |= ImGui::Checkbox(ui("Colour protection (default on)", "色彩保护（默认开启）"), &next.color_protection);
     SettingsTooltip(ui("Limits extra colour amplification when Extra enhancement exceeds 1, helping avoid overly strong colours. Recommended on. Turning it off only removes this colour limit; HDR and invalid-value protections remain.",
         "当“额外增强”超过 1 时，限制颜色被过度放大，减少颜色过浓的情况。建议保持开启；关闭仅取消这项限制，其他 HDR 和异常数值保护仍然有效。"));
-    changed |= ImGui::Checkbox(ui("UI correction", "文字与界面保护"), &next.ui_correction);
-    SettingsTooltip(ui("Requests the model's UI-correction parameter. It helps preserve text and HUD structure but does not provide a separate HUD mask. New installations enable it; existing explicit settings are kept.",
-        "请求 AI 尽量保留文字和游戏界面的结构，但不提供单独的 HUD 遮罩。新安装默认开启，已有显式设置保持不变。"));
     if (ImGui::CollapsingHeader(ui("Algorithm comparisons", "算法对照"))) {
     changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
         "分开控制 AI 明暗与颜色（实验）"), &next.independent_chroma_composition);

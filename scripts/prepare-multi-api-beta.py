@@ -14,15 +14,15 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-223fix2'
-DISPLAY_VERSION = '0.5-dline21-223fix2'
+VERSION = 'beta0.5-dline21-uniform1'
+DISPLAY_VERSION = '0.5-dline21-uniform1'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = '77ae1aecbcac583571b50b469890c6d4620643f6'
+STATE_CURRENT = 'faa2a70962235c7f69de44c7cadf2e0ea64e0402'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
 REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
@@ -32,8 +32,8 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
-    'config/nr_before_sr.ini': '6888e9bfe3e6775e3633e0038b88c368de496636',
-    'scripts/build.ps1': '685ffbb4de94aad598e2ac800232115d5eab947b',
+    'config/nr_before_sr.ini': '1b8fd43b6d981421515d5893d1d2fedb05c71219',
+    'scripts/build.ps1': 'd1e8060ebeccd07cebb1b82690bc42ffcd7ea5e6',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -48,13 +48,13 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': '2ab4991b817327a8dbad5e030032f260be720b64',
-    'src/nr_before_sr.rc': '7abf977b7980e1650eea8ee1e89502982f088ab1',
+    'src/nr_before_sr.cpp': 'c4a7b09d52b0fcf958369d4205e2c413f6460bb2',
+    'src/nr_before_sr.rc': '52df2f3f79b3f1510647b2c49b45023b42477b60',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_codec_descriptors.inl': 'd05ff8f9656b9a9803be0bf6fb0bf2d4eccbe0e2',
-    'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
-    'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
+    'src/nr_color_amplification.h': 'ec62c723a9ca88424309a795027e737900e8f587',
+    'src/nr_color_policy.inl': '7388056586a4fee6ab333c4979793bcd64be243a',
     'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
     'src/nr_command_state.inl': 'faa2a70962235c7f69de44c7cadf2e0ea64e0402',
     'src/nr_compatibility_runtime.inl': '92e8f7c8b32c06c3de5aa8772d52077a4271af31',
@@ -68,7 +68,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
     'src/nr_descriptor_provenance_runtime.inl': '85e594a54371e7005734fdc532662f6e969bbc9e',
     'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
-    'src/nr_dual_capture.inl': 'cb9cf9f38cf0fcf76e2c2619380b3f34a71b3829',
+    'src/nr_dual_capture.inl': '78ce4dc9e360f99eef9d2e999b56874df03a3ba0',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
     'src/nr_dual_downsample.hlsl': 'd930d3c881f6bbc940a30ab000a638d799ac2287',
     'src/nr_dual_embedded.hpp': '0eb3836e79802d42e9d62136f779ae11388d6107',
@@ -79,12 +79,12 @@ INTEGRATION_CORE_PINS = {
     'src/nr_dual_residual.hlsl': '545307f5dff6c461ce6830e09cc35695b4861cd0',
     'src/nr_dual_resolve.hlsli': 'dfd746ca6bcc7faab5a2f22c224dcaa26ed3781d',
     'src/nr_dual_resolve_cached.hlsli': 'fce4454d5039019237f4cfe08d5db7c2a8fa92a5',
-    'src/nr_dual_runtime.inl': 'ec370fb756a12e140d23288a37f12e8b6b624094',
+    'src/nr_dual_runtime.inl': 'eb4f79b6eaead69988ca5d33a9f065a2e8414a5d',
     'src/nr_dual_spatial_d3d12.cpp': '5d2a0bffa8183aa26e6c6f3e6106f18cdf88f5c5',
     'src/nr_dual_spatial_d3d12.hpp': '918621d23ec5623c7c6cb892c421c9c71633496e',
     'src/nr_dual_status_runtime.inl': '5e6403b12b13388270f5e7c3304bea50542b9ee6',
     'src/nr_dual_timing.inl': '5f4b1ce2d44fa987f32a99f57fad6eb39a8955c8',
-    'src/nr_dual_ui.inl': '6546d65997e0b2cca24bc1a5313de57c67517c3a',
+    'src/nr_dual_ui.inl': '8f616da1c3175f2627dd011b9fef1fa9643594df',
     'src/nr_exposure_semantic_evidence.inl': '405c6e41036bfcc9ac088541cbc9e61831ad7a13',
     'src/nr_f8_gpu.inl': '4f71892f4d3586949e85f9ca80b75535e4854f6f',
     'src/nr_f8_sequence.inl': '5944fb98c2f81a71846a216246e23ad07d24ab2b',
@@ -100,10 +100,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
     'src/nr_face_worker.h': '29ac5085dee8a9a4715838a6f037c9d3859f89f1',
-    'src/nr_feedback_capture.inl': '46735c215de9deda5acdf1717eb70c87d862daaf',
+    'src/nr_feedback_capture.inl': 'd6880330b0a896d2dbb8d09e7da87e16dd986c75',
     'src/nr_feedback_core.inl': '644c6ed5266488250f574da14a74b2ead5b1bd01',
     'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
-    'src/nr_feedback_picture.inl': 'bfa3934cc3d6263ba2a19939f5bbe77d19eb89db',
+    'src/nr_feedback_picture.inl': '961d74f37483276b6b141adcaa4d8345b7c3d22b',
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_feedback_single_text.h': '2cffa33d926fa3846d4ec3170aa0a7257a962ddf',
     'src/nr_feedback_text.h': '597dc9b3fa4abbd4d694fb42117a125df84bf1b9',
@@ -117,10 +117,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_native_clear_request.h': 'f3c68953f94cfbe339d41fb9f0cea189c2d6eb0e',
     'src/nr_native_clear_request_runtime.inl': '941b43e88203bb96866b7f918df87dcf7cde1466',
     'src/nr_native_command_record.inl': '91b4cf6b2c77396b464b2e28ae0093efd5558a68',
-    'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
-    'src/nr_native_format_hooks.inl': '77e32d489c3b8c5caaa3655866755bdb31228290',
-    'src/nr_native_format_runtime.inl': 'f249e545f5dc1bc6def1bfbcece7407f777cbb64',
-    'src/nr_ngx_lifecycle.inl': '93091ed326118d4f3b22f3156375896c1b150544',
+    'src/nr_native_format.h': '3eeb9ce944be64be45369df4ea200975d8567800',
+    'src/nr_native_format_hooks.inl': '6a12656d6a846715b1d79b229ab17f5323688b97',
+    'src/nr_native_format_runtime.inl': '8462e71cbd1625b7d29b66f0b5533d158aa65a91',
+    'src/nr_ngx_lifecycle.inl': '9842345606bbf046fed86993de9e81832b0238e5',
     'src/nr_optional_layer_probe.h': '7a39868c9c688bf65739695665c236da891f4977',
     'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
     'src/nr_post_boundary_native.inl': '7773eac6a15025f201d1d888b74353eb1e1b2a05',
@@ -128,7 +128,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
     'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
-    'src/nr_recommended_picture.inl': '3a53840397256862d368e043e1ff7b0f89b53286',
+    'src/nr_recommended_picture.inl': 'a291c0aa315a156ddd48e029f7f6e30e8f41db54',
     'src/nr_region_inputs.h': 'd7ad0d6479d7acf2cd18f4c859093986f5cfacb5',
     'src/nr_region_runtime.inl': '68ce42c93889c691da4f5596c778811e144f3574',
     'src/nr_region_shader.h': '856bf3db522bb657b53562081fbf5c416bb74b14',
@@ -148,8 +148,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_runtime_load_evidence.inl': '3910e7dc5933346715d8c9676c9934085c751c59',
     'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
-    'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
-    'src/nr_settings_ui.inl': '1de63b5201164c2add94b8cd06872f700845ce3a',
+    'src/nr_settings_notices_ui.inl': '6e6a2536c781bc7360308cb64030ed1400bf69eb',
+    'src/nr_settings_ui.inl': '8811014de3cb46c3136843721854e51185cd5c4f',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
@@ -159,12 +159,12 @@ INTEGRATION_CORE_PINS = {
     'src/nr_ui_activity_feedback.inl': 'a5b58e91e9ebde28d39c76d706076984ef2b35fa',
     'src/nr_ui_activity_runtime.inl': '02d7f0f976113b48da38f2431dcfb722da243eae',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'scripts/build-nrchain.ps1': 'c5ca99542ec902192f02558a86e72ef21aea44b5',
-    'src/nr_compat_present_events.inl': '77c9bc875f741d50336dcc7c7bed03a3df038686',
+    'scripts/build-nrchain.ps1': '999c2695e86f46e7a78d8434d189e05f244d911d',
+    'src/nr_compat_present_events.inl': '5e4ce225fbef96fbbc960d5af6ee327edfc88741',
     'src/nr_compat_present_feedback.inl': 'c5fce0bf49ec7d12cb6c9647be3a55ff9f13e9a0',
-    'src/nr_compat_present_models.inl': '621cf953abd897f2c054c2c3d75d63e56a5b31a2',
+    'src/nr_compat_present_models.inl': '5ace3aeb34a8cd37306456f7aa21f7ef5fe23d6a',
     'src/nr_compat_present_policy.hpp': '2fc3475add347ea2923e6ef021af05769b618e2c',
-    'src/nr_compat_present_resources.inl': 'ef414232f53b49f642e3df53f56d544a1a4d30c2',
+    'src/nr_compat_present_resources.inl': '09b24cb723a7faf1739300d736eba702c35e56be',
     'src/nr_compat_present_runtime.inl': '3d6a1e05e009a81e6d729b7c308ab29341c00e2d',
     'src/nr_compat_present_shader.h': '758909e400925084e894a2a30483f5b6816a532c',
     'src/nr_fg_capture.inl': 'a766be1840cf7cfbddaad1897aa8270ff2f59a57',
@@ -173,17 +173,18 @@ INTEGRATION_CORE_PINS = {
     'src/nr_fg_hud_runtime.inl': '56ecc6a205bc91e5df36b2e738ef775935367607',
     'src/nr_fg_hud_shader.h': '8198d78dbd6c4cafa9cc53aac284b0e1996e26ff',
     'src/nr_fg_streamline.inl': '9eedd9ef536db9e23febc5a46fdaec33d4d97262',
-    'src/nr_full_capture.inl': '0f0b8491670aab824e1154285bd59515ebf0382e',
+    'src/nr_full_capture.inl': 'd745291bff09f3dd0110e3cab54c7cf2179f3318',
     'src/nr_full_feedback.inl': 'd50cb946a154812f7d835120bbcf785b37ecf993',
-    'src/nr_full_pass.hpp': 'a2dd8263b5b9b9e2fa24a77a35abaea3966080cb',
-    'src/nr_full_runtime.inl': '410079e45bf905d9c0616531b72feecaecb56b32',
+    'src/nr_full_pass.hpp': '27632bb9502d8ac3cd63f84993e3a25b3e6a98c7',
+    'src/nr_full_runtime.inl': '278c0fba0b6eb30e8b52399c7c787ef41c5dcbf9',
     'src/nr_present_capture.inl': 'caa777f80fc0d8d44dbcf7b906680bd50c7a2672',
     'src/nr_processing_route.h': 'edea93e4ce9e58972914417cd90971040aeca7db',
-    'src/nr_processing_runtime.inl': '33300145b72d32f736c28a3c58b244b472d4ae91',
+    'src/nr_processing_runtime.inl': '6d21d6665c59126749ccc7df6c21df595c5c7ed5',
+    'src/nr_energy_gate.h': '419e2b37632c27b9fdc783a3f6980135116a4bb8',
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
     'src/nr_source_frame.hpp': '668877e37cf63b587ec074a917b0aff542b95941',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
-    'src/nr_source_frame_runtime.inl': 'a9ad7a322c640c75f11d0135522d6113803a6ce0',
+    'src/nr_source_frame_runtime.inl': '149b5c76678cfa88db8c72bbaf2b2872fd02d75b',
     'src/nr_source_observer.inl': '941467649f0546bbe85417d534f9738f03cfe9a9',
     'src/nr_source_transport.inl': 'e54d432cc3b62cac22eb252f271606f5ca6f1e38',
     'src/nr_source_views.inl': '2d909758aa22be7f2dd0baaf29025df9e2de41d7',
@@ -194,6 +195,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_fg_presentation.h': '177e84c8700fdd7d394769fd492c6d998208a1bb',
     'src/nr_descriptor_scratch.h': '95e1f7f2bee0d89f6c313852cfc6053a2ab97096',
     'src/nr_launch_preferences.h': '1ab61e676d1b2d1ad35dc324160ad5c1db781a30',
+    'src/nr_layer_config.h': '7b8f7ca2d4370f19b491f837cf63f50ed4cbc696',
+    'src/nr_layers_ui.inl': '56ceae07db61df7b4db4053394e3cec0072873b0',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -316,7 +319,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline21-223fix2 beta' not in resource_text:
+    if '0.5.1 dline21-uniform1 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')

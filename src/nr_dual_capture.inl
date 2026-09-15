@@ -105,7 +105,7 @@ void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,NrCon
     if(index==nr_replay::Recorder::Invalid){status.store(3);return;}
     if(!recorder.Begin(list,index,primary.pending_recording_token)){recorder.Discard(index);status.store(3);return;}
     main.dual_capture_index=index;
-    identity={request,primary.instance_id,aux.instance_id,primary.evaluations,g_config.nr_second_numerator,g_config.nr_second_denominator,main.dual_model_domain,g_config.generic_residual?1u:0u};
+    identity={request,primary.instance_id,aux.instance_id,primary.evaluations,1u,1u,main.dual_model_domain,g_config.generic_residual?1u:0u};
     std::copy_n(g_config.generic_gains,5,identity.gains);
 }
 void Finish(ID3D12GraphicsCommandList* list,NrSlot& main) {

@@ -243,13 +243,19 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     if(!native_guides){ReleaseCom(device);SetStatus(Status::MissingNativeGuides);return;}
     const auto work=nr_compat_present::WorkExtent(source,g_config.compat_percent);
     const unsigned passes=RequestedPasses(g_config);
-    const unsigned numerator=g_config.nr_second_numerator;
-    const unsigned denominator=g_config.nr_second_denominator;
+    const unsigned numerator=1;
+    const unsigned denominator=1;
     auto tuning=CurrentNrTuningSignature();tuning.input_filter=0;
+    std::array<NrTuningSignature,kPassLimit> layer_tuning{};
+    bool layer_tuning_changed=false;
+    for(unsigned i=0;i<passes;++i){
+        layer_tuning[i]=CurrentNrTuningSignature(i);layer_tuning[i].input_filter=0;
+        if(current&&!SameNrTuningSignature(current->layer_tuning[i],layer_tuning[i]))layer_tuning_changed=true;
+    }
     if(!nr_compat_present::Valid(work)){ReleaseCom(device);SetStatus(Status::UnsupportedSurface);return;}
     if(current&&(current->owner!=chain||current->queue!=native_queue||!IsSameRrDepthDevice(current->device,device)||
         !(current->source==source)||!(current->work==work)||current->encoding!=encoding||current->format!=desc.Format||
-        current->passes!=passes||current->numerator!=numerator||current->denominator!=denominator||!SameNrTuningSignature(current->tuning,tuning)||
+        current->passes!=passes||current->numerator!=numerator||current->denominator!=denominator||layer_tuning_changed||!SameNrTuningSignature(current->tuning,tuning)||
         current->motion_compensation!=g_config.present_mv_compensation||
         current->native_output.width!=source_lease.output_width||current->native_output.height!=source_lease.output_height||
         current->uses_native_guides!=native_guides||(native_guides&&!SameNrGuideStorageContract(current->native_contract,source_lease.guides.signature)))){
@@ -270,6 +276,7 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         c->uses_native_guides=native_guides;c->native_guides=source_lease.guides;c->native_contract=source_lease.guides.signature;
         if(next_generation==UINT64_MAX){ReleaseCom(c->queue);ReleaseCom(c->device);delete c;SetStatus(Status::BuildFailure);return;}
         c->passes=passes;c->numerator=numerator;c->denominator=denominator;c->tuning=tuning;c->generation=next_generation++;
+        c->layer_tuning=layer_tuning;
         if(!Build(*c)){
             reject_build("present-resource-build-failed");
             current=c;has_context.store(true,std::memory_order_release);

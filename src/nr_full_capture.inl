@@ -51,7 +51,7 @@ void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     layer.index=index;layer.owner=&main;layer.token=primary.pending_recording_token;layer.request=request;
     layer.evaluation=aux.evaluations;layer.since_reset=aux.successful_evaluations_since_reset;
     layer.identity={request,primary.instance_id,aux.instance_id,primary.evaluations,
-        g_config.nr_second_numerator,g_config.nr_second_denominator,
+        1u,1u,
         main.dual_model_domain,g_config.generic_residual?1u:0u};
     std::copy_n(g_config.generic_gains,5,layer.identity.gains);
     layer.identity.full_passes=total_passes;layer.identity.layer=auxiliary+2;

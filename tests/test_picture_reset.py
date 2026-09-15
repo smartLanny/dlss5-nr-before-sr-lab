@@ -42,6 +42,7 @@ HARNESS = r'''
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_layer_config.h"
 
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
@@ -346,7 +347,7 @@ def main() -> None:
         source = directory / "picture_reset.cpp"
         executable = directory / ("picture_reset.exe" if os.name == "nt" else "picture_reset")
         source.write_text(harness, encoding="utf-8")
-        command = [compiler, "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror"]
+        command = [compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror"]
         if os.name == "nt":
             command.append("-static")
         subprocess.run(command + ["-I", str(ROOT / "src"), str(source), "-o", str(executable)], check=True)

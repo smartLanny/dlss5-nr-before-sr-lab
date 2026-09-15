@@ -36,6 +36,7 @@ HARNESS=r'''
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_layer_config.h"
 #include "nr_fg_presentation.h"
 #include "nr_model_controls.h"
 #include "nr_work_config.h"
@@ -44,6 +45,8 @@ HARNESS=r'''
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 ChainConfig g_config;
+std::array<unsigned long long,nr_layers::Count> g_layer_epochs{1,1,1,1,1};
+ADVANCE_LAYERS
 nr_fg_presentation::Policy g_fg_presentation_policy;
 CRITICAL_SECTION g_chain_cs;
 wchar_t g_ini_path[MAX_PATH]={};
@@ -101,6 +104,7 @@ LIGHT_FLAGS
 #define WritePrivateProfileStringW TestProfileWrite
 WRITE_INT
 WRITE_FLOAT
+SAVE_LAYERS
 #include "nr_config_policy_runtime.inl"
 SAVE_CONFIG
 #undef WritePrivateProfileStringW
@@ -362,6 +366,38 @@ CAPTURE_MODE_BIND
         if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
         check(readable&&std::strstr(metadata,"lightControlModeRecorded=1\n")&&std::strstr(metadata,"complete=0\n"),"persisted stage metadata distinguishes recorded scope from image completeness");
     }
+    Seed();
+    g_layer_epochs={1,1,1,1,1};
+    auto layered=g_config;
+    for(auto& layer:layered.nr_layers){layer.enabled=true;layer.initialized=true;}
+    check(ApplyConfig(layered,"fixture-enable-layers",true),"all five layers apply through real transaction");
+    const auto before_layer_edit=g_config;
+    const auto epochs_before=g_layer_epochs;
+    const auto primary_tuning=CurrentNrTuningSignature();
+    layered=g_config;layered.nr_layers[2].intensity=.42f;
+    layered.nr_layers[2].local_tone=.61f;layered.nr_layers[2].local_structure=.73f;
+    layered.nr_layers[2].style=2;layered.nr_layers[2].auto_mask=true;
+    layered.nr_layers[2].skin_structure=.25f;layered.nr_layers[2].ui_correction=false;
+    check(ApplyConfig(layered,"fixture-layer-four",true),"independent layer controls apply");
+    check(g_layer_epochs[0]==epochs_before[0]&&g_layer_epochs[1]==epochs_before[1]&&
+        g_layer_epochs[2]==epochs_before[2]&&g_layer_epochs[3]==epochs_before[3]+1&&
+        g_layer_epochs[4]==epochs_before[4]+1,"layer four edit resets only layer four and downstream epochs");
+    check(SameNrTuningSignature(primary_tuning,CurrentNrTuningSignature())&&
+        nr_layers::Primary(g_config)==nr_layers::Primary(before_layer_edit),"auxiliary edit preserves primary model signature");
+    check(ReadIniFloat(L"Layer4Intensity",-1.f)==.42f&&ReadIniFloat(L"Layer4LocalToneStrength",-1.f)==.61f&&
+        ReadIniFloat(L"Layer4LocalStructureStrength",-1.f)==.73f&&ReadIniFloat(L"Layer4SkinStructureStrength",-1.f)==.25f&&
+        GetPrivateProfileIntW(L"NRBeforeSR",L"Layer4Style",0,g_ini_path)==2&&
+        GetPrivateProfileIntW(L"NRBeforeSR",L"Layer4AutoMask",0,g_ini_path)==1&&
+        GetPrivateProfileIntW(L"NRBeforeSR",L"Layer4UICorrection",1,g_ini_path)==0,
+        "seven layer-four controls persist through real Win32 INI");
+    const auto saved_layers=g_config.nr_layers;
+    layered=g_config;layered.nr_layers[0].enabled=false;
+    check(ApplyConfig(layered,"fixture-hide-layers",true)&&nr_layers::Active(g_config.nr_layers)==1&&
+        g_config.nr_layers[2]==saved_layers[2]&&ReadIniFloat(L"Layer4Intensity",-1.f)==.42f,
+        "disabling layer two preserves hidden downstream controls in memory and INI");
+    layered=g_config;layered.nr_layers[0].enabled=true;
+    check(ApplyConfig(layered,"fixture-restore-layers",true)&&g_config.nr_layers==saved_layers,
+        "re-enabling layer two restores all five saved layers");
     DeleteCriticalSection(&g_chain_cs);
     std::printf("Light style: %u checks, %u failures; real helpers/config/Win32 INI, no GPU\n",checks,failures);
     return failures?1:0;
@@ -388,14 +424,15 @@ def main():
     apply_settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
     assert 'ApplyLightStyleOverlay(next, expected_generation,' in apply_settings
     assert apply_settings.count('ApplyLightStyleOverlay(')==1
-    model_section=ui[ui.index('SettingsSection(ui("Model controls"'):ui.index('// END PRIMARY MODEL CONTROLS')]
-    assert 'nr_model_controls::Reset(next);' in model_section
-    assert 'Reset model controls###nr-model-reset' in model_section and '恢复模型基准###nr-model-reset' in model_section
-    assert 'Undo model reset###nr-model-undo' in model_section and '撤销模型基准###nr-model-undo' in model_section
-    assert 'nr_model_controls::Action::Reset' in model_section and 'nr_model_controls::Action::Undo' in model_section
-    assert 'model_undo.Observe(current.generation);' in ui
+    layers=(ROOT/'src/nr_layers_ui.inl').read_text(encoding='utf-8')
+    assert 'DrawUniformLayerControls(next,changed,apply_discrete_edit);' in ui
+    assert 'for(unsigned i=0;i<nr_layers::Count;++i)' in layers
+    assert 'Reset this layer' in layers and 'if(edited)' in layers
+    assert 'if(!layer.enabled){ImGui::PopID();break;}' in layers
+    assert 'nr_layers::WritePrimary(next,model)' in layers
+    assert 'next.nr_layers[i-1])=model' in layers
     for forbidden in ('CreateFeature', 'ReleaseNr', 'ApplyPictureReset(', 'SaveConfig(', 'ApplyConfig('):
-        assert forbidden not in model_section and forbidden not in apply_settings
+        assert forbidden not in layers and forbidden not in apply_settings
     assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' in ui
     assert 'next.mode=' not in group and 'independent_chroma_composition' not in group
     assert group.index('##nr-light-reflection')<group.index('ImGui::CollapsingHeader')
@@ -403,6 +440,8 @@ def main():
     assert 'NR 修改前后差' in group and '绝对线性差乘 4' in group
     replacements={
         'CHAIN_CONFIG':definition(core,'struct ChainConfig',True),
+        'ADVANCE_LAYERS':definition(core,'void AdvanceLayerEpochs('),
+        'SAVE_LAYERS':definition(core,'bool SaveUniformLayers('),
         'READ_FLOAT':definition(core,'float ReadIniFloat('),
         'FINITE':definition(core,'float FiniteOr('),
         'NORMALIZE':definition(core,'void NormalizeConfig('),

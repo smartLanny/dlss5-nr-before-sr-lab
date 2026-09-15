@@ -50,13 +50,12 @@ int main(){try {
     }
     nr_dual::AuxHistory history;
     Check(!history.CommitSuccess({5,1,1,1,{1,1}},1),"reject sixth layer");
-    for(unsigned n=3;n<=5;++n)for(auto scale:{nr_dual::Scale{1,2},nr_dual::Scale{2,3},nr_dual::Scale{3,4}}) {
-        const auto p=nr_full::MakePlan({true,n,scale},{1920,1080});
-        Check(p&&p.reduced,"scaled multilayer plan admitted");
-        const nr_dual::Extent expected{1920*scale.numerator/scale.denominator,1080*scale.numerator/scale.denominator};
+    for(unsigned n=2;n<=5;++n)for(auto extent:{nr_dual::Extent{1920,1080},nr_dual::Extent{1440,810},nr_dual::Extent{960,540}}) {
+        const auto p=nr_full::MakePlan({true,n},extent);
+        Check(p&&!p.reduced,"primary working scale is applied before the chain");
         for(unsigned i=0;i<n-1;++i) {
-            Check(p.layers[i].secondary==expected,"all auxiliary layers follow the second scale without compounding");
-            Check(p.layers[i].path==(i?nr_dual::Path::DirectSecond:nr_dual::Path::MatchedResidual),"only first auxiliary reduces input");
+            Check(p.layers[i].secondary==extent,"every layer uses exactly the primary work raster");
+            Check(p.layers[i].path==nr_dual::Path::DirectSecond,"no per-layer downsampling or residual restoration");
         }
     }
     Check(nr_dual::MakePlan({2,{1,2}},{1920,1080},{}).path==nr_dual::Path::MatchedResidual,"legacy reduced path unchanged");
