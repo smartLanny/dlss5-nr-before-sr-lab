@@ -1,7 +1,59 @@
 // Render snapshots supplied by the configuration and route owners. This file
 // never changes saved preferences or reconstructs a route from loose atomics.
+void DrawEnergyGateOptions() {
+    const bool zh = UseChineseUi();
+    const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
+    auto status = nr_processing_runtime::ReadEnergyGateStatus();
+
+    SettingsSection(ui("Power saving", "省电"));
+    bool conservative = status.conservative;
+    if (ImGui::Checkbox(ui("Pause NR in game menus (conservative, default)###nr-energy-safe",
+                           "菜单暂停 NR 省电（保守，默认）###nr-energy-safe"), &conservative)) {
+        (void)nr_processing_runtime::SetEnergyGateOption(true, conservative);
+        status = nr_processing_runtime::ReadEnergyGateStatus();
+    }
+    SettingsTooltip(ui(
+        "Uses only the game's explicit DLSSG NotRenderingGameFrames signal. Two confirmations separated by a short debounce pause private NR. One explicit false resumes immediately. Missing/stale evidence fails open after 2 seconds. DLSS/SR/FG continue and NR resources stay allocated.",
+        "只使用游戏明确提供的 DLSSG NotRenderingGameFrames 信号。短暂防抖后连续两次确认才暂停插件自己的 NR；一次明确恢复就立即放行。信号缺失或超过 2 秒未刷新会 fail-open 自动恢复。DLSS / SR / FG 原链路继续，NR 资源不会反复销毁。"));
+
+    bool heuristic = status.heuristic;
+    if (ImGui::Checkbox(ui("Guess menu/fullscreen-UI pauses (experimental)###nr-energy-guess",
+                           "猜测菜单 / 大界面暂停（实验）###nr-energy-guess"), &heuristic)) {
+        (void)nr_processing_runtime::SetEnergyGateOption(false, heuristic);
+        status = nr_processing_runtime::ReadEnergyGateStatus();
+    }
+    SettingsTooltip(ui(
+        "Fallback only when the explicit DLSSG pause bit is unavailable. It guesses a menu/loading pause when the public FG BackbufferFrameID stays unchanged for at least 300 ms and four observations. A changing frame ID or an explicit game-frame signal resumes immediately. This does not inspect UI pixels and may mis-detect unusual stalls; report false pauses with F8.",
+        "只在拿不到明确 DLSSG 暂停位时启用猜测：如果公开 FG BackbufferFrameID 至少 300 ms、连续 4 次观察都不变化，就把它当作菜单 / 加载类暂停。帧号一变化，或游戏重新给出明确渲染信号，就立即恢复。它不会读取 UI 像素，极端卡顿仍可能误判；如果正常游戏被暂停，请按 F8 反馈。"));
+
+    if (status.active) {
+        const bool guessed = status.cause == nr_energy_gate::Cause::Heuristic;
+        ImGui::TextWrapped("%s", guessed ? ui(
+            "Power saver active (heuristic): private NR is paused; resources are retained.",
+            "省电已生效（猜测）：插件 NR 已暂停，资源保持。") : ui(
+            "Power saver active (explicit game signal): private NR is paused; resources are retained.",
+            "省电已生效（游戏明确信号）：插件 NR 已暂停，资源保持。"));
+        if (guessed) SettingsNote(ui(
+            "This is a speculative pause. If gameplay is still moving or the guess is wrong, press F8 and submit the report.",
+            "这是猜测性暂停。如果游戏仍在正常运行或判断错误，请按 F8 生成报告并反馈。"));
+    } else if (status.heuristic && status.guess_samples) {
+        ImGui::TextDisabled(zh ? "猜测候选：FG 源帧停滞 %u/4，等待 300 ms 确认。" :
+            "Heuristic candidate: FG source stalled %u/4 observations; waiting for 300 ms confirmation.",
+            status.guess_samples);
+    } else if (status.conservative || status.heuristic) {
+        ImGui::TextDisabled("%s", ui(
+            "Power saver armed; normal gameplay keeps NR running.",
+            "省电功能已待命；正常游戏画面仍会继续运行 NR。"));
+    }
+    if (status.persistence_failed)
+        SettingsNote(ui(
+            "The last power-saver change is active for this session but could not be saved. Check that the plugin folder is writable.",
+            "上一次省电选项修改已用于本次运行，但保存失败。请检查插件目录是否可写。"));
+}
+
 void DrawConfigPolicyMigrationNotice(const ConfigPolicyMigrationStatus &status,
                                     bool &dismissed) {
+    DrawEnergyGateOptions();
     if (!status.visible || dismissed) return;
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };

@@ -292,7 +292,10 @@ NativeInputs ReadFgInputs(const NgxParams* params) {
     input.jitter_known=GetFloat(params,nr_fg_contract::jitter_x,&input.jitter_x)&&
         GetFloat(params,nr_fg_contract::jitter_y,&input.jitter_y)&&std::isfinite(input.jitter_x)&&std::isfinite(input.jitter_y);
     unsigned v=0;if(GetUInt(params,nr_fg_contract::reset,&v))input.reset=v!=0;
-    v=0;if(GetUInt(params,nr_fg_contract::paused,&v))input.paused=v!=0;
+    Id pause_sample=0;const bool pause_sample_known=ReadFrame(params,pause_sample);
+    v=0;const bool paused_known=GetUInt(params,nr_fg_contract::paused,&v);
+    if(paused_known)input.paused=v!=0;
+    nr_processing_runtime::ObserveEnergyPause(paused_known,input.paused,pause_sample_known?pause_sample:0);
     v=0;if(GetUInt(params,nr_fg_contract::inverted,&v))input.depth_inverted=v!=0;
     v=0;if(GetUInt(params,nr_fg_contract::hdr,&v))input.hdr=v!=0;
     return input;
