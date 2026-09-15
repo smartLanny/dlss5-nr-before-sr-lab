@@ -10,11 +10,11 @@ previous `delta - bounded` tail lost small edits which rounded out of the carrie
 The explicit stored value is representable, so the subsequent RGBA16F store
 cannot introduce another rounding difference.
 
-Actual D3D12/WARP tests use RGBA16F original/edited/carrier/final textures and an
+Actual D3D12 tests on WARP and NVIDIA hardware use RGBA16F original/edited/carrier/final textures and an
 RGBA32F tail. Four new cases cover +1/1024 and -1/2048 edits with 1x/2x matching
 exposure. Identity reconstruction reads the *actual encoded texture*, not an
 unquantized CPU value. Tests inspect the stored half, require nonzero quantization,
-and check tail/final within 1e-7. The old shader fails the same harness; the new
+and check tail/final within 1e-7. On both adapters the old shader fails the same harness; the new
 shader passes, together with existing six-shader ABI, identity, signed, history
 and invalid-motion checks. The old 0.002 tolerance could hide these small losses;
 existing larger cases retain it and the precision cases use their tighter bound.

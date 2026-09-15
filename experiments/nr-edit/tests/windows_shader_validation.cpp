@@ -42,8 +42,16 @@ struct Harness{
  Com<IDXGIFactory4>factory;Com<IDXGIAdapter>warp;Com<ID3D12Device>device;Com<ID3D12CommandQueue>queue;
  Com<ID3D12CommandAllocator>allocator;Com<ID3D12GraphicsCommandList>list;Com<ID3D12Fence>fence;
  HANDLE event=nullptr;std::uint64_t epoch=1;bool released=false;nr_edit_dx12::Kernels*kernels=nullptr;
- explicit Harness(const std::filesystem::path& directory){
-  Check(CreateDXGIFactory1(IID_PPV_ARGS(factory.out())),"factory");Check(factory->EnumWarpAdapter(IID_PPV_ARGS(warp.out())),"WARP adapter");
+ explicit Harness(const std::filesystem::path& directory,bool hardware=false){
+  Check(CreateDXGIFactory1(IID_PPV_ARGS(factory.out())),"factory");
+  if(hardware){
+   for(unsigned i=0;!warp.p;++i){Com<IDXGIAdapter1> candidate;
+    if(factory->EnumAdapters1(i,candidate.out())==DXGI_ERROR_NOT_FOUND)break;
+    DXGI_ADAPTER_DESC1 desc{};Check(candidate->GetDesc1(&desc),"adapter description");
+    if(desc.VendorId==0x10de&&!(desc.Flags&DXGI_ADAPTER_FLAG_SOFTWARE))
+      Check(candidate->QueryInterface(IID_PPV_ARGS(warp.out())),"NVIDIA adapter");}
+   if(!warp.p)throw std::runtime_error("No NVIDIA hardware adapter");
+  }else Check(factory->EnumWarpAdapter(IID_PPV_ARGS(warp.out())),"WARP adapter");
   Check(D3D12CreateDevice(warp,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(device.out())),"WARP device");
   D3D12_COMMAND_QUEUE_DESC q{};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;Check(device->CreateCommandQueue(&q,IID_PPV_ARGS(queue.out())),"queue");
   Check(device->CreateCommandAllocator(q.Type,IID_PPV_ARGS(allocator.out())),"allocator");
@@ -186,8 +194,9 @@ void InvalidMotion(Harness& h,float invalid){using namespace nr_edit_dx12;Resour
  auto result=h.CopyOut(owner,nm,16);h.Submit();h.Assert(result,8);h.Reset();
 }
 }
-int wmain(int argc,wchar_t**argv){try{if(argc!=2)throw std::runtime_error("usage: windows_shader_validation <compiled-shader-directory>");
- Harness h{std::filesystem::path(argv[1])};Run(h,0);Run(h,1);Run(h,2);TinyCarrier(h,false);TinyCarrier(h,true);TinyCarrier(h,false,2);TinyCarrier(h,true,2);HistoryCase(h,false);HistoryCase(h,true);
+int wmain(int argc,wchar_t**argv){try{if(argc<2||argc>3||(argc==3&&std::wstring(argv[2])!=L"--nvidia"))throw std::runtime_error("usage: windows_shader_validation <compiled-shader-directory> [--nvidia]");
+ Harness h{std::filesystem::path(argv[1]),argc==3};Run(h,0);Run(h,1);Run(h,2);TinyCarrier(h,false);TinyCarrier(h,true);TinyCarrier(h,false,2);TinyCarrier(h,true,2);HistoryCase(h,false);HistoryCase(h,true);
  InvalidMotion(h,std::numeric_limits<float>::quiet_NaN());InvalidMotion(h,std::numeric_limits<float>::infinity());
- std::cout<<"{\"warp_six_shaders\":\"passed\",\"reflection\":\"passed\",\"positive_identity_signed\":\"passed\",\"nan_inf_motion\":\"passed\",\"nvidia_nr_sr\":\"not-run\",\"game\":\"not-run\"}\n";return 0;
+ std::cout<<(argc==3?"NVIDIA GPU shader execution; no NR/SR model\n":"WARP GPU shader execution; no NR/SR model\n");
+ std::cout<<"{\"six_shaders\":\"passed\",\"actual_fp16_quantization_tail\":\"passed\",\"reflection\":\"passed\",\"positive_identity_signed\":\"passed\",\"nan_inf_motion\":\"passed\",\"nvidia_nr_sr\":\"not-run\",\"game\":\"not-run\"}\n";return 0;
  }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}}
