@@ -13,6 +13,31 @@ namespace host_ngx {
 unsigned checks=0;
 void Check(bool ok,const char* label){++checks;if(!ok)throw std::runtime_error(label);}
 void Hr(HRESULT result,const char* label){if(FAILED(result))std::fprintf(stderr,"HRESULT %s=0x%08lX\n",label,static_cast<unsigned long>(result));Check(SUCCEEDED(result),label);}
+void BoundContract(const NgxParams* params,const NrTuningSignature& tuning,unsigned width,unsigned height){
+    int reset=0;Check(GetInt(params,"DLSSNR.Reset",&reset)&&reset==1,"color-only model has Reset on every bound frame");
+    for(const auto* key:{"DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.DepthSubrectWidth","DLSSNR.MVecSubrectWidth"}){
+        unsigned value=0;Check(GetUInt(params,key,&value)&&value==width,"bound common raster width");}
+    for(const auto* key:{"DLSSNR.InputHeight","DLSSNR.OutputHeight","DLSSNR.DepthSubrectHeight","DLSSNR.MVecSubrectHeight"}){
+        unsigned value=0;Check(GetUInt(params,key,&value)&&value==height,"bound common raster height");}
+    const char* keys[]={"DLSSNR.Intensity","DLSSNR.LocalToneStrength","DLSSNR.LocalStructureStrength"};
+    const float expected[]={tuning.intensity,tuning.local_tone,tuning.local_structure};
+    for(unsigned i=0;i<3;++i){float value=0;Check(GetFloat(params,keys[i],&value)&&value==expected[i],"actual NGX block preserves independent layer tuning");}
+    ID3D12Resource *depth=nullptr,*motion=nullptr;
+    Check(GetResource(params,"DLSSNR.Depth",&depth)&&depth&&GetResource(params,"DLSSNR.MVec",&motion)&&motion,"actual bound placeholder resources");
+    const auto d=ID3D12Resource_GetDesc(depth),m=ID3D12Resource_GetDesc(motion);
+    Check(d.Width==width&&d.Height==height&&d.Format==DXGI_FORMAT_R32_FLOAT&&
+        m.Width==width&&m.Height==height&&m.Format==DXGI_FORMAT_R16G16_FLOAT,"typed placeholders use common model grid");
+}
+void PlaceholderPixels(const nr_replay::Header& header,const std::vector<unsigned char>& payload){
+    for(auto role:{nr_replay::Role::Depth,nr_replay::Role::Motion}){
+        const auto& plane=header.planes[unsigned(role)];const bool depth=role==nr_replay::Role::Depth;
+        Check(plane.width==header.work_width&&plane.height==header.work_height&&plane.channels==(depth?1u:2u),"captured placeholder common grid");
+        const bool half=plane.encoding==unsigned(nr_replay::Encoding::Float16);const unsigned stride=half?2u:4u;
+        const auto samples=std::uint64_t(plane.width)*plane.height*plane.channels;
+        for(std::uint64_t i=0;i<samples;++i){std::uint32_t value=0;std::memcpy(&value,payload.data()+plane.offset+i*stride,stride);
+            Check(value==(depth?(half?0x3c00u:0x3f800000u):0u),"actual GPU placeholder depth is one and motion is zero");}
+    }
+}
 void Wait(ID3D12Fence* fence,unsigned long long value){
     Check(fence&&value,"real nonzero fence");HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Check(event!=nullptr,"fence event");
     Hr(ID3D12Fence_SetEventOnCompletion(fence,value,event),"fence completion subscription");
@@ -72,8 +97,11 @@ int wmain(int argc,wchar_t** argv){
         Check(argc==4,"usage: host runtime-directory passes scale-percent");const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
         Check(passes>=1&&passes<=5&&(scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
-        g_config.nr_passes=passes>1?2:1;g_config.nr_full_reference=passes>2;g_config.nr_full_passes=std::max(2u,passes);
-        g_config.nr_second_numerator=scale;g_config.nr_second_denominator=100;g_config.warmup_after_create=2;
+        nr_layers::Migrate(g_config.nr_layers,passes,nr_layers::Primary(g_config));
+        for(unsigned i=1;i<passes;++i){auto& layer=g_config.nr_layers[i-1];
+            layer.intensity=1.0f+0.1f*i;layer.local_tone=0.8f+0.05f*i;layer.local_structure=0.7f+0.05f*i;}
+        g_config.compat_percent=scale;g_config.warmup_after_create=2;NormalizeConfig(g_config);
+        Check(present::RequestedPasses(g_config)==passes,"production active independent layer count");
         g_config.transfer_strength=1.0f;g_config_generation.store(1);
         swprintf_s(g_log_path,L"%ls\\present-ngx.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);
         IDXGIFactory4* factory=nullptr;IDXGIAdapter1* adapter=nullptr;ID3D12Device* device=nullptr;ID3D12CommandQueue* queue=nullptr;
@@ -96,20 +124,31 @@ int wmain(int argc,wchar_t** argv){
 #endif
         D3D12_COMMAND_QUEUE_DESC q{};Hr(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue)),"private real queue");
         Io io;io.Init(device,queue);auto* c=new present::Context;c->device=device;ID3D12Device_AddRef(device);c->queue=queue;ID3D12CommandQueue_AddRef(queue);
-        c->source=c->work={Io::width,Io::height};c->format=DXGI_FORMAT_R8G8B8A8_UNORM;c->encoding=nr_compat_present::Encoding::Srgb;
-        c->passes=passes;c->numerator=scale;c->denominator=100;c->generation=1;c->tuning=CurrentNrTuningSignature();c->tuning.input_filter=0;
+        c->source={Io::width,Io::height};c->work=nr_compat_present::WorkExtent(c->source,scale);
+        c->format=DXGI_FORMAT_R8G8B8A8_UNORM;c->encoding=nr_compat_present::Encoding::Srgb;
+        c->passes=passes;c->numerator=1;c->denominator=1;c->generation=1;c->tuning=CurrentNrTuningSignature();c->tuning.input_filter=0;
+        for(unsigned i=0;i<passes;++i){c->layer_tuning[i]=CurrentNrTuningSignature(i);c->layer_tuning[i].input_filter=0;
+            for(unsigned j=0;j<i;++j)Check(!SameNrTuningSignature(c->layer_tuning[i],c->layer_tuning[j]),"distinct independent layer requests");}
         std::printf("scenario passes=%u scale=%u Build\n",passes,scale);Check(present::Build(*c),"production Present Build");present::current=c;present::has_context.store(true);
+        for(unsigned i=0;i<passes;++i){const auto& model=c->layers[i].context;
+            Check(model.width==c->work.width&&model.height==c->work.height,"every model uses the common work raster");
+            Check(model.tuning_signature_initialized&&SameNrTuningSignature(model.tuning_signature,c->layer_tuning[i]),"production model receives its independent tuning");}
         unsigned adopted=0,changed_frames=0;bool capture_requested=false;
         for(unsigned attempt=1;attempt<=24&&adopted<4;++attempt){
             if(adopted==2&&!capture_requested){Check(present::nr_present_capture::RequestCapture(),"real Present capture request");capture_requested=true;}
             io.Fill();const auto done=present::Collect(*c);Check(done!=UINT64_MAX,"private Collect no device failure");const int slot=c->timeline.Free(done);Check(slot>=0,"free private flight");
             auto& f=c->flights[slot];Hr(ID3D12CommandAllocator_Reset(f.allocator),"reset private allocator");Hr(ID3D12GraphicsCommandList_Reset(f.list,f.allocator,nullptr),"reset private list");
+            std::array<unsigned,5> before_evaluations{};std::array<bool,5> had_handle{};
+            for(unsigned i=0;i<passes;++i){before_evaluations[i]=c->layers[i].context.evaluations;had_handle[i]=c->layers[i].context.nr_handle!=nullptr;}
             bool ok=false;if(!c->layers[0].context.nr_handle)ok=present::Bootstrap(*c,slot,attempt);
             else{f.backbuffer=io.backbuffer;ID3D12Resource_AddRef(f.backbuffer);D3D12_RENDER_TARGET_VIEW_DESC r{};r.Format=c->format;r.ViewDimension=D3D12_RTV_DIMENSION_TEXTURE2D;
                 ID3D12Device_CreateRenderTargetView(device,io.backbuffer,&r,ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(f.rtv));
                 ok=present::Frame(*c,slot,io.backbuffer,attempt);}
             std::printf("frame=%u ok=%d status=%s result=0x%08X adopted=%d fence=%llu\n",attempt,ok,nr_compat_present::Name(present::observation.status),present::observation.result,f.adopted,f.fence);
             Check(ok,"production Bootstrap/Frame result");const bool used=f.adopted;Wait(c->fence,f.fence);present::Collect(*c);
+            for(unsigned i=0;i<passes;++i){const auto& layer=c->layers[i];
+                if(!had_handle[i]&&layer.context.nr_handle)BoundContract(layer.context.params,c->layer_tuning[i],c->work.width,c->work.height);
+                if(layer.context.evaluations>before_evaluations[i])BoundContract(layer.evaluation_params[slot],c->layer_tuning[i],c->work.width,c->work.height);}
             if(capture_requested)std::printf("capture status=%u active=%llu consumed=%llu complete=%d submitted=%d empty=%d worker=%u remaining=%u\n",
                 present::nr_present_capture::status.load(),present::nr_present_capture::active.token,present::nr_present_capture::consumed,
                 present::nr_present_capture::active.finished,present::nr_present_capture::active.submitted,present::nr_present_capture::Empty(),nr_dual_capture::workers.load(),present::nr_present_capture::remaining_exports.load());
@@ -138,9 +177,10 @@ int wmain(int argc,wchar_t** argv){
                 Check(header.planes[unsigned(role)].bytes!=0,"all actual source model guide and final composition planes exported");
             std::vector<unsigned char> payload(static_cast<std::size_t>(header.payload_bytes));
             Check(ReadFile(file,payload.data(),static_cast<DWORD>(payload.size()),&got,nullptr)&&got==payload.size(),"actual GPU capture payload read");CloseHandle(file);
+            PlaceholderPixels(header,payload);
             const auto& input=header.planes[unsigned(nr_replay::Role::Proxy)];const auto& neural=header.planes[unsigned(nr_replay::Role::Neural)];
             Check(input.bytes==neural.bytes&&input.encoding==neural.encoding&&std::memcmp(payload.data()+input.offset,payload.data()+neural.offset,static_cast<std::size_t>(input.bytes))!=0,"actual signed NR captured output differs from captured model input");
-            if(layer&&(scale==100||layer>1))Check(input.bytes==previous_neural.size()&&
+            if(layer)Check(input.bytes==previous_neural.size()&&
                 std::memcmp(payload.data()+input.offset,previous_neural.data(),previous_neural.size())==0,
                 "next actual NR input equals the entire preceding output at the shared auxiliary raster");
             previous_neural.assign(payload.begin()+neural.offset,payload.begin()+neural.offset+neural.bytes);

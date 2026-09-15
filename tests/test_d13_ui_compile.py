@@ -253,7 +253,11 @@ int main() {
         click.clear();rendered.clear();
         if(DrawProcessingModeBlocks(c,true,true,1)||c.processing_start!=nr_processing::Start::Before||
            c.processing_selection!=saved||c.mode!=2)return 14;
-        if(rendered.find("F8")==std::string::npos||rendered.find(zh?"尚无可用原生导引回执":"No usable native guide receipt")==std::string::npos)return 15;
+        if(rendered.find("F8")==std::string::npos||rendered.find(zh?"占位深度和运动":"placeholder depth and motion")==std::string::npos)return 15;
+        if(rendered.find(zh?"每帧重置历史":"resetting history each frame")==std::string::npos)return 21;
+        nr_compat_present_runtime::current.color_only=false;rendered.clear();
+        DrawProcessingModeBlocks(c,true,true,1);
+        if(rendered.find(zh?"占位深度和运动":"placeholder depth and motion")!=std::string::npos)return 22;
     }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
     std::puts("D21 UI adapters: nested layers 2-5, retained values, local reset and release-to-apply compiled");

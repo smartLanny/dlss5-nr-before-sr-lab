@@ -57,6 +57,14 @@ bool CreateLayer(Context& c,Layer& l,ID3D12GraphicsCommandList* list) {
 }
 bool Bootstrap(Context& c,unsigned slot,unsigned long long source) {
     auto* list=c.flights[slot].list;
+    if(!c.uses_native_guides){
+        Transition(list,c.unknown_depth,c.unknown_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Transition(list,c.unknown_motion,c.unknown_motion_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Utility(c,list,c.unknown_guide_table,c.init_guides,c.work);
+        UavBarrier(list,c.unknown_depth);UavBarrier(list,c.unknown_motion);
+        Transition(list,c.unknown_depth,c.unknown_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(list,c.unknown_motion,c.unknown_motion_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
     Transition(list,c.image.proxy,c.image.proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Utility(c,list,c.layers[0].init_input,c.init_color,c.work);UavBarrier(list,c.image.proxy);
     Transition(list,c.image.proxy,c.image.proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -240,7 +248,7 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     const auto reject_build=[retry_token](const char* reason){nr_processing_runtime::RejectBeforePresentWork(retry_token,reason);};
     const auto& source_lease=nr_source_runtime::CurrentPresentLease();
     const bool native_guides=NativeGuideAvailable(source_lease);
-    if(!native_guides){ReleaseCom(device);SetStatus(Status::MissingNativeGuides);return;}
+    if(!native_guides&&!source_lease.color_only){ReleaseCom(device);SetStatus(Status::MissingNativeGuides);return;}
     const auto work=nr_compat_present::WorkExtent(source,g_config.compat_percent);
     const unsigned passes=RequestedPasses(g_config);
     const unsigned numerator=1;
@@ -296,7 +304,7 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         if(!previous||previous.stream!=now.stream||previous.epoch!=now.epoch||previous.sequence==UINT64_MAX||previous.sequence+1!=now.sequence)
             c.native_guides.game_reset=1;
     }
-    observation.color_only=false;observation.reset_each_frame=false;
+    observation.color_only=!c.uses_native_guides;observation.reset_each_frame=!c.uses_native_guides;
     const auto done=Collect(c);if(done==UINT64_MAX)return;
     if(c.create_fence&&!c.timeline.Ready(done)){SetStatus(Status::Creating);return;}
     const int index=c.timeline.Free(done);if(index<0){SetStatus(Status::Busy);return;}

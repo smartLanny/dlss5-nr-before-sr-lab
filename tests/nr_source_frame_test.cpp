@@ -9,6 +9,11 @@ static_assert(std::is_trivially_copyable_v<PresentObservation>,"Present snapshot
 // The validation runner inserts the unchanged production producer registry.
 // No graphics interfaces are called by this registry; retire types are opaque.
 struct NgxHandle {};
+// Energy retirement behavior is covered by the dedicated energy runtime host.
+namespace nr_processing_runtime {
+void RetireEnergyObserver(Id,Id){}
+void RetireEnergyStream(Id,Id){}
+}
 namespace reshade::api {struct swapchain {};}
 namespace source_producers {
 using namespace nr_source_frame;
@@ -16,6 +21,7 @@ std::atomic<Id> source_objects{1};Claims claims;Lineage lineage;
 struct Lock {~Lock(){}};
 // Guide texture retirement is exercised by the separate WARP transport test.
 void RetireReceiptStreamLocked(Id,Id){}
+void ForgetPresentDemand(Id){}
 // @SOURCE_PRODUCERS@
 }
 unsigned checks=0;

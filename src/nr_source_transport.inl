@@ -16,7 +16,11 @@ struct GuideCopy {
     bool submitted=false,acquired=false,consumed=false,inline_processed=false,fg_consumed=false,retired=false,poisoned=false;
 };
 GuideCopy guide_copies[8]{};
-struct ReceiptStream {Id stream=0,epoch=0,device=0,latest_sequence=0,latest_opportunity=0;};
+struct ReceiptStream {
+    Id stream=0,epoch=0,device=0,latest_sequence=0,latest_opportunity=0;
+    unsigned config_generation=0;
+    bool native_result_known=false,native_succeeded=false,inline_processed=false,fg_consumed=false;
+};
 ReceiptStream receipt_streams[64]{};
 struct DeviceOpportunity {Id device=0,latest=0;};
 DeviceOpportunity receipt_devices[16]{};
@@ -57,10 +61,18 @@ void BeginNativeReceiptOpportunityLocked(Source source,Id device) {
     if(!stream||!owner||stream->latest_sequence>=source.sequence)return;
     const auto opportunity=next_receipt_opportunity++;
     stream->device=device;stream->latest_sequence=source.sequence;stream->latest_opportunity=opportunity;
+    stream->config_generation=g_config_generation.load(std::memory_order_relaxed);
+    stream->native_result_known=stream->native_succeeded=false;
+    stream->inline_processed=stream->fg_consumed=false;
     owner->latest=opportunity;
 }
 void BeginNativeReceiptOpportunity(Source source,Id device) {Lock lock;BeginNativeReceiptOpportunityLocked(source,device);}
 void CompleteNativeReceiptLocked(Source source,bool succeeded) {
+    if(auto* stream=ReceiptStreamFor(source,false);stream&&stream->latest_sequence==source.sequence){
+        // A later successful acknowledgement cannot rehabilitate a failed call.
+        stream->native_succeeded=(!stream->native_result_known||stream->native_succeeded)&&succeeded;
+        stream->native_result_known=true;
+    }
     for(auto& c:guide_copies)if(c.source==source&&c.recorded&&!c.native_result_known){
         c.native_result_known=true;c.native_succeeded=succeeded;
         if(succeeded)++guide_receipt_diagnostics.native_success;else ++guide_receipt_diagnostics.native_failure;
@@ -68,9 +80,11 @@ void CompleteNativeReceiptLocked(Source source,bool succeeded) {
 }
 void CompleteNativeReceipt(Source source,bool succeeded) {Lock lock;CompleteNativeReceiptLocked(source,succeeded);}
 void MarkReceiptInlineProcessedLocked(Source source) {
+    if(auto* stream=ReceiptStreamFor(source,false);stream&&stream->latest_sequence==source.sequence)stream->inline_processed=true;
     for(auto& c:guide_copies)if(c.source==source)c.inline_processed=true;
 }
 void MarkReceiptFgConsumedLocked(Source source) {
+    if(auto* stream=ReceiptStreamFor(source,false);stream&&stream->latest_sequence==source.sequence)stream->fg_consumed=true;
     for(auto& c:guide_copies)if(c.source==source)c.fg_consumed=true;
 }
 void RetireReceiptStreamLocked(Id stream,Id epoch) {
@@ -330,10 +344,46 @@ nr_late_present::Selection AcquirePresentGuides(Id device,unsigned width,unsigne
     present_lease.cross_queue_wait=c.queue!=present_queue;present_lease.output_width=c.output_width;present_lease.output_height=c.output_height;
     return selected;
 }
+// Color-only admission has no borrowed guides or producer fence. Exact color
+// lineage must already be submitted to this same queue, whose ordering supplies
+// the dependency. Missing/ambiguous lineage never becomes a synthetic source.
+bool PresentColorOnlyCurrent(const Label& label,Resource resource,Id queue,unsigned config) {
+    if(!resource||!queue||!label.KnownApplication()||label.tainted||label.processed||label.fg_consumed||
+       !label.submitted||!label.submission||!label.content||!label.exact_write||label.queue!=queue||
+       !ProducerActive(label.source)||claims.WasRecorded(label.source))return false;
+    const auto* stream=ReceiptStreamFor(label.source,false);
+    const auto* device=ReceiptDeviceFor(resource.device,false);
+    if(!stream||!device||stream->device!=resource.device||stream->config_generation!=config||
+       stream->latest_sequence!=label.source.sequence||!stream->latest_opportunity||
+       stream->latest_opportunity!=device->latest||!stream->native_result_known||!stream->native_succeeded||
+       stream->inline_processed||stream->fg_consumed)return false;
+    // A failed, stale or in-flight guide receipt for this source stays rejected;
+    // this branch handles absence only, never repairs a rejected snapshot.
+    for(const auto& copy:guide_copies)if(copy.source==label.source)return false;
+    return true;
+}
+bool AcquirePresentColorOnly(const Label& label,Resource resource,unsigned width,unsigned height,Id queue,unsigned config) {
+    if(!width||!height||!PresentColorOnlyCurrent(label,resource,queue,config)||!claims.Available(label.source))return false;
+    present_lease={};present_lease.source=label.source;present_lease.source_id=label.source.sequence;
+    present_lease.role=Role::Application;present_lease.color_only=true;
+    present_lease.color_submission=label.submission;present_lease.color_content=label.content;
+    present_lease.queue=present_lease.producer_queue=queue;
+    present_lease.output_width=width;present_lease.output_height=height;
+    return true;
+}
 bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
     present_blocked_by_fg=false;
-    if(!present_guides||!present_ticket||!queue)return false;
+    if(!present_ticket||!queue)return false;
     if(g_fg_presentation_policy.Read().late_owned){present_blocked_by_fg=true;return false;}
+    if(present_lease.color_only){
+        const auto label=lineage.Lookup(present_resource);
+        if(present_guides||!(present_ticket.source==present_lease.source)||!(label.source==present_lease.source)||
+           label.submission!=present_lease.color_submission||label.content!=present_lease.color_content||
+           !PresentColorOnlyCurrent(label,present_resource,QueueOf(queue),g_config_generation.load(std::memory_order_relaxed)))return false;
+        if(!claims.Record(present_ticket))return false;
+        present_recorded=true;return true;
+    }
+    if(!present_guides)return false;
     auto& c=*present_guides;
     // Consumption is irreversible at the first private GPU operation. A failed
     // queue wait or later opaque failure must never retry this source.

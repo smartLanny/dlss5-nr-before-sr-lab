@@ -90,8 +90,8 @@
             "compatPost.history=%s\ncompatPost.source=%llu\ncompatPost.submittedSource=%llu\ncompatPost.completedSource=%llu\n"
             "compatPost.work=%ux%u\ncompatPost.passes=%u\ncompatPost.ownedBytes=%llu\ncompatPost.result=0x%08X\n",
             nr_compat_present::Name(cp.status),static_cast<unsigned long long>(cp.generation),
-            cp.color_only?"unavailable-no-native-guide-receipt":"owned-current-native-guides",
-            cp.color_only?"not-started":cp.reset_each_frame?"reset-every-frame":"source-history",
+            cp.color_only?"marked-placeholder-depth-motion":"owned-current-native-guides",
+            cp.reset_each_frame?"reset-every-frame":"source-history",
             static_cast<unsigned long long>(cp.source),static_cast<unsigned long long>(cp.submitted_source),static_cast<unsigned long long>(cp.completed_source),
             cp.work_width,cp.work_height,cp.passes,static_cast<unsigned long long>(cp.bytes),cp.result);
         for(unsigned layer=0;layer<nr_full::kMaxPasses;++layer)

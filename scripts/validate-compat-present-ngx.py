@@ -19,11 +19,11 @@ def main():
     p.add_argument('--core',type=Path,required=True)
     p.add_argument('--compiler',type=Path,required=True)
     p.add_argument('--reshade',type=Path,required=True)
-    p.add_argument('--sdk',type=Path,required=True)
-    p.add_argument('--vcvars',type=Path,required=True)
+    p.add_argument('--sdk',type=Path)
+    p.add_argument('--vcvars',type=Path)
     p.add_argument('--nr-runtime',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--case',choices=['single','all'],default='single')
+    p.add_argument('--case',choices=['single','multi','all'],default='single')
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--cold-bootstrap',action='store_true',help='Require the production bridge to bootstrap without any host NGX Init or bootstrap DLL.')
     p.add_argument('--consumer',action='store_true',help='Exercise the production FG-input NR consumer; native FG is explicitly a placeholder.')
@@ -34,12 +34,21 @@ def main():
     p.add_argument('--hudless',action='store_true',help='Also run actual HUDless/full recomposition with no alpha and explicit alpha 0/0.5/1.')
     p.add_argument('--failure-controls',action='store_true',help='Inject one NR opaque API failure and one private allocation refusal, explicitly test-only.')
     p.add_argument('--capture',action='store_true',help='Require actual completed per-layer pre-FG NRF and metadata export.')
-    a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=True)
+    a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve()
+    if out.exists() and any(out.iterdir()):p.error('--output must be empty to preserve earlier evidence')
+    out.mkdir(parents=True,exist_ok=True)
     source_manifest=(core.parent/'source-manifest.json').resolve(strict=True);source_manifest_sha256=sha(source_manifest)
     def production_sources():return {f.relative_to(core).as_posix():sha(f) for f in (core/'src').rglob('*') if f.is_file()}
     production_start=production_sources()
     if a.cold_bootstrap and (a.consumer or a.native_fg):p.error('--cold-bootstrap currently covers the Present host only')
-    compiler=a.compiler.resolve(strict=True);sdk=a.sdk.resolve(strict=True);reshade=a.reshade.resolve(strict=True)
+    if not a.cold_bootstrap and (not a.vcvars or (not a.sdk and not a.native_fg)):
+        p.error('non-cold validation requires --vcvars and --sdk (or --dlssg-sdk for native FG)')
+    compiler=a.compiler.resolve(strict=True);sdk=None;reshade=a.reshade.resolve(strict=True)
+    face_receipt=core/'build/face-backend.json'
+    face_build=json.loads(face_receipt.read_text(encoding='utf-8-sig'))
+    if face_build.get('schema')!='nr-face-build-v1' or type(face_build.get('enabled')) is not bool:
+        p.error('the built Core must have a valid face-backend.json receipt')
+    face_backend=int(face_build['enabled'])
     commands=[]
     host_sources={str(f.relative_to(ROOT)):sha(f) for f in [ROOT/'tests/compat_present_ngx_host.cpp',ROOT/'tests/compat_present_ngx_bootstrap.cpp',ROOT/'tests/fg_consumer_ngx_host.cpp',ROOT/'tests/fg_consumer_hud_fixture.inl',ROOT/'tests/fg_consumer_capture_fixture.inl',ROOT/'tests/compat_native_fg_bootstrap.cpp'] if f.is_file()}
     def run(cmd,name,timeout=180):
@@ -58,31 +67,34 @@ def main():
         if not a.dlssg_sdk or not a.fg_runtime:p.error('--native-fg requires --dlssg-sdk and --fg-runtime')
         a.consumer=True;sdk=a.dlssg_sdk.resolve(strict=True)/'include'
     bootstrap=ROOT/('tests/compat_native_fg_bootstrap.cpp' if a.native_fg else 'tests/compat_present_ngx_bootstrap.cpp')
-    sdk_lib=(a.dlssg_sdk.resolve(strict=True)/'lib/Windows_x86_64/x64/nvsdk_ngx_d.lib') if a.native_fg else sdk/'libs/nvsdk_ngx_d.lib'
-    cmd=out/'build-bootstrap.cmd'
-    cmd.write_text('@echo off\ncall "'+str(a.vcvars.resolve(strict=True))+'" x64\nif errorlevel 1 exit /b 1\n'+
-        'cl /nologo /LD /EHsc /O2 /MD /utf-8 /std:c++20 /I"'+str(sdk)+'" "'+str(bootstrap)+'" /link /OUT:"'+
-        str(out/'ngx-bootstrap.dll')+'" "'+str(sdk_lib)+'" kernel32.lib user32.lib advapi32.lib ole32.lib\n'+
-        'exit /b %errorlevel%\n',encoding='utf-8')
-    code=0 if a.cold_bootstrap else run(['cmd.exe','/d','/c',cmd],'compile-bootstrap')
+    code=0
+    if not a.cold_bootstrap:
+        if not a.native_fg:sdk=a.sdk.resolve(strict=True)
+        sdk_lib=(a.dlssg_sdk.resolve(strict=True)/'lib/Windows_x86_64/x64/nvsdk_ngx_d.lib') if a.native_fg else sdk/'libs/nvsdk_ngx_d.lib'
+        cmd=out/'build-bootstrap.cmd'
+        cmd.write_text('@echo off\ncall "'+str(a.vcvars.resolve(strict=True))+'" x64\nif errorlevel 1 exit /b 1\n'+
+            'cl /nologo /LD /EHsc /O2 /MD /utf-8 /std:c++20 /I"'+str(sdk)+'" "'+str(bootstrap)+'" /link /OUT:"'+
+            str(out/'ngx-bootstrap.dll')+'" "'+str(sdk_lib)+'" kernel32.lib user32.lib advapi32.lib ole32.lib\n'+
+            'exit /b %errorlevel%\n',encoding='utf-8')
+        code=run(['cmd.exe','/d','/c',cmd],'compile-bootstrap')
     host_source=ROOT/('tests/fg_consumer_ngx_host.cpp' if a.consumer else 'tests/compat_present_ngx_host.cpp')
     binary=out/('fg-consumer-ngx.exe' if a.consumer else 'compat-present-ngx.exe')
     if not code:
-        common=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=0','-DNR_CODEC_PRECOMPILED=1',
+        common=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64',f'-DNR_FACE_BACKEND={face_backend}','-DNR_CODEC_PRECOMPILED=1',
             '-DNR_PRESENT_NGX_CORE="'+(core/'src/nr_before_sr.cpp').as_posix()+'"','-ffunction-sections','-fdata-sections',
-            '-I'+str(core/'third_party/minhook/include'),'-I'+str(reshade/'include'),'-I'+str(reshade/'deps/imgui')]
+            '-I'+str(core/'build'),'-I'+str(core/'third_party/minhook/include'),'-I'+str(reshade/'include'),'-I'+str(reshade/'deps/imgui')]
         if a.native_fg:common.append('-DNR_HOST_NATIVE_FG=1')
         if a.cold_bootstrap:common.append('-DNR_HOST_COLD_BOOTSTRAP=1')
         if a.capture:common.append('-DNR_HOST_FG_CAPTURE=1')
         objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o']]
         code=run([compiler,*common,'-static','-municode','-Wl,--gc-sections',host_source,*objs,
-            '-o',binary,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-host',240)
+            '-o',binary,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-host',240)
     if not code:
         for src,name in [(a.nr_runtime.resolve(strict=True),'nvngx_dlssnr.dll'),(core/'build/nrchain_nvngx.dll','nrchain_nvngx.dll')]:
             shutil.copy2(src,out/name)
         if a.native_fg:shutil.copy2(a.fg_runtime.resolve(strict=True),out/'nvngx_dlssg.dll')
         if not a.compile_only:
-            cases=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
+            cases=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in cases:
                 code=run([binary,out,passes,scale],f'run-{passes}-{scale}',240)
                 if code:break
@@ -104,6 +116,8 @@ def main():
         'scope':('real NVIDIA, official NGX bootstrap, signed Feature18 and production FG input consumer; artificial input, native FG call placeholder, no game/FG output claim' if a.consumer else 'real NVIDIA, official NGX bootstrap, signed Feature18 and production Present internals; artificial color input, no game/FG claim')}
     result['artifacts']={name:sha(out/name) for name in [binary.name,'ngx-bootstrap.dll','nvngx_dlssnr.dll','nrchain_nvngx.dll'] if (out/name).is_file()}
     result['cold_bootstrap']=a.cold_bootstrap
+    result['face_build']={'receipt':str(face_receipt),'sha256':sha(face_receipt),'enabled':bool(face_backend)}
+    result['linked_objects']={str(f.relative_to(core)):sha(f) for f in objs} if 'objs' in locals() else {}
     if a.cold_bootstrap:
         result['scope']='real NVIDIA; initially absent NGX core; production nrchain official loader and signed Feature18; artificial input; no game, no host Init and no Feature1'
         if (out/'ngx-bootstrap.dll').exists():raise RuntimeError('Cold scenario must not contain a host bootstrap DLL')
@@ -116,7 +130,7 @@ def main():
         result['present_nrf_metadata']={f.name:{'sha256':sha(f),'content':json.loads(f.read_text(encoding='utf-8'))} for f in out.glob('capture-p*-layer*.json')}
         result['present_capture_cases_checked']=0
         if not a.compile_only and not code:
-            expected=[(1,100)] if a.case=='single' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
+            expected=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in expected:
                 prefix=f'capture-p{passes}-s{scale}-layer'
                 paths=[out/f'{prefix}{layer}.json' for layer in range(1,passes+1)]
