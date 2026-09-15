@@ -32,9 +32,15 @@ struct Context {
     ID3D12QueryHeap* timestamps=nullptr;
     unsigned long long timestamp_frequency=0;
     ID3D12RootSignature* util_root=nullptr;
-    ID3D12PipelineState *convert=nullptr,*init_color=nullptr,*blit=nullptr;
+    ID3D12PipelineState *convert=nullptr,*init_color=nullptr,*init_guides=nullptr,*blit=nullptr;
     ID3D12DescriptorHeap* io=nullptr;
     ID3D12Resource* raw=nullptr;
+    // Initialized once, immutable across the same-size chain and retired with
+    // its exact GPU generation. These are placeholders, never native evidence.
+    ID3D12Resource *unknown_depth=nullptr,*unknown_motion=nullptr;
+    D3D12_RESOURCE_STATES unknown_depth_state=D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_STATES unknown_motion_state=D3D12_RESOURCE_STATE_COMMON;
+    ID3D12DescriptorHeap* unknown_guide_table=nullptr;
     D3D12_RESOURCE_STATES raw_state=D3D12_RESOURCE_STATE_COMMON;
     NrSlot image{};
     Layer layers[kPassLimit]{};
@@ -169,6 +175,13 @@ bool MakePipelines(Context& c) {
     if(SUCCEEDED(hr)){compute.CS={ID3D10Blob_GetBufferPointer(init_color),ID3D10Blob_GetBufferSize(init_color)};
         hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_color));}
     ReleaseCom(init_color);
+    if(SUCCEEDED(hr)&&!c.uses_native_guides){
+        ID3DBlob* init=CompileUtility("InitCS","cs_5_0");
+        if(!init)hr=E_FAIL;
+        else {compute.CS={ID3D10Blob_GetBufferPointer(init),ID3D10Blob_GetBufferSize(init)};
+            hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_guides));}
+        ReleaseCom(init);
+    }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC draw{};draw.pRootSignature=c.util_root;
     draw.VS={ID3D10Blob_GetBufferPointer(vs),ID3D10Blob_GetBufferSize(vs)};
     draw.PS={ID3D10Blob_GetBufferPointer(ps),ID3D10Blob_GetBufferSize(ps)};

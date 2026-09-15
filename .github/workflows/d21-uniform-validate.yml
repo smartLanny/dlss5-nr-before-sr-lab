@@ -35,6 +35,10 @@ jobs:
         run: |
           python scripts/validate-uniform-layers.py --compiler $env:CXX
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-present-color-source.py --compiler $env:CXX --output build/present-color-source
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-source-frame.py --compiler $env:CXX --output build/source-frame
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python tests/run_d21_energy_gate.py --compiler $env:CXX --output build/energy-gate
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python scripts/validate-color-policy.py --compiler $env:CXX

@@ -52,6 +52,21 @@ bool NativeGuideAvailable(const nr_source_runtime::PresentLease& lease) {
 }
 NrGuideBinding LayerGuides(const Context& c,const Layer& l) {
     auto guides=c.native_guides;auto& signature=guides.signature;
+    if(!c.uses_native_guides){
+        guides={};guides.depth=c.unknown_depth;guides.motion=c.unknown_motion;
+        auto& s=guides.signature;
+        s.depth_width=s.motion_source_width=s.motion_bound_width=c.work.width;
+        s.depth_height=s.motion_source_height=s.motion_bound_height=c.work.height;
+        s.depth_physical_width=s.motion_physical_width=s.color_physical_width=c.work.width;
+        s.depth_physical_height=s.motion_physical_height=s.color_physical_height=c.work.height;
+        s.depth_format=DXGI_FORMAT_R32_FLOAT;s.motion_format=DXGI_FORMAT_R16G16_FLOAT;
+        s.color_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+        s.normalized_create_flags=c.encoding==Encoding::Srgb?0:1;
+        // Unit scale describes the owned zero-vector encoding, not measured MV.
+        guides.valid_motion_scale_x=guides.valid_motion_scale_y=true;
+        guides.game_reset=1;guides.jitter.known=false;
+        return guides;
+    }
     // Selection is frozen with the context. A change retires its old flights
     // before rebuilding; it never changes the interpretation of an in-flight bind.
     if(!nr_present_mapping::CompensateLayerMotion(signature.motion_scale_x,signature.motion_scale_y,
@@ -113,6 +128,7 @@ bool Release(Context*& ptr) {
         ReleaseCom(l.init_input);ReleaseCom(l.init_output);}
     if(c.spatial_pipelines&&!nr_dual::dx12::DestroyPipelinesAfterRetirement(c.spatial_pipelines,RetireProof,&c))return false;
     ReleaseCom(c.image.heap);ReleaseCom(c.image.source);ReleaseCom(c.image.result);ReleaseCom(c.image.proxy);ReleaseCom(c.image.neural);
+    ReleaseCom(c.unknown_depth);ReleaseCom(c.unknown_motion);ReleaseCom(c.unknown_guide_table);ReleaseCom(c.init_guides);
     ReleaseCom(c.raw);ReleaseCom(c.io);ReleaseCom(c.blit);ReleaseCom(c.convert);ReleaseCom(c.init_color);ReleaseCom(c.util_root);
     ReleaseCom(c.timestamps);ReleaseCom(c.fence);ReleaseCom(c.queue);ReleaseCom(c.device);delete ptr;ptr=nullptr;has_context.store(false,std::memory_order_release);return true;
 }
@@ -155,6 +171,9 @@ bool AllocateParameters(Context& c,NgxParams*& p) {
     return true;
 }
 bool Build(Context& c) {
+    // All layers share one grid; legacy auxiliary ratios cannot allocate a
+    // differently-sized guide/model chain through this entry point.
+    if(c.passes<1||c.passes>kPassLimit||c.numerator!=1||c.denominator!=1)return false;
     const auto fp16=DXGI_FORMAT_R16G16B16A16_FLOAT;
     if(!Texture(c,c.source,c.format,D3D12_RESOURCE_FLAG_NONE,&c.raw)||
        !Texture(c,c.source,fp16,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,&c.image.source)||
@@ -165,7 +184,11 @@ bool Build(Context& c) {
     c.image.codec_color_mode=c.encoding==Encoding::Srgb?CodecColorMode::LinearSdr:CodecColorMode::Automatic;
     c.image.replay_capture_index=nr_replay::Recorder::Invalid;
     c.image.dual_capture_index=nr_replay::Recorder::Invalid;
+    if(!c.uses_native_guides&&
+       (!Texture(c,c.work,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,&c.unknown_depth)||
+        !Texture(c,c.work,DXGI_FORMAT_R16G16_FLOAT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,&c.unknown_motion)))return false;
     if(!MakePipelines(c)||!Table(c,&c.io,c.image.source))return false;
+    if(!c.uses_native_guides&&!Table(c,&c.unknown_guide_table,nullptr,c.unknown_depth,c.unknown_motion))return false;
     if(FAILED(ID3D12Device_CreateFence(c.device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&c.fence))))return false;
     for(auto& f:c.flights){
         if(FAILED(ID3D12Device_CreateCommandAllocator(c.device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void**>(&f.allocator)))||
@@ -214,8 +237,10 @@ bool Build(Context& c) {
         model.tuning_signature=c.layer_tuning[i];model.tuning_signature_initialized=true;
         model.bound_create_flags=LayerGuides(c,l).signature.normalized_create_flags;model.bound_perf_quality=5;
         model.codec_color_mode=c.image.codec_color_mode;model.codec_color_mode_initialized=true;
-        if(!Table(c,&l.init_input,l.binding.proxy)||!Table(c,&l.init_output,l.binding.neural)||
-           !AllocateParameters(c,model.params))return false;
+        // Later layers initialize through RecordCreationInputs, so allocating
+        // primary Bootstrap-only heaps for them would leave unused descriptors.
+        if(i==0&&(!Table(c,&l.init_input,l.binding.proxy)||!Table(c,&l.init_output,l.binding.neural)))return false;
+        if(!AllocateParameters(c,model.params))return false;
         for(auto& p:l.evaluation_params)if(!AllocateParameters(c,p))return false;
     }
     D3D12_DESCRIPTOR_HEAP_DESC heap{};heap.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;

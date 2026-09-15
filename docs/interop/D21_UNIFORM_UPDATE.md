@@ -1,8 +1,9 @@
-# D21 uniform1 implementation and owner test batch
+# D21 uniform2 implementation and owner test batch
 
 This is a staged successor to `cbfb33919696a2840ed5154c91abaea56228b661`
 (`beta0.5-dline21-223fix2`). It does not mark the complete A-E roadmap done.
-Candidate identity: `beta0.5-dline21-uniform1`, PE version `0.5.1.24`.
+Candidate identity: `beta0.5-dline21-uniform2`, PE version `0.5.1.25`.
+The uniform1 source, binaries and configuration remain separate rollback evidence.
 
 ## Implemented in this batch
 
@@ -36,6 +37,39 @@ Candidate identity: `beta0.5-dline21-uniform1`, PE version `0.5.1.24`.
 - Explicit bridge reuse requires matching source, SDK pins, license and binary
   hashes. Build receipts distinguish reuse from compilation.
 
+## Compatibility continuation (uniform2)
+
+- A current application color surface can be admitted without a native guide
+  snapshot when its resource lifetime, exact submitted write, active source,
+  successful native result, current configuration and actual Present queue are
+  all proven. Admission and first GPU recording both recheck ownership. Stale,
+  generated, FG-consumed, processed, failed and cross-queue color-only sources
+  remain rejected. A rejected existing guide snapshot cannot bypass its failure
+  through this path. This does not yet admit every game without a native source.
+- The fallback owns an R32 depth texture initialized to 1 and an RG16 motion
+  texture initialized to 0. GPU initialization and transitions precede model
+  creation. The textures share the uniform work grid across all layers and
+  retire with the exact private generation. They are explicitly marked as
+  placeholders, jitter stays unknown and every model Evaluate resets history.
+  Model computation and actual adopted output are still required for success.
+- UI/F8 distinguish placeholder inputs and per-frame reset from native guides.
+  The same-size chain allocates primary Bootstrap descriptor heaps only for
+  the first layer; later layers already use their parent's full output. At five
+  layers this removes eight unused heaps (48 descriptors), without claiming
+  measured frame-time or model-history savings.
+- The real NVIDIA host now uses the actual FaceBackend build receipt and permits
+  production cold bootstrap without an unused local MSVC/SDK requirement. It
+  checks actual Create/Evaluate parameter blocks, independent per-layer tuning,
+  uniform dimensions, complete parent output, per-frame Reset, GPU readback of
+  placeholder values, adoption, fence completion and F6 no-work admission.
+- A development snapshot passed nine controlled color-only NVIDIA scenarios:
+  layers 1-5 at 100%, layers 2/3/5 at 50%, layer 4 at 75%. This is synthetic
+  640x360 SDR input with the signed 310.8.0.0 runtime, not game or FG validation.
+  Final frozen-source build and hardware receipts are recorded separately.
+- Generator PE metadata now matches the actual resource version. Earlier
+  uniform1 generator metadata incorrectly named 0.5.1.23 while its PE was
+  0.5.1.24; old evidence is retained rather than rewritten.
+
 ## Validation boundaries
 
 CPU fixtures execute actual configuration, Create-signature, color-consumer,
@@ -51,7 +85,7 @@ single PR workflow for the D21 base/successor branches. It is not a release job.
 | Batch | Remaining before acceptance |
 | --- | --- |
 | A | Matched D13 OFF / D21 OFF / candidate OFF traces; measured CPU improvement; GPU power test; memory switching/retirement measurements. |
-| B | Guide-independent source admission, initialized marked placeholders, per-guide native/ReShade/OF selection, broader format conversion, saturation controls and texture-stage comparisons. Current Present still needs a valid native guide receipt. |
+| B | Present without any native source identity, per-guide native/ReShade/OF selection, broader format conversion, saturation controls and texture-stage comparisons. Missing-guide sources with proven current native color lineage now have a marked placeholder path. |
 | C | Selective Present model retirement, proven scratch aliasing, budget rejection preserving prior runnable configuration, full resize/rapid-edit/FG game regression. |
 | D | AMDOF accumulation/+ and low-frequency reconstruction; private SR backend, post low-res route, #259 and #258; actual FP16 residual and model tests. No new controls claiming those features are exposed. |
 | E | Measured two/three-layer presets, final sharpening, Manager bridge recipes/conflict handling, complete installer/rollback, XeSS MFG feasibility and FG coexistence. |

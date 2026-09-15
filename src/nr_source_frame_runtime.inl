@@ -275,6 +275,8 @@ struct PresentLease {
     NrGuideBinding guides{};
     NrGuideSignature source_signature{};
     bool guides_owned=false,guides_current=false;
+    bool color_only=false; // Exact submitted color lineage; no native guide claim.
+    Id color_submission=0,color_content=0;
     bool source_jitter_known=false,output_jitter_known=false,cross_queue_wait=false;
     Id queue=0,producer_queue=0,producer_value=0;
     ID3D12Fence* producer_fence=nullptr;
@@ -799,6 +801,10 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
     auto selected=AcquirePresentGuides(present_resource.device,desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,
         desc.Height,known_generated,known_fg_consumed,known_inline_processed,queue_identity,
         g_config_generation.load(std::memory_order_relaxed));
+    if(!selected&&AcquirePresentColorOnly(label,present_resource,
+        desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,desc.Height,queue_identity,
+        g_config_generation.load(std::memory_order_relaxed)))
+        selected={0,nr_late_present::Decision::Accepted,0,0};
     diagnostic.receipt_decision=static_cast<unsigned>(selected.decision);diagnostic.receipt_age=selected.age;
     diagnostic.receipt_device_age=selected.device_age;
     diagnostic.label=label;

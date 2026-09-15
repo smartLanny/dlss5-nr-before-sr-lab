@@ -189,8 +189,8 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
     if(actual==nr_processing::Start::Present){
         nr_compat_present::Observation status{};
         if(nr_compat_present_runtime::TrySnapshot(status)){
-            ImGui::TextDisabled(zh?"主层 %u × %u，%u 层":"Primary %u x %u, %u passes",status.work_width,status.work_height,status.passes);
-            if(status.color_only)ImGui::TextWrapped("%s",zh?"当前尚无可用原生导引回执；保留游戏原画面。":"No usable native guide receipt yet; retaining the game image.");
+            ImGui::TextDisabled(zh?"整链工作尺寸 %u × %u，%u 层":"Chain work size %u x %u, %u passes",status.work_width,status.work_height,status.passes);
+            if(status.color_only)ImGui::TextWrapped("%s",zh?"导引不足：使用明确标记的占位深度和运动尝试增强，每帧重置历史。未取得可用结果时保留游戏原画面。":"Guides unavailable: trying NR with marked placeholder depth and motion, resetting history each frame. The game image is retained until a usable result is ready.");
         }
     }
     return changed;
