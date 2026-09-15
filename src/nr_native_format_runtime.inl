@@ -7,6 +7,14 @@ std::atomic<unsigned long long> g_nr_format_next_identity{1};
 std::atomic<unsigned long long> g_nr_format_calls{0};
 SRWLOCK g_nr_format_lock = SRWLOCK_INIT;
 nr_native_format::Ledger<> g_nr_format_ledger;
+nr_native_format::LifetimeLedger<> g_nr_format_lifetime;
+thread_local unsigned g_nr_format_own_view_depth = 0;
+struct NrFormatOwnViewScope {
+    NrFormatOwnViewScope() noexcept { ++g_nr_format_own_view_depth; }
+    ~NrFormatOwnViewScope() noexcept { --g_nr_format_own_view_depth; }
+    NrFormatOwnViewScope(const NrFormatOwnViewScope&) = delete;
+    NrFormatOwnViewScope& operator=(const NrFormatOwnViewScope&) = delete;
+};
 struct NrFormatDeviceReceipt { unsigned long long identity = 0; bool hooks = false; };
 
 unsigned long long NrFormatResourceIdentity(ID3D12Resource* resource) {
@@ -48,6 +56,39 @@ nr_native_format::Evidence NrFormatEvidence(const nr_native_format::Key& key) {
     const auto value = g_nr_format_ledger.Find(key);
     ReleaseSRWLockShared(&g_nr_format_lock);
     return value;
+}
+nr_native_format::Evidence NrFormatLifetimeEvidence(const nr_native_format::LifetimeKey& key) {
+    AcquireSRWLockShared(&g_nr_format_lock);
+    const auto value = g_nr_format_lifetime.Find(key);
+    ReleaseSRWLockShared(&g_nr_format_lock);
+    return value;
+}
+void NrObserveLifetimeCreateView(ID3D12Device* device, ID3D12Resource* resource,
+        nr_native_format::Role role, unsigned format, bool shape_valid) {
+    if (g_nr_format_own_view_depth || !device || !resource) return;
+    const auto receipt = NrFormatGetDevice(device);
+    const auto resource_id = NrFormatResourceIdentity(resource);
+    if (!receipt.identity || !resource_id) return;
+    nr_native_format::View view;
+    view.Observe(format, shape_valid);
+    const nr_native_format::LifetimeKey key{receipt.identity, resource_id, role};
+    AcquireSRWLockExclusive(&g_nr_format_lock);
+    g_nr_format_lifetime.Observe(key, view);
+    ReleaseSRWLockExclusive(&g_nr_format_lock);
+}
+void NrInvalidateFormatFeatureObservations(unsigned long long feature) noexcept {
+    if (!feature) return;
+    AcquireSRWLockExclusive(&g_nr_format_lock);
+    g_nr_format_ledger.InvalidateFeature(feature);
+    ReleaseSRWLockExclusive(&g_nr_format_lock);
+}
+unsigned NrLifetimeTypedView(ID3D12Device* device, ID3D12Resource* resource, bool post_sr) {
+    const auto receipt = NrFormatGetDevice(device);
+    const auto resource_id = NrFormatResourceIdentity(resource);
+    if (!receipt.identity || !resource_id) return 0;
+    const auto role = post_sr ? nr_native_format::Role::Output : nr_native_format::Role::Color;
+    const auto lifetime = NrFormatLifetimeEvidence({receipt.identity, resource_id, role});
+    return lifetime.view.conflict ? 0 : lifetime.Resolved();
 }
 
 struct NrNativeFormatScope {
@@ -164,6 +205,7 @@ struct NrResolvedColorView {
     nr_native_format::Evidence evidence{};
     nr_native_clear::Receipt clear_request{};
     bool clear_source = false;
+    bool lifetime_source = false;
     nr_format_access::Plan plan{};
     nr_resource_semantics::Decision semantic{};
     PreSrStorageContract pre_storage = PreSrStorageContract::Unsupported;
@@ -181,7 +223,8 @@ struct NrFormatDiagnostic {
     unsigned long long feature = 0, device = 0, resource = 0, observed_call = 0;
     nr_format_access::Status status = nr_format_access::Status::AmbiguousType;
     nr_format_access::Provenance provenance = nr_format_access::Provenance::None;
-    bool available = false, coverage = false, conflict = false, native_failed = false, clear_source = false;
+    bool available = false, coverage = false, conflict = false, native_failed = false, clear_source = false,
+         lifetime_source = false;
     unsigned flags = 0, width = 0, height = 0, arrays = 0, mips = 0, samples = 0;
     nr_native_format::View observed{};
     nr_resource_semantics::Decision semantic{};
@@ -217,6 +260,15 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
     request.observed_view = result.evidence.Resolved();
     request.observation_conflict = result.evidence.view.conflict;
     request.observation_stale = result.evidence.failed;
+    if (!request.observed_view && !request.observation_conflict && !request.observation_stale) {
+        const auto lifetime = NrLifetimeTypedView(device, resource, post_sr);
+        if (lifetime && nr_format_access::LegalView(request.storage, lifetime)) {
+            request.observed_view = lifetime;
+            result.lifetime_source = true;
+        }
+        // Descriptor inventory also contains Core-created views. It stays a
+        // diagnostic cache, never a second path around the own-view exclusion.
+    }
     request.lifecycle_known = static_cast<bool>(result.key);
     request.shape_valid = desc.Width && desc.Height &&
         desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
@@ -318,6 +370,8 @@ NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
     diagnostic.samples = desc.SampleDesc.Count;
     diagnostic.observed = view.evidence.view;
     if(view.clear_source)diagnostic.observed.Observe(view.clear_request.format);
+    else if(view.lifetime_source && view.semantic.access.srv)
+        diagnostic.observed.Observe(view.semantic.access.srv);
     diagnostic.semantic = view.semantic;
     diagnostic.srv = view.plan.srv;
     diagnostic.uav = view.plan.uav;
@@ -327,6 +381,7 @@ NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
     diagnostic.resource = view.key.resource;
     diagnostic.observed_call = view.clear_source ? view.clear_request.call : view.evidence.last_call;
     diagnostic.clear_source = view.clear_source;
+    diagnostic.lifetime_source = view.lifetime_source;
     diagnostic.status = view.plan.status;
     diagnostic.provenance = view.plan.provenance;
     diagnostic.coverage = NrFormatGetDevice(device).hooks;

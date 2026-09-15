@@ -20,6 +20,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     // The second inference stays opt-in, but its first requested precision is
     // 50%.  Existing saved legal ratios are preserved by the config loader.
     next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=2;
+    next.nr_layers={};next.nr_uniform_migrated=false;
     next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
     next.region_version=1;next.region_enabled=false;next.region_preview=0;
     std::fill(next.region_gains,next.region_gains+11,1.f);

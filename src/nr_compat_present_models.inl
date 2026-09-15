@@ -2,18 +2,21 @@
 // Feature1 recovery token, native-output probe or native-SR success counter.
 void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {
     auto& slot=c.image;const bool hdr=c.encoding!=Encoding::Srgb;
+    const bool independent_chroma=combine&&g_config.independent_chroma_composition;
     auto policy=ResolveNrColorPolicy(1,hdr,hdr?CodecColorMode::Automatic:CodecColorMode::LinearSdr,
         true,true,g_config.color_strength,g_config.preserve_lighting);
     ApplyLightingLockPolicy(policy,1,g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(policy,g_config.allow_unverified_hdr_color,g_config.color_strength,
-        g_config.transfer_strength,g_config.color_protection);
+        g_config.transfer_strength,g_config.color_protection,
+        independent_chroma ? nr_color_amplification::ChromaConsumer::GainIndependent :
+                             nr_color_amplification::ChromaConsumer::GainCoupled);
     CodecConstants k{};k.width=combine?c.source.width:c.work.width;k.height=combine?c.source.height:c.work.height;
     k.proxy_scale=g_config.proxy_scale;k.transfer_strength=g_config.transfer_strength;k.source_to_canonical=1;
     k.color_strength=policy.effective_color_strength;k.max_luma_ratio=g_config.max_luma_ratio;
     k.passthrough=hdr?0u:16u;
     if(combine&&g_config.high_strength_protection)k.passthrough|=1024u;
     if(combine&&g_config.layered_enhancement)k.passthrough|=2048u;
-    if(combine&&g_config.independent_chroma_composition)k.passthrough|=4096u;
+    if(independent_chroma)k.passthrough|=4096u;
     const bool light=combine&&!g_config.generic_residual&&!g_config.region_enabled;
     if(light){k.passthrough|=262144u;if(g_config.light_control_mode==1u)k.passthrough|=524288u;}
     k.pre_exposure=1;k.source_width=c.source.width;k.source_height=c.source.height;
@@ -208,7 +211,7 @@ bool Build(Context& c) {
             e={surfaces.secondary_extent.width,surfaces.secondary_extent.height};
         }else{l.binding.proxy=c.image.proxy;l.binding.neural=c.image.neural;}
         auto& model=l.context;model.width=e.width;model.height=e.height;model.mode=1;
-        model.tuning_signature=c.tuning;model.tuning_signature_initialized=true;
+        model.tuning_signature=c.layer_tuning[i];model.tuning_signature_initialized=true;
         model.bound_create_flags=LayerGuides(c,l).signature.normalized_create_flags;model.bound_perf_quality=5;
         model.codec_color_mode=c.image.codec_color_mode;model.codec_color_mode_initialized=true;
         if(!Table(c,&l.init_input,l.binding.proxy)||!Table(c,&l.init_output,l.binding.neural)||

@@ -38,9 +38,9 @@ struct Harness {
     void Reset(){Hr(allocator->Reset(),"allocator reset");Hr(list->Reset(allocator,nullptr),"list reset");}
     ~Harness(){if(event)CloseHandle(event);Drop(fence);Drop(list);Drop(allocator);Drop(queue);Drop(device);}
 };
-ID3D12Resource* Texture(ID3D12Device* device){
+ID3D12Resource* Texture(ID3D12Device* device,unsigned side){
     D3D12_HEAP_PROPERTIES h{};h.Type=D3D12_HEAP_TYPE_DEFAULT;h.CreationNodeMask=h.VisibleNodeMask=1;
-    D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=d.Height=8;
+    D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=d.Height=side;
     d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;ID3D12Resource* resource=nullptr;
     Hr(device->CreateCommittedResource(&h,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,nullptr,IID_PPV_ARGS(&resource)),"texture");return resource;
@@ -65,7 +65,7 @@ struct ModelStub {
         D3D12_ROOT_SIGNATURE_DESC rd{};rd.NumParameters=1;rd.pParameters=&p;ID3DBlob *blob=nullptr,*error=nullptr;
         Hr(D3D12SerializeRootSignature(&rd,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error),"model stub root serialize");Drop(error);
         Hr(device->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&root)),"model stub root");Drop(blob);
-        const char shader[]="Texture2D<float4> a:register(t0);RWTexture2D<float4> b:register(u0);[numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){b[p.xy]=a.Load(int3(p.xy,0))+float4(.125,.125,.125,0);}";
+        const char shader[]="Texture2D<float4> a:register(t0);RWTexture2D<float4> b:register(u0);[numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){uint w,h;b.GetDimensions(w,h);if(p.x>=w||p.y>=h)return;b[p.xy]=a.Load(int3(p.xy,0))+float4(.125,.125,.125,0);}";
         Hr(D3DCompile(shader,sizeof(shader)-1,"explicit-model-stub",nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&blob,&error),"model stub shader");Drop(error);
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root;pd.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
         Hr(device->CreateComputePipelineState(&pd,IID_PPV_ARGS(&pso)),"model stub pipeline");Drop(blob);
@@ -102,9 +102,9 @@ std::vector<unsigned char> ReadTexture(Harness& h,ID3D12Resource* source) {
 int main(){try {
     Harness h;
     for(auto domain:{nr_dual::ModelDomain::DirectValue,nr_dual::ModelDomain::SrgbProxy})
-    for(auto scale:{nr_dual::Scale{1,1},nr_dual::Scale{1,2},nr_dual::Scale{3,4}})
+    for(unsigned side:{8u,6u,4u})
     for(unsigned passes=2;passes<=5;++passes){
-        auto* primary=Texture(h.device);ID3D12DescriptorHeap *gpu=nullptr,*cpu=nullptr;
+        auto* primary=Texture(h.device,side);ID3D12DescriptorHeap *gpu=nullptr,*cpu=nullptr;
         D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=1;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         Hr(h.device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&gpu)),"clear GPU heap");hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
         Hr(h.device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&cpu)),"clear CPU heap");D3D12_UNORDERED_ACCESS_VIEW_DESC u{};
@@ -116,22 +116,17 @@ int main(){try {
         Transition(h.list,primary,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         h.Submit();h.Reset();Drop(gpu);Drop(cpu);
         std::string error;auto* pipelines=nr_dual::dx12::CreatePipelines(h.device,error);Check(pipelines!=nullptr,"real spatial pipelines");
-        const auto plan=nr_full::MakePlan({true,passes,scale},{8,8});
+        const auto plan=nr_full::MakePlan({true,passes},{side,side});
+        Check(!plan.reduced&&plan.auxiliary==nr_dual::Extent{side,side},"whole-chain scale is applied before planning, never per layer");
         nr_dual::dx12::SpatialSlot* spatial[nr_full::kAuxLayers]{};ModelStub models[nr_full::kAuxLayers];
         ID3D12Resource* source=primary;unsigned source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         for(unsigned layer=0;layer<passes-1;++layer){
-            nr_dual::dx12::Surfaces base{};
-            const bool cumulative=plan.reduced&&layer>0&&layer==passes-2;
-            if(cumulative)base=nr_dual::dx12::GetSurfaces(spatial[0]);
-            spatial[layer]=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],domain,1024*1024,error,nullptr,nullptr,cumulative?&base:nullptr);
+            spatial[layer]=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],domain,1024*1024,error);
             Check(spatial[layer]!=nullptr,"independent spatial slot");
             const auto surfaces=nr_dual::dx12::GetSurfaces(spatial[layer]);models[layer].Init(h.device,surfaces.input,surfaces.output);
-            Check(surfaces.secondary_extent==plan.auxiliary,"every auxiliary holds the same second-pass raster");
-            Check((surfaces.input==source)==(layer>0||!plan.reduced)&&surfaces.output!=source,"only first auxiliary downsamples; later input is preceding complete output");
-            Check(nr_dual::dx12::MatchesResidualBase(spatial[layer],cumulative?&base:nullptr),"immutable cumulative base ownership");
-            if(cumulative){auto bad=base;bad.secondary_extent.width++;
-                auto* rejected=nr_dual::dx12::CreateSpatialSlot(pipelines,source,plan.layers[layer],domain,1024*1024,error,nullptr,nullptr,&bad);
-                Check(rejected==nullptr,"mismatched cumulative raster refused before GPU work");}
+            Check(surfaces.secondary_extent==nr_dual::Extent{side,side},"each layer holds the common working raster");
+            Check(surfaces.input==source&&surfaces.output!=source,"layer consumes preceding complete output without another resize");
+            Check(surfaces.low_delta==nullptr,"same-raster auxiliary does not allocate an unused residual");
             nr_dual::Admission a{};a.primary_feature=primary;a.secondary_feature=&models[layer];a.primary_params=primary;a.secondary_params=&models[layer];
             a.secondary_create_extent=plan.auxiliary;a.creation_completion_proven=h.fence->GetCompletedValue()>=h.serial;
             a.recording_and_queue_admitted=a.dependencies_pinned=a.current_inputs_and_guides_bound=true;
@@ -143,18 +138,7 @@ int main(){try {
         const unsigned short expected[]={0,0x3000,0x3400,0x3600,0x3800};
         for(unsigned i=0;i<data.size()/8;++i){const auto* value=reinterpret_cast<const unsigned short*>(data.data())+i*4;
             for(unsigned ch=0;ch<3;++ch)Check(value[ch]==expected[passes-1],"all final pixels include every layer increment");
-            Check(value[3]==(plan.reduced?0x3c00:0),"auxiliary alpha preserved");}
-        if(plan.reduced){
-            auto final=nr_dual::dx12::GetSurfaces(spatial[passes-2]);Check(final.low_delta!=nullptr,"final composition receives cumulative residual");
-            const auto delta=ReadTexture(h,final.low_delta);const auto* values=reinterpret_cast<const float*>(delta.data());
-            const float encoded=.125f*(passes-1);const float expected_delta=domain==nr_dual::ModelDomain::DirectValue?encoded:std::pow((encoded+.055f)/1.055f,2.4f);
-            for(unsigned i=0;i<delta.size()/16;++i){for(unsigned ch=0;ch<3;++ch)
-                Check(std::abs(values[i*4+ch]-expected_delta)<0.00001f,"residual uses last result minus first reduced input, retaining all edits");
-                Check(values[i*4+3]==1,"valid cumulative residual");}
-            const auto first=ReadTexture(h,nr_dual::dx12::GetSurfaces(spatial[0]).input);
-            for(unsigned i=0;i<first.size()/8;++i)for(unsigned ch=0;ch<3;++ch)
-                Check(reinterpret_cast<const unsigned short*>(first.data())[i*4+ch]==0,"original reduced baseline remains immutable");
-        }
+            Check(value[3]==0,"auxiliary alpha preserved");}
         for(auto& slot:spatial)Check(nr_dual::dx12::DestroySpatialSlotAfterRetirement(slot,Retired,nullptr),"retire exact-completed layer");
         Check(nr_dual::dx12::DestroyPipelinesAfterRetirement(pipelines,Retired,nullptr),"retire shared spatial pipeline");Drop(primary);
     }

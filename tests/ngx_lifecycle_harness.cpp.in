@@ -28,6 +28,7 @@ struct NrRecoveryCarrierScope {
 };
 void NrRecoveryRetireFeature(unsigned long long) {}
 void NrPrepareFormatObservation(ID3D12GraphicsCommandList *) {}
+void NrInvalidateFormatFeatureObservations(unsigned long long) noexcept {}
 struct FeatureRecord;
 namespace nr_source_runtime {
 // Source ownership and GPU transport have independent production hosts. This

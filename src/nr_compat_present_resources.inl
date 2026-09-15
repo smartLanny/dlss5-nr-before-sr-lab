@@ -42,6 +42,7 @@ struct Context {
     nr_dual::dx12::Pipelines* spatial_pipelines=nullptr;
     nr_compat_present::Timeline timeline{};
     NrTuningSignature tuning{};
+    std::array<NrTuningSignature,kPassLimit> layer_tuning{};
     NrGuideBinding native_guides{};
     NrGuideSignature native_contract{};
     nr_source_frame::Source previous_source{};

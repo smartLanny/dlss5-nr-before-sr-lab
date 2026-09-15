@@ -1,6 +1,9 @@
 // Included after ChainConfig, atomics and chain lock; no GPU work here.
 namespace nr_compat_present_runtime {bool InlineDrainReady();bool NativeNrDrained();}
 namespace nr_processing_runtime {
+// The source owner installs this optional query before handling a carrier.
+// Portable route fixtures have no source observer and keep it null.
+thread_local bool (*energy_current_query)()=nullptr;
 using Start=nr_processing::Start;
 nr_processing::Session session;
 std::atomic<unsigned> effective{0};
@@ -109,6 +112,9 @@ struct CarrierScope {
         // ProcessEvaluate constructs this scope only for a real Feature1
         // carrier. RR and Feature11 take their own pass-through/consumer paths.
         native_reconstruction_carrier=true;
+        // Suppress the whole private chain before prepare or route probing.
+        // Admission uses the proven source stream; saved/effective route stays.
+        if(energy_current_query&&energy_current_query()){source_blocked=true;return;}
         // Only a real native carrier is a preferred-route probe opportunity.
         // Present-only callbacks cannot promote a route or fabricate a source.
         // Once armed, Session::Ready stops new fallback work so its last exact

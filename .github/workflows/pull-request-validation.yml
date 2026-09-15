@@ -10,6 +10,8 @@ on:
       - codex/beta0.4.2
       - codex/multiapi-045-integration
       - fix/f8-single-txt-reset-evidence
+      - codex/d21-saved-route-fg-boundary-20260914
+      - codex/d21-uniform-chain-update-20260916
 
 permissions:
   contents: read
@@ -70,3 +72,7 @@ jobs:
   research-050:
     if: github.base_ref == 'next/0.5'
     uses: ./.github/workflows/beta050-validate.yml
+
+  d21-uniform-chain:
+    if: contains(fromJSON('["codex/d21-saved-route-fg-boundary-20260914","codex/d21-uniform-chain-update-20260916"]'), github.base_ref)
+    uses: ./.github/workflows/d21-uniform-validate.yml

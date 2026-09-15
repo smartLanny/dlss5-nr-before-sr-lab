@@ -1,7 +1,135 @@
+#define NR_HAS_ENERGY_GATE 1
+// BEGIN ENERGY GATE PLATFORM ADAPTER
+#include "nr_energy_gate.h"
+namespace nr_processing_runtime {
+// All state changes and admissions use this small CPU-only lock. No GPU wait,
+// source lock, config lock or NGX call is acquired while holding it.
+SRWLOCK energy_gate_lock=SRWLOCK_INIT;
+nr_energy_gate::Streams energy_gate_streams{};
+std::atomic<bool> energy_gate_loaded{false},energy_gate_any_active{false};
+std::atomic<bool> energy_gate_has_evidence{false};
+std::atomic<bool> energy_gate_conservative{true},energy_gate_heuristic{false};
+std::atomic<bool> energy_gate_persistence_failed{false};
+std::atomic<unsigned long long> energy_gate_resets{0},energy_gate_blocked_checks{0};
+nr_energy_gate::Options EnergyGateOptions() {
+    return {energy_gate_conservative.load(std::memory_order_acquire),
+            energy_gate_heuristic.load(std::memory_order_acquire)};
+}
+void EnsureEnergyGateLoaded() {
+    if(energy_gate_loaded.load(std::memory_order_acquire)||!g_ini_path[0])return;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    if(!energy_gate_loaded.load(std::memory_order_relaxed)) {
+        energy_gate_conservative.store(GetPrivateProfileIntW(L"NRBeforeSR",L"PauseNrOnFullscreenUi",1,g_ini_path)!=0);
+        energy_gate_heuristic.store(GetPrivateProfileIntW(L"NRBeforeSR",L"GuessFullscreenUiPause",0,g_ini_path)!=0);
+        energy_gate_loaded.store(true,std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+}
+void EnergyGateTransitionLocked(nr_energy_gate::Transition transition) {
+    using nr_energy_gate::Transition;
+    if(transition==Transition::Resumed||transition==Transition::Stale||transition==Transition::Disabled) {
+        // Publish reset BEFORE the entry and the fast-path flag can reopen NR.
+        g_history_generation.fetch_add(1,std::memory_order_acq_rel);
+        energy_gate_resets.fetch_add(1,std::memory_order_relaxed);
+    }
+}
+void PublishEnergyGateLocked() {
+    bool evidence=false;
+    for(const auto& e:energy_gate_streams.entries)
+        evidence|=e.state.Active()||e.state.explicit_samples||e.state.guess_samples;
+    energy_gate_has_evidence.store(evidence,std::memory_order_release);
+    energy_gate_any_active.store(energy_gate_streams.AnyActive(),std::memory_order_release);
+}
+void ObserveEnergyPause(nr_energy_gate::StreamKey key,unsigned long long observer,
+    unsigned long long epoch,bool known,bool paused,unsigned long long frame) {
+    if(!key)return;
+    EnsureEnergyGateLoaded();
+    if(!energy_gate_loaded.load(std::memory_order_acquire))return;
+    const auto options=EnergyGateOptions();
+    if(!energy_gate_has_evidence.load(std::memory_order_acquire)&&
+       !(known&&paused&&options.conservative)&&!(!known&&frame&&options.heuristic))return;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    const auto now=GetTickCount64();
+    energy_gate_streams.PollAll(options,now,EnergyGateTransitionLocked);
+    energy_gate_streams.ObserveStream(key,observer,epoch,options,known,paused,frame,now,EnergyGateTransitionLocked);
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+}
+bool EnergyGateBlocks(nr_energy_gate::StreamKey key) {
+    // No evidence: no clock read, config I/O, lock, allocation or scanning.
+    if(!key||!energy_gate_any_active.load(std::memory_order_acquire))return false;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    const auto now=GetTickCount64();const auto options=EnergyGateOptions();
+    energy_gate_streams.PollAll(options,now,EnergyGateTransitionLocked);
+    const bool blocked=energy_gate_streams.Blocked(key,options,now,EnergyGateTransitionLocked);
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+    if(blocked)energy_gate_blocked_checks.fetch_add(1,std::memory_order_relaxed);
+    return blocked;
+}
+void RetireEnergyObserver(unsigned long long observer,unsigned long long epoch) {
+    if(!energy_gate_loaded.load(std::memory_order_acquire))return;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    energy_gate_streams.Retire(observer,epoch,EnergyGateTransitionLocked);
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+}
+void RetireEnergyStream(unsigned long long stream,unsigned long long epoch) {
+    if(!energy_gate_has_evidence.load(std::memory_order_acquire))return;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    for(auto& entry:energy_gate_streams.entries)if(entry.key.stream==stream&&entry.key.epoch==epoch) {
+        if(entry.state.Active())EnergyGateTransitionLocked(nr_energy_gate::Transition::Resumed);
+        entry={};
+    }
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+}
+bool SetEnergyGateOption(bool conservative,bool enabled) {
+    EnsureEnergyGateLoaded();
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    // A menu edit made before an INI path exists still owns this session.
+    energy_gate_loaded.store(true,std::memory_order_release);
+    if(conservative)energy_gate_conservative.store(enabled,std::memory_order_release);
+    else energy_gate_heuristic.store(enabled,std::memory_order_release);
+    energy_gate_streams.PollAll(EnergyGateOptions(),GetTickCount64(),EnergyGateTransitionLocked);
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+    const bool persisted=g_ini_path[0]&&WritePrivateProfileStringW(L"NRBeforeSR",
+        conservative?L"PauseNrOnFullscreenUi":L"GuessFullscreenUiPause",enabled?L"1":L"0",g_ini_path)!=FALSE;
+    energy_gate_persistence_failed.store(!persisted,std::memory_order_release);
+    if(!persisted)Log("[energy-gate] option applies this session; INI save failed.");
+    return persisted;
+}
+struct EnergyGateStatus {
+    bool conservative=true,heuristic=false,active=false,persistence_failed=false;
+    nr_energy_gate::Cause cause=nr_energy_gate::Cause::None;
+    unsigned guess_samples=0,active_streams=0;
+    unsigned long long resets=0,blocked_checks=0;
+};
+EnergyGateStatus ReadEnergyGateStatus() {
+    EnsureEnergyGateLoaded();
+    EnergyGateStatus out{};const auto options=EnergyGateOptions();
+    out.conservative=options.conservative;out.heuristic=options.heuristic;
+    AcquireSRWLockExclusive(&energy_gate_lock);
+    energy_gate_streams.PollAll(options,GetTickCount64(),EnergyGateTransitionLocked);
+    for(const auto& e:energy_gate_streams.entries) {
+        if(e.state.Active()){++out.active_streams;out.active=true;out.cause=e.state.ActiveCause();}
+        out.guess_samples=std::max(out.guess_samples,e.state.guess_samples);
+    }
+    PublishEnergyGateLocked();
+    ReleaseSRWLockExclusive(&energy_gate_lock);
+    out.persistence_failed=energy_gate_persistence_failed.load(std::memory_order_acquire);
+    out.resets=energy_gate_resets.load();out.blocked_checks=energy_gate_blocked_checks.load();
+    return out;
+}
+}
+
+// END ENERGY GATE PLATFORM ADAPTER
 // Include after nr_post_boundary_native.inl and guide/NGX definitions, before
 // ProcessEvaluate. nr_source_frame.hpp/nr_fg_contract.hpp go outside namespace.
 #include "nr_late_present_receipt.hpp"
 namespace nr_source_runtime {
+bool CurrentEnergyPaused();
 using nr_source_frame::Id;
 using nr_source_frame::Source;
 using nr_source_frame::Role;
@@ -130,6 +258,8 @@ struct NativeInputs {
     Rect color_rect{},depth_rect{},motion_rect{},hudless_rect{};
     float motion_scale_x=0,motion_scale_y=0,jitter_x=0,jitter_y=0;
     bool motion_scale_known=false,jitter_known=false,depth_inverted=false,hdr=false,reset=true,paused=false;
+    bool paused_known=false;
+    Id fg_frame=0; // The same public frame read serves lineage and pause evidence.
     bool fg=false,states_known=false;
     // FG jitter is clip space and is deliberately not mislabeled source pixels.
     bool jitter_clip_space=false;
@@ -217,7 +347,9 @@ Id RetryToken(Source source){
 bool ProducerActive(Source source){for(const auto& p:producers)if(p.stream==source.stream&&p.epoch==source.epoch)return true;return false;}
 void RetireReceiptStreamLocked(Id stream,Id epoch);
 void RetireProducer(Id handle,Id epoch=0){
+    nr_processing_runtime::RetireEnergyObserver(handle,epoch);
     for(auto& p:producers)if(p.handle==handle&&(!epoch||p.epoch==epoch)){
+        nr_processing_runtime::RetireEnergyStream(p.stream,p.epoch);
         for(auto& retry:retry_identities)if(retry.source.stream==p.stream&&retry.source.epoch==p.epoch)retry={};
         lineage.RetireSource(p.stream,p.epoch);claims.RetireStream(p.stream,p.epoch);
         RetireReceiptStreamLocked(p.stream,p.epoch);p={};}
@@ -292,7 +424,9 @@ NativeInputs ReadFgInputs(const NgxParams* params) {
     input.jitter_known=GetFloat(params,nr_fg_contract::jitter_x,&input.jitter_x)&&
         GetFloat(params,nr_fg_contract::jitter_y,&input.jitter_y)&&std::isfinite(input.jitter_x)&&std::isfinite(input.jitter_y);
     unsigned v=0;if(GetUInt(params,nr_fg_contract::reset,&v))input.reset=v!=0;
-    v=0;if(GetUInt(params,nr_fg_contract::paused,&v))input.paused=v!=0;
+    v=0;input.paused_known=GetUInt(params,nr_fg_contract::paused,&v);
+    if(input.paused_known)input.paused=v!=0;
+    (void)ReadFrame(params,input.fg_frame);
     v=0;if(GetUInt(params,nr_fg_contract::inverted,&v))input.depth_inverted=v!=0;
     v=0;if(GetUInt(params,nr_fg_contract::hdr,&v))input.hdr=v!=0;
     return input;
@@ -395,15 +529,16 @@ thread_local EvaluateScope* evaluation=nullptr;
 struct EvaluateScope {
     EvaluateScope* previous=nullptr;ID3D12GraphicsCommandList* list=nullptr;
     ID3D12Resource *output=nullptr,*generated=nullptr,*real=nullptr;
-    Source source{};Ticket ticket{};NativeInputs inputs{};Id retry_token=0;
+    Source source{};Ticket ticket{};NativeInputs inputs{};Id retry_token=0,energy_device=0;
     int feature=0;bool active=false,finished=false,private_recorded=false;NgxResult fatal=0;
     EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,int feature_id,Id generation)
         :previous(evaluation),list(commands),feature(feature_id) {
         if(previous||!commands||!handle||!params||!generation||(feature!=1&&feature!=13&&feature!=11))return;
         if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire))return;
         SeedCoreRecordingDevice(commands);
-        active=true;evaluation=this;
-        {Lock lock;ObserveNativeProducer(reinterpret_cast<Id>(handle),generation,RecordingOf(commands).device);}
+        active=true;evaluation=this;nr_processing_runtime::energy_current_query=CurrentEnergyPaused;
+        {Lock lock;energy_device=RecordingOf(commands).device;
+            ObserveNativeProducer(reinterpret_cast<Id>(handle),generation,energy_device);}
         FgConsumer consume=nullptr;
         if(feature==11){inputs=ReadFgInputs(params);output=inputs.color;
             ReadFgResource(params,nr_fg_contract::generated,generated);ReadFgResource(params,nr_fg_contract::real,real);
@@ -412,7 +547,7 @@ struct EvaluateScope {
             inputs.encoding=inherited.encoding;
             if(inherited.KnownApplication())source=inherited.source;
             else if(sl_source)source=sl_source;else if(sl_present_source)source=sl_present_source;
-            else {Id frame=0;if(ReadFrame(params,frame))source=ProducerSource(reinterpret_cast<Id>(handle),generation,frame);}
+            else if(inputs.fg_frame)source=ProducerSource(reinterpret_cast<Id>(handle),generation,inputs.fg_frame);
             inputs.source=source;consume=fg_consumer;
         }else{
             GetResource(params,"Output",&output);
@@ -421,8 +556,15 @@ struct EvaluateScope {
             BeginNativeReceiptOpportunityLocked(source,device);
         }
         {Lock lock;retry_token=RetryToken(source);}
+        // The FG signal can only gate the exact stream established by lineage,
+        // Streamline or this Feature's producer epoch; never an unrelated view.
+        if(feature==11) {
+            nr_processing_runtime::ObserveEnergyPause({energy_device,source.stream,source.epoch},
+                reinterpret_cast<Id>(handle),generation,inputs.paused_known,inputs.paused,inputs.fg_frame);
+        }
+        const bool energy_paused=nr_processing_runtime::EnergyGateBlocks({energy_device,source.stream,source.epoch});
         // No source lock is held across private/GPU or native callbacks.
-        if(feature==11&&source&&!inputs.paused){ResolveInputStates(list,inputs);
+        if(feature==11&&source&&!inputs.paused&&!energy_paused){ResolveInputStates(list,inputs);
             const auto guides=FgGuides(inputs);
             if(consume&&inputs.states_known&&inputs.encoding&&guides.depth&&retry_token){
                 // Feature11 is the last truthful source-input boundary even
@@ -440,7 +582,7 @@ struct EvaluateScope {
             // Successful FG closes this source against late Present NR, so an
             // owned Present transport copy here would have no legal consumer.
             if(consume)(void)consume(list,inputs);
-        }else if(feature==1||feature==13){const auto record=FindFeature(handle);CaptureNgxGuides(list,params,record,source);}
+        }else if((feature==1||feature==13)&&!energy_paused){const auto record=FindFeature(handle);CaptureNgxGuides(list,params,record,source);}
     }
     EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,const FeatureRecord& record)
         :EvaluateScope(commands,handle,params,record.feature_id,record.generation){}
@@ -472,11 +614,17 @@ struct EvaluateScope {
 };
 Id CurrentRetryToken(){return evaluation?evaluation->retry_token:0;}
 Source CurrentSource(){return evaluation?evaluation->source:Source{};}
+bool CurrentEnergyPaused() {
+    const auto* current=evaluation;
+    return current&&nr_processing_runtime::EnergyGateBlocks(
+        {current->energy_device,current->source.stream,current->source.epoch});
+}
 void ReportFgFailure(NgxResult result){if(evaluation){Lock lock;evaluation->fatal=result?result:0xBAD00005u;
     if(evaluation->ticket)claims.Complete(evaluation->ticket,false,false);}}
 bool InlineAllowed(unsigned route) {
     auto* current=evaluation;
     if(!current||!current->active||!current->source)return false;
+    if(CurrentEnergyPaused())return false;
     const Point point=route==2?Point::Before:route==1?Point::After:Point::Present;
     Lock lock;
     if(current->ticket){if(current->ticket.point==point)return true;
@@ -644,6 +792,10 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
     const bool known_generated=label.role==Role::Generated;
     const bool known_fg_consumed=label.fg_consumed;
     const bool known_inline_processed=label.processed;
+    if(label.KnownApplication()&&nr_processing_runtime::EnergyGateBlocks(
+        {present_resource.device,label.source.stream,label.source.epoch})) {
+        PublishPresentObservationLocked(diagnostic);return false;
+    }
     auto selected=AcquirePresentGuides(present_resource.device,desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,
         desc.Height,known_generated,known_fg_consumed,known_inline_processed,queue_identity,
         g_config_generation.load(std::memory_order_relaxed));
@@ -658,6 +810,12 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
         diagnostic.decision=PresentDecisionFor(diagnostic);PublishPresentObservationLocked(diagnostic);return false;
     }
     diagnostic.receipt_stream=present_lease.source.stream;diagnostic.receipt_epoch=present_lease.source.epoch;
+    if(nr_processing_runtime::EnergyGateBlocks({present_resource.device,
+        present_lease.source.stream,present_lease.source.epoch})) {
+        // No claim or new NR work. The normal Present-lease cleanup remains
+        // responsible for its resources; game presentation is not modified.
+        PublishPresentObservationLocked(diagnostic);return false;
+    }
     diagnostic.receipt_sequence=present_lease.source.sequence;diagnostic.receipt_queue=present_lease.producer_queue;
     diagnostic.receipt_fence=present_lease.producer_value;diagnostic.receipt_output_width=present_lease.output_width;
     diagnostic.receipt_output_height=present_lease.output_height;diagnostic.receipt_cross_queue_wait=present_lease.cross_queue_wait;

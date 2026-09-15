@@ -2,12 +2,12 @@
 #include "nr_dual_pass.hpp"
 #include <array>
 
-// Auxiliary passes share the requested second-pass raster. Only the first
-// auxiliary input is reduced; later passes consume that raster unchanged.
+// The primary raster already includes WorkingScale. Every auxiliary consumes
+// the same raster; applying another scale here would compound the request.
 namespace nr_full {
 constexpr unsigned kMinPasses=2, kMaxPasses=5, kAuxLayers=kMaxPasses-1;
-struct Settings { bool enabled=false; unsigned passes=2; nr_dual::Scale scale{1,1}; };
-inline bool Valid(Settings s) noexcept { return s.passes>=kMinPasses&&s.passes<=kMaxPasses&&nr_dual::ValidScale(s.scale); }
+struct Settings { bool enabled=false; unsigned passes=2; };
+inline bool Valid(Settings s) noexcept { return s.passes>=kMinPasses&&s.passes<=kMaxPasses; }
 struct Plan {
     unsigned passes=0;
     nr_dual::Extent auxiliary{};
@@ -17,7 +17,7 @@ struct Plan {
 };
 inline Plan MakePlan(Settings s,nr_dual::Extent extent,const nr_dual::RasterRules& rules={}) noexcept {
     if(!s.enabled||!Valid(s))return {};
-    const auto first=nr_dual::MakePlan({2,s.scale},extent,rules);
+    const auto first=nr_dual::MakePlan({2,{1,1}},extent,rules);
     if(!first)return {};
     const auto direct=nr_dual::MakePlan({2,{1,1}},first.secondary,rules);
     if(!direct||direct.path!=nr_dual::Path::DirectSecond)return {};

@@ -24,6 +24,7 @@
 #include <new>
 #include <memory>
 #include <type_traits>
+#include "nr_layer_config.h"
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -94,11 +95,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline21-223fix2";
+constexpr const char *kAddonVersion = "beta0.5-dline21-uniform1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline21-223fix2";
+constexpr const char *kBuildIdentity = "beta0.5-dline21-uniform1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -915,7 +916,10 @@ struct ChainConfig {
     unsigned nr_passes=1;
     bool nr_full_reference=false;
     unsigned nr_full_passes=3;
+    // Legacy auxiliary scale is retained for migration diagnostics only.
     unsigned nr_second_numerator=1,nr_second_denominator=2;
+    nr_layers::Auxiliary nr_layers{};
+    bool nr_uniform_migrated=false;
     bool generic_residual=false;
     float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
     bool region_enabled=false;
@@ -977,6 +981,13 @@ struct ChainConfig {
 };
 
 ChainConfig g_config = {};
+// Serialized by g_chain_cs. Changes invalidate only the edited layer and
+// downstream input histories; they do not reset unrelated primary history.
+std::array<unsigned long long,nr_layers::Count> g_layer_epochs{1,1,1,1,1};
+void AdvanceLayerEpochs(const ChainConfig& next,const ChainConfig& previous) {
+    for(unsigned i=nr_layers::FirstChanged(next,previous);i<nr_layers::Count;++i)
+        ++g_layer_epochs[i];
+}
 ULONGLONG g_config_read_tick = 0;
 CRITICAL_SECTION g_chain_cs;
 nr_probe_policy::Control g_nr_probe_policy;
@@ -1370,7 +1381,7 @@ float FiniteOr(float value, float fallback) {
 bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled && a.mode == b.mode &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
-           a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
+           a.compat_percent==b.compat_percent &&
            a.work_mode == b.work_mode &&
            a.custom_work_scale == b.custom_work_scale &&
            a.proxy_scale == b.proxy_scale &&
@@ -1386,6 +1397,45 @@ int MigrateConfigMode(int config_version, int configured_mode) {
 
 bool WriteIniInt(const wchar_t *key, int value);
 bool WriteIniFloat(const wchar_t *key, float value);
+
+void ReadUniformLayers(ChainConfig& next) {
+    if(GetPrivateProfileIntW(L"NRBeforeSR",L"UniformChainVersion",0,g_ini_path)<1) {
+        const unsigned active=next.nr_passes==2?(next.nr_full_reference?std::clamp(next.nr_full_passes,3u,5u):2u):1u;
+        auto primary=nr_layers::Primary(next);nr_layers::Normalize(primary);
+        nr_layers::Migrate(next.nr_layers,active,primary);
+        next.nr_uniform_migrated=active>1&&next.nr_second_numerator!=next.nr_second_denominator;
+        static bool noted=false;
+        if(next.nr_uniform_migrated&&!noted){noted=true;Log("[uniform-nr] Migrating %u layers to the primary work raster; legacy auxiliary scale %u/%u is archived, not applied. Auxiliary workload changes; configuration is custom, not a qualified performance preset.",active,next.nr_second_numerator,next.nr_second_denominator);}
+        return;
+    }
+    next.nr_uniform_migrated=GetPrivateProfileIntW(L"NRBeforeSR",L"UniformChainMigrated",0,g_ini_path)!=0;
+    for(unsigned i=0;i<next.nr_layers.size();++i) {
+        auto& layer=next.nr_layers[i];wchar_t key[64];
+        const auto integer=[&](const wchar_t* suffix,int fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return GetPrivateProfileIntW(L"NRBeforeSR",key,fallback,g_ini_path);};
+        const auto number=[&](const wchar_t* suffix,float fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return ReadIniFloat(key,fallback);};
+        layer.enabled=integer(L"Enabled",0)!=0;layer.initialized=integer(L"Configured",0)!=0;
+        layer.intensity=number(L"Intensity",1.2f);layer.local_tone=number(L"LocalToneStrength",1.f);
+        layer.local_structure=number(L"LocalStructureStrength",1.f);layer.skin_structure=number(L"SkinStructureStrength",-1.f);
+        layer.auto_mask=integer(L"AutoMask",0)!=0;layer.style=integer(L"Style",0);layer.ui_correction=integer(L"UICorrection",1)!=0;
+    }
+}
+bool SaveUniformLayers(const ChainConfig& config) {
+    bool ok=true;
+    // Publish the schema only after all records are persisted. A failed save
+    // remains covered by the ordinary live-config persistence latch.
+    for(unsigned i=0;i<config.nr_layers.size();++i) {
+        const auto& layer=config.nr_layers[i];wchar_t key[64];
+        const auto integer=[&](const wchar_t* suffix,int value){swprintf_s(key,L"Layer%u%ls",i+2,suffix);ok=WriteIniInt(key,value)&&ok;};
+        const auto number=[&](const wchar_t* suffix,float value){swprintf_s(key,L"Layer%u%ls",i+2,suffix);ok=WriteIniFloat(key,value)&&ok;};
+        integer(L"Enabled",layer.enabled);integer(L"Configured",layer.initialized);
+        number(L"Intensity",layer.intensity);number(L"LocalToneStrength",layer.local_tone);
+        number(L"LocalStructureStrength",layer.local_structure);number(L"SkinStructureStrength",layer.skin_structure);
+        integer(L"AutoMask",layer.auto_mask);integer(L"Style",layer.style);integer(L"UICorrection",layer.ui_correction);
+    }
+    ok=WriteIniInt(L"UniformChainMigrated",config.nr_uniform_migrated)&&ok;
+    if(ok)ok=WriteIniInt(L"UniformChainVersion",1);
+    return ok;
+}
 
 bool g_work_config_loaded = false; // protected by g_chain_cs
 std::atomic<bool> g_work_request_rejected{false};
@@ -1546,6 +1596,11 @@ void NormalizeConfig(ChainConfig &config) {
         FiniteOr(config.skin_structure, minimum_skin_structure),
         minimum_skin_structure, 2.0f);
     config.style = std::min(config.style, 2u);
+    for(auto& layer:config.nr_layers)nr_layers::Normalize(layer);
+    const unsigned active_layers=nr_layers::Active(config.nr_layers);
+    config.nr_passes=active_layers>1?2u:1u;
+    config.nr_full_reference=active_layers>2;
+    if(active_layers>2)config.nr_full_passes=active_layers;
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
     const int jitter_mode = static_cast<int>(config.jitter_mode);
     config.jitter_mode = jitter_mode == static_cast<int>(NrJitterMode::GameInputPixel)
@@ -1555,7 +1610,8 @@ void NormalizeConfig(ChainConfig &config) {
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
-    return a.enabled == b.enabled &&
+    return a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
+           a.enabled == b.enabled &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
            a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.mode == b.mode &&
@@ -1813,6 +1869,7 @@ void ReloadConfig(bool force = false) {
     next.present_mv_compensation = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"PresentMvCompensation", 0, g_ini_path));
     ApplyConfigPolicyMigrations(next, new_work_file);
+    ReadUniformLayers(next);
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1859,6 +1916,7 @@ void ReloadConfig(bool force = false) {
 
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
+    AdvanceLayerEpochs(next,g_config);
     g_config = next;
     nr_processing_runtime::Reconcile();
     g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
@@ -1963,6 +2021,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
     record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
     record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
+    record_write(SaveUniformLayers(config));
     if(ok)record_write(WriteIniInt(L"NRLayerControlsVersion",2));
     record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
     record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
@@ -2111,6 +2170,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     persisted_next.face_preview=g_config.face_preview;
     const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
+    AdvanceLayerEpochs(next,g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
     nr_processing_runtime::Reconcile();
@@ -2170,11 +2230,18 @@ bool ApplyConfig(ChainConfig next, const char *source,
 }
 
 // Pending UI edits are transactions against the generation they displayed.
-struct OverlayConfigSnapshot { ChainConfig config; unsigned generation; };
+struct OverlayConfigSnapshot {
+    ChainConfig config; unsigned generation;
+    unsigned base_width=0,base_height=0,work_width=0,work_height=0;
+};
 OverlayConfigSnapshot SnapshotOverlayConfig() {
     EnterCriticalSection(&g_chain_cs);
     ReloadConfig();
     OverlayConfigSnapshot snapshot{g_config, g_config_generation.load(std::memory_order_relaxed)};
+    snapshot.base_width=g_last_nr_render_width.load(std::memory_order_relaxed);
+    snapshot.base_height=g_last_nr_render_height.load(std::memory_order_relaxed);
+    snapshot.work_width=g_last_nr_width.load(std::memory_order_relaxed);
+    snapshot.work_height=g_last_nr_height.load(std::memory_order_relaxed);
     LeaveCriticalSection(&g_chain_cs);
     return snapshot;
 }
@@ -5375,17 +5442,18 @@ NrPostStoreEvidence SnapshotPreStoreEvidence() {
 // (the public evaluate parameter block is not a reliable live-tuning API).
 // Keep an explicit signature so a committed UI edit retires the old temporal
 // feature after its exact fence and creates a fresh one with the new values.
-NrTuningSignature CurrentNrTuningSignature() {
+NrTuningSignature CurrentNrTuningSignature(unsigned layer_index=0) {
+    const auto model=nr_layers::Read(g_config,layer_index);
     NrTuningSignature signature = {};
-    signature.intensity = g_config.intensity;
-    signature.local_tone = g_config.local_tone;
-    signature.local_structure = g_config.local_structure;
+    signature.intensity = model.intensity;
+    signature.local_tone = model.local_tone;
+    signature.local_structure = model.local_structure;
     // Feature 18 must follow local structure without an automatic face mask.
     // The independent INI preference remains available for the next enable.
-    signature.skin_structure = g_config.auto_mask ? g_config.skin_structure : -1.0f;
-    signature.auto_mask = g_config.auto_mask;
-    signature.style = g_config.style;
-    signature.ui_correction = g_config.ui_correction;
+    signature.skin_structure = model.auto_mask ? model.skin_structure : -1.0f;
+    signature.auto_mask = model.auto_mask;
+    signature.style = model.style;
+    signature.ui_correction = model.ui_correction;
     signature.jitter_mode = g_config.jitter_mode;
     signature.input_filter = g_config.nr_input_filter;
     return signature;
@@ -7435,7 +7503,7 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
-    NrTuningSignature requested_tuning = CurrentNrTuningSignature();
+    NrTuningSignature requested_tuning = CurrentNrTuningSignature(layer_index);
     if (mode != 2) requested_tuning.input_filter = 0;
     if(layer_index==0)PrepareStageCaptureContextLocked(sr_handle, feature_generation, mode);
     NrContext *empty = nullptr;
@@ -7843,6 +7911,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     const auto external_view = NrResolveColorView(device, external, external_desc,
         feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
+    const NrFormatOwnViewScope own_views;
     slot.native_format_key = external_view.key;
     slot.key = external;
     if (exposure != nullptr) {
@@ -8298,6 +8367,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     const auto external_view = NrResolveColorView(device, external, external_desc,
         feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
+    const NrFormatOwnViewScope own_views;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
 
@@ -8739,7 +8809,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     if (any_combine)
         ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
-        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection);
+        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection,
+        v2_combine && (independent_chroma || low_grid_color)
+            ? nr_color_amplification::ChromaConsumer::GainIndependent
+            : nr_color_amplification::ChromaConsumer::GainCoupled);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
         (light_style_active ? 262144u : 0u) |
@@ -15116,13 +15189,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline21-223fix2 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline21-uniform1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-223fix2 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-uniform1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

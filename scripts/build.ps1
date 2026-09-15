@@ -6,7 +6,8 @@ param(
     [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
     [string]$CodecCacheRoot,
     [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
-    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH
+    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
+    [string]$ReuseBridgeRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -152,7 +153,7 @@ if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_cod
 $Common += '-DNR_CODEC_PRECOMPILED=1'
 $Common += "-I$Build"
 
-& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
+& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath -ReuseBridgeRoot $ReuseBridgeRoot
 if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
 
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
@@ -166,7 +167,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-223fix2-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform1-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -175,7 +176,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-223fix2-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-uniform1-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()

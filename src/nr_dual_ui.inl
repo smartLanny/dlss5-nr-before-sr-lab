@@ -28,72 +28,9 @@ const char *UiStateText(nr_dual_status_runtime::UiState value, bool zh) {
     return zh ? "二次 AI：状态未知" : "Second AI: unknown state";
 }
 
-template<class Config>
-void DrawMoreLayerControls(Config& next,bool& changed,bool& discrete,bool zh) {
-    if constexpr(requires {next.nr_full_reference;next.nr_full_passes;}) {
-        if(ImGui::Checkbox(zh?"启用更多层":"Enable more layers",&next.nr_full_reference)) {
-            changed=true;discrete=true;
-        }
-        if(!next.nr_full_reference)return;
-
-        SettingsField(zh?"总层数":"Total layers");
-        const char* labels[]={
-            zh?"3层###full-passes-3":"3 layers###full-passes-3",
-            zh?"4层###full-passes-4":"4 layers###full-passes-4",
-            zh?"5层###full-passes-5":"5 layers###full-passes-5"};
-        const float width=std::max(1.f,(SettingsContentWidth()-
-            2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
-        const bool stacked=width<ImGui::GetFontSize()*6.f;
-        ImGui::PushID("nr-full-passes");
-        for(unsigned i=0;i<3;++i) {
-            if(i&&!stacked)ImGui::SameLine();
-            ImGui::PushID(static_cast<int>(i));
-            const unsigned passes=i+3;
-            const bool selected=next.nr_full_passes==passes;
-            if(selected)ImGui::PushStyleColor(ImGuiCol_Button,
-                ImGui::GetStyleColorVec4(ImGuiCol_Header));
-            const bool clicked=ImGui::Button(labels[i],ImVec2(
-                stacked?SettingsContentWidth():width,ImGui::GetFrameHeight()*1.25f));
-            if(selected)ImGui::PopStyleColor();
-            if(clicked&&!selected) {
-                next.nr_full_passes=passes;changed=true;discrete=true;
-            }
-            SettingsTooltip(zh?"选择启用更多层时的总层数。":"Choose the total number of layers when more layers are enabled.");
-            ImGui::PopID();
-        }
-        ImGui::PopID();
-    }
-}
-
-// Keep the frequently used controls next to the first NR scale. Detailed
-// observations belong on the feedback page so the home page stays readable.
-void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
-                 bool has_pending=false) {
-    const bool zh=UseChineseUi();
-    ImGui::SeparatorText(zh?"二次 AI 增强（实验）":"Second AI (experimental)");
-    bool enabled=next.nr_passes==2;
-    if(ImGui::Checkbox(zh?"启用二次 AI 增强":"Enable second AI enhancement",&enabled)){
-        next.nr_passes=enabled?2:1;changed=true;discrete=true;
-    }
-    if(!enabled)return;
-    float percent=100.f*next.nr_second_numerator/next.nr_second_denominator;
-    if(SettingsSliderFloat(zh?"第二次 AI 处理比例":"Second AI processing scale","##dual-scale",
-        &percent,25.f,100.f,"%.0f%%")){
-        next.nr_second_numerator=static_cast<unsigned>(std::lround(percent));
-        next.nr_second_denominator=100;changed=true;
-    }
-    SettingsTooltip(zh?"第2层及后续层使用相同比例；100%时与主层同尺寸。":"Layer 2 and later layers use the same scale; at 100%, they match the primary layer size.");
-    DrawMoreLayerControls(next,changed,discrete,zh);
-    const auto snapshot = nr_dual_status_runtime::SnapshotUi();
-    if (snapshot.state != nr_dual_status_runtime::UiState::Failed && (has_pending || changed)) {
-        ImGui::TextDisabled("%s", zh ? "二次 AI：等待请求的设置生效" :
-            "Second AI: waiting for the requested settings to apply");
-    } else {
-        ImGui::TextDisabled("%s", UiStateText(snapshot.state, zh));
-        if (snapshot.state == nr_dual_status_runtime::UiState::Failed)
-            SettingsTooltip(zh ? "请先在反馈与诊断中保存 F8，再重启游戏。失败的处理链不会继续尝试。" :
-                "Save F8 in Feedback and diagnostics, then restart the game. The failed chain will not retry.");
-    }
+// Compatibility surface: the production overlay calls the same layer panel.
+void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,bool has_pending=false) {
+    (void)has_pending;DrawUniformLayerControls(next,changed,discrete);
 }
 
 void DrawDetailsUi(bool requested=true, bool has_pending=false) {
