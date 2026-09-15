@@ -77,13 +77,16 @@ Resource ResourceOf(ID3D12Resource* resource){return resource?Resource{reinterpr
 struct PresentLease{
     Source source{};Id source_id=0;Role role=Role::Unknown;NrGuideBinding guides{};NrGuideSignature source_signature{};
     bool guides_owned=false,guides_current=false,source_jitter_known=false,output_jitter_known=false,cross_queue_wait=false;
-    bool color_only=false;Id color_submission=0,color_content=0;
+    bool color_only=false,application_source=false;Id color_submission=0,color_content=0;
     Id queue=0,producer_queue=0,producer_value=0;ID3D12Fence* producer_fence=nullptr;
     unsigned source_age=0,output_width=0,output_height=0;
 } present_lease;
 thread_local Ticket present_ticket{};thread_local bool present_recorded=false;
 Resource present_resource{};
 bool ProducerActive(Source){return true;} // Native producer lifetime is a controlled fixture input.
+// This guide-transport fixture has no swapchain/application producer. The
+// actual application admission/record consumers have their own CPU and NGX hosts.
+bool ApplicationPresentCurrent(const PresentLease&,const Label&,Resource,Id,unsigned){return false;}
 // Admission-only fixture seam for the production shader path. Real command
 // state capture/restoration is exercised by the full-Core host, not claimed here.
 struct NativeCommandStateScope{

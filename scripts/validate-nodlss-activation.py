@@ -9,12 +9,18 @@ def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def main():
     sys.stdout.reconfigure(encoding='utf-8',errors='replace');p=argparse.ArgumentParser()
     p.add_argument('--baseline',type=Path,required=True);p.add_argument('--core',type=Path,required=True);p.add_argument('--reshade-dll',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','all'],default='single');a=p.parse_args()
+    p.add_argument('--output',type=Path,required=True);p.add_argument('--compile-only',action='store_true');p.add_argument('--case',choices=['single','all'],default='single')
+    p.add_argument('--route',choices=['before','present'],default='before',help='Use the actual saved processing-start choice; this never admits or creates a source receipt.')
+    a=p.parse_args()
     baseline_path=a.baseline.resolve(strict=True);baseline=json.loads(baseline_path.read_text(encoding='utf-8'));old_core=Path(baseline['core']);core=a.core.resolve(strict=True)
+    if baseline.get('result')!=0 or baseline.get('compile_only') or not baseline.get('production_sources_unchanged'):
+        p.error('--baseline requires completed successful real NGX validation with unchanged production sources')
     source_manifest=(core.parent/'source-manifest.json').resolve(strict=True);source_manifest_sha256=sha(source_manifest)
     def production_sources():return {f.relative_to(core).as_posix():sha(f) for f in (core/'src').rglob('*') if f.is_file()}
     production_start=production_sources()
-    out=a.output.resolve();out.mkdir(parents=True,exist_ok=True);binary=out/'no-dlss-activation.exe';commands=[]
+    out=a.output.resolve()
+    if out.exists() and any(out.iterdir()):p.error('--output must be empty to preserve earlier evidence')
+    out.mkdir(parents=True,exist_ok=True);binary=out/'no-dlss-activation.exe';commands=[]
     host=ROOT/'tests/compat_nodlss_ngx_host.cpp';host_hash=sha(host)
     host_sources={str(f.relative_to(ROOT)):sha(f) for f in [host,ROOT/'tests/compat_present_ngx_host.cpp']}
     def run(command,name,cwd=out):
@@ -24,7 +30,10 @@ def main():
     command=next(c['command'] for c in baseline['commands'] if c['name']=='compile-host')[:]
     command=[x for x in command if x not in ['-DNR_HOST_NATIVE_FG=1','-DNR_HOST_FG_CAPTURE=1']]
     command=[x.replace(str(old_core),str(core)).replace(old_core.as_posix(),core.as_posix()) for x in command]
-    old_host=next(x for x in command if x.endswith('fg_consumer_ngx_host.cpp'));command[command.index(old_host)]=str(host);command[command.index('-o')+1]=str(binary)
+    old_hosts=[x for x in command if x.endswith(('fg_consumer_ngx_host.cpp','compat_present_ngx_host.cpp'))]
+    if len(old_hosts)!=1:p.error('baseline must compile exactly one recognized production NGX host')
+    command[command.index(old_hosts[0])]=str(host);command[command.index('-o')+1]=str(binary)
+    objects={str(Path(x).relative_to(core)):sha(x) for x in command if x.endswith('.o')}
     command.append('-ldbghelp')
     code=run(command,'compile-no-dlss-host')
     if not code:
@@ -34,7 +43,7 @@ def main():
         (out/'ReShade.ini').write_text('[GENERAL]\nNoEffectCache=1\nNoDebugInfo=1\n[OVERLAY]\nTutorialProgress=4\nShowClock=0\nShowFPS=0\nShowFrameTime=0\n',encoding='utf-8')
         if not a.compile_only:
             for passes in ([1,4] if a.case=='all' else [1]):
-                code=run([binary,out,passes],f'run-no-dlss-{passes}')
+                code=run([binary,out,passes,a.route],f'run-no-dlss-{passes}')
                 if code:break
     production_end=production_sources();unchanged=production_start==production_end and sha(source_manifest)==source_manifest_sha256
     host_unchanged=all(sha(ROOT/name)==digest for name,digest in host_sources.items())
@@ -42,12 +51,23 @@ def main():
     report={'schema':'real-reshade-no-native-dlss-activation-v1','result':code,'compile_only':a.compile_only,'case':a.case,'core':str(core),'core_source_sha256':sha(core/'src/nr_before_sr.cpp'),'source_manifest_sha256':source_manifest_sha256,'production_sources_start':production_start,'production_sources_end':production_end,'production_sources_unchanged':unchanged,'host_source_sha256':host_hash,'host_unchanged':sha(host)==host_hash,'reshade_sha256':sha(a.reshade_dll),'commands':commands,'scope':'real ReShade DXGI callbacks, real D3D12 output clear/submit/Present and real NGX NR; no native SR/RR/FG feature, no manual source or hook admission, no game claim'}
     report['production_bridge_sha256']=sha(out/'nrchain_nvngx.dll') if (out/'nrchain_nvngx.dll').is_file() else None
     report['host_sources_at_compile']=host_sources;report['host_sources_unchanged']=host_unchanged
+    report['baseline']={'path':str(baseline_path),'sha256':sha(baseline_path)}
+    report['requested_route']=a.route
+    report['linked_objects']=objects
+    report['linked_objects_unchanged']=all(sha(core/name)==digest for name,digest in objects.items())
+    if not report['linked_objects_unchanged']:code=1
     report['outputs']={f.name:{'sha256':sha(f),'bytes':f.stat().st_size} for f in out.glob('no-dlss-*.rgba')}
     if report['outputs']:
-        from PIL import Image,PngImagePlugin
+        try:
+            from PIL import Image,PngImagePlugin
+            report['png_preview_status']='available'
+        except ImportError:
+            Image=None
+            report['png_preview_status']='unavailable: optional Pillow dependency; original GPU RGBA evidence retained'
         for f in out.glob('no-dlss-*.rgba'):
             pixels=f.read_bytes()
             if len(pixels)!=640*360*4:code=1;continue
+            if Image is None:continue
             metadata=PngImagePlugin.PngInfo();metadata.add_text('Description','Actual NVIDIA GPU readback: cold no-DLSS controlled Clear output, real ReShade callbacks and production NR. No content editing.')
             Image.frombytes('RGBA',(640,360),pixels).save(f.with_suffix('.png'),pnginfo=metadata)
     report['result']=code

@@ -65,10 +65,14 @@ void Receipt(const char* phase,ID3D12Resource* resource){
 int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodlss_test;namespace compat=nr_compat_present_runtime;
     std::setvbuf(stdout,nullptr,_IONBF,0);SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);SetUnhandledExceptionFilter(Crash);
     try {
-        Check(argc==3,"usage no-DLSS-host runtime-directory passes");const unsigned passes=std::wcstoul(argv[2],nullptr,10);Check(passes==1||passes==4,"bounded NR case");
+        Check(argc==3||argc==4,"usage no-DLSS-host runtime-directory passes [before|present]");const unsigned passes=std::wcstoul(argv[2],nullptr,10);Check(passes==1||passes==4,"bounded NR case");
+        const bool present_requested=argc==4&&std::wcscmp(argv[3],L"present")==0;
+        Check(argc==3||present_requested||std::wcscmp(argv[3],L"before")==0,"known requested processing start");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast=true;
-        g_config.processing_start=nr_processing::Start::Before;g_config.processing_selection=1;g_config.transfer_strength=1;g_config.compat_percent=100;
-        g_config.nr_passes=passes==1?1:2;g_config.nr_full_reference=passes==4;g_config.nr_full_passes=passes==4?4:2;g_config.warmup_after_create=2;
+        g_config.processing_start=present_requested?nr_processing::Start::Present:nr_processing::Start::Before;g_config.processing_selection=1;g_config.transfer_strength=1;g_config.compat_percent=100;
+        nr_layers::Migrate(g_config.nr_layers,passes,nr_layers::Primary(g_config));
+        g_config.warmup_after_create=2;NormalizeConfig(g_config);
+        Check(compat::RequestedPasses(g_config)==passes,"production independent layer configuration");
         nr_processing_runtime::Reconcile();g_config_generation=1;
         swprintf_s(g_log_path,L"%ls\\no-dlss-core.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\no-dlss-host.ini",argv[1]);
         Check(GetProcAddress(GetModuleHandleW(L"dxgi.dll"),"ReShadeRegisterAddon")!=nullptr,"actual ReShade DXGI proxy loaded");Register();
@@ -120,7 +124,7 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace nodl
                     Check(compat::observation.submitted==serial&&compat::observation.submitted_source==last_adopted_source,"same source duplicate Presents record no new NR");verified_duplicate=true;}}
         }
         Check(changed_frames==4&&verified_duplicate,"no-DLSS actual source path produced four adopted NR outputs");
-        Check(nr_processing_runtime::Effective()==nr_processing::Start::Present,"default before route automatically reached compatibility");
+        Check(nr_processing_runtime::Effective()==nr_processing::Start::Present,"requested processing route reached compatibility");
         Check(devices&&lists&&resets&&executes&&presents,"all actual ReShade lifecycle callbacks occurred");
         Check(g_nr_api.initialized&&GetModuleHandleW(L"_nvngx.dll")!=nullptr,"production OnPresent performed the official cold SDK initialization");
         for(unsigned i=0;i<passes;++i)Check(compat::current&&compat::current->layers[i].context.nr_handle&&compat::current->layers[i].context.evaluations>=4,"every requested real NR layer continued evaluating");
