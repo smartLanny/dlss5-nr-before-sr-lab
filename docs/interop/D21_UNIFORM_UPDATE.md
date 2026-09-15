@@ -1,9 +1,9 @@
-# D21 uniform2 implementation and owner test batch
+# D21 uniform3 implementation and owner test batch
 
 This is a staged successor to `cbfb33919696a2840ed5154c91abaea56228b661`
 (`beta0.5-dline21-223fix2`). It does not mark the complete A-E roadmap done.
-Candidate identity: `beta0.5-dline21-uniform2`, PE version `0.5.1.25`.
-The uniform1 source, binaries and configuration remain separate rollback evidence.
+Candidate identity: `beta0.5-dline21-uniform3`, PE version `0.5.1.26`.
+The uniform1/uniform2 source, binaries and configuration remain separate rollback evidence.
 
 ## Implemented in this batch
 
@@ -70,6 +70,33 @@ The uniform1 source, binaries and configuration remain separate rollback evidenc
   uniform1 generator metadata incorrectly named 0.5.1.23 while its PE was
   0.5.1.24; old evidence is retained rather than rewritten.
 
+## Independent application-source continuation (uniform3)
+
+A swapchain can now own an application source without any native SR/RR call.
+Only an observed full clear, or its complete same-queue copy, establishes the
+whole-image write evidence for this first path. Ordinary unknown shader writes,
+partial writes/copies, stale content, foreign buffers, wrong queue and an active
+native producer are excluded. This is a bounded compatibility addition, not
+support for every no-DLSS rendering path.
+
+The producer is identified by swapchain lifetime, device and exact registered
+backbuffer resource lifetimes. Source sequence comes from submitted application
+content, never the number of Present callbacks. Registration sets a content
+floor so a new swapchain generation cannot reuse an old image. Admission and
+first private recording recheck content, submission, queue, configuration,
+producer generation and FG ownership. Recorded claims remain consumed even if
+work later fails. Resource, device and swapchain retirement invalidate sources.
+No native-success receipt is fabricated. Depth/motion remain marked placeholders
+with per-frame Reset, using the uniform2 model path.
+
+The actual ReShade callback host has exercised one/four layers, automatic fallback
+from Before to Present, exact GPU completion and changed output, duplicate-Present
+suppression, F6 off and off/resize/re-enable. Its input is a controlled full clear;
+it has zero native reconstruction carriers. This is real NVIDIA Feature18 through
+the Present callback, not a game/FG or ordinary fullscreen-shader qualification.
+Raw RGBA, logs and hash-checked receipts remain private delivery evidence. Optional
+PNG previews are separate from the raw-pixel acceptance checks.
+
 ## Validation boundaries
 
 CPU fixtures execute actual configuration, Create-signature, color-consumer,
@@ -85,7 +112,7 @@ single PR workflow for the D21 base/successor branches. It is not a release job.
 | Batch | Remaining before acceptance |
 | --- | --- |
 | A | Matched D13 OFF / D21 OFF / candidate OFF traces; measured CPU improvement; GPU power test; memory switching/retirement measurements. |
-| B | Present without any native source identity, per-guide native/ReShade/OF selection, broader format conversion, saturation controls and texture-stage comparisons. Missing-guide sources with proven current native color lineage now have a marked placeholder path. |
+| B | Broader application-source render evidence beyond full clear/complete copy, per-guide native/ReShade/OF selection, broader format conversion, saturation controls and texture-stage comparisons. Proven native color and independent full-write application sources now have marked placeholder paths. |
 | C | Selective Present model retirement, proven scratch aliasing, budget rejection preserving prior runnable configuration, full resize/rapid-edit/FG game regression. |
 | D | AMDOF accumulation/+ and low-frequency reconstruction; private SR backend, post low-res route, #259 and #258; actual FP16 residual and model tests. No new controls claiming those features are exposed. |
 | E | Measured two/three-layer presets, final sharpening, Manager bridge recipes/conflict handling, complete installer/rollback, XeSS MFG feasibility and FG coexistence. |

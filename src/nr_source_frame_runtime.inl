@@ -276,6 +276,9 @@ struct PresentLease {
     NrGuideSignature source_signature{};
     bool guides_owned=false,guides_current=false;
     bool color_only=false; // Exact submitted color lineage; no native guide claim.
+    bool application_source=false; // Independent full-write producer, not a native result.
+    Id application_chain=0,application_epoch=0;
+    unsigned application_config=0;
     Id color_submission=0,color_content=0;
     bool source_jitter_known=false,output_jitter_known=false,cross_queue_wait=false;
     Id queue=0,producer_queue=0,producer_value=0;
@@ -357,8 +360,44 @@ void RetireProducer(Id handle,Id epoch=0){
         RetireReceiptStreamLocked(p.stream,p.epoch);p={};}
 }
 void RetireFeature(const NgxHandle* handle,unsigned long long generation){Lock lock;RetireProducer(reinterpret_cast<Id>(handle),generation);}
+struct ApplicationSurface {
+    Id chain=0,owner=0,device=0,epoch=0,latest_content=0,content_floor=0;
+    std::array<Resource,16> buffers{};
+    unsigned count=0;
+};
+ApplicationSurface application_surfaces[16]{};
+void RetireApplicationSurface(Id chain) {
+    if(!chain)return;
+    for(auto& surface:application_surfaces)if(surface.chain==chain){
+        RetireProducer(chain,surface.epoch);surface={};}
+}
+void RetireApplicationResource(Id address) {
+    for(auto& surface:application_surfaces)if(surface.chain)
+        for(unsigned i=0;i<surface.count;++i)if(surface.buffers[i].address==address){
+            RetireApplicationSurface(surface.chain);break;}
+}
+void RetireApplicationDevice(Id owner) {
+    if(!owner)return;
+    for(auto& surface:application_surfaces)if(surface.owner==owner)RetireApplicationSurface(surface.chain);
+}
+void RegisterApplicationSurface(Id chain,Id owner,const std::array<Resource,16>& buffers,unsigned count) {
+    RetireApplicationSurface(chain);
+    if(!chain||!owner||!count||count>buffers.size()||!buffers[0])return;
+    for(unsigned i=0;i<count;++i)if(!buffers[i]||buffers[i].device!=buffers[0].device)return;
+    for(auto& surface:application_surfaces)if(!surface.chain){
+        const auto epoch=source_objects.fetch_add(1,std::memory_order_relaxed);
+        if(!epoch||epoch==UINT64_MAX)return;
+        surface={chain,owner,buffers[0].device,epoch,0,lineage.ContentEpoch(),buffers,count};return;
+    }
+}
+ApplicationSurface* ApplicationSurfaceFor(Id chain,Resource resource) {
+    for(auto& surface:application_surfaces)if(surface.chain==chain&&surface.device==resource.device)
+        for(unsigned i=0;i<surface.count;++i)if(surface.buffers[i]==resource)return &surface;
+    return nullptr;
+}
 void ForgetPresentDemand(Id chain);
-void RetireSwapchain(reshade::api::swapchain* chain){Lock lock;ForgetPresentDemand(reinterpret_cast<Id>(chain));RetireProducer(reinterpret_cast<Id>(chain));}
+void RetireSwapchain(reshade::api::swapchain* chain){Lock lock;const auto id=reinterpret_cast<Id>(chain);
+    ForgetPresentDemand(id);RetireApplicationSurface(id);RetireProducer(id);}
 Source ProducerSource(Id handle,Id epoch,Id supplied=0) {
     if(!handle||!epoch)return {};
     Producer* free=nullptr;
@@ -432,6 +471,33 @@ NativeInputs ReadFgInputs(const NgxParams* params) {
     v=0;if(GetUInt(params,nr_fg_contract::inverted,&v))input.depth_inverted=v!=0;
     v=0;if(GetUInt(params,nr_fg_contract::hdr,&v))input.hdr=v!=0;
     return input;
+}
+bool ApplicationPresentCurrent(const PresentLease& lease,const Label& label,Resource resource,Id queue,unsigned config) {
+    const auto* surface=ApplicationSurfaceFor(lease.application_chain,resource);
+    return lease.application_source&&surface&&surface->epoch==lease.application_epoch&&
+        lease.application_config==config&&surface->latest_content==label.content&&
+        label.content==lease.color_content&&label.submission==lease.color_submission&&
+        queue==lease.queue&&nr_source_frame::PresentPromotionEligible(label,queue)&&!label.source&&
+        !NativeProducerOnDevice(resource.device)&&!g_fg_presentation_policy.Read().late_owned&&
+        ProducerActive(lease.source)&&!claims.WasRecorded(lease.source);
+}
+bool AcquireApplicationPresentColor(Id chain,const Label& label,Resource resource,unsigned width,unsigned height,Id queue,unsigned config) {
+    if(!width||!height||!nr_source_frame::PresentPromotionEligible(label,queue)||label.source||
+        NativeProducerOnDevice(resource.device)||g_fg_presentation_policy.Read().late_owned)return false;
+    auto* surface=ApplicationSurfaceFor(chain,resource);
+    if(!surface||label.content<=surface->content_floor||label.content<surface->latest_content)return false;
+    // Content is allocated by actual ordered application writes, never Present.
+    // Exact copies retain it; duplicate flips cannot manufacture a new sequence.
+    const auto source=ProducerSource(chain,surface->epoch,label.content);
+    if(!source||!claims.Available(source))return false;
+    surface->latest_content=label.content;
+    present_lease={};present_lease.source=source;present_lease.source_id=label.content;
+    present_lease.role=Role::Application;present_lease.color_only=true;present_lease.application_source=true;
+    present_lease.application_chain=chain;present_lease.application_epoch=surface->epoch;present_lease.application_config=config;
+    present_lease.color_submission=label.submission;present_lease.color_content=label.content;
+    present_lease.queue=present_lease.producer_queue=queue;
+    present_lease.output_width=width;present_lease.output_height=height;
+    return ApplicationPresentCurrent(present_lease,label,resource,queue,config);
 }
 #include "nr_source_transport.inl"
 void ForgetPresentDemand(Id chain){present_demands.Forget(chain);}
@@ -699,6 +765,7 @@ void OnDestroyResource(ID3D12Resource* resource){if(!resource)return;Lock lock;c
     // Destruction is an address retirement receipt, not an occasion to call
     // GetDevice/GetPrivateData through an object whose teardown has started.
     lineage.ForgetAddress(address);
+    RetireApplicationResource(address);
     ForgetSourceRtvResource(address);
     for(auto& state:resource_states)if(state.resource.address==address)state={};
 }
@@ -724,17 +791,20 @@ void OnDraw(ID3D12GraphicsCommandList* list) {
         for(unsigned i=0;i<targets.count;++i)if(targets.targets[i])lineage.Invalidate(recording,targets.targets[i]);break;}
     if(lineage.PendingList(recording))source_receipts_pending.store(true,std::memory_order_release);
 }
-void ObserveSurface(reshade::api::swapchain* chain) {
+void ObserveSurface(reshade::api::swapchain* chain,bool initialize=false) {
     if(!chain||chain->get_device()->get_api()!=reshade::api::device_api::d3d12)return;
     const auto color=chain->get_color_space();const unsigned count=chain->get_back_buffer_count();if(count>16)return;
+    std::array<Resource,16> resources{};
     for(unsigned i=0;i<count;++i){ID3D12Resource* buffer=nullptr;if(!NrAcquireSwapchainBuffer(chain,i,&buffer))continue;
         const auto format=ID3D12Resource_GetDesc(buffer).Format;unsigned encoding=0;
         if(color==reshade::api::color_space::srgb&&(format==DXGI_FORMAT_R8G8B8A8_UNORM||format==DXGI_FORMAT_B8G8R8A8_UNORM||format==DXGI_FORMAT_R10G10B10A2_UNORM))encoding=1;
         if(color==reshade::api::color_space::scrgb&&format==DXGI_FORMAT_R16G16B16A16_FLOAT)encoding=2;
         if(color==reshade::api::color_space::hdr10_st2084&&format==DXGI_FORMAT_R10G10B10A2_UNORM)encoding=3;
-        {Lock lock;lineage.DescribeSurface(ResourceOf(buffer),encoding);}ReleaseCom(buffer);}
+        {Lock lock;resources[i]=ResourceOf(buffer);lineage.DescribeSurface(resources[i],encoding);}ReleaseCom(buffer);}
+    if(initialize){Lock lock;RegisterApplicationSurface(reinterpret_cast<Id>(chain),reinterpret_cast<Id>(chain->get_device()),resources,count);}
 }
-void OnInitSurface(reshade::api::swapchain* chain,bool){ObserveSurface(chain);}
+void OnInitSurface(reshade::api::swapchain* chain,bool){ObserveSurface(chain,true);}
+void OnSourceDestroyDevice(reshade::api::device* device){Lock lock;RetireApplicationDevice(reinterpret_cast<Id>(device));}
 void OnSourceDestroyResource(reshade::api::device* device,reshade::api::resource resource){
     if(device&&device->get_api()==reshade::api::device_api::d3d12)OnDestroyResource(reinterpret_cast<ID3D12Resource*>(resource.handle));
 }
@@ -758,6 +828,7 @@ void Register(bool enable){
         reshade::register_event<reshade::addon_event::destroy_resource_view>(OnSourceDestroyView);
         reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSurface);
         reshade::register_event<reshade::addon_event::destroy_resource>(OnSourceDestroyResource);
+        reshade::register_event<reshade::addon_event::destroy_device>(OnSourceDestroyDevice);
         reshade::register_event<reshade::addon_event::destroy_command_list>(OnSourceDestroyList);}
     else {reshade::unregister_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(OnBindTargets);
         reshade::unregister_event<reshade::addon_event::init_command_list>(OnSourceInitList);
@@ -766,6 +837,7 @@ void Register(bool enable){
         reshade::unregister_event<reshade::addon_event::destroy_resource_view>(OnSourceDestroyView);
         reshade::unregister_event<reshade::addon_event::init_swapchain>(OnInitSurface);
         reshade::unregister_event<reshade::addon_event::destroy_resource>(OnSourceDestroyResource);
+        reshade::unregister_event<reshade::addon_event::destroy_device>(OnSourceDestroyDevice);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(OnSourceDestroyList);}
 }
 bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain,ID3D12Resource* buffer) {
@@ -802,6 +874,10 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
         desc.Height,known_generated,known_fg_consumed,known_inline_processed,queue_identity,
         g_config_generation.load(std::memory_order_relaxed));
     if(!selected&&AcquirePresentColorOnly(label,present_resource,
+        desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,desc.Height,queue_identity,
+        g_config_generation.load(std::memory_order_relaxed)))
+        selected={0,nr_late_present::Decision::Accepted,0,0};
+    if(!selected&&AcquireApplicationPresentColor(reinterpret_cast<Id>(chain),label,present_resource,
         desc.Width<=UINT_MAX?static_cast<unsigned>(desc.Width):0,desc.Height,queue_identity,
         g_config_generation.load(std::memory_order_relaxed)))
         selected={0,nr_late_present::Decision::Accepted,0,0};

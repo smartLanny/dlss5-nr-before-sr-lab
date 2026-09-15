@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-uniform2'
-DISPLAY_VERSION = '0.5-dline21-uniform2'
+VERSION = 'beta0.5-dline21-uniform3'
+DISPLAY_VERSION = '0.5-dline21-uniform3'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -33,7 +33,7 @@ REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
     'config/nr_before_sr.ini': '1b8fd43b6d981421515d5893d1d2fedb05c71219',
-    'scripts/build.ps1': 'b89a213ede7e4516813889cdddf7804d602cd6bd',
+    'scripts/build.ps1': 'fa27f512875b6d58263d5f15e01b06874ffdb30a',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -48,8 +48,8 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': '0f7968eabdf5da83963cb999755a744cd848482a',
-    'src/nr_before_sr.rc': '4a0e116b24dffe2bddeab87e33a7d52d12492327',
+    'src/nr_before_sr.cpp': '5bf1a0d57969a8fc8252ccb87c54edc0be7196b8',
+    'src/nr_before_sr.rc': '37a8370cbd6cdabb81a7ab7dc17b38e71edc623a',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
     'src/nr_codec_descriptors.inl': 'd05ff8f9656b9a9803be0bf6fb0bf2d4eccbe0e2',
@@ -182,11 +182,11 @@ INTEGRATION_CORE_PINS = {
     'src/nr_processing_runtime.inl': '6d21d6665c59126749ccc7df6c21df595c5c7ed5',
     'src/nr_energy_gate.h': '419e2b37632c27b9fdc783a3f6980135116a4bb8',
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
-    'src/nr_source_frame.hpp': '668877e37cf63b587ec074a917b0aff542b95941',
+    'src/nr_source_frame.hpp': 'e552aa8e41a1e92b2668bb0facaaf65f705b7660',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
-    'src/nr_source_frame_runtime.inl': 'ce0fba97ef51053ab41c15e1507ee36147b2d011',
+    'src/nr_source_frame_runtime.inl': 'f99a3c3832b1f51b260ad9af7b24489d0951d685',
     'src/nr_source_observer.inl': '941467649f0546bbe85417d534f9738f03cfe9a9',
-    'src/nr_source_transport.inl': '4d50f44d0e8e1a7a0def28356e3eb365c74c767c',
+    'src/nr_source_transport.inl': '69915f8f4ba6df146077e5b6e4fcdea598608515',
     'src/nr_source_views.inl': '2d909758aa22be7f2dd0baaf29025df9e2de41d7',
     'src/nrchain_nvngx.cpp': '6bd0f12f291290915b5499c6988f75ee5b53c5a0',
     'src/nr_source_present_feedback.inl': '6cbed3841819df5846944e364fd413be28b398b9',
@@ -319,7 +319,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline21-uniform2 beta' not in resource_text:
+    if '0.5.1 dline21-uniform3 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -330,7 +330,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.25',
+        'core_pe_version': '0.5.1.26',
         'cumulative_corefix_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
         'cumulative_corefix_dependencies': [218,219,220,221,230,232,238,240,241,242,243,245],
         # Retain the original dual-parent field for existing artifact readers.

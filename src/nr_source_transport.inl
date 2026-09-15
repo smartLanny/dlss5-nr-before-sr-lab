@@ -377,9 +377,12 @@ bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
     if(g_fg_presentation_policy.Read().late_owned){present_blocked_by_fg=true;return false;}
     if(present_lease.color_only){
         const auto label=lineage.Lookup(present_resource);
-        if(present_guides||!(present_ticket.source==present_lease.source)||!(label.source==present_lease.source)||
-           label.submission!=present_lease.color_submission||label.content!=present_lease.color_content||
-           !PresentColorOnlyCurrent(label,present_resource,QueueOf(queue),g_config_generation.load(std::memory_order_relaxed)))return false;
+        if(present_guides||!(present_ticket.source==present_lease.source))return false;
+        if(present_lease.application_source){
+            if(!ApplicationPresentCurrent(present_lease,label,present_resource,QueueOf(queue),g_config_generation.load(std::memory_order_relaxed)))return false;
+        }else if(!(label.source==present_lease.source)||label.submission!=present_lease.color_submission||
+            label.content!=present_lease.color_content||
+            !PresentColorOnlyCurrent(label,present_resource,QueueOf(queue),g_config_generation.load(std::memory_order_relaxed)))return false;
         if(!claims.Record(present_ticket))return false;
         present_recorded=true;return true;
     }

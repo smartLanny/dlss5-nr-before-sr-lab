@@ -46,7 +46,7 @@ int main(){
      auto newer=c.Begin(App(2),Point::After);Check(bool(newer),"new source admitted");
      Check(c.RejectBeforeWork(newer),"new source rollback preserves old highwater");
      Check(!c.Begin(App(),Point::Present),"old frame stays consumed");}
-    {auto exact=App();exact.role=Role::Unknown;exact.content=7;exact.exact_write=true;exact.submitted=true;exact.queue=10;
+    {auto exact=App();exact.role=Role::Unknown;exact.content=7;exact.exact_write=exact.whole_write=true;exact.submitted=true;exact.submission=1;exact.queue=10;
      Check(PresentPromotionEligible(exact,10),"exact unknown Present write is a promotion candidate");
      Check(PresentRejectMask(exact,10,false)==0,"unowned exact write can promote when no native producer exists");
      const auto blocked=PresentRejectMask(exact,10,true);

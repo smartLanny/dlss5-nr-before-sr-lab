@@ -41,6 +41,9 @@ struct Label {
     bool submitted=false;
     Id content=0;
     bool exact_write=false;
+    // Only an observed full application clear, propagated by an exact copy.
+    // Invalidate means a known target was touched, not a complete image write.
+    bool whole_write=false;
     bool tainted=false,processed=false,fg_consumed=false;
     unsigned encoding=0;
     bool KnownApplication() const noexcept { return bool(source) && role==Role::Application; }
@@ -111,7 +114,7 @@ inline const char* PresentDecisionName(PresentDecision value) noexcept {
 }
 inline bool PresentPromotionEligible(const Label& label,Id queue) noexcept {
     return queue&&label.role==Role::Unknown&&!label.tainted&&!label.processed&&
-        !label.fg_consumed&&label.exact_write&&label.content&&label.submitted&&
+        !label.fg_consumed&&label.exact_write&&label.whole_write&&label.content&&label.submission&&label.submitted&&
         label.queue==queue;
 }
 inline unsigned PresentRejectMask(const Label& label,Id queue,bool native_producer) noexcept {
@@ -265,13 +268,14 @@ class Lineage {
             if(!(e.destination==resource))continue;
             if(e.op==Op::Set){auto value=e.label;const auto encoding=Encoding(resource);if(encoding)value.encoding=encoding;return value;}
             if(e.op==Op::Copy)return Pending(e.source,batch,n-1,depth+1);
-            if(e.op==Op::Clear){Label value{};value.encoding=Encoding(resource);return value;}
+            if(e.op==Op::Clear){Label value{};value.encoding=Encoding(resource);value.whole_write=true;return value;}
             return Unknown(Pending(resource,batch,n-1,depth+1));
         }
         for(const auto& v:values_)if(v.resource==resource)return v.label;
         return {};
     }
 public:
+    Id ContentEpoch() const noexcept {return next_content_-1;}
     bool TracksList(Id address,Id lifetime) const noexcept {
         for(const auto& batch:batches_)if(batch.recording.list==address&&batch.recording.lifetime==lifetime)return true;
         return false;
@@ -312,6 +316,7 @@ public:
             Label value=valid?Label{}:Unknown(target->label);
             if(e.op==Op::Invalidate)value=Unknown(target->label);
             if(valid && e.op==Op::Set)value=e.label;
+            if(valid && e.op==Op::Clear)value.whole_write=true;
             if(valid && e.op==Op::Copy){auto* source=ValueFor(e.source,false);
                 // Cross-queue copies require a separate explicit wait proof;
                 // this core initially admits only the same serialized queue.
