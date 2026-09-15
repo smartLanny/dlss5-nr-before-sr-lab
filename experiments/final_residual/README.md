@@ -1,8 +1,9 @@
 # Final residual history contract — next-batch experiment
 
-This directory contains original CPU transaction policy, not AMD Optical Flow,
-a temporal shader, or a feature in the uniform2 player package. No GPL source was
-copied or translated into this helper. It does not change Core, INI or source pins.
+This directory contains original CPU transaction policy and an isolated, actual
+AMD FidelityFX 1.1.4 D3D12 optical-flow producer. It contains no temporal pixel
+shader and is not a feature in the current Core package. No GPL source was
+copied or translated. It does not change Core, INI or source pins.
 
 ## Verified upstream reference
 
@@ -126,6 +127,109 @@ outside this helper.
 
 Run `python experiments/final_residual/validate.py --compiler <clang++> --output <external-directory>`.
 The runner freezes the actual header/test, checks strict C++17 compilation and
-records source/binary hashes. Four negative controls must compile and fail their
+records source/binary hashes. Five negative controls must compile and fail their
 target assertions: wrong reference, mismatched OF generation, mismatched residual
-generation, and cancellation after OF has become pending. No GPU/SDK is loaded.
+generation, cancellation after OF has become pending, and ignoring unavailable
+motion during OF warmup/SCD. This CPU test does not load a GPU/SDK.
+
+## Actual AMD OF producer: isolated hardware experiment
+
+`amd_of_producer.hpp/.cpp` removes the PR256 Session's ExternalProvider Submit,
+Core writeback, depth, NGX and NVIDIA backend dependencies. The project-owned
+area reduction and block-to-source conversion in `amd_of_shader.hpp` come from
+PR256; **they are not the AMD optical-flow algorithm**. Actual optical flow calls
+`ffxOpticalflowContextCreate/Dispatch` from the official
+[FFX 1.1.4 source](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55),
+commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`.
+
+### Build and dependency boundary
+
+`build_amd_probe.py` requires an unmodified SDK checkout at that commit and an
+explicit compiler path. SDK files/binaries stay outside this repository. It
+uses the SDK's own `FidelityFX_SC.exe`, `dxcompiler.dll` and `dxil.dll` to generate
+all 28 Wave32/Wave64/16bit optical-flow permutation groups, then compiles the OF
+component, DX12 backend, shader blob accessors and shared support together.
+There is no mixed-version prebuilt SDK library. SDK root license is MIT-style;
+bundled Microsoft compiler/runtime tools retain their own SDK license files.
+
+LLVM-MinGW requires forced standard Windows/wide-character includes and Unicode
+definitions. The build creates an **external copy** of `ffx_dx12.cpp` that removes
+only `#define ENABLE_PIX_CAPTURES 1`, disabling optional PIX instrumentation whose
+headers reject non-MSVC builds. It preserves the original copyright/license and
+hashes both versions. It changes no optical-flow shader, algorithm or ABI.
+
+Run:
+
+```text
+python experiments/final_residual/validate_amd_probe.py --sdk <official-1.1.4-checkout> --compiler <clang++.exe> --output <external-evidence-directory>
+```
+
+The runner freezes the compiled project source, records exact commands and
+SDK/compiler/binary hashes, runs actual RTX 5090 D hardware, saves every complete
+RG32_FLOAT flow plane and three-word SCD readback, and hashes the logs/readbacks.
+Two additional **real GPU** negative controls reverse the motion direction or
+remove the 50% source-unit scale. Both must compile and fail the direction/unit
+assertion. No WARP or CPU optical-flow substitute is permitted.
+
+### Source pair, queues and availability
+
+- Constructor accepts the caller's same-device DIRECT queue. A single serialized
+  owner supplies an immutable private original SDR RGBA8 texture already ordered
+  on that queue, in COPY_SOURCE. This is not a game-resource capture interface.
+- Source/plan mismatch, wrong reference, invalid backend/extent, stale token or
+  older source is rejected before the SDK call. A repeated source is a duplicate,
+  without another dispatch. One result remains occupied until explicitly retired.
+- 100% or 50% is explicit. 50% uses area-overlap filtering and ceil-half extents.
+  SDK flow is grid-8 RG16_SINT; exposed vectors are full-source RG32_FLOAT in
+  **current-to-previous source pixels**, in COPY_SOURCE. Source extents above 4096
+  on either axis, or OF inputs below 128, are outside this probe's contract.
+- `poll` requires the exact producer fence before returning Ready and mapping
+  the producer's tiny SCD readback. It retains the original source through output
+  retirement. The caller must submit all actual output reads and provide their
+  same-device, completed fence to `release_output` before any reuse.
+- The API is deliberately CPU-polled for this standalone experiment. A production
+  consumer should evaluate availability in its ordered GPU work; this experiment
+  is not evidence of acceptable in-game synchronization cost.
+
+**Ready does not imply usable motion.** Official
+[FFX callbacks](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/gpu/opticalflow/ffx_opticalflow_callbacks_hlsl.h#L533)
+disable optical flow for `FrameIndex <= 5` after every reset and while any of the
+low four SCD history bits are set. The actual first six source frames therefore
+produce zero flow. The producer exposes `motion_usable=false` during that period
+and during actual scene-change suppression; SCD words are histogram divergence,
+history bits and completed workgroups, not per-pixel confidence.
+
+`HistoryContract` now returns `ReseedResidual` for completed, correctly paired OF
+whose motion is unavailable. A future pixel consumer must write the current
+residual as its new history **without accumulating previous pixels**. This lets
+vendor warmup progress; resetting OF on every unavailable frame would prevent it
+from ever becoming usable. Nonadoption, mismatched generations, and uncertain
+submission retain their original reset/quarantine behavior.
+
+### Hardware scope and limits
+
+The deterministic fixture uploads 512x384 nonperiodic textures translated by
+(+4,+2) original pixels per source. In each 100%/50% run, usable frame pairs produce
+(-4,-2) vectors throughout the measured interior with zero endpoint error. Each
+run dispatches 24 real sources and tests 24 duplicate submissions; only 24 SDK
+dispatches occur. It also covers actual OF advancement followed by deliberate
+nonadoption, explicit scene reset, warmup recovery, and white/black cuts whose
+actual SCD history values progress through 1, 3, 6 and 12.
+
+These are synthetic hardware OF checks, not image-quality approval. Residual
+adoption in this fixture exercises the CPU protocol; no residual pixel shader
+is present. A first periodic sinusoid fixture produced large aperture/periodicity
+ambiguities and failed. A nonperiodic multiscale fixture replaced that ambiguous
+test image; the direction/unit thresholds were not relaxed. Both early failures
+are retained in external evidence. The tested driver is 616.92; the system's
+D3D12 debug layer was unavailable, so no debug-layer pass is claimed.
+
+**Lifecycle boundary before Core integration:** the destructor conservatively
+retains state on a held result, an executed list without a published Signal, or
+an incomplete/removed-device fence. The current mechanism releases the C++
+`unique_ptr` ownership and intentionally leaks that state until process exit.
+This prevents premature destruction in the isolated probe. It is **not** a full
+retirement queue or a game-ready lifecycle. Core integration requires an explicit
+retirement owner, bounded quarantine/accounting, failure/teardown tests and a
+proven capture/consumer fence contract. This source does not implement those
+production responsibilities or modify the current Core package.

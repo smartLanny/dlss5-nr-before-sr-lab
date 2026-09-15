@@ -7,12 +7,18 @@ unsigned checks=0;
 void check(bool ok,const char* message){++checks;if(!ok){std::fprintf(stderr,"FAIL %s\n",message);std::exit(1);}}
 Frame frame(Id sequence=1){return {{10,20,sequence},{1,1,1,1280,720,Backend::AmdOpticalFlow},sequence*10,false};}
 FlowReceipt receipt(const Plan& p,const Frame& f){return {FlowStatus::Ready,f.contract.backend,p.history_generation,
-    f.source,p.reference,p.action==Action::ResetBoth};}
+    f.source,p.reference,p.action==Action::ResetBoth,true};}
 Plan begin(HistoryContract& h,const Frame& f){auto p=h.prepare(f);check(p.work(),"valid unique source starts transaction");return p;}
 void adopt(HistoryContract& h,const Frame& f){const auto p=begin(h,f);
     check(h.observe_flow(p.token,receipt(p,f))==(p.action==Action::ResetBoth?FlowDecision::Seed:FlowDecision::Accumulate),"flow accepts exact pair and reset generation");
     check(h.finish(p.token,p.history_generation,ResidualStatus::SubmittedAdopted)==Completion::Adopted,"real residual adoption advances shared reference");}
 int main(){
+    {HistoryContract h;adopt(h,frame());
+     for(Id seq=2;seq<=7;++seq){auto f=frame(seq);auto p=begin(h,f);auto r=receipt(p,f);r.motion_usable=seq==7;
+         check(p.action==Action::Continue,"warmup must advance without repeated vendor reset");
+         check(h.observe_flow(p.token,r)==(seq==7?FlowDecision::Accumulate:FlowDecision::ReseedResidual),"unusable OF warmup/SCD cannot accumulate");
+         check(h.finish(p.token,p.history_generation,ResidualStatus::SubmittedAdopted)==Completion::Adopted,"current-only seed keeps the exact pair reference");}
+     check(h.history_generation()==1&&h.reference()==frame(7).source,"warmup completes in one vendor reset epoch");}
     {HistoryContract h;auto f=frame();auto p=begin(h,f);check(p.action==Action::ResetBoth&&!p.reference.valid(),"first frame resets both histories");
      check(h.prepare(f).action==Action::Busy,"parallel duplicate cannot acquire another ticket");
      check(h.observe_flow(p.token,{})==FlowDecision::Wait&&!h.has_history(),"pending OF never advances residual history");

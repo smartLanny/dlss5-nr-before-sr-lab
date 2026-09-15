@@ -14,12 +14,14 @@ def main():
         'ignore-flow-generation':('flow.history_generation!=plan_.history_generation||',''),
         'ignore-residual-generation':('||residual_history_generation!=plan_.history_generation','||residual_history_generation==0'),
         'allow-pending-cancel':('if(!owns(token)||flow_started_)return false;','if(!owns(token)||flow_ready_)return false;'),
+        'ignore-motion-validity':('flow.motion_usable?FlowDecision::Accumulate:FlowDecision::ReseedResidual','FlowDecision::Accumulate'),
     }
     expected_failure={
         'ignore-reference':'wrong frame/reference/backend/OF epoch cannot accumulate',
         'ignore-flow-generation':'old OF generation cannot satisfy new residual reset',
         'ignore-residual-generation':'residual epoch mismatch cannot commit even after submit',
         'allow-pending-cancel':'pending OF cannot cancel as unrecorded work',
+        'ignore-motion-validity':'unusable OF warmup/SCD cannot accumulate',
     }
     results=[]
     for name,mutation in mutations.items():

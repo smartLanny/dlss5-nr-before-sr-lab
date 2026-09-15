@@ -51,8 +51,11 @@ struct FlowReceipt {
     Id history_generation=0;
     Source current{}, reference{};
     bool reset_executed=false;
+    // Actual provider warmup/SCD can invalidate motion while its reference
+    // still advances. Seed the current residual without restarting OF forever.
+    bool motion_usable=false;
 };
-enum class FlowDecision { Invalid, Wait, Seed, Accumulate, ResetRequired, Quarantined };
+enum class FlowDecision { Invalid, Wait, Seed, ReseedResidual, Accumulate, ResetRequired, Quarantined };
 enum class ResidualStatus { NotSubmitted, SubmittedNotAdopted, SubmittedAdopted, SubmitFailed, DeviceLost };
 enum class Completion { Invalid, Adopted, ResetRequired, Quarantined };
 
@@ -122,7 +125,7 @@ public:
             invalidate();close();return FlowDecision::ResetRequired;
         }
         flow_ready_=true;
-        return reset?FlowDecision::Seed:FlowDecision::Accumulate;
+        return reset?FlowDecision::Seed:flow.motion_usable?FlowDecision::Accumulate:FlowDecision::ReseedResidual;
     }
 
     // Called only after the consumer's real record/submit outcome is known.
