@@ -33,7 +33,7 @@ REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
     'config/nr_before_sr.ini': '6888e9bfe3e6775e3633e0038b88c368de496636',
-    'scripts/build.ps1': '5061b6e9cfe6a1c34ee97bd1cf05baa2a5981143',
+    'scripts/build.ps1': '0bdeaea80c4f9c481d40d5c2f6f9da336d1b9cb9',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
@@ -249,7 +249,9 @@ def configure(core: Path):
         # The historical archive exports only build.ps1 from scripts. Copy the
         # explicitly pinned shader compiler inputs into this candidate as well.
         for relative in ('src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
-            (stage / 'core' / relative).write_bytes(git(core_root, 'show', 'HEAD:' + relative))
+            destination = stage / 'core' / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(git(core_root, 'show', 'HEAD:' + relative))
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
         exposure = load('exposure_adapter', core_root / 'scripts/patch-exposure-access.py')
