@@ -27,8 +27,8 @@ if ($LASTEXITCODE -ne 0) { throw 'New real-Windows SRW concurrency gate failed. 
 if ($LASTEXITCODE -ne 0) { throw 'Established candidate build failed.' }
 $ManifestPath = Join-Path $Output 'source/source-manifest.json'
 $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($Manifest.source_commit -ne $Head -or $Manifest.integration.version -ne 'beta0.5-dline21-lockperf1') {
-    throw 'Generated source identity does not match lockperf1 HEAD.'
+if ($Manifest.source_commit -ne $Head -or $Manifest.integration.version -ne 'beta0.5-dline21-lockperf1-sottr1') {
+    throw 'Generated source identity does not match lockperf1-sottr1 HEAD.'
 }
 $ValidationPath = Join-Path $Output 'validation.json'
 $Validation = Get-Content -LiteralPath $ValidationPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -48,28 +48,29 @@ foreach ($Addon in $Addons) {
     $Language = if ($Addon.Name -match '\.en\.addon64$') { 'en' } else { 'zh-CN' }
     $Folder = Join-Path $Output ('TEST-' + $Language)
     New-Item -ItemType Directory -Path $Folder | Out-Null
-    $Leaf = 'nr-before-sr.lockperf1.' + $Language + '.addon64'
+    $Leaf = 'nr-before-sr.lockperf1-sottr1.' + $Language + '.addon64'
     $Target = Join-Path $Folder $Leaf
     Copy-Item -LiteralPath $Addon.FullName -Destination $Target
     $Hash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
     $Rows += [ordered]@{ language=$Language; file=$Leaf; sha256=$Hash; source_commit=$Head }
     $Note = @(
-        'D21 lockperf1 - game testing candidate, not a verified release.'
+        'D21 lockperf1-sottr1 - SOTTR game testing candidate, not a verified release.'
         ('Source: ' + $Head)
         ('SHA256: ' + $Hash)
         'Exit the game. Keep only ONE Core add-on loaded; move the old Core outside every add-on search folder.'
         'Keep all existing INI, models, nrchain, ReShade, game SR/RR/FG DLLs and image settings unchanged.'
-        'Test cold OFF, successful ON then OFF, and delayed DLSS enable. Do not use two language DLLs together.'
+        'For SOTTR: start with game Ray Tracing OFF, enable DLSS, then verify F6 ON/OFF and capture F8 after one minute. Do not use two language DLLs together.'
+        'Expected log: recovered legacy nvngx_dlss -> _nvngx Feature 1 wrapper alias. If absent, attach the F8 TXT and nr-before-sr.log.'
         'Use existing D21 as rollback. Linker maps are in PRIVATE-SYMBOLS, not a game payload.'
     ) -join "`r`n"
     [IO.File]::WriteAllText((Join-Path $Folder 'READ-FIRST.txt'),$Note,(New-Object Text.UTF8Encoding($false)))
 }
 $Final = [ordered]@{
-    candidate='beta0.5-dline21-lockperf1'; source_commit=$Head; ordinary_build=$true
+    candidate='beta0.5-dline21-lockperf1-sottr1'; source_commit=$Head; ordinary_build=$true
     concurrency_gate=(Join-Path $Gate 'validation.json'); canonical_validation=$ValidationPath
     game_tested=$false; nvidia_feature18_tested=$false; deployed=$false
     created_utc=[DateTime]::UtcNow.ToString('o'); binaries=$Rows
 }
-$Final | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Output 'LOCKPERF1-CANDIDATE.json') -Encoding UTF8
+$Final | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Output 'LOCKPERF1-SOTTR1-CANDIDATE.json') -Encoding UTF8
 Write-Host 'Candidate ready for owner testing. No game folder has been modified.'
 Write-Host $Output

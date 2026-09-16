@@ -25,6 +25,19 @@
 #include <memory>
 #include <type_traits>
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
+#pragma intrinsic(_ReturnAddress)
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define NR_CALLER_RETURN_ADDRESS() __builtin_return_address(0)
+#elif defined(_MSC_VER)
+#define NR_CALLER_RETURN_ADDRESS() _ReturnAddress()
+#else
+#define NR_CALLER_RETURN_ADDRESS() nullptr
+#endif
+
 #define ImTextureID ImU64
 #include <imgui.h>
 #include <reshade.hpp>
@@ -602,12 +615,18 @@ struct FeatureRecord {
     bool evaluate_observed = false;
     bool create_contract_known = false;
     bool create_flags_known = false;
+    // A legacy nvngx_dlss wrapper can own a distinct inner _nvngx handle even
+    // when its private core Create is not exported through the hooked entry.
+    // Such a recovered alias is lifecycle evidence only: the public wrapper
+    // remains the sole Feature 1 carrier so one game call cannot run NR twice.
+    bool wrapper_internal_alias = false;
     const NgxParams *create_params = nullptr; // comparison only while Create stack is live
 };
 
 FeatureRecord g_features[64] = {};
 SRWLOCK g_feature_lock = SRWLOCK_INIT;
 std::atomic<unsigned long long> g_feature_generation{1};
+std::atomic<unsigned long long> g_direct_core_wrapper_alias_recoveries{0};
 // If ownership bookkeeping ever becomes incomplete, fail closed for Feature 1
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
@@ -12012,6 +12031,126 @@ void TrackDlssResolution(const NgxParams *params, const FeatureRecord &feature) 
     }
 }
 
+bool ReturnAddressBelongsToLoadedModule(const void *address,
+                                        const wchar_t *module_name) {
+    if (address == nullptr || module_name == nullptr) return false;
+    const HMODULE expected = GetModuleHandleW(module_name);
+    if (expected == nullptr) return false;
+    HMODULE owner = nullptr;
+    const BOOL found = GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(address), &owner);
+    return found != FALSE && owner == expected;
+}
+
+bool TryRecoverDirectCoreWrapperAlias(const NgxHandle *handle,
+                                      ID3D12GraphicsCommandList *command_list,
+                                      const NgxParams *params,
+                                      bool caller_is_dlss_wrapper) {
+    // This is intentionally narrower than generic pointer inference. It only
+    // repairs the old nvngx_dlss wrapper shape seen in SOTTR: public Feature 1
+    // Create succeeds, then that same wrapper calls the distinct core Evaluate
+    // with a private inner handle without exposing its core Create entry.
+    if (handle == nullptr || command_list == nullptr || params == nullptr ||
+        !caller_is_dlss_wrapper || g_inside_ngx_evaluate ||
+        !g_core_unknown_handle_guard.load(std::memory_order_acquire) ||
+        !g_core_lifecycle_hooks_ready.load(std::memory_order_acquire) ||
+        !g_startup_deferred_module_coverage.load(std::memory_order_acquire) ||
+        g_module_rescan_in_progress.load(std::memory_order_acquire) ||
+        g_module_observer_gap_detected.load(std::memory_order_acquire) ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_feature1_create_in_progress.load(std::memory_order_acquire) != 0 ||
+        g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
+        g_external_nr_creates.load(std::memory_order_acquire) != 0 ||
+        g_module_observer_fault.load(std::memory_order_acquire) !=
+            static_cast<int>(ModuleObserverFault::None)) {
+        return false;
+    }
+
+    const unsigned long long observer_epoch =
+        g_module_observer_epoch.load(std::memory_order_acquire);
+    if ((observer_epoch & 1u) != 0) return false;
+
+    bool recovered = false;
+    FeatureRecord recovered_alias{};
+    AcquireSRWLockExclusive(&g_feature_lock);
+    FeatureRecord *candidate = nullptr;
+    FeatureRecord *free_slot = nullptr;
+    unsigned int candidates = 0;
+    bool incompatible_owner = false;
+    bool core_alias_already_present = false;
+    for (auto &record : g_features) {
+        if (!record.handle) {
+            if (!free_slot) free_slot = &record;
+            continue;
+        }
+        if (record.layer == NgxLayer::Core && record.handle == handle) {
+            core_alias_already_present = true;
+            break;
+        }
+        if (record.feature_id == 13 || record.owner == NgxOwner::ExternalNr ||
+            record.owner == NgxOwner::Uncertain) {
+            incompatible_owner = true;
+        }
+        if (record.layer == NgxLayer::Dlss &&
+            record.owner == NgxOwner::Game && record.feature_id == 1 &&
+            !record.pending && !record.retiring &&
+            record.observer_epoch == observer_epoch) {
+            candidate = &record;
+            ++candidates;
+        }
+    }
+    if (!core_alias_already_present && !incompatible_owner &&
+        candidates == 1 && candidate != nullptr && free_slot != nullptr) {
+        for (const auto &record : g_features) {
+            if (record.handle && record.layer == NgxLayer::Core &&
+                record.generation == candidate->generation) {
+                core_alias_already_present = true;
+                break;
+            }
+        }
+        if (!core_alias_already_present &&
+            observer_epoch == g_module_observer_epoch.load(
+                                  std::memory_order_acquire) &&
+            !g_module_rescan_in_progress.load(std::memory_order_acquire) &&
+            !g_module_observer_gap_detected.load(std::memory_order_acquire) &&
+            !g_feature_tracking_uncertain.load(std::memory_order_acquire) &&
+            g_module_observer_fault.load(std::memory_order_acquire) ==
+                static_cast<int>(ModuleObserverFault::None) &&
+            g_feature1_create_in_progress.load(std::memory_order_acquire) == 0 &&
+            g_rr_create_in_progress.load(std::memory_order_acquire) == 0 &&
+            g_external_nr_creates.load(std::memory_order_acquire) == 0) {
+            recovered_alias = *candidate;
+            recovered_alias.handle = handle;
+            recovered_alias.layer = NgxLayer::Core;
+            recovered_alias.create_parent = candidate->create_call;
+            recovered_alias.create_call = ++g_ngx_operation_sequence;
+            recovered_alias.create_root = candidate->create_root != 0
+                ? candidate->create_root : candidate->create_call;
+            recovered_alias.create_list = nullptr;
+            recovered_alias.create_params = nullptr;
+            recovered_alias.evaluate_observed = false;
+            recovered_alias.wrapper_internal_alias = true;
+            *free_slot = recovered_alias;
+            RecordNgxLifecycleLocked(8, recovered_alias, kNgxSuccess);
+            RecountNgxOwnersLocked();
+            recovered = true;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_feature_lock);
+    if (recovered) {
+        const unsigned long long count =
+            g_direct_core_wrapper_alias_recoveries.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+        Log("[ngx-lifecycle] recovered legacy nvngx_dlss -> _nvngx "
+            "Feature 1 wrapper alias (count=%llu generation=%llu); the inner "
+            "Evaluate remains native-only and the public wrapper remains the "
+            "sole NR carrier.", count, recovered_alias.generation);
+    }
+    return recovered;
+}
+
 void PreflightFeature1LifecycleModules() {
     const unsigned long long attempt =
         g_feature1_preflight_attempts.fetch_add(
@@ -12820,6 +12959,7 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
 NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    const void *const caller_address = NR_CALLER_RETURN_ADDRESS();
     ScopedNgxLayer observed_layer(NgxLayer::Core);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
@@ -12833,6 +12973,13 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     // created in the sub-second load-to-rescan interval. All post-hook game
     // creates (including Feature 11) are classified by RememberFeature, so an
     // unknown outermost core handle is concrete evidence of an observer gap.
+    if (handle != nullptr && !g_inside_ngx_evaluate &&
+        FindFeature(handle).handle == nullptr) {
+        (void)TryRecoverDirectCoreWrapperAlias(
+            handle, command_list, params,
+            ReturnAddressBelongsToLoadedModule(
+                caller_address, L"nvngx_dlss.dll"));
+    }
     const auto observed_feature = FindFeature(handle);
     const bool external_nr = observed_feature.owner == NgxOwner::ExternalNr && observed_feature.handle;
     ScopedRrOwnershipGate external_gate(external_nr, false, true);
@@ -12841,6 +12988,10 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     else if (external_nr && external_gate.acquisition_failed())
         LatchConcurrentRrOwnershipChange("external Feature 18 Evaluate");
     if (!g_inside_ngx_evaluate) ObserveNgxEvaluate(handle);
+    if (observed_feature.wrapper_internal_alias) {
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
+    }
     if (external_nr || IsPrivateNrEntry(PrivateNrOperation::Evaluate, handle))
         return CallNativeEvaluatePassThrough(
             g_original_core_evaluate, command_list, handle, params, callback);
@@ -12848,7 +12999,7 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
         ObserveNullEvaluateHandle("direct core Feature Evaluate");
     if (handle != nullptr && !g_inside_ngx_evaluate &&
         g_core_unknown_handle_guard.load(std::memory_order_acquire) &&
-        FindFeature(handle).handle == nullptr) {
+        observed_feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct late-core Feature Evaluate",
             "a non-null handle has no proven layer lifecycle at the "
