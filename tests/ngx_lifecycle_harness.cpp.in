@@ -85,6 +85,7 @@ std::atomic<bool> g_module_observer_gap_detected{false};
 std::atomic<int> g_module_observer_fault{static_cast<int>(ModuleObserverFault::None)};
 std::atomic<bool> g_enabled_fast{true}, g_shortfuse_nr_enabled{false}, g_generic_renodx_conflict{false};
 std::atomic<bool> g_evaluate_target_overflow{false}, g_core_unknown_handle_guard{true};
+std::atomic<bool> g_core_lifecycle_hooks_ready{true}, g_startup_deferred_module_coverage{true};
 std::atomic<bool> g_module_rescan_in_progress{false}, g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_process_latched{false};
 std::atomic<unsigned int> g_wrapper_create_entries{0}, g_core_create_entries{0}, g_dlssd_create_entries{0};
 std::atomic<unsigned int> g_wrapper_calls{0}, g_core_calls{0}, g_dlssd_evaluate_calls{0};
@@ -221,6 +222,8 @@ void Reset() {
     g_external_nr_handles=0;g_external_nr_creates=0;g_external_nr_evaluations=0;
     g_feature_tracking_uncertain=false;g_module_observer_gap_detected=false;
     g_module_observer_fault=static_cast<int>(ModuleObserverFault::None);g_module_observer_epoch=0;
+    g_core_lifecycle_hooks_ready=true;g_startup_deferred_module_coverage=true;
+    g_direct_core_wrapper_alias_recoveries=0;
     g_live_rr_handles=0;g_rr_create_in_progress=0;g_feature1_create_in_progress=0;
     g_feature1_create_entries=0;g_feature1_successful_creates=0;
     g_enabled_fast=true;g_generic_renodx_conflict=false;g_shortfuse_nr_enabled=false;
@@ -287,6 +290,33 @@ int main() {
     g_contexts[0]={h,a.generation+1,false};
     QueueNgxContextRetirement(h,a.generation);DrainNgxFeatureRetirementsLocked();
     Check(!g_contexts[0].retired,"old generation retirement cannot retire reused context");
+
+    // SOTTR's legacy wrapper returns one public Feature 1 handle but can call
+    // the distinct core Evaluate export with a private inner handle. Recover
+    // only that lifecycle alias and keep the inner call native-only; the public
+    // wrapper remains the single plugin carrier.
+    Reset(); h=nullptr;
+    Check(HookCreate(&list,1,&params,&h)==kNgxSuccess && h==&outer_handle && Live()==1,
+          "legacy wrapper fixture has one proven public Feature 1 lifetime");
+    Check(HookCoreEvaluate(&list,&inner_handle,&params,nullptr)==0xCAFE &&
+          native_evals==1 && plugin_attempts==0 &&
+          g_direct_core_wrapper_alias_recoveries==1 &&
+          At(NgxLayer::Core,&inner_handle).wrapper_internal_alias &&
+          At(NgxLayer::Core,&inner_handle).generation==At(NgxLayer::Dlss,h).generation &&
+          !g_module_observer_gap_detected && !g_feature_tracking_uncertain,
+          "legacy wrapper core alias is recovered as native-only without poisoning ownership");
+    Check(HookEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==2 &&
+          plugin_attempts==1 && !g_module_observer_gap_detected,
+          "public wrapper remains the sole plugin carrier after alias recovery");
+
+    Reset(); h=nullptr; HookCreate(&list,1,&params,&h);
+    Check(!TryRecoverDirectCoreWrapperAlias(&inner_handle,&list,&params,false) &&
+          !At(NgxLayer::Core,&inner_handle).handle,
+          "unproven caller cannot recover a core alias");
+    { ScopedNgxLayer dlss(NgxLayer::Dlss); RememberFeature(&other_handle,1,&params); }
+    Check(!TryRecoverDirectCoreWrapperAlias(&inner_handle,&list,&params,true) &&
+          !At(NgxLayer::Core,&inner_handle).handle,
+          "ambiguous public Feature 1 lifetimes cannot recover a core alias");
 
     Reset(); HookCoreEvaluate(&list,&unknown_handle,&params,nullptr);
     Check(g_module_observer_gap_detected && g_feature_tracking_uncertain && native_evals==1 && plugin_attempts==0,"UNKNOWN_REMAINS_CLOSED");
