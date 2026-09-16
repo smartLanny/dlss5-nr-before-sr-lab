@@ -44,7 +44,7 @@ class Staging(unittest.TestCase):
     def setUp(self):
         # Fixture roots contain no scripts; retain the actual post transformer.
         real_load=m.load
-        loader=patch.object(m,'load',side_effect=lambda name,path: real_load(name,ROOT/'scripts/patch-post-compat.py'))
+        loader=patch.object(m,'load',side_effect=lambda name,path: real_load(name,ROOT/'scripts'/path.name))
         loader.start(); self.addCleanup(loader.stop)
 
     def test_finalize_removes_only_diagnostic_gate(self):
@@ -60,12 +60,12 @@ class Staging(unittest.TestCase):
             self.assertEqual(manifest['integration']['parents_in_history'],[m.PR131,m.PR132])
             self.assertEqual(manifest['integration']['feedback'],'F8 single TXT; F7 optional paired archive')
             self.assertEqual(manifest['integration']['carrier_filename'],m.CARRIER_NAME)
-            self.assertEqual(manifest['integration']['version'],'beta0.5-dline21-lockperf1-sottr1')
-            self.assertEqual(manifest['integration']['display_version'],'0.5-dline21-lockperf1-sottr1')
-            self.assertEqual(manifest['integration']['core_pe_version'],'0.5.1.23')
+            self.assertEqual(manifest['integration']['version'],'beta0.5-dline22-coreentry2')
+            self.assertEqual(manifest['integration']['display_version'],'0.5-dline22-coreentry2')
+            self.assertEqual(manifest['integration']['core_pe_version'],'0.5.1.24')
             self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
             self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
-            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.5.1 dline21-lockperf1-sottr1 beta\nFILEVERSION 0,5,1,23')
+            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.5.1 dline22-coreentry2 beta\nFILEVERSION 0,5,1,24')
             build=(root/'core/scripts/build.ps1').read_text(encoding='utf-8')
             self.assertEqual(build.count('$global:LASTEXITCODE = 0'),2)
             self.assertNotIn('\n$LASTEXITCODE = 0\n',build)

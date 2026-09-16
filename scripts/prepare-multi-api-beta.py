@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-lockperf1-sottr1'
-DISPLAY_VERSION = '0.5-dline21-lockperf1-sottr1'
+VERSION = 'beta0.5-dline22-coreentry2'
+DISPLAY_VERSION = '0.5-dline22-coreentry2'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -31,6 +31,9 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
+    'scripts/patch-core-create-boundary.py': '7867e4ec2cfd574a15897ee36d038aa351c61b78',
+    'src/nr_core_create_boundary_feedback.inl': '5231168b302a7aa66da87dd5a22214a0e5d0dd6d',
+    'src/nr_core_create_boundary.inl': '45ded0ddc2f3bc867405a155b5bc72bdaac36b2f',
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
     'config/nr_before_sr.ini': '6888e9bfe3e6775e3633e0038b88c368de496636',
     'scripts/build.ps1': 'de54740a9f1eb69031eec45ae4c3bbe95a5d783e',
@@ -48,7 +51,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': 'faa25f711eac329c71a78e24917f89dae4b904e6',
+    'src/nr_before_sr.cpp': '2ab4991b817327a8dbad5e030032f260be720b64',
     'src/nr_before_sr.rc': '7abf977b7980e1650eea8ee1e89502982f088ab1',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
@@ -100,7 +103,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
     'src/nr_face_worker.h': '29ac5085dee8a9a4715838a6f037c9d3859f89f1',
-    'src/nr_feedback_capture.inl': '686366e0cac5a9182d1588ab24cd8e7f8d0da55b',
+    'src/nr_feedback_capture.inl': '46735c215de9deda5acdf1717eb70c87d862daaf',
     'src/nr_feedback_core.inl': '644c6ed5266488250f574da14a74b2ead5b1bd01',
     'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
     'src/nr_feedback_picture.inl': 'bfa3934cc3d6263ba2a19939f5bbe77d19eb89db',
@@ -239,8 +242,9 @@ def configure(core: Path):
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
     prior_patch = m.patch_core
     prior_ui = m.legacy.patch_ui
+    core_entry = load('core_create_boundary_patch', core / 'scripts/patch-core-create-boundary.py')
     def patch_core(text: str) -> str:
-        return post.patch_core(fmt.patch_core(prior_patch(text)))
+        return core_entry.patch_core(post.patch_core(fmt.patch_core(prior_patch(text))))
     m.legacy.patch_core = patch_core
     m.legacy.patch_ui = lambda text: post.patch_ui(prior_ui(text))
     previous_prepare = m.prepare
@@ -248,7 +252,7 @@ def configure(core: Path):
         previous_prepare(core_root, upstream, stage)
         # The historical archive exports only build.ps1 from scripts. Copy the
         # explicitly pinned shader compiler inputs into this candidate as well.
-        for relative in ('src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
+        for relative in ('src/nr_core_create_boundary.inl', 'src/nr_core_create_boundary_feedback.inl', 'src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
             destination = stage / 'core' / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(git(core_root, 'show', 'HEAD:' + relative))
@@ -276,7 +280,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     # update, so a failed compiler could incorrectly proceed to linking.
     build = stage / 'core/scripts/build.ps1'
     build_text = build.read_text(encoding='utf-8')
-    build_text = build_text.replace('beta0.5-dline21-223fix2', 'beta0.5-dline21-lockperf1-sottr1')
+    build_text = build_text.replace('beta0.5-dline21-223fix2', VERSION)
     if build_text.count('\n$LASTEXITCODE = 0\n') != 2:
         raise ValueError('Generated build source-identity status anchors changed')
     build.write_text(build_text.replace('\n$LASTEXITCODE = 0\n',
@@ -311,6 +315,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     post = load('post_finalize', core / 'scripts/patch-post-compat.py')
     feedback = stage / 'core/src/nr_feedback_capture.inl'
     feedback_text = feedback.read_text(encoding='utf-8')
+    feedback_text = load('core_entry_feedback', core / 'scripts/patch-core-create-boundary.py').patch_feedback(feedback_text)
     activity = 'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {'
     if feedback_text.count(activity) != 1:
         raise ValueError('Post feedback activity anchor changed')
@@ -323,8 +328,11 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-lockperf1-sottr1 beta'),
-                  encoding='utf-8', newline='\n')
+    resource_text = resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline22-coreentry2 beta')
+    resource_text = resource_text.replace('beta0.5-dline21-223fix2', VERSION)
+    resource_text = resource_text.replace('FILEVERSION 0,5,1,23', 'FILEVERSION 0,5,1,24')
+    resource_text = resource_text.replace('PRODUCTVERSION 0,5,1,23', 'PRODUCTVERSION 0,5,1,24')
+    rc.write_text(resource_text, encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
         stream.write('\n; NR work after SR/RR, not game render scale.\nRRPostEnabled=1\nPostWorkPercent=100\n')
@@ -332,7 +340,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.23',
+        'core_pe_version': '0.5.1.24',
         'cumulative_corefix_source': 'd7a6def43a58ea6c4b26c553547429a8ef88b735',
         'cumulative_corefix_dependencies': [218,219,220,221,230,232,238,240,241,242,243,245],
         # Retain the original dual-parent field for existing artifact readers.

@@ -31,10 +31,9 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
     types = definition(source, 'enum class ModuleObserverFault') + ';\n'
     types += definition(source, 'enum class BypassReason') + ';\n'
     names = ['CallNativeCreatePassThrough', 'IsUnknownOutermostEvaluateHandle',
-              'ObserveNullEvaluateHandle', 'RecordModuleObserverFault',
-              'LatchUnknownFeatureHandle', 'FinishFeature1CreateObservation',
-              'TryRecoverDirectCoreWrapperAlias',
-              'HookLoaderInit', 'HookLoaderInitExt', 'HookLoaderInitProject',
+             'ObserveNullEvaluateHandle', 'RecordModuleObserverFault',
+             'LatchUnknownFeatureHandle', 'FinishFeature1CreateObservation',
+             'HookLoaderInit', 'HookLoaderInitExt', 'HookLoaderInitProject',
              'OtherNrOwnerActive', 'OtherNrOwnerBypassReason',
              'HookCreate', 'HookCoreCreate', 'HookDlssdCreate',
              'DispatchEvaluate', 'CallNativeEvaluatePassThrough',
@@ -43,19 +42,9 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
     functions = [definition(source, 'void DrainNgxFeatureRetirementsLocked(')]
     for name in names:
         prefix = ('NgxResult ' if name.startswith(('Hook', 'Dispatch', 'CallNative'))
-                   else 'bool ' if name in {'IsUnknownOutermostEvaluateHandle',
-                                             'TryRecoverDirectCoreWrapperAlias',
-                                             'OtherNrOwnerActive'}
+                  else 'bool ' if name in {'IsUnknownOutermostEvaluateHandle', 'OtherNrOwnerActive'}
                   else 'BypassReason ' if name == 'OtherNrOwnerBypassReason' else 'void ')
         body = definition(source, prefix + name + '(')
-        if name == 'HookCoreEvaluate':
-            body = body.replace(
-                '    const void *const caller_address = NR_CALLER_RETURN_ADDRESS();\n',
-                '')
-            body = body.replace(
-                'ReturnAddressBelongsToLoadedModule(\n'
-                '                caller_address, L"nvngx_dlss.dll")',
-                'true')
         if negative == 'drop-inner-create' and name in {'HookCreate', 'HookCoreCreate', 'HookDlssdCreate'}:
             body = body.replace('    observed.Finish(result, handle, params);',
                                 '    if (!outermost) return result;\n    observed.Finish(result, handle, params);')

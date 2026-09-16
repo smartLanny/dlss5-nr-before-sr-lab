@@ -232,14 +232,12 @@ void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
     FeedbackAppend(s, "ngxLifecycle.schema=1\nngxLifecycle.externalHeld=%u\n"
         "ngxLifecycle.externalCreating=%u\nngxLifecycle.externalEvaluations=%llu\n"
         "ngxLifecycle.events=%llu\nngxLifecycle.firstFaultFrozen=%d\n"
-        "ngxLifecycle.directCoreWrapperAliases=%llu\n"
         "ngxLifecycle.layers=0:unspecified,1:dlss,2:core,3:dlssd,4:private-bridge\n"
         "ngxLifecycle.owners=0:game,1:private-NR,2:external-NR,3:uncertain\n"
-        "ngxLifecycle.operations=1:create-success,2:proven-nested-alias,3:create-failed,4:first-evaluate-or-unknown,5:released,6:release-entry,7:create-entry,8:proven-wrapper-core-alias\n"
+        "ngxLifecycle.operations=1:create-success,2:proven-nested-alias,3:create-failed,4:first-evaluate-or-unknown,5:released,6:release-entry,7:create-entry\n"
         "ngxLifecycle.contract=bounded process-local tokens; no addresses; absent Create is unknown, not proof of pre-observer timing\n",
         g_external_nr_handles.load(), g_external_nr_creates.load(),
-        g_external_nr_evaluations.load(), evidence.events, evidence.frozen ? 1 : 0,
-        g_direct_core_wrapper_alias_recoveries.load());
+        g_external_nr_evaluations.load(), evidence.events, evidence.frozen ? 1 : 0);
     for (unsigned int group = 0; group != 2; ++group) {
         const char *label = group ? "recent" : "firstFault";
         const auto *events = group ? evidence.recent : evidence.first_fault;
