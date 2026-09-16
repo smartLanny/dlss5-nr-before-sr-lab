@@ -135,7 +135,7 @@ try {
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -NegativeControl
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -LayerNegativeControl
-    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 35-root ABI and independent negative controls')
+    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 60-root ABI and independent negative controls')
     & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
     $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
