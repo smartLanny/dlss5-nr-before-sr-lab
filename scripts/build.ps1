@@ -196,9 +196,12 @@ foreach ($AddonBuild in $AddonBuilds) {
     # Keep the native tool's output leaf ASCII; PowerShell performs the final
     # Unicode rename. The UTF-8 BOM on this script is required by Windows PS5.
     $LinkOutput = Join-Path $Build $AddonBuild.LinkLeaf
+    # Retain exact address attribution outside the game payload, without changing
+    # release optimization or adding hot-path instrumentation.
+    $LinkMap = Join-Path $Objects ($AddonBuild.Object + '.map')
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
-        '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
+        '-Wl,--strip-all', '-Wl,--no-insert-timestamp', '-Xlinker', '-Map', '-Xlinker', $LinkMap
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'

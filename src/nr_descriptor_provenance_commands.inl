@@ -32,6 +32,7 @@ std::uint64_t NrDescriptorBoundHeap(ID3D12GraphicsCommandList *list) {
     AcquireSRWLockShared(&g_command_state_lock);
     for(const auto &entry:g_command_states)if(entry.token==identity.token && entry.native_resets==identity.reset &&
             reinterpret_cast<std::uint64_t>(entry.native)==identity.address && entry.lifetime_ready) {
+        CommandStateSlotScope state_scope(entry);
         if(entry.state && entry.state->known &&
            !(entry.state->unknown_domains&D3D12_GRAPHICS_STATE_DESCRIPTOR_HEAP))
             address=reinterpret_cast<std::uint64_t>(entry.state->heaps[0]);
@@ -49,11 +50,14 @@ bool NrDescriptorBoundGpuHeapMatches(ID3D12GraphicsCommandList *list,
     AcquireSRWLockShared(&g_command_state_lock);
     for(const auto &entry:g_command_states) {
         if(entry.token==identity.token && entry.native_resets==identity.reset &&
-           reinterpret_cast<std::uint64_t>(entry.native)==identity.address && entry.lifetime_ready &&
-           entry.state && entry.state->known &&
-           !(entry.state->unknown_domains&D3D12_GRAPHICS_STATE_DESCRIPTOR_HEAP) &&
-           entry.state->heaps[0]) {
-            bound=entry.state->heaps[0];IUnknown_AddRef(reinterpret_cast<IUnknown *>(bound));break;
+           reinterpret_cast<std::uint64_t>(entry.native)==identity.address && entry.lifetime_ready) {
+            CommandStateSlotScope state_scope(entry);
+            if(entry.state && entry.state->known &&
+               !(entry.state->unknown_domains&D3D12_GRAPHICS_STATE_DESCRIPTOR_HEAP) &&
+               entry.state->heaps[0]) {
+                bound=entry.state->heaps[0];IUnknown_AddRef(reinterpret_cast<IUnknown *>(bound));
+            }
+            break;
         }
     }
     ReleaseSRWLockShared(&g_command_state_lock);
