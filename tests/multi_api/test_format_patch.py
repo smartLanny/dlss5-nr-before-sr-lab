@@ -90,5 +90,6 @@ class Patches(unittest.TestCase):
         # Production shader remains byte-for-byte unchanged.
         def shader(s):return s.split('const char kCodecShader[] = R"HLSL(',1)[1].split(')HLSL";',1)[0]
         self.assertEqual(shader(result), shader(text))
-        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),2)
+        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),1)
+        self.assertEqual(result.count('#define NR_NATIVE_FORMAT_STAGED 1'),1)
 if __name__=='__main__':unittest.main()
