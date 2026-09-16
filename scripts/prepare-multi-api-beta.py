@@ -33,7 +33,7 @@ REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
     'config/nr_before_sr.ini': '6888e9bfe3e6775e3633e0038b88c368de496636',
-    'scripts/build.ps1': '0bdeaea80c4f9c481d40d5c2f6f9da336d1b9cb9',
+    'scripts/build.ps1': 'de54740a9f1eb69031eec45ae4c3bbe95a5d783e',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',

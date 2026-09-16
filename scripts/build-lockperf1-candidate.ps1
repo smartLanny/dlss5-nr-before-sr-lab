@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
     [Parameter(Mandatory=$true)][string]$DirectXMathRoot,
-    [Parameter(Mandatory=$true)][string]$OutputRoot
+    [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$NrchainReuseRoot
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

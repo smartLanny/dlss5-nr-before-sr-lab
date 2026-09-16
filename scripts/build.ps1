@@ -6,7 +6,8 @@
     [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
     [string]$CodecCacheRoot,
     [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
-    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH
+    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
+    [string]$NrchainReuseRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -152,8 +153,43 @@ if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_cod
 $Common += '-DNR_CODEC_PRECOMPILED=1'
 $Common += "-I$Build"
 
-& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
-if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
+if ($NrchainReuseRoot) {
+    $Reuse = (Resolve-Path -LiteralPath $NrchainReuseRoot).Path
+    $ReuseDll = Join-Path $Reuse 'nrchain_nvngx.dll'
+    $ReuseReceipt = Join-Path $Reuse 'nrchain-build.json'
+    $ReuseLicense = Join-Path $Reuse 'NVIDIA-NGX-LICENSE.txt'
+    foreach ($File in @($ReuseDll,$ReuseReceipt,$ReuseLicense)) {
+        if (-not (Test-Path -LiteralPath $File -PathType Leaf)) { throw "Incomplete nrchain reuse input: $File" }
+    }
+    $Receipt = Get-Content -LiteralPath $ReuseReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $ExpectedInputs = [ordered]@{
+        'LICENSE.txt' = 'dc2778a3283427285984cdb5b3f7f03eae7d8a06057f672f2999c5ee7fd4f67d'
+        'include/nvsdk_ngx.h' = '35d19dba363786d27d11536a4628a430596477f39dbfed5eae482132ae6e794a'
+        'include/nvsdk_ngx_defs.h' = 'a9481cbc78d53ee56639f0a573ec095c6c1ea1e5f296d139c20c42bf342c2e1b'
+        'include/nvsdk_ngx_params.h' = '51a1f94116cf82f95c63a2c197371ed22e08bddb09918d36cc6e2ac712753c80'
+        'lib/Windows_x86_64/x64/nvsdk_ngx_s.lib' = '36eab29264c2a06456ba8415f20086aea36f0cbb314d020085cb288cc06bb9ae'
+    }
+    if ($Receipt.schema -ne 'nrchain-official-ngx-build-v1' -or
+        $Receipt.sdk_commit -ne 'a291cc7d2cc642a51566f3dfd5376f635cd1b284' -or $Receipt.crt -ne 'static /MT') {
+        throw 'Unrecognized nrchain reuse receipt.'
+    }
+    foreach ($Name in $ExpectedInputs.Keys) {
+        $Property = $Receipt.input_sha256.PSObject.Properties[$Name]
+        if ($null -eq $Property -or $Property.Value -ne $ExpectedInputs[$Name]) { throw "Nrchain SDK receipt mismatch: $Name" }
+    }
+    $SourceHash = (Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'src/nrchain_nvngx.cpp') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $BinaryHash = (Get-FileHash -LiteralPath $ReuseDll -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Receipt.source_sha256 -ne $SourceHash -or $Receipt.binary_sha256 -ne $BinaryHash) {
+        throw 'Nrchain reuse binary does not match this exact staged bridge source and receipt.'
+    }
+    Copy-Item -LiteralPath $ReuseDll -Destination (Join-Path $Build 'nrchain_nvngx.dll') -Force
+    Copy-Item -LiteralPath $ReuseReceipt -Destination (Join-Path $Build 'nrchain-build.json') -Force
+    Copy-Item -LiteralPath $ReuseLicense -Destination (Join-Path $Build 'NVIDIA-NGX-LICENSE.txt') -Force
+    Write-Host "Reused exact-source verified nrchain: $ReuseDll"
+} else {
+    & (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath
+    if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
+}
 
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
 
