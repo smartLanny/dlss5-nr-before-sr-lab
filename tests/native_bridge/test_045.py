@@ -13,7 +13,7 @@ class Source045(unittest.TestCase):
     def setUp(self):
         # The canonical integration explicitly adapts the historical library
         # to reviewed fix2 source; retain its old standalone pins unchanged.
-        version = patch.object(m, 'VERSION', 'beta0.5-dev4')
+        version = patch.object(m, 'VERSION', 'beta0.5-dline21-223fix2')
         version.start()
         self.addCleanup(version.stop)
 
@@ -39,7 +39,7 @@ class Source045(unittest.TestCase):
         self.assertEqual(result.count("DrawDx11DeploymentStatus();"), 1)
         self.assertIn('ImGui::BeginChild("nr-live-status"', result)
         self.assertIn("RestoreRecommendedPictureSettings", result)
-        self.assertIn("maximum_strength = 4.0f", result)
+        self.assertIn("&effect_strength, 1.0f, 4.0f", result)
         self.assertNotIn("Switch the game to Direct3D 12", result)
         developer = result.index('"Developer options", "开发者选项"')
         observed = result.index('"Observed game render scale", "游戏真实渲染比例"')
