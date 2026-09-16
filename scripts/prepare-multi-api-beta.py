@@ -231,7 +231,9 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    m.VERSION = VERSION
+    # Historical adapter validates the inherited source tag before replacing it
+    # with EXPERIMENT. The candidate tag is not the raw Core input identity.
+    m.VERSION = 'beta0.5-dline21-223fix2'
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
