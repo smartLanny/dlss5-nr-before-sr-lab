@@ -12480,6 +12480,17 @@ bool ShouldGuardFeature1ForRayReconstruction() {
            g_rr_ownership_gate_owner.load(std::memory_order_acquire) == 2;
 }
 
+bool IsPreFeature1RayReconstructionEvaluate(const FeatureRecord &feature) {
+    // Some DX12 titles create the RR handle before the ordinary SR handle and
+    // then enter a core/DLSSD Evaluate with a handle that cannot yet be
+    // classified reliably.  Do not let that first unproven call fall through
+    // to the Feature 18 carrier path: until a successful Feature 1 Create has
+    // been observed, native pass-through is the only safe interpretation.
+    return feature.feature_id != 13 &&
+           g_live_rr_handles.load(std::memory_order_acquire) != 0 &&
+           g_feature1_successful_creates.load(std::memory_order_acquire) == 0;
+}
+
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                           ID3D12GraphicsCommandList *command_list,
                           const NgxHandle *handle, const NgxParams *params,
@@ -12522,6 +12533,19 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     const FeatureRecord feature = FindFeature(handle);
     if (feature.pending || feature.retiring) {
         SetBypassReason(BypassReason::LifecycleIsolation);
+        return original(command_list, handle, params, callback);
+    }
+    if (IsPreFeature1RayReconstructionEvaluate(feature)) {
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        g_last_carrier_feature.store(13, std::memory_order_relaxed);
+        g_rr_guard_was_active.store(true, std::memory_order_relaxed);
+        const unsigned long long rr = ++g_rr_passthrough_evaluations;
+        if (rr <= 3 || (rr % 600) == 0) {
+            Log("RR-first Evaluate with no proven Feature 1 passed through "
+                "strictly native (live RR handles=%u); Feature 18 remains "
+                "disabled until ordinary SR Create is observed.",
+                g_live_rr_handles.load(std::memory_order_relaxed));
+        }
         return original(command_list, handle, params, callback);
     }
     if (feature.feature_id == 13) {
