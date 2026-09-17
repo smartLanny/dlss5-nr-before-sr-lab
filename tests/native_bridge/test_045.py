@@ -12,8 +12,9 @@ spec.loader.exec_module(m)
 class Source045(unittest.TestCase):
     def setUp(self):
         # The canonical integration explicitly adapts the historical library
-        # to reviewed fix2 source; retain its old standalone pins unchanged.
-        version = patch.object(m, 'VERSION', 'beta0.5-dline21-223fix2')
+        # to the merged candidate source; retain its standalone pins unchanged.
+        version = patch.object(
+            m, 'VERSION', 'beta0.5-dline21-uniform3-lockperf1-sottr1')
         version.start()
         self.addCleanup(version.stop)
 
