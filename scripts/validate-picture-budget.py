@@ -96,13 +96,16 @@ int main(){
     capture=ui.index('if (collecting) ImGui::BeginDisabled();',start)
     mode=ui.index('"Processing mode"',start)
     precision=ui.index('"##nr-processing-precision"',mode)
-    model=ui.index('"Model strength"',precision)
-    end=ui.index('// END PRIMARY MODEL CONTROLS',model)
+    model=ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);',precision)
+    extra=ui.index('"##nr-strength-amplification"',model)
+    end=ui.index('// END PRIMARY MODEL CONTROLS',extra)
     advanced=ui.index('"Advanced picture controls"',end)
     amp=ui.index('"Maximum luminance ratio"',advanced)
     unlock=ui.index('if (collecting) ImGui::EndDisabled();',amp)
-    assert start<capture<mode<precision<model<end<advanced<amp<unlock
-    assert ui.count('ui("Face adjustment"')==1 and ui.count('ui("Model strength"')==1
+    assert start<capture<mode<precision<model<extra<end<advanced<amp<unlock
+    layers=(ROOT/'src/nr_layers_ui.inl').read_text(encoding='utf-8-sig')
+    assert 'for(unsigned i=0;i<nr_layers::Count;++i)' in layers
+    assert '"##intensity"' in layers and '"##skin"' in layers
     assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
     print('Real controls grouped under the same capture lock and configuration transaction.')
 

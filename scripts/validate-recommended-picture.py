@@ -40,11 +40,13 @@ FIELDS = {
  'region_version':'RegionCompositionVersion','region_enabled':'RegionComposition','region_preview':None,
  'face_protection_version':'FaceProtectionVersion','face_protection':'FaceProtection',
  'face_extra_cap':'FaceExtraCap','face_original_luma':'FaceOriginalLuma','face_original_color':'FaceOriginalColor','face_preview':None,
+ 'nr_uniform_migrated':None,
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
 PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch',
            'descriptor_low_overhead','present_mv_compensation'}
 UI_RESET_FIELDS={'processing_start','processing_selection','compat_percent','nr_full_reference','nr_full_passes'}
+AUXILIARY_FIELDS={'nr_layers'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
 # current model recommendation and the protection gate enabled.
@@ -83,7 +85,7 @@ def check_wiring(cpp,ui,helper):
  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
  reset=definition(helper,'void RestoreRecommendedPictureSettings(')
  assert 'nr_light_style::Reset(next);' in reset
- assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode'}
+ assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode'}|AUXILIARY_FIELDS
  for forbidden in ['g_config','SaveConfig(','ApplyConfig(','Release','.store(','CreateFeature']:
   assert forbidden not in reset,forbidden
 
@@ -101,9 +103,11 @@ def main():
  config=configparser.ConfigParser();config.read(root/'config/nr_before_sr.ini',encoding='utf-8-sig')
  values=config['NRBeforeSR'];struct=definition(cpp,'struct ChainConfig {')+';'
  declared=set()
- for declaration in re.findall(r'^\s*(?:bool|int|float|unsigned(?: int| long long)?|NrJitterMode|nr_processing::Start)\s+([^;]+);',struct,re.M):
+ for declaration in re.findall(r'^\s*(?:bool|int|float|unsigned(?: int| long long)?|NrJitterMode|nr_processing::Start|nr_layers::Auxiliary)\s+([^;]+);',struct,re.M):
   declared.update(re.findall(r'\b('+IDENTIFIER+r')\s*=',declaration))
- expected_fields=set(FIELDS)|PRESERVED|UI_RESET_FIELDS
+ assert re.search(r'\bnr_layers::Auxiliary\s+nr_layers\s*\{\s*\}',struct)
+ declared.add('nr_layers')
+ expected_fields=set(FIELDS)|PRESERVED|UI_RESET_FIELDS|AUXILIARY_FIELDS
  assert declared==expected_fields,f'Unclassified fields: {declared^expected_fields}'
  if a.negative_control:
   marker='next.color_strength = 1.0f;';assert helper.count(marker)==1
@@ -113,7 +117,9 @@ def main():
   number=values[key] if key else '0';recommended=RECOMMENDED_OVERRIDES.get(field,number)
   expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
-  checks.append(f'check(c.{field}=={expected},"INI default {key}");')
+ checks.append(f'check(c.{field}=={expected},"INI default {key}");')
+ dirty.append('for(auto& layer:c.nr_layers){layer.enabled=true;layer.initialized=true;layer.intensity=.25f;}')
+ checks.append('check(c.nr_layers==nr_layers::Auxiliary{},"auxiliary layers reset to shipped defaults");')
  for index in range(5):
   dirty.append(f'c.generic_gains[{index}]=2.f;')
   checks.append(f'check(c.generic_gains[{index}]==1.f,"neutral generic gain {index}");')
@@ -129,6 +135,7 @@ def main():
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_layer_config.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}

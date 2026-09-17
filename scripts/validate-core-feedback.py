@@ -50,6 +50,7 @@ HARNESS = r'''
 #include "nr_full_pass.hpp"
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
+#include "nr_layer_config.h"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };

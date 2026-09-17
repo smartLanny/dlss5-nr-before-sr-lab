@@ -21,6 +21,7 @@
 #include "nr_processing_route.h"
 #include "nr_fg_presentation.h"
 #include "nr_diagnostic_bundle.inl"
+#include "nr_layer_config.h"
 namespace reshade { namespace api {
 enum class input_source { mouse };
 struct effect_runtime {
@@ -50,6 +51,7 @@ struct FeedbackSession {char report[32768]={};std::size_t used=0;};
 void FeedbackAppend(FeedbackSession &s,const char *format,...){va_list a;va_start(a,format);const int n=std::vsnprintf(s.report+s.used,sizeof(s.report)-s.used,format,a);va_end(a);if(n>0 && static_cast<size_t>(n)<sizeof(s.report)-s.used)s.used+=n;}
 void FeedbackAppendActivity(FeedbackSession &s,const char *p){FeedbackAppend(s,"%s.mockRuntime=1\n",p);}
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};std::atomic<bool> g_shortfuse_nr_enabled{false};
+std::atomic<unsigned int> g_last_nr_width{0},g_last_nr_height{0},g_last_nr_render_width{0},g_last_nr_render_height{0};
 bool OtherNrOwnerActive(){return g_shortfuse_nr_enabled.load();}
 namespace nr_post_settings {
 struct Options { bool rr=true; unsigned percent=100; };
