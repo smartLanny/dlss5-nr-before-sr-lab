@@ -75,7 +75,10 @@ bool LatchGenericRenoDxConflictIfLoaded() {return false;}
 bool OtherNrOwnerActive() {return other_owner;}
 void ObserveNullEvaluateHandle(const char*) {}
 void LatchUnknownFeatureHandle(const char*,const char*,ModuleObserverFault) {++unknowns;}
-struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; };
+#define NR_CALLER_RETURN_ADDRESS() nullptr
+bool ReturnAddressBelongsToLoadedModule(const void*, const wchar_t*) { return false; }
+bool TryRecoverDirectCoreWrapperAlias(const NgxHandle*, ID3D12GraphicsCommandList*, const NgxParams*, bool) { return false; }
+struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; bool wrapper_internal_alias=false; };
 Feature FindFeature(const NgxHandle* h) {return {h==&public_handle?h:nullptr};}
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle* h) {return h&&!g_inside_ngx_evaluate&&!FindFeature(h).handle;}
 template<class... T> void Log(const char*,T...) {}
@@ -263,10 +266,17 @@ if __name__=='__main__':
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
         route = definition(ui, 'bool DrawProcessingModeBlocks(')
-        assert 'const int requested_mode = option == 0 ? 2 : 1;' in route
-        assert 'const bool mode_guarded = rr_guarded || compatible_post_locked;' in route
-        assert 'const int shown_mode = mode_guarded ? 1 : next.mode;' in route
-        assert 'if (clicked && !mode_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
-        assert 'if (mode_guarded) ImGui::BeginDisabled();' in route
-        assert 'if (mode_guarded) ImGui::EndDisabled();' in route
+        # D21 replaced the old two-option RR-locked selector with three
+        # explicit starts. Keep this inherited gate on the live function.
+        assert 'const auto route=static_cast<nr_processing::Start>(i);' in route
+        assert 'const bool selected=next.processing_start==route;' in route
+        assert 'next.processing_start=route;' in route
+        assert 'if(i<2)next.mode=i==0?2:1;' in route
+        assert 'changed=true; // Clicking the already-selected button explicitly retries its starting point.' in route
+        assert 'zh?"先增强，后放大":"Enhance first"' in route
+        assert 'zh?"先放大，后增强":"Upscale first"' in route
+        assert 'zh?"兼容模式":"Compatibility"' in route
+        assert 'if(nr_processing_runtime::FgRedirectRequested())' in route
+        assert 'mode_guarded' not in route
+        assert 'ImGui::BeginDisabled' not in route
         print('PASS sticky registration / visible comparison integration')
