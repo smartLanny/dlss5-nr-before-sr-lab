@@ -34,11 +34,13 @@ root = Path(__file__).resolve().parents[1]
 source_path = args.source or root / "src/nr_before_sr.cpp"
 source = source_path.read_text(encoding="utf-8-sig")
 ui_source = source_path.with_name("nr_settings_ui.inl").read_text(encoding="utf-8-sig")
+layers_source = source_path.with_name("nr_layers_ui.inl").read_text(encoding="utf-8-sig")
 
 PREAMBLE = r'''
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <iterator>
 #include <random>
@@ -47,6 +49,7 @@ PREAMBLE = r'''
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_layer_config.h"
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
     ++checks;
@@ -129,60 +132,66 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        start = ui_source.index('    if (ImGui::Checkbox(ui("Face adjustment"')
-        end = ui_source.index('    if (ImGui::CollapsingHeader(ui("More model controls"', start)
-        controls = ui_source[start:end]
+        controls = definition(layers_source, "void DrawUniformLayerControls(")
         self.run_cpp("face-ui", config_code() + r'''
-int toggle = -1, sliders = 0;
-float slider_value = -100.f;
+int toggle = -1, skin_sliders = 0;
+float slider_value = -100.f, last_skin_low = -100.f;
+bool chinese = false, disabled = false;
+constexpr int ImGuiTreeNodeFlags_DefaultOpen=1;
+bool UseChineseUi(){return chinese;}
+void SettingsSection(const char *) {}
 void SettingsTooltip(const char *) {}
-void SettingsField(const char *) {} // Layout only; controls below remain production code.
 void SettingsNote(const char *) {}
 namespace ImGui {
+void PushID(int) {}
+void PopID() {}
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Face adjustment" || text == "人脸调节") {
+    if (text == "Automatic skin mask" || text == "自动皮肤遮罩") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
 }
-bool SliderFloat(const char *, float *value, float lo, float hi, const char *) {
-    ++sliders;
-    check(lo == 0.f && hi == 2.f, "visible skin range starts at zero");
-    check(*value >= lo && *value <= hi, "visible skin never displays negative sentinel");
-    if (slider_value >= 0.f) { *value = slider_value; return true; }
+bool CollapsingHeader(const char *,int){return true;}
+bool Combo(const char *,int *,const char *){return false;}
+void BeginDisabled(bool value){disabled=value;}
+void EndDisabled(){disabled=false;}
+bool Button(const char *){return false;}
+}
+bool SettingsSliderFloat(const char *, const char *id, float *value, float lo, float hi, const char *) {
+    if(std::strcmp(id,"##skin"))return false;
+    ++skin_sliders;last_skin_low=lo;
+    check(hi==2.f,"skin upper range remains two");
+    check(*value>=lo&&*value<=hi,"skin value stays inside the visible range");
+    if(!disabled&&slider_value>=0.f){*value=slider_value;return true;}
     return false;
 }
-void TextDisabled(const char *, ...) {}
-}
-bool SettingsSliderFloat(const char *label, const char *, float *value, float lo, float hi, const char *format) {
-    return ImGui::SliderFloat(label, value, lo, hi, format);
-}
-bool DrawFaceControls(ChainConfig &next, bool chinese) {
-    bool changed = false;
-    const auto ui = [chinese](const char *en, const char *zh) { return chinese ? zh : en; };
 CONTROLS
-    return changed;
-}
 int main() {
-    for (bool chinese : {false, true}) {
+    for (bool language : {false, true}) {
+        chinese=language;
         ChainConfig c; c.skin_structure = -1.f; c.auto_mask = false;
-        toggle = -1; slider_value = -100.f; sliders = 0;
-        check(!DrawFaceControls(c, chinese), "disabled face controls do not edit settings");
-        check(sliders == 0, "mask off hides skin slider");
-        toggle = 1; sliders = 0;
-        check(DrawFaceControls(c, chinese), "enabling face mask commits edit");
-        check(c.auto_mask && c.skin_structure == 0.f && sliders == 1, "first enable initializes zero skin strength");
+        bool changed=false,discrete=false;
+        toggle=-1;slider_value=-100.f;skin_sliders=0;
+        DrawUniformLayerControls(c,changed,discrete);
+        check(!changed&&!discrete,"disabled skin controls do not edit settings");
+        check(skin_sliders==1&&last_skin_low==-1.f,"mask off displays a disabled sentinel range");
+        toggle=1;skin_sliders=0;changed=discrete=false;
+        DrawUniformLayerControls(c,changed,discrete);
+        check(changed&&discrete,"enabling skin mask commits a discrete edit");
+        check(c.auto_mask&&c.skin_structure==0.f&&skin_sliders==1&&last_skin_low==0.f,"first enable initializes zero skin strength");
         toggle = -1; slider_value = 1.7f;
-        check(DrawFaceControls(c, chinese), "skin slider commits chosen preference");
-        toggle = 0; slider_value = -100.f; sliders = 0;
-        check(DrawFaceControls(c, chinese), "disabling face mask commits edit");
-        check(!c.auto_mask && c.skin_structure == 1.7f && sliders == 0, "disable keeps preference without sending skin edit");
-        toggle = 1; sliders = 0;
-        DrawFaceControls(c, chinese);
-        check(c.auto_mask && c.skin_structure == 1.7f && sliders == 1, "reenable restores previous skin preference");
+        changed=discrete=false;DrawUniformLayerControls(c,changed,discrete);
+        check(changed&&c.skin_structure==1.7f,"skin slider commits chosen preference");
+        toggle=0;slider_value=-100.f;skin_sliders=0;changed=discrete=false;
+        DrawUniformLayerControls(c,changed,discrete);
+        check(changed&&discrete,"disabling skin mask commits a discrete edit");
+        check(!c.auto_mask&&c.skin_structure==1.7f&&skin_sliders==1&&last_skin_low==-1.f,"disable keeps preference in the disabled control");
+        toggle=1;skin_sliders=0;changed=discrete=false;
+        DrawUniformLayerControls(c,changed,discrete);
+        check(c.auto_mask&&c.skin_structure==1.7f&&skin_sliders==1&&last_skin_low==0.f,"reenable restores previous skin preference");
     }
-    return finish("actual EN/ZH face-control block");
+    return finish("actual EN/ZH uniform-layer skin controls");
 }
 '''.replace("CONTROLS", controls))
 
