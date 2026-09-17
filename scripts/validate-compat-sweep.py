@@ -137,11 +137,11 @@ def main():
     version=re.search(r'kAddonVersion = "([^"]+)"',source).group(1)
     names=re.findall(r'const char \*NAME =\s*"([^"]+)"',source)
     assert len(names)==2 and all(version in n for n in names)
-    assert 'if (result != OverlayApplyResult::Busy) has_pending = false;' in ui
+    assert 'if (result != OverlayApplyResult::Busy) {\n            has_pending = false; pending_picture_reset = false; pending_light_undo = false;' in ui
     assert 'pending_generation != current.generation' in ui
     assert source.count('OnCommandStateObserveSubmission(command_list);')==1
     assert 'g_command_state_registration_repair_needed.load' in state
-    assert 'ExperimentalNullPsoCarrier=0' in (ROOT/'config/nr_before_sr.ini').read_text()
+    assert 'ExperimentalNullPsoCarrier=0' in (ROOT/'config/nr_before_sr.ini').read_text(encoding='utf-8')
     assert 'TryAcquireSRWLockShared(&g_command_state_lock)' in state
     print('PASS integration: version / pending edits / real submission / frozen full replay / nonblocking snapshot')
 if __name__=='__main__':main()

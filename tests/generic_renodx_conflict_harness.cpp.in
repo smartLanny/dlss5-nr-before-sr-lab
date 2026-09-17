@@ -22,6 +22,7 @@ static unsigned log_calls = 0;
 
 static void Log(const char *, ...) { ++log_calls; }
 static const char *BypassReasonName(BypassReason) { return "fixture"; }
+static void NrObserveCompatibilityBypass(BypassReason) {}
 
 // @production_set_bypass
 // @production_latch

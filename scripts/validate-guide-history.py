@@ -61,6 +61,8 @@ struct NrContext {
     unsigned long long stage_capture_request_id=0;
     unsigned width=0, height=0;
     int mode=0;
+    unsigned layer_index=0;
+    unsigned long long parent_instance_id=0, parent_input_epoch=0;
     bool retired=false, codec_color_mode_initialized=false, tuning_signature_initialized=false, codec_peak_shoulder=false;
     CodecColorMode codec_color_mode=CodecColorMode::Automatic;
     NrTuningSignature tuning_signature{};
