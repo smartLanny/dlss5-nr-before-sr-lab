@@ -234,9 +234,10 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    # Historical adapter validates the inherited source tag before replacing it
-    # with EXPERIMENT. The candidate tag is not the raw Core input identity.
-    m.VERSION = 'beta0.5-dline21-223fix2'
+    # The merged Core already carries the final candidate identity. Keep the
+    # historical adapter's input and output identities equal so it validates
+    # provenance without rewriting this combined uniform/SOTTR version.
+    m.VERSION = VERSION
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
