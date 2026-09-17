@@ -13,9 +13,12 @@ def function(source, signature):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--compiler',required=True)
+    ap.add_argument('--root',type=Path,default=ROOT,
+                    help='Actual source tree, including a generated candidate core')
     ap.add_argument('--output',type=Path,default=ROOT/'build/uniform-layers')
     args=ap.parse_args();args.output.mkdir(parents=True,exist_ok=True)
-    src=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+    root=args.root.resolve()
+    src=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
     fixture=r'''
 #define NOMINMAX
 #include <windows.h>
@@ -82,7 +85,7 @@ int main(){try{
     path=args.output/'uniform-runtime.cpp';path.write_text(fixture,encoding='utf-8')
     binary=args.output/'uniform-runtime.exe'
     subprocess.run([args.compiler,'-std=c++20','-Wall','-Wextra','-Werror','-static',
-                    '-I'+str(ROOT/'src'),str(path),'-o',str(binary)],check=True)
+                    '-I'+str(root/'src'),str(path),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True)
 
 if __name__=='__main__':main()
