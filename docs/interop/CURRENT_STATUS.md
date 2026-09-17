@@ -1,5 +1,9 @@
 # 统一开发与测试交接入口
 
+## 2026-09-17 D21 lockperf2：已装入异环
+
+维护者要求把中文 lockperf2 Core 换进异环查看。游戏未在运行。原活动 Core 是 **D13**（`3f67cc32…`），不是 D21lock；已整文件移到游戏目录外备份。现活动文件仍为 `nr-before-sr.zh-CN.addon64`，SHA256 `dd3a66d984c9b32fe53f47060368711c4f166be4d73c2864a433c57685811c69`，源 `1bacd72c`。INI、nrchain、ReShade.ini 字节未变。Win64 根目录现仅此一个 Core；对照套件子目录未动。未启动游戏，GPU 跑满与否仍待维护者看。
+
 ## 2026-09-17 D21 lockperf2：Windows 测试包已出
 
 隔离 worktree `nr-d21-lockperf2-build-20260917` 已完成本地 Windows 双语 Core 编译与 WARP，并打出可替换游戏的单 Core 测试 ZIP。运行时仍是 PR #280 的 lockperf2 修复；本机额外提交只修继承夹具和 PowerShell 5 负控宿主中断，没有改 NR 层数、分辨率、shader 或画质参数。未推送、未合并、未装游戏、未关 #277/#272/#273。
