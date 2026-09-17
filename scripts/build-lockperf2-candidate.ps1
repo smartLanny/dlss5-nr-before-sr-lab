@@ -12,14 +12,17 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'
 $HotpathGate = $Output + '.hotpath-checks'
-foreach ($Path in @($Output, $Gate, $HotpathGate)) {
+$InheritedGate = $Output + '.inherited-checks'
+foreach ($Path in @($Output, $Gate, $HotpathGate, $InheritedGate)) {
     if (Test-Path -LiteralPath $Path) { throw 'Choose a new OutputRoot; existing evidence is never overwritten.' }
 }
 $Head = (& git -C $Root rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $Head -notmatch '^[0-9a-f]{40}$') { throw 'Cannot identify candidate HEAD.' }
 $Dirty = @(& git -C $Root status --porcelain --untracked-files=no)
 if ($LASTEXITCODE -ne 0 -or $Dirty.Count) { throw 'Commit the isolated candidate before generation; no automatic commit/reset is performed.' }
-$Cxx = Join-Path (Resolve-Path -LiteralPath $ToolchainRoot).Path 'bin/x86_64-w64-mingw32-clang++.exe'
+# Resolve before Push-Location so callers may supply paths relative to their CWD.
+$ToolchainRoot = (Resolve-Path -LiteralPath $ToolchainRoot).Path
+$Cxx = Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
 # Same-list exclusion, independent-list concurrency, registry lifetime and the
 # actual descriptor readers must still pass with real Windows SRW primitives.
 & python (Join-Path $PSScriptRoot 'validate-command-state-lockperf.py') --root $Root --compiler $Cxx --output $Gate
@@ -27,6 +30,43 @@ if ($LASTEXITCODE -ne 0) { throw 'Native SRW concurrency gate failed. Do not bui
 # Frozen pre-fix source must FAIL both work budgets, while this source passes.
 & python (Join-Path $PSScriptRoot 'validate-command-state-hotpath.py') --root $Root --compiler $Cxx --output $HotpathGate
 if ($LASTEXITCODE -ne 0) { throw 'Hotpath budgets or state equivalence failed. Do not build/deploy.' }
+# Retain the old beta050 Windows gates not already covered by the canonical
+# generated-source builder. Routing research CI to that builder must not silently
+# drop its existing ownership, observer, MinHook or negative-control checks.
+New-Item -ItemType Directory -Path $InheritedGate | Out-Null
+$OldLlvmRoot = $env:DLSS5_LLVM_MINGW_ROOT
+Push-Location $Root
+try {
+    $env:DLSS5_LLVM_MINGW_ROOT = (Resolve-Path -LiteralPath $ToolchainRoot).Path
+    foreach ($Test in @('validate-044-compat.py', 'validate-retirement-return.py', 'validate-compat-sweep.py',
+            'validate-diagnostic-identity.py', 'validate-guide-history.py', 'validate-ui-font-fallback.py', 'validate-043r2.py')) {
+        & python (Join-Path $PSScriptRoot $Test) --compiler $Cxx
+        if ($LASTEXITCODE -ne 0) { throw "Inherited Windows regression failed: $Test" }
+    }
+    & python (Join-Path $PSScriptRoot 'validate-null-pso-policy.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Null-PSO policy regression failed.' }
+    foreach ($Test in @('validate-resource-contracts.ps1', 'validate-observer.ps1', 'validate-stage-capture.ps1',
+            'validate-minhook-extended-relay.ps1', 'validate-present-api-status.ps1')) {
+        & (Join-Path $PSScriptRoot $Test) -ToolchainRoot $ToolchainRoot
+    }
+    & python (Join-Path $PSScriptRoot 'validate-generic-renodx-conflict.py') --toolchain-root $ToolchainRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Generic RenoDX conflict regression failed.' }
+    & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $ToolchainRoot -NegativeControl
+    & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $ToolchainRoot -DynamicStateNegativeControl
+    $Snapshot = Join-Path $InheritedGate 'post-snapshot.exe'
+    & $Cxx '-std=c++20' '-O0' '-Wall' '-Wextra' '-Werror' '-static' '-Isrc' 'tests/post_sr_snapshot_gpu.cpp' '-o' $Snapshot '-ld3d12' '-ldxgi' '-ldxguid'
+    if ($LASTEXITCODE -ne 0) { throw 'Post-SR snapshot WARP compilation failed.' }
+    & $Snapshot
+    if ($LASTEXITCODE -ne 0) { throw 'Post-SR snapshot WARP oracle failed.' }
+    $Negative = & $Snapshot --negative-control 2>&1
+    if ($LASTEXITCODE -ne 1 -or ($Negative -join "`n") -notmatch 'native/snapshot FP16 bytes') {
+        throw 'Post-SR negative control did not reject the expected wrong pixel.'
+    }
+    $global:LASTEXITCODE = 0
+} finally {
+    Pop-Location
+    $env:DLSS5_LLVM_MINGW_ROOT = $OldLlvmRoot
+}
 # Full established bilingual generation/build/WARP, not a bare Core compile.
 & (Join-Path $PSScriptRoot 'build-multi-api-candidate.ps1') @PSBoundParameters
 if ($LASTEXITCODE -ne 0) { throw 'Canonical candidate build failed.' }
@@ -76,7 +116,8 @@ foreach ($Addon in $Addons) {
 $Final = [ordered]@{
     candidate='beta0.5-dline21-lockperf2'; source_commit=$Head; ordinary_build=$true
     concurrency_gate=(Join-Path $Gate 'validation.json'); hotpath_gate=(Join-Path $HotpathGate 'validation.json')
-    canonical_validation=$ValidationPath; game_tested=$false; nvidia_feature18_tested=$false; deployed=$false
+    canonical_validation=$ValidationPath; inherited_windows_regressions=$true
+    game_tested=$false; nvidia_feature18_tested=$false; deployed=$false
     created_utc=[DateTime]::UtcNow.ToString('o'); binaries=$Rows
 }
 $Final | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Output 'LOCKPERF2-CANDIDATE.json') -Encoding UTF8

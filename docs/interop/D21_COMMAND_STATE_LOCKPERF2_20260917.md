@@ -46,6 +46,7 @@ Post-boundary 观察已有活动条件早退，描述符/源帧观察有独立�
 - 使用真实 Core 与固定 carrier 后，multi_api 71/76、native_bridge 18/22、UI/clipboard/F8/RR 43/44 通过，共 132 项通过、10 项因 Windows/完整运行依赖跳过；跳过不计为通过。
 - 实际创建观察边界 61 项断言、native Reset 边界 28 项断言通过。两个旧测试夹具的全静态链接标志仅在 macOS 下移除，测试逻辑与 Windows/Linux 标志保持不变，未以跳过测试掩盖失败。
 - 完整生成流程输出 228 个受 manifest 哈希保护的文件，163 项固定 Core 输入。逐项哈希核对、新 command-state 文件与工作源码的字节一致性、候选版本和 source_commit 核对通过。生成源不等于 DLL 编译。
+- 追加 5 项实际 CI 路由/门禁保留/身份检查及 1 项 archive 身份测试通过；三个修改的 YAML 文件解析通过。它们是源码路由检查，不是 Actions 或 PowerShell 运行验收。
 
 复现命令（任选可用 C++20 编译器，Python 3.10+，使用全历史 Git checkout）：
 
@@ -72,6 +73,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-lockperf2-
 新入口先跑真实 Windows SRW 回归和两项热路径负控/正控，再调用原完整双语构建与 WARP 门禁。任何失败都不得打成可测试成功包。允许继续使用既有 `-NrchainReuseRoot` 的精确来源校验，不降低复用校验。
 
 成功后产生 `TEST-zh-CN` / `TEST-en`、各自单 Core 的 `DLSS5-D21-lockperf2-<language>-test.zip`、`LOCKPERF2-CANDIDATE.json` 和不放进游戏包的 `PRIVATE-SYMBOLS`。不附 INI、NVIDIA 模型或替换桥接器，不自动安装、发布 Release 或覆盖旧包。现有可复用 CI 接入同一测试/构建入口，没有新增 pull_request/push 触发器。
+
+PR 创建后核查真实路由，发现 `next/0.5` 原本由 `beta050-validate.yml` 走旧 dev4 原始源码构建和双语言/INI 混合打包，不会到达新的生成器。因此该研究工作流保留原 host 与 shader 前置检查，把完整构建 job 转发到 canonical multi-api 工作流；旧 Windows job 中 canonical 尚未覆盖的所有 validator、command-state 负控和 post-SR WARP 负控保留在 lockperf2 入口。不是删除检查换取绿色状态，也不再并行产出一份误标的原始源码包。所有 checkout 取同一 PR HEAD 并保留冻结负控所需历史。
 
 ## 验收与限制
 

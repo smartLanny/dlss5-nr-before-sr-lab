@@ -51,6 +51,7 @@ jobs:
           CXX: ${{ matrix.compiler }}
         run: |
           set -euo pipefail
+          python3 -m unittest tests.test_lockperf2_workflow -v
           python3 scripts/validate-command-state-lockperf.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-concurrency"
           python3 scripts/validate-command-state-hotpath.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-hotpath"
       - name: Sanitized format policies
