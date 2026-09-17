@@ -46,6 +46,13 @@ jobs:
           python3 scripts/validate-reset-notification-gap.py --compiler "$CXX"
           git show 61fe9a0fe527fb2304c382c332cbe62876228b8b:src/nr_command_state.inl > "$RUNNER_TEMP/reset-before.inl"
           python3 scripts/validate-reset-notification-gap.py --compiler "$CXX" --old-source "$RUNNER_TEMP/reset-before.inl"
+      - name: D21 command-state lifetime and hotpath regressions
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-command-state-lockperf.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-concurrency"
+          python3 scripts/validate-command-state-hotpath.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-hotpath"
       - name: Sanitized format policies
         if: matrix.compiler == 'clang++'
         run: |

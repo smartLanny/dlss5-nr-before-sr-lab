@@ -211,12 +211,21 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
         destination.dynamic.depth_target=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(destination.dsv_cache);
     return true;
 }
+// Payload bytes are valid only through kind, and constants additionally through
+// constant_mask. RestoreNativeCommandState and evidence readers obey those gates;
+// snapshots may copy inactive bytes but must never replay them. Keep allocation
+// and full Reset/Release initialization unchanged.
+void InvalidateCommandRootArgument(CommandRootArgument &argument) {
+    argument.kind = CommandRootKind::Empty;
+    argument.value = 0;
+    argument.constant_mask = 0;
+}
 void CommandStateSetRoot(NativeCommandState &state, unsigned int stage, ID3D12RootSignature *root) {
     const UINT domain = stage == 0 ? D3D12_GRAPHICS_STATE_COMPUTE_ROOT_SIGNATURE : D3D12_GRAPHICS_STATE_GRAPHICS_ROOT_SIGNATURE;
     if (state.roots[stage] == root && (state.unknown_domains & domain) == 0) return;
     state.unknown_domains &= ~domain;
     CommandStateAssign(state.roots[stage], root);
-    for (auto &argument : state.arguments[stage]) argument = {};
+    for (auto &argument : state.arguments[stage]) InvalidateCommandRootArgument(argument);
 }
 void CommandStateSetHeaps(NativeCommandState &state, UINT count, ID3D12DescriptorHeap *const *heaps) {
     ID3D12DescriptorHeap *next[2] = {};
@@ -234,22 +243,25 @@ void CommandStateSetHeaps(NativeCommandState &state, UINT count, ID3D12Descripto
     for (unsigned int i = 0; i < 2; ++i) CommandStateAssign(state.heaps[i], next[i]);
     for (auto &stage : state.arguments)
         for (auto &argument : stage)
-            if (argument.kind == CommandRootKind::Table) argument = {};
+            if (argument.kind == CommandRootKind::Table) InvalidateCommandRootArgument(argument);
 }
 void CommandStateSetValue(NativeCommandState &state, unsigned int stage,
                           UINT index, CommandRootKind kind, UINT64 value) {
     if (index >= 64) { state.known = false; state.unknown_reason = "invalid-recorded-state"; return; }
     auto &argument = state.arguments[stage][index];
-    argument = {};
+    // Address/table setters do not consume the 256-byte constants payload.
+    // Invalidate its mask on every type change so a later partial constant write
+    // cannot resurrect constants belonging to an earlier binding/signature.
     argument.kind = kind;
     argument.value = value;
+    argument.constant_mask = 0;
 }
 void CommandStateSetConstants(NativeCommandState &state, unsigned int stage,
                               UINT index, UINT count, const void *values, UINT offset) {
     if (index >= 64 || offset > 64 || count > 64 - offset ||
         (count != 0 && values == nullptr)) { state.known = false; state.unknown_reason = "invalid-recorded-state"; return; }
     auto &argument = state.arguments[stage][index];
-    if (argument.kind != CommandRootKind::Constants) argument = {};
+    if (argument.kind != CommandRootKind::Constants) InvalidateCommandRootArgument(argument);
     argument.kind = CommandRootKind::Constants;
     const auto *source = static_cast<const UINT *>(values);
     for (UINT i = 0; i < count; ++i) {
@@ -570,6 +582,38 @@ struct CommandStateSlotScope {
     CommandStateSlotScope(const CommandStateSlotScope &) = delete;
     CommandStateSlotScope &operator=(const CommandStateSlotScope &) = delete;
 };
+// One bounded cache per thread, shared across ALL Mutation instantiations.
+// Template-local TLS duplicated this lookup for each setter/hook family and
+// a one-entry cache walked all 2048 slots whenever lists alternated.
+struct CommandStateLookupCache {
+    struct Entry {
+        ID3D12GraphicsCommandList *native = nullptr;
+        unsigned long long epoch = 0;
+        CommandStateRecord *record = nullptr; // nullptr is a cached negative.
+    };
+    Entry entries[4] = {};
+    unsigned recent = 0, replacement = 0;
+    Entry *Find(ID3D12GraphicsCommandList *native, unsigned long long epoch) {
+        if (entries[recent].native == native && entries[recent].epoch == epoch)
+            return &entries[recent];
+        for (unsigned i = 0; i < 4; ++i)
+            if (entries[i].native == native && entries[i].epoch == epoch) {
+                recent = i;
+                return &entries[i];
+            }
+        return nullptr;
+    }
+    void Remember(ID3D12GraphicsCommandList *native, unsigned long long epoch,
+                  CommandStateRecord *record) {
+        unsigned index = replacement;
+        for (unsigned i = 0; i < 4; ++i)
+            if (entries[i].epoch != epoch) { index = i; break; }
+        entries[index] = {native, epoch, record};
+        recent = index;
+        replacement = (index + 1) % 4;
+    }
+};
+thread_local CommandStateLookupCache g_command_state_lookup_cache;
 // END COMMAND_STATE_MUTATION_SYNCHRONIZATION
 std::atomic<unsigned long long> g_command_state_epoch{1};
 unsigned long long g_next_command_state_token = 1;
@@ -654,27 +698,26 @@ template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommand
     // Pin the record/state lifetime before resolving or using a cached slot.
     // Register, Reset metadata, capture and retirement still use the existing
     // registry-exclusive paths; no evidence is discarded when NR is disabled.
-    thread_local ID3D12GraphicsCommandList *last_native = nullptr;
-    thread_local unsigned long long last_epoch = 0;
-    thread_local CommandStateRecord *last_record = nullptr;
+    auto &cache = g_command_state_lookup_cache;
     const auto observed_epoch = g_command_state_epoch.load(std::memory_order_acquire);
-    // Keep the old no-op fast path for an unwatched list. No record is ever
-    // dereferenced before shared lifetime ownership has been obtained.
-    if (last_native == native && last_epoch == observed_epoch && last_record == nullptr) return;
+    // Keep the existing negative fast path. Comparing a cached record pointer
+    // is not permission to dereference it: shared lifetime ownership is required.
+    const auto *cached = cache.Find(native, observed_epoch);
+    if (cached != nullptr && cached->record == nullptr) return;
     CommandStateRegistryReadScope registry_scope;
     // A registry writer may have published/retired a record while we waited.
     const auto epoch = g_command_state_epoch.load(std::memory_order_acquire);
-    if (last_native != native || last_epoch != epoch) {
-        last_record = nullptr;
+    cached = cache.Find(native, epoch);
+    CommandStateRecord *matched = cached != nullptr ? cached->record : nullptr;
+    if (cached == nullptr) {
         for (auto &record : g_command_states)
-            if (record.native == native && record.state != nullptr) { last_record = &record; break; }
-        last_native = native;
-        last_epoch = epoch;
+            if (record.native == native && record.state != nullptr) { matched = &record; break; }
+        cache.Remember(native, epoch, matched);
     }
-    if (last_record == nullptr) return;
-    CommandStateSlotScope state_scope(*last_record);
-    if (last_record->native == native && last_record->state != nullptr && last_record->hooks_ready)
-        mutation(*last_record->state);
+    if (matched == nullptr) return;
+    CommandStateSlotScope state_scope(*matched);
+    if (matched->native == native && matched->state != nullptr && matched->hooks_ready)
+        mutation(*matched->state);
 }
 
 struct CommandStateHookFamily {

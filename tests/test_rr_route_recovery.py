@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -167,14 +168,13 @@ int main() {{
             source_path = temp_path / "route_recovery.cpp"
             exe_path = temp_path / ("route_recovery.exe" if os.name == "nt" else "route_recovery")
             source_path.write_text(harness, encoding="utf-8")
+            link_flags = [] if sys.platform == "darwin" else ["-static", "-static-libgcc", "-static-libstdc++"]
             built = subprocess.run(
                 [
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     str(source_path),
                     "-o",
                     str(exe_path),
@@ -354,14 +354,13 @@ int main() {{
                 "route_prefix.exe" if os.name == "nt" else "route_prefix"
             )
             source_path.write_text(harness, encoding="utf-8")
+            link_flags = [] if sys.platform == "darwin" else ["-static", "-static-libgcc", "-static-libstdc++"]
             built = subprocess.run(
                 [
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
@@ -428,9 +427,7 @@ int main() {{
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     "-I", str(CORE.parent),
                     str(source_path),
                     "-o",

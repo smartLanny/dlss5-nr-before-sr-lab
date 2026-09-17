@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -85,7 +86,9 @@ int main(){
             cpp = Path(directory) / "clipboard.cpp"
             exe = Path(directory) / "clipboard.exe"
             cpp.write_text(harness, encoding="utf-8")
-            subprocess.run([cxx, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-static",
+            # macOS has no fully static CRT; retain the existing flags elsewhere.
+            link_flags = [] if sys.platform == "darwin" else ["-static"]
+            subprocess.run([cxx, "-std=c++17", "-Wall", "-Wextra", "-Werror", *link_flags,
                             str(cpp), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
