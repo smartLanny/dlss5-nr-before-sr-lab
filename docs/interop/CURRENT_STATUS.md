@@ -1,5 +1,9 @@
 # 统一开发与测试交接入口
 
+## 2026-09-17 D21 lockperf2：中文测试 OTA
+
+给其他电脑导入用的中文 OTA 已打好，不含 NVIDIA 游戏 DLL。路径 `D:\ChatGPT\DLSS5\deliveries\d21-lockperf2-1bacd72c-20260917-ota\DLSS5-0.5-D21-lockperf2-zh-CN-OTA.zip`，SHA256 `a0373e3a317f38d7eb571947641b319922ebec746da842734e11fb94e906691a`。包内 5 项：中文 Core `dd3a66d9…`、配套 nrchain `1acf3cbe…`、说明、许可证、`ota-manifest.json`。管理器「导入核心更新」后需再对该游戏应用 `0.5 D21-lockperf2`。不是游戏验收。
+
 ## 2026-09-17 D21 lockperf2：已装入异环
 
 维护者要求把中文 lockperf2 整套换进异环查看。原活动是 D13 Core（`3f67cc32…`）加 D13 的 8KB `nrchain`（`46041a5f…`）。现已配对为 lockperf2 Core `dd3a66d9…` + 与 D21/lockperf1 相同的 222KB `nrchain` `1acf3cbe…`。INI、ReShade.ini 未变。D13 的 Core 和 8KB chain 均在游戏目录外备份。未启动游戏，GPU 跑满与否仍待维护者看。
