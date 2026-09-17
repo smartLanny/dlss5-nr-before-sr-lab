@@ -23,7 +23,7 @@ class GeneralHarness(unittest.TestCase):
             self.assertEqual(len(re.findall(pattern,text+text)),2)
         self.assertIn('$definitions.Count -ne 1',script)
         self.assertIn("$writer.Contains($name + '(')",script)
-        self.assertIn('$helperDefinitions + $statsCount.Value',script)
+        self.assertIn('$helperDefinitions + $statsDeclaration',script)
 
     def test_source_inputs_use_explicit_utf8(self):
         script = (ROOT/'scripts/validate-codec-gpu.ps1').read_text(encoding='utf-8-sig')

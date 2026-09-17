@@ -42,6 +42,23 @@
     (d)->CreateShaderResourceView(r, s, h)
 #define ID3D12Device_CreateUnorderedAccessView(d, r, c, s, h) \
     (d)->CreateUnorderedAccessView(r, c, s, h)
+namespace nr_binding {
+struct DescriptorSet {
+    void Srv(UINT, ID3D12Resource*, DXGI_FORMAT) {}
+    void Uav(UINT, ID3D12Resource*, DXGI_FORMAT) {}
+    void Raw(UINT, ID3D12Resource*, unsigned) {}
+};
+}
+namespace nr_dual { namespace dx12 {
+struct Surfaces {
+    ID3D12Resource *input=nullptr,*output=nullptr,*low_delta=nullptr;
+};
+inline Surfaces GetSurfaces(void*) { return {}; }
+}}
+namespace nr_store_comparison {
+inline unsigned BufferWords(unsigned capacity) { return capacity; }
+}
+struct NrTestDualSelection { void *dual_spatial=nullptr; };
 struct NrSlot {
     unsigned store_interval_capacity=0;
     ID3D12Resource *source = nullptr, *proxy = nullptr, *neural = nullptr,
@@ -50,6 +67,14 @@ struct NrSlot {
                    *motion_proxy = nullptr, *delta_stats = nullptr;
     ID3D12Resource *edit_field = nullptr, *edit_horizontal = nullptr,
                    *lanczos_intermediate = nullptr;
+    ID3D12Resource *face_mask = nullptr, *region_field = nullptr;
+    NrTestDualSelection *dual_selected = nullptr;
+    bool dual_reduced = false;
+    struct {
+        bool armed=false;
+        ID3D12Resource *buffer=nullptr;
+        std::size_t bytes=0;
+    } stage_capture;
     ID3D12DescriptorHeap *heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
     ID3D12DescriptorHeap *pre_store_probe_heap = nullptr;
@@ -63,6 +88,7 @@ struct {
     UINT descriptor_size = 0;
 } g_codec;
 // @PRODUCTION_DESCRIPTOR_WRITER@
+static_assert(kDiagnosticStatsUintCount > 0);
 #undef ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart
 #undef ID3D12Resource_GetDesc
 #undef ID3D12Device_CreateShaderResourceView

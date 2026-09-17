@@ -11,7 +11,7 @@ using ULONGLONG=unsigned long long;
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};
 std::atomic<unsigned long long> g_all_evaluations{900},g_rr_guarded_sr_evaluations{12};
 namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
-struct ChainConfig {int mode=2;bool enabled=true;} g_config;
+struct ChainConfig {int mode=2;bool enabled=true,color_protection=true;} g_config;
 bool ApplyConfig(ChainConfig next,const char*) {
  if(nr_f8::g_config_hold.load() || next.enabled==g_config.enabled)return false;
  g_config=next;++g_config_generation;++g_history_generation;return true;
@@ -44,6 +44,18 @@ void FeedbackAppend(FeedbackSession& session,const char* format,...) {
  if(n<0 || static_cast<unsigned>(n)>=sizeof(text))std::abort();
  session.text.append(text,static_cast<unsigned>(n));
 }
+enum class RrDepthReject : unsigned { None };
+const char* RrDepthRejectName(RrDepthReject){return "none";}
+bool IsCompatibilityPostObserved(){return false;}
+int EffectivePictureMode(int requested){return requested;}
+std::atomic<RrDepthReject> g_rr_depth_last_reject{RrDepthReject::None};
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned long long> g_compat_fallback_attempts{0},g_compat_fallback_recorded{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
+std::atomic<unsigned long long> g_native_command_records{0},g_native_command_retirements{0};
+std::atomic<unsigned long long> g_native_command_record_failures{0};
+std::atomic<unsigned long long> g_rr_depth_conversions{0},g_rr_depth_declines{0};
 void EmitPostFeedback(FeedbackSession& s) {
  const char* prefix="capture";
 #include "src/interop/nr_post_feedback.inl"

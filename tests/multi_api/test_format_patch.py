@@ -84,11 +84,12 @@ class Patches(unittest.TestCase):
         import hashlib
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        self.assertEqual(digest,'06018f0d4aa7d6df035c9aec0ecefe63fb69a1de')
+        self.assertEqual(digest,'faa25f711eac329c71a78e24917f89dae4b904e6')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.
         def shader(s):return s.split('const char kCodecShader[] = R"HLSL(',1)[1].split(')HLSL";',1)[0]
         self.assertEqual(shader(result), shader(text))
-        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),2)
+        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),1)
+        self.assertEqual(result.count('#define NR_NATIVE_FORMAT_STAGED 1'),1)
 if __name__=='__main__':unittest.main()

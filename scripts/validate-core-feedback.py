@@ -49,6 +49,7 @@ HARNESS = r'''
 #include "nr_compat_present_policy.hpp"
 #include "nr_full_pass.hpp"
 #include "nr_source_frame.hpp"
+#include "nr_late_present_receipt.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -113,6 +114,8 @@ std::atomic<unsigned long long> g_nr_successful_evaluations{0},g_nr_transfer_sub
 std::atomic<unsigned> g_live_rr_handles{0},g_rr_create_in_progress{0};
 std::atomic<int> g_last_bypass_reason{0},g_last_carrier_feature{1},g_module_observer_fault{0};
 std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true},g_preflight_dlssd_loaded{false},g_command_signature_hook_published{true},g_command_signature_start_deferred{false};
+std::atomic<bool> g_loader_init_hooks_ready{true},g_core_lifecycle_hooks_ready{true};
+std::atomic<unsigned long long> g_loader_init_completions{1};
 enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
@@ -152,12 +155,43 @@ bool fixture_capture_fg=false;
 unsigned CaptureStatus(bool fg){return fixture_capture_status[fg];}
 unsigned CaptureWorkers(bool fg){return fixture_capture_workers[fg];}
 bool CaptureUsesFg(){return fixture_capture_fg;}
+bool TrySnapshotExperimentModes(unsigned& requested,unsigned& active,bool& has_active,bool& low_requested){
+    requested=active=0;has_active=false;low_requested=false;return true;
+}
 }
 namespace nr_source_runtime {
 nr_source_frame::PresentObservation fixture_source;
 bool fixture_source_busy=false;
 bool TryPresentObservation(nr_source_frame::PresentObservation& out){out={};if(fixture_source_busy||!fixture_source.ordinal)return false;out=fixture_source;return true;}
+SRWLOCK source_lock=SRWLOCK_INIT;
+unsigned long long present_demand_skips=0;
+struct GuideCaptureDiagnostic {
+    nr_source_frame::Source source{};
+    unsigned config=0,depth_physical_width=0,depth_physical_height=0;
+    unsigned depth_x=0,depth_y=0,depth_width=0,depth_height=0;
+    unsigned motion_width=0,motion_height=0,output_width=0,output_height=0;
+    bool depth_state_observed=false,motion_state_observed=false,shader_snapshot=false;
+    const char* stage="unobserved";
+};
+struct GuideReceiptDiagnostics {
+    GuideCaptureDiagnostic last{};
+    unsigned long long attempts=0,recorded=0,native_success=0,native_failure=0;
+    unsigned long long submitted=0,signal_failure=0,selected=0;
+    unsigned present_width=0,present_height=0;
+    nr_late_present::Decision selection=nr_late_present::Decision::None;
+};
+bool TryGuideReceiptDiagnostics(GuideReceiptDiagnostics& out){out={};return false;}
 }
+struct DescriptorCountersFixture {
+    unsigned long long gpu_shadow_skipped_calls=0,gpu_shadow_skipped_descriptors=0;
+    unsigned long long heap_retire_slot_visits=0,unknown_slot_visits=0;
+    unsigned long long copy_begin_batches=0,copy_finish_batches=0;
+    unsigned long long copy_begin_cpu_ns=0,copy_finish_cpu_ns=0;
+    unsigned long long heap_retire_cpu_ns=0,unknown_cpu_ns=0;
+    bool gpu_mirror=true,profile_enabled=false;
+};
+struct DescriptorRegistryFixture {DescriptorCountersFixture SnapshotCounters() const{return {};}};
+DescriptorRegistryFixture g_nr_descriptors;
 namespace nr_processing_runtime {
 nr_processing::Start fixture_effective=nr_processing::Start::Before;
 nr_processing::Start Effective(){return fixture_effective;}
@@ -741,7 +775,7 @@ def main():
     print(f'Core feedback validation output: {out}', flush=True)
     cpp, exe = out/'core.cpp', out/'core.exe'
     cpp.write_text(text, encoding='utf-8')
-    subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
+    subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-Wno-format-security',
                     '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe)], check=True)
     if args.compile_only:
         print('Windows harness cross-compiled; not executed.')

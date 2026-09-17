@@ -37,14 +37,15 @@ def main() -> None:
         'poweredChromaLog = baseChroma * scale;',
         'sourceLuma > fullProxyLuma',
         'FrameConfidence <= 0.000001',
-        'kCodecRootConstantCount = 35;',
+        'kCodecRootConstantCount = 60;',
     ]:
         require(token in source, 'Missing production integration: ' + token)
     history = re.search(r'bool SameHistoryConfig\([^;]*?\)\s*\{(.*?)\n\}', source, re.S)
     require(history is not None, 'History comparator missing')
     require('high_strength_protection' not in history.group(1), 'Composition knob must not reset NR history')
-    require('&next.high_strength_protection' in ui and 'ImGui::BeginDisabled(next.mode != 2);' in ui,
-            'Mode2 UI A/B switch missing')
+    require('&next.high_strength_protection' in ui and
+            'optional shared post candidate' in ui,
+            'pre/post high-strength UI A/B switch missing')
     require('HighStrengthProtection=1' in ini, 'Beta default and persistent key missing')
     shader = source[source.index('const char kCodecShader'):source.index('ID3DBlob *CompileCodecShader')]
     require(shader.count('Passthrough & 1024u') == 1, 'Guard flag must have one runtime consumer')
@@ -103,7 +104,7 @@ int main() {
         cpp.write_text(prefix + helper + tests, encoding='utf-8')
         subprocess.run([args.compiler, '-std=c++20', '-O2', '-Wall', '-Wextra', '-Werror', str(cpp), '-o', str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
-    print('beta0.5 config / Mode2-only / ABI / history integration checks passed.')
+    print('beta0.5 config / pre-post route / ABI / history integration checks passed.')
 
 if __name__ == '__main__':
     main()

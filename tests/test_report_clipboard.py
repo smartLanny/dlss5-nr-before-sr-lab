@@ -27,6 +27,7 @@ class ReportClipboardTests(unittest.TestCase):
 #include <string>
 using HWND=void*; using HGLOBAL=void*; using ULONGLONG=unsigned long long;
 constexpr unsigned GMEM_MOVEABLE=2, CF_UNICODETEXT=13;
+namespace reshade { namespace api { struct effect_runtime; } }
 int fail=0, frees=0, opens=0, closes=0, transfers=0;
 std::wstring clipboard;
 HGLOBAL GlobalAlloc(unsigned flags,std::size_t n){assert(flags==2);return fail==1?nullptr:std::malloc(n);}

@@ -539,6 +539,38 @@ bool RegisterCreatedCommandStateList(ID3D12GraphicsCommandList *,
 void ObserveCommandFirstRecording(ID3D12GraphicsCommandList *, const CommandCreationInfo &);
 CommandStateRecord g_command_states[2048] = {};
 SRWLOCK g_command_state_lock = SRWLOCK_INIT;
+
+// BEGIN COMMAND_STATE_MUTATION_SYNCHRONIZATION
+// The existing registry lock remains the lifetime boundary. All state writers
+// outside MutateNativeCommandState retain registry-exclusive ownership. Setter
+// callbacks hold registry-shared ownership plus their stable record-slot lock;
+// unrelated command lists therefore no longer need a global write lock.
+// Shared readers of NativeCommandState must also take CommandStateSlotScope.
+// Lock order is registry -> slot. Neither guard may upgrade the registry lock.
+struct alignas(64) CommandStateSlotSynchronization {
+    SRWLOCK mutation = SRWLOCK_INIT;
+};
+CommandStateSlotSynchronization g_command_state_slot_locks[
+    sizeof(g_command_states) / sizeof(g_command_states[0])] = {};
+struct CommandStateRegistryReadScope {
+    CommandStateRegistryReadScope() { AcquireSRWLockShared(&g_command_state_lock); }
+    ~CommandStateRegistryReadScope() { ReleaseSRWLockShared(&g_command_state_lock); }
+    CommandStateRegistryReadScope(const CommandStateRegistryReadScope &) = delete;
+    CommandStateRegistryReadScope &operator=(const CommandStateRegistryReadScope &) = delete;
+};
+struct CommandStateSlotScope {
+    SRWLOCK *lock;
+    // record belongs to the static registry array; its lifetime and slot are
+    // pinned by the caller's registry-shared (or exclusive) ownership.
+    explicit CommandStateSlotScope(const CommandStateRecord &record)
+        : lock(&g_command_state_slot_locks[&record - g_command_states].mutation) {
+        AcquireSRWLockExclusive(lock);
+    }
+    ~CommandStateSlotScope() { ReleaseSRWLockExclusive(lock); }
+    CommandStateSlotScope(const CommandStateSlotScope &) = delete;
+    CommandStateSlotScope &operator=(const CommandStateSlotScope &) = delete;
+};
+// END COMMAND_STATE_MUTATION_SYNCHRONIZATION
 std::atomic<unsigned long long> g_command_state_epoch{1};
 unsigned long long g_next_command_state_token = 1;
 std::atomic<unsigned long long> g_command_state_bypasses{0};
@@ -618,25 +650,31 @@ CommandStateRecord *FindCommandStateTokenLocked(unsigned long long token) {
     return nullptr;
 }
 template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommandList *native, Mutation mutation) {
-    // No COM/private-data access on every setter. Unrelated lists cache a no-op.
+    if (native == nullptr) return;
+    // Pin the record/state lifetime before resolving or using a cached slot.
+    // Register, Reset metadata, capture and retirement still use the existing
+    // registry-exclusive paths; no evidence is discarded when NR is disabled.
     thread_local ID3D12GraphicsCommandList *last_native = nullptr;
     thread_local unsigned long long last_epoch = 0;
     thread_local CommandStateRecord *last_record = nullptr;
+    const auto observed_epoch = g_command_state_epoch.load(std::memory_order_acquire);
+    // Keep the old no-op fast path for an unwatched list. No record is ever
+    // dereferenced before shared lifetime ownership has been obtained.
+    if (last_native == native && last_epoch == observed_epoch && last_record == nullptr) return;
+    CommandStateRegistryReadScope registry_scope;
+    // A registry writer may have published/retired a record while we waited.
     const auto epoch = g_command_state_epoch.load(std::memory_order_acquire);
     if (last_native != native || last_epoch != epoch) {
-        AcquireSRWLockShared(&g_command_state_lock);
         last_record = nullptr;
         for (auto &record : g_command_states)
             if (record.native == native && record.state != nullptr) { last_record = &record; break; }
         last_native = native;
         last_epoch = epoch;
-        ReleaseSRWLockShared(&g_command_state_lock);
     }
     if (last_record == nullptr) return;
-    AcquireSRWLockExclusive(&g_command_state_lock);
+    CommandStateSlotScope state_scope(*last_record);
     if (last_record->native == native && last_record->state != nullptr && last_record->hooks_ready)
         mutation(*last_record->state);
-    ReleaseSRWLockExclusive(&g_command_state_lock);
 }
 
 struct CommandStateHookFamily {

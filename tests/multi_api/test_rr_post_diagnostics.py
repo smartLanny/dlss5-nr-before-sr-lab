@@ -49,6 +49,9 @@ std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0
             # implementation intact and supply only its config/source inputs;
             # each existing case is an independent explicit route selection.
             stubs += '\n#include <cmath>\n#include "' + (ROOT / "src/nr_processing_route.h").as_posix() + '"\n'
+            stubs += '#include "' + (ROOT / "src/nr_fg_presentation.h").as_posix() + '"\n'
+            stubs += 'nr_fg_presentation::Policy g_fg_presentation_policy;\n'
+            stubs += 'namespace nr_compat_present_runtime { bool InlineDrainReady() { return true; } bool NativeNrDrained() { return true; } }\n'
             config = 'struct ChainConfig { bool enabled=true, identity_use_original=false, color_protection=true; float post_transfer_strength=1; int mode=2; };'
             self.assertEqual(source_text.count(config), 1)
             source_text = source_text.replace(config, config[:-2] + '''

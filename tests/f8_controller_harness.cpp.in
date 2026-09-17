@@ -19,6 +19,7 @@
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
 #include "nr_processing_route.h"
+#include "nr_fg_presentation.h"
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
 enum class input_source { mouse };
@@ -91,6 +92,7 @@ CRITICAL_SECTION g_chain_cs;
 struct ChainLockInit { ChainLockInit(){InitializeCriticalSection(&g_chain_cs);} ~ChainLockInit(){DeleteCriticalSection(&g_chain_cs);} } chain_lock_init;
 void Log(const char*,...){}
 namespace nr_source_runtime {unsigned long long CurrentRetryToken(){static unsigned long long value=1;return value++;}}
+nr_fg_presentation::Policy g_fg_presentation_policy;
 PROCESSING_RUNTIME
 RELOAD_ENTRY
     if(simulate_disk_poll && !SameConfig(config,disk_config)) {config=disk_config;++g_config_generation;}

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Clean,
     [switch]$DescriptorProfile,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
@@ -7,7 +7,8 @@ param(
     [string]$CodecCacheRoot,
     [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
     [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
-    [string]$ReuseBridgeRoot
+    [string]$ReuseBridgeRoot,
+    [string]$NrchainReuseRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,7 +154,15 @@ if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_cod
 $Common += '-DNR_CODEC_PRECOMPILED=1'
 $Common += "-I$Build"
 
-& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath -ReuseBridgeRoot $ReuseBridgeRoot
+if ($ReuseBridgeRoot -and $NrchainReuseRoot) {
+    $LegacyReuse = (Resolve-Path -LiteralPath $NrchainReuseRoot).Path
+    $CurrentReuse = (Resolve-Path -LiteralPath $ReuseBridgeRoot).Path
+    if ($LegacyReuse -ne $CurrentReuse) {
+        throw 'ReuseBridgeRoot and NrchainReuseRoot identify different bridge builds.'
+    }
+}
+$SelectedReuseBridgeRoot = if ($ReuseBridgeRoot) { $ReuseBridgeRoot } else { $NrchainReuseRoot }
+& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath -ReuseBridgeRoot $SelectedReuseBridgeRoot
 if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
 
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
@@ -167,7 +176,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-lockperf1-sottr1-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -176,7 +185,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-lockperf1-sottr1-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -197,9 +206,12 @@ foreach ($AddonBuild in $AddonBuilds) {
     # Keep the native tool's output leaf ASCII; PowerShell performs the final
     # Unicode rename. The UTF-8 BOM on this script is required by Windows PS5.
     $LinkOutput = Join-Path $Build $AddonBuild.LinkLeaf
+    # Retain exact address attribution outside the game payload, without changing
+    # release optimization or adding hot-path instrumentation.
+    $LinkMap = Join-Path $Objects ($AddonBuild.Object + '.map')
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
-        '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
+        '-Wl,--strip-all', '-Wl,--no-insert-timestamp', '-Xlinker', '-Map', '-Xlinker', $LinkMap
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'
