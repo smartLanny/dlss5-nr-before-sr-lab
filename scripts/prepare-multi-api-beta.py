@@ -48,7 +48,10 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': 'ed86c15f23cf88fa22d2dc7eca37f0df198fea21',
+    # d0bc3aab adds the CP2077 pre-Feature-1 RR fail-closed guard. Keep the
+    # integration pin explicit so generation cannot silently stage another
+    # runtime source.
+    'src/nr_before_sr.cpp': 'c187a987c2c53b11d1719697748f144f4681e478',
     'src/nr_before_sr.rc': '5721708ad56339a6118626f42ef1ee95ba1d42b2',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
