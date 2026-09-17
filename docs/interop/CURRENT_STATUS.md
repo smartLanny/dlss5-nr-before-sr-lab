@@ -1,8 +1,25 @@
 # 统一开发与测试交接入口
 
+## 2026-09-17 D21 lockperf2：Windows 测试包已出
+
+隔离 worktree `nr-d21-lockperf2-build-20260917` 已完成本地 Windows 双语 Core 编译与 WARP，并打出可替换游戏的单 Core 测试 ZIP。运行时仍是 PR #280 的 lockperf2 修复；本机额外提交只修继承夹具和 PowerShell 5 负控宿主中断，没有改 NR 层数、分辨率、shader 或画质参数。未推送、未合并、未装游戏、未关 #277/#272/#273。
+
+| 项 | 值 |
+|---|---|
+| 包源 HEAD | `1bacd72c2cf383013c78c0516c45d99691adbe91` |
+| 版本串 | `beta0.5-dline21-lockperf2` |
+| 中文 ZIP | `D:\ChatGPT\DLSS5\deliveries\d21-lockperf2-1bacd72c-20260917\DLSS5-D21-lockperf2-zh-CN-test.zip` |
+| 中文 ZIP SHA256 | `c802ed0c99b81e740468885684cd41db3e67698aa04b3a875990fd02df5d2173` |
+| 中文 Core SHA256 | `dd3a66d984c9b32fe53f47060368711c4f166be4d73c2864a433c57685811c69` |
+| 英文 ZIP SHA256 | `7f0bff71f6086bc6ecda762d3ac618c48bfa230fe5ad49011104afb2b2751580` |
+| 英文 Core SHA256 | `3e51c21f0c5d9b944b06711c2eceadb250dc611f73c276a7576b83b04352b679` |
+| nrchain 复用 | `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2` |
+
+包内只有一个 Core 与 `READ-FIRST.txt`，不含 INI、模型、nrchain、桥接器或覆盖用游戏文件。这是源码/WARP 候选，不是游戏或 NVIDIA 验收。官方 `build-lockperf2-candidate.ps1` 未能一次跑通：本机没有 D3D12 debug layer，`post_sr_snapshot_gpu` 未跑。继承 Windows 回归在 `9ff0ac27` 上通过（除 snapshot）；本 HEAD 另过 SRW 27 项、hotpath（16000→4 扫描、64/64 常量、20000 序列）和完整双语 canonical 构建。GitHub Actions 仍未启动。下一步是原弱 CPU 场景换 Core 实测，保留旧 D21lock 回退。[范围与边界](D21_COMMAND_STATE_LOCKPERF2_20260917.md)。
+
 ## 2026-09-17 D21 lockperf2：状态维护热路径候选
 
-从 d8de528 的 lockperf1 构建修复基线接续 #277，减少未使用根常量载荷的清零，并把模板内单项查找缓存改为跨 setter 共享的四项线程缓存。保留 registry/slot 生命周期锁、epoch、Reset/恢复、全部观察器与画质工作量。两项旧源码负控失败、新源码通过，20,000 组有效状态差分与原 27 项同步/读取场景通过 macOS ASan/UBSan；这不是 Windows、WARP 或游戏验收。Windows 构建入口为 `scripts/build-lockperf2-candidate.ps1`。CI 因账单/额度未启动，尚无本轮已验证的可安装包；#277/#272/#273 保持开放。[范围、验证与交付条件](D21_COMMAND_STATE_LOCKPERF2_20260917.md)。
+从 d8de528 的 lockperf1 构建修复基线接续 #277，减少未使用根常量载荷的清零，并把模板内单项查找缓存改为跨 setter 共享的四项线程缓存。保留 registry/slot 生命周期锁、epoch、Reset/恢复、全部观察器与画质工作量。两项旧源码负控失败、新源码通过，20,000 组有效状态差分与原 27 项同步/读取场景通过 macOS ASan/UBSan；这不是 Windows、WARP 或游戏验收。Windows 构建入口为 `scripts/build-lockperf2-candidate.ps1`。CI 因账单/额度未启动；本地 Windows 包见上方最新条目，#277/#272/#273 保持开放。[范围、验证与交付条件](D21_COMMAND_STATE_LOCKPERF2_20260917.md)。
 
 ## 2026-09-14 D21 追加澄清：默认仅用于无保存配置
 

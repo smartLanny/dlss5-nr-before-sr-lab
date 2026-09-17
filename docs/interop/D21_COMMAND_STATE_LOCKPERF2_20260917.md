@@ -78,7 +78,7 @@ PR 创建后核查真实路由，发现 `next/0.5` 原本由 `beta050-validate.y
 
 ## 验收与限制
 
-用户本轮明确不连接 Windows DevSpace。线上最近 CI 的实际 annotation 显示账单/额度阻止启动；不重试这种任务，也不把它记为通过。因此本轮不能声称已经完成 Windows 完整编译、WARP、NVIDIA 推理或游戏验证；未生成的 DLL/ZIP 不应标记为交付成功。
+云端 ChatGPT 轮次没有连接 Windows；GitHub Actions 仍因账单/额度未启动，不能记为通过。后续本机 Windows 轮次已在隔离 worktree 完成双语 Core 编译、canonical WARP 和测试 ZIP，源 HEAD 为 `1bacd72c2cf383013c78c0516c45d99691adbe91`。官方 `build-lockperf2-candidate.ps1` 因本机缺少 D3D12 debug layer（`0x887A002D`）未能一次跑通 `post_sr_snapshot_gpu`；该缺口仍开放，没有跳过该检查去改脚本出“成功包”。NVIDIA Feature18 与游戏实测仍未做。
 
 候选构建后，先原弱 CPU 场景冷启动 F6 OFF，再 ON -> OFF、单层 NR -> SR / SR -> NR，双层单独测试。保持 INI、分辨率、SR/RR/FG 与模型相同，确认只加载一个 Core。比较同窗 Present 帧时间与 GPU 行为，而非仅比较进程总 CPU 或采样热点排名。
 
