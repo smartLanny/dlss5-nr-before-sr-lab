@@ -238,12 +238,25 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
+function Invoke-CodecOracle([string[]]$Arguments, [string]$Stem) {
+    # PS5 turns redirected native stderr into terminating NativeCommandError
+    # under Stop. Capture the process streams as files before checking the
+    # expected exit status and precise oracle failure instead.
+    $Stdout = Join-Path $build ($Stem + '.stdout.txt')
+    $Stderr = Join-Path $build ($Stem + '.stderr.txt')
+    $Options = @{FilePath=$binary; Wait=$true; PassThru=$true; WindowStyle='Hidden';
+        RedirectStandardOutput=$Stdout; RedirectStandardError=$Stderr}
+    if ($Arguments.Count) { $Options.ArgumentList = $Arguments }
+    $Process = Start-Process @Options
+    return @{Code=$Process.ExitCode; Text=([IO.File]::ReadAllText($Stdout) + [IO.File]::ReadAllText($Stderr))}
+}
 if($DualGeneric){& $binary '--dual-generic';if($LASTEXITCODE){throw 'Dual NR/generic GPU contract failed.'};return}
 if($Regions){& $binary '--regions';if($LASTEXITCODE){throw 'Region compositor GPU contract failed.'};return}
 if($FaceProtection) {
-    $faceOutput = & $binary '--face-protection' 2>&1
-    $faceExit = $LASTEXITCODE
-    $faceOutput | Write-Output
+    $result = Invoke-CodecOracle @('--face-protection') 'codec_gpu_face'
+    $faceOutput = $result.Text
+    $faceExit = $result.Code
+    Write-Host $faceOutput
     if($FaceNegativeControl) {
         if($faceExit -ne 1 -or ($faceOutput -join "`n") -notmatch 'FACE_C1_ANCHOR') {throw 'Face negative control must fail the exact 1x image anchor.'}
         $global:LASTEXITCODE=0
@@ -293,15 +306,19 @@ if ($ColorEditField) {
     & python (Join-Path $projectRoot 'scripts/validate-composition-contract.py') --capture $ComparisonOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
     if ($LASTEXITCODE -ne 0) { throw 'Independent raw-plane/contract validation failed.' }
 } elseif ($LayerNegativeControl) {
-    $negative = & $binary --layer-negative-control 2>&1
-    if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
+    $result = Invoke-CodecOracle @('--layer-negative-control') 'codec_gpu_layer_negative'
+    $negative = $result.Text
+    Write-Host $negative
+    if ($result.Code -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
         throw 'Layer negative control must reject the precise unattenuated bright edit.'
     }
     $global:LASTEXITCODE = 0
     Write-Host 'Layer negative control rejected the expected unchanged bright edit.'
 } elseif ($NegativeControl) {
-    $negative = & $binary --negative-control 2>&1
-    if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'V3_SDR_EXTRA_BOOST_COLOUR') {
+    $result = Invoke-CodecOracle @('--negative-control') 'codec_gpu_negative'
+    $negative = $result.Text
+    Write-Host $negative
+    if ($result.Code -ne 1 -or ($negative -join "`n") -notmatch 'V3_SDR_EXTRA_BOOST_COLOUR') {
         throw 'Negative control must reject the exact unprotected SDR colour result, not a crash.'
     }
     $global:LASTEXITCODE = 0
