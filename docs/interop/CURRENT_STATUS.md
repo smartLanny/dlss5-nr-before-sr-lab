@@ -2,7 +2,7 @@
 
 ## 2026-09-17 D21 lockperf2：已装入异环
 
-维护者要求把中文 lockperf2 Core 换进异环查看。游戏未在运行。原活动 Core 是 **D13**（`3f67cc32…`），不是 D21lock；已整文件移到游戏目录外备份。现活动文件仍为 `nr-before-sr.zh-CN.addon64`，SHA256 `dd3a66d984c9b32fe53f47060368711c4f166be4d73c2864a433c57685811c69`，源 `1bacd72c`。INI、nrchain、ReShade.ini 字节未变。Win64 根目录现仅此一个 Core；对照套件子目录未动。未启动游戏，GPU 跑满与否仍待维护者看。
+维护者要求把中文 lockperf2 整套换进异环查看。原活动是 D13 Core（`3f67cc32…`）加 D13 的 8KB `nrchain`（`46041a5f…`）。现已配对为 lockperf2 Core `dd3a66d9…` + 与 D21/lockperf1 相同的 222KB `nrchain` `1acf3cbe…`。INI、ReShade.ini 未变。D13 的 Core 和 8KB chain 均在游戏目录外备份。未启动游戏，GPU 跑满与否仍待维护者看。
 
 ## 2026-09-17 D21 lockperf2：Windows 测试包已出
 
