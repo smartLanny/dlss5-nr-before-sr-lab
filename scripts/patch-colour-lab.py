@@ -3,7 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-colour1'
+VERSION = 'beta0.5-dline21-colour2'
 
 def once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)

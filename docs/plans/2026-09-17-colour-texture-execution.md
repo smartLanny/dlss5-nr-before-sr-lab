@@ -1,80 +1,100 @@
-# D21 colour/texture branch — execution milestones
+# D21 colour/texture branch — implementation and owner acceptance
 
-## Frozen baseline and delivery state
+## Frozen baseline and present delivery state
 
-- Original D21: `6c3a26fb610fb0b4d3de661fe7db25479a0a24f9`.
-- Selected D21 development baseline: #279 uniform3, `58ce637c1fbb03d0e7d93b90d26b3e4bce7b03df`.
-- Branch: `codex/d21-colour-texture-lab-20260917`.
-- M1 candidate: `beta0.5-dline21-colour1`.
-- CPU #280/lockperf changes are NOT included. Models, layer count, uniform working raster, LightingLock, FG, guides, resource access and queue lifetimes are unchanged.
-- Source implementation and local host tests exist. Windows Core compile, complete upstream staging, CI and runtime validation are NOT completed at publication. Do not label this a tested installable binary.
+- Original reproduction: D21 `6c3a26fb610fb0b4d3de661fe7db25479a0a24f9`.
+- Development base: #279 uniform3 `58ce637c1fbb03d0e7d93b90d26b3e4bce7b03df`.
+- Branch / review: `codex/d21-colour-texture-lab-20260917`, PR #281.
+- M1 parent: `406e7acb0aecc1f0d2b854532491fdbdddd9836f`.
+- Current candidate identity: `beta0.5-dline21-colour2` (M2 + M3a).
+- #280/lockperf is not included. No game files or Windows workspace were changed by this implementation session.
 
-## M1: colour admission and visible A/B controls (implemented)
+**Source candidate, not an installable owner-test delivery yet.** Production math has portable CPU checks. Full upstream generation, Windows Core/shader compilation, CI success, GPU execution and owner game acceptance are still outstanding. This session did not obtain a callable NewWin-Devspace interface after tool discovery and plugin search. That does not establish whether the computer itself is online.
 
-`ColourLabMode` under `[NRBeforeSR]`:
+## Implemented selectors
 
-| Value | Mode | Meaning |
-|---|---|---|
-| 0 | Legacy | Exact inherited colour-admission policy, including the existing AllowUnverifiedHdrColor request. Other settings are unchanged. |
-| 1 | Colour priority (default) | Only the existing UnverifiedHdr *visual* colour restriction is opted into. Same finite/coefficient/amplification guards and same shader math. |
-| 2 | Conservative | Unverified HDR remains luminance-only even when the legacy HDR opt-in is saved. Verified colour contracts remain usable. |
+All keys are under `[NRBeforeSR]`, loaded/saved through the existing transaction. UI is in the normal light/quality group.
 
-Invalid mode IDs normalize to Conservative. No INI is deleted and no existing slider values are overwritten. The candidate's separate mode key defaults to 1 even with an old INI, and the regular SaveConfig transaction persists it. A legacy Core ignores this key.
+| Key | Values | Default | NR history |
+|---|---|---|---|
+| `ColourLabMode` | 0 inherited colour policy; 1 experimental colour priority; 2 conservative unverified-HDR restriction | 1 | No new reset |
+| `ColourRestoreMode` | 0 inherited D21 compositor; 1 matched RGB/source-reference restoration | 1 | No new reset |
+| `ColourInputCurve` | 0 inherited D21 input; 1 paired N2 HDR preparation | 0 | Reset when this input selection changes |
 
-The normal light/colour group gains a policy selector, warning, one-click Legacy, and requested/effective recorded-coefficient display. It uses the existing pending transaction and source-generation snapshot. An inactive, stale, bypassed or pending record is not presented as a current success. Recorded constants are not GPU completion, presentation, or proof that a model changed colour.
+Invalid colour-policy IDs resolve conservatively. Invalid restoration/input-curve IDs resolve to their old paths. The Legacy button selects 0/0/0, retaining other picture/model/layer preferences. Switching from N2 back to Legacy therefore resets input history; an output-only switch does not. Existing saved HDR permission still applies in colour-policy mode 0.
 
-No RGB option is displayed: M1 does not implement RGB restoration or change codec/shader math. No extra NR evaluation, texture, fence wait or per-frame logging is added by this milestone.
+`ColourLabMode` controls visual colour admission only, never resource/view/subrect, ownership, device, command-list, queue, fence or writeback safety. Mode 1 can expose internal HDR colour even on an SDR display; it is not proof that an input contract is correct.
 
-### Why a generated-source overlay
+## M2: matched RGB and original-source recovery (implemented in source)
 
-The repository deliberately uses a reviewed, pinned integration exporter. M1 adds an explicit `prepare-colour-lab.py` entry which calls the unchanged uniform3 exporter (all pins, clean-tree, ancestry, upstream, and publication checks stay enabled), patches the temporary generated Core with exact one-occurrence anchors, copies two committed module inputs, and recomputes the source manifest before publication. It never edits the checkout or installs a game mod. Any anchor drift aborts.
+Both actual `CombineCS` and `CombineV2CS` call the same production helper. It consumes the matched proxy/model values already sampled by that compositor, including the existing final multilayer accessor. Per-tap model decoding remains before linear interpolation; no gamma-domain residual texture is introduced.
 
-`prepare-multi-api-beta.py` still produces the original uniform3; use **prepare-colour-lab.py or build-colour-lab.ps1 for this candidate**. The extra manifest section carries the colour1 identity, base and source commit, mode IDs and overlay hashes. The inherited PE numeric version is retained; runtime version/build identity and source manifest distinguish colour1. Do not distribute unlabelled uniform3 outputs as colour1.
+For a positive source with a proportional preparation:
 
-### Windows build entry
-
-Use the existing pinned upstream v1.4.12 checkout and the project's existing toolchain environment. From this branch on Windows PowerShell:
-
-```powershell
-python .\tests\test_colour_lab.py --repo . -v
-.\scripts\build-colour-lab.ps1 -UpstreamRoot '<existing pinned upstream checkout>' -OutputRoot 'D:\ChatGPT\DLSS5\build-colour1'
+```
+source_scale = peak(prepared_full_source) / peak(full_source)
+source_edit = (matched_model - matched_proxy) / source_scale
+reference_candidate = full_source + source_edit
 ```
 
-Required environment/parameters are the same as the existing build: `DLSS5_LLVM_MINGW_ROOT`, `DLSS5_RESHADE_ROOT`, optional existing `DLSS5_FACE_RUNTIME_ROOT`, `DLSS5_NGX_SDK_ROOT`, `DLSS5_VCVARS_PATH`, and bridge reuse root. No bash is needed. OutputRoot must not already exist. Face support is inherited from the supplied build inputs, not silently enabled or replaced.
+The full original remains the base. The low-resolution processed picture does not replace it, so existing source texture is not discarded. Source-reference recovery can create a colour in an originally zero channel; per-channel multiplication cannot. The source's forward scale is used, not an analytic inverse evaluated on the edited neural output.
 
-The wrapper invokes the existing staged `core/scripts/build.ps1`; inspect its ordinary dual-language/API outputs and reports before creating the owner test package. Do not copy all add-ons into one game: install only its matching Core, retaining the known-good bridge and fixed NR DLL. No installable package is supplied until a real build succeeds.
+The existing luminance path supplies lighting/detail/edge/region/face protection. Its bounded protected/raw relative edit becomes a gain on restored edit luminance. Colour is separated from nonzero total strength, then constrained by the requested colour amount, confidence, region/face controls, a whole-vector budget, and luminance-preserving gamut projection. Actual RGB composition uses the independent CPU colour budget, avoiding an extra inverse-strength attenuation. MaxLumaRatio and finite/original-image fallbacks remain.
 
-### M1 owner acceptance
+At neutral controls and representable in-gamut samples, T=C=1 reconstructs the source-plus-edit reference. Protection, near-black confidence, ratio/gamut limits and unsupported signed originals can intentionally depart from that reference. This is not a claim of RenoDX bit equivalence or measured game quality.
 
-Use the same scene/settings, initially FG off. Test NR→SR, SR→NR and RR→NR separately; Present is a separate compatibility path.
+### Correct preparation provenance
 
-1. Start with a backup of existing INI. The new candidate defaults to colour priority. Verify the candidate version and actual path.
-2. Compare Legacy / Priority / Conservative without changing NR parameters, working dimensions, layers or LightingLock. When old HDR colour was already enabled, Legacy and Priority may legitimately match.
-3. In Priority, vary AI colour 0/0.5/1. The expected proof is requested/effective coefficients plus captured output, not that every scene must change dramatically.
-4. On internal HDR/PQ input, watch hue, black level, highlights, exposure changes and temporal stability. On abnormal colour select Conservative, collect F8 and file/update the game issue. GPU safety bypasses still require F8 feedback.
-5. Check F6 off, resume, reload/save, invalid mode ID, resize, scene/camera cut, mode switches and return to Legacy. No texture allocation or NR history rebuild should be introduced solely by this control.
+Final composition PSO and requested UI mode are not proof of input encoding. In particular, post-SR/RR may use CombineV2CS while its proxy came from EncodeCS.
 
-### Verification presently run
+Each slot stores a small CPU encoding receipt only after its actual EncodeCS / EncodeV2CS / LanczosVertical dispatch is recorded. The receipt contains the current nonzero slot-use serial and effective input-curve choice. Composition requires a matching serial before selecting RGB, and uses the actual producer's forward preparation for the full-source reference. Missing provenance retains the baseline consumer and is explained in the UI with F8/BUG guidance. This is a command-recording receipt, not GPU-completion evidence; existing lifetime/submission checks remain authoritative.
 
-- C++20 portable policy compile/run: 10 static assertions and 402 runtime comparisons.
-- Python transform/UI tests: four passing unit cases; actual repository-source test is provided but was not run in the cloud container because the full pinned checkout is not mounted.
-- Syntax checks for the Python entry/patch modules.
-- Actual GitHub source anchors were inspected, but the complete generated stage and Windows translation unit have NOT been compiled here.
+There are no new textures, descriptors, root constants, NR invocations or GPU passes. Arithmetic and generated shader size change, so zero performance cost is **not** claimed. The existing 60-DWORD constant block and descriptor-table root ABI remain unchanged.
 
-## M2: matched RGB restoration (next implementation node)
+## M3a: optional paired N2 HDR input (implemented in source)
 
-Keep old and M1 modes untouched. Add an explicit RGB recovery recipe, shared by pre-SR and post-SR consumers, using matching input/output/model domains and source subrect/jitter. First fuse bilinear difference sampling into the existing final pass; do not default to a full-resolution residual surface. Retain original alpha, identity path, colour amount, LightingLock, faces and gamut/finite guards. Unsupported domains must show a reason and fall back explicitly, never claim the requested recipe ran. Add zero-channel, black, HDR, negative/edit, identity, edge/subrect and resize tests. Compare against the same NR outputs to isolate composition, then compile shaders and collect owner A/B.
+`ColourInputCurve=1` uses the same positive HDR preparation in both existing encoder families:
 
-## M3: paired input/restore curves
+```
+prepared = source_in_working_units / sqrt(1 + peak(source_in_working_units)^2)
+```
 
-Add source-reference reconstruction and analytic inverse as *paired recipes*, not arbitrary independent curve controls. Mark high-end inverse amplification risk. Reset NR only when input preparation/model history contracts change, not for composition-only switches or normal per-frame exposure. No private RenoDX code/shaders or binaries are committed. Use independent implementations and public mathematical references; do not claim binary-equivalent RenoDX behaviour.
+RGB restoration uses this original-source scale, not the model output's inverse pole. The existing exposure, paper-white and PQ storage conversions remain in their own source paths. Bounded SDR/model-value inputs keep their existing preparation; no unknown gamma is guessed. Requested/effective input choices are displayed separately.
 
-## M4: uniform lifecycle/memory and faces
+Input selection participates in SameHistoryConfig; output restoration does not. Default input selection 0 retains D21's inherited preparation. No analytic-neural-inverse switch, gamut calibration, signed-HDR recovery or claim of complete RenoDX codec reconstruction is included.
 
-Forward-integrate only reviewed #279 memory/retirement fixes with identity noted. Keep all layers following the first by default. Verify in-flight peak, failed reconfiguration rollback and retired resource cleanup before more aggressive aliasing. Face-backend delivery and model AutoMask hot-edit regression are separate acceptance items; no new face inference by default in this colour experiment.
+## Integration and diagnostics
 
-## M5: private residual SR/RR and integration
+New production files: `src/nr_colour_restore.hlsli`, `src/nr_colour_prepare.hlsli`, `src/nr_colour_restore_policy.h`. The overlay `scripts/patch-colour-restore.py` is applied after the unchanged pinned uniform3 exporter, compatibility adapters and M1 overlay. The normal checkout is not rewritten.
 
-Reuse existing #258/#259/#265 assets, but do not describe uniform3 as completing private residual SR. Maintain same-frame/source pairing and independent history. Combine proven colour and CPU slices on a temporary integration branch early; retain four builds (uniform, +colour, +perf, +both). Textually clean merging is not resource/queue/thread safety validation. Formal merges happen only after the relevant compile and owner game checks.
+Exact-once anchors reject missing/duplicated drift. All transforms validate before temporary-stage writes. Existing ancestry, source pins, clean-source, upstream and publish checks remain. Manifest hashes and colour2 identity are recalculated. The old `prepare-multi-api-beta.py` still builds uniform3; **use the colour-lab entry for this candidate**.
 
-Related tracking: #274 colour comparison; #109/#103 colour usability; #279 uniform work; #280/#277 performance remain independent. Keep issues open until their real runtime acceptance is met.
+Recorded codec flags: bit30 (1073741824) RGB; bit29 (536870912) actual post EncodeCS preparation; bit28 (268435456) paired N2 HDR. F8 records requested choices from its coherent configuration snapshot, and existing actual codec constants retain the selected flags. UI does not treat stale/pending/bypassed records as a current result. No new per-pixel atomics, readbacks or per-frame log writes are added.
+
+Negative original channels, invalid recovery or native safety bypass require collecting F8 and submitting/updating a BUG. The implementation retains the exact original on rejected pixels; no signed recovery success is claimed. A permitted colour coefficient alone does not prove the model supplied a visible change.
+
+## Verification executed in this implementation session
+
+| Check | Result |
+|---|---|
+| Production HLSL mathematical sections through a minimal C++ float3 adapter | Clang and GCC each passed 200,077 runtime checks and 18 test static assertions |
+| M1 policy C++20 test | Passed (10 static assertions; 402 runtime comparisons) |
+| M2/M3a Python wiring/atomic-stage/UI tests | 7 passed; 2 full-source/export tests skipped |
+| M1 Python tests | 4 passed; 1 full-source test skipped |
+| Python module syntax checks | Passed |
+| Actual GitHub source connections | Inspected for both consumers, source preparation, final-neural accessor, DispatchCodec and slot serial; not a full translation-unit compile |
+| Complete raw-source transform and generated stage | Not executed; full pinned checkout/upstream absent in cloud container |
+| Windows Core, real cs_5_0 compiler and all face/dual variants | Not executed |
+| GPU, NGX, game, FPS, temporal quality or RenoDX parity | Not executed |
+
+Math checks compile the production sections, not a separate CPU algorithm. The adapter is not an HLSL compiler or a GPU precision model. Random tests cover neutral recovery, independent colour, colour/ratio/gamut bounds, source-reference HDR, zero-channel and identity cases; they do not validate texture addressing, barriers or actual presentation. Wiring fixtures are explicitly not a complete generated Core. See `docs/validation/2026-09-17-colour2.md` for commands and test matrix.
+
+## Next milestones and gates
+
+1. **Build/owner-test gate (first):** from a clean branch checkout on Windows, run build-colour-lab.ps1. It requires full-source tests, a successful pinned stage, generated-source tests and the existing full Core/shader build. Produce a labelled bilingual test package with hashes and exact source identity only after those succeed. Check old-mode image parity before claiming a usable candidate.
+2. **Owner A/B/C:** compare inherited composition, RGB with identical input, and RGB + N2 HDR with settled histories, separately for NR→SR and SR/RR→NR. Keep all models, layer count, sizes, lighting controls and game settings fixed. Compare against the same RenoDX DLL/model and equivalent source stage.
+3. **M3b:** use owner evidence for domain/exposure/white-point/negative-colour calibration and dark/highlight boundaries. Only add an analytic inverse as a separate bounded experiment with its own acceptance; no dummy switch now.
+4. **M4:** forward-integrate reviewed #279 retirement/memory fixes, handle independent face-backend delivery and AutoMask hot edits, and preserve the requested auxiliary 50%-efficiency versus true-100%-reference distinction. No mixed-resolution or retirement changes are smuggled into this colour patch.
+5. **M5:** evaluate existing private residual SR/RR work before reuse; it is not already delivered here. Early integration branch should compare uniform / +colour / +perf / +both after each component's build gate. Clean textual merging is not runtime validation.
+
+Tracking: #274, #109, #103, #104/#71; #279 base; #280/#277 performance separate. Keep issues open until actual game acceptance. Draft status remains until the build gate is satisfied.
