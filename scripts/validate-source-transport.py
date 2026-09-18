@@ -23,7 +23,12 @@ def main():
     guid_start=runtime.index('const GUID source_identity_guid=');guid_end=runtime.index('struct Lock',guid_start)
     cookie_start=runtime.index('Id ObjectId(');cookie_end=runtime.index('#include "nr_source_observer.inl"',cookie_start)
     harness=harness.replace('// @ACTUAL_OBJECT_COOKIES@',runtime[guid_start:guid_end]+runtime[cookie_start:cookie_end])
-    state_start=runtime.index('struct ResourceState {');state_end=runtime.index('struct Producer {',state_start)
+    # Perf7 extracted the same bounded state evidence into a dedicated table.
+    # Keep compiling the ACTUAL observer and include its production helper;
+    # do not silently substitute the obsolete linear-array implementation.
+    state_marker='#include "nr_source_state_table.inl"' if '#include "nr_source_state_table.inl"' in runtime else 'struct ResourceState {'
+    if runtime.count(state_marker)!=1:raise RuntimeError('Source-state extraction boundary is ambiguous')
+    state_start=runtime.index(state_marker);state_end=runtime.index('struct Producer {',state_start)
     harness=harness.replace('// @ACTUAL_SOURCE_STATES@',runtime[state_start:state_end])
     capture_start=runtime.index('void CaptureNgxGuides(');capture_end=runtime.index('// Callback executes',capture_start)
     harness=harness.replace('// @ACTUAL_CAPTURE_NGX_GUIDES@',runtime[capture_start:capture_end])
@@ -51,6 +56,7 @@ def main():
               'fg_presentation_sha256':hashlib.sha256((root/'src/nr_fg_presentation.h').read_bytes()).hexdigest(),
               'native_guide_snapshot_sha256':hashlib.sha256((root/'src/nr_native_guide_snapshot.inl').read_bytes()).hexdigest(),
               'runtime_sha256':hashlib.sha256((root/'src/nr_source_frame_runtime.inl').read_bytes()).hexdigest(),
+              'state_table_sha256':hashlib.sha256((root/'src/nr_source_state_table.inl').read_bytes()).hexdigest() if state_marker.startswith('#include') else None,
               'receipt_policy_sha256':hashlib.sha256((root/'src/nr_late_present_receipt.hpp').read_bytes()).hexdigest(),
               'views_sha256':hashlib.sha256((root/'src/nr_source_views.inl').read_bytes()).hexdigest(),
              'default_view_negative':args.default_view_negative,'negative_caught':negative_caught,'stderr':run.stderr,
