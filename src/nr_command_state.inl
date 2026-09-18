@@ -93,7 +93,15 @@ void ReleaseNativeCommandState(NativeCommandState &state) {
     }
     // Do not assign a whole aggregate here: Clang can materialize a ~36 KiB
     // temporary even at -O2, exceeding the available game worker stack.
-    memset(state.arguments, 0, sizeof(state.arguments));
+    // Allocation initializes every payload once. Thereafter all consumers gate
+    // replay by kind and constant_mask; Reset invalidates those gates, not 32 KiB
+    // of inactive constants. Preserve value/mask zeroing for diagnostic readers.
+    for (auto &stage : state.arguments)
+        for (auto &argument : stage) {
+            argument.kind = CommandRootKind::Empty;
+            argument.value = 0;
+            argument.constant_mask = 0;
+        }
     state.known = false;
     state.first_recording_observed = false;
     state.unknown_reason = "awaiting-native-reset";
@@ -213,8 +221,8 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
 }
 // Payload bytes are valid only through kind, and constants additionally through
 // constant_mask. RestoreNativeCommandState and evidence readers obey those gates;
-// snapshots may copy inactive bytes but must never replay them. Keep allocation
-// and full Reset/Release initialization unchanged.
+// snapshots may copy inactive bytes but must never replay them. Allocation
+// initializes all bytes; Reset/Release invalidate every argument tag.
 void InvalidateCommandRootArgument(CommandRootArgument &argument) {
     argument.kind = CommandRootKind::Empty;
     argument.value = 0;
@@ -690,7 +698,18 @@ unsigned long long ReadCommandStateToken(ID3D12GraphicsCommandList *command_list
 }
 CommandStateRecord *FindCommandStateTokenLocked(unsigned long long token) {
     if (token == 0) return nullptr;
-    for (auto &record : g_command_states) if (record.token == token) return &record;
+    // The existing registry lock pins the static slot array. A relative hint is
+    // usable only if its CURRENT token still matches; retirement/reuse and an
+    // unobserved miss never become cached validity or a negative publication.
+    struct Hint { unsigned long long token = 0; std::size_t slot = 0; };
+    thread_local Hint hints[64] = {};
+    auto &hint = hints[token % std::size(hints)];
+    if (hint.token == token && hint.slot < std::size(g_command_states) &&
+        g_command_states[hint.slot].token == token) return &g_command_states[hint.slot];
+    for (auto &record : g_command_states) if (record.token == token) {
+        hint = {token, static_cast<std::size_t>(&record - std::data(g_command_states))};
+        return &record;
+    }
     return nullptr;
 }
 template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommandList *native, Mutation mutation) {

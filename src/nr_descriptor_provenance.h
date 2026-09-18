@@ -102,7 +102,34 @@ inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcep
     }
     // The validity pass is already required. Reuse it to avoid sorting inputs
     // that already satisfy the same full comparator; union semantics unchanged.
-    if(!ordered)std::sort(ranges,ranges+count,less);
+    if(!ordered) {
+        // Fold adjacent-in-input overlapping/byte-adjacent intervals before
+        // sorting. Descriptor-copy batches often repeat or reverse subranges;
+        // their exact union does not require sorting each redundant interval.
+        // Validate the entire input above before modifying even one element.
+        // Bound the shape probe: disjoint/reversed batches pay at most eight
+        // adjacent checks instead of a second full pass. Missing a later overlap
+        // merely retains the original sort, never changes the union result.
+        bool fold=false;
+        for(unsigned i=1;i<std::min(count,9u)&&!fold;++i)
+            fold=ranges[i-1].type==ranges[i].type &&
+                ranges[i-1].last>=ranges[i].first-1 && ranges[i].last>=ranges[i-1].first-1;
+        if(count>=64 && fold) {
+            unsigned packed=0;
+            for(unsigned i=0;i<count;++i) {
+                const auto next=ranges[i];
+                if(packed && ranges[packed-1].type==next.type &&
+                    ranges[packed-1].last>=next.first-1 &&
+                    next.last>=ranges[packed-1].first-1) {
+                    auto& previous=ranges[packed-1];
+                    previous.first=std::min(previous.first,next.first);
+                    previous.last=std::max(previous.last,next.last);
+                } else ranges[packed++]=next;
+            }
+            count=packed;
+        }
+        std::sort(ranges,ranges+count,less);
+    }
     unsigned retained=0;
     for(unsigned i=0;i<count;++i) {
         const auto next=ranges[i];
