@@ -76,7 +76,11 @@ def main():
                'Instructions.txt': b'\xef\xbb\xbf' + INSTRUCTIONS.replace('\n', '\r\n').encode('utf-8')}
     manifest = {'schema': 'nr-branch-ota-v1', 'version': VERSION, 'display_version': '0.5 D21 Perf4',
                 'language': 'Chinese', 'api': 'D3D12-x64', 'sourceCommit': source,
-                'generated_source': True, 'source_checkout_clean': True, 'includesDx11': False,
+                # OTA v1 requires this exact boolean. It names the frozen,
+                # clean integration checkout, not the generated Core tree's
+                # separate F8 sourceDirty bit. Both use the verified DLL hash.
+                'sourceDirty': False, 'generated_source': True, 'source_checkout_clean': True,
+                'sourceDirty_scope': 'frozen integration checkout at build start', 'includesDx11': False,
                 'channel': 'd21-perf4-test-upgrade', 'manager_install_scope': 'Core and nrchain',
                 'face_assets_included': False, 'universal_game_compatibility_verified': False,
                 'whole_frame_performance_verified': False,
