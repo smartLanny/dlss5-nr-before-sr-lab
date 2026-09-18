@@ -27,6 +27,7 @@ m1 = load('colour_m1_test', 'patch-colour-lab.py')
 m2 = load('colour_m2_test', 'patch-colour-restore.py')
 shader = (ROOT/'src/nr_colour_restore.hlsli').read_text(encoding='utf-8')
 prepare_shader = (ROOT/'src/nr_colour_prepare.hlsli').read_text(encoding='utf-8')
+scaled_shader = (ROOT/'src/nr_scaled_proxy_prepare.hlsli').read_text(encoding='utf-8')
 
 
 def body(text: str, signature: str) -> str:
@@ -87,7 +88,13 @@ float3 ApplySelectedProxyCurve(float3 sceneLinear) {
     return hybrid;
 }
 void EncodeCS() { ProxyOut[tid.xy]=source; }
-void EncodeV2CS() { ProxyOut[tid.xy]=source; }
+float3 FilterExactAreaV6(uint2 pixel) { return source; }
+void EncodeV2CS() {
+    if (SourceWidth == Width && SourceHeight == Height && encodedStorage) { return; }
+    float3 filteredValue = FilterExactAreaV6(tid.xy);
+    float3 proxyValue = EncodeProxyLinearV2(filteredValue);
+    ProxyOut[tid.xy]=float4(proxyValue,1);
+}
 [numthreads(8, 8, 1)]
 void CombineCS() {
     float3 result = lumaOnly;
@@ -108,18 +115,24 @@ class RestoreTests(unittest.TestCase):
     def test_raw_and_generated_wiring(self):
         for generated in (False, True):
             original = fixture(generated)
-            patched = m2.patch_runtime(original, shader, prepare_shader)
+            patched = m2.patch_runtime(original, shader, prepare_shader, scaled_shader)
             self.assertEqual(patched.count('// NR_COLOUR_RESTORE_MATH_BEGIN'), 1)
             self.assertEqual(patched.count('ColourLabRgbResult restored ='), 2)
             self.assertEqual(patched.count('L"ColourRestoreMode"'), 2)
             self.assertEqual(patched.count('L"ColourInputCurve"'), 2)
+            self.assertEqual(patched.count('L"ColourScaledProxyMode"'), 2)
             history=body(patched,'bool SameHistoryConfig(')
             self.assertIn('a.colour_input_curve == b.colour_input_curve',history)
+            self.assertIn('a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode',history)
             self.assertNotIn('colour_restore_mode',history)
-            self.assertEqual(history.replace('a.colour_input_curve == b.colour_input_curve && ',''),body(original,'bool SameHistoryConfig('))
-            for signature in ('void EncodeCS(', 'void EncodeV2CS(',
+            stripped = history.replace('a.colour_input_curve == b.colour_input_curve && ', '')
+            stripped = stripped.replace('a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode && ', '')
+            self.assertEqual(stripped,body(original,'bool SameHistoryConfig('))
+            for signature in ('void EncodeCS(',
                               'struct CodecConstants {', 'cbuffer Constants : register(b0) {'):
                 self.assertEqual(body(original, signature), body(patched, signature))
+            self.assertIn('ColourLabFilterPreparedProxyExactArea',
+                          body(patched, 'void EncodeV2CS('))
             dispatch = body(patched, 'void DispatchCodec(')
             cfg = 'frame_config' if generated else 'g_config'
             self.assertIn(f'{cfg}.colour_restore_mode, any_combine, restore_encoding)', dispatch)
@@ -132,16 +145,16 @@ class RestoreTests(unittest.TestCase):
             self.assertIn('else if (ColorStrength > 0.000001)', body(patched, 'void CombineCS('))
             self.assertIn('else if (ColorStrength > 0.000001)', body(patched, 'void CombineV2CS('))
             with self.assertRaises(ValueError):
-                m2.patch_runtime(patched, shader, prepare_shader)
+                m2.patch_runtime(patched, shader, prepare_shader, scaled_shader)
 
     def test_drift_fails_closed(self):
         for anchor in ('    float3 fullProxy = EncodeProxyLinearV2(source);',
                        '    const unsigned int base_codec_flags = source_flags |',
                        '    const auto probe_policy = NrProbePolicySnapshot();'):
             with self.assertRaises(ValueError):
-                m2.patch_runtime(fixture().replace(anchor, anchor+'\n'+anchor), shader, prepare_shader)
+                m2.patch_runtime(fixture().replace(anchor, anchor+'\n'+anchor), shader, prepare_shader, scaled_shader)
             with self.assertRaises(ValueError):
-                m2.patch_runtime(fixture().replace(anchor, ''), shader, prepare_shader)
+                m2.patch_runtime(fixture().replace(anchor, ''), shader, prepare_shader, scaled_shader)
 
     def test_brace_parser_comments_and_strings(self):
         text='void f() { /* } */ const char *s="\\\"}"; // }\n if (x) { y(); } }\nvoid g() {}'
@@ -156,6 +169,7 @@ class RestoreTests(unittest.TestCase):
             (stage/'core/src/nr_feedback_picture.inl').write_text('missing anchor')
             inputs={'src/nr_colour_restore.hlsli':shader.encode(),
                     'src/nr_colour_prepare.hlsli':prepare_shader.encode(),
+                    'src/nr_scaled_proxy_prepare.hlsli':scaled_shader.encode(),
                     'src/nr_colour_restore_policy.h':b'policy'}
             with self.assertRaises(ValueError): m2.apply(stage,inputs)
             self.assertEqual(source.read_text(),fixture())
@@ -164,6 +178,8 @@ class RestoreTests(unittest.TestCase):
     def test_ui_transaction_and_fallback_feedback(self):
         ui=(ROOT/'src/nr_colour_lab_ui.inl').read_text(encoding='utf-8')
         self.assertIn('next.colour_restore_mode = recovery;',ui)
+        self.assertIn('next.colour_scaled_proxy_mode = scaledPrep;',ui)
+        self.assertIn('Raw model RGB edit reference',ui)
         self.assertIn('next.colour_restore_mode = 0;',ui)
         self.assertIn('sample.policy.recorded_restore_mode',ui)
         self.assertIn('sample.status != NrColorPolicyStatus::Current',ui)
@@ -181,12 +197,15 @@ class RestoreTests(unittest.TestCase):
         self.assertIn('kDefaultInputCurve = 0',policy)
         self.assertIn('source_flags & (1u | 16u | 32u)',policy)
         self.assertIn('Passthrough & (1u | 16u | 32u)',prepare_shader)
-        patched=m2.patch_runtime(fixture(),shader,prepare_shader)
+        patched=m2.patch_runtime(fixture(),shader,prepare_shader,scaled_shader)
         for signature in ('float3 HdrSourceToModelLinear(', 'float3 PqSourceToModelLinear(', 'float3 ApplySelectedProxyCurve('):
             self.assertIn('ColourLabN2Requested()',body(patched,signature))
 
     def test_no_new_gpu_binding_or_temporal_state(self):
         self.assertNotIn('Texture2D',shader)
+        self.assertNotIn('Texture2D',scaled_shader)
+        self.assertNotIn('RWTexture',scaled_shader)
+        self.assertIn('ColourLabFilterPreparedProxyExactArea',scaled_shader)
         self.assertNotIn('RWTexture',shader)
         self.assertNotIn('Interlocked',shader)
         self.assertNotIn('History',shader)
@@ -197,13 +216,15 @@ class RestoreTests(unittest.TestCase):
     @unittest.skipUnless(REPO, 'supply --repo to inspect real raw repository files')
     def test_actual_raw_source(self):
         original=(REPO/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
-        patched=m2.patch_runtime(m1.patch_runtime(original),shader,prepare_shader)
+        patched=m2.patch_runtime(m1.patch_runtime(original),shader,prepare_shader,scaled_shader)
         self.assertEqual(patched.count('ColourLabRgbResult restored ='),2)
-        for signature in ('void EncodeCS(', 'void EncodeV2CS(',
+        for signature in ('void EncodeCS(',
                           'struct CodecConstants {', 'cbuffer Constants : register(b0) {',
                           'float3 SampleProxyLinearV2(', 'float3 SampleNeuralLinearV2(',
                           'float4 LoadFinalNeuralStoredV2('):
             self.assertEqual(body(original,signature),body(patched,signature))
+        self.assertIn('ColourLabFilterPreparedProxyExactArea',
+                      body(patched,'void EncodeV2CS('))
         policy=(REPO/'src/nr_color_policy.inl').read_text(encoding='utf-8')
         self.assertIn('recorded_restore_mode',m2.patch_policy(m1.patch_policy(policy)))
         feedback=(REPO/'src/nr_feedback_picture.inl').read_text(encoding='utf-8')
@@ -215,13 +236,17 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(text.count('ColourLabRgbResult restored ='),2)
         self.assertIn(shader,text)
         for name in ('kAddonVersion','kBuildIdentity'):
-            self.assertIn(f'constexpr const char *{name} = "beta0.5-dline21-colour2";',text)
+            self.assertIn(f'constexpr const char *{name} = "beta0.5-dline21-colour3";',text)
         dispatch=body(text,'void DispatchCodec(')
         self.assertIn('ChainConfig frame_config = g_config;',dispatch)
         self.assertIn('frame_config.colour_restore_mode',dispatch)
         self.assertNotIn('g_config.colour_restore_mode',dispatch)
         self.assertNotIn('colour_restore_mode',body(text,'bool SameHistoryConfig('))
         self.assertIn('a.colour_input_curve == b.colour_input_curve',body(text,'bool SameHistoryConfig('))
+        self.assertIn('a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode',
+                      body(text,'bool SameHistoryConfig('))
+        self.assertIn('ColourLabFilterPreparedProxyExactArea',
+                      body(text,'void EncodeV2CS('))
         self.assertIn(prepare_shader,text)
         self.assertNotIn('ColourLab',body(text,'void EncodeCS('))
         self.assertNotIn('ColourLab',body(text,'void EncodeV2CS('))
@@ -231,6 +256,7 @@ class RestoreTests(unittest.TestCase):
         self.assertIn('storedOriginal.a',body(text,'void CombineCS('))
         self.assertIn('storedOriginal.a',body(text,'void CombineV2CS('))
         self.assertTrue((GENERATED/'src/nr_colour_restore_policy.h').is_file())
+        self.assertTrue((GENERATED/'src/nr_scaled_proxy_prepare.hlsli').is_file())
 
 
 if __name__=='__main__':

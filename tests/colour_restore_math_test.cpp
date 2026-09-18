@@ -48,19 +48,22 @@ void close(float3 a,float3 b,float tolerance,const char* label) {
 }
 ColourLabRgbResult restore(float3 s,float3 p,float3 n,float gain=1.0f,float c=1.0f,
                            float confidence=1.0f,float maxRatio=64.0f,bool sdr=false,
-                           float region=1.0f,float face=0.0f,float originalColor=0.0f,bool cap=false) {
+                           float region=1.0f,float face=0.0f,float originalColor=0.0f,bool cap=false,
+                           bool rawReference=false) {
     const float raw = dot(n-p,kLuma)/max(dot(p,kLuma),1.0f/4096.0f);
-    return ColourLabRestoreRgb(s,p,p,n,raw,raw*gain,c,confidence,maxRatio,region,face,originalColor,cap,sdr);
+    return ColourLabRestoreRgb(s,p,p,n,raw,raw*gain,c,confidence,maxRatio,region,face,originalColor,cap,sdr,rawReference);
 }
 
 int main() {
     static_assert(nr_colour_restore::Normalize(-1)==0);
-    static_assert(nr_colour_restore::Normalize(2)==0);
+    static_assert(nr_colour_restore::Normalize(2)==2);
     static_assert(nr_colour_restore::Normalize(1)==1);
     static_assert(nr_colour_restore::Flags(1,false,nr_colour_restore::Encoding::Post)==0);
     static_assert(nr_colour_restore::Flags(0,true,nr_colour_restore::Encoding::Post)==0);
     static_assert(nr_colour_restore::Flags(1,true,nr_colour_restore::Encoding::V2)==1073741824u);
     static_assert(nr_colour_restore::Flags(1,true,nr_colour_restore::Encoding::Post)==1610612736u);
+    static_assert(nr_colour_restore::Flags(2,true,nr_colour_restore::Encoding::V2)==1207959552u);
+    static_assert(nr_colour_restore::Flags(2,true,nr_colour_restore::Encoding::Post)==1744830464u);
     static_assert(nr_colour_restore::Flags(1,true,nr_colour_restore::Encoding::Unknown)==0);
     constexpr nr_colour_restore::EncodingReceipt receipt{nr_colour_restore::Encoding::Post,42};
     static_assert(receipt.For(42)==nr_colour_restore::Encoding::Post);
@@ -73,6 +76,10 @@ int main() {
     static_assert(nr_colour_restore::EffectiveInputCurve(1,32u)==0);
     static_assert(nr_colour_restore::EffectiveInputCurve(0,0u)==0);
     static_assert(nr_colour_restore::EffectiveInputCurve(99,0u)==0);
+    static_assert(nr_colour_restore::EffectiveScaledProxyMode(1,true,true)==1);
+    static_assert(nr_colour_restore::EffectiveScaledProxyMode(1,true,false)==0);
+    static_assert(nr_colour_restore::EffectiveScaledProxyMode(1,false,true)==0);
+    static_assert(nr_colour_restore::EffectiveScaledProxyMode(0,true,true)==0);
     // Demonstrates the zero-channel failure that a multiplicative compositor
     // cannot repair: the model adds blue to a source with no blue channel.
     const float3 s{.2f,.3f,0};const float3 n{.2f,.3f,.05f};
@@ -92,6 +99,13 @@ int main() {
     require(ColourLabLumaGain(.1f,-.1f)==0,"no sign reversal");
     require(ColourLabLumaGain(0,.1f)==0,"no invented luma from zero");
     require(ColourLabLumaGain(.1f,.1f)==1,"exact 1x gain");
+    auto protectedWeak=restore(s,s,n,.15f,1,1,64,false,1,0,0,false,false);
+    auto rawReference=restore(s,s,n,.15f,1,0,64,false,.1f,1,1,true,true);
+    close(rawReference.rgb,n,2e-6f,"raw reference keeps model edit despite aesthetic attenuation");
+    require(ColourLabAbsPeak(rawReference.rgb-protectedWeak.rgb)>1e-4f,
+            "raw reference differs from protected luma");
+    close(restore(s,s,n,1,1,0,64,false,.1f,1,1,true,true).rgb,n,2e-6f,
+          "raw reference ignores confidence region face damping");
 
     // Source-anchored N2 test: neural is decoded model linear, not an inverse
     // curve input. A new neutral grey comes back on the source's own scale.
@@ -105,7 +119,7 @@ int main() {
     // only the matched edit preserves the full source's existing texture.
     float3 local{.43f,.38f,.25f}, pair{.2f,.2f,.2f}, edit{.01f,.02f,.03f};
     float raw=dot(edit,kLuma)/dot(pair,kLuma);
-    auto highFrequency=ColourLabRestoreRgb(local,local,pair,pair+edit,raw,raw,1,1,64,1,0,0,false,false);
+    auto highFrequency=ColourLabRestoreRgb(local,local,pair,pair+edit,raw,raw,1,1,64,1,0,0,false,false,false);
     close(highFrequency.rgb,local+edit,2e-6f,"restore residual not low resolution full image");
 
     for (float bad: {std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {

@@ -6,7 +6,7 @@
 - Development base: #279 uniform3 `58ce637c1fbb03d0e7d93b90d26b3e4bce7b03df`.
 - Branch / review: `codex/d21-colour-texture-lab-20260917`, PR #281.
 - M1 parent: `406e7acb0aecc1f0d2b854532491fdbdddd9836f`.
-- Current candidate identity: `beta0.5-dline21-colour2` (M2 + M3a).
+- Current candidate identity: `beta0.5-dline21-colour3` (M3b owner-feedback experiment).
 - #280/lockperf is not included. No game files or Windows workspace were changed by this implementation session.
 
 **Source candidate, not an installable owner-test delivery yet.** Production math has portable CPU checks. Full upstream generation, Windows Core/shader compilation, CI success, GPU execution and owner game acceptance are still outstanding. This session did not obtain a callable NewWin-Devspace interface after tool discovery and plugin search. That does not establish whether the computer itself is online.
@@ -98,3 +98,23 @@ Math checks compile the production sections, not a separate CPU algorithm. The a
 5. **M5:** evaluate existing private residual SR/RR work before reuse; it is not already delivered here. Early integration branch should compare uniform / +colour / +perf / +both after each component's build gate. Clean textual merging is not runtime validation.
 
 Tracking: #274, #109, #103, #104/#71; #279 base; #280/#277 performance separate. Keep issues open until actual game acceptance. Draft status remains until the build gate is satisfied.
+
+
+## 2026-09-18 owner evidence and colour3 experiment
+
+Owner testing of the real Windows colour2 build produced three actionable observations:
+
+- Colour-priority/A1 materially moved the result toward the RenoDX colour comparison. The colour-admission restriction is therefore a real quality loss in this test and remains fixed in the experiment branch.
+- Protected matched-RGB B and paired-N2 C were not visibly stronger in the tested scene. B still deliberately drives restored edit luminance through D21's protected luminance target, so it is not a raw model-output reference.
+- In native pre-SR (NR→SR), 99% versus 100% work size caused a large colour/brightness discontinuity, especially darker characters, even with LightingLock=0 and DetailStability=0.
+
+Source comparison found a topology discontinuity at every sub-native work size. D21's exact-area pre-SR encoder averages scene/source values first and then performs the nonlinear model-proxy encoding. Opti's current reduced-raster path creates the model proxy first and exact-area downsamples that proxy. Because nonlinear encoding and averaging do not commute, 99% and 100% can diverge much more than the one-percent geometric change suggests.
+
+colour3 therefore adds two independent diagnostics:
+
+1. `ColourRestoreMode=2`: bounded raw model RGB-edit reference. It bypasses output-side Transfer/LightingLock/DetailStability/EdgeGuard/region/face attenuation so the owner can see whether the NR model already generated the missing person/fabric structure. Finite/gamut/MaxLumaRatio and all resource/queue/writeback safety remain.
+2. `ColourScaledProxyMode=1`: pre-SR exact-area proxy-first preparation. At sub-native work sizes each source tap is encoded into the model proxy before averaging, matching Opti's encode→downsample topology. At 100% it is a no-op. It changes model input, so it participates in NR-history reset. Lanczos and post routes retain D21 behaviour and report the experiment as not applied.
+
+Do **not** add a production GlobalTone slider for the fixed model DLL. The RenoDX addon writes `DLSSNR.GlobalToneStrength`, but current Opti source documents that the fixed `nvngx_dlssnr.dll` does not expose that key. Reno's binary xref only proves that it forwards the setting to NGX, not that the model consumes it. Compare nominal LocalTone/LocalStructure at 1.0 first; values above 1 remain experimental and may clamp or be ignored by the model.
+
+If the 99/100 cliff remains after proxy-first preparation, the next isolated experiment is the guide contract: D21 can spatially resample motion to the work raster, while Opti keeps native guide grids and scales motion magnitude into work pixels. That is a higher compatibility-risk change and is intentionally not bundled into colour3.
