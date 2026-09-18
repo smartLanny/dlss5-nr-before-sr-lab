@@ -54,6 +54,7 @@ jobs:
           python3 -m unittest tests.test_lockperf2_workflow -v
           python3 scripts/validate-command-state-lockperf.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-concurrency"
           python3 scripts/validate-command-state-hotpath.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/lockperf-hotpath"
+          python3 scripts/validate-perf4-hotpaths.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/perf4-hotpaths"
       - name: Sanitized format policies
         if: matrix.compiler == 'clang++'
         run: |

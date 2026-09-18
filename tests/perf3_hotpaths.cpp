@@ -184,4 +184,5 @@ int main(int argc,char** argv) {
     require(descriptor_trace<CurrentDescriptor>()==descriptor_trace<OldDescriptor>(),"descriptor receipt/counter differential");
     require(lineage_trace<CurrentSource>()==lineage_trace<OldSource>(),"lineage recording/submission/lifetime differential");
     std::puts("PASS descriptor nested/pending/alignment/overlap/retirement and 4000 lineage state transitions");
+    return 0;
 }

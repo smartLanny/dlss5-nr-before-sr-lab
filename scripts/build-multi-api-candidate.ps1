@@ -4,7 +4,8 @@
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
     [Parameter(Mandatory=$true)][string]$DirectXMathRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
-    [string]$NrchainReuseRoot
+    [string]$NrchainReuseRoot,
+    [string]$CodecCacheRoot
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -14,6 +15,7 @@ $Toolchain = (Resolve-Path -LiteralPath $ToolchainRoot).Path
 $ReShade = (Resolve-Path -LiteralPath $ReShadeSourceRoot).Path
 $Math = (Resolve-Path -LiteralPath $DirectXMathRoot).Path
 $Output = [IO.Path]::GetFullPath($OutputRoot)
+$CodecCache = if ($CodecCacheRoot) { (Resolve-Path -LiteralPath $CodecCacheRoot).Path } else { '' }
 if (Test-Path -LiteralPath $Output) { throw 'OutputRoot must not exist; previous candidates are never overwritten.' }
 function Assert-Commit([string]$Path, [string]$Expected) {
     $Actual = (& git -C $Path rev-parse HEAD).Trim()
@@ -145,7 +147,11 @@ try {
     } else {
         $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     }
-    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -NrchainReuseRoot $NrchainReuseRoot
+    $CodecArgs = @{}
+    if ($CodecCache) { $CodecArgs['CodecCacheRoot'] = $CodecCache }
+    # Existing codec builder verifies exact source/options, compiler bytes and
+    # every cached DXBC hash. This does not skip any runtime/WARP/static gate.
+    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -NrchainReuseRoot $NrchainReuseRoot @CodecArgs
     if ($NrchainReuseRoot) {
         $Checks.Add('staged bilingual core compilation/link + exact-source verified nrchain reuse')
     } else {

@@ -471,13 +471,46 @@ class Registry {
     void InvalidateUnknownSlotsLocked(const UnknownCopy *scope=nullptr) {
         if(revision==std::numeric_limits<Id>::max()) {InvalidateLocked();return;}
         ++revision;
-        // Scope overlap is only a cheap candidate filter. Per-slot handle/type
-        // checks below still decide the exact invalidation, including unaligned
-        // ranges and live overlapping heaps. No omitted range becomes known.
+        // Find candidate heaps FROM the affected ranges using the existing
+        // base-sorted index and prefix maximum. Preserve every overlapping live
+        // heap, type check and the old per-slot mask; never mutate caller ranges.
+        // The bitset deduplicates repeated/overlapping ranges and preserves the
+        // original heap traversal order. Default registry scratch is 512 bytes.
+        std::array<Id,(HeapCapacity+63)/64> candidates{};
+        bool indexed=scope && scope->active && !scope->all && scope->ranges;
+        // A scope starting with an address-wide range is already cheap to test
+        // per heap; avoid paying a dense index pass before the old fallback.
+        if(indexed && scope->count && cpu_range_count) {
+            const auto& first=scope->ranges[0];
+            if(first.first<=cpu_ranges[0].base && first.last>=cpu_ranges[cpu_range_count-1].prefix_end)
+                indexed=false;
+        }
+        Id remaining=static_cast<Id>(cpu_range_count)*2+64;
+        if(indexed)for(unsigned j=0;j<scope->count && indexed;++j) {
+            const auto& requested=scope->ranges[j];
+            unsigned lower=0,upper=cpu_range_count;
+            while(lower<upper) {
+                const auto mid=lower+(upper-lower)/2;
+                if(cpu_ranges[mid].base<=requested.last)lower=mid+1;else upper=mid;
+            }
+            upper=lower;
+            while(upper) {
+                // Dense or adversarial live overlaps keep the bounded old path;
+                // do not add an unbounded range-by-heap enumeration ahead of it.
+                if(!remaining){indexed=false;break;}
+                --remaining;
+                const auto& candidate=cpu_ranges[--upper];
+                if(candidate.prefix_end<requested.first)break;
+                if(candidate.end<requested.first)continue;
+                const auto& h=heaps.values[candidate.heap];
+                if(h.type==requested.type)candidates[upper/64]|=Id{1}<<(upper%64);
+            }
+        }
         for(unsigned i=0;i<cpu_range_count;++i) {
             const auto& range=cpu_ranges[i];const auto& heap=heaps.values[range.heap];
-            bool possible=!scope || (scope->active&&scope->all);
-            if(scope&&scope->active&&!scope->all&&scope->ranges) {
+            bool possible=indexed?(candidates[i/64]&(Id{1}<<(i%64)))!=0:
+                !scope || (scope->active&&scope->all);
+            if(!indexed&&scope&&scope->active&&!scope->all&&scope->ranges) {
                 for(unsigned j=0;j<scope->count;++j) {
                     const auto& r=scope->ranges[j];
                     if(r.type==heap.type&&r.first<=range.end&&range.base<=r.last){possible=true;break;}
