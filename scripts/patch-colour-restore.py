@@ -232,7 +232,7 @@ def patch_policy(text: str) -> str:
         'restore snapshot fields')
 
 
-def patch_feedbackdef patch_feedback(text: str) -> str:
+def patch_feedback(text: str) -> str:
     anchor = '    if (!valid) return; // A busy snapshot must not report constructor defaults as facts.'
     return once(text, anchor, anchor + '''
     FeedbackAppend(s, "requested.colourLabMode=%d\\nrequested.colourRestoreMode=%d\\n"
@@ -247,7 +247,7 @@ def patch_feedbackdef patch_feedback(text: str) -> str:
         'coherent requested feedback')
 
 
-def applydef apply(stage: Path, inputs: dict[str, bytes]) -> None:
+def apply(stage: Path, inputs: dict[str, bytes]) -> None:
     shader = inputs['src/nr_colour_restore.hlsli'].decode('utf-8')
     prepare_shader = inputs['src/nr_colour_prepare.hlsli'].decode('utf-8')
     scaled_shader = inputs['src/nr_scaled_proxy_prepare.hlsli'].decode('utf-8')
