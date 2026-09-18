@@ -46,7 +46,7 @@ int main(int argc,char** argv){
         for(unsigned mode=0;mode<5;++mode){auto input=sample(mode);compare(input);
             double times[2]{};std::uint64_t sums[2]{};
             for(unsigned pass=0;pass<2;++pass){auto start=std::chrono::steady_clock::now();
-                if(pass==0){std::vector<reference::UnknownRange> a(input.size());for(unsigned k=0;k<2000;++k){for(unsigned i=0;i<input.size();++i)a[i]={input[i].first,input[i].last,input[i].type};unsigned n=unsigned(a.size());reference::NormalizeUnknownRanges(a.data(),n);sums[pass]+=n+a[0].last;}}
+                if(pass==0){std::vector<reference::UnknownRange> original;for(auto r:input)original.push_back({r.first,r.last,r.type});auto a=original;for(unsigned k=0;k<2000;++k){a=original;unsigned n=unsigned(a.size());reference::NormalizeUnknownRanges(a.data(),n);sums[pass]+=n+a[0].last;}}
                 else{auto a=input;for(unsigned k=0;k<2000;++k){a=input;unsigned n=unsigned(a.size());current::NormalizeUnknownRanges(a.data(),n);sums[pass]+=n+a[0].last;}}
                 times[pass]=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();}
             check(sums[0]==sums[1],"bench semantic checksum");std::cout<<"mode="<<mode<<" baseline_ms="<<times[0]<<" candidate_ms="<<times[1]<<'\n';}
