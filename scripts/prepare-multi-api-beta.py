@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-perf8'
-DISPLAY_VERSION = '0.5-dline21-perf8'
+VERSION = 'beta0.5-dline21-perf9'
+DISPLAY_VERSION = '0.5-dline21-perf9'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -123,7 +123,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_ngx_lifecycle.inl': '93091ed326118d4f3b22f3156375896c1b150544',
     'src/nr_optional_layer_probe.h': '7a39868c9c688bf65739695665c236da891f4977',
     'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
-    'src/nr_post_boundary_native.inl': '3e3244d93a33d0d9c5289d24305fbe8815c2b0a8',
+    'src/nr_post_boundary_native.inl': '7e2309ee4565385eacef2ce4bccf121464db3694',
     'src/nr_post_boundary_runtime.inl': '8653482aa9023c26dd967eb98c8cc568073f19ad',
     'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
@@ -181,7 +181,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_processing_route.h': 'edea93e4ce9e58972914417cd90971040aeca7db',
     'src/nr_processing_runtime.inl': '33300145b72d32f736c28a3c58b244b472d4ae91',
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
-    'src/nr_source_frame.hpp': 'a370133fd124c8d5bcca36819300928ddcce529c',
+    'src/nr_source_frame.hpp': 'd6f7178e96958f12b00f3bd3a66473ba1686ccac',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
     'src/nr_source_state_table.inl': 'ff32a36ba0e57e59df995a9880f95aa3c9e1acc4',
     'src/nr_source_frame_runtime.inl': '4f93f54064f32796a5f2fbb36859be9d75289f45',
@@ -324,7 +324,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf8 beta'),
+    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf9 beta'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
