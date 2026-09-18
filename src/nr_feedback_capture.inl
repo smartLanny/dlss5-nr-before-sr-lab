@@ -450,6 +450,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     FeedbackAppend(s,"%s.descriptor.rangeQueries=orderedScopes:%llu,orderedRanges:%llu,rawScopes:%llu,indexedInvalidations:%llu,orderedFallbacks:%llu,linearFallbacks:%llu; cumulative-batch-counters-not-GPU-time\n",
         prefix,descriptor_counts.ordered_copy_scopes,descriptor_counts.ordered_copy_ranges,descriptor_counts.raw_copy_scopes,
         descriptor_counts.indexed_invalidations,descriptor_counts.ordered_fallbacks,descriptor_counts.linear_fallbacks);
+    FeedbackAppend(s,"%s.descriptor.slotQueries=cpuHits:%llu,cpuMisses:%llu,cpuChainSteps:%llu,gpuHits:%llu,gpuMisses:%llu,gpuChainSteps:%llu; cumulative-Find-only-not-GPU-time-not-validity\n",
+        prefix,descriptor_counts.cpu_lookup_hits,descriptor_counts.cpu_lookup_misses,descriptor_counts.cpu_lookup_steps,
+        descriptor_counts.gpu_lookup_hits,descriptor_counts.gpu_lookup_misses,descriptor_counts.gpu_lookup_steps);
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
         FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
             prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);

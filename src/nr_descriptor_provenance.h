@@ -91,12 +91,18 @@ struct UnknownRange {
 inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcept {
     if(!count)return true;
     if(!ranges)return false;
-    for(unsigned i=0;i<count;++i)
-        if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
-    std::sort(ranges,ranges+count,[](const UnknownRange& a,const UnknownRange& b) {
+    const auto less=[](const UnknownRange& a,const UnknownRange& b) {
         if(a.type!=b.type)return a.type<b.type;
         return a.first!=b.first?a.first<b.first:a.last<b.last;
-    });
+    };
+    bool ordered=true;
+    for(unsigned i=0;i<count;++i) {
+        if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
+        if(ordered && i && less(ranges[i],ranges[i-1]))ordered=false;
+    }
+    // The validity pass is already required. Reuse it to avoid sorting inputs
+    // that already satisfy the same full comparator; union semantics unchanged.
+    if(!ordered)std::sort(ranges,ranges+count,less);
     unsigned retained=0;
     for(unsigned i=0;i<count;++i) {
         const auto next=ranges[i];
@@ -204,6 +210,10 @@ struct Counters {
     // Once per metadata batch, under the existing mutex; no per-slot timers.
     Id ordered_copy_scopes=0,ordered_copy_ranges=0,raw_copy_scopes=0;
     Id indexed_invalidations=0,ordered_fallbacks=0,linear_fallbacks=0;
+    // Cumulative Find statistics; plain updates under the existing registry
+    // mutex, no timers/logging/atomic operations inside the traversal loop.
+    Id cpu_lookup_hits=0,cpu_lookup_misses=0,cpu_lookup_steps=0;
+    Id gpu_lookup_hits=0,gpu_lookup_misses=0,gpu_lookup_steps=0;
     Id copy_begin_cpu_ns=0,copy_finish_cpu_ns=0,heap_retire_cpu_ns=0,unknown_cpu_ns=0;
 };
 struct Inventory {
@@ -284,16 +294,38 @@ class Registry {
         // Maintained with the existing intrusive membership, under the same lock.
         std::array<unsigned,HeapBuckets> heap_sizes{};
         static unsigned HeapHash(Id id){return LiveTable<Resource,HeapCapacity>::Hash(id);}
+        // An accelerator for exact slot discovery, NEVER a cached receipt.
+        // Relative slot numbers remain local to this pool. Keys and all pending,
+        // epoch/revision, resource and incarnation checks are still performed.
+        static constexpr unsigned LookupCapacity=Capacity<2048?Capacity:2048;
+        std::array<unsigned,LookupCapacity> lookup_cache{};
+        Id lookup_hits=0,lookup_misses=0,lookup_steps=0;
+        static unsigned LookupBucket(Id heap,unsigned index) {
+            return static_cast<unsigned>((heap^(heap>>32)^index)%LookupCapacity);
+        }
         unsigned free=1,oldest=0,newest=0,active=0;
         Slots(){for(unsigned i=0;i<Capacity;++i)values[i].chain=i+1<Capacity?i+2:0;}
         static unsigned Hash(Id heap,unsigned index) {
             return LiveTable<Resource,Capacity>::Hash(heap^(static_cast<Id>(index)*0x9E3779B185EBCA87ull))%Capacity;
         }
         Slot *Find(Id heap,unsigned index) {
-            for(auto n=buckets[Hash(heap,index)];n;n=values[n-1].chain) {
-                auto &s=values[n-1];if(s.stamp.heap==heap && s.stamp.index==index)return &s;
+            if(!heap)return nullptr; // zero is never a published descriptor key
+            auto& cached=lookup_cache[LookupBucket(heap,index)];
+            if(cached) {
+                auto& s=values[cached-1];
+                if(s.stamp.heap==heap && s.stamp.index==index) {
+                    Increment(lookup_hits);return &s;
+                }
             }
-            return nullptr;
+            Increment(lookup_misses);
+            Id steps=0;
+            for(auto n=buckets[Hash(heap,index)];n;n=values[n-1].chain) {
+                ++steps;
+                auto &s=values[n-1];if(s.stamp.heap==heap && s.stamp.index==index) {
+                    cached=n;AddCount(lookup_steps,steps);return &s;
+                }
+            }
+            AddCount(lookup_steps,steps);return nullptr;
         }
         const Slot *Find(Id heap,unsigned index) const {return const_cast<Slots *>(this)->Find(heap,index);}
         unsigned Number(const Slot &s) const {return static_cast<unsigned>(&s-values.data())+1;}
@@ -309,7 +341,10 @@ class Registry {
             newest=n;
         }
         void Erase(Slot &s) {
-            const auto n=Number(s);auto *link=&buckets[Hash(s.stamp.heap,s.stamp.index)];
+            const auto n=Number(s);
+            auto& cached=lookup_cache[LookupBucket(s.stamp.heap,s.stamp.index)];
+            if(cached==n)cached=0; // remove before slot number can be reused
+            auto *link=&buckets[Hash(s.stamp.heap,s.stamp.index)];
             while(*link && *link!=n)link=&values[*link-1].chain;
             if(*link)*link=s.chain;
             if(s.heap_older)values[s.heap_older-1].heap_newer=s.heap_newer;
@@ -328,7 +363,8 @@ class Registry {
             const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;
             const auto hh=HeapHash(heap);s.heap_newer=heap_buckets[hh];
             if(s.heap_newer)values[s.heap_newer-1].heap_older=n;
-            heap_buckets[hh]=n;++heap_sizes[hh];return &s;
+            heap_buckets[hh]=n;++heap_sizes[hh];
+            lookup_cache[LookupBucket(heap,index)]=n;return &s;
         }
         unsigned HeapBucketSize(Id id) const {return heap_sizes[HeapHash(id)];}
         template<class Fn> Id ForIndices(Id id,unsigned first,unsigned last,Fn&& fn) {
@@ -992,6 +1028,10 @@ public:
     Counters SnapshotCounters() const {
         std::lock_guard guard(mutex);auto result=counters;
         result.gpu_mirror=MirrorGpu();
+        result.cpu_lookup_hits=cpu_slots.lookup_hits;result.cpu_lookup_misses=cpu_slots.lookup_misses;
+        result.cpu_lookup_steps=cpu_slots.lookup_steps;
+        result.gpu_lookup_hits=gpu_slots.lookup_hits;result.gpu_lookup_misses=gpu_slots.lookup_misses;
+        result.gpu_lookup_steps=gpu_slots.lookup_steps;
         result.heaps.active=heaps.active;result.heaps.capacity=HeapCapacity;
         result.resources.active=resources.active;result.resources.capacity=ResourceCapacity;
         result.cpu_slots.active=cpu_slots.active;result.cpu_slots.capacity=CpuSlotCapacity;

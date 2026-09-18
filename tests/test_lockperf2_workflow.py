@@ -44,7 +44,7 @@ class Lockperf2Workflow(unittest.TestCase):
         names = set(re.findall(r'(validate-[\w-]+\.(?:py|ps1)|test-beta04-math.py)', old))
         current = '\n'.join(read(p) for p in (
             '.github/workflows/beta050-validate.yml',
-            'scripts/build-perf5-candidate.ps1',
+            'scripts/build-perf6-candidate.ps1',
             'scripts/build-multi-api-candidate.ps1',
         ))
         self.assertFalse(sorted(n for n in names if n not in current))
@@ -54,7 +54,7 @@ class Lockperf2Workflow(unittest.TestCase):
         self.assertIn('native/snapshot FP16 bytes', current)
 
     def test_gates_precede_packaging_and_never_claim_game_verification(self):
-        text = read('scripts/build-perf5-candidate.ps1')
+        text = read('scripts/build-perf6-candidate.ps1')
         build = text.index("& (Join-Path $PSScriptRoot 'build-multi-api-candidate.ps1')")
         self.assertLess(text.index("'validate-command-state-lockperf.py'"), build)
         self.assertLess(text.index("'validate-command-state-hotpath.py'"), build)

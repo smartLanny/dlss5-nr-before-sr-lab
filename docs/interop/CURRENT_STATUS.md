@@ -1,5 +1,9 @@
 # 统一开发与测试交接入口
 
+## 2026-09-18 D21 Perf6：真实槽查询热点接续
+
+Perf5 实测确认有序范围路径已使用、旧线性回退为零；首次关闭／开启态插件 self 降低，但整帧尚未提速。当前首要描述符采样落在 BeginLocked 内的完整键链式查询。Perf6 在同一 registry 锁下增加有界槽编号缓存，命中仍核对 heap／index，pending／revision／incarnation／寿命检查不变；已排序范围不再重复排序。F8 增加 `descriptor.slotQueries`，保留 Perf5 范围计数。只有描述符头文件和反馈行是新增运行时代码；构建入口 `scripts/build-perf6-candidate.ps1`，最终产物状态以本次回执为准。[实现与验收](D21_PERF6_20260918.md)。
+
 ## 2026-09-18 D21 Perf5：描述符密集范围与回退查询
 
 按维护者“调查后直接推进修复和测试交付”的要求，从已测 Perf4 `ea9e0b89` 接续。复制前只整理插件自有范围数组，保留精确字节地址空隙；密集回退、逐槽遮罩和每 heap 前置检查改用有序查询，并补 F8 累计分支计数。Perf4 来源满表优化、NR/SR/RR/FG 画质和恢复契约不变。冻结源码 `3e1dd7992a94dbdd4700fb41377a7a4f6f1bd102` 已完成完整 Windows 双语构建、46 组 canonical 验证、真实 Core 描述符 WARP 669 项及来源传输 WARP 1,700 项；Perf3/4 和 Perf5 新旧差分门禁全部通过。中文 Core 哈希 `eeb94db9…`，中文配套 OTA 已生成且未部署；26 个着色器与 Perf4 字节一致。调试层不可用单独记为未验证，真实读回与负控已执行，游戏性能仍待实测。详情见 [Perf5 范围与验证](D21_PERF5_20260918.md) 和 [Windows 交付记录](D21_PERF5_WINDOWS_20260918.md)。
