@@ -131,7 +131,10 @@ template<class T> static void bench_saturated(const char* name) {
     for(unsigned n=0;n<25000;++n)for(Id i=65;i<69;++i)require(!l->InvalidateDevice({i,i,1,1}),"bench failed recording");
     std::printf("BENCH saturation %s ms=%.3f\n",name,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
 }
-int main(int argc,char** argv) {
+#ifndef PERF4_MAIN
+#define PERF4_MAIN main
+#endif
+int PERF4_MAIN(int argc,char** argv) {
     const std::string mode=argc>1?argv[1]:"semantics";
     if(mode=="--outer-budget")return outer_budget();
     if(mode=="--saturation-budget")return saturation_budget();

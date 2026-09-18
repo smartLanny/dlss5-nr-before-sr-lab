@@ -447,6 +447,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
         g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed),descriptor_counts.scoped_copies,descriptor_counts.global_copies);
+    FeedbackAppend(s,"%s.descriptor.rangeQueries=orderedScopes:%llu,orderedRanges:%llu,rawScopes:%llu,indexedInvalidations:%llu,orderedFallbacks:%llu,linearFallbacks:%llu; cumulative-batch-counters-not-GPU-time\n",
+        prefix,descriptor_counts.ordered_copy_scopes,descriptor_counts.ordered_copy_ranges,descriptor_counts.raw_copy_scopes,
+        descriptor_counts.indexed_invalidations,descriptor_counts.ordered_fallbacks,descriptor_counts.linear_fallbacks);
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
         FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
             prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);

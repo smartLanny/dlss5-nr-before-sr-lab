@@ -85,10 +85,31 @@ struct UnknownRange {
     Id first=0,last=0;
     unsigned type=0;
 };
+// The adapter owns this metadata array, never the application's D3D12 arrays.
+// Preserve the exact inclusive byte-address union: merge only same-type ranges
+// that overlap or are adjacent in ADDRESS space, not descriptor-stride gaps.
+inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcept {
+    if(!count)return true;
+    if(!ranges)return false;
+    for(unsigned i=0;i<count;++i)
+        if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
+    std::sort(ranges,ranges+count,[](const UnknownRange& a,const UnknownRange& b) {
+        if(a.type!=b.type)return a.type<b.type;
+        return a.first!=b.first?a.first<b.first:a.last<b.last;
+    });
+    unsigned retained=0;
+    for(unsigned i=0;i<count;++i) {
+        const auto next=ranges[i];
+        if(retained && ranges[retained-1].type==next.type && ranges[retained-1].last>=next.first-1)
+            ranges[retained-1].last=std::max(ranges[retained-1].last,next.last);
+        else ranges[retained++]=next;
+    }
+    count=retained;return true;
+}
 struct UnknownCopy {
     const UnknownRange *ranges=nullptr;
     unsigned count=0;
-    bool all=false;
+    bool all=false,ordered=false;
     UnknownCopy *next=nullptr;
     bool active=false;
     UnknownCopy()=default;
@@ -180,6 +201,9 @@ struct Counters {
     bool gpu_mirror=true;
     bool profile_enabled=NR_DESCRIPTOR_PROFILE!=0;
     Id heap_retire_slot_visits=0,unknown_slot_visits=0,copy_begin_batches=0,copy_finish_batches=0;
+    // Once per metadata batch, under the existing mutex; no per-slot timers.
+    Id ordered_copy_scopes=0,ordered_copy_ranges=0,raw_copy_scopes=0;
+    Id indexed_invalidations=0,ordered_fallbacks=0,linear_fallbacks=0;
     Id copy_begin_cpu_ns=0,copy_finish_cpu_ns=0,heap_retire_cpu_ns=0,unknown_cpu_ns=0;
 };
 struct Inventory {
@@ -383,10 +407,44 @@ class Registry {
             if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
         return true;
     }
+    static bool UnknownRangesOrdered(const UnknownRange* ranges,unsigned count) {
+        for(unsigned i=1;i<count;++i) {
+            const auto& a=ranges[i-1];const auto& b=ranges[i];
+            if(a.type>b.type || (a.type==b.type && a.last>=b.first))return false;
+        }
+        return true;
+    }
+    // Sorted, disjoint ranges have increasing endpoints inside each type.
+    // Return the first interval that could contain/intersect this address.
+    static unsigned FirstUnknownRange(const UnknownCopy& scope,Id handle,unsigned type) {
+        unsigned lo=0,hi=scope.count;
+        while(lo<hi) {
+            const auto mid=lo+(hi-lo)/2;
+            const auto& requested=scope.ranges[mid];
+            if(requested.type<type || (requested.type==type && requested.last<handle))lo=mid+1;
+            else hi=mid;
+        }
+        return lo;
+    }
+    static unsigned EndUnknownRange(const UnknownCopy& scope,Id handle,unsigned type) {
+        unsigned lo=0,hi=scope.count;
+        while(lo<hi) {
+            const auto mid=lo+(hi-lo)/2;
+            const auto& requested=scope.ranges[mid];
+            if(requested.type<type || (requested.type==type && requested.first<=handle))lo=mid+1;
+            else hi=mid;
+        }
+        return lo;
+    }
+    static bool OrderedUnknownIntersects(const UnknownCopy& scope,Id first,Id last,unsigned type) {
+        const auto index=FirstUnknownRange(scope,first,type);
+        return index<scope.count && scope.ranges[index].type==type && scope.ranges[index].first<=last;
+    }
     static bool UnknownScopeMasksLocked(const UnknownCopy &scope,Id handle,unsigned type) {
         if(!scope.active)return false;
         if(scope.all)return true;
         if(!scope.ranges)return false;
+        if(scope.ordered)return OrderedUnknownIntersects(scope,handle,handle,type);
         for(unsigned i=0;i<scope.count;++i) {
             const auto &range=scope.ranges[i];
             if(range.type==type && range.first<=handle && handle<=range.last)return true;
@@ -435,9 +493,19 @@ class Registry {
         // Sparse heaps/large scopes keep the old bounded membership walk. No
         // extra index allocation or native descriptor access occurs here.
         const unsigned budget=std::min(4096u,pool.HeapBucketSize(heap.id)/4);
-        unsigned probes=0;
+        unsigned probes=0,range_begin=0,range_end=scope?scope->count:0;
         bool narrow=scope && scope->active && !scope->all && scope->ranges;
-        if(narrow)for(unsigned i=0;i<scope->count;++i) {
+        if(narrow && scope->ordered) {
+            range_begin=FirstUnknownRange(*scope,heap.cpu,heap.type);
+            const Id last=heap.cpu+static_cast<Id>(heap.count-1)*heap.stride;
+            range_end=EndUnknownRange(*scope,last,heap.type);
+            if(range_begin==range_end)return 0;
+            // Bound the preflight too: many stride-misaligned singleton ranges
+            // should not cause another heap x range scan before the exact slot
+            // membership walk, which uses logarithmic masks on ordered scopes.
+            if(range_end-range_begin>64)narrow=false;
+        }
+        if(narrow)for(unsigned i=range_begin;i<range_end;++i) {
             unsigned first=0,last=0;
             if(!UnknownIndices(heap,scope->ranges[i],first,last))continue;
             const Id count=static_cast<Id>(last)-first+1;
@@ -446,7 +514,7 @@ class Registry {
         }
         if(narrow) {
             Id visited=0;
-            for(unsigned i=0;i<scope->count;++i) {
+            for(unsigned i=range_begin;i<range_end;++i) {
                 unsigned first=0,last=0;
                 if(UnknownIndices(heap,scope->ranges[i],first,last))
                     AddCount(visited,pool.ForIndices(heap.id,first,last,invalidate));
@@ -455,9 +523,9 @@ class Registry {
         }
         // A single broad range still uses the membership walk, but its exact
         // inclusive index bounds need decoding only once, not for every slot.
-        if(scope && scope->active && !scope->all && scope->count==1 && scope->ranges) {
+        if(scope && scope->active && !scope->all && range_end-range_begin==1 && scope->ranges) {
             unsigned first=0,last=0;
-            if(!UnknownIndices(heap,scope->ranges[0],first,last))return 0;
+            if(!UnknownIndices(heap,scope->ranges[range_begin],first,last))return 0;
             return pool.ForHeap(heap.id,[&](Slot& slot) {
                 if(first<=slot.stamp.index && slot.stamp.index<=last)invalidate(slot);
             });
@@ -506,12 +574,16 @@ class Registry {
                 if(h.type==requested.type)candidates[upper/64]|=Id{1}<<(upper%64);
             }
         }
+        if(indexed)Increment(counters.indexed_invalidations);
+        else if(scope && scope->ordered)Increment(counters.ordered_fallbacks);
+        else Increment(counters.linear_fallbacks);
         for(unsigned i=0;i<cpu_range_count;++i) {
             const auto& range=cpu_ranges[i];const auto& heap=heaps.values[range.heap];
             bool possible=indexed?(candidates[i/64]&(Id{1}<<(i%64)))!=0:
                 !scope || (scope->active&&scope->all);
             if(!indexed&&scope&&scope->active&&!scope->all&&scope->ranges) {
-                for(unsigned j=0;j<scope->count;++j) {
+                if(scope->ordered)possible=OrderedUnknownIntersects(*scope,range.base,range.end,heap.type);
+                else for(unsigned j=0;j<scope->count;++j) {
                     const auto& r=scope->ranges[j];
                     if(r.type==heap.type&&r.first<=range.end&&range.base<=r.last){possible=true;break;}
                 }
@@ -833,6 +905,11 @@ public:
         SealStartup();
         const bool global=all || !UnknownRangesValid(ranges,count);
         scope.ranges=global?nullptr:ranges;scope.count=global?0:count;
+        scope.ordered=!global && UnknownRangesOrdered(ranges,count);
+        if(!global && count) {
+            if(scope.ordered){Increment(counters.ordered_copy_scopes);AddCount(counters.ordered_copy_ranges,count);}
+            else Increment(counters.raw_copy_scopes);
+        }
         scope.all=global;scope.next=nullptr;scope.active=true;
         scope.next=unknown_copies;unknown_copies=&scope;
         if(global){Increment(counters.global_copies);InvalidateLocked();}
@@ -849,7 +926,7 @@ public:
         UnknownCopy **link=&unknown_copies;
         while(*link && *link!=&scope)link=&(*link)->next;
         if(*link==&scope)*link=scope.next;
-        scope.ranges=nullptr;scope.count=0;scope.all=false;scope.next=nullptr;scope.active=false;
+        scope.ranges=nullptr;scope.count=0;scope.all=false;scope.ordered=false;scope.next=nullptr;scope.active=false;
     }
     Write BeginWrite(Id cpu,unsigned type,const View &value) {
         std::lock_guard guard(mutex);

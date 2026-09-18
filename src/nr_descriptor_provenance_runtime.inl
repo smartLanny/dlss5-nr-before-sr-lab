@@ -271,6 +271,13 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
             copy.ranges[range_count++]={first,first+static_cast<nr_descriptor::Id>(size-1)*stride,
                 static_cast<unsigned>(type)};
         }
+        // Prepare only our owned copy, before publishing the scope or taking
+        // the registry mutex. Never reorder the application's native arguments.
+        // Union uses exact byte intervals; stride gaps cannot be filled because
+        // a live overlapping heap may place a real descriptor in such a gap.
+        if(range_count && !nr_descriptor::NormalizeUnknownRanges(copy.ranges.get(),range_count)) {
+            g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;
+        }
         if(range_count)g_nr_descriptors.BeginUnknownCopy(copy.unknown,copy.ranges.get(),range_count);
     };
     if(destinations>64 || sources>64 || (destinations&&!destination) || (sources&&!source)) {
