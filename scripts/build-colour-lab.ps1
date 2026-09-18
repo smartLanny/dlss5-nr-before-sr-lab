@@ -37,8 +37,9 @@ if ($ReuseBridgeRoot) { $Options.ReuseBridgeRoot = $ReuseBridgeRoot }
 if (-not $?) { throw 'Windows Core build failed.' }
 $Manifest = Join-Path $OutputRoot 'source-manifest.json'
 $Source = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json
-if ($Source.colour_lab.version -ne 'beta0.5-dline21-colour2') { throw 'Unexpected output identity.' }
+if ($Source.colour_lab.version -ne 'beta0.5-dline21-colour3') { throw 'Unexpected output identity.' }
 Write-Host 'Build command completed. Inspect core/build outputs and existing build reports.'
 Write-Host 'No game files were changed. This is not runtime/game verification.'
-Write-Host 'M2 includes matched RGB/source-reference restoration. Compare ColourRestoreMode=0 and 1 with identical model and picture settings.'
-Write-Host 'M3a: ColourInputCurve=1 additionally selects paired N2 for HDR and resets NR history; default 0 retains D21 input.'
+Write-Host 'colour3: ColourRestoreMode=2 is the bounded raw model-edit reference; mode 1 retains D21 aesthetic protections.'
+Write-Host 'ColourScaledProxyMode=1 targets sub-native pre-SR 99/100 discontinuity by encode-first exact-area scaling and resets NR history.'
+Write-Host 'ColourInputCurve=1 remains the paired N2 HDR experiment; default 0 retains D21 input.'

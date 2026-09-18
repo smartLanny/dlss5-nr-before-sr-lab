@@ -17,7 +17,8 @@ BASE = '58ce637c1fbb03d0e7d93b90d26b3e4bce7b03df'
 INPUTS = ('scripts/prepare-colour-lab.py', 'scripts/patch-colour-lab.py',
           'src/nr_colour_lab_policy.h', 'src/nr_colour_lab_ui.inl',
           'scripts/patch-colour-restore.py', 'src/nr_colour_restore_policy.h',
-          'src/nr_colour_restore.hlsli', 'src/nr_colour_prepare.hlsli')
+          'src/nr_colour_restore.hlsli', 'src/nr_colour_prepare.hlsli',
+          'src/nr_scaled_proxy_prepare.hlsli')
 
 def load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -49,12 +50,14 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
         manifest = json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab'] = {
             'version': patch.VERSION, 'base_commit': BASE, 'source_commit': source,
-            'milestone': 'M2-M3a-matched-rgb-paired-hdr', 'default_mode': 1,
+            'milestone': 'M3b-raw-structure-and-proxy-first-scale', 'default_mode': 1,
             'modes': {'0': 'legacy-configured', '1': 'colour-priority-experimental',
                       '2': 'conservative-hdr'},
             'rgb_restore_implemented': True, 'default_restore_mode': 1,
-            'restore_modes': {'0': 'legacy-ratio', '1': 'matched-rgb-source-reference'},
-            'restore_codec_flags': {'rgb': 1073741824, 'post_encode_contract': 536870912, 'paired_n2_hdr': 268435456},
+            'restore_modes': {'0': 'legacy-ratio', '1': 'matched-rgb-protected', '2': 'matched-rgb-raw-edit-reference'},
+            'restore_codec_flags': {'rgb': 1073741824, 'post_encode_contract': 536870912, 'paired_n2_hdr': 268435456,
+                                    'raw_edit_reference': 134217728, 'proxy_first_scaled_input': 67108864},
+            'scaled_proxy_modes': {'0': 'd21-source-first', '1': 'proxy-first-exact-area'},
             'default_input_curve': 0, 'input_curve_modes': {'0': 'd21-unchanged', '1': 'paired-n2-hdr'},
             'restore_routes': ['native-nr-before-sr', 'native-sr-rr-before-nr'],
             'shader_math_changed': True, 'restore_selection_resets_history': False,
@@ -80,7 +83,7 @@ def main() -> None:
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     prepare(args.core.resolve(), args.upstream.resolve(), args.output.resolve())
-    print('Staged beta0.5-dline21-colour2: M2/M3a source only; not a game validation.')
+    print('Staged beta0.5-dline21-colour3: raw-structure/proxy-first experiment; not a game validation.')
 
 if __name__ == '__main__':
     try:
