@@ -13,6 +13,7 @@
 #include <cstring>
 #include <new>
 #include <initializer_list>
+#include <iterator> // std::size/data used by the actual token lookup body
 #include "MinHook.h"
 namespace reshade::api {
 enum class device_api { d3d12 };
