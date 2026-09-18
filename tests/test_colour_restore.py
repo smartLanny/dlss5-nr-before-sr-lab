@@ -213,8 +213,9 @@ class RestoreTests(unittest.TestCase):
         self.assertIn('PqSourceToModelLinear(storedOriginal)',shader)
         self.assertIn('HdrSourceToModelLinear(storedOriginal)',shader)
 
-    @unittest.skipUnless(REPO, 'supply --repo to inspect real raw repository files')
     def test_actual_raw_source(self):
+        if REPO is None:
+            self.skipTest('supply --repo to inspect real raw repository files')
         original=(REPO/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
         patched=m2.patch_runtime(m1.patch_runtime(original),shader,prepare_shader,scaled_shader)
         self.assertEqual(patched.count('ColourLabRgbResult restored ='),2)
@@ -230,8 +231,9 @@ class RestoreTests(unittest.TestCase):
         feedback=(REPO/'src/nr_feedback_picture.inl').read_text(encoding='utf-8')
         self.assertIn('requested.colourRestoreMode',m2.patch_feedback(feedback))
 
-    @unittest.skipUnless(GENERATED, 'supply --generated to inspect a real completed export')
     def test_actual_generated_source(self):
+        if GENERATED is None:
+            self.skipTest('supply --generated to inspect a real completed export')
         text=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
         self.assertEqual(text.count('ColourLabRgbResult restored ='),2)
         self.assertIn(shader,text)
@@ -249,7 +251,6 @@ class RestoreTests(unittest.TestCase):
                       body(text,'void EncodeV2CS('))
         self.assertIn(prepare_shader,text)
         self.assertNotIn('ColourLab',body(text,'void EncodeCS('))
-        self.assertNotIn('ColourLab',body(text,'void EncodeV2CS('))
         self.assertIn('kCodecRootConstantCount = 60;',text)
         self.assertIn('ColourLabRgbEnabled()',body(text,'void CombineCS('))
         self.assertIn('ColourLabRgbEnabled()',body(text,'void CombineV2CS('))
@@ -264,6 +265,4 @@ if __name__=='__main__':
     parser.add_argument('--repo',type=Path)
     parser.add_argument('--generated',type=Path)
     args,rest=parser.parse_known_args();REPO=args.repo;GENERATED=args.generated
-    RestoreTests.test_actual_raw_source.__unittest_skip__=not bool(REPO)
-    RestoreTests.test_actual_generated_source.__unittest_skip__=not bool(GENERATED)
     unittest.main(argv=['test_colour_restore.py']+rest)

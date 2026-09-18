@@ -50,8 +50,9 @@ class PatchTests(unittest.TestCase):
         self.assertNotIn('ApplyConfig(', ui)
         self.assertNotIn('WritePrivateProfile', ui)
         self.assertIn('sample.status != NrColorPolicyStatus::Current', ui)
-    @unittest.skipUnless(REPO, 'supply --repo for actual repository source checks')
     def test_actual_sources(self):
+        if REPO is None:
+            self.skipTest('supply --repo for actual repository source checks')
         for path, transform in [('nr_before_sr.cpp', patch.patch_runtime),
                                 ('nr_color_policy.inl', patch.patch_policy),
                                 ('nr_light_style_ui.inl', patch.patch_ui)]:
@@ -70,6 +71,4 @@ if __name__ == '__main__':
     parser.add_argument('--repo', type=pathlib.Path)
     args, rest = parser.parse_known_args()
     REPO = args.repo
-    # skipUnless is evaluated at import; update for the command-line option.
-    PatchTests.test_actual_sources.__unittest_skip__ = not bool(REPO)
     unittest.main(argv=['test_colour_lab.py'] + rest)
