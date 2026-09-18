@@ -80,6 +80,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_source_frame.hpp',
             'src/nr_source_frame_forward.inl',
             'src/nr_source_frame_runtime.inl',
+            'src/nr_source_state_table.inl',
             'src/nr_source_observer.inl',
             'src/nr_source_transport.inl',
             'src/nr_source_views.inl',
