@@ -113,17 +113,25 @@ static void Verify(const Readback &r,const std::vector<std::uint16_t> &expected)
     D3D12_RANGE empty={0,0};ID3D12Resource_Unmap(r.buffer,0,&empty);
 }
 int main(int argc,char **argv) {
-    const bool negative=argc>1 && std::strcmp(argv[1],"--negative-control")==0;
+    bool negative=false,allow_no_debug=false;
+    for(int i=1;i<argc;++i) {
+        if(std::strcmp(argv[i],"--negative-control")==0)negative=true;
+        else if(std::strcmp(argv[i],"--allow-no-debug")==0)allow_no_debug=true;
+        else Check(false,"unrecognized test option");
+    }
     ID3D12Debug *debug=nullptr;
-    HR(D3D12GetDebugInterface(IID_ID3D12Debug,reinterpret_cast<void **>(&debug)),"required D3D12 debug layer");
-    ID3D12Debug_EnableDebugLayer(debug); ID3D12Debug_Release(debug);
+    const HRESULT debug_result=D3D12GetDebugInterface(IID_ID3D12Debug,reinterpret_cast<void **>(&debug));
+    if(FAILED(debug_result)&&!allow_no_debug)HR(debug_result,"required D3D12 debug layer");
+    const bool debug_enabled=SUCCEEDED(debug_result)&&debug;
+    if(debug_enabled){ID3D12Debug_EnableDebugLayer(debug);ID3D12Debug_Release(debug);}
+    std::printf("snapshot_debug_layer=%u; GPU readback/negative checks still required\n",unsigned(debug_enabled));
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr;
     HR(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"DXGI factory");
     HR(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"WARP only");
     HR(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"WARP device");
     ID3D12InfoQueue *info=nullptr;
-    HR(ID3D12Device_QueryInterface(device,IID_ID3D12InfoQueue,reinterpret_cast<void **>(&info)),"debug info queue");
+    if(debug_enabled)HR(ID3D12Device_QueryInterface(device,IID_ID3D12InfoQueue,reinterpret_cast<void **>(&info)),"debug info queue");
     // Negative resource-creation fixture: DENY_SHADER_RESOURCE requires a
     // depth-stencil format and cannot be a supported FP16 colour UAV case.
     auto invalid=ColourDesc(8,6,DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -134,8 +142,10 @@ int main(int argc,char **argv) {
     const HRESULT invalid_result=ID3D12Device_CreateCommittedResource(device,&invalid_heap,D3D12_HEAP_FLAG_NONE,
         &invalid,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void **>(&rejected));
     Check(invalid_result==E_INVALIDARG && rejected==nullptr,"illegal FP16 DENY_SHADER_RESOURCE fixture rejected");
-    Check(ID3D12InfoQueue_GetNumStoredMessages(info)>0,"invalid resource produces debug evidence");
-    ID3D12InfoQueue_ClearStoredMessages(info); // Only clear the expected negative fixture, before valid scenarios.
+    if(info) {
+        Check(ID3D12InfoQueue_GetNumStoredMessages(info)>0,"invalid resource produces debug evidence");
+        ID3D12InfoQueue_ClearStoredMessages(info); // Clear only expected negative evidence.
+    }
     ID3D12CommandQueue *queue=nullptr;D3D12_COMMAND_QUEUE_DESC q={};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
     HR(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void **>(&queue)),"queue");
     ID3D12CommandAllocator *allocator=nullptr;
@@ -184,7 +194,7 @@ int main(int argc,char **argv) {
     HR(ID3D12Fence_SetEventOnCompletion(fence,1,event),"event on completion");
     Check(WaitForSingleObject(event,15000)==WAIT_OBJECT_0,"bounded test fence wait");
     for(size_t i=0;i<reads.size();++i)Verify(reads[i],expected[i]);
-    for(UINT64 i=0;i<ID3D12InfoQueue_GetNumStoredMessages(info);++i) {
+    for(UINT64 i=0;info&&i<ID3D12InfoQueue_GetNumStoredMessages(info);++i) {
         SIZE_T n=0;HR(ID3D12InfoQueue_GetMessage(info,i,nullptr,&n),"debug message size");
         std::vector<unsigned char> bytes(n);auto *m=reinterpret_cast<D3D12_MESSAGE *>(bytes.data());
         HR(ID3D12InfoQueue_GetMessage(info,i,m,&n),"debug message");
@@ -192,7 +202,7 @@ int main(int argc,char **argv) {
     }
     for(auto *r:owned)ID3D12Resource_Release(r);
     CloseHandle(event);ID3D12Fence_Release(fence);ID3D12GraphicsCommandList_Release(list);
-    ID3D12CommandAllocator_Release(allocator);ID3D12CommandQueue_Release(queue);ID3D12InfoQueue_Release(info);
+    ID3D12CommandAllocator_Release(allocator);ID3D12CommandQueue_Release(queue);if(info)ID3D12InfoQueue_Release(info);
     ID3D12Device_Release(device);IDXGIAdapter_Release(adapter);IDXGIFactory4_Release(factory);
     std::printf("PASS post-SR production snapshot: %u checks, 3 WARP scenarios, no hardware fallback\n",checks);
 }

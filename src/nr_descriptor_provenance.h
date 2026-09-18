@@ -256,6 +256,9 @@ class Registry {
         // and pending/incarnation semantics are unchanged.
         static constexpr unsigned HeapBuckets=HeapCapacity*2;
         std::array<unsigned,HeapBuckets> heap_buckets{};
+        // Includes hash collisions, just like ForHeap's actual traversal cost.
+        // Maintained with the existing intrusive membership, under the same lock.
+        std::array<unsigned,HeapBuckets> heap_sizes{};
         static unsigned HeapHash(Id id){return LiveTable<Resource,HeapCapacity>::Hash(id);}
         unsigned free=1,oldest=0,newest=0,active=0;
         Slots(){for(unsigned i=0;i<Capacity;++i)values[i].chain=i+1<Capacity?i+2:0;}
@@ -288,6 +291,7 @@ class Registry {
             if(s.heap_older)values[s.heap_older-1].heap_newer=s.heap_newer;
             else heap_buckets[HeapHash(s.stamp.heap)]=s.heap_newer;
             if(s.heap_newer)values[s.heap_newer-1].heap_older=s.heap_older;
+            --heap_sizes[HeapHash(s.stamp.heap)];
             RemoveLru(s);s={};s.chain=free;free=n;--active;
         }
         Slot *Allocate(Id heap,unsigned index,Id incarnation,PoolCounters &counter) {
@@ -300,7 +304,19 @@ class Registry {
             const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;
             const auto hh=HeapHash(heap);s.heap_newer=heap_buckets[hh];
             if(s.heap_newer)values[s.heap_newer-1].heap_older=n;
-            heap_buckets[hh]=n;return &s;
+            heap_buckets[hh]=n;++heap_sizes[hh];return &s;
+        }
+        unsigned HeapBucketSize(Id id) const {return heap_sizes[HeapHash(id)];}
+        template<class Fn> Id ForIndices(Id id,unsigned first,unsigned last,Fn&& fn) {
+            Id visited=0;
+            for(unsigned index=first;;++index) {
+                for(auto n=buckets[Hash(id,index)];n;n=values[n-1].chain) {
+                    auto& slot=values[n-1];++visited;
+                    if(slot.stamp.heap==id && slot.stamp.index==index){fn(slot);break;}
+                }
+                if(index==last)break; // includes UINT_MAX without wrapping
+            }
+            return visited;
         }
         template<class Fn> Id ForHeap(Id id,Fn&& fn) {
             Id visited=0;
@@ -394,6 +410,64 @@ class Registry {
             if(UnknownScopeMasksLocked(*scope,handle,heap.type))return true;
         return false;
     }
+    // Convert inclusive CPU-handle ranges without rounding outward or wrapping
+    // near UINT64_MAX. Heap extent/stride were validated by ObserveHeap.
+    static bool UnknownIndices(const Heap& heap,const UnknownRange& range,
+                               unsigned& first,unsigned& last) {
+        const Id end=heap.cpu+static_cast<Id>(heap.count-1)*heap.stride;
+        if(range.type!=heap.type || range.last<heap.cpu || range.first>end)return false;
+        const Id lo=std::max(range.first,heap.cpu)-heap.cpu;
+        const Id hi=std::min(range.last,end)-heap.cpu;
+        const Id begin=lo/heap.stride+(lo%heap.stride!=0);
+        const Id finish=hi/heap.stride;
+        if(begin>finish)return false;
+        first=static_cast<unsigned>(begin);last=static_cast<unsigned>(finish);return true;
+    }
+    template<unsigned Capacity> Id InvalidateUnknownForHeapLocked(Slots<Capacity>& pool,
+            const Heap& heap,const UnknownCopy* scope) {
+        const auto invalidate=[&](Slot& slot) {
+            slot.value={};
+            slot.stamp.epoch=epoch?epoch-1:0;
+            slot.stamp.revision=revision;
+            if(slot.pending)slot.overlap=true;
+        };
+        // Probe exact keys only when substantially fewer than a heap traversal.
+        // Sparse heaps/large scopes keep the old bounded membership walk. No
+        // extra index allocation or native descriptor access occurs here.
+        const unsigned budget=std::min(4096u,pool.HeapBucketSize(heap.id)/4);
+        unsigned probes=0;
+        bool narrow=scope && scope->active && !scope->all && scope->ranges;
+        if(narrow)for(unsigned i=0;i<scope->count;++i) {
+            unsigned first=0,last=0;
+            if(!UnknownIndices(heap,scope->ranges[i],first,last))continue;
+            const Id count=static_cast<Id>(last)-first+1;
+            if(count>budget-probes){narrow=false;break;}
+            probes+=static_cast<unsigned>(count);
+        }
+        if(narrow) {
+            Id visited=0;
+            for(unsigned i=0;i<scope->count;++i) {
+                unsigned first=0,last=0;
+                if(UnknownIndices(heap,scope->ranges[i],first,last))
+                    AddCount(visited,pool.ForIndices(heap.id,first,last,invalidate));
+            }
+            return visited;
+        }
+        // A single broad range still uses the membership walk, but its exact
+        // inclusive index bounds need decoding only once, not for every slot.
+        if(scope && scope->active && !scope->all && scope->count==1 && scope->ranges) {
+            unsigned first=0,last=0;
+            if(!UnknownIndices(heap,scope->ranges[0],first,last))return 0;
+            return pool.ForHeap(heap.id,[&](Slot& slot) {
+                if(first<=slot.stamp.index && slot.stamp.index<=last)invalidate(slot);
+            });
+        }
+        return pool.ForHeap(heap.id,[&](Slot& slot) {
+            const auto handle=heap.cpu+static_cast<Id>(slot.stamp.index)*heap.stride;
+            if(scope?UnknownScopeMasksLocked(*scope,handle,heap.type):UnknownMaskedLocked(heap,slot.stamp.index))
+                invalidate(slot);
+        });
+    }
     void InvalidateUnknownSlotsLocked(const UnknownCopy *scope=nullptr) {
         if(revision==std::numeric_limits<Id>::max()) {InvalidateLocked();return;}
         ++revision;
@@ -410,18 +484,8 @@ class Registry {
                 }
             }
             if(!possible)continue;
-            const auto invalidate=[&](Slot& slot) {
-                const auto handle=heap.cpu+static_cast<Id>(slot.stamp.index)*heap.stride;
-                const bool masked=scope?UnknownScopeMasksLocked(*scope,handle,heap.type):
-                    UnknownMaskedLocked(heap,slot.stamp.index);
-                if(!masked)return;
-                slot.value={};
-                slot.stamp.epoch=epoch?epoch-1:0;
-                slot.stamp.revision=revision;
-                if(slot.pending)slot.overlap=true;
-            };
-            const auto visited=heap.shader_visible?gpu_slots.ForHeap(heap.id,invalidate):
-                cpu_slots.ForHeap(heap.id,invalidate);
+            const auto visited=heap.shader_visible?InvalidateUnknownForHeapLocked(gpu_slots,heap,scope):
+                InvalidateUnknownForHeapLocked(cpu_slots,heap,scope);
             AddCount(counters.unknown_slot_visits,visited);
         }
     }
@@ -483,8 +547,10 @@ class Registry {
         if(!s || s->stamp.epoch!=epoch){result.reason=Reason::SlotUnknown;return result;}
         result.stamp=s->stamp;
         if(s->pending){result.reason=Reason::WritePending;return result;}
-        result.view=s->value;
+        // Pending/unknown payload bytes are never observable. BeginIn only
+        // invalidates the tag; return the same empty View as the cleared model.
         if(!s->value.known){result.reason=Reason::ViewUnknown;return result;}
+        result.view=s->value;
         if(counters.resources.coverage_lost){result.reason=Reason::CoverageLost;return result;}
         if(!ResourceCurrent(s->value.resource)){result.reason=Reason::ResourceRetired;return result;}
         if(s->value.resource.device!=h.device){result.reason=Reason::WrongDevice;return result;}
@@ -517,7 +583,7 @@ class Registry {
         pool.RemoveLru(*s);
         if(s->pending){s->overlap=true;Increment(counters.overlaps);}else s->overlap=false;
         if(s->pending==std::numeric_limits<unsigned>::max()){InvalidateLocked();return write;}
-        ++s->pending;s->stamp={h.id,revision,epoch,where.index};s->value={};
+        ++s->pending;s->stamp={h.id,revision,epoch,where.index};s->value.known=false;
         write.destination=s->stamp;write.incarnation=s->incarnation;
         if(value.resource.device==h.device)write.value=value;
         Increment(counters.writes);return write;

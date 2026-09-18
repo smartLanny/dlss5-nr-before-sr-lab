@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-lockperf2'
-DISPLAY_VERSION = '0.5-dline21-lockperf2'
+VERSION = 'beta0.5-dline21-perf3'
+DISPLAY_VERSION = '0.5-dline21-perf3'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -63,7 +63,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_config_policy.h': '936883dabf13e79058865075e6cf0bbe507c4dbd',
     'src/nr_config_policy_runtime.inl': 'ef49832b8cb852458aa85f60ac86381c334ae45b',
     'src/nr_descriptor_plan.h': 'c29345e306d8dbf6f897b02cadfd7c75b45cdff6',
-    'src/nr_descriptor_provenance.h': 'd3a87641950db3de2631ebebdead4f4b244c0a06',
+    'src/nr_descriptor_provenance.h': '6853fce74f6801cd088125fbf6e6b086ffeae355',
     'src/nr_descriptor_provenance_commands.inl': '9bcbac6d7f6a2b601fe7b4fc71ee936b0b994bda',
     'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
     'src/nr_descriptor_provenance_runtime.inl': '85e594a54371e7005734fdc532662f6e969bbc9e',
@@ -181,7 +181,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_processing_route.h': 'edea93e4ce9e58972914417cd90971040aeca7db',
     'src/nr_processing_runtime.inl': '33300145b72d32f736c28a3c58b244b472d4ae91',
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
-    'src/nr_source_frame.hpp': '668877e37cf63b587ec074a917b0aff542b95941',
+    'src/nr_source_frame.hpp': 'ca1c6ad1500b8b07fccbf4fa85484cb037cd7a21',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
     'src/nr_source_frame_runtime.inl': 'a9ad7a322c640c75f11d0135522d6113803a6ce0',
     'src/nr_source_observer.inl': '941467649f0546bbe85417d534f9738f03cfe9a9',
@@ -323,7 +323,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-lockperf2 beta'),
+    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf3 beta'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:

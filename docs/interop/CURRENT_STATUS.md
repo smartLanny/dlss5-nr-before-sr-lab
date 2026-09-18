@@ -1,5 +1,9 @@
 # 统一开发与测试交接入口
 
+## 2026-09-18 D21 Perf3：描述符范围与来源批次热路径
+
+从实际已测 Cursor Lock2 `63efc2bd` 独立接续。仅修改描述符范围失效／写入有效载荷，以及来源批次的完整录制身份索引缓存；模型、画质、NR/SR/RR/FG 路由和恢复保护不变。Windows CPU 新旧差分、描述符 2,225 项、来源 399 项、120,000 操作及 8,000 线程生命周期检查通过。完整构建入口为 `scripts/build-perf3-candidate.ps1`，旧 Lock2 入口仅转发，生成版本为 `beta0.5-dline21-perf3`。最终构建／WARP／产物状态以本候选交付回执为准，不继承旧二进制的测试通过状态。详情见 [Perf3 范围与验证](D21_PERF3_20260918.md)。
+
 ## 2026-09-17 D21 lockperf2：中文测试 OTA
 
 给其他电脑导入用的中文 OTA 已打好，不含 NVIDIA 游戏 DLL。路径 `D:\ChatGPT\DLSS5\deliveries\d21-lockperf2-1bacd72c-20260917-ota\DLSS5-0.5-D21-lockperf2-zh-CN-OTA.zip`，SHA256 `a0373e3a317f38d7eb571947641b319922ebec746da842734e11fb94e906691a`。包内 5 项：中文 Core `dd3a66d9…`、配套 nrchain `1acf3cbe…`、说明、许可证、`ota-manifest.json`。管理器「导入核心更新」后需再对该游戏应用 `0.5 D21-lockperf2`。不是游戏验收。

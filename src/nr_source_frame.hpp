@@ -221,6 +221,15 @@ class Lineage {
     std::array<Value,256> values_{};
     Id next_submission_=1;
     Id next_content_=1;
+    // Relative indices, never borrowed Batch pointers. A cached hit still checks
+    // the complete list/lifetime/reset/device tuple after Reset or slot reuse.
+    // The caller's existing lineage lock remains the synchronization boundary.
+    std::array<unsigned,4> recent_batches_{{64,64,64,64}};
+    unsigned recent_batch_=0;
+    void RememberBatch(unsigned index) noexcept {
+        recent_batch_=(recent_batch_+1)%recent_batches_.size();
+        recent_batches_[recent_batch_]=index;
+    }
     static Label Unknown(Label previous) noexcept {
         Label result{};result.encoding=previous.encoding;
         result.tainted=previous.tainted||previous.processed||previous.fg_consumed||previous.role==Role::Generated||previous.role==Role::Retired;
@@ -232,8 +241,20 @@ class Lineage {
         return 0;
     }
     Batch* BatchFor(Recording r,bool create) noexcept {
-        for(auto& b:batches_)if(b.recording==r)return &b;
-        if(create)for(auto& b:batches_)if(!b.recording){b.recording=r;return &b;}
+        const auto recent=recent_batches_[recent_batch_];
+        if(r && recent<batches_.size() && batches_[recent].recording==r)return &batches_[recent];
+        for(unsigned i=0;i<recent_batches_.size();++i) {
+            const auto index=recent_batches_[i];
+            if(r && index<batches_.size() && batches_[index].recording==r) {
+                recent_batch_=i;return &batches_[index];
+            }
+        }
+        for(auto& b:batches_)if(b.recording==r) {
+            RememberBatch(static_cast<unsigned>(&b-batches_.data()));return &b;
+        }
+        if(create)for(auto& b:batches_)if(!b.recording){
+            b.recording=r;RememberBatch(static_cast<unsigned>(&b-batches_.data()));return &b;
+        }
         return nullptr;
     }
     Value* ValueFor(Resource r,bool create) noexcept {
