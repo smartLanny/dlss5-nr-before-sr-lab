@@ -11,17 +11,21 @@ nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *nativ
     nr_post_boundary::List result;result.address=reinterpret_cast<std::uint64_t>(native);
     if(!native)return result;
     // Preserve the native fast path: recording hooks read only value records.
-    thread_local ID3D12GraphicsCommandList *last_native=nullptr;
-    thread_local std::uint64_t last_epoch=0;
-    thread_local CommandStateRecord *last_record=nullptr;
+    struct Hint {ID3D12GraphicsCommandList* native=nullptr;std::uint64_t epoch=0;CommandStateRecord* record=nullptr;};
+    thread_local Hint hints[16]{};
     AcquireSRWLockShared(&g_command_state_lock);
     const auto epoch=g_command_state_epoch.load(std::memory_order_relaxed);
-    if(last_native!=native || last_epoch!=epoch) {
-        last_record=nullptr;
-        for(auto &entry:g_command_states)if(entry.native==native && entry.token) {last_record=&entry;break;}
-        last_native=native;last_epoch=epoch;
+    const auto address=reinterpret_cast<std::uint64_t>(native);
+    auto& hint=hints[static_cast<unsigned>((address>>4)^(address>>12)^(address>>20))&15u];
+    if(hint.native!=native || hint.epoch!=epoch) {
+        hint.record=nullptr;
+        for(auto &entry:g_command_states)if(entry.native==native && entry.token) {hint.record=&entry;break;}
+        hint.native=native;hint.epoch=epoch;
     }
-    const auto *record=last_record;
+    // The registry shared lock is held before using a hint. Metadata is read
+    // fresh below, including native reset and lifetime_ready. Negative hints
+    // still traverse the current alias scope: aliases never persist in TLS.
+    const auto *record=hint.record;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     // Proxy mappings are cold-verified, bounded by an actual original call,
     // and invalidated by record retirement/replacement. Never read COM here.

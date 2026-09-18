@@ -57,6 +57,7 @@ jobs:
           python3 scripts/validate-perf4-hotpaths.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/perf4-hotpaths"
           python3 scripts/validate-perf5-ranges.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/perf5-ranges"
           python3 scripts/validate-perf6-lookup.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/perf6-lookup"
+          python3 scripts/validate-perf7-tracking.py --compiler "$CXX" --sanitize --output "$RUNNER_TEMP/perf7-lookup"
       - name: Sanitized format policies
         if: matrix.compiler == 'clang++'
         run: |

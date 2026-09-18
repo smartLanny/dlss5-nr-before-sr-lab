@@ -9,24 +9,41 @@ struct ObservedSourceList {
 ObservedSourceList observed_lists[256]{};
 std::atomic<bool> source_receipts_pending{false};
 std::atomic<unsigned long long> source_observer_ready{0},source_observer_refused{0};
+ObservedSourceList* FindObservedSourceListLocked(ID3D12GraphicsCommandList* native){
+    // A relative-slot hint, not cached readiness or a borrowed lifetime. All
+    // callers hold source_lock; reset/readiness/republication are read fresh.
+    if(!native)return nullptr;
+    static unsigned hints[32]{};
+    const auto address=reinterpret_cast<Id>(native);
+    const unsigned hash=static_cast<unsigned>((address>>4)^(address>>13))&31u;
+    const unsigned number=hints[hash];
+    if(number&&number<=std::size(observed_lists)&&observed_lists[number-1].native==native)
+        return &observed_lists[number-1];
+    for(unsigned i=0;i<std::size(observed_lists);++i){
+        // PERF7_OBSERVER_PROBE
+        auto& entry=observed_lists[i];
+        if(entry.native==native){hints[hash]=i+1;return &entry;}
+    }
+    return nullptr;
+}
 Recording ObservedRecording(ID3D12GraphicsCommandList* native){
-    // Caller holds source_lock. This is a value lookup on recording hooks.
-    for(const auto& entry:observed_lists)if(entry.native==native)
-        return entry.ready?Recording{reinterpret_cast<Id>(native),entry.lifetime,entry.reset,entry.device}:Recording{};
-    return {};
+    const auto* entry=FindObservedSourceListLocked(native);
+    return entry&&entry->ready?Recording{reinterpret_cast<Id>(native),entry->lifetime,entry->reset,entry->device}:Recording{};
 }
 bool HasObservedList(ID3D12GraphicsCommandList* native){for(const auto& entry:observed_lists)if(entry.native==native)return true;return false;}
 void ForgetObservedList(Id address){for(auto& entry:observed_lists)if(reinterpret_cast<Id>(entry.native)==address)entry={};}
 void AdvanceObservedList(ID3D12GraphicsCommandList* native){
-    for(auto& entry:observed_lists)if(entry.native==native){if(entry.reset!=UINT64_MAX)++entry.reset;else entry.ready=false;break;}
+    if(auto* entry=FindObservedSourceListLocked(native)){
+        if(entry->reset!=UINT64_MAX)++entry->reset;else entry->ready=false;
+    }
 }
 bool EnsureSourceObservation(reshade::api::command_list* owner,bool init){
     if(!nr_processing_runtime::work_enabled.load(std::memory_order_acquire)||!owner||!owner->get_device()||
        owner->get_device()->get_api()!=reshade::api::device_api::d3d12)return false;
     auto* native=reinterpret_cast<ID3D12GraphicsCommandList*>(owner->get_native());if(!native)return false;
     const auto now=GetTickCount64();
-    if(!init){Lock lock;for(const auto& entry:observed_lists)if(entry.native==native){
-        if(entry.ready)return true;if(entry.installing||now<entry.retry_after)return false;break;}}
+    if(!init){Lock lock;if(const auto* entry=FindObservedSourceListLocked(native)){
+        if(entry->ready)return true;if(entry->installing||now<entry->retry_after)return false;}}
     if(ID3D12GraphicsCommandList_GetType(native)!=D3D12_COMMAND_LIST_TYPE_DIRECT)return false;
     ObservedSourceList* selected=nullptr;Id lifetime=0,device=0;
     {

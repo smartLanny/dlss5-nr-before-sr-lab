@@ -74,14 +74,33 @@ Id QueueOf(ID3D12CommandQueue* queue){return ObjectId(reinterpret_cast<ID3D12Obj
 struct CoreRecordingDevice {Id list=0,lifetime=0,device=0;};
 CoreRecordingDevice core_recording_devices[256]{};
 unsigned next_core_recording_device=0;
+CoreRecordingDevice* FindCoreRecordingDeviceLocked(const nr_post_boundary::List& core) {
+    // source_lock protects both this hint and the fixed storage. Hints never
+    // authorize an identity: address AND Core lifetime are rechecked every time.
+    if(!core.address||!core.token)return nullptr;
+    static unsigned hints[64]{};
+    // Address and token often advance together; XOR of their low bits would
+    // cancel and collapse consecutive objects into the same cache bucket.
+    const Id mixed=(core.address>>4)+core.token*0x9e3779b185ebca87ULL;
+    const unsigned hash=static_cast<unsigned>(mixed^(mixed>>32))&63u;
+    const unsigned number=hints[hash];
+    if(number&&number<=std::size(core_recording_devices)) {
+        auto& entry=core_recording_devices[number-1];
+        if(entry.list==core.address&&entry.lifetime==core.token)return &entry;
+    }
+    for(unsigned i=0;i<std::size(core_recording_devices);++i) {
+        // PERF7_CORE_DEVICE_PROBE
+        auto& entry=core_recording_devices[i];
+        if(entry.list==core.address&&entry.lifetime==core.token){hints[hash]=i+1;return &entry;}
+    }
+    return nullptr;
+}
 Id CoreRecordingDeviceOfLocked(const nr_post_boundary::List& core) {
-    for(const auto& entry:core_recording_devices)
-        if(entry.list==core.address&&entry.lifetime==core.token)return entry.device;
-    return 0;
+    const auto* entry=FindCoreRecordingDeviceLocked(core);return entry?entry->device:0;
 }
 void RememberCoreRecordingDeviceLocked(const nr_post_boundary::List& core,Id device) {
     if(!core.known||!core.address||!core.token||!device)return;
-    for(auto& entry:core_recording_devices)if(entry.list==core.address&&entry.lifetime==core.token){entry.device=device;return;}
+    if(auto* entry=FindCoreRecordingDeviceLocked(core)){entry->device=device;return;}
     core_recording_devices[next_core_recording_device]={core.address,core.token,device};
     next_core_recording_device=(next_core_recording_device+1)%std::size(core_recording_devices);
 }
@@ -91,6 +110,9 @@ void SeedCoreRecordingDevice(ID3D12GraphicsCommandList* list) {
     if(!list)return;Lock lock;
     const auto core=SnapshotPostBoundaryList(list);
     if(!core.known||core.reset==UINT64_MAX)return;
+    // A device cookie is immutable for this exact Core lifetime. Resolve it at
+    // the first Evaluate, not through COM again on every subsequent Evaluate.
+    if(CoreRecordingDeviceOfLocked(core))return;
     RememberCoreRecordingDeviceLocked(core,DeviceOf(reinterpret_cast<ID3D12DeviceChild*>(list)));
 }
 Recording RecordingOf(ID3D12GraphicsCommandList* list) {
@@ -105,7 +127,7 @@ Recording RecordingOf(ID3D12GraphicsCommandList* list) {
         Id device=owned.device;
         // Entries cache their device cookie before hook publication. This also
         // covers ready=false without calling COM from a native command hook.
-        for(unsigned i=0;i<256;++i)if(observed_lists[i].native==list ||
+        if(!device)for(unsigned i=0;i<256;++i)if(observed_lists[i].native==list ||
                 reinterpret_cast<Id>(observed_lists[i].native)==core.address) {
             if(!device)device=observed_lists[i].device;break;
         }
@@ -154,28 +176,39 @@ thread_local PresentLease present_lease{};
 thread_local Ticket present_ticket{};
 thread_local bool present_recorded=false;
 thread_local Resource present_resource{};
-struct ResourceState {Recording recording{};Resource resource{};unsigned state=0;};
-ResourceState resource_states[256]{};
+#include "nr_source_state_table.inl"
+SourceStateTable resource_states;
 bool StateOf(Recording recording,Resource resource,unsigned& state) {
-    for(const auto& entry:resource_states)if(entry.recording==recording&&entry.resource==resource){state=entry.state;return true;}
-    return false;
+    return resource_states.Get(recording,resource,state);
 }
 void OnBarrier(ID3D12GraphicsCommandList* list,unsigned count,const D3D12_RESOURCE_BARRIER* barriers) {
     if(!nr_processing_runtime::work_enabled.load(std::memory_order_relaxed)||!list||!barriers||count>256)return;
+    // RecordingOf also publishes a canonical-device receipt. Retain that side
+    // effect even for pure UAV ordering; otherwise a later alias/native lookup
+    // could lose its identity. The shared identity path is optimized separately.
     Lock lock;const auto recording=RecordingOf(list);if(!recording)return;
-    for(unsigned i=0;i<count;++i){const auto& b=barriers[i];
+    // Pure UAV ordering supplies no legacy state. Avoid allocating batch scratch
+    // or touching the state index for it; the native barrier is never skipped.
+    unsigned first=0;
+    while(first<count && barriers[first].Type!=D3D12_RESOURCE_BARRIER_TYPE_ALIASING &&
+          !(barriers[first].Type==D3D12_RESOURCE_BARRIER_TYPE_TRANSITION&&barriers[first].Transition.pResource))++first;
+    if(first==count)return;
+    // Borrowed resources stay live for this native API call. Reuse successful
+    // cookie/device queries only WITHIN this batch; never across calls/lifetimes.
+    Resource batch_resources[16]{};
+    for(unsigned i=first;i<count;++i){const auto& b=barriers[i];
         if(b.Type==D3D12_RESOURCE_BARRIER_TYPE_ALIASING){lineage.InvalidateDevice(recording);source_receipts_pending.store(true,std::memory_order_release);
-            for(auto& entry:resource_states)if(entry.recording==recording)entry={};
+            resource_states.EraseRecording(recording);
             continue;}
-        if(b.Type!=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)continue;
-        const auto resource=ResourceOf(b.Transition.pResource);if(!resource)continue;
+        if(b.Type!=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION||!b.Transition.pResource)continue;
+        const Id address=reinterpret_cast<Id>(b.Transition.pResource);
+        auto& cached=batch_resources[static_cast<unsigned>((address>>4)^(address>>12))&15u];
+        const auto resource=cached&&cached.address==address?cached:ResourceOf(b.Transition.pResource);
+        if(!resource)continue;cached=resource;
         if(b.Flags!=D3D12_RESOURCE_BARRIER_FLAG_NONE||b.Transition.Subresource!=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES){
-            for(auto& entry:resource_states)if(entry.recording==recording&&entry.resource==resource)entry={};
+            resource_states.Erase(recording,resource);
             continue;}
-        ResourceState* available=nullptr;
-        for(auto& entry:resource_states){if(entry.recording==recording&&entry.resource==resource){available=&entry;break;}
-            if(!entry.recording&&!available)available=&entry;}
-        if(available)*available={recording,resource,static_cast<unsigned>(b.Transition.StateAfter)};
+        (void)resource_states.Put(recording,resource,static_cast<unsigned>(b.Transition.StateAfter));
     }
 }
 void OnEnhancedBarrier(ID3D12GraphicsCommandList* list){
@@ -183,7 +216,7 @@ void OnEnhancedBarrier(ID3D12GraphicsCommandList* list){
     Lock lock;const auto recording=RecordingOf(list);if(!recording)return;
     // Enhanced layout/access/sync is not interchangeable with legacy state
     // bits. A previously observed legacy state cannot survive this boundary.
-    for(auto& entry:resource_states)if(entry.recording==recording)entry={};
+    resource_states.EraseRecording(recording);
     lineage.InvalidateDevice(recording);
     source_receipts_pending.store(true,std::memory_order_release);
 }
@@ -517,12 +550,12 @@ void OnReset(ID3D12GraphicsCommandList* list,bool succeeded) {
     if(!succeeded||!list)return;
     if(!nr_processing_runtime::work_enabled.load(std::memory_order_relaxed)&&!guides_awaiting_submission.load(std::memory_order_acquire)){
         Lock lock;const auto recording=RecordingOf(list);if(!recording)return;
-        lineage.Reset(recording);for(auto& state:resource_states)if(state.recording.list==recording.list&&state.recording.lifetime==recording.lifetime)state={};
+        lineage.Reset(recording);resource_states.EraseListLifetime(recording);
         AdvanceObservedList(list);source_receipts_pending.store(lineage.AnyPending(),std::memory_order_release);return;
     }
     GuideCopy discarded[8]{};unsigned count=0;
     {Lock lock;const auto recording=RecordingOf(list);lineage.Reset(recording);
-        for(auto& state:resource_states)if(state.recording.list==recording.list&&state.recording.lifetime==recording.lifetime)state={};
+        resource_states.EraseListLifetime(recording);
         for(auto& copy:guide_copies)if(!copy.submitted&&!copy.poisoned&&!copy.reserved&&copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime){discarded[count++]=copy;copy={};}
         AdvanceObservedList(list);source_receipts_pending.store(lineage.AnyPending()||guides_awaiting_submission.load(std::memory_order_relaxed),std::memory_order_release);}
     for(unsigned i=0;i<count;++i)ClearGuideCopy(discarded[i]);
@@ -550,7 +583,7 @@ void OnDestroyResource(ID3D12Resource* resource){if(!resource)return;Lock lock;c
     // GetDevice/GetPrivateData through an object whose teardown has started.
     lineage.ForgetAddress(address);
     ForgetSourceRtvResource(address);
-    for(auto& state:resource_states)if(state.resource.address==address)state={};
+    resource_states.EraseResourceAddress(address);
 }
 struct RenderTargets {Recording recording{};Resource targets[8]{};unsigned count=0;};
 RenderTargets render_targets[64]{};
@@ -592,7 +625,7 @@ void OnSourceDestroyList(reshade::api::command_list* list){
     if(!list||list->get_device()->get_api()!=reshade::api::device_api::d3d12)return;
     const auto address=list->get_native();GuideCopy discarded[8]{};unsigned count=0;
     {Lock lock;lineage.ForgetList(address);ForgetObservedList(address);
-        for(auto& state:resource_states)if(state.recording.list==address)state={};
+        resource_states.EraseListAddress(address);
         for(auto& targets:render_targets)if(targets.recording.list==address)targets={};
         for(auto& copy:guide_copies)if(copy.recording.list==address&&!copy.submitted&&!copy.poisoned&&!copy.reserved){discarded[count++]=copy;copy={};}
     }

@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-perf6'
-DISPLAY_VERSION = '0.5-dline21-perf6'
+VERSION = 'beta0.5-dline21-perf7'
+DISPLAY_VERSION = '0.5-dline21-perf7'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -123,7 +123,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_ngx_lifecycle.inl': '93091ed326118d4f3b22f3156375896c1b150544',
     'src/nr_optional_layer_probe.h': '7a39868c9c688bf65739695665c236da891f4977',
     'src/nr_post_boundary.h': 'a82e23db292a6bc9cdb9672205eb19ea7c417b4a',
-    'src/nr_post_boundary_native.inl': '7773eac6a15025f201d1d888b74353eb1e1b2a05',
+    'src/nr_post_boundary_native.inl': '3e3244d93a33d0d9c5289d24305fbe8815c2b0a8',
     'src/nr_post_boundary_runtime.inl': '8653482aa9023c26dd967eb98c8cc568073f19ad',
     'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
@@ -183,8 +183,9 @@ INTEGRATION_CORE_PINS = {
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
     'src/nr_source_frame.hpp': 'a370133fd124c8d5bcca36819300928ddcce529c',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
-    'src/nr_source_frame_runtime.inl': 'a9ad7a322c640c75f11d0135522d6113803a6ce0',
-    'src/nr_source_observer.inl': '941467649f0546bbe85417d534f9738f03cfe9a9',
+    'src/nr_source_state_table.inl': '0f28ef58b09db86a8be1976bd65acc78fbfda901',
+    'src/nr_source_frame_runtime.inl': '4f93f54064f32796a5f2fbb36859be9d75289f45',
+    'src/nr_source_observer.inl': 'dbc04d1fa6ee1492d614597c1f35cc7ed37e77ac',
     'src/nr_source_transport.inl': 'd6a474ee26384b047e0893cd052d9e3f009ac186',
     'src/nr_source_views.inl': '2d909758aa22be7f2dd0baaf29025df9e2de41d7',
     'src/nrchain_nvngx.cpp': '6bd0f12f291290915b5499c6988f75ee5b53c5a0',
@@ -323,7 +324,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf6 beta'),
+    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf7 beta'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:

@@ -1,5 +1,11 @@
 # 统一开发与测试交接入口
 
+## 2026-09-18 D21 Perf7：来源观察整条热路径合批优化
+
+按维护者要求，不再单独交付一个小型缓存改动。本轮依据 Perf6 实测，将来源状态表的精确键索引、同批次资源身份复用、Core/observer 命令列表身份查询、同生命周期设备 cookie 复用合为一批；保留容量、别名、Reset/退休、pending/unknown 和恢复保护。实际 OnBarrier 新旧差分、完整身份与真实 Windows SRW 并发、前后路由回归通过；最终编译/WARP/测试包状态以新候选回执为准。
+Perf6 这份录制实际是后置 SR→NR、4K NR、强度/局部色调/结构 2/2/2，且清单 PID 与 CSV/F8 不同；已在分析副本纠正 PID，不能把约 50 FPS 与旧前置录制的约 62 FPS 相除判定回退。冷启动停顿未混入本轮状态跟踪修改。[整批范围、验证和测试要求](D21_PERF7_20260918.md)。
+
+
 ## 2026-09-18 D21 Perf6：真实槽查询热点接续
 
 Perf5 实测确认有序范围路径已使用、旧线性回退为零；首次关闭／开启态插件 self 降低，但整帧尚未提速。当前首要描述符采样落在 BeginLocked 内的完整键链式查询。Perf6 在同一 registry 锁下增加有界槽编号缓存，命中仍核对 heap／index，pending／revision／incarnation／寿命检查不变；已排序范围不再重复排序。F8 增加 `descriptor.slotQueries`，保留 Perf5 范围计数。只有描述符头文件和反馈行是新增运行时代码；构建入口 `scripts/build-perf6-candidate.ps1`，最终产物状态以本次回执为准。[实现与验收](D21_PERF6_20260918.md)。
