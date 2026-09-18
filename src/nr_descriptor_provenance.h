@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include "nr_descriptor_scratch.h"
 
 // Value-only, bounded descriptor provenance. This module never owns a graphics
 // object and never grants rendering permission. The adapter brackets real API
@@ -100,8 +101,8 @@ inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcep
         if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
         if(ordered && i && less(ranges[i],ranges[i-1]))ordered=false;
     }
-    // The validity pass is already required. Reuse it to avoid sorting inputs
-    // that already satisfy the same full comparator; union semantics unchanged.
+    // Preserve exact byte union while bounding work for ordered, overlapping,
+    // reverse and narrow-address copy batches; full sort remains the fallback.
     if(!ordered) {
         // Fold adjacent-in-input overlapping/byte-adjacent intervals before
         // sorting. Descriptor-copy batches often repeat or reverse subranges;
@@ -128,7 +129,35 @@ inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcep
             }
             count=packed;
         }
-        std::sort(ranges,ranges+count,less);
+        // Sort the remaining intervals. Equal starts need no last-address order:
+        // the final union takes max(last). Wide random addresses use std::sort.
+        bool one_type=count>=256,reverse_order=one_type,comparison_sort=false;
+        Id changed_address_bits=0;
+        if(one_type)for(unsigned i=0;i<count;++i) {
+            if(ranges[i].type!=ranges[0].type){one_type=false;break;}
+            changed_address_bits|=ranges[i].first^ranges[0].first;
+            if(i&&ranges[i-1].first<ranges[i].first)reverse_order=false;
+            // Stop classifying plainly scattered addresses once reversal is
+            // ruled out; do not scan the entire array just to choose std::sort.
+            if(!reverse_order&&(changed_address_bits>>24)!=0){comparison_sort=true;break;}
+        }
+        unsigned radix_passes=0;
+        for(unsigned shift=0;shift<64;shift+=8)radix_passes+=((changed_address_bits>>shift)&255u)!=0;
+        ScratchBuffer<UnknownRange,2048> scratch;
+        if(one_type&&!comparison_sort&&reverse_order)std::reverse(ranges,ranges+count);
+        else if(one_type&&!comparison_sort&&radix_passes<=3&&scratch.Acquire(count)) {
+            auto* input=ranges;auto* output=scratch.get();
+            for(unsigned shift=0;shift<64;shift+=8) {
+                if(((changed_address_bits>>shift)&255u)==0)continue;
+                std::array<unsigned,256> offsets{};
+                for(unsigned i=0;i<count;++i)++offsets[(input[i].first>>shift)&255u];
+                unsigned sum=0;
+                for(auto& offset:offsets){const auto size=offset;offset=sum;sum+=size;}
+                for(unsigned i=0;i<count;++i)output[offsets[(input[i].first>>shift)&255u]++]=input[i];
+                std::swap(input,output);
+            }
+            if(input!=ranges)std::copy(input,input+count,ranges);
+        } else std::sort(ranges,ranges+count,less);
     }
     unsigned retained=0;
     for(unsigned i=0;i<count;++i) {

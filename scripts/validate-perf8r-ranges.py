@@ -31,7 +31,7 @@ def main():
             (folder/'ranges_reference.inl').write_text(body(old,label!='timing'),encoding='utf-8')
             (folder/'ranges_current.inl').write_text(body(s,label!='timing'),encoding='utf-8')
             exe=folder/'ranges.exe'
-            run([a.compiler,'-std=c++20','-O2','-static','-I'+str(folder),ROOT/'tests/perf8r_ranges.cpp','-o',exe],label+'-build')
+            run([a.compiler,'-std=c++20','-O2','-static','-I'+str(ROOT/'src'),'-I'+str(folder),ROOT/'tests/perf8r_ranges.cpp','-o',exe],label+'-build')
             if label=='timing':run([exe,'--bench'],label+'-bench')
             else:
                 run([exe],label+'-semantics');run([exe,'--budget'],label+'-budget',3 if label=='baseline' else 0)

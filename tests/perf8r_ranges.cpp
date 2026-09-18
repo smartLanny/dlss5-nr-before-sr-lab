@@ -8,10 +8,11 @@
 #include <random>
 #include <string>
 #include <vector>
+#include "nr_descriptor_scratch.h"
 namespace reference {using Id=std::uint64_t;static std::uint64_t comparisons=0;
 #include "ranges_reference.inl"
 }
-namespace current {using Id=std::uint64_t;static std::uint64_t comparisons=0;
+namespace current {using Id=std::uint64_t;using nr_descriptor::ScratchBuffer;static std::uint64_t comparisons=0;
 #include "ranges_current.inl"
 }
 static void check(bool b,const char* m){if(!b){std::cerr<<m<<'\n';std::exit(2);}}

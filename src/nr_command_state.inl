@@ -698,16 +698,17 @@ unsigned long long ReadCommandStateToken(ID3D12GraphicsCommandList *command_list
 }
 CommandStateRecord *FindCommandStateTokenLocked(unsigned long long token) {
     if (token == 0) return nullptr;
-    // The existing registry lock pins the static slot array. A relative hint is
-    // usable only if its CURRENT token still matches; retirement/reuse and an
-    // unobserved miss never become cached validity or a negative publication.
-    struct Hint { unsigned long long token = 0; std::size_t slot = 0; };
-    thread_local Hint hints[64] = {};
-    auto &hint = hints[token % std::size(hints)];
-    if (hint.token == token && hint.slot < std::size(g_command_states) &&
-        g_command_states[hint.slot].token == token) return &g_command_states[hint.slot];
+    // Caller already owns registry shared/exclusive lifetime protection. Cache
+    // only a relative slot, never state, readiness, native identity or a miss.
+    // Re-read the live token even when unrelated records changed their epoch.
+    thread_local unsigned slots[64]{};
+    auto &number = slots[static_cast<unsigned>(token ^ (token >> 32)) & 63u];
+    if (number && number <= std::size(g_command_states)) {
+        auto &record = g_command_states[number - 1];
+        if (record.token == token) return &record;
+    }
     for (auto &record : g_command_states) if (record.token == token) {
-        hint = {token, static_cast<std::size_t>(&record - std::data(g_command_states))};
+        number = static_cast<unsigned>(&record - std::data(g_command_states)) + 1;
         return &record;
     }
     return nullptr;

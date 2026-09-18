@@ -37,6 +37,8 @@ def main():
         if args.sanitize:flags+=['-fsanitize=address,undefined','-fno-omit-frame-pointer']
         for name,text,count in [('old',old,True),('candidate',source,True),('timing',source,False)]:
             folder=out/name;folder.mkdir()
+            # Explicit production dependency for the current normalizer.
+            (folder/"nr_descriptor_scratch.h").write_bytes((ROOT/"src/nr_descriptor_scratch.h").read_bytes())
             (folder/'nr_descriptor_provenance.h').write_text(instrument(text) if count else text,encoding='utf-8')
             (folder/'nr_source_frame.hpp').write_text(lineage,encoding='utf-8')
             (folder/'perf3_reference_descriptor.h').write_text(old.replace('namespace nr_descriptor {','namespace perf3_reference_descriptor {'),encoding='utf-8')

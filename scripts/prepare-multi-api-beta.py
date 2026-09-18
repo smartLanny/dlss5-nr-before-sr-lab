@@ -14,15 +14,15 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-perf7'
-DISPLAY_VERSION = '0.5-dline21-perf7'
+VERSION = 'beta0.5-dline21-perf8'
+DISPLAY_VERSION = '0.5-dline21-perf8'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = '7db897e605bc648970df64806e299331266b7f10'
+STATE_CURRENT = 'd23267db908a30edb19a32d265f7d9f9dcb63021'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
 REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
@@ -56,17 +56,17 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
-    'src/nr_command_state.inl': '7db897e605bc648970df64806e299331266b7f10',
+    'src/nr_command_state.inl': 'd23267db908a30edb19a32d265f7d9f9dcb63021',
     'src/nr_compatibility_runtime.inl': '92e8f7c8b32c06c3de5aa8772d52077a4271af31',
     'src/nr_compatibility_verdict.h': 'd49019e6078e4237ff65207f56f5dca3fda0048e',
     'src/nr_compatibility_verdict_feedback.inl': 'e2d233a67c8a7aa6e3aefc99cce596e57e730da3',
     'src/nr_config_policy.h': '936883dabf13e79058865075e6cf0bbe507c4dbd',
     'src/nr_config_policy_runtime.inl': 'ef49832b8cb852458aa85f60ac86381c334ae45b',
     'src/nr_descriptor_plan.h': 'c29345e306d8dbf6f897b02cadfd7c75b45cdff6',
-    'src/nr_descriptor_provenance.h': 'e944b5ae928a4902a0adcf98d05673267f497a3e',
+    'src/nr_descriptor_provenance.h': '8273ed6d31b18848a3ffd3e1f3da105407db0838',
     'src/nr_descriptor_provenance_commands.inl': '9bcbac6d7f6a2b601fe7b4fc71ee936b0b994bda',
     'src/nr_descriptor_provenance_hooks.inl': '4a67d545785f527380ca4c782b40cb5c9ee21fce',
-    'src/nr_descriptor_provenance_runtime.inl': 'a87b285cad2d741188bbdec8fa4c6ad97e82e324',
+    'src/nr_descriptor_provenance_runtime.inl': '9907ec0437b6384bdb5294a817f47688a7250e3d',
     'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
     'src/nr_dual_capture.inl': 'cb9cf9f38cf0fcf76e2c2619380b3f34a71b3829',
     'src/nr_dual_codec.inl': 'd1c1b906c72b9aad2001d97b8841e3d1547c82b4',
@@ -183,7 +183,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
     'src/nr_source_frame.hpp': 'a370133fd124c8d5bcca36819300928ddcce529c',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
-    'src/nr_source_state_table.inl': '0f28ef58b09db86a8be1976bd65acc78fbfda901',
+    'src/nr_source_state_table.inl': 'ff32a36ba0e57e59df995a9880f95aa3c9e1acc4',
     'src/nr_source_frame_runtime.inl': '4f93f54064f32796a5f2fbb36859be9d75289f45',
     'src/nr_source_observer.inl': 'dbc04d1fa6ee1492d614597c1f35cc7ed37e77ac',
     'src/nr_source_transport.inl': 'd6a474ee26384b047e0893cd052d9e3f009ac186',
@@ -324,7 +324,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf7 beta'),
+    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf8 beta'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:

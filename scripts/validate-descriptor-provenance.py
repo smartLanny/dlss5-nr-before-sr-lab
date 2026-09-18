@@ -77,7 +77,7 @@ def main():
             record['overlay_main_edit'] = 'only descriptor header include and feature macro; staged adapters retained'
     else:
         snapshot.mkdir(parents=True)
-        for name in ('nr_descriptor_provenance.h', 'nr_post_boundary.h'):
+        for name in ('nr_descriptor_provenance.h', 'nr_descriptor_scratch.h', 'nr_post_boundary.h'):
             shutil.copyfile(ROOT/'src'/name, snapshot/name)
     record['source_inputs_sha256'] = {str(path.relative_to(snapshot)): sha(path)
         for path in sorted(snapshot.rglob('*')) if path.is_file()}

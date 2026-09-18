@@ -37,8 +37,9 @@ def main():
             (d/'reset_current.inl').write_text(model(source),encoding='utf-8')
             for tag,body in [('reference',old),('current',source)]:
                 token=extract(body,'CommandStateRecord *FindCommandStateTokenLocked(')
-                if token.count('if (record.token == token)')!=1:raise ValueError('Token scan counter anchor changed')
-                token=token.replace('if (record.token == token)','if ((++token_probes, record.token == token))')
+                scan='for (auto &record : g_command_states) if (record.token == token)'
+                if token.count(scan)!=1:raise ValueError('Token scan counter anchor changed')
+                token=token.replace(scan,'for (auto &record : g_command_states) if ((++token_probes, record.token == token))')
                 (d/('token_'+tag+'.inl')).write_text(token,encoding='utf-8')
             exe=d/'reset.exe'
             run([a.compiler,'-std=c++20','-O2','-g','-Wall','-Wextra','-Werror','-static','-pthread','-I'+str(d),ROOT/'tests/perf8r_reset.cpp','-o',exe],label+'-build')
