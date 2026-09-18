@@ -72,6 +72,8 @@ def main():
         for name, headers, counting in (('old', old, True), ('candidate', current, True), ('timing', current, False)):
             folder = out / name
             folder.mkdir()
+            # Explicit production dependency for the current normalizer.
+            (folder / "nr_descriptor_scratch.h").write_bytes((ROOT / "src/nr_descriptor_scratch.h").read_bytes())
             for n, text in headers.items():
                 (folder / n).write_text(instrument(text, n) if counting else text, encoding='utf-8')
             for source, target, namespace in ((HEADERS[0], 'perf3_reference_descriptor.h', 'descriptor'), (HEADERS[1], 'perf3_reference_source.h', 'source_frame')):

@@ -37,6 +37,8 @@ def main():
         if a.sanitize:flags+=['-fsanitize=address,undefined','-fno-omit-frame-pointer']
         for label,headers,count in [('old',old,True),('candidate',current,True),('timing',current,False)]:
             target=out/label;target.mkdir()
+            # Explicit production dependency for the current normalizer.
+            (target/"nr_descriptor_scratch.h").write_bytes((ROOT/"src/nr_descriptor_scratch.h").read_bytes())
             for n,text in headers.items():
                 (target/n).write_text(instrument(text) if count and n==HEADERS[0] else text,encoding='utf-8')
             for n,suffix,namespace in [(HEADERS[0],'descriptor','nr_descriptor'),(HEADERS[1],'source','nr_source_frame')]:

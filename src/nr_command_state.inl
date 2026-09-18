@@ -690,7 +690,19 @@ unsigned long long ReadCommandStateToken(ID3D12GraphicsCommandList *command_list
 }
 CommandStateRecord *FindCommandStateTokenLocked(unsigned long long token) {
     if (token == 0) return nullptr;
-    for (auto &record : g_command_states) if (record.token == token) return &record;
+    // Caller already owns registry shared/exclusive lifetime protection. Cache
+    // only a relative slot, never state, readiness, native identity or a miss.
+    // Re-read the live token even when unrelated records changed their epoch.
+    thread_local unsigned slots[64]{};
+    auto &number = slots[static_cast<unsigned>(token ^ (token >> 32)) & 63u];
+    if (number && number <= std::size(g_command_states)) {
+        auto &record = g_command_states[number - 1];
+        if (record.token == token) return &record;
+    }
+    for (auto &record : g_command_states) if (record.token == token) {
+        number = static_cast<unsigned>(&record - g_command_states) + 1;
+        return &record;
+    }
     return nullptr;
 }
 template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommandList *native, Mutation mutation) {

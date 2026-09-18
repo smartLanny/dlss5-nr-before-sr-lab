@@ -63,6 +63,8 @@ def main():
         for name, source, instrument in (('old-budget', old, True), ('candidate-budget', current, True), ('timing', current, False)):
             folder = out / name
             folder.mkdir()
+            # Explicit production dependency for the current normalizer.
+            (folder / "nr_descriptor_scratch.h").write_bytes((ROOT / "src/nr_descriptor_scratch.h").read_bytes())
             for n, text in source.items():
                 (folder / n).write_text(count_scans(text) if instrument and n == HEADERS[1] else text, encoding='utf-8')
             (folder / 'perf3_reference_descriptor.h').write_text(old[HEADERS[0]].replace('namespace nr_descriptor {', 'namespace perf3_reference_descriptor {'), encoding='utf-8')
