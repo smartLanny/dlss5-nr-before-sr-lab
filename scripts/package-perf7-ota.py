@@ -42,7 +42,7 @@ def main():
     args = p.parse_args()
     base, out = args.candidate.resolve(), args.output.resolve()
     if out.exists(): raise ValueError('Preserve prior packages; choose a fresh output')
-    receipt = load(base / 'PERF6-CANDIDATE.json')
+    receipt = load(base / 'PERF7-CANDIDATE.json')
     canonical = load(base / 'validation.json')
     source = receipt['source_commit']
     if receipt['candidate'] != VERSION or canonical['source_commit'] != source:
