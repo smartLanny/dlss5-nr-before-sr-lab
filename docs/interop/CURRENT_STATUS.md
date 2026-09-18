@@ -2,7 +2,7 @@
 
 ## 2026-09-18 D21 Perf3：描述符范围与来源批次热路径
 
-从实际已测 Cursor Lock2 `63efc2bd` 独立接续。仅修改描述符范围失效／写入有效载荷，以及来源批次的完整录制身份索引缓存；模型、画质、NR/SR/RR/FG 路由和恢复保护不变。Windows CPU 新旧差分、描述符 2,225 项、来源 399 项、120,000 操作及 8,000 线程生命周期检查通过。完整构建入口为 `scripts/build-perf3-candidate.ps1`，旧 Lock2 入口仅转发，生成版本为 `beta0.5-dline21-perf3`。最终构建／WARP／产物状态以本候选交付回执为准，不继承旧二进制的测试通过状态。详情见 [Perf3 范围与验证](D21_PERF3_20260918.md)。
+从实际已测 Cursor Lock2 `63efc2bd` 独立接续。仅修改描述符范围失效／写入有效载荷，以及来源批次的完整录制身份索引缓存；模型、画质、NR/SR/RR/FG 路由和恢复保护不变。Windows CPU 新旧差分、描述符 2,225 项、来源 399 项、120,000 操作及 8,000 线程生命周期检查通过。完整构建入口为 `scripts/build-perf3-candidate.ps1`，旧 Lock2 入口仅转发，生成版本为 `beta0.5-dline21-perf3`。冻结源码 `8ea3206f` 已完成 Windows 双语构建、46 组 canonical 验证、完整 Core 描述符 WARP 669 项和来源传输 WARP 1,700 项；中文 Core 哈希 `ec3e432e…`，配套中文 OTA 已生成且未部署。26 个着色器与 Lock2 字节一致。使用显式无调试层模式完成快照读回及负控，调试层验证仍未完成；NVIDIA／游戏性能待维护者实测。详情见 [Perf3 范围与验证](D21_PERF3_20260918.md) 和 [Windows 产物与验收记录](D21_PERF3_WINDOWS_20260918.md)。
 
 ## 2026-09-17 D21 lockperf2：中文测试 OTA
 
