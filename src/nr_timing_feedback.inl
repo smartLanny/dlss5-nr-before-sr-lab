@@ -6,6 +6,21 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
     SnapshotNrTiming(*snapshot);
     const auto &s=*snapshot;
     const auto u=[](std::uint64_t value){return static_cast<unsigned long long>(value);};
+    const auto& submits = s.submissions;
+    FeedbackAppend(session,"%s.submitBatch.schema=1\n%s.submitBatch.totals=count:%llu,scanned:%llu,qi:%llu,directAbsent:%llu,lifecycleAbsent:%llu,unknown:%llu,chainSections:%llu,holdTicks:%llu,maxHoldTicks:%llu,clockUnknown:%llu\n",
+        prefix,prefix,u(submits.count),u(submits.scanned),u(submits.qi),u(submits.direct_absent),
+        u(submits.lifecycle_absent),u(submits.unknown),u(submits.chain_sections),
+        u(submits.chain_hold_ticks),u(submits.chain_hold_max_ticks),u(submits.clock_unknown));
+    const auto submit_first = submits.count - submits.recent_count;
+    for (unsigned i=0; i<submits.recent_count; ++i) {
+        const auto& b=submits.recent[(submit_first+i)%nr_timing::kSubmitRecentCount];
+        FeedbackAppend(session,"%s.submitBatch.recent.%u=epoch:%llu,batch:%llu,queue:%llu,lists:%u,firstToken:%llu,tokenLists:%llu,scanned:%llu,qi:%llu,directAbsent:%llu,reasons:0x%X,chainSections:%u,holdTicks:%llu,maxHoldTicks:%llu,clockKnown:%d\n",
+            prefix,i,u(b.epoch),u(b.sequence),u(b.queue),b.input_lists,u(b.first_token),
+            u(b.token_lists),u(b.scanned),u(b.qi),u(b.direct_absent),b.reasons,b.chain_sections,
+            u(b.chain_hold_ticks),u(b.chain_hold_max_ticks),b.clock_known);
+    }
+    FeedbackAppend(session,"%s.submitBatch.reasonKey=1:lifecycle-absent,2:lifecycle-present,4:unknown-list,8:capture-failed,16:quarantined,32:native-returned,64:retirement-signaled,128:tracking-uncertain\n"
+        "%s.submitBatch.note=bounded CPU observations of Direct batches while lifecycle records exist; scans include affinity/capture/quarantine; hold excludes acquisition and metric publication; firstToken is only a sample; lifecycle-absent never excludes source/guide/descriptor/post-boundary work; no GPU completion or FPS claim\n",prefix,prefix);
     FeedbackAppend(session,"%s.timing.available=1\n%s.timing.schema=1\n"
         "%s.timing.epoch=%llu\n%s.timing.probeMode=%u\n%s.timing.probePhase=%llu\n"
         "%s.timing.waitMode=%u\n%s.timing.waitPhase=%llu\n%s.timing.qpcFrequency=%llu\n"
