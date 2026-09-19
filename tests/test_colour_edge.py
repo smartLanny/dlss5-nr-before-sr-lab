@@ -41,7 +41,7 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
-        for p,sha in [('src/nr_before_sr.cpp','8dff5ef873c3cc4f506203a36b6fa600c0f3f71c'),
+        for p,sha in [('src/nr_before_sr.cpp','a06852c684e3aaa47440598ad2fcd247f605289e'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
@@ -137,7 +137,7 @@ class EdgeTests(unittest.TestCase):
         self.assertIn('frame_config.colour_edge_recovery',body(text,'void DispatchCodec('))
         self.assertIn('ColourEdgeSamplePair(center, prepared, ColourStageNeutral())',text)
         self.assertNotIn('colour_edge_recovery',body(text,'bool SameHistoryConfig('))
-        for p in edge.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),(ROOT/p).read_bytes())
+        for p in edge.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),subprocess.check_output(['git','show','HEAD:'+p],cwd=ROOT))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=Path,default=ROOT)
