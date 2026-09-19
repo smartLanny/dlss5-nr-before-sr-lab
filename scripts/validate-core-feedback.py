@@ -236,6 +236,11 @@ SnapshotPair g_dual_snapshot{};
 SnapshotPair SnapshotUiAndSecondary() { return g_dual_snapshot; }
 }
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
+// Explicit serialization seam only. The actual locked ledger collector and
+// retirement/fence behavior are exercised by validate-aux-parent-retirement.
+MEMORY_SNAPSHOT
+NrContextMemorySnapshot fixture_memory{};
+NrContextMemorySnapshot SnapshotNrContextMemory(){return fixture_memory;}
 constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
 DUAL_SNAPSHOT
@@ -337,6 +342,12 @@ int main(int argc,char **argv) {
         // Synthetic snapshot values test the real serialization body only.
         // They are never interpreted as GPU/NGX evidence from this harness.
         nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
+        fixture_memory.live_auxiliary=2;fixture_memory.retired_auxiliary=1;
+        fixture_memory.pending_auxiliary=1;fixture_memory.quarantined=1;
+        fixture_memory.live_slots=2;fixture_memory.retired_slots=1;fixture_memory.pending_slots=1;
+        fixture_memory.live_aux_bytes=200;fixture_memory.retired_aux_bytes=100;
+        fixture_memory.pending_aux_bytes=100;fixture_memory.tracked_aux_bytes=500;
+        fixture_memory.parent_retirements=4;
         nr_dual_runtime::fixture_full.enabled=true;
         nr_dual_runtime::fixture_full.requested=5;
         nr_dual_runtime::fixture_full.layers[4].instance=45;
@@ -356,6 +367,11 @@ int main(int argc,char **argv) {
         const auto current=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*current,"sample");
         check(std::strstr(current->report,"sample.processing.actual=Present\n"),"actual effective route reaches feedback with sample prefix");
+        check(std::strstr(current->report,"sample.contextMemory.contexts=livePrimary:0,liveAux:2,retiredPrimary:0,retiredAux:1,pendingPrimary:0,pendingAux:1,quarantined:1\n"),"memory context categories remain distinct");
+        check(std::strstr(current->report,"sample.contextMemory.auxSlots=live:2,retired:1,pending:1\n")&&
+              std::strstr(current->report,"sample.contextMemory.auxTrackedBytes=live:200,retired:100,pending:100,global:500\n"),"unlisted global bytes are not relabeled live or leaked");
+        check(std::strstr(current->report,"sample.contextMemory.parentRetirements=4\n")&&
+              std::strstr(current->report,"not process or hardware VRAM\n"),"memory scope and retirement count survive serialization");
         check(std::strstr(current->report,"sample.fullNR.requestedPasses=5\n") &&
               std::strstr(current->report,"sample.fullNR.lastAdoptedPasses=3\n") &&
               std::strstr(current->report,"sample.fullNR.layer3=instance:42,"),
@@ -394,6 +410,7 @@ int main(int argc,char **argv) {
         nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
         nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
         nr_processing_runtime::fixture_effective=nr_processing::Start::Before;
+        fixture_memory={};
         nr_fg_runtime::attempts=0;nr_fg_runtime::recorded=0;nr_fg_runtime::adopted=0;
         nr_compat_present_runtime::fixture_capture_status[0]=nr_compat_present_runtime::fixture_capture_status[1]=0;
         nr_compat_present_runtime::fixture_capture_workers[1]=0;nr_compat_present_runtime::fixture_capture_fg=false;
@@ -743,6 +760,7 @@ def production_values():
         'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
         'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
+        'MEMORY_SNAPSHOT': definition(source, 'struct NrContextMemorySnapshot {', True),
         'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
