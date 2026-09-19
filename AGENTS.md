@@ -20,7 +20,7 @@ moving while a separate compatibility mechanism is under investigation.
 
 For this 0.5 research successor (#168), the sole research target is `next/0.5`. Temporary research PRs target it and must not feed algorithms into `main` or stable 0.4. Maintenance-only instructions below describe that separate line. Read the current 0.5 section first.
 
-Read `docs/interop/CURRENT_STATUS.md` first for the current candidate, supported routes, validation boundaries, and owner handoff state. The sole continuing development branch is `main`. The former compatibility integration branch (PR #133) and maintenance branches are historical integration inputs; start temporary work branches from current `origin/main` and merge them back. Preserve separate unfinished 0.5, Feeder and Manager experiments until explicitly integrated.
+Read `docs/interop/CURRENT_STATUS.md` first for the current candidate, supported routes, validation boundaries, and owner handoff state. For stable/0.4 maintenance only, the continuing development branch is `main`; former PR #133 and maintenance branches are historical inputs. The 0.5 performance/picture research in this checkout instead targets `next/0.5` and starts from the current explicitly selected research/feature HEAD, not automatically from main. Preserve separate unfinished 0.5, Feeder and Manager experiments until explicitly integrated.
 
 Verify the remote HEAD and the candidate's `source-manifest.json` / `validation.json` before citing a commit or test result. Chat history and old roadmap checkboxes are historical context, not proof of current source or a successful build. Do not repeat migration work already present in the ancestry.
 
@@ -43,6 +43,27 @@ state and batch costs together when supported, but do not invent unrelated work
 or equate synthetic work reductions with an observed game-frame improvement.
 
 After handing the candidate to the owner for testing, follow the latest owner instruction before starting another development batch. No automatic stable release, tag replacement, or merge into main/release is implied by a compatibility test handoff.
+
+## Performance integration and owner-authorized hygiene (2026-09-19)
+
+Read `docs/interop/PERFORMANCE_INTEGRATION_HANDOFF_20260919.md` before combining
+this performance series with newer feature work. PR #292 is the cumulative code
+entry through Perf10, not just the last two-file patch. Older performance PRs
+were closed as superseded only after their exact heads were proven ancestors;
+this is neither a merge nor evidence of game acceptance. Do not apply all old
+PRs again. Refresh online heads and use three-way integration into an isolated
+feature-based worktree; preserve feature behavior, all generator pins and actual
+regression gates. Text-conflict-free runtime merges still require semantic review.
+Track cold Feature18 initialization separately in #293 and feature integration
+in #294. Main/stable merges and Release publication are not implied.
+
+The owner authorized cleanup of obsolete worktrees/PRs. Subsequent cleanup still
+requires current containment and activity checks, preservation of uncommitted
+and ignored evidence, a verified recoverable archive, and normal non-forced Git
+worktree removal. Never remove original captures, delivered packages, independent
+feature branches or a reparse/link target just because the directory looks old.
+The 2026-09-19 cleanup record and recovery rules are in
+`docs/interop/PERFORMANCE_CLEANUP_20260919.md`.
 
 ## Protect private evidence
 
