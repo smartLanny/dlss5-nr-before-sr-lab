@@ -137,7 +137,7 @@ class EdgeTests(unittest.TestCase):
         self.assertIn('frame_config.colour_edge_recovery',body(text,'void DispatchCodec('))
         self.assertIn('ColourEdgeSamplePair(center, prepared, ColourStageNeutral())',text)
         self.assertNotIn('colour_edge_recovery',body(text,'bool SameHistoryConfig('))
-        for p in edge.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),(ROOT/p).read_bytes())
+        for p in edge.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),subprocess.check_output(['git','show','HEAD:'+p],cwd=ROOT))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--repo',type=Path,default=ROOT)
