@@ -155,5 +155,11 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
         'src/nr_settings_ui.inl':lambda s:helpers.once(s, '    DrawColorControls(next, has_pending, changed);', '    DrawColorControls(next, has_pending, changed);\n    DrawColourLabControls(next, current.generation, has_pending, changed, apply_discrete_edit);', 'common colour recipe'),
         'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback}
     updates={p:f((stage/'core'/p).read_text(encoding='utf-8')) for p,f in transforms.items()}
+    # Freeze the same identity in the overlay, PE resources and payload names.
+    # Intermediate overlays intentionally retain their historical identities.
+    for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
+        text=(stage/'core'/path).read_text(encoding='utf-8-sig')
+        if 'dline21-uniform3' not in text: raise ValueError('Unexpected staged identity: '+path)
+        updates[path]=text.replace('dline21-uniform3','dline21-unified1')
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])
