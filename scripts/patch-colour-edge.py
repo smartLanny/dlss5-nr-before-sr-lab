@@ -152,7 +152,9 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     transforms={'src/nr_before_sr.cpp':lambda s:patch_runtime(s,shader,helpers),
         'src/nr_colour_lab_ui.inl':lambda s:patch_ui(s,helpers,inputs['src/nr_quality_ui.inl'].decode('utf-8')),
         'src/nr_light_style_ui.inl':lambda s:patch_light_group(s,helpers),
-        'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback}
+        'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback,
+        'src/nr_before_sr.rc':lambda s:s.replace('dline21-uniform3','dline21-quality1'),
+        'scripts/build.ps1':lambda s:s.replace('dline21-uniform3','dline21-quality1')}
     updates={p:f((stage/'core'/p).read_text(encoding='utf-8')) for p,f in transforms.items()}
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])

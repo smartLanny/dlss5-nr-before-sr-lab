@@ -6,7 +6,8 @@ param(
     [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
     [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
     [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
-    [string]$ReuseBridgeRoot
+    [string]$ReuseBridgeRoot,
+    [string]$CodecCacheRoot
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -41,6 +42,7 @@ if ($FaceRuntimeRoot) { $Options.FaceRuntimeRoot=$FaceRuntimeRoot }
 if ($NgxSdkRoot) { $Options.NgxSdkRoot=$NgxSdkRoot }
 if ($VcVarsPath) { $Options.VcVarsPath=$VcVarsPath }
 if ($ReuseBridgeRoot) { $Options.ReuseBridgeRoot=$ReuseBridgeRoot }
+if ($CodecCacheRoot) { $Options.CodecCacheRoot=$CodecCacheRoot }
 & (Join-Path $GeneratedRoot 'scripts/build.ps1') @Options
 if (-not $?) { throw 'Full Windows Core/canonical build failed.' }
 $Manifest=Get-Content -LiteralPath (Join-Path $OutputRoot 'source-manifest.json') -Raw | ConvertFrom-Json
