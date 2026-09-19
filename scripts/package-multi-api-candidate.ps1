@@ -46,7 +46,7 @@ if ($LASTEXITCODE) { throw 'Built source must be an ancestor of the packaging so
 $Changes = @(& git -C $Repo diff --name-only $Commit $RepoCommit)
 if ($LASTEXITCODE) { throw 'Cannot verify source changes since build.' }
 foreach ($Changed in $Changes) {
-    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
+    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|scripts/validate-(beta04-structure|strength-cap)\.py$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
         throw "Binary/build inputs changed since validated source; rebuild required: $Changed"
     }
 }

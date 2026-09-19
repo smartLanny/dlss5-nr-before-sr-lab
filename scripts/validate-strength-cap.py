@@ -47,7 +47,8 @@ def main():
  a=p.parse_args();text=a.source.read_text(encoding='utf-8-sig')
  finite=definition(text,'float FiniteOr(')
  body=definition(text,'void NormalizeConfig(')
- start=body.index('    config.transfer_strength =');end=body.index('    config.work_mode =')
+ start=body.index('    config.transfer_strength =')
+ end=body.index(';', body.index('    config.post_transfer_strength =',start))+1
  code=HARNESS.replace('@FINITE@',finite).replace('@NORMALIZE@',body[start:end]);compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')
  with tempfile.TemporaryDirectory(prefix='nr-strength-') as td:
@@ -61,10 +62,11 @@ def main():
   if result.returncode:raise SystemExit(result.returncode)
  if not a.math_only:
   ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig');ini=(root/'config/nr_before_sr.ini').read_text(encoding='utf-8-sig')
-  assert 'constexpr float maximum_strength = 4.0f;' in ui
-  assert 'constexpr float maximum_strength = 8.0f;' not in ui
+  assert '"##nr-strength-amplification", &effect_strength, 1.0f, 4.0f' in ui
+  assert 'effect_strength = std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f)' in ui
   assert 'std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f' in text
-  assert '&next.intensity, 0.f, 2.f' in ui
+  layers=(root/'src/nr_layers_ui.inl').read_text(encoding='utf-8-sig')
+  assert '&model.intensity,0.f,2.f' in layers and 'nr_layers::Read(next,i)' in layers
   assert 'TransferStrength=1.00' in ini and 'PostTransferStrength=1.00' in ini
   assert '8 extreme/diagnostic' not in ini
   # Follow the real production variable and functions, not guessed aliases.
@@ -72,9 +74,13 @@ def main():
   apply=definition(text,'bool ApplyConfig(')
   overlay=definition(text,'OverlayApplyResult ApplyOverlayConfig(')
   assert reload.index('ReadConfiguredTransferStrength(configured_mode)') < reload.index('NormalizeConfig(next);') < reload.index('g_config = next;')
-  assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
+  assign=apply.index('g_config = next;')
+  assert apply.index('NormalizeConfig(next);') < assign < apply.index('SaveConfig(g_config)',assign)
   assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
-  assert 'ApplyOverlayConfig(pending, pending_generation)' in ui
+  assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
+  assert 'ApplyLightStyleOverlay(next, expected_generation,' in definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
+  light=(root/'src/nr_light_style_ui.inl').read_text(encoding='utf-8-sig')
+  assert ': ApplyOverlayConfig(next,expected_generation)' in definition(light,'OverlayApplyResult ApplyLightStyleOverlay(')
   print('PASS public UI/filename/INI/default/model-intensity and reload/commit integration')
 
 if __name__=='__main__':main()

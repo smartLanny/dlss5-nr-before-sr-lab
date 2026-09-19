@@ -9,46 +9,26 @@ source = (root / "src" / "nr_before_sr.cpp").read_text(encoding="utf-8")
 guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
+# The raw stage deliberately remains uniform3. The final reviewed colour
+# exporter stamps unified1; historical dev4 packaging/docs are not active inputs.
 current_identity_files = {
     "source": source,
-    "resource": (root / "src" / "nr_before_sr.rc").read_text(encoding="utf-8"),
-    "build": (root / "scripts" / "build.ps1").read_text(encoding="utf-8-sig"),
-    "package": (root / "scripts" / "package-beta03.ps1").read_text(encoding="utf-8-sig"),
-    "feedback collector": (root / "scripts" / "collect-feedback.ps1").read_text(encoding="utf-8-sig"),
-    "crash collector": (root / "scripts" / "collect-crash-feedback.ps1").read_text(encoding="utf-8-sig"),
-    "config": config,
-    "README": (root / "README.md").read_text(encoding="utf-8"),
-    "Chinese install": (root / "docs" / "INSTALL.zh-CN.txt").read_text(encoding="utf-8"),
-    "English install": (root / "docs" / "INSTALL.en.txt").read_text(encoding="utf-8"),
-    "Chinese install markdown": (root / "docs" / "INSTALL.zh-CN.md").read_text(encoding="utf-8"),
-    "English install markdown": (root / "docs" / "INSTALL.en.md").read_text(encoding="utf-8"),
-    "Chinese update": (root / "docs" / "UPDATE.zh-CN.txt").read_text(encoding="utf-8"),
-    "English update": (root / "docs" / "UPDATE.en.txt").read_text(encoding="utf-8"),
-    "release notes": (root / "docs" / "BETA_0_4_3_RELEASE_NOTES.zh-CN.md").read_text(encoding="utf-8"),
+    "resource": (root / "src/nr_before_sr.rc").read_text(encoding="utf-8"),
+    "build": (root / "scripts/build.ps1").read_text(encoding="utf-8-sig"),
+    "overlay": (root / "scripts/patch-colour-edge.py").read_text(encoding="utf-8"),
+    "generator": (root / "scripts/prepare-multi-api-beta.py").read_text(encoding="utf-8"),
+    "handoff": (root / "docs/interop/UNIFIED_HANDOFF.md").read_text(encoding="utf-8"),
 }
-
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.5-dev4"', 'kBuildIdentity = "beta0.5-dev4"',
-               "DLSS 5 NR Perfect Chain beta0.5-dev4 (Chinese UI)",
-               "DLSS 5 AI Rendering Perfect Chain beta0.5-dev4"],
-    "resource": ["FILEVERSION 0,5,0,4", "PRODUCTVERSION 0,5,0,4",
-                 '"0.5.0 dev4 beta\\0"', "beta0.5-dev4-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.5-dev4-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.5-dev4-@"],
-    "package": ["$Version = 'beta0.5-dev4'",
-                "DLSS5-AI渲染超分版-beta0.5-dev4-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.5-dev4-@"],
-    "feedback collector": ["collector_version = 'beta0.4.3'"],
-    "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.5-dev4 experimental candidate, not an OTA release"],
-    "README": ["beta0.4.3"],
-    "Chinese install": ["beta0.5-dev4"],
-    "English install": ["beta0.5-dev4"],
-    "Chinese install markdown": ["beta0.5-dev4"],
-    "English install markdown": ["beta0.5-dev4"],
-    "Chinese update": ["beta0.5-dev4"],
-    "English update": ["beta0.5-dev4"],
-    "release notes": ["beta0.4.3"],
+    "source": ['kAddonVersion = "beta0.5-dline21-uniform3"',
+               'kBuildIdentity = "beta0.5-dline21-uniform3"'],
+    "resource": ["FILEVERSION 0,5,1,26", "PRODUCTVERSION 0,5,1,26",
+                 "beta0.5-dline21-uniform3-@"],
+    "build": ["DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@"],
+    "overlay": ["VERSION = 'beta0.5-dline21-unified1'"],
+    "generator": ["INTEGRATION_CORE_PINS", "m.VERSION = VERSION"],
+    "handoff": ["scripts/build-unified-candidate.ps1", "next/0.5", "#294"],
 }
 for label, tokens in identity_requirements.items():
     missing_identity = [token for token in tokens if token not in current_identity_files[label]]
@@ -56,8 +36,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.5-dev4"',
-    'kBuildIdentity = "beta0.5-dev4"',
+    'kAddonVersion = "beta0.5-dline21-uniform3"',
+    'kBuildIdentity = "beta0.5-dline21-uniform3"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -79,8 +59,8 @@ if missing:
     raise SystemExit("missing beta0.4 markers: " + ", ".join(missing))
 
 match = re.search(r"constexpr UINT kCodecRootConstantCount = (\d+);", source)
-if not match or int(match.group(1)) != 35:
-    raise SystemExit("kCodecRootConstantCount must be 35")
+if not match or int(match.group(1)) != 60:
+    raise SystemExit("kCodecRootConstantCount must be 60")
 
 hlsl = re.search(
     r'const char kCodecShader\[\] = R"HLSL\((?P<body>[\s\S]*?)\)HLSL";',
@@ -90,12 +70,38 @@ if not hlsl:
     raise SystemExit("embedded HLSL not found")
 body = hlsl.group("body")
 cbuffer = re.search(r"cbuffer Constants : register\(b0\) \{(?P<body>[\s\S]*?)\};", body)
-cpp = re.search(r"struct CodecConstants \{(?P<body>[\s\S]*?)\};", source)
+cpp = re.search(r"struct CodecConstants \{(?P<body>[\s\S]*?)\n\};", source)
 if not cbuffer or not cpp:
     raise SystemExit("constant layouts not found")
-hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.group("body"), re.M)
-cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)(?:\s*=\s*[^;]+)?\s*;", cpp.group("body"), re.M)
-if len(hlsl_fields) != 35 or len(cpp_fields) != 35:
+# Expand multi-declarations, vectors and the C++ region array into their
+# actual DWORD order. Counting only single scalar lines missed newer fields.
+def fields(block, language):
+    result=[]
+    for declaration in block.split(';'):
+        declaration=declaration.strip()
+        if not declaration:
+            continue
+        match=re.fullmatch(r'(unsigned int|unsigned|uint2|uint|float)\s+(.+)',declaration,re.S)
+        if not match:
+            raise SystemExit(f"Unknown {language} constant declaration: {declaration!r}")
+        kind, names=match.groups()
+        names=re.sub(r'\{[^}]*\}', '0', names)
+        for name in names.split(','):
+            name=name.split('=')[0].strip()
+            if name=='region_gains[11]':
+                result += ['RegionWideBrightLuma','RegionWideBrightColor',
+                    'RegionFineBrightLuma','RegionFineBrightColor',
+                    'RegionWideDarkLuma','RegionWideDarkColor',
+                    'RegionFineDarkLuma','RegionFineDarkColor',
+                    'RegionReflectionLuma','RegionReflectionColor','RegionPureColor']
+            elif kind=='uint2' and name=='DualLowSize':
+                result += ['dual_low_width','dual_low_height']
+            else:
+                result.append({'dual_residual':'DualResidualEnabled'}.get(name,name))
+    return result
+hlsl_fields = fields(cbuffer.group("body"), "HLSL")
+cpp_fields = fields(cpp.group("body"), "C++")
+if len(hlsl_fields) != 60 or len(cpp_fields) != 60:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
 normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
 if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:
@@ -103,7 +109,7 @@ if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:
 
 if "ConfigVersion=4" not in config:
     raise SystemExit("shipped config is not version 4")
-if "WorkMode=1" not in config or "ProxyCurve=1" not in config:
+if "WorkMode=0" not in config or "ProxyCurve=1" not in config:
     raise SystemExit("recommended perfect-chain defaults are missing")
 
 # DRS active extents must reset mapping but not allocate a new temporal context.
@@ -144,4 +150,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.5-dev4 perfect-chain structural and release-identity validation passed")
+print("unified raw/final identities and all 60 constant DWORDs validated; generated GPU checks remain separate")
