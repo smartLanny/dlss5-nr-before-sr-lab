@@ -44,6 +44,7 @@ HARNESS = r'''
 #include <memory>
 #include "nr_diagnostic_bundle.inl"
 #include "nr_dual_observation.hpp"
+#include "nr_layer_config.h"
 #include "nr_compatibility_verdict.h"
 #include "nr_processing_route.h"
 #include "nr_compat_present_policy.hpp"
@@ -197,6 +198,13 @@ nr_processing::Start fixture_effective=nr_processing::Start::Before;
 nr_processing::Start Effective(){return fixture_effective;}
 bool TrySnapshot(nr_processing::Snapshot& out){out={};out.current=fixture_effective;return true;}
 }
+// Actual energy adapter and Win32 shared-lock snapshot. No invented active
+// result: this collector fixture must leave settings unloaded throughout.
+wchar_t g_ini_path[1]{};
+std::atomic<unsigned> g_history_generation{1};
+void Log(const char*,...){}
+#define NR_HAS_ENERGY_GATE 1
+ENERGY_ADAPTER
 namespace nr_fg_runtime {
 std::atomic<unsigned long long> attempts{0},recorded{0},adopted{0},unknown_inputs{0},hudless_waiting{0};
 FG_FEEDBACK
@@ -244,6 +252,7 @@ NrContextMemorySnapshot SnapshotNrContextMemory(){return fixture_memory;}
 constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
 DUAL_SNAPSHOT
+ENERGY_FEEDBACK
 ACTIVITY
 RELEVANT
 STRENGTH
@@ -743,6 +752,9 @@ int main(int argc,char **argv) {
     check(result.status==nr_bundle::Status::Partial && !result.required_complete,"oversized payload excluded with explicit missing record");
     check(std::filesystem::file_size(result.zip_path)<=nr_feedback_text::kCoreZipLimit,"physical ZIP never exceeds core budget");
     DeleteCriticalSection(&g_chain_cs);
+    check(!nr_processing_runtime::energy_gate_loaded.load() &&
+          !nr_processing_runtime::energy_gate_any_active.load() && g_history_generation.load()==1,
+          "actual F8 collection never loads energy settings or advances history/admission");
     std::printf("production core coordinator and ZIP: %u checks passed; no NR/images/GPU seam was called\n",checks);
 }
 '''
@@ -751,6 +763,7 @@ def production_values():
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
+    energy = (ROOT/'src/nr_source_frame_runtime.inl').read_text(encoding='utf-8-sig')
     values = {
         'LEGACY_REQUEST': definition(legacy, 'bool RequestFeedbackBundle('),
         'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
@@ -766,6 +779,8 @@ def production_values():
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
         'SESSION': definition(legacy, 'struct FeedbackSession', True),
         'APPEND': definition(legacy, 'void FeedbackAppend('),
+        'ENERGY_ADAPTER': energy.split('// BEGIN ENERGY GATE PLATFORM ADAPTER\n', 1)[1].split('// END ENERGY GATE PLATFORM ADAPTER', 1)[0],
+        'ENERGY_FEEDBACK': definition(legacy, 'void FeedbackAppendEnergyGate('),
         'DUAL_SNAPSHOT': definition(legacy, 'void FeedbackAppendDualSnapshot('),
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
@@ -817,6 +832,8 @@ def main():
         assert 'real depth transport failed' in bridge and 'Private Tester' not in bridge
         metadata = archive.read('capture-info.txt').decode('utf-8-sig')
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
+                    'start.energyGate.available=1', 'start.energyGate.loaded=0',
+                    'end.energyGate.loaded=0', 'energyGate.state=not-loaded; saved choices unknown',
                     'start.decision.reason=current-scope-unavailable',
                     'end.decision.reason=current-scope-unavailable',
                     'decision.evidenceComplete=0', 'decision.recoveryResult=unavailable',
