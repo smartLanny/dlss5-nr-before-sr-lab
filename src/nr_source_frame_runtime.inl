@@ -128,6 +128,48 @@ EnergyGateStatus ReadEnergyGateStatus() {
     out.resets=energy_gate_resets.load();out.blocked_checks=energy_gate_blocked_checks.load();
     return out;
 }
+// F8 observes recorded state only. Unlike the UI read above, this must never
+// load INI, poll/expire a lease, publish admission flags or advance history.
+struct EnergyGateSnapshot {
+    EnergyGateStatus status{};
+    bool loaded=false,clock_reversed=false;
+    unsigned explicit_streams=0,heuristic_streams=0,confirming_streams=0,stale_streams=0;
+    unsigned long long max_observation_age_ms=0;
+};
+bool TrySnapshotEnergyGateStatus(EnergyGateSnapshot& out) {
+    out={};
+    if(!TryAcquireSRWLockShared(&energy_gate_lock))return false;
+    out.loaded=energy_gate_loaded.load(std::memory_order_acquire);
+    if(out.loaded) {
+        const auto now=GetTickCount64();
+        const auto options=EnergyGateOptions();
+        out.status.conservative=options.conservative;out.status.heuristic=options.heuristic;
+        out.status.recently_resumed=energy_gate_last_resume_ms&&now>=energy_gate_last_resume_ms&&now-energy_gate_last_resume_ms<2000;
+        for(const auto& e:energy_gate_streams.entries) {
+            if(!e.key)continue;
+            out.explicit_streams+=e.state.explicit_active;
+            out.heuristic_streams+=e.state.heuristic_active;
+            out.status.active_streams+=e.state.Active();
+            out.confirming_streams+=!e.state.Active()&&(e.state.explicit_samples||e.state.guess_samples);
+            out.status.explicit_samples=std::max(out.status.explicit_samples,e.state.explicit_samples);
+            out.status.guess_samples=std::max(out.status.guess_samples,e.state.guess_samples);
+            // This is pending expiry, not a claim that the next admission will
+            // block. Only the scheduling owner can poll and reopen the gate.
+            out.stale_streams+=(e.state.explicit_samples&&!nr_energy_gate::ExplicitFresh(e.state,now))||
+                (e.state.guess_samples&&!nr_energy_gate::GuessFresh(e.state,now));
+            if(e.observed) {
+                out.clock_reversed|=now<e.last_observation;
+                if(now>=e.last_observation)out.max_observation_age_ms=std::max(out.max_observation_age_ms,now-e.last_observation);
+            }
+        }
+        out.status.active=out.status.active_streams!=0;
+        out.status.persistence_failed=energy_gate_persistence_failed.load(std::memory_order_relaxed);
+        out.status.resets=energy_gate_resets.load(std::memory_order_relaxed);
+        out.status.blocked_checks=energy_gate_blocked_checks.load(std::memory_order_relaxed);
+    }
+    ReleaseSRWLockShared(&energy_gate_lock);
+    return true;
+}
 }
 
 // END ENERGY GATE PLATFORM ADAPTER

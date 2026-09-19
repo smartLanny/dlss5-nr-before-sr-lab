@@ -268,7 +268,39 @@ void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
         prefix,gate.prepared_call,prefix,gate.current_call,prefix,gate.request_call);
 }
 #endif
+// BEGIN ENERGY GATE FEEDBACK
+#if defined(NR_HAS_ENERGY_GATE)
+void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
+    nr_processing_runtime::EnergyGateSnapshot snapshot{};
+    if(!nr_processing_runtime::TrySnapshotEnergyGateStatus(snapshot)) {
+        FeedbackAppend(s,"%s.energyGate.available=0\n%s.energyGate.omitted=lock-busy; state unknown\n",prefix,prefix);
+        return;
+    }
+    FeedbackAppend(s,"%s.energyGate.available=1\n%s.energyGate.loaded=%d\n",prefix,prefix,snapshot.loaded);
+    if(!snapshot.loaded) {
+        FeedbackAppend(s,"%s.energyGate.state=not-loaded; saved choices unknown; observation did not load settings\n",prefix);
+        return;
+    }
+    const auto& status=snapshot.status;
+    const char* state=status.active?(snapshot.stale_streams?"paused-recorded-expiry-pending":"paused-recorded"):
+        snapshot.stale_streams?"confirmation-expiry-pending":snapshot.confirming_streams?"confirming":
+        status.recently_resumed?"recently-resumed":(!status.conservative&&!status.heuristic)?"off":"waiting-for-evidence";
+    FeedbackAppend(s,"%s.energyGate.state=%s\n%s.energyGate.config=conservative:%d,heuristic:%d\n"
+        "%s.energyGate.recorded=active:%d,streams:%u,explicit:%u,heuristic:%u,confirming:%u\n"
+        "%s.energyGate.evidence=explicitSamplesMax:%u,guessSamplesMax:%u,staleStreams:%u,maxObservationAgeMs:%llu,clockReversed:%d\n"
+        "%s.energyGate.historyResets=%llu\n%s.energyGate.blockedChecks=%llu\n%s.energyGate.persistenceFailed=%d\n"
+        "%s.energyGate.scope=recorded source-stream state; configured ON is not a pause; stale state awaits scheduler polling; blockedChecks counts rejected scheduling checks, not frames, saved milliseconds, power or GPU work; snapshot does not advance history\n",
+        prefix,state,prefix,status.conservative,status.heuristic,
+        prefix,status.active,status.active_streams,snapshot.explicit_streams,snapshot.heuristic_streams,snapshot.confirming_streams,
+        prefix,status.explicit_samples,status.guess_samples,snapshot.stale_streams,snapshot.max_observation_age_ms,snapshot.clock_reversed,
+        prefix,status.resets,prefix,status.blocked_checks,prefix,status.persistence_failed,prefix);
+}
+#endif
+// END ENERGY GATE FEEDBACK
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_ENERGY_GATE)
+    FeedbackAppendEnergyGate(s,prefix);
+#endif
 #include "nr_compat_present_feedback.inl"
 #include "nr_full_feedback.inl"
     FeedbackAppend(s,"%s.processing.actual=%s\n%s.processing.policy=selected-suffix; unstarted-fallback-is-provisional; private-work-or-adoption-retains-route\n",
