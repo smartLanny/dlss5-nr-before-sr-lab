@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
 REPO=ROOT
@@ -25,8 +26,10 @@ edge=load('edge_t_edge',ROOT/'scripts/patch-colour-edge.py')
 shader=(ROOT/'src/nr_colour_edge.hlsli').read_text(encoding='utf-8')
 def body(s,k): return s[slice(*m3.definition(s,k))]
 def blob(path):
-    data=path.read_bytes()
-    return hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+    # Compare the repository's canonical text blob; CRLF checkout conversion
+    # is not a shader edit. A changed character still fails the frozen pin.
+    return subprocess.check_output(['git','hash-object',str(path)],cwd=REPO,text=True).strip()
+
 def staged_source():
     raw=(REPO/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
     s=m3.patch_runtime(m1.patch_runtime(raw),*[(ROOT/'src'/p).read_text(encoding='utf-8') for p in
