@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline21-perf11'
-DISPLAY_VERSION = '0.5-dline21-perf11'
+VERSION = 'beta0.5-dline21-perf12'
+DISPLAY_VERSION = '0.5-dline21-perf12'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -48,7 +48,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/interop/nr_rr_post_runtime.inl': '8e600cabd4fbb3b3b049cbf80dc12f853d342be9',
-    'src/nr_before_sr.cpp': '98deebe3b7f0b611b6074c9a9d1580ce1c3daaad',
+    'src/nr_before_sr.cpp': '36bc842c9136ef161f87891dce22534899cb7e9f',
     'src/nr_before_sr.rc': '7abf977b7980e1650eea8ee1e89502982f088ab1',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
@@ -100,7 +100,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
     'src/nr_face_worker.h': '29ac5085dee8a9a4715838a6f037c9d3859f89f1',
-    'src/nr_feedback_capture.inl': 'd65f26e9b8f9d4e1818681059c2a8935fe001adb',
+    'src/nr_feedback_capture.inl': '3c448bacb50de60233f10a5a6d466d6b11c0ebff',
     'src/nr_feedback_core.inl': '644c6ed5266488250f574da14a74b2ead5b1bd01',
     'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
     'src/nr_feedback_picture.inl': 'bfa3934cc3d6263ba2a19939f5bbe77d19eb89db',
@@ -324,7 +324,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-223fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf11 beta'),
+    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf12 beta'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:

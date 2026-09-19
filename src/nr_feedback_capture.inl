@@ -286,6 +286,16 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,nr_dual_runtime::second_creates.load(),prefix,nr_dual_runtime::second_evaluations.load(),prefix,nr_dual_runtime::second_completed.load(),
         prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
         prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
+    const auto memory=SnapshotNrContextMemory();
+    FeedbackAppend(s,"%s.contextMemory.contexts=livePrimary:%u,liveAux:%u,retiredPrimary:%u,retiredAux:%u,pendingPrimary:%u,pendingAux:%u,quarantined:%u\n"
+        "%s.contextMemory.auxSlots=live:%u,retired:%u,pending:%u\n"
+        "%s.contextMemory.auxTrackedBytes=live:%llu,retired:%llu,pending:%llu,global:%llu\n"
+        "%s.contextMemory.parentRetirements=%llu\n"
+        "%s.contextMemory.scope=registered and pending metadata; quarantined is a subset; global may include outside-lock destruction or unlisted quarantine; excludes primary textures and opaque NGX allocations; not process or hardware VRAM\n",
+        prefix,memory.live_primary,memory.live_auxiliary,memory.retired_primary,memory.retired_auxiliary,memory.pending_primary,memory.pending_auxiliary,memory.quarantined,
+        prefix,memory.live_slots,memory.retired_slots,memory.pending_slots,
+        prefix,memory.live_aux_bytes,memory.retired_aux_bytes,memory.pending_aux_bytes,memory.tracked_aux_bytes,
+        prefix,memory.parent_retirements,prefix);
     FeedbackAppendDualSnapshot(s, prefix);
     FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
         prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
