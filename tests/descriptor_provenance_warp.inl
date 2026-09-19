@@ -201,8 +201,9 @@ void Run() {
     Check(cpu_request && cpu_request.format==28,
         "real Clear records an independent frozen CPU request without promoting GPU proof");
     const auto resolved=NrResolveColorView(f.device,output.resource,ID3D12Resource_GetDesc(output.resource),502,true,0);
-    Check(resolved && resolved.clear_source && resolved.plan.srv==28,
-        "real cached Clear CPU request resolves the existing R8 color and capability contract");
+    Check(resolved && resolved.lifetime_source && !resolved.clear_source &&
+        resolved.clear_request && resolved.clear_request.format==28 && resolved.plan.srv==28,
+        "native CreateView lifetime evidence takes priority while retaining the independent cached Clear request");
     const auto stable_cpu_output=g_nr_descriptors.Cpu(Cpu(f,cpu).ptr,0,nr_descriptor::Kind::Uav);
     Check(stable_cpu_output&&g_nr_descriptors.Current(stable_cpu_output),
         "real CPU Output UAV receipt is current before oversized descriptor copies");
@@ -271,8 +272,9 @@ void Run() {
     Check(cpu_only&&cpu_only.format==28,
         "stable CPU UAV and explicit resource retain an independent typed declaration after GPU eviction");
     const auto unknown_resolved=NrResolveColorView(f.device,output.resource,ID3D12Resource_GetDesc(output.resource),503,true,0);
-    Check(unknown_resolved&&unknown_resolved.clear_source&&unknown_resolved.plan.srv==28,
-        "GPU-unknown CPU declaration supplies the typed color preparation");
+    Check(unknown_resolved&&unknown_resolved.lifetime_source&&!unknown_resolved.clear_source&&
+        unknown_resolved.clear_request&&unknown_resolved.clear_request.format==28&&unknown_resolved.plan.srv==28,
+        "GPU-slot eviction preserves native CreateView evidence and the independent CPU declaration without inventing GPU proof");
     nr_native_clear::Invocation fresh_unknown;
     Native(unknown_list,output.resource,503,[&] {
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(unknown_list.native,Gpu(f,gpu,1),Cpu(f,cpu),

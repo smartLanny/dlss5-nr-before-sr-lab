@@ -46,7 +46,7 @@ if ($LASTEXITCODE) { throw 'Built source must be an ancestor of the packaging so
 $Changes = @(& git -C $Repo diff --name-only $Commit $RepoCommit)
 if ($LASTEXITCODE) { throw 'Cannot verify source changes since build.' }
 foreach ($Changed in $Changes) {
-    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|scripts/validate-(beta04-structure|strength-cap)\.py$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
+    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|scripts/validate-(beta04-structure|strength-cap)\.py$|tests/descriptor_provenance_warp\.inl$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
         throw "Binary/build inputs changed since validated source; rebuild required: $Changed"
     }
 }
@@ -110,6 +110,13 @@ $EnglishAddons = @($Addons | Where-Object { $_.Name.EndsWith('.en.addon64', [Str
 if ($ChineseAddons.Count -ne 1 -or $EnglishAddons.Count -ne 1) { throw 'One verified Core per language is required.' }
 $FaceEnabled = $Validation.PSObject.Properties['full_face_backend'] -and $Validation.full_face_backend -eq $true
 if ($Unified -and -not $FaceEnabled) { throw 'Unified package requires the complete face backend.' }
+$NgxLicense = Join-Path $CoreBuild 'NVIDIA-NGX-LICENSE.txt'
+if ($Unified -and -not (Test-Path -LiteralPath $NgxLicense)) { throw 'Unified package requires the nrchain SDK license.' }
+if (Test-Path -LiteralPath $NgxLicense) {
+    $NgxReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'nrchain-build.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-Hash $NgxLicense ([string]$NgxReceipt.input_sha256.'LICENSE.txt')
+    Assert-Hash (Join-Path $CoreBuild 'nrchain_nvngx.dll') ([string]$NgxReceipt.binary_sha256)
+}
 $FaceAssets = [ordered]@{}
 $FaceHashes = @{}
 $FaceReceiptHash = $null
@@ -165,6 +172,7 @@ try {
         Copy-Item -LiteralPath $Addon.FullName -Destination $Package
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
+        if (Test-Path -LiteralPath $NgxLicense) { Copy-Item -LiteralPath $NgxLicense -Destination $Package }
         foreach ($Leaf in @($Addon.Name, 'nrchain_nvngx.dll', $CarrierLeaf)) {
             $Evidence = @($Validation.binaries | Where-Object { $_.file -eq $Leaf })
             Assert-Hash (Join-Path $Package $Leaf) ([string]$Evidence[0].sha256)

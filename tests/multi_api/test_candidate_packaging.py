@@ -152,6 +152,11 @@ class Packaging(unittest.TestCase):
     def unified(self):
         self.manifest['colour_lab'] = {'source_commit': self.commit, 'version': 'beta0.5-dline21-unified1'}
         self.validation.update(quality_successor=True, full_face_backend=True)
+        license_path = self.core/'NVIDIA-NGX-LICENSE.txt'
+        license_path.write_text('synthetic SDK license fixture; not a vendor payload')
+        (self.core/'nrchain-build.json').write_text(json.dumps({
+            'input_sha256': {'LICENSE.txt': digest(license_path)},
+            'binary_sha256': digest(self.core/'nrchain_nvngx.dll')}))
         receipt = {'schema': 'nr-face-build-v1', 'enabled': True, 'runtime_version': '1.23.2',
                    'runtime_sha256': 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea',
                    'model_sha256': 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1'}
@@ -255,14 +260,16 @@ class Packaging(unittest.TestCase):
             with zipfile.ZipFile(package) as archive:
                 names = {n.replace('\\', '/') for n in archive.namelist() if not n.endswith('/')}
                 self.assertEqual({n.removeprefix('nr_face/') for n in names if n.startswith('nr_face/')}, expected_face)
-                self.assertEqual(len(names), 14)
+                self.assertEqual(len(names), 15)
+                self.assertEqual(archive.read('NVIDIA-NGX-LICENSE.txt'),
+                                 (self.core/'NVIDIA-NGX-LICENSE.txt').read_bytes())
                 self.assertFalse(any(n.endswith('.ini') or 'nvngx_dlss' in n.lower() for n in names))
                 info = json.loads(archive.read('build-info.json'))
                 self.assertEqual(info['language'], entry['language'])
                 self.assertTrue(info['full_face_backend'])
                 self.assertEqual(info['face_backend_receipt_sha256'], digest(receipt_path))
                 hashes = json.loads(archive.read('SHA256.json'))
-                self.assertEqual(len(hashes), 13)
+                self.assertEqual(len(hashes), 14)
                 for item in hashes:
                     self.assertEqual(hashlib.sha256(archive.read(item['file'])).hexdigest(), item['sha256'])
 
