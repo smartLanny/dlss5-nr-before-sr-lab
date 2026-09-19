@@ -1,4 +1,31 @@
-## Active 0.5 quality workflow (2026-09-20)
+## Active unified successor (2026-09-20)
+
+The owner's approved unified implementation supersedes the branch-specific
+instructions below. Read `docs/interop/UNIFIED_HANDOFF.md` first. Issue #294 is
+the coordinator; `codex/d21-unified-next-20260920` combines quality1 #289 with
+the complete Perf12 #299 history. The only integration target is `next/0.5`.
+Keep a pure quality reference and the combined candidate at identical model
+settings and workload. Do not deploy to games or publish a stable release.
+
+Use `scripts/build-unified-candidate.ps1` for the cumulative complete candidate,
+including the full face backend. A successful colour-only build is not the
+complete CPU/WARP/retirement validation. Preserve failed build receipts and
+distinguish source generation, actual Windows binaries, WARP, NVIDIA shader
+execution, actual NGX inference, hosted CI, and game acceptance.
+
+One working scale applies once to the complete one-to-five-layer chain. Each
+layer keeps its own model configuration and history. New/missing energy-mode
+settings are OFF; preserve explicit saved settings. Colour defaults retain the
+quality1 decision below; no new RGB recommendation or unproven temporal fix.
+
+The owner explicitly authorized recoverable dirty-worktree cleanup and PR
+consolidation. Save complete archives, history/index/diffs and private evidence,
+restore and verify independently, migrate useful changes, then normally remove
+the obsolete worktree. Preserve branches and unique ongoing experiments. A
+closed superseded PR is not a solved game issue. Keep private recovery manifests
+outside the public repository; publish only sanitized summaries.
+
+## Historical input: 0.5 quality workflow (2026-09-20)
 
 For this quality branch, read `docs/interop/QUALITY_HANDOFF.md` first. It
 supersedes historical main-only and colour3/4 experimental-default guidance
