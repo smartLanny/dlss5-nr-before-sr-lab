@@ -237,7 +237,7 @@ def configure(core: Path):
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
     # Historical adapter validates the inherited source tag before replacing it
     # with EXPERIMENT. The candidate tag is not the raw Core input identity.
-    m.VERSION = 'beta0.5-dline21-223fix2'
+    m.VERSION = VERSION
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -327,7 +327,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.5.1 dline21-uniform3 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.5.1 dline21-223fix2 beta', '0.5.1 dline21-perf12 beta'),
+    rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
@@ -355,7 +355,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'jitter_policy': 'once-to-zero migration then respect explicit user re-enable; native SR jitter unchanged',
         'region_composition_runtime': True,
         'immutable_bindings': 'up to 8 packets per context; exact view/resource equality; existing command-list and fence retirement; no GPU wait',
-        'dual_nr_defaults': 'off; second scale 1/2 for new or missing settings and reset; retain valid saved ratios; manual 25-100 percent',
+        'dual_nr_defaults': 'one layer; one chain scale, 1-5 independent models at equal extents; legacy auxiliary ratios archived',
         'dual_nr_feedback': 'configuration-scoped observation window, successful model tuning/reset reasons, exact binding refusal and guide availability',
         'region_selection': 'fixed pre-gain model difference with snapshotted depth/normals; reflection requires specular albedo and hit distance',
         'post_low_grid_composition': True,
