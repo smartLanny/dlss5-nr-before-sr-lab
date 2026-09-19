@@ -11,7 +11,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 BASE='843d1e1c7f61e563b8913242b8756542af169a80'
 EXTRA=('scripts/prepare-colour4-edge.py','scripts/build-colour4-edge.ps1',
-       'tests/test_colour_edge.py','tests/run_colour_edge_math.py','tests/colour_edge_math.cpp')
+       'tests/test_colour_edge.py','tests/run_colour_edge_math.py','tests/colour_edge_math.cpp', 'tests/test_quality_panel.py', 'tests/quality_recipe_test.cpp', 'tests/run_quality_recipe.py')
 
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path)
@@ -36,9 +36,15 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     m1=load('edge_m1',core/'scripts/patch-colour-lab.py')
     m3=load('edge_m3',core/'scripts/patch-colour-restore.py')
     prior=base.finalize
-    def check(script,stage):
-        subprocess.run([sys.executable,str(core/'tests'/script),'--repo',str(core),
-                        '--generated',str(stage/'core'),'-v'],check=True)
+    def check(script, stage):
+        # test_colour_stage.py intentionally accepts only one actual source.
+        # Calling it with BOTH flags aborts before any generated-source test.
+        # Run raw-source gates independently in the builder, then inspect this
+        # complete intermediate stage. Other inherited tests also inspect raw.
+        args = ['--generated', str(stage/'core')]
+        if script != 'test_colour_stage.py':
+            args = ['--repo', str(core)] + args
+        subprocess.run([sys.executable, str(core/'tests'/script), *args, '-v'], check=True)
     def finalize(core_root,stage,source):
         prior(core_root,stage,source)
         m1.apply(stage,inputs);m3.apply(stage,inputs)
@@ -51,7 +57,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
             'version':edge_patch.VERSION,'source_commit':source,'base_commit':BASE,
-            'default_mode':1,'default_restore_mode':1,'default_input_curve':0,
+            'default_mode':1,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
             'edge_routes':['scaled-v2-rgb'],'edge_selection_resets_history':False,
@@ -60,6 +66,9 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'v2_capture_proxy_neural_use_effective_edge_weights':True,
             'capture_detail_decision_plane':'legacy filter, not edge or early raw consumer',
             'extra_nr_invocations':0,'extra_gpu_passes':0,'default_model_input_changed':False,
+            'ui_recipes':['colour-baseline', 'n2-shadow-comparison'],
+            'saved_custom_settings_preserved':True, 'diagnostics_collapsed':True,
+            'n2_legacy_combination_game_verified':False,
             'runtime_verified':False,
             'overlay_sha256':{p:hashlib.sha256(data).hexdigest() for p,data in inputs.items()}}
         manifest['files']=base.file_hashes(stage)
@@ -78,4 +87,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated colour4-edge1 source only; Windows/GPU/game verification is separate.')
+    print('Generated quality1 source only; Windows/GPU/game verification is separate.')

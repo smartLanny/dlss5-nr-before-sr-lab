@@ -15,13 +15,15 @@ if (Test-Path -LiteralPath $OutputRoot) { throw 'Use a new output directory; tes
 foreach ($Required in @($ToolchainRoot,$ReShadeSourceRoot)) {
     if ([string]::IsNullOrWhiteSpace($Required)) { throw 'Supply the existing LLVM-MinGW and ReShade paths.' }
 }
+& python (Join-Path $Root 'tests/test_quality_panel.py') -v
+if ($LASTEXITCODE -ne 0) { throw 'Quality recipe/panel source checks failed.' }
 $Compiler=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
 if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf)) { throw 'Host compiler not found.' }
 & python -m py_compile (Join-Path $PSScriptRoot 'patch-colour-restore.py') (Join-Path $PSScriptRoot 'patch-colour-stage.py') (Join-Path $PSScriptRoot 'patch-colour-edge.py') (Join-Path $PSScriptRoot 'prepare-colour4-edge.py')
 if ($LASTEXITCODE -ne 0) { throw 'Generator syntax failed.' }
 & python (Join-Path $Root 'tests/test_colour_source_gates.py') -v
 if ($LASTEXITCODE -ne 0) { throw 'Source-selection gates failed.' }
-foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py')) {
+foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py','run_quality_recipe.py')) {
     & python (Join-Path $Root "tests/$MathTest") --compiler $Compiler
     if ($LASTEXITCODE -ne 0) { throw "Production host math failed: $MathTest" }
 }
@@ -42,8 +44,9 @@ if ($ReuseBridgeRoot) { $Options.ReuseBridgeRoot=$ReuseBridgeRoot }
 & (Join-Path $GeneratedRoot 'scripts/build.ps1') @Options
 if (-not $?) { throw 'Full Windows Core/canonical build failed.' }
 $Manifest=Get-Content -LiteralPath (Join-Path $OutputRoot 'source-manifest.json') -Raw | ConvertFrom-Json
-if ($Manifest.colour_lab.version -ne 'beta0.5-dline21-colour4-edge1') { throw 'Wrong candidate identity.' }
+if ($Manifest.colour_lab.version -ne 'beta0.5-dline21-quality1') { throw 'Wrong candidate identity.' }
 Write-Host 'Build command returned successfully. Inspect the actual Core/shader validation reports and binary identity.'
 Write-Host 'No game is modified. Keep the existing INI, bridge and NVIDIA DLLs. No game/performance result is implied.'
-Write-Host 'Next: same 99%, protected RGB, original input, neutral probe OFF; toggle ONLY edge recovery. 100% is the unchanged sampling control.'
+Write-Host 'Quality1: new configs use colour-priority + D21 composition. Saved experiments are preserved and warned, not silently changed.'
+Write-Host 'Compare Colour baseline with N2 shadow comparison at a fixed raster. This is not an RGB halo or 99/100 colour fix.'
 Write-Host 'On no effect, halos, flicker or bypass, capture F7/F8, revert the option and report a BUG.'

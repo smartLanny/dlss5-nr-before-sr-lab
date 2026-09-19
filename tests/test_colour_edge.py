@@ -106,15 +106,14 @@ class EdgeTests(unittest.TestCase):
             root=Path(temp);(root/'core/src').mkdir(parents=True)
             path=root/'core/src/nr_before_sr.cpp';path.write_text(self.old,encoding='utf-8')
             (root/'core/src/nr_colour_lab_ui.inl').write_text('wrong UI anchor')
-            with self.assertRaises(ValueError):edge.apply(root,{'src/nr_colour_edge.hlsli':shader.encode()},m3)
+            inputs={path:(ROOT/path).read_bytes() for path in edge.INPUTS}
+            with self.assertRaises(ValueError):edge.apply(root,inputs,m3)
             self.assertEqual(path.read_text(encoding='utf-8'),self.old)
     def test_ui_feedback_and_build_contract(self):
-        # Literal UI anchors checked separately against GitHub; this fixture is
-        # only a transaction transformation check, not a GUI translation unit.
-        ui='\n'.join(['    int inputCurve = nr_colour_restore::Normalize(next.colour_input_curve);',
-            '        next.colour_restore_mode = 0;',
-            '        ImGui::TextWrapped("%s: %s", ui("Recorded input curve", "已录制输入曲线"),'])
-        ui=edge.patch_ui(ui,m3)
+        # Apply the inherited stage UI transform to the checked-out source.
+        # The recipe test separately compiles the final panel with UI substitutes.
+        ui=stage.patch_ui((ROOT/'src/nr_colour_lab_ui.inl').read_text(encoding='utf-8'),m3)
+        ui=edge.patch_ui(ui,m3,(ROOT/'src/nr_quality_ui.inl').read_text(encoding='utf-8'))
         self.assertIn('next.colour_edge_recovery = edge;',ui)
         self.assertIn('sample.policy.recorded_edge_recovery',ui)
         self.assertIn('F8',ui)
@@ -131,7 +130,7 @@ class EdgeTests(unittest.TestCase):
         if GENERATED is None:self.skipTest('full compatibility-generated export absent; real raw-source tests ran')
         text=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
         self.assertIn(shader,text)
-        self.assertIn('beta0.5-dline21-colour4-edge1',text)
+        self.assertIn(edge.VERSION,text)
         self.assertIn('frame_config.colour_edge_recovery',body(text,'void DispatchCodec('))
         self.assertIn('ColourEdgeSamplePair(center, prepared, ColourStageNeutral())',text)
         self.assertNotIn('colour_edge_recovery',body(text,'bool SameHistoryConfig('))

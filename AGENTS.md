@@ -1,3 +1,20 @@
+## Active 0.5 quality workflow (2026-09-20)
+
+For this quality branch, read `docs/interop/QUALITY_HANDOFF.md` first. It
+supersedes historical main-only and colour3/4 experimental-default guidance
+below. Continue the existing cumulative quality PR #289 rather than opening a
+new stacked PR for each knob. `next/0.5` remains the integration target; do not
+merge unverified quality code into main/stable. Performance and Windows GPU
+work keep their own owner; #294 coordinates the combination.
+
+Owner feedback is a delivery gate: RGB modes currently add contour halos and
+are research-only; colour-priority + D21 composition is the new-config baseline.
+Preserve explicit existing INI choices and warn; do not silently migrate them.
+The N2 + legacy-compositor recipe is an unvalidated combination. Preserve all
+old binaries, logs, native model parameters, work sizes, and runtime boundaries.
+A completed milestone requires reproducible Windows build artifacts and stated
+GPU/game evidence, not just a source commit or large CPU assertion count.
+
 # Shared local and cloud handoff
 
 The owner named the ABC compatibility line `0.4.7beta` on 2026-09-09 and kept

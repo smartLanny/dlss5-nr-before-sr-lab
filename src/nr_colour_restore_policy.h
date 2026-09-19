@@ -19,7 +19,9 @@ struct EncodingReceipt {
         return current != 0 && current == serial ? encoding : Encoding::Unknown;
     }
 };
-constexpr int kDefaultMode = 1;
+// Owner colour4 feedback: RGB restoration adds contour halos. Only the
+// missing-key default changes; existing explicit 0/1/2 settings are preserved.
+constexpr int kDefaultMode = 0;
 constexpr int kDefaultInputCurve = 0;
 constexpr int kDefaultScaledProxyMode = 0;
 constexpr unsigned kInputCurveFlag = 268435456u;

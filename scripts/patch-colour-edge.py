@@ -7,8 +7,9 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-colour4-edge1'
-INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h')
+VERSION = 'beta0.5-dline21-quality1'
+INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
+          'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl')
 
 
 def patch_runtime(text: str, shader: str, helpers) -> str:
@@ -23,7 +24,7 @@ def patch_runtime(text: str, shader: str, helpers) -> str:
     if 'NR_COLOUR_EDGE_HLSLI' in text or ')HLSL"' in shader: raise ValueError('Invalid/repeated edge overlay')
     text=once(text, 'struct ColourStagePixel {', shader+'\nstruct ColourStagePixel {', 'edge helper placement')
     text=once(text, '#include "nr_colour_stage_policy.h"',
-        '#include "nr_colour_stage_policy.h"\n#include "nr_colour_edge_policy.h"', 'edge policy include')
+        '#include "nr_colour_stage_policy.h"\n#include "nr_colour_edge_policy.h"\n#include "nr_quality_recipe.h"', 'edge policy include')
     text=once(text, 'struct ChainConfig {',
         'struct ChainConfig {\n    int colour_edge_recovery = 0; // Output-only opt-in.', 'edge configuration')
     text=once(text, 'void NormalizeConfig(ChainConfig &config) {',
@@ -113,30 +114,29 @@ def patch_runtime(text: str, shader: str, helpers) -> str:
     return text
 
 
-def patch_ui(s,helpers):
-    anchor='    int inputCurve = nr_colour_restore::Normalize(next.colour_input_curve);'
-    s=helpers.once(s,anchor,'''    int edge = nr_colour_edge::Normalize(next.colour_edge_recovery);
-    if (ImGui::Combo(ui("Low-resolution edge recovery###colour-edge", "低分辨率轮廓恢复###colour-edge"), &edge,
-        ui("D21 bilinear [baseline]\\0Paired edge matching [experimental]\\0",
-           "D21 双线性 [基准]\\0配对边缘匹配 [实验]\\0"))) {
-        next.colour_edge_recovery = edge;
-        changed = true; apply_discrete_edit = true;
+def patch_ui(text, helpers, replacement):
+    # Validate the previous stage's complete UI before replacing presentation.
+    # No new preference shadow state or GPU setting is introduced here.
+    anchors = ('void DrawColourLabControls(', 'next.colour_neutral_probe',
+               'sample.policy.recorded_neutral_probe', 'RequestStageCapture()')
+    if any(anchor not in text for anchor in anchors):
+        raise ValueError('Expected the complete colour4 UI before consolidation')
+    return replacement
+
+
+def patch_light_group(text, helpers):
+    anchor = '    DrawColourLabControls(next, generation, has_pending, changed, apply_discrete_edit);'
+    return helpers.once(text, anchor, anchor + r'''
+    if (next.light_preview != 0u) {
+        SettingsNote(ui("Lighting diagnostic preview is active, not the final picture.",
+            "光影诊断预览仍在运行，当前不是最终画面。"));
+        if (ImGui::Button(ui("Exit lighting preview###quality-preview-off", "退出光影预览###quality-preview-off"))) {
+            next.light_preview = 0u; changed = true; apply_discrete_edit = true;
+        }
     }
-    SettingsTooltip(ui("Scaled V2 RGB only. P and N use identical positive, source-guided weights. No added NR or pass; ALU cost and game benefit are unmeasured. May suppress genuine edits or flicker. 100% is unchanged.",
-        "仅低分 V2 RGB：P/N 使用完全相同、由原图引导的正权重，尝试减少跨轮廓串色。不增加 NR 或 pass；尚未测 GPU 开销及游戏收益，也可能压弱真实修改或闪烁。100% 不改变。"));
-    SettingsNote(ui("Next A/B: same 99%, protected RGB, original input, only edge OFF/ON. Disable the neutral probe for quality/performance. Capture S/P/N/E with F7 or F8 ROI; captured N remains real. The optional detail-decision plane describes legacy filtering, not the edge/raw consumer.",
-        "下一轮保持 99%、受保护 RGB、原输入，仅切轮廓恢复。画质/性能对比关闭零修改测试。F7/F8 区域捕获 S/P/N/E，其中 N 始终是真实模型输出；额外细节决策平面仍描述旧过滤，不代表边缘/原始消费者。"));
-'''+anchor,'edge UI')
-    s=helpers.once(s,'        next.colour_restore_mode = 0;',
-        '        next.colour_edge_recovery = 0;\n        next.colour_restore_mode = 0;','reset edge')
-    anchor='        ImGui::TextWrapped("%s: %s", ui("Recorded input curve", "已录制输入曲线"),'
-    s=helpers.once(s,anchor,'''        ImGui::TextWrapped("%s: %s", ui("Recorded edge recovery", "已录制轮廓恢复"),
-            nr_colour_edge::Name(sample.policy.recorded_edge_recovery != 0));
-        if (sample.policy.requested_edge_recovery && !sample.policy.recorded_edge_recovery)
-            SettingsNote(ui("Edge recovery not applied: needs scaled V2 RGB and a matching input receipt. Baseline kept. Unexpected bypass: collect F8 and report a BUG.",
-                "边缘恢复未采用：需要低分 V2 RGB 与匹配输入记录，已保留基准；意外旁路请 F8 收集并反馈 BUG。"));
-'''+anchor,'edge UI recorded state')
-    return s
+    if (!ImGui::CollapsingHeader(ui("Advanced lighting controls###quality-lighting",
+                                  "进阶光影调节（保留原设置）###quality-lighting"))) return;''',
+        'collapse secondary artistic controls without changing preferences')
 
 
 def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
@@ -150,7 +150,8 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     FeedbackAppend(s, "requested.colourEdgeRecovery=%d\ncolourEdge.contract=bit24 paired positive weights; actual captured N kept; recorded not GPU completion\n",
         config.colour_edge_recovery);''','edge feedback')
     transforms={'src/nr_before_sr.cpp':lambda s:patch_runtime(s,shader,helpers),
-        'src/nr_colour_lab_ui.inl':lambda s:patch_ui(s,helpers),
+        'src/nr_colour_lab_ui.inl':lambda s:patch_ui(s,helpers,inputs['src/nr_quality_ui.inl'].decode('utf-8')),
+        'src/nr_light_style_ui.inl':lambda s:patch_light_group(s,helpers),
         'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback}
     updates={p:f((stage/'core'/p).read_text(encoding='utf-8')) for p,f in transforms.items()}
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
