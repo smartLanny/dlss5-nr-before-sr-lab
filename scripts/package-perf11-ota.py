@@ -14,12 +14,14 @@ from nr_ota_pe import companion_check
 VERSION = 'beta0.5-dline21-perf11'
 CORE_NAME = 'DLSS5-AI渲染超分版-beta0.5-dline21-perf11-@野生的装机宅-Bilibili.addon64'
 INSTRUCTIONS = '''D21 Perf11 中文性能测试候选
-适用于已有 D21/Lock2/Perf3–9 安装，不是初次安装全套包，不代表游戏性能验收通过。
+适用于已有 D21/Lock2/Perf3–10 安装，不是初次安装全套包，不代表游戏性能验收通过。
 退出游戏，把旧 Core 和 nrchain 备份到游戏目录外，再使用本包一个中文 Core 和配套 nrchain。
-不要同时加载 D13、D21、Lock2、Perf3–9 或 RenoDX 的另一份 NR Core。
+不要同时加载 D13、D21、Lock2、Perf3–10 或 RenoDX 的另一份 NR Core。
 保留 INI、ReShade、桥接器、NVIDIA 运行库、模型及所有画质参数。不能搭配 D13 的旧小体积 nrchain。
 本包为 nr-branch-ota-v1 格式，已检查文件/哈希/PE 身份；本轮未操作管理器界面，导入后仍需选择版本并应用。
-保持当前路由、分辨率和强度参数，测试默认关闭 -> 开启 -> 再次关闭，并保存同期 F8。前置NR到SR与后置SR到NR须分开比较；开启时确认NR成功计数增长。
+本轮仅修复同父实例、同Create合同下，历史变化导致的辅助NR重复创建；保留Reset和原预热门槛，不代表雨天/CG/FG问题全部解决。
+保持当前RR后置双NR、分辨率和模型参数。先开启到双层正常，再F6关闭；随后录关闭10秒 -> 开启10秒 -> 再次关闭10秒，录完保存F8。
+同合同热切换时应看到辅助实例复用与Reset请求，辅助createCalls不应增加；真正改尺寸、模型或父实例仍须重建。开启时确认NR成功计数和双层采用恢复。
 F8 保留 descriptor.rangeQueries，以及 descriptor.slotQueries：缓存命中、未命中与链表检查次数；不是性能百分比或资源有效性证明。
 首次开启和关闭的长帧单独记录。这一版没有单独修复初始化卡顿，不可用安全旁路的高帧率作为通过依据。
 出现旁路、无效果、闪烁或崩溃时回滚备份，上传 F8 TXT、Core 日志及版本/哈希反馈 BUG。
