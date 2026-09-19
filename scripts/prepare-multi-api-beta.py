@@ -373,7 +373,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'exposure_path': '1x1 mip0 final-scale red; typed R8_UNORM or established R16/R32 FLOAT-family reads with actual Texture2D/ShaderLoad proof; queryAttempted distinguishes missing query from driver failure; no source UAV',
         'resource_recovery': 'same-process normal-carrier retry after semantics resolve; actual consumed immutable or owned descriptor table, NR/native results, matching Execute and sparse actual stored-value read; failed interpretation remains latched across observer cache churn',
         'compatibility_verdict': 'scoped current first block, retained failure and matching attempt/proof; technical proof requires three correlated carriers; final Present visual remains unobserved without separate F7 proof',
-        'native_observer': 'layered Create/Evaluate/Release identity; external Feature18 ownership distinct from private NR; gaps remain fail-closed',
+        'native_observer': 'cold resolved Core Create boundary plus existing Init/model observers; layered real Create/Evaluate/Release identity; no handle inference or fault reset',
         'post_boundary': 'immutable scoped probe window with native barrier/write/submit evidence; no inferred final-screen write or automatic state rewrite',
         'optional_inventory_blocks_on_failure': False,
         'vulkan_native': 'disabled: submit synchronization not implemented',
