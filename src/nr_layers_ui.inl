@@ -20,10 +20,29 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
         char title[64];std::snprintf(title,sizeof(title),zh?"第 %u 层":"Layer %u",i+1);
         if(ImGui::CollapsingHeader(title,ImGuiTreeNodeFlags_DefaultOpen)) {
             auto model=nr_layers::Read(next,i);bool edited=false;
-            const char* styles=zh?"默认\0自然\0电影\0":"Default\0Natural\0Cinematic\0";
-            int style=static_cast<int>(model.style);
-            if(ImGui::Combo(zh?"风格":"Style",&style,styles)){model.style=static_cast<unsigned>(style);edited=true;discrete=true;}
+            const char* stylesEn[]={"Default","Natural","Cinematic"};
+            const char* stylesZh[]={"默认","自然","电影"};
+            // Keep drag preview separate from the config transaction: crossing
+            // segments must not recreate models until the mouse is released.
+            static int drag_layer=-1;
+            static unsigned drag_style=0;
+            const float segment_width=std::max(1.f,(SettingsContentWidth()-2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
+            for(unsigned style=0;style<3;++style) {
+                if(style)ImGui::SameLine();
+                const unsigned selected=drag_layer==static_cast<int>(i)?drag_style:model.style;
+                if(selected==style)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
+                const bool clicked=ImGui::Button(zh?stylesZh[style]:stylesEn[style],ImVec2(segment_width,0));
+                if(selected==style)ImGui::PopStyleColor();
+                if(ImGui::IsItemActivated()){drag_layer=static_cast<int>(i);drag_style=style;}
+                if(drag_layer==static_cast<int>(i)&&ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))drag_style=style;
+                if(clicked&&drag_layer<0&&model.style!=style){model.style=style;edited=true;discrete=true;}
+            }
+            if(drag_layer==static_cast<int>(i)&&!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                if(model.style!=drag_style){model.style=drag_style;edited=true;discrete=true;}
+                drag_layer=-1;
+            }
             edited|=SettingsSliderFloat(zh?"强度":"Intensity","##intensity",&model.intensity,0.f,2.f,"%.2f");
+            if(ImGui::CollapsingHeader(zh?"本层细调":"Layer fine controls")) {
             edited|=SettingsSliderFloat(zh?"局部结构":"Local structure","##structure",&model.local_structure,0.f,2.f,"%.2f");
             edited|=SettingsSliderFloat(zh?"局部色调":"Local tone","##tone",&model.local_tone,0.f,2.f,"%.2f");
             if(ImGui::Checkbox(zh?"自动皮肤遮罩":"Automatic skin mask",&model.auto_mask)){
@@ -34,6 +53,7 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
             edited|=SettingsSliderFloat(zh?"皮肤结构":"Skin structure","##skin",&model.skin_structure,model.auto_mask?0.f:-1.f,2.f,"%.2f");
             ImGui::EndDisabled();
             if(ImGui::Checkbox(zh?"文字与界面保护":"UI correction",&model.ui_correction)){edited=true;discrete=true;}
+            }
             if(ImGui::Button(zh?"重置本层":"Reset this layer")){model={};edited=true;discrete=true;}
             SettingsTooltip(zh?"仅恢复本层模型参数；不改变层数、工作分辨率和最终合成。":"Resets this layer's model controls only; keeps layer count, work resolution and final composition.");
             if(edited) {

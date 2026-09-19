@@ -8,9 +8,10 @@ SRWLOCK energy_gate_lock=SRWLOCK_INIT;
 nr_energy_gate::Streams energy_gate_streams{};
 std::atomic<bool> energy_gate_loaded{false},energy_gate_any_active{false};
 std::atomic<bool> energy_gate_has_evidence{false};
-std::atomic<bool> energy_gate_conservative{true},energy_gate_heuristic{false};
+std::atomic<bool> energy_gate_conservative{false},energy_gate_heuristic{false};
 std::atomic<bool> energy_gate_persistence_failed{false};
 std::atomic<unsigned long long> energy_gate_resets{0},energy_gate_blocked_checks{0};
+unsigned long long energy_gate_last_resume_ms=0; // Protected by energy_gate_lock.
 nr_energy_gate::Options EnergyGateOptions() {
     return {energy_gate_conservative.load(std::memory_order_acquire),
             energy_gate_heuristic.load(std::memory_order_acquire)};
@@ -19,7 +20,7 @@ void EnsureEnergyGateLoaded() {
     if(energy_gate_loaded.load(std::memory_order_acquire)||!g_ini_path[0])return;
     AcquireSRWLockExclusive(&energy_gate_lock);
     if(!energy_gate_loaded.load(std::memory_order_relaxed)) {
-        energy_gate_conservative.store(GetPrivateProfileIntW(L"NRBeforeSR",L"PauseNrOnFullscreenUi",1,g_ini_path)!=0);
+        energy_gate_conservative.store(GetPrivateProfileIntW(L"NRBeforeSR",L"PauseNrOnFullscreenUi",0,g_ini_path)!=0);
         energy_gate_heuristic.store(GetPrivateProfileIntW(L"NRBeforeSR",L"GuessFullscreenUiPause",0,g_ini_path)!=0);
         energy_gate_loaded.store(true,std::memory_order_release);
     }
@@ -31,6 +32,7 @@ void EnergyGateTransitionLocked(nr_energy_gate::Transition transition) {
         // Publish reset BEFORE the entry and the fast-path flag can reopen NR.
         g_history_generation.fetch_add(1,std::memory_order_acq_rel);
         energy_gate_resets.fetch_add(1,std::memory_order_relaxed);
+        energy_gate_last_resume_ms=GetTickCount64();
     }
 }
 void PublishEnergyGateLocked() {
@@ -101,9 +103,10 @@ bool SetEnergyGateOption(bool conservative,bool enabled) {
     return persisted;
 }
 struct EnergyGateStatus {
-    bool conservative=true,heuristic=false,active=false,persistence_failed=false;
+    bool conservative=false,heuristic=false,active=false,persistence_failed=false;
     nr_energy_gate::Cause cause=nr_energy_gate::Cause::None;
-    unsigned guess_samples=0,active_streams=0;
+    unsigned guess_samples=0,explicit_samples=0,active_streams=0;
+    bool recently_resumed=false;
     unsigned long long resets=0,blocked_checks=0;
 };
 EnergyGateStatus ReadEnergyGateStatus() {
@@ -111,10 +114,13 @@ EnergyGateStatus ReadEnergyGateStatus() {
     EnergyGateStatus out{};const auto options=EnergyGateOptions();
     out.conservative=options.conservative;out.heuristic=options.heuristic;
     AcquireSRWLockExclusive(&energy_gate_lock);
-    energy_gate_streams.PollAll(options,GetTickCount64(),EnergyGateTransitionLocked);
+    const auto now=GetTickCount64();
+    energy_gate_streams.PollAll(options,now,EnergyGateTransitionLocked);
+    out.recently_resumed=energy_gate_last_resume_ms&&now>=energy_gate_last_resume_ms&&now-energy_gate_last_resume_ms<2000;
     for(const auto& e:energy_gate_streams.entries) {
         if(e.state.Active()){++out.active_streams;out.active=true;out.cause=e.state.ActiveCause();}
         out.guess_samples=std::max(out.guess_samples,e.state.guess_samples);
+        out.explicit_samples=std::max(out.explicit_samples,e.state.explicit_samples);
     }
     PublishEnergyGateLocked();
     ReleaseSRWLockExclusive(&energy_gate_lock);

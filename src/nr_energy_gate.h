@@ -21,7 +21,7 @@ enum class Transition : unsigned {
 };
 
 struct Options {
-    bool conservative = true;
+    bool conservative = false;
     bool heuristic = false;
 };
 

@@ -7,7 +7,7 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-quality1'
+VERSION = 'beta0.5-dline21-unified1'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
           'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl')
 
@@ -126,7 +126,7 @@ def patch_ui(text, helpers, replacement):
 
 def patch_light_group(text, helpers):
     anchor = '    DrawColourLabControls(next, generation, has_pending, changed, apply_discrete_edit);'
-    return helpers.once(text, anchor, anchor + r'''
+    return helpers.once(text, anchor, r'''
     if (next.light_preview != 0u) {
         SettingsNote(ui("Lighting diagnostic preview is active, not the final picture.",
             "光影诊断预览仍在运行，当前不是最终画面。"));
@@ -152,6 +152,7 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     transforms={'src/nr_before_sr.cpp':lambda s:patch_runtime(s,shader,helpers),
         'src/nr_colour_lab_ui.inl':lambda s:patch_ui(s,helpers,inputs['src/nr_quality_ui.inl'].decode('utf-8')),
         'src/nr_light_style_ui.inl':lambda s:patch_light_group(s,helpers),
+        'src/nr_settings_ui.inl':lambda s:helpers.once(s, '    DrawColorControls(next, has_pending, changed);', '    DrawColorControls(next, has_pending, changed);\n    DrawColourLabControls(next, current.generation, has_pending, changed, apply_discrete_edit);', 'common colour recipe'),
         'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback}
     updates={p:f((stage/'core'/p).read_text(encoding='utf-8')) for p,f in transforms.items()}
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')

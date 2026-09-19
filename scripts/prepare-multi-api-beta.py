@@ -32,7 +32,7 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
-    'config/nr_before_sr.ini': '1b8fd43b6d981421515d5893d1d2fedb05c71219',
+    'config/nr_before_sr.ini': '6a36c822006ebec79df43f1dce26cdfdbdabf11e',
     'scripts/build.ps1': '829acf070cba5b5ca6030af29787044c8f33e2f0',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
@@ -148,8 +148,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_runtime_load_evidence.inl': '3910e7dc5933346715d8c9676c9934085c751c59',
     'src/nr_runtime_timing.h': 'a92ee6aafad10d096fdec1c3ad963720ce39f847',
     'src/nr_runtime_timing.inl': 'a7ea51edfc3ed345333588cfcec75dc40670e00a',
-    'src/nr_settings_notices_ui.inl': '6e6a2536c781bc7360308cb64030ed1400bf69eb',
-    'src/nr_settings_ui.inl': '627c6ec505b913ff249833f68b76ceefefef5af8',
+    'src/nr_settings_notices_ui.inl': 'c4f5926dbe8f3405948ce10ee6adb5d0c67cca5c',
+    'src/nr_settings_ui.inl': 'ee854d65b394e9235a0e47de85ed6ac92d6c938d',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': 'c9d0d1ede485068c4eb96adf43eb6a91f118d6fb',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
@@ -180,12 +180,12 @@ INTEGRATION_CORE_PINS = {
     'src/nr_present_capture.inl': 'caa777f80fc0d8d44dbcf7b906680bd50c7a2672',
     'src/nr_processing_route.h': 'edea93e4ce9e58972914417cd90971040aeca7db',
     'src/nr_processing_runtime.inl': '6d21d6665c59126749ccc7df6c21df595c5c7ed5',
-    'src/nr_energy_gate.h': '419e2b37632c27b9fdc783a3f6980135116a4bb8',
+    'src/nr_energy_gate.h': '14e44bcee19251e3750dc67545b157ccec0944b2',
     'src/nr_late_present_receipt.hpp': '6ee58950ffa43da4d65a9706f10a57835d3db4fd',
     'src/nr_source_frame.hpp': '84414e6c3ae65a31c1e8fff49a8493fe21eeed4f',
     'src/nr_source_frame_forward.inl': '4c3bb4c112f75966a75aeb02c74713c1fef28249',
     'src/nr_source_state_table.inl': 'ff32a36ba0e57e59df995a9880f95aa3c9e1acc4',
-    'src/nr_source_frame_runtime.inl': '41a6cdb466a696348961be86424a99cc28dcfae1',
+    'src/nr_source_frame_runtime.inl': '946ab8f1e38d2f1e30b998f7981f24a936859880',
     'src/nr_source_observer.inl': 'dbc04d1fa6ee1492d614597c1f35cc7ed37e77ac',
     'src/nr_source_transport.inl': '2cda8d3accf2ea0fb407c6b076e1306a46df3392',
     'src/nr_source_views.inl': '2d909758aa22be7f2dd0baaf29025df9e2de41d7',
@@ -197,7 +197,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_descriptor_scratch.h': '95e1f7f2bee0d89f6c313852cfc6053a2ab97096',
     'src/nr_launch_preferences.h': '1ab61e676d1b2d1ad35dc324160ad5c1db781a30',
     'src/nr_layer_config.h': '7b8f7ca2d4370f19b491f837cf63f50ed4cbc696',
-    'src/nr_layers_ui.inl': '56ceae07db61df7b4db4053394e3cec0072873b0',
+    'src/nr_layers_ui.inl': '46d82611817a5bc32eb135978c3e9fa194ee4010',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',

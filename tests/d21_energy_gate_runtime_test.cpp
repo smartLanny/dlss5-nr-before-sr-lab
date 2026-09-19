@@ -18,7 +18,8 @@ std::atomic<unsigned long long> host_tick{100},clock_reads{0},lock_reads{0},ini_
 unsigned long long GetTickCount64(){++clock_reads;return host_tick.load();}
 void AcquireSRWLockExclusive(SRWLOCK* lock){++lock_reads;lock->lock();}
 void ReleaseSRWLockExclusive(SRWLOCK* lock){lock->unlock();}
-unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t*,int value,const wchar_t*){++ini_reads;return unsigned(value);}
+int saved_conservative=-1,saved_heuristic=-1;
+unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,int value,const wchar_t*){++ini_reads;const int saved=std::wcscmp(key,L"PauseNrOnFullscreenUi")==0?saved_conservative:saved_heuristic;return unsigned(saved<0?value:saved);}
 int WritePrivateProfileStringW(const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*){return 1;}
 wchar_t g_ini_path[]=L"host-ini";
 struct Config {bool enabled=true,identity_use_original=false;float transfer_strength=1;
@@ -52,7 +53,18 @@ int main() {
     const auto clocks=clock_reads.load(),locks=lock_reads.load();
     for(unsigned i=0;i<10000;++i)Check(!R::EnergyGateBlocks(a));
     Check(clock_reads==clocks&&lock_reads==locks&&ini_reads==0);
+    R::EnsureEnergyGateLoaded();
+    Check(!R::EnergyGateOptions().conservative&&!R::EnergyGateOptions().heuristic);
     R::ObserveEnergyPause(a,100,3,true,true,10);
+    host_tick=120;R::ObserveEnergyPause(a,100,3,true,true,10);
+    Check(!R::EnergyGateBlocks(a));
+    saved_conservative=saved_heuristic=1;R::energy_gate_loaded=false;R::EnsureEnergyGateLoaded();
+    Check(R::EnergyGateOptions().conservative&&R::EnergyGateOptions().heuristic);
+    saved_conservative=saved_heuristic=0;R::energy_gate_loaded=false;R::EnsureEnergyGateLoaded();
+    Check(!R::EnergyGateOptions().conservative&&!R::EnergyGateOptions().heuristic);
+    Check(R::SetEnergyGateOption(true,true));host_tick=100;
+    R::ObserveEnergyPause(a,100,3,true,true,10);
+    Check(R::ReadEnergyGateStatus().explicit_samples==1&&!R::ReadEnergyGateStatus().active);
     host_tick=120;R::ObserveEnergyPause(a,100,3,true,true,10);
     Check(R::EnergyGateBlocks(a)&&!R::EnergyGateBlocks(b));
     const auto selection=g_config.processing_selection;
@@ -67,7 +79,7 @@ int main() {
     const auto history=g_history_generation.load();
     R::ObserveEnergyPause(a,100,3,true,false,11);
     Check(!R::EnergyGateBlocks(a)&&g_history_generation==history+1);
-    Check(!R::ReadEnergyGateStatus().active);
+    Check(!R::ReadEnergyGateStatus().active&&R::ReadEnergyGateStatus().recently_resumed);
 
     // Real adapter locking: one paused stream must never block another. Resume
     // records a history generation before any admission can observe reopening.

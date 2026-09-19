@@ -685,6 +685,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         migration_notice_dismissed);
     bool apply_discrete_edit = false;
     const bool collecting = nr_f8::IsActive();
+    if (next.light_preview || next.region_preview) {
+        SettingsNote(ui("A lighting/region diagnostic preview is active; this is not the final picture.",
+            "光影或分区诊断预览正在运行，当前不是最终画面。"));
+        ImGui::BeginDisabled(collecting);
+        if (ImGui::Button(ui("Exit active previews", "退出正在运行的预览"))) {
+            next.light_preview=0;next.region_preview=0;changed=true;apply_discrete_edit=true;
+        }
+        ImGui::EndDisabled();
+    }
 
     if (ImGui::BeginTabBar("nr-main-tabs")) {
     const ImGuiTabItemFlags feedback_tab_flags =
@@ -708,7 +717,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0.2 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0.2，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
-    DrawEnergyGateOptions();
     SettingsSection(ui("Processing order", "处理顺序"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const bool compatibility_post = !rr_guarded && next.mode == 2 &&
@@ -786,19 +794,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    if (ImGui::CollapsingHeader(ui("Model input brightness", "模型输入亮度"))) {
-        float reference_white=1.f/next.proxy_scale;
-        if (SettingsSliderFloat(ui("Reference white brightness", "参考白亮度"),
-                "##nr-reference-white",&reference_white,.5f,4.f,"%.2fx")) {
-            next.proxy_scale=1.f/reference_white;changed=true;
-        }
-        SettingsTooltip(ui(
-            "Relative white reference for the model's HDR input. 1x keeps the existing mapping. Raising it makes the HDR image seen by NR darker and can change its texture and colour decisions. Uses the existing ProxyScale once; it does not control the display or an external HDR plugin. SDR routes that bypass HDR mapping do not use this setting.",
-            "模型理解 HDR 画面时使用的相对白亮度，1 倍沿用原有映射。调高会让模型看到的 HDR 输入变暗，可能改变纹理和颜色效果。与原 ProxyScale 是同一设置，只作用一次；它不调节显示器或外部 HDR 插件。不经过 HDR 映射的 SDR 路径不使用此项。"));
-        if (ImGui::Button(ui("Reset reference white", "重置参考白亮度"))) {
-            next.proxy_scale=1.f;changed=true;apply_discrete_edit=true;
-        }
-    }
     DrawUniformLayerControls(next,changed,apply_discrete_edit);
     SettingsSection(ui("Final composition", "最终合成"));
     float effect_strength = ActiveTransferStrength(next);
@@ -821,6 +816,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         next.identity_use_original = false; changed = true;
     }
     if (ImGui::CollapsingHeader(ui("Light adjustment", "光影微调"))) {
+    if (ImGui::CollapsingHeader(ui("Model input brightness", "模型输入亮度"))) {
+        float reference_white=1.f/next.proxy_scale;
+        if (SettingsSliderFloat(ui("Reference white brightness", "参考白亮度"),
+                "##nr-reference-white",&reference_white,.5f,4.f,"%.2fx")) {
+            next.proxy_scale=1.f/reference_white;changed=true;
+        }
+        SettingsTooltip(ui(
+            "Relative white reference for the model's HDR input. 1x keeps the existing mapping. Raising it makes the HDR image seen by NR darker and can change its texture and colour decisions. Uses the existing ProxyScale once; it does not control the display or an external HDR plugin. SDR routes that bypass HDR mapping do not use this setting.",
+            "模型理解 HDR 画面时使用的相对白亮度，1 倍沿用原有映射。调高会让模型看到的 HDR 输入变暗，可能改变纹理和颜色效果。与原 ProxyScale 是同一设置，只作用一次；它不调节显示器或外部 HDR 插件。不经过 HDR 映射的 SDR 路径不使用此项。"));
+        if (ImGui::Button(ui("Reset reference white", "重置参考白亮度"))) {
+            next.proxy_scale=1.f;changed=true;apply_discrete_edit=true;
+        }
+    }
     const unsigned light_method = DrawLightAdjustmentMethodSelector(next, changed, apply_discrete_edit);
     if (light_method == 2u) {
         SettingsNote(ui("Groups model residuals by luminance and colour without material masks. The engine-guided and legacy values remain saved for comparison.",
@@ -882,7 +890,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             has_pending,pending_light_undo,changed,apply_discrete_edit);
     }
     }
-    SettingsSection(ui("Advanced picture controls", "高级画质"));
+    if (ImGui::CollapsingHeader(ui("Picture safeguards", "画质保护（高级）"))) {
 
 #if NR_HAS_DETAIL_STABILITY
         if (!before_sr) ImGui::BeginDisabled();
@@ -909,6 +917,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed |= SettingsSliderFloat(ui("Maximum luminance ratio", "明暗变化上限"),
             "##nr-max-luma-ratio", &next.max_luma_ratio, 1.f, 8.f, "%.2f");
         SettingsTooltip(ui("Limits how far the AI result can brighten or darken the original. Higher values allow larger changes; they do not add detail by themselves.", "限制 AI 相对原画面最多能提亮或压暗多少。调高会允许更大的明暗变化，但不会凭空增加细节。"));
+    }
         if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
         SettingsNote(ui("Experimental controls; existing saved values are retained.", "以下为实验调节，通常保持默认即可；收起菜单不会改变已保存的设置。"));
     changed |= ImGui::Checkbox(ui("Colour protection (default on)", "色彩保护（默认开启）"), &next.color_protection);
@@ -1062,6 +1071,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             }
         }
         if (collecting) ImGui::EndDisabled();
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem(ui("Experiments###nr-experiments", "实验###nr-experiments"))) {
+        ImGui::BeginDisabled(collecting);
+        SettingsNote(ui("Optional experiments. Saved choices are retained; closing this page does not disable them.",
+            "可选实验。保留已保存的选择；关闭此页不会停用正在运行的实验。"));
+        DrawEnergyGateOptions();
+        ImGui::EndDisabled();
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),

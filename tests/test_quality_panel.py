@@ -49,7 +49,9 @@ class QualityTests(unittest.TestCase):
         source=anchor+'\n// all original artistic controls remain\n'
         result=patch.patch_light_group(source,helpers)
         self.assertTrue(result.endswith('// all original artistic controls remain\n'))
-        self.assertLess(result.index(anchor),result.index('CollapsingHeader('))
+        self.assertNotIn(anchor,result) # The only recipe entry now lives on the common picture page.
+        patch_source=(ROOT/'scripts/patch-colour-edge.py').read_text(encoding='utf-8')
+        self.assertIn('DrawColourLabControls(next, current.generation, has_pending, changed, apply_discrete_edit);',patch_source)
         self.assertLess(result.index('next.light_preview != 0u'),result.index('CollapsingHeader('))
         self.assertIn('quality-preview-off', result)
     def test_real_exporter_routing_and_old_negative_control(self):

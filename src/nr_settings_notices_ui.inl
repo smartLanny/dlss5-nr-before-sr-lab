@@ -8,8 +8,8 @@ void DrawEnergyGateOptions() {
 
     SettingsSection(ui("Power saving", "省电"));
     bool conservative = status.conservative;
-    if (ImGui::Checkbox(ui("Pause NR in game menus (conservative, default)###nr-energy-safe",
-                           "菜单暂停 NR 省电（保守，默认）###nr-energy-safe"), &conservative)) {
+    if (ImGui::Checkbox(ui("Pause NR in game menus (conservative, experimental)###nr-energy-safe",
+                           "菜单暂停 NR 省电（保守，实验）###nr-energy-safe"), &conservative)) {
         (void)nr_processing_runtime::SetEnergyGateOption(true, conservative);
         status = nr_processing_runtime::ReadEnergyGateStatus();
     }
@@ -37,14 +37,20 @@ void DrawEnergyGateOptions() {
         if (guessed) SettingsNote(ui(
             "This is a speculative pause. If gameplay is still moving or the guess is wrong, press F8 and submit the report.",
             "这是猜测性暂停。如果游戏仍在正常运行或判断错误，请按 F8 生成报告并反馈。"));
+    } else if (status.recently_resumed) {
+        SettingsNote(ui("NR resumed; history reset requested.", "NR 已恢复；已请求重置历史。"));
+    } else if (!status.conservative && !status.heuristic) {
+        SettingsNote(ui("Power saving is off.", "省电已关闭。"));
+    } else if (status.explicit_samples) {
+        SettingsNote(ui("Confirming the game's pause signal; NR is still running.", "正在确认游戏暂停信号；NR 仍在运行。"));
     } else if (status.heuristic && status.guess_samples) {
         ImGui::TextDisabled(zh ? "猜测候选：FG 源帧停滞 %u/4，等待 300 ms 确认。" :
             "Heuristic candidate: FG source stalled %u/4 observations; waiting for 300 ms confirmation.",
             status.guess_samples);
     } else if (status.conservative || status.heuristic) {
         ImGui::TextDisabled("%s", ui(
-            "Power saver armed; normal gameplay keeps NR running.",
-            "省电功能已待命；正常游戏画面仍会继续运行 NR。"));
+            "Waiting for usable pause evidence; NR is still running. Enabling this option alone does not save power.",
+            "等待可用暂停信号；NR 仍在运行。开启选项本身不代表已经节能。"));
     }
     if (status.persistence_failed)
         SettingsNote(ui(

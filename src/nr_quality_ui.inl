@@ -58,7 +58,7 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
         "99% / 100% 的色差仍未解决，D21 合成也受影响。“边缘保护”不是抗振铃滤镜。"));
 
     // Diagnostic controls remain available, but are not daily-use recommendations.
-    if (ImGui::CollapsingHeader(ui("Research and diagnostics###quality-research", "研究与诊断（非常用）###quality-research"))) {
+    if (ImGui::CollapsingHeader(ui("Developer colour controls###quality-research", "开发者颜色选项###quality-research"))) {
         int mode = static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));
         if (ImGui::Combo(ui("Colour policy###quality-policy", "颜色策略###quality-policy"), &mode,
             ui("Legacy configured\0Colour priority\0Conservative HDR\0",

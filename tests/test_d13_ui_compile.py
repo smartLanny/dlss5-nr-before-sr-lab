@@ -44,7 +44,7 @@ PRELUDE = r'''
 #include "nr_compat_present_policy.hpp"
 struct ImVec2 { float x, y; ImVec2(float a=0, float b=0) : x(a), y(b) {} };
 struct ImVec4 { float x=0,y=0,z=0,w=1; };
-enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen };
+enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen, ImGuiHoveredFlags_AllowWhenBlockedByActiveItem, ImGuiMouseButton_Left };
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 
@@ -52,6 +52,7 @@ bool chinese=false;
 bool UseChineseUi() { return chinese; }
 std::string click;
 bool show_more=false, combo_changed=false;
+bool mouse_down=false;std::string activate,hover,last_button;
 int combo_value=0;
 namespace nr_dual_status_runtime {
 using UiState=nr_dual_observation::UiState;
@@ -72,7 +73,7 @@ bool Checkbox(const char* label, bool* value) {
     *value=!*value;return true;
 }
 bool SliderFloat(const char*, float*, float, float, const char*) { return false; }
-bool Button(const char* label,ImVec2 = {}) { buttons.emplace_back(label); return !disabled && (button_layer<0||current_layer==button_layer) && !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
+bool Button(const char* label,ImVec2 = {}) { last_button=label; buttons.emplace_back(label); return !disabled && (button_layer<0||current_layer==button_layer) && !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
 void BeginDisabled(bool value=true) { if(value)++disabled; }
 void EndDisabled() { if(disabled)--disabled; }
 struct Style { ImVec2 ItemSpacing{8,4}; } style;
@@ -91,6 +92,9 @@ bool Combo(const char*, int* value, const char*) {
     if (!combo_changed) return false;
     *value=combo_value; combo_changed=false; return true;
 }
+bool IsItemActivated(){return current_layer==button_layer&&activate==last_button;}
+bool IsItemHovered(int){return current_layer==button_layer&&hover==last_button;}
+bool IsMouseDown(int){return mouse_down;}
 void SameLine() {}
 void TextDisabled(const char* format, ...) { char value[2048];va_list args;va_start(args,format);std::vsnprintf(value,sizeof(value),format,args);va_end(args);rendered+=value; }
 void TextWrapped(const char* format, ...) { char value[2048];va_list args;va_start(args,format);std::vsnprintf(value,sizeof(value),format,args);va_end(args);rendered+=value; }
@@ -209,6 +213,18 @@ int main() {
        nr_layers::Primary(c)!=primary||c.nr_layers[0]!=before_reset.nr_layers[0]||
        c.nr_layers[1]!=before_reset.nr_layers[1]||c.nr_layers[3]!=before_reset.nr_layers[3]||
        nr_layers::Active(c.nr_layers)!=5||c.nr_second_numerator!=2||c.nr_second_denominator!=3)return 21;
+    for(unsigned layer=0;layer<5;++layer){
+        click="Natural";button_layer=layer;changed=discrete=false;
+        nr_dual_runtime::DrawQuickUi(c,changed,discrete);click.clear();
+        if(nr_layers::Read(c,layer).style!=1||!changed||!discrete)return 30;
+        activate="Natural";hover="Cinematic";mouse_down=true;changed=discrete=false;
+        nr_dual_runtime::DrawQuickUi(c,changed,discrete);activate.clear();
+        if(nr_layers::Read(c,layer).style!=1||changed||discrete)return 31;
+        mouse_down=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        if(nr_layers::Read(c,layer).style!=2||!changed||!discrete)return 32;
+        hover.clear();
+    }
+    button_layer=-1;
     c.generic_residual=false; c.region_enabled=false; combo_changed=true; combo_value=1;
     changed=discrete=false;
     if (DrawLightAdjustmentMethodSelector(c, changed, discrete)!=1 ||
