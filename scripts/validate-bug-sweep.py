@@ -46,6 +46,7 @@ PREAMBLE = r'''
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_layer_config.h"
 #include "nr_processing_route.h"
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
@@ -129,24 +130,28 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        start = ui_source.index('    if (ImGui::Checkbox(ui("Face adjustment"')
-        end = ui_source.index('    if (ImGui::CollapsingHeader(ui("More model controls"', start)
-        controls = ui_source[start:end]
+        layer_ui=source_path.with_name("nr_layers_ui.inl").read_text(encoding="utf-8-sig")
+        start=layer_ui.index('            if(ImGui::Checkbox(zh?"自动皮肤遮罩":"Automatic skin mask"')
+        end=layer_ui.index('            ImGui::EndDisabled();',start)+len('            ImGui::EndDisabled();')
+        controls=layer_ui[start:end]
         self.run_cpp("face-ui", config_code() + r'''
-int toggle = -1, sliders = 0;
+int toggle = -1, sliders = 0;bool disabled=false;
 float slider_value = -100.f;
 void SettingsTooltip(const char *) {}
 void SettingsField(const char *) {} // Layout only; controls below remain production code.
 void SettingsNote(const char *) {}
 namespace ImGui {
+void BeginDisabled(bool value){disabled=value;}
+void EndDisabled(){disabled=false;}
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Face adjustment" || text == "人脸调节") {
+    if (text == "Automatic skin mask" || text == "自动皮肤遮罩") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
 }
 bool SliderFloat(const char *, float *value, float lo, float hi, const char *) {
+    if(disabled)return false;
     ++sliders;
     check(lo == 0.f && hi == 2.f, "visible skin range starts at zero");
     check(*value >= lo && *value <= hi, "visible skin never displays negative sentinel");
@@ -159,10 +164,11 @@ bool SettingsSliderFloat(const char *label, const char *, float *value, float lo
     return ImGui::SliderFloat(label, value, lo, hi, format);
 }
 bool DrawFaceControls(ChainConfig &next, bool chinese) {
-    bool changed = false;
-    const auto ui = [chinese](const char *en, const char *zh) { return chinese ? zh : en; };
+    bool edited=false,discrete=false;const bool zh=chinese;auto model=nr_layers::Read(next,0);
 CONTROLS
-    return changed;
+    (void)discrete;
+    if(edited)nr_layers::WritePrimary(next,model);
+    return edited;
 }
 int main() {
     for (bool chinese : {false, true}) {

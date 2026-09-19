@@ -46,6 +46,7 @@ HARNESS = r'''
 #include "nr_dual_observation.hpp"
 #include "nr_compatibility_verdict.h"
 #include "nr_processing_route.h"
+#include "nr_layer_config.h"
 #include "nr_compat_present_policy.hpp"
 #include "nr_full_pass.hpp"
 #include "nr_source_frame.hpp"

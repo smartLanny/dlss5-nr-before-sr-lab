@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 FIELDS = {
+ 'nr_uniform_migrated':None,
  'nr_passes':'NRPasses','nr_second_numerator':'NRSecondScaleNumerator','nr_second_denominator':'NRSecondScaleDenominator','generic_residual':'GenericResidualExperiment',
  'mode':'Mode', 'identity_use_original':'IdentityUseOriginalColor',
  'transfer_strength':'TransferStrength', 'post_transfer_strength':'PostTransferStrength',
@@ -83,7 +84,7 @@ def check_wiring(cpp,ui,helper):
  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
  reset=definition(helper,'void RestoreRecommendedPictureSettings(')
  assert 'nr_light_style::Reset(next);' in reset
- assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode'}
+ assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode','nr_layers'}
  for forbidden in ['g_config','SaveConfig(','ApplyConfig(','Release','.store(','CreateFeature']:
   assert forbidden not in reset,forbidden
 
@@ -122,12 +123,15 @@ def main():
   assert values[f'RegionGain{index}']=='1.0'
   dirty.append(f'c.region_gains[{index}]=3.f;')
   checks.append(f'check(c.region_gains[{index}]==1.f,"neutral region gain {index}");')
+ dirty.append('for(auto& layer:c.nr_layers){layer.enabled=true;layer.intensity=1.9f;layer.local_tone=.3f;}')
+ checks.append('for(const auto& layer:c.nr_layers)check(layer==nr_layers::Layer{},"reset restores each independent layer default");')
  code=r'''#include <cstdio>
 #include <algorithm>
 #include <initializer_list>
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_layer_config.h"
 #include "nr_processing_route.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;

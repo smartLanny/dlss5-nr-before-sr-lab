@@ -18,6 +18,7 @@
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_layer_config.h"
 #include "nr_processing_route.h"
 #include "nr_fg_presentation.h"
 #include "nr_diagnostic_bundle.inl"
@@ -49,6 +50,7 @@ void ReleaseCom(ID3D12Resource *&p){delete p;p=nullptr;}
 struct FeedbackSession {char report[32768]={};std::size_t used=0;};
 void FeedbackAppend(FeedbackSession &s,const char *format,...){va_list a;va_start(a,format);const int n=std::vsnprintf(s.report+s.used,sizeof(s.report)-s.used,format,a);va_end(a);if(n>0 && static_cast<size_t>(n)<sizeof(s.report)-s.used)s.used+=n;}
 void FeedbackAppendActivity(FeedbackSession &s,const char *p){FeedbackAppend(s,"%s.mockRuntime=1\n",p);}
+std::atomic<unsigned> g_last_nr_render_width{1920},g_last_nr_render_height{1080},g_last_nr_width{1920},g_last_nr_height{1080};
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};std::atomic<bool> g_shortfuse_nr_enabled{false};
 bool OtherNrOwnerActive(){return g_shortfuse_nr_enabled.load();}
 namespace nr_post_settings {

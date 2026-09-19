@@ -64,6 +64,7 @@ enum class NrJitterMode {Legacy,GameInputPixel};
 '''
     code += '#include "' + (ROOT/'src/nr_feedback_limits.h').as_posix() + '"\n'
     code += '#include "' + (ROOT/'src/nr_processing_route.h').as_posix() + '"\n'
+    code += '#include "' + (ROOT/'src/nr_layer_config.h').as_posix() + '"\n'
     code += definition(cpp, 'struct ChainConfig', True) + '\n'
     code += definition(legacy, 'struct FeedbackSession', True) + '\n'
     code += definition(legacy, 'void FeedbackAppend(') + '\n' + helper + '\n'
