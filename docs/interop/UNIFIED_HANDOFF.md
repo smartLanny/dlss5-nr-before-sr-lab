@@ -45,6 +45,17 @@ AMDOF 使用未受增强结果污染的原始输入；镜切、无效运动和�
 
 #279/#289/#292/#297/#299 的固定 HEAD 已验证为组合祖先。组合验证完成后再把旧入口标为被替代；#214/#257/#263/#278/#295 需逐项等价/文档迁移证据，不能只凭日期或名称关闭。#250/#256/#258/#259/#265 的有效实现未迁入前保留。
 
+### 已吸收的独有历史与约束
+
+- #214 的实际运行增量截止 `59ab029614df6fad6ea1e95df18a0a986be58962`，已在组合祖先中；最终提交仅追加文档。旧双语包、companion、manifest 哈希和 WARP/菜单验收以[固定 D1 交接](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/38b36dd9/docs/interop/DLINE1_HANDOFF_20260909.md)为历史记录，不冒充 unified 验证。旧包不含后来 dev14 RR 深度适配；离线肤色补充模块也不等于已接运行时。
+- #257 的 Session 与双 drain 恢复合同已覆盖；12 个纯 Session 场景现已加入 energy runner。#263 的原生 CreateView 证据按设备/资源寿命/角色和 Feature 代次保留，自建视图排除；不重引原 PR 跨 Feature 清空和自建 inventory 兜底。
+- #278 由按设备/来源流/代次隔离的两模式替代。F8 使用非阻塞纯观察，锁忙/未加载明确未知，记录状态与年龄；不加载 INI、不轮询恢复、不推进历史。阻止检查次数不是暂停帧数、节能时间或功耗证明。
+- #295 的[固定性能交接](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/bc536a2e/docs/interop/PERFORMANCE_INTEGRATION_HANDOFF_20260919.md)、[历史清理](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/bc536a2e/docs/interop/PERFORMANCE_CLEANUP_20260919.md)和[旧执行提示](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/bc536a2e/docs/interop/PERF10_AGENT_PROMPT_20260919.md)保留原始 Perf10 身份、哈希、八个 PR 处置和旧合并预演。继续执行的入口是本文件，不能回退到旧 Perf10 基线。旧八个 PR 关闭、#228 重复于 #229 都是历史行政事实，不是本次新增成果或游戏问题已解决。
+- 累计性能线保留 Lock2 至 Perf12 的完整安全守卫：epoch/token/完整键、pending/unknown、FG 污染、来源/录制寿命、scratch 重入/分配失败、真实 Signal 顺序；不能仅搬末尾两个文件。文本自动合并或旧合并预演不替代当前运行语义审查。
+- 旧样本的 4.6–5.3% 不能泛化；11.62→4.26 CPU ms/s 是局部 self。Perf8/9 的 62.05→62.97 FPS、97.33→90.00 CPU ms/s 仍有后台差异；再次 OFF 的 62.21 对首次 35.02 仍是待解释残留。不能累计历代百分比，不能把跨窗口 self 当整帧时间。
+- 冷启动 #293 与热开关、切镜、稳态 RR/FG 分别记录。旧首次长帧 1777/613 ms 和 Create 日志间隔 1367/131 ms 不等于 GPU 时间；应分别计模块加载、API 锁、Create、提交完成、首 Evaluate 与首采用。OFF 不暗中推理，后台准备必须验证独立资源、队列和失败隔离。
+- #295 的旧十树约 9.37 GB→177 MB 是逻辑量，不是本轮或物理回收。保留原恢复方法但不写回旧 `.git` 指针；Perf7 重解析点、未合并 Perf8R、dirty 独有代码、原始 ETL/CSV/F8、交付与 SDK 均需单独核对，不能只按日期删除。
+
 ## 验证登记规则
 
 最后交付记录必须给出实际成功源码、生成 manifest、Core/着色器和 ZIP 哈希，并分别登记 CPU、Windows、WARP、NVIDIA shader、NGX、游戏和 CI。当前在跑的构建、失败回执、fixture 通过均不记为已交付成功。

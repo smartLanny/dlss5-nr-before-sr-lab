@@ -98,7 +98,7 @@ try {
     if ($LASTEXITCODE) { throw 'Production shader compiler harness failed.' }
     & python (Join-Path $PSScriptRoot 'validate-post-shaders.py') --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --compiler $ShaderCompiler
     if ($LASTEXITCODE) { throw 'Actual generated production HLSL failed.' }
-    $Checks.Add('all six actual staged production HLSL compute entries')
+    $Checks.Add('all actual staged production HLSL compute entries')
     foreach ($Test in @('multi_api/format_view_warp', 'native_bridge/baseline_warp')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-O2' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe '-ld3d12' '-ldxgi' '-ld3dcompiler' '-ldxguid' '-lole32'
@@ -111,7 +111,7 @@ try {
     $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
     & python (Join-Path $PSScriptRoot 'validate-colour-defaults.py') --compiler $Cxx --root (Join-Path $Stage 'core')
     if ($LASTEXITCODE) { throw 'Actual staged colour defaults/model reset failed.' }
-    $Checks.Add('actual staged colour defaults and model-only reset: 165 checks')
+    $Checks.Add('actual staged colour defaults and independent model-only reset: 2805 checks')
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
     if ($LASTEXITCODE) { throw 'Actual staged RR release retirement failed.' }
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
