@@ -5,7 +5,9 @@
     [Parameter(Mandatory=$true)][string]$DirectXMathRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$NrchainReuseRoot,
-    [string]$CodecCacheRoot
+    [string]$CodecCacheRoot,
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
+    [switch]$QualitySuccessor
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -32,7 +34,8 @@ foreach ($File in @($Cxx, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'
     if (-not (Test-Path -LiteralPath $File)) { throw "Missing build input: $File" }
 }
 $Stage = Join-Path $Output 'source'
-& python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $Upstream --output $Stage
+$Generator = if ($QualitySuccessor) { 'prepare-colour4-edge.py' } else { 'prepare-multi-api-beta.py' }
+& python (Join-Path $PSScriptRoot $Generator) --core $Root --upstream $Upstream --output $Stage
 if ($LASTEXITCODE) { throw 'Full source staging failed.' }
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCarrier = $env:PINNED_CARRIER_ROOT
@@ -148,6 +151,7 @@ try {
         $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     }
     $CodecArgs = @{}
+    if ($FaceRuntimeRoot) { $CodecArgs.FaceRuntimeRoot = $FaceRuntimeRoot }
     if ($CodecCache) { $CodecArgs['CodecCacheRoot'] = $CodecCache }
     # Existing codec builder verifies exact source/options, compiler bytes and
     # every cached DXBC hash. This does not skip any runtime/WARP/static gate.
@@ -186,7 +190,7 @@ try {
         directxmath_commit='28929ac6f3c1649a7641741b689ebecccb17aa8d'
         compiler=$CompilerVersion; powershell=$PSVersionTable.PSVersion.ToString()
         source_verified=$true; compile_verified=$true; warp_verified=$true
-        nrchain_reused=[bool]$NrchainReuseRoot
+        nrchain_reused=[bool]$NrchainReuseRoot; full_face_backend=[bool]$FaceRuntimeRoot; quality_successor=[bool]$QualitySuccessor
         game_runtime_verified=$false; nvidia_feature18_verified=$false
         completed_utc=[DateTime]::UtcNow.ToString('o'); checks=@($Checks.ToArray()); binaries=$Hashes
     }

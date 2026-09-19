@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -6,11 +6,16 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$NrchainReuseRoot,
     [string]$CodecCacheRoot,
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
+    [switch]$QualitySuccessor,
     [switch]$AllowMissingDebugLayer
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
+$LeafVersion = if ($QualitySuccessor) { 'unified1' } else { 'perf12' }
+$CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
+if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'
 $HotpathGate = $Output + '.hotpath-checks'
@@ -65,6 +70,21 @@ if ($LASTEXITCODE -ne 0) { throw 'Perf10 reset/binding/guide-submission gate fai
 if ($LASTEXITCODE -ne 0) { throw 'Auxiliary allocation/history separation gate failed.' }
 & python (Join-Path $PSScriptRoot 'validate-aux-parent-retirement.py') --compiler $Cxx --output $MemoryGate
 if ($LASTEXITCODE -ne 0) { throw 'Auxiliary parent retirement/fence/memory gate failed.' }
+if ($QualitySuccessor) {
+    & python (Join-Path $PSScriptRoot 'validate-submit-batch.py') --compiler $Cxx --output ($Output + '.submit-checks')
+    if ($LASTEXITCODE) { throw 'Submission batch relevance and inverse controls failed.' }
+    & python (Join-Path $Root 'tests/run_d21_energy_gate.py') --compiler $Cxx --output ($Output + '.energy-checks')
+    if ($LASTEXITCODE) { throw 'Energy default, saved configuration or route checks failed.' }
+    $env:NR_LLVM_BIN = Join-Path $ToolchainRoot 'bin'
+    & python (Join-Path $Root 'tests/test_d13_ui_compile.py') -v
+    if ($LASTEXITCODE) { throw 'Layer UI transaction checks failed.' }
+    & python (Join-Path $Root 'tests/test_quality_panel.py') -v
+    if ($LASTEXITCODE) { throw 'Quality policy and UI checks failed.' }
+    foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py','run_quality_recipe.py')) {
+        & python (Join-Path $Root "tests/$MathTest") --compiler $Cxx
+        if ($LASTEXITCODE) { throw "Production colour math failed: $MathTest" }
+    }
+}
 # Retain the old beta050 Windows gates not already covered by the canonical
 # generated-source builder. Routing research CI to that builder must not silently
 # drop its existing ownership, observer, MinHook or negative-control checks.
@@ -120,7 +140,7 @@ foreach ($Key in $PSBoundParameters.Keys) {
 & (Join-Path $PSScriptRoot 'build-multi-api-candidate.ps1') @CanonicalArgs
 if ($LASTEXITCODE -ne 0) { throw 'Canonical candidate build failed.' }
 $Manifest = Get-Content -LiteralPath (Join-Path $Output 'source/source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($Manifest.source_commit -ne $Head -or $Manifest.integration.version -ne 'beta0.5-dline21-perf12') {
+if ($Manifest.source_commit -ne $Head -or $(if ($QualitySuccessor) { $Manifest.colour_lab.version } else { $Manifest.integration.version }) -ne $CandidateVersion) {
     throw 'Generated identity does not match the perf12 source HEAD.'
 }
 $ValidationPath = Join-Path $Output 'validation.json'
@@ -146,12 +166,12 @@ foreach ($Addon in $Addons) {
     $Language = if ($Addon.Name -match '\.en\.addon64$') { 'en' } else { 'zh-CN' }
     $Folder = Join-Path $Output ('TEST-' + $Language)
     New-Item -ItemType Directory -Path $Folder | Out-Null
-    $Leaf = 'nr-before-sr.perf12.' + $Language + '.addon64'
+    $Leaf = 'nr-before-sr.' + $LeafVersion + '.' + $Language + '.addon64'
     $Target = Join-Path $Folder $Leaf
     Copy-Item -LiteralPath $Addon.FullName -Destination $Target
     $Hash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
     $Note = @(
-        'D21 perf12 - owner game-test candidate, NOT a game-verified release.'
+        ('D21 ' + $LeafVersion + ' - owner game-test candidate, NOT a game-verified release.')
         ('Source: ' + $Head)
         ('SHA256: ' + $Hash)
         'Exit the game. Keep only ONE Core add-on; move the old Core outside all add-on search folders.'
@@ -163,13 +183,13 @@ foreach ($Addon in $Addons) {
         'Retain the old D21lock package for rollback. PRIVATE-SYMBOLS is not a game payload.'
     ) -join "`r`n"
     [IO.File]::WriteAllText((Join-Path $Folder 'READ-FIRST.txt'), $Note, (New-Object Text.UTF8Encoding($false)))
-    $Zip = Join-Path $Output ('DLSS5-D21-perf12-' + $Language + '-test.zip')
+    $Zip = Join-Path $Output ('DLSS5-D21-' + $LeafVersion + '-' + $Language + '-test.zip')
     Compress-Archive -Path (Join-Path $Folder '*') -DestinationPath $Zip
     $Rows += [ordered]@{ language=$Language; file=$Leaf; sha256=$Hash; source_commit=$Head
         archive=(Split-Path -Leaf $Zip); archive_sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 $Final = [ordered]@{
-    candidate='beta0.5-dline21-perf12'; source_commit=$Head; ordinary_build=$true
+    candidate=$CandidateVersion; source_commit=$Head; ordinary_build=$true
     concurrency_gate=(Join-Path $Gate 'validation.json'); hotpath_gate=(Join-Path $HotpathGate 'validation.json')
     canonical_validation=$ValidationPath; inherited_windows_regressions=$true
     perf3_gate=(Join-Path $PerfGate 'validation.json'); perf4_gate=(Join-Path $Perf4Gate 'validation.json'); perf5_gate=(Join-Path $Perf5Gate 'validation.json'); perf6_gate=(Join-Path $Perf6Gate 'validation.json'); perf7_gate=(Join-Path $Perf7Gate 'validation.json'); perf8_gate=(Join-Path $Perf8Gate 'validation.json'); perf9_gate=(Join-Path $Perf9Gate 'validation.json'); perf10_gate=(Join-Path $Perf10Gate 'validation.json'); snapshot_debug_layer_verified=$SnapshotDebug
@@ -179,6 +199,6 @@ $Final = [ordered]@{
     game_tested=$false; nvidia_feature18_tested=$false; deployed=$false
     created_utc=[DateTime]::UtcNow.ToString('o'); binaries=$Rows
 }
-$Final | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Output 'PERF12-CANDIDATE.json') -Encoding UTF8
+$Final | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Output ($LeafVersion.ToUpperInvariant() + '-CANDIDATE.json')) -Encoding UTF8
 Write-Host 'Candidate built for owner testing. No game folder was changed.'
 Write-Host $Output
