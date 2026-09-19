@@ -82,3 +82,36 @@ python scripts/validate-colour-nonzero-gpu.py `
 Omit `--hardware` and add `--include-inherited` for WARP plus the original post
 regression. Omitting the artifact directory compiles the exact extracted HLSL
 at the original O3 level; it does not substitute a simplified shader.
+
+## Bounded follow-up: WARP raw failure remains unresolved
+
+The production dispatcher uses the domain-specialized pipeline only when
+`dual_selected && dual_reduced`. The generic face0/domain-1 bytecode tested
+above is therefore a real, common same-size route; a specialized result cannot
+replace its failed WARP gate.
+
+Private diagnostic controls retained the source revision and did not change
+production files or thresholds:
+
+- One raw dispatch with the original generic O3 bytecode, no prior composition
+  loop and no subrectangle, still returns `0.25` on WARP and `0.273193` on NVIDIA.
+- The original restoration functions, and the complete original raw early
+  branch including its store/diagnostic calls, run correctly when compiled as
+  isolated entries. A frame-confidence-zero negative control retains `0.25`.
+- The complete shader at O0 still fails on WARP. This is not established as an
+  O3-only compiler problem.
+- Existing domain1 bytecode gives the expected raw result; domain0 hits the
+  original 30-second fence timeout. These are compilation-context controls with
+  no valid low-layer input, **not** successful reduced-dual validations.
+- A full-shader O0 instrument reports correct proxy/neural, valid gates and
+  composed output on NVIDIA. Its bytecode on WARP produces nonfinite and
+  internally inconsistent intermediate values. Inserting instrumentation also
+  changes WARP's observed result. It cannot identify the original shader's
+  first false condition reliably and is not proof of a particular source bug.
+
+WARP/D3D12 version was `10.0.26100.9278`, system D3DCompiler47
+`10.0.26100.9457`. These controls narrow the issue to execution of the complete
+generic shader on this WARP environment, without distinguishing a compiler,
+runtime or source-level interaction. No production repair is justified yet.
+The default legacy route and the NVIDIA pass remain separate facts; raw remains
+research-only. The original failing gate and all private probe logs are retained.
