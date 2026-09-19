@@ -531,8 +531,14 @@ void OnExecute(ID3D12CommandQueue* queue,unsigned count,ID3D12CommandList*const*
     for(unsigned i=0;i<count;++i)if(lists[i]){
         auto* native=reinterpret_cast<ID3D12GraphicsCommandList*>(lists[i]);
         const auto recording=RecordingOf(native);if(!recording)continue;
-        bool guides=false;for(const auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
-            copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime){guides=true;break;}
+        // Capture publishes this summary while holding source_lock; submission
+        // clears it only after checking every recorded, non-poisoned copy. False
+        // is an exact no-work proof (true may be conservatively stale after Reset).
+        // Do not walk eight large GuideCopy payloads for each unrelated list.
+        bool guides=false;
+        if(guides_awaiting_submission.load(std::memory_order_relaxed))
+            for(const auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
+                copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime){guides=true;break;}
         if(!guides&&(!enabled||!lineage.TracksList(recording.list,recording.lifetime)))continue;
         if(!queue_identity)queue_identity=QueueOf(queue);if(!queue_identity)continue;
         // Only a list with an actual source receipt pays for the device cookie.
@@ -540,7 +546,7 @@ void OnExecute(ID3D12CommandQueue* queue,unsigned count,ID3D12CommandList*const*
         // Capture owns the recording identity chosen while the commands were
         // actually appended. Observer readiness can change before Execute, so
         // submit matching copies by stable list lifetime using their own token.
-        for(auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
+        if(guides)for(auto& copy:guide_copies)if(copy.recorded&&!copy.submitted&&!copy.poisoned&&
             copy.recording.list==recording.list&&copy.recording.lifetime==recording.lifetime)
             GuideCopiesSubmitted(queue,copy.recording,succeeded);
     }

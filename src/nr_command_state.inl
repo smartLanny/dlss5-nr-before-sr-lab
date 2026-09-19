@@ -93,7 +93,15 @@ void ReleaseNativeCommandState(NativeCommandState &state) {
     }
     // Do not assign a whole aggregate here: Clang can materialize a ~36 KiB
     // temporary even at -O2, exceeding the available game worker stack.
-    memset(state.arguments, 0, sizeof(state.arguments));
+    // Allocation initializes all payloads. Every reader gates constants by
+    // kind and constant_mask, so Reset/Release invalidate these headers rather
+    // than overwrite 32 KiB of inactive data. No stale word can be replayed.
+    for (auto &stage : state.arguments)
+        for (auto &argument : stage) {
+            argument.kind = CommandRootKind::Empty;
+            argument.value = 0;
+            argument.constant_mask = 0;
+        }
     state.known = false;
     state.first_recording_observed = false;
     state.unknown_reason = "awaiting-native-reset";
@@ -213,8 +221,8 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
 }
 // Payload bytes are valid only through kind, and constants additionally through
 // constant_mask. RestoreNativeCommandState and evidence readers obey those gates;
-// snapshots may copy inactive bytes but must never replay them. Keep allocation
-// and full Reset/Release initialization unchanged.
+// snapshots may copy inactive bytes but must never replay them. Allocation
+// initializes all bytes; Reset/Release invalidate every payload's kind and mask.
 void InvalidateCommandRootArgument(CommandRootArgument &argument) {
     argument.kind = CommandRootKind::Empty;
     argument.value = 0;
@@ -284,7 +292,25 @@ void CommandStateScissors(NativeCommandState &state, UINT count, const D3D12_REC
 }
 void CommandStateVertices(NativeCommandState &state, UINT first, UINT count, const D3D12_VERTEX_BUFFER_VIEW *values) {
     if (first > 32 || count > 32-first) { CommandStateInvalidDynamic(state); return; }
-    for (UINT i=0; i<count; ++i) { state.dynamic.vertices[first+i] = values ? values[i] : D3D12_VERTEX_BUFFER_VIEW{}; state.dynamic.vertex_mask |= UINT{1}<<(first+i); }
+    // Preserve the original short-batch loop: broad memcpy was slower for the
+    // common one/four-binding cases. Only bulk bindings use the combined mask.
+    if (count <= 4) {
+        for (UINT i=0; i<count; ++i) { state.dynamic.vertices[first+i] = values ? values[i] : D3D12_VERTEX_BUFFER_VIEW{}; state.dynamic.vertex_mask |= UINT{1}<<(first+i); }
+        return;
+    }
+    auto *destination = state.dynamic.vertices + first;
+    if (values) {
+        // Ordinary native input is external. Keep forward-copy semantics even
+        // for a diagnostic caller pointing into our own metadata array.
+        const auto src = reinterpret_cast<std::uintptr_t>(values);
+        const auto dst = reinterpret_cast<std::uintptr_t>(destination);
+        const auto bytes = count * sizeof(*values);
+        if (src < dst && dst - src < bytes)
+            for (UINT i=0; i<count; ++i) destination[i] = values[i];
+        else memmove(destination, values, bytes);
+    } else memset(destination, 0, count * sizeof(*destination));
+    const UINT mask = count == 32 ? ~UINT{0} : ((UINT{1} << count) - 1) << first;
+    state.dynamic.vertex_mask |= mask;
 }
 void CommandStateStreamOutput(NativeCommandState &state, UINT first, UINT count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *values) {
     if (first > 4 || count > 4-first) { CommandStateInvalidDynamic(state); return; }
