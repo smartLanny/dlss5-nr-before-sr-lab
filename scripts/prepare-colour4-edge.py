@@ -30,7 +30,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
-        if (core/path).is_symlink() or (core/path).read_bytes()!=data:
+        if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
             raise ValueError('Dirty/untracked edge input: '+path)
         inputs[path]=data
     m1=load('edge_m1',core/'scripts/patch-colour-lab.py')
