@@ -60,6 +60,28 @@ struct Stats {
     std::uint64_t count = 0, measured = 0, total_ticks = 0, maximum_ticks = 0;
     std::array<std::uint64_t, kHistogramUpperUs.size() + 1> histogram{};
 };
+// Submission-local observations, not readiness evidence. Kept separately so
+// frequent unrelated submissions cannot evict existing carrier/Signal records.
+enum SubmitReason : unsigned {
+    LifecycleAbsent = 1u, LifecyclePresent = 2u, UnknownList = 4u,
+    CaptureFailed = 8u, Quarantined = 16u, SubmitNativeReturned = 32u,
+    RetirementSignaled = 64u, TrackingUncertain = 128u
+};
+struct SubmitBatch {
+    std::uint64_t epoch = 0, sequence = 0, queue = 0, first_token = 0;
+    std::uint64_t scanned = 0, qi = 0, direct_absent = 0, token_lists = 0;
+    std::uint64_t chain_hold_ticks = 0, chain_hold_max_ticks = 0;
+    unsigned input_lists = 0, reasons = 0, chain_sections = 0;
+    bool clock_known = true;
+};
+inline constexpr unsigned kSubmitRecentCount = 32;
+struct SubmitStats {
+    std::uint64_t count = 0, scanned = 0, qi = 0, direct_absent = 0;
+    std::uint64_t lifecycle_absent = 0, unknown = 0, chain_sections = 0;
+    std::uint64_t chain_hold_ticks = 0, chain_hold_max_ticks = 0, clock_unknown = 0;
+    unsigned recent_count = 0;
+    std::array<SubmitBatch, kSubmitRecentCount> recent{};
+};
 struct Snapshot {
     std::uint64_t epoch = 1, qpc_frequency = 0, observed = 0;
     std::uint64_t epoch_started_ticks = 0, captured_ticks = 0;
@@ -73,6 +95,7 @@ struct Snapshot {
     unsigned recent_count = 0;
     std::array<Stats, kStageCount> stages{};
     std::array<Record, kRecentCount> recent{}; // oldest to newest
+    SubmitStats submissions{};
 };
 inline const char* WaitModeName(unsigned mode) { return mode == 0 ? "event" : mode == 1 ? "polling" : "unknown"; }
 inline const char* Name(Stage stage) {

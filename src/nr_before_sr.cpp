@@ -6400,12 +6400,15 @@ bool ReadLastSubmissionQueueMarker(
         size == sizeof(marker) && marker.identity != 0;
 }
 
-bool RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
+template <typename CommandList>
+bool RememberLastSubmissionQueue(CommandList *command_list,
                                  unsigned long long queue_identity) {
     if (command_list == nullptr || queue_identity == 0) return false;
     CommandListQueueMarker marker = {};
-    const bool had_marker =
-        ReadLastSubmissionQueueMarker(command_list, marker);
+    UINT marker_size = sizeof(marker);
+    const bool had_marker = SUCCEEDED(command_list->lpVtbl->GetPrivateData(
+        command_list, kLastSubmissionQueueGuid, &marker_size, &marker)) &&
+        marker_size == sizeof(marker) && marker.identity != 0;
     if (!had_marker) {
         marker.identity = queue_identity;
         marker.stable_submissions = 1;
@@ -6417,11 +6420,11 @@ bool RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
         marker.stable_submissions = 1;
         marker.flags |= kQueueMarkerMigrated;
     }
-    const HRESULT result = ID3D12GraphicsCommandList_SetPrivateData(
+    const HRESULT result = command_list->lpVtbl->SetPrivateData(
         command_list, kLastSubmissionQueueGuid, sizeof(marker), &marker);
     if (SUCCEEDED(result)) return true;
     // Never leave a stale affinity marker behind after a failed update.
-    ID3D12GraphicsCommandList_SetPrivateData(
+    command_list->lpVtbl->SetPrivateData(
         command_list, kLastSubmissionQueueGuid, 0, nullptr);
     const unsigned long long failures =
         g_queue_affinity_marker_failures.fetch_add(
@@ -7110,6 +7113,7 @@ bool CaptureSubmissionBatchLocked(
 
     for (UINT i = 0; i < count; ++i) {
         if (command_lists[i] == nullptr) continue;
+        NrSubmitScan(true);
         ID3D12GraphicsCommandList *graphics = nullptr;
         if (FAILED(ID3D12CommandList_QueryInterface(
                 command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -7435,6 +7439,7 @@ void QuarantineUnprovenSubmissionLocked(
     if (command_lists == nullptr) return;
     for (UINT i = 0; i < count; ++i) {
         if (command_lists[i] == nullptr) continue;
+        NrSubmitScan(true);
         ID3D12GraphicsCommandList *graphics = nullptr;
         if (FAILED(ID3D12CommandList_QueryInterface(
                 command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -11814,13 +11819,10 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         return;
     }
 
+    NrSubmitTiming submission_timing(count);
     unsigned long long queue_identity = 0;
     bool batch_has_lifecycle_token = false;
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     if (GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(queue))
         queue_identity = tracked->identity;
     // Persist actual affinity on every observed direct-queue submission,
@@ -11831,6 +11833,27 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         for (UINT i = 0; i < count; ++i) {
             if (command_lists == nullptr || command_lists[i] == nullptr)
                 continue;
+            NrSubmitScan(false);
+            // ID3D12CommandList owns GetPrivateData/GetType itself. A normal
+            // Direct list with an exact NOT_FOUND result cannot own an NR
+            // token. No pointer cache, source-policy hint or global count is
+            // used as per-list proof. Keep affinity read/modify/write under
+            // the same admission lock, including native-bypass lists.
+            unsigned long long direct_token = 0;
+            UINT direct_size = sizeof(direct_token);
+            const HRESULT direct_result = ID3D12CommandList_GetPrivateData(
+                command_lists[i], kLifecycleCommandListGuid, &direct_size, &direct_token);
+            if (direct_result == DXGI_ERROR_NOT_FOUND &&
+                ID3D12CommandList_GetType(command_lists[i]) == D3D12_COMMAND_LIST_TYPE_DIRECT) {
+                ++submission_timing.batch.direct_absent;
+                RememberLastSubmissionQueue(command_lists[i], queue_identity);
+                continue;
+            }
+            // Present/malformed/error/other-type evidence takes the original
+            // QI + token path. Capture still re-reads under its original lock.
+            if (FAILED(direct_result) || direct_size != sizeof(direct_token) || !direct_token)
+                submission_timing.batch.reasons |= nr_timing::UnknownList;
+            ++submission_timing.batch.qi;
             ID3D12GraphicsCommandList *graphics = nullptr;
             if (SUCCEEDED(ID3D12CommandList_QueryInterface(
                     command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -11838,34 +11861,43 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
                 graphics != nullptr) {
                 RememberLastSubmissionQueue(graphics, queue_identity);
                 unsigned long long token = 0;
-                if (ReadLifecycleToken(graphics, token))
+                if (ReadLifecycleToken(graphics, token)) {
                     batch_has_lifecycle_token = true;
+                    ++submission_timing.batch.token_lists;
+                    if (!submission_timing.batch.first_token) submission_timing.batch.first_token = token;
+                }
                 ReleaseCom(graphics);
-            }
+            } else submission_timing.batch.reasons |= nr_timing::UnknownList;
         }
     }
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
+
+    submission_timing.batch.queue = queue_identity;
+    if (!queue_identity || !command_lists) submission_timing.batch.reasons |= nr_timing::UnknownList;
+    submission_timing.batch.reasons |= batch_has_lifecycle_token
+        ? nr_timing::LifecyclePresent : nr_timing::LifecycleAbsent;
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
 
     const bool may_have_lifecycle_work =
         g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         !may_have_lifecycle_work || !batch_has_lifecycle_token) {
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
         nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
     LifecycleQueue *queue_state = nullptr;
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     queue_state = FindOrCreateLifecycleQueueLocked(queue);
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
     if (queue_state == nullptr ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
         nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
@@ -11883,15 +11915,14 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         AcquireSRWLockExclusive(&queue_state->submission_lock);
     }
     SubmissionBatch batch = {};
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     const bool captured = CaptureSubmissionBatchLocked(
         queue_state, count, command_lists, batch);
-    if (!captured)
+    if (!captured) {
+        submission_timing.batch.reasons |= nr_timing::CaptureFailed;
         QuarantineUnprovenSubmissionLocked(count, command_lists);
+    }
+    if (batch.quarantine) submission_timing.batch.reasons |= nr_timing::Quarantined;
     if (captured && batch.active && !batch.quarantine) {
         for (unsigned i = 0; i < batch.record_count; ++i) {
             const auto* record = batch.records[i];
@@ -11902,7 +11933,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
             }
         }
     }
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
 
     // Even a failed capture is submitted unchanged: fail-closed means no more
     // plugin mutation, never suppressing the game's own command list.
@@ -11919,6 +11950,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         execute_timing.record.detail.fence_target = batch.fence_value;
 #endif
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
         nr_source_runtime::OnExecute(queue,count,command_lists,true);
 #if defined(NR_HAS_TIMING)
         execute_timing.record.detail.flags |= nr_timing::ApiReturned;
@@ -11930,11 +11962,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
             NrRecoveryRecord(batch.recovery_tokens[i], nr_recovery::Stage::Submitted, true);
         g_nr_transfer_submitted_frames.fetch_add(
             batch.bound_transfer_count, std::memory_order_relaxed);
-#if defined(NR_HAS_TIMING)
-        NrTimingEnterChainLock(&g_chain_cs);
-#else
-        EnterCriticalSection(&g_chain_cs);
-#endif
+        submission_timing.EnterChain(&g_chain_cs);
         if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) ==
                 batch.pipeline_scope_epoch &&
             g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
@@ -11946,7 +11974,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
                 batch.scoped_bound_transfer_count,
                 std::memory_order_relaxed);
         }
-        LeaveCriticalSection(&g_chain_cs);
+        submission_timing.LeaveChain(&g_chain_cs);
     }
     bool signaled = false;
     if (captured && batch.active) {
@@ -11969,23 +11997,22 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         signal_timing.Stop();
 #endif
         signaled = SUCCEEDED(signal_result);
+        if (signaled) submission_timing.batch.reasons |= nr_timing::RetirementSignaled;
         if (!signaled)
             MarkLifecycleUncertain("D3D12 retirement fence signal failed");
     }
     if (captured && signaled && batch.active && !batch.quarantine &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
-#if defined(NR_HAS_TIMING)
-        NrTimingEnterChainLock(&g_chain_cs);
-#else
-        EnterCriticalSection(&g_chain_cs);
-#endif
+        submission_timing.EnterChain(&g_chain_cs);
         CompleteSubmissionBatchLocked(batch);
-        LeaveCriticalSection(&g_chain_cs);
+        submission_timing.LeaveChain(&g_chain_cs);
     } else if (captured && batch.quarantine) {
         Log("Quarantined Execute batch was submitted and %s with an exact "
             "current-queue fence; dependencies remain pinned until process exit.",
             signaled ? "signaled" : "could not be signaled");
     }
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
     ReleaseSRWLockExclusive(&queue_state->submission_lock);
 }
 
