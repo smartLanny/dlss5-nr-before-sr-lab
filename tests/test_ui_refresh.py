@@ -9,6 +9,7 @@ class UiRefreshContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ui = (ROOT / "src" / "nr_settings_ui.inl").read_text(encoding="utf-8")
+        cls.layers = (ROOT / "src" / "nr_layers_ui.inl").read_text(encoding="utf-8")
         cls.dual = (ROOT / "src" / "nr_dual_ui.inl").read_text(encoding="utf-8")
         cls.light = (ROOT / "src" / "nr_light_style_ui.inl").read_text(encoding="utf-8")
         cls.post = (ROOT / "src" / "interop" / "nr_post_ui.inl").read_text(encoding="utf-8")
@@ -64,7 +65,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn('CollapsingHeader(ui("About and links", "作者与链接"))', self.ui)
         self.assertIn('CollapsingHeader(ui("Light adjustment", "光影微调"))', self.ui)
         self.assertIn('CollapsingHeader(ui("Algorithm comparisons", "算法对照"))', self.ui)
-        self.assertIn('SettingsSection(ui("Advanced picture controls"', self.ui)
+        self.assertIn('CollapsingHeader(ui("Picture safeguards", "画质保护（高级）"))', self.ui)
         self.assertIn("ImGui::SameLine();", self.ui)
         self.assertIn("GetTextLineHeightWithSpacing() * 6.25f", self.ui)
         self.assertEqual(self.ui.count("DrawGenericCompatibilityStatus();"), 1)
@@ -137,29 +138,30 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("If the model changes only luminance, this may have little effect.", self.ui)
         self.assertIn("Applies after releasing the slider.", self.ui)
 
-    def test_extra_enhancement_is_under_model_strength_and_only_amplifies(self):
-        model = self.ui.index('"##nr-model-strength"')
+    def test_extra_enhancement_follows_layers_and_only_amplifies(self):
+        model = self.ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);')
         extra = self.ui.index('"##nr-strength-amplification"')
-        tone = self.ui.index('"##nr-local-tone"')
-        advanced = self.ui.index('SettingsSection(ui("Advanced picture controls"')
+        color = self.ui.index('DrawColorControls(next, has_pending, changed);', extra)
         self.assertLess(model, extra)
-        self.assertLess(extra, tone)
-        self.assertLess(tone, advanced)
+        self.assertLess(extra, color)
         self.assertEqual(self.ui.count('"##nr-strength-amplification"'), 1)
-        control = self.ui[extra:tone]
+        control = self.ui[extra:color]
         self.assertIn('1.0f, 4.0f, "%.2f"', control)
         self.assertIn('std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f)', control)
         self.assertIn('next.transfer_strength = next.post_transfer_strength = effect_strength;', control)
         self.assertNotIn('NR_HAS_DETAIL_STABILITY', control)
         self.assertIn('1 = 原量（默认）。', control)
 
-    def test_face_controls_keep_model_meaning_without_claiming_composition_isolation(self):
-        self.assertIn('"##nr-skin-detail", &next.skin_structure, 0.f, 2.f', self.ui)
-        self.assertIn('设为 0 也不会恢复整张脸原图', self.ui)
-        self.assertIn('Both AI passes use these model face parameters', self.ui)
+    def test_face_controls_use_each_layer_and_reset_keeps_composition(self):
+        self.assertIn('auto model=nr_layers::Read(next,i);', self.layers)
+        self.assertIn('"##skin",&model.skin_structure', self.layers)
+        self.assertIn('ImGui::BeginDisabled(!model.auto_mask);', self.layers)
+        self.assertIn('static_cast<nr_layers::Model&>(next.nr_layers[i-1])=model', self.layers)
+        self.assertIn('else nr_layers::WritePrimary(next,model);', self.layers)
+        self.assertNotIn('Both AI passes use these model face parameters', self.ui)
+        self.assertIn('仅恢复本层模型参数；不改变层数、工作分辨率和最终合成。', self.layers)
         reset = (ROOT / 'src' / 'nr_model_controls.h').read_text(encoding='utf-8')
         self.assertNotIn('transfer_strength', reset)
-        self.assertIn('保留额外增强、光影控制', self.ui)
 
     def test_compatibility_ui_consumes_one_snapshot_and_keeps_requested_choice_editable(self):
         self.assertEqual(self.ui.count('SnapshotCompatibilityFallback()'), 1)
@@ -211,52 +213,38 @@ class UiRefreshContract(unittest.TestCase):
                       self.ui)
         self.assertIn("not guaranteed face detection", self.ui)
 
-    def test_d13_common_controls_keep_precision_and_face_order(self):
+    def test_uniform_common_controls_keep_route_scale_layer_composition_order(self):
         self.assertIn('zh?"先增强，后放大":"Enhance first"', self.ui)
         self.assertIn('zh?"先放大，后增强":"Upscale first"', self.ui)
         self.assertIn('zh?"兼容模式":"Compatibility"', self.ui)
         picture_start = self.ui.index('if (ImGui::BeginTabItem(ui("Picture###nr-picture"')
-        feedback_start = self.ui.index('if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics"')
-        picture = self.ui[picture_start:feedback_start]
+        experiment_start = self.ui.index('if (ImGui::BeginTabItem(ui("Experiments###nr-experiments"')
+        picture = self.ui[picture_start:experiment_start]
         markers = [
             'ui("Enable (F6)", "启用（F6）")',
             'ui("Restore default picture settings", "一键恢复默认画质")',
-            'ui("Picture style", "画面风格")',
             'ui("Processing mode", "处理模式")',
             '"##nr-processing-precision"',
-            'nr_dual_runtime::DrawQuickUi(next,changed,apply_discrete_edit,has_pending);',
-            '"##nr-model-strength"',
+            'DrawUniformLayerControls(next,changed,apply_discrete_edit);',
             '"##nr-strength-amplification"',
             'DrawColorControls(next, has_pending, changed);',
-            'ui("Face adjustment", "人脸调节")',
         ]
         positions = [picture.index(marker) for marker in markers]
         self.assertEqual(positions, sorted(positions))
-        dual_start = picture.index('nr_dual_runtime::DrawQuickUi')
-        model_start = picture.index('SettingsSection(ui("Model controls"')
-        dual = picture[dual_start:model_start]
-        self.assertIn('25.f,100.f', self.dual)
-        self.assertIn('zh?"启用更多层":"Enable more layers"', self.dual)
-        self.assertIn('"3层###full-passes-3"', self.dual)
-        self.assertIn('"4层###full-passes-4"', self.dual)
-        self.assertIn('"5层###full-passes-5"', self.dual)
-        self.assertIn('"3 layers###full-passes-3"', self.dual)
-        self.assertIn('"4 layers###full-passes-4"', self.dual)
-        self.assertIn('"5 layers###full-passes-5"', self.dual)
-        self.assertIn('第2层及后续层使用相同比例；100%时与主层同尺寸。', self.dual)
-        self.assertIn('Layer 2 and later layers use the same scale; at 100%, they match the primary layer size.', self.dual)
-        self.assertNotIn('"50%###dual-scale-50"', self.dual)
-        self.assertNotIn('"75%###dual-scale-75"', self.dual)
-        self.assertNotIn('"100%###dual-scale-100"', self.dual)
-        self.assertNotIn('2/3###dual-scale-two-thirds', self.dual)
-        self.assertNotIn('完整同尺寸对照', self.dual)
-        self.assertNotIn('Full-size reference', self.dual)
-        self.assertNotIn('BeginDisabled()', self.dual)
-        self.assertIn('nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);', self.ui[feedback_start:])
+        self.assertEqual(picture.count('DrawUniformLayerControls('), 1)
+        self.assertNotIn('DrawEnergyGateControls(', picture)
+        self.assertNotIn('"##nr-model-strength"', picture)
+        self.assertNotIn('dual_work_scale', self.layers)
+        self.assertIn('for(unsigned i=0;i<nr_layers::Count;++i)', self.layers)
+        self.assertIn('if(!layer.enabled){ImGui::PopID();break;}', self.layers)
+        self.assertIn('"Default","Natural","Cinematic"', self.layers)
+        self.assertNotIn('ImGui::Combo', self.layers)
+        self.assertIn('if(ImGui::CollapsingHeader(zh?"本层细调":"Layer fine controls"))', self.layers)
+        self.assertIn('nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);', self.ui[experiment_start:])
 
     def test_d13_dual_status_uses_current_snapshot_and_hides_pending_observation(self):
         self.assertIn('nr_dual_status_runtime::SnapshotUi()', self.dual)
-        self.assertIn('has_pending || changed', self.dual)
+        self.assertIn('if (has_pending && snapshot.state != nr_dual_status_runtime::UiState::Failed)', self.dual)
         self.assertIn('Current window (up to 500 ms):', self.dual)
         self.assertIn('eligible_primary', self.dual)
         self.assertIn('secondary_evaluate_success', self.dual)
