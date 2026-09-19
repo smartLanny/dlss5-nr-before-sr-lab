@@ -1,6 +1,9 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
-    [Parameter(Mandatory=$true)][string]$OutputRoot
+    [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$FaceRuntimeRoot,
+    [string]$FaceModel,
+    [string]$FaceModelLicense
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -13,8 +16,18 @@ if (Test-Path -LiteralPath $Output) { throw 'OutputRoot already exists; no packa
 $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $Validation = Get-Content -LiteralPath (Join-Path $Build 'validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $Commit = [string]$Manifest.source_commit
-$Version = [string]$Manifest.integration.version
-$DisplayProperty = $Manifest.integration.PSObject.Properties['display_version']
+# Integration remains provenance; the final colour overlay owns product identity.
+$Product = $Manifest.integration
+foreach ($Key in @('colour_lab', 'colour_edge')) {
+    $Property = $Manifest.PSObject.Properties[$Key]
+    if ($null -ne $Property) {
+        if ($Property.Value.source_commit -ne $Commit) { throw 'Final product source identity disagrees with staged source.' }
+        $Product = $Property.Value
+    }
+}
+$Version = [string]$Product.version
+$Unified = $Version -eq 'beta0.5-dline21-unified1'
+$DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
@@ -23,6 +36,9 @@ if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Validation.source_commit -ne $Commit
     throw 'Build evidence and exact staged source identity disagree.'
 }
 if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Candidate version is missing.' }
+if ($Unified -and ($Validation.PSObject.Properties['quality_successor'] -eq $null -or $Validation.quality_successor -ne $true)) {
+    throw 'Unified product requires its final quality-successor build evidence.'
+}
 $RepoCommit = (& git -C $Repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE) { throw 'Cannot resolve packaging source identity.' }
 & git -C $Repo merge-base --is-ancestor $Commit $RepoCommit
@@ -30,7 +46,7 @@ if ($LASTEXITCODE) { throw 'Built source must be an ancestor of the packaging so
 $Changes = @(& git -C $Repo diff --name-only $Commit $RepoCommit)
 if ($LASTEXITCODE) { throw 'Cannot verify source changes since build.' }
 foreach ($Changed in $Changes) {
-    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|tests/multi_api/test_candidate_packaging\.py$)') {
+    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
         throw "Binary/build inputs changed since validated source; rebuild required: $Changed"
     }
 }
@@ -90,40 +106,106 @@ Assert-Hash (Join-Path $Build 'tests/post-scaled-work/post_scaled_work_gpu.cpp')
 Assert-Hash (Join-Path $Repo 'tests/post_scaled_work_gpu.cpp.in') ([string]$PostResult.template_sha256)
 Assert-Hash $PostLog ([string]$PostResult.stdout_sha256)
 $ChineseAddons = @($Addons | Where-Object { -not $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
-if ($ChineseAddons.Count -ne 1) { throw 'Exactly one verified Chinese core must be selected for delivery.' }
+$EnglishAddons = @($Addons | Where-Object { $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
+if ($ChineseAddons.Count -ne 1 -or $EnglishAddons.Count -ne 1) { throw 'One verified Core per language is required.' }
+$FaceEnabled = $Validation.PSObject.Properties['full_face_backend'] -and $Validation.full_face_backend -eq $true
+if ($Unified -and -not $FaceEnabled) { throw 'Unified package requires the complete face backend.' }
+$FaceAssets = [ordered]@{}
+$FaceHashes = @{}
+$FaceReceiptHash = $null
+if ($FaceEnabled) {
+    if (-not $FaceRuntimeRoot -or -not $FaceModel -or -not $FaceModelLicense) { throw 'Enabled face backend requires all pinned assets and licenses.' }
+    $ReceiptPath = Join-Path $CoreBuild 'face-backend.json'
+    $Receipt = Get-Content -LiteralPath $ReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Receipt.schema -ne 'nr-face-build-v1' -or $Receipt.enabled -ne $true -or $Receipt.runtime_version -ne '1.23.2' -or
+        $Receipt.runtime_sha256 -ne 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea' -or
+        $Receipt.model_sha256 -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Face build receipt differs from validated full backend.' }
+    $FaceReceiptHash = (Get-FileHash -LiteralPath $ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $FaceRoot = (Resolve-Path -LiteralPath $FaceRuntimeRoot).Path
+    $Pins = [ordered]@{
+        'lib/onnxruntime.dll'='dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea'
+        'lib/onnxruntime_providers_shared.dll'='a2b3a50956aa75a9879c8472bc7df4f7a8072bcd2db19a1b7d988e7688f293ef'
+        'LICENSE'='c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674'
+        'ThirdPartyNotices.txt'='e00f828e0a33de591a355ae6606d2625f5758da7d2c844db7821c9dd3e3647b6'
+    }
+    foreach ($Entry in $Pins.GetEnumerator()) {
+        $Asset = Safe-Child $FaceRoot $Entry.Key
+        Assert-Hash $Asset $Entry.Value
+        $Name = 'nr_face/' + [IO.Path]::GetFileName($Asset)
+        $FaceAssets[$Name] = $Asset
+        $FaceHashes[$Name] = $Entry.Value
+    }
+    $Model = (Resolve-Path -LiteralPath $FaceModel).Path
+    $ModelLicense = (Resolve-Path -LiteralPath $FaceModelLicense).Path
+    Assert-Hash $Model ([string]$Receipt.model_sha256)
+    Assert-Hash $ModelLicense 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958'
+    $ModelReceiptPath = [IO.Path]::ChangeExtension($Model, '.json')
+    $ModelReceipt = Get-Content -LiteralPath $ModelReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($ModelReceipt.schema -ne 'nr-face-model-shape-v1' -or $ModelReceipt.sha256 -ne $Receipt.model_sha256 -or
+        $ModelReceipt.source_sha256 -ne '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4' -or
+        $ModelReceipt.onnx_version -ne '1.19.1' -or $ModelReceipt.nodes_weights_unchanged -ne $true -or
+        $ModelReceipt.bytes -ne (Get-Item -LiteralPath $Model).Length) { throw 'Prepared face model provenance mismatch.' }
+    $FaceAssets['nr_face/yunet-dynamic.onnx'] = $Model
+    $FaceAssets['nr_face/YUNET-LICENSE'] = $ModelLicense
+    $FaceAssets['nr_face/yunet-dynamic.json'] = $ModelReceiptPath
+    $FaceHashes['nr_face/yunet-dynamic.onnx'] = [string]$Receipt.model_sha256
+    $FaceHashes['nr_face/YUNET-LICENSE'] = 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958'
+    $FaceHashes['nr_face/yunet-dynamic.json'] = (Get-FileHash -LiteralPath $ModelReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $Parent = Split-Path -Parent $Output
 [IO.Directory]::CreateDirectory($Parent) | Out-Null
 $Temporary = Join-Path $Parent ('.nr-candidate-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($Temporary) | Out-Null
 try {
     $Packages = New-Object 'System.Collections.Generic.List[object]'
-    foreach ($Addon in $ChineseAddons) {
+    foreach ($Addon in $Addons) {
+        $Language = if ($Addon.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase)) { 'en' } else { 'zh-CN' }
         $Package = Join-Path $Temporary $Addon.BaseName
         New-Item -ItemType Directory -Path $Package | Out-Null
         Copy-Item -LiteralPath $Addon.FullName -Destination $Package
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
+        foreach ($Leaf in @($Addon.Name, 'nrchain_nvngx.dll', $CarrierLeaf)) {
+            $Evidence = @($Validation.binaries | Where-Object { $_.file -eq $Leaf })
+            Assert-Hash (Join-Path $Package $Leaf) ([string]$Evidence[0].sha256)
+        }
+        foreach ($Asset in $FaceAssets.GetEnumerator()) {
+            $Destination = Join-Path $Package $Asset.Key
+            [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Destination)) | Out-Null
+            Copy-Item -LiteralPath $Asset.Value -Destination $Destination
+            Assert-Hash $Destination $FaceHashes[$Asset.Key]
+        }
         $Licenses = "Carrier license`r`n==============`r`n" + [IO.File]::ReadAllText((Join-Path $Stage 'carrier/LICENSE')) +
             "`r`nMinHook license`r`n===============`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'third_party/minhook/LICENSE.txt')) +
             "`r`nThird-party notices`r`n===================`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'THIRD_PARTY_NOTICES.txt'))
         [IO.File]::WriteAllText((Join-Path $Package 'LICENSES.txt'), $Licenses, (New-Object Text.UTF8Encoding($false)))
-        $Install = @"
-$DisplayVersion
-
-0.5研究候选：保留高强度保护、单次NR分层和推荐/快照；不是稳定OTA。先关闭高强度保护与分层，与0.4.6-hotfix.1固定同场景对照，再逐项打开。
-
-退出游戏，备份现用组件，保留nr_before_sr.ini及其他无关MOD。建议通过配套Manager按本次游戏API安装或修复。
-D3D12：只安装本包中文核心与nrchain_nvngx.dll；不安装carrier，已有同类carrier应备份移出。
-DX11已有DLSS兼容路线：安装中文核心、nrchain_nvngx.dll及${CarrierLeaf}。关闭桥接后，这条NR路线不可用；不会替你改变游戏启动API。
-Vulkan或API不明确：不要把DX11 carrier当作对应支持，请先确认游戏实际使用的API。
-兼容范围：已有原生/模组DLSS输入的DX11 carrier路线，以及D3D12 SR前/后置和符合条件的RR后置。不是所有无DLSS的DX11游戏都支持；不含Feeder、原生Vulkan/Legacy支持。
-F6对比开关。F8生成单个TXT并自动复制文件路径，上传该文件即可。F7提供512像素采样和前后置分辨率对比矩阵；各组顺序采集，请保持镜头不动。新组合仍需逐游戏测试，Windows/WARP通过不等于所有游戏通过。
-回退：退出游戏，移走本包三个组件，放回备份。包不含替换INI、ReShade、NVIDIA运行库/模型或游戏文件。
-实际组件身份和哈希见build-info.json、SHA256.json；本批验证保留在源码仓库docs/interop/RESEARCH_050_CATCHUP_20260908.md。
+        if ($Language -eq 'zh-CN') {
+            $Install = @"
+$DisplayVersion — 中文研究候选，尚未游戏验收。
+退出游戏并备份旧核心，只保留一份语言核心。保留已有 INI 与模型设置。
+D3D12：使用本包核心和 nrchain_nvngx.dll；不安装 DX11 carrier。
+DX11 已有 DLSS 兼容路线：另需 ${CarrierLeaf}；不宣称支持所有 DX11 游戏或 Vulkan。
+若包含 nr_face，请保持该目录与核心相邻；它包含可选人脸功能的 CPU 运行库、模型和许可证，不会自动开启功能。
+F6 对比，F8 导出反馈。Windows/WARP 通过不等于游戏通过；使用同场景同配置验收。
+回退时退出游戏，移出本批核心/桥接/人脸目录，恢复备份。包不含 INI、ReShade 或 NVIDIA 私有运行库/模型。
+身份、依赖和哈希见 build-info.json、SHA256.json。
 "@
-        [IO.File]::WriteAllText((Join-Path $Package '安装说明.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
+        } else {
+            $Install = @"
+$DisplayVersion — English research candidate; NOT game verified.
+Exit the game and back up the prior Core. Keep exactly one language Core and preserve existing INI/model settings.
+D3D12: use the Core and nrchain_nvngx.dll; do not install the DX11 carrier.
+DX11 with an existing compatible DLSS input path additionally needs ${CarrierLeaf}; this is not universal DX11 or Vulkan support.
+If present, keep nr_face beside the Core. It contains the optional face feature's CPU runtime, model and licenses; packaging does not enable it.
+Compare with F6 and export feedback with F8. Windows/WARP validation is not game validation; keep scene and settings identical.
+For rollback, exit the game, remove this candidate's Core/bridge/face directory and restore backups. No INI, ReShade or NVIDIA private runtime/model is included.
+See build-info.json and SHA256.json for exact identity, dependencies and hashes.
+"@
+        }
+        $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
+        [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
-            language='zh-CN'; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
+            language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
             core_file_version=$Addon.VersionInfo.FileVersion; carrier_upstream_file_version=(Get-Item -LiteralPath (Join-Path $Build $CarrierLeaf)).VersionInfo.FileVersion; bridge_upstream_commit=$Manifest.integration.bridge_commit;
             source_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();
             validation_sha256=(Get-FileHash -LiteralPath (Join-Path $Build 'validation.json') -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -133,12 +215,12 @@ F6对比开关。F8生成单个TXT并自动复制文件路径，上传该文件�
             [ordered]@{file=$_.FullName.Substring($Package.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
         })
         [IO.File]::WriteAllText((Join-Path $Package 'SHA256.json'), ($Hashes | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
-        $ZipLeaf = $Addon.BaseName.Replace($Version, $DisplayVersion) + '-OTA.zip'
+        $ZipLeaf = 'DLSS5-' + $DisplayVersion + '-' + $Language + '-OTA.zip'
         $Zip = Join-Path $Temporary $ZipLeaf
         Compress-Archive -Path (Join-Path $Package '*') -DestinationPath $Zip
-        $Packages.Add([ordered]@{file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
+        $Packages.Add([ordered]@{language=$Language; file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
     }
-    $Index = [ordered]@{source_commit=$Commit; packaging_commit=$RepoCommit; version=$Version; display_version=$DisplayVersion; language='zh-CN'; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
+    $Index = [ordered]@{source_commit=$Commit; packaging_commit=$RepoCommit; version=$Version; display_version=$DisplayVersion; languages=@('zh-CN','en'); full_face_backend=[bool]$FaceEnabled; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
     [IO.File]::WriteAllText((Join-Path $Temporary 'packages.json'), ($Index | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
     [IO.Directory]::Move($Temporary, $Output)
     Write-Host "Packaged exact-source language candidates without touching games or existing INI: $Output"
