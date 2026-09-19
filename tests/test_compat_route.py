@@ -116,8 +116,10 @@ class CompatibilityRoute(unittest.TestCase):
             "EvaluateScope(ID3D12GraphicsCommandList* commands,const NgxHandle* handle,const NgxParams* params,int feature_id,Id generation)"
         )
         seed = self.source_runtime.index("SeedCoreRecordingDevice(commands);", constructor)
-        locked_lookup = self.source_runtime.index("{Lock lock;ObserveNativeProducer", seed)
+        locked_lookup = self.source_runtime.index("{Lock lock;energy_device=RecordingOf(commands).device;", seed)
         self.assertLess(seed, locked_lookup)
+        locked_body = self.source_runtime[locked_lookup:self.source_runtime.index('}',locked_lookup)]
+        self.assertIn('ObserveNativeProducer(reinterpret_cast<Id>(handle),generation,energy_device);',locked_body)
 
     def test_recording_identity_falls_back_to_exact_core_receipt(self):
         compiler = _compiler_command()
