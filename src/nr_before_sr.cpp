@@ -7473,7 +7473,10 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation == feature_generation &&
             context.mode == mode && context.layer_index == layer_index) {
-            if(layer_index!=0 && (context.parent_instance_id!=parent_instance || context.parent_input_epoch!=parent_epoch)){context.retired=true;continue;}
+            // Parent object identity owns this layer's immutable Create inputs.
+            // A history-only epoch change is handled by Reset below after every
+            // storage/tuning check, not by destroying the unchanged NGX model.
+            if(layer_index!=0 && context.parent_instance_id!=parent_instance){context.retired=true;continue;}
             // One temporal history per carrier/generation/mode. Keeping an
             // active context for every DRS extent resurrected stale history
             // on A->B->A and eventually occupied all 16 context entries.
@@ -7536,7 +7539,24 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         if (empty == nullptr && context.sr_handle == nullptr) empty = &context;
     }
-    if (matching != nullptr) return matching;
+    if (matching != nullptr) {
+        if (layer_index != 0 && matching->parent_input_epoch != parent_epoch) {
+            const auto previous_epoch = matching->parent_input_epoch;
+            matching->parent_input_epoch = parent_epoch;
+            // Never retain the old temporal answer. Keep Reset pending across
+            // queue/slot refusals; RunOne consumes it only on successful Evaluate.
+            // Existing Create-completion fences, sealed inputs, current guide
+            // checks and primary/secondary warmup gates remain authoritative.
+            matching->dual_history.Invalidate();
+            matching->reset_retry_pending = true;
+            Log("[dual-nr] reuse instance=%llu parent=%llu layer=%u history=%llu->%llu "
+                "extent=%ux%u; same Create contract, temporal Reset pending; "
+                "not an Evaluate or GPU-completion receipt.",
+                matching->instance_id, parent_instance, layer_index,
+                previous_epoch, parent_epoch, width, height);
+        }
+        return matching;
+    }
     if (empty != nullptr) {
         empty->layer_index=layer_index;empty->parent_instance_id=parent_instance;empty->parent_input_epoch=parent_epoch;
         empty->sr_handle = sr_handle;

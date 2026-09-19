@@ -46,6 +46,7 @@ harness = r'''
 #include <cmath>
 #include <climits>
 #include <cstring>
+#include "nr_dual_pass.hpp"
 GUIDE_INCLUDE
 constexpr bool kPostWorkRaster = POST_WORK_RASTER;
 struct NgxHandle { unsigned id; };
@@ -63,6 +64,8 @@ struct NrContext {
     int mode=0;
     unsigned layer_index=0;
     unsigned long long parent_instance_id=0, parent_input_epoch=0;
+    nr_dual::AuxHistory dual_history{};
+    bool reset_retry_pending=false;
     bool retired=false, codec_color_mode_initialized=false, tuning_signature_initialized=false, codec_peak_shoulder=false;
     CodecColorMode codec_color_mode=CodecColorMode::Automatic;
     NrTuningSignature tuning_signature{};
