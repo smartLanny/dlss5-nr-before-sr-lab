@@ -47,12 +47,13 @@ harness = r'''
 #include <climits>
 #include <cstring>
 #include "nr_dual_pass.hpp"
+#include "nr_layer_config.h"
 GUIDE_INCLUDE
 constexpr bool kPostWorkRaster = POST_WORK_RASTER;
 struct NgxHandle { unsigned id; };
 enum class CodecColorMode : unsigned { Automatic, LinearSdr, ModelEncodedValueDomain };
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
-struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; } g_config;
+struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; nr_layers::Auxiliary nr_layers{}; } g_config;
 TUNING
 CURRENT_TUNING
 SAME_TUNING

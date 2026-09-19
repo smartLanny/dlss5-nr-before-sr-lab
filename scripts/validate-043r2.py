@@ -105,7 +105,8 @@ def main():
     assert 'nr_feedback_ticket::Build' in definition(core,'void Publish(')
     assert 'g_submission[' in core
     assert 'Copy core path' in sequence
-    assert ui.count('BeginTabItem(')==2 and ui.count('EndTabItem(')==2 and 'nr-main-tabs' in ui
+    assert ui.count('BeginTabItem(')==3 and ui.count('EndTabItem(')==3 and 'nr-main-tabs' in ui
+    assert ui.index('Picture###nr-picture') < ui.index('Experiments###nr-experiments') < ui.index('Feedback and diagnostics###nr-feedback-diagnostics')
     status_ui=definition(sequence,'void DrawCoreStatus(')
     release=status_ui.index('ReleaseSRWLockShared(&g_feedback_lock)')
     assert status_ui.index('WideToUtf8(g_feedback_last_zip,path,sizeof(path))') < release
