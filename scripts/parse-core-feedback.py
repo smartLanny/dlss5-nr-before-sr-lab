@@ -21,6 +21,7 @@ import zlib
 
 LIMIT = 8 * 1024 * 1024
 META_LIMIT = 512 * 1024
+CORE_METADATA_LIMIT = 192 * 1024
 ENTRY = re.compile(r"^logs/(nr-current|nr-previous|reshade-addon|reshade-game|reshade-module|carrier)-summary\.txt$")
 SESSION = re.compile(r"^DLSS5_CORE_[0-9]+_[0-9]+_[0-9]+$")
 CURRENT_LOG = 'logs/nr-current-summary.txt'
@@ -92,7 +93,7 @@ def inspect_core(path: Path):
             require(entry.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED), 'unsupported compression')
             require(entry.filename in ('manifest.json', 'capture-info.txt') or ENTRY.fullmatch(entry.filename),
                     'core contains unexpected image, raw log or payload')
-            maximum = META_LIMIT if entry.filename == 'manifest.json' else 32768 if entry.filename == 'capture-info.txt' else 256 * 1024
+            maximum = META_LIMIT if entry.filename == 'manifest.json' else CORE_METADATA_LIMIT if entry.filename == 'capture-info.txt' else 256 * 1024
             require(entry.file_size <= maximum, 'per-entry byte limit exceeded')
             # ZipFile.read verifies the member CRC, after the expanded-size gate.
             payloads[entry.filename] = archive.read(entry)

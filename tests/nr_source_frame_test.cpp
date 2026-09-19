@@ -21,7 +21,10 @@ std::atomic<Id> source_objects{1};Claims claims;Lineage lineage;
 struct Lock {~Lock(){}};
 // Guide texture retirement is exercised by the separate WARP transport test.
 void RetireReceiptStreamLocked(Id,Id){}
-void ForgetPresentDemand(Id){}
+// Present-demand storage belongs to the separately tested transport module.
+// Record the real producer registry's callback instead of omitting its link seam.
+Id forgotten_present_chain=0;
+void ForgetPresentDemand(Id chain){forgotten_present_chain=chain;}
 // @SOURCE_PRODUCERS@
 }
 unsigned checks=0;
@@ -149,7 +152,9 @@ int main(){
      Check(RetryToken(first)==0,"evicted old source cannot manufacture a fresh attempt");
      Check(RetryToken(view)==view_token,"other view retry identity survives stream churn");
      RetireProducer(11,2);Check(!NativeProducerOnDevice(7)&&!ProducerActive(first),"actual feature retirement releases native ambiguity guard");
-     auto replacement=ProducerSource(11,3,1);Check(replacement.stream!=first.stream&&RetryToken(replacement)!=token,"feature pointer reuse gets a new source and retry identity");}
+     auto replacement=ProducerSource(11,3,1);Check(replacement.stream!=first.stream&&RetryToken(replacement)!=token,"feature pointer reuse gets a new source and retry identity");
+     RetireSwapchain(reinterpret_cast<reshade::api::swapchain*>(Id{11}));
+     Check(forgotten_present_chain==11&&!ProducerActive(replacement),"swapchain retirement clears its demand and producer");}
     {QueueLease q{1,2,2,3,4,0,true,true,true};
      Check(q.Admitted()&&!q.CanReuse(),"same queue order is distinct from CPU reuse");q.completed=4;
      Check(q.CanReuse(),"exact completed fence permits reuse");q.completed=UINT64_MAX;

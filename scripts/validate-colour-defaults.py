@@ -25,20 +25,18 @@ def main():
     # Verify real loader/default/persistence wiring; a standalone default-only
     # mock cannot detect a different fallback in the actual INI loader.
     assert 'next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);' in source
-    assert 'next.intensity = ReadIniFloat(L"Intensity", 1.0f);' in source
+    assert 'next.intensity = ReadIniFloat(L"Intensity", 1.2f);' in source
     assert 'WriteIniFloat(L"ColorStrength", config.color_strength)' in source
     assert 'WriteIniFloat(L"Intensity", config.intensity)' in source
     assert re.search(r'^ColorStrength=1\.0$',ini,re.M)
-    assert re.search(r'^Intensity=1\.0$',ini,re.M)
+    assert re.search(r'^Intensity=1\.2$',ini,re.M)
     assert 'AllowUnverifiedHdrColor=0' in ini
-    model=definition(ui,'        if (next.intensity != 1.0f) {')
-    advanced_start=ui.index('    SettingsSection(ui("Advanced picture controls"')
-    advanced_end=ui.index('        if (ImGui::CollapsingHeader(ui("Developer options"',advanced_start)
-    advanced=ui[advanced_start:advanced_end]
-    assert advanced.count('DrawColorControls(next, has_pending, changed);')==1
+    model=definition(ui,'    if (next.intensity != 1.2f) {')
     assert ui.count('DrawColorControls(next, has_pending, changed);')==1
     assert '"HDR and colour"' not in ui
-    assert ui.index(model)<ui.index(advanced)
+    model_section=ui.index('    SettingsSection(ui("Model controls"')
+    color_control=ui.index('DrawColorControls(next, has_pending, changed);')
+    assert model_section<ui.index(model)<color_control
     assert 'next.allow_unverified_hdr_color' not in model
     assert 'next.enabled' not in model
     body=definition(source,'struct ChainConfig {')+';'
@@ -47,6 +45,10 @@ def main():
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
+#include "nr_processing_route.h"
+#include "nr_dual_pass.hpp"
+#include "nr_generic_residual.h"
+#include "nr_light_style.h"
 enum class NrJitterMode { Legacy=0,GameInputPixel=1 };
 int checks=0,failures=0;bool click=false;int buttons=0;
 void check(bool ok,const char*name){++checks;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
@@ -61,24 +63,24 @@ MODEL
 }
 int main(){
  ChainConfig d;
- check(d.color_strength==1.f&&d.intensity==1.f,"aggregate defaults one");
- for(bool zh:{false,true})for(bool enabled:{false,true})for(float saved:{0.f,.25f,1.f,2.f})for(bool pressed:{false,true}){
+ check(d.color_strength==1.f&&d.intensity==1.2f,"aggregate defaults match production");
+ for(bool zh:{false,true})for(bool enabled:{false,true})for(float saved:{0.f,.25f,1.f,1.2f,2.f})for(bool pressed:{false,true}){
   ChainConfig c;c.intensity=saved;c.enabled=enabled;c.color_strength=.37f;c.mode=1;
   c.depth_mode=1;c.r8_output_encoding=2;c.allow_unverified_hdr_color=true;
   bool changed=false,discrete=false;click=pressed;buttons=0;
   Controls(c,zh,changed,discrete);
-  const bool did=pressed&&saved!=1.f;
-  check(c.intensity==(did?1.f:saved),"reset changes only on explicit click");
+  const bool did=pressed&&saved!=1.2f;
+  check(c.intensity==(did?1.2f:saved),"reset changes only on explicit click");
   check(changed==did&&discrete==did,"ordinary atomic settings transaction");
   check(c.enabled==enabled&&c.mode==1&&c.color_strength==.37f&&c.allow_unverified_hdr_color&&c.depth_mode==1&&c.r8_output_encoding==2,"reset preserves unrelated user state");
-  check(buttons==(saved!=1.f?1:0),"no redundant reset control for one");
+  check(buttons==(saved!=1.2f?1:0),"no redundant reset control at default");
   NormalizeConfig(c);
-  check(c.intensity==(did?1.f:saved)&&c.color_strength==.37f,"normalization retains valid saved choices");
+  check(c.intensity==(did?1.2f:saved)&&c.color_strength==.37f,"normalization retains valid saved choices");
  }
  for(bool enabled:{false,true}){
   ChainConfig c;c.enabled=enabled;c.intensity=2.f;c.color_strength=.37f;
   RestoreRecommendedPictureSettings(c);NormalizeConfig(c);
-  check(c.intensity==1.f&&c.color_strength==1.f,"one click recommendation one defaults");
+  check(c.intensity==1.2f&&c.color_strength==1.f,"one click recommendation restores defaults");
   check(c.enabled==enabled&&!c.allow_unverified_hdr_color,"recommendation never unlocks safety or master");
  }
  std::printf("production colour defaults/reset: %d checks, %d failures\n",checks,failures);
@@ -88,7 +90,9 @@ int main(){
     with tempfile.TemporaryDirectory(prefix='nr-defaults-') as td:
         s=Path(td)/'test.cpp';e=Path(td)/('test.exe' if os.name=='nt' else 'test')
         s.write_text(code,encoding='utf-8')
-        subprocess.run([a.compiler,'-std=c++20','-Wall','-Wextra','-Werror',*(['-static'] if os.name=='nt' else []),str(s),'-o',str(e)],check=True)
+        subprocess.run([a.compiler,'-std=c++20','-Wall','-Wextra','-Werror',
+                        '-I',str(root/'src'),*(['-static'] if os.name=='nt' else []),
+                        str(s),'-o',str(e)],check=True)
         subprocess.run([str(e)],check=True)
-    print('PASS current loader, save and advanced-colour control wiring')
+    print('PASS current loader, save and picture-control wiring')
 if __name__=='__main__':main()

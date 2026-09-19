@@ -43,6 +43,22 @@ Verify the remote HEAD and the candidate's `source-manifest.json` / `validation.
 
 Preserve existing worktrees and all uncommitted work. Use an isolated worktree for changes. Record actual commits, commands, logs, artifact hashes, unresolved defects, and the next action in the shared handoff and relevant Issues. A source commit, local validation, hosted CI, and game/NVIDIA validation are separate facts.
 
+## Owner performance feedback loop (2026-09-18)
+
+For this performance-repair series, the owner explicitly requests an execution
+loop, not report-only iterations. When a new test result supplies a supported
+repair direction, continue in the same task through a coherent repair of the
+supported related hot paths, relevant regressions, Windows build, and test-candidate delivery, then report
+what to test next. Do not stop at the investigation report to request another
+routine authorization. A specific diagnosis-only request overrides this default.
+Do not invent a patch without evidence, hide failed/skipped checks, or require
+another full capture matrix when the current evidence is enough. Preserve exact
+build identity, image workload, safety/restore contracts and independent branches.
+The owner further requests whole-path batches rather than repeatedly delivering
+one isolated micro-optimization. Inspect and repair the related identity, lookup,
+state and batch costs together when supported, but do not invent unrelated work
+or equate synthetic work reductions with an observed game-frame improvement.
+
 After handing the candidate to the owner for testing, follow the latest owner instruction before starting another development batch. No automatic stable release, tag replacement, or merge into main/release is implied by a compatibility test handoff.
 
 ## Protect private evidence

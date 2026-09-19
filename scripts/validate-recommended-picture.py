@@ -42,7 +42,8 @@ FIELDS = {
  'face_extra_cap':'FaceExtraCap','face_original_luma':'FaceOriginalLuma','face_original_color':'FaceOriginalColor','face_preview':None,
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
-PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch'}
+PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch',
+           'descriptor_low_overhead','present_mv_compensation'}
 UI_RESET_FIELDS={'processing_start','processing_selection','compat_percent','nr_full_reference','nr_full_passes'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
@@ -69,7 +70,7 @@ def check_wiring(cpp,ui,helper):
  assert 'changed = true;' in reset_block
  assert 'next.processing_start=nr_processing::Start::Before;' in reset_block
  assert 'next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);' in reset_block
- assert 'next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=2;' in reset_block
+ assert 'next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=3;' in reset_block
  assert 'ApplySettingsOverlay(pending,pending_generation,' in draw
  settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
  assert 'ApplyLightStyleOverlay(next, expected_generation,' in settings
@@ -133,9 +134,9 @@ int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
 '''+struct+'\n'+helper+'\nint main(){\n'
  code+='for(bool enabled:{false,true})for(int encoding:{0,1,2}){ChainConfig c;\n'+'\n'.join(dirty)+'\n'
- code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.perf_epoch=777;\n'
+ code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.perf_epoch=777;c.descriptor_low_overhead=true;c.present_mv_compensation=1;\n'
  code+='for(int repeat=0;repeat<2;++repeat){RestoreRecommendedPictureSettings(c);\n'+'\n'.join(checks)+'\n'
- code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.perf_epoch==777,"master and provider contracts preserved");\n'
+ code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.perf_epoch==777&&c.descriptor_low_overhead&&c.present_mv_compensation==1,"master and provider contracts preserved");\n'
  code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')

@@ -299,6 +299,14 @@ int main() {
     FeedbackSession feedback; FeedbackAppendNgxLifecycle(feedback);
     Check(feedback.report.find("ngxLifecycle.firstFaultFrozen=1")!=std::string::npos && feedback.report.find("[address]")==std::string::npos,"production F8 emits bounded anonymous evidence");
 
+    // A unique public wrapper alone does not prove an unobserved inner lifetime.
+    Reset(); h=nullptr;
+    Check(HookCreate(&list,1,&params,&h)==kNgxSuccess && Live()==1,"one public lifetime");
+    Check(HookCoreEvaluate(&list,&inner_handle,&params,nullptr)==0xCAFE &&
+          native_evals==1 && plugin_attempts==0 && !At(NgxLayer::Core,&inner_handle).handle &&
+          g_module_observer_gap_detected && g_feature_tracking_uncertain,
+          "unique wrapper does not fabricate an inner model identity");
+
     for(bool same_pointer:{false,true}) {
         Reset();nested_create=true;alias_pointer=same_pointer;
         HookCreate(&list,1,&params,&h);

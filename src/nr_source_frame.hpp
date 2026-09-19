@@ -218,12 +218,54 @@ public:
 class Lineage {
     enum class Op : unsigned { Set, Copy, Invalidate, InvalidateDevice, Clear };
     struct Event { Op op=Op::Invalidate;Resource destination{},source{};Label label{}; };
-    struct Batch {Recording recording{};std::array<Event,48> events{};unsigned count=0;bool submitted=false,overflow=false;};
+    // Hot identity/status is compact: queries and Reset never walk or clear the
+    // 48-event payload belonging to every unrelated list. Payload slots remain
+    // initialized and are readable only below their current header's count.
+    struct Batch {Recording recording{};unsigned count=0;bool submitted=false,overflow=false;};
     struct Value {Resource resource{};Label label{};unsigned surface_encoding=0;};
     std::array<Batch,64> batches_{};
+    std::array<std::array<Event,48>,64> batch_events_{};
+    // A bit is set iff the corresponding current batch has a valid recording,
+    // is unsubmitted and has events. Overflow stays pending, exactly as before.
+    Id pending_batches_=0;
+    auto& Events(Batch* batch) noexcept {return batch_events_[batch-batches_.data()];}
+    const auto& Events(const Batch* batch) const noexcept {return batch_events_[batch-batches_.data()];}
+    void ClearBatch(Batch& batch) noexcept {
+        pending_batches_&=~(Id{1}<<(&batch-batches_.data()));
+        batch={}; // count invalidates all initialized but inactive event bytes
+    }
     std::array<Value,256> values_{};
     Id next_submission_=1;
     Id next_content_=1;
+    // Relative indices, never borrowed Batch pointers. A cached hit still checks
+    // the complete list/lifetime/reset/device tuple after Reset or slot reuse.
+    // The caller's existing lineage lock remains the synchronization boundary.
+    std::array<unsigned,4> recent_batches_{{64,64,64,64}};
+    unsigned recent_batch_=0;
+    // A full table cannot admit a previously absent recording until Reset or
+    // ForgetList frees a slot. Cache a few exact failures without retiring or
+    // evicting any submitted/unsubmitted batch; all failure returns stay intact.
+    std::array<Recording,4> rejected_recordings_{};
+    unsigned rejected_next_=0;
+    bool batches_full_=false;
+    // True iff all stored labels are fixed points of Unknown(). Every publisher
+    // or retirement that can change that invariant clears this flag. Repeated
+    // failed Add calls then preserve fail-closed state without rewriting 256
+    // labels per draw. Batch events are never skipped, dropped or reclaimed.
+    bool values_unknown_=true;
+    void ForgetBatchMisses() noexcept {
+        if(!batches_full_)return;
+        batches_full_=false;rejected_recordings_={};rejected_next_=0;
+    }
+    void InvalidateAllValues() noexcept {
+        if(values_unknown_)return;
+        for(auto& value:values_)value.label=Unknown(value.label);
+        values_unknown_=true;
+    }
+    void RememberBatch(unsigned index) noexcept {
+        recent_batch_=(recent_batch_+1)%recent_batches_.size();
+        recent_batches_[recent_batch_]=index;
+    }
     static Label Unknown(Label previous) noexcept {
         Label result{};result.encoding=previous.encoding;
         result.tainted=previous.tainted||previous.processed||previous.fg_consumed||previous.role==Role::Generated||previous.role==Role::Retired;
@@ -235,8 +277,26 @@ class Lineage {
         return 0;
     }
     Batch* BatchFor(Recording r,bool create) noexcept {
-        for(auto& b:batches_)if(b.recording==r)return &b;
-        if(create)for(auto& b:batches_)if(!b.recording){b.recording=r;return &b;}
+        const auto recent=recent_batches_[recent_batch_];
+        if(r && recent<batches_.size() && batches_[recent].recording==r)return &batches_[recent];
+        for(unsigned i=0;i<recent_batches_.size();++i) {
+            const auto index=recent_batches_[i];
+            if(r && index<batches_.size() && batches_[index].recording==r) {
+                recent_batch_=i;return &batches_[index];
+            }
+        }
+        if(r && batches_full_)for(const auto& rejected:rejected_recordings_)
+            if(rejected==r)return nullptr;
+        for(auto& b:batches_)if(b.recording==r) {
+            RememberBatch(static_cast<unsigned>(&b-batches_.data()));return &b;
+        }
+        if(create && !batches_full_)for(auto& b:batches_)if(!b.recording){
+            b.recording=r;RememberBatch(static_cast<unsigned>(&b-batches_.data()));return &b;
+        }
+        if(create && r) {
+            batches_full_=true;rejected_recordings_[rejected_next_]=r;
+            rejected_next_=(rejected_next_+1)%rejected_recordings_.size();
+        }
         return nullptr;
     }
     Value* ValueFor(Resource r,bool create) noexcept {
@@ -246,24 +306,25 @@ class Lineage {
     }
     bool Add(Recording r,Event e) noexcept {
         if(!r || (e.op!=Op::InvalidateDevice && (!e.destination || r.device!=e.destination.device)))return false;
-        auto* b=BatchFor(r,true);if(!b){for(auto& value:values_)value.label=Unknown(value.label);return false;}
-        if(e.op==Op::InvalidateDevice && b->count && b->events[b->count-1].op==Op::InvalidateDevice)return true;
+        auto* b=BatchFor(r,true);if(!b){InvalidateAllValues();return false;}
+        if(e.op==Op::InvalidateDevice && b->count && Events(b)[b->count-1].op==Op::InvalidateDevice)return true;
         if(e.op==Op::InvalidateDevice && !b->submitted&&!b->overflow){
             // The latest unknown device write supersedes the previous tail of
             // unknown target writes. Retain all semantic Set/Copy/Clear events.
             // Thousands of draws to the same RTV do not consume thousands of
             // receipt slots or silently turn every application frame unknown.
             unsigned tail=b->count;
-            while(tail&&(b->events[tail-1].op==Op::Invalidate||b->events[tail-1].op==Op::InvalidateDevice))--tail;
-            for(unsigned i=tail;i<b->count;++i)if(b->events[i].op==Op::InvalidateDevice){b->count=i+1;return true;}
+            while(tail&&(Events(b)[tail-1].op==Op::Invalidate||Events(b)[tail-1].op==Op::InvalidateDevice))--tail;
+            for(unsigned i=tail;i<b->count;++i)if(Events(b)[i].op==Op::InvalidateDevice){b->count=i+1;return true;}
         }
-        if(b->submitted || b->count==b->events.size()){b->overflow=true;return false;}
-        b->events[b->count++]=e;return true;
+        if(b->submitted || b->count==Events(b).size()){b->overflow=true;return false;}
+        Events(b)[b->count++]=e;
+        pending_batches_|=Id{1}<<(b-batches_.data());return true;
     }
     Label Pending(Resource resource,const Batch* batch,unsigned before,unsigned depth) const noexcept {
         if(depth>48){Label unknown{};unknown.tainted=true;return unknown;}
         if(batch&&batch->overflow){Label unknown{};unknown.tainted=true;unknown.encoding=Encoding(resource);return unknown;}
-        if(batch && !batch->overflow)for(unsigned n=before;n>0;--n){const auto& e=batch->events[n-1];
+        if(batch && !batch->overflow)for(unsigned n=before;n>0;--n){const auto& e=Events(batch)[n-1];
             if(e.op==Op::InvalidateDevice)return Unknown(Pending(resource,batch,n-1,depth+1));
             if(!(e.destination==resource))continue;
             if(e.op==Op::Set){auto value=e.label;const auto encoding=Encoding(resource);if(encoding)value.encoding=encoding;return value;}
@@ -284,7 +345,7 @@ public:
         for(const auto& batch:batches_)if(batch.recording==recording)return !batch.submitted&&batch.count!=0;
         return false;
     }
-    bool AnyPending() const noexcept {for(const auto& batch:batches_)if(batch.recording&&!batch.submitted&&batch.count)return true;return false;}
+    bool AnyPending() const noexcept {return pending_batches_!=0;}
     bool Set(Recording r,Resource destination,Label label) noexcept {
         label.submitted=false;label.queue=label.submission=0;
         return Add(r,{Op::Set,destination,{},label});
@@ -305,7 +366,8 @@ public:
         const bool valid=queue && execute_succeeded && !b->submitted && !b->overflow &&
             next_submission_!=std::numeric_limits<Id>::max();
         const Id submission=valid?next_submission_++:0;
-        for(unsigned i=0;i<b->count;++i){const auto& e=b->events[i];
+        if(b->count)values_unknown_=false; // even failed submission may publish queue/taint metadata
+        for(unsigned i=0;i<b->count;++i){const auto& e=Events(b)[i];
             if(e.op==Op::InvalidateDevice){
                 for(auto& v:values_)if(v.resource.device==r.device){
                     v.label=Unknown(v.label);v.label.encoding=v.surface_encoding;
@@ -329,26 +391,29 @@ public:
             if(target->surface_encoding)value.encoding=target->surface_encoding;
             target->label=value;
         }
-        b->submitted=true;return valid && !b->overflow;
+        b->submitted=true;pending_batches_&=~(Id{1}<<(b-batches_.data()));
+        return valid && !b->overflow;
     }
-    void Reset(Recording r) noexcept {for(auto& b:batches_)if(b.recording.list==r.list && b.recording.lifetime==r.lifetime)b={};}
+    void Reset(Recording r) noexcept {for(auto& b:batches_)if(b.recording.list==r.list && b.recording.lifetime==r.lifetime){ClearBatch(b);ForgetBatchMisses();}}
     void Forget(Resource r) noexcept {
         for(auto& v:values_)if(v.resource==r)v={};
         for(auto& b:batches_)for(unsigned i=0;i<b.count;++i)
-            if(b.events[i].destination==r || b.events[i].source==r)b.overflow=true;
+            if(Events(&b)[i].destination==r || Events(&b)[i].source==r)b.overflow=true;
     }
     void ForgetAddress(Id address) noexcept {
         for(auto& value:values_)if(value.resource.address==address){const auto resource=value.resource;Forget(resource);}
     }
-    void ForgetList(Id address) noexcept {for(auto& batch:batches_)if(batch.recording.list==address)batch={};}
+    void ForgetList(Id address) noexcept {for(auto& batch:batches_)if(batch.recording.list==address){ClearBatch(batch);ForgetBatchMisses();}}
     void RetireSource(Id stream,Id epoch) noexcept {
+        values_unknown_=false; // Role::Retired is not a fixed point of Unknown
         auto retire=[&](Label& label){if(label.source.stream==stream&&label.source.epoch==epoch){
             label.source={};if(label.role!=Role::Generated)label.role=Role::Retired;label.exact_write=false;}};
         for(auto& value:values_)retire(value.label);
-        for(auto& batch:batches_)for(unsigned i=0;i<batch.count;++i)retire(batch.events[i].label);
+        for(auto& batch:batches_)for(unsigned i=0;i<batch.count;++i)retire(Events(&batch)[i].label);
     }
     void Presented(Resource resource,Label label,Id queue) noexcept {
         auto* value=ValueFor(resource,true);if(!value)return;
+        values_unknown_=false;
         label.queue=queue;label.submitted=queue!=0;label.processed=true;label.exact_write=true;
         if(!label.content)label.content=value->label.content;
         value->label=label;

@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$ToolchainRoot,
     [Parameter(Mandatory = $true)][string]$ReShadeSourceRoot,
-    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$CoreOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,9 +18,9 @@ $common = @('--analyze', '-std=c++20', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
     '-Xanalyzer', '-analyzer-output=plist')
 $targets = @(
     @{ Name='English'; Source='nr_before_sr.cpp'; Define='-DNR_UI_CHINESE=0' },
-    @{ Name='Chinese'; Source='nr_before_sr.cpp'; Define='-DNR_UI_CHINESE=1' },
-    @{ Name='Bridge'; Source='nrchain_nvngx.cpp'; Define='-DNR_UI_CHINESE=0' }
+    @{ Name='Chinese'; Source='nr_before_sr.cpp'; Define='-DNR_UI_CHINESE=1' }
 )
+if (-not $CoreOnly) { $targets += @{ Name='Bridge'; Source='nrchain_nvngx.cpp'; Define='-DNR_UI_CHINESE=0' } }
 foreach ($target in $targets) {
     $report = Join-Path $output ($target.Name + '.plist')
     & $compiler @common $target.Define (Join-Path $root ('src\' + $target.Source)) '-o' $report

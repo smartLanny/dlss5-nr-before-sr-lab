@@ -149,11 +149,11 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
     // Lazily created only on the shader fallback. Destruction restores the
     // exact native bindings; copy-only capture does not pay for this envelope.
     std::unique_ptr<NativeCommandStateScope> native_state;
-    bool snapshot_commands_recorded=false;
     struct DiscardUnmodifiedCapture {
-        std::unique_ptr<NativeCommandStateScope>& state;bool& modified;
+        std::unique_ptr<NativeCommandStateScope>& state;bool modified=false;
+        void MarkModified(){modified=true;}
         ~DiscardUnmodifiedCapture(){if(state&&!modified)state->active=false;}
-    } discard_unmodified{native_state,snapshot_commands_recorded};
+    } discard_unmodified{native_state};
     {
         Lock lock;recording=RecordingOf(list);
         if(!recording)return GuideCaptureDecline("recording-identity-unavailable");
@@ -249,7 +249,7 @@ bool CaptureGuides(ID3D12GraphicsCommandList* list,Source source,const NrGuideBi
     const unsigned widths[]={s.depth_width,s.motion_source_width},heights[]={s.depth_height,s.motion_source_height};
     const unsigned xs[]={s.depth_x,s.motion_x},ys[]={s.depth_y,s.motion_y};
     GuideCaptureStage("recording-guide-copy");
-    if(shader_snapshot){snapshot_commands_recorded=true;RecordNativeGuideSnapshot(list,c.snapshot,input,c.owned[0],c.owned[1],c.owned_state);}
+    if(shader_snapshot){discard_unmodified.MarkModified();RecordNativeGuideSnapshot(list,c.snapshot,input,c.owned[0],c.owned[1],c.owned_state);}
     else for(unsigned i=0;i<2;++i){
         auto input_state=static_cast<D3D12_RESOURCE_STATES>(before[i]);auto output_state=static_cast<D3D12_RESOURCE_STATES>(c.owned_state[i]);
         Transition(list,c.inputs[i],input_state,D3D12_RESOURCE_STATE_COPY_SOURCE);

@@ -284,6 +284,16 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,nr_dual_runtime::second_creates.load(),prefix,nr_dual_runtime::second_evaluations.load(),prefix,nr_dual_runtime::second_completed.load(),
         prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
         prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
+    const auto memory=SnapshotNrContextMemory();
+    FeedbackAppend(s,"%s.contextMemory.contexts=livePrimary:%u,liveAux:%u,retiredPrimary:%u,retiredAux:%u,pendingPrimary:%u,pendingAux:%u,quarantined:%u\n"
+        "%s.contextMemory.auxSlots=live:%u,retired:%u,pending:%u\n"
+        "%s.contextMemory.auxTrackedBytes=live:%llu,retired:%llu,pending:%llu,global:%llu\n"
+        "%s.contextMemory.parentRetirements=%llu\n"
+        "%s.contextMemory.scope=registered and pending metadata; quarantined is a subset; global may include outside-lock destruction or unlisted quarantine; excludes primary textures and opaque NGX allocations; not process or hardware VRAM\n",
+        prefix,memory.live_primary,memory.live_auxiliary,memory.retired_primary,memory.retired_auxiliary,memory.pending_primary,memory.pending_auxiliary,memory.quarantined,
+        prefix,memory.live_slots,memory.retired_slots,memory.pending_slots,
+        prefix,memory.live_aux_bytes,memory.retired_aux_bytes,memory.pending_aux_bytes,memory.tracked_aux_bytes,
+        prefix,memory.parent_retirements,prefix);
     FeedbackAppendDualSnapshot(s, prefix);
     FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
         prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
@@ -446,6 +456,12 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
         g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed),descriptor_counts.scoped_copies,descriptor_counts.global_copies);
+    FeedbackAppend(s,"%s.descriptor.rangeQueries=orderedScopes:%llu,orderedRanges:%llu,rawScopes:%llu,indexedInvalidations:%llu,orderedFallbacks:%llu,linearFallbacks:%llu; cumulative-batch-counters-not-GPU-time\n",
+        prefix,descriptor_counts.ordered_copy_scopes,descriptor_counts.ordered_copy_ranges,descriptor_counts.raw_copy_scopes,
+        descriptor_counts.indexed_invalidations,descriptor_counts.ordered_fallbacks,descriptor_counts.linear_fallbacks);
+    FeedbackAppend(s,"%s.descriptor.slotQueries=cpuHits:%llu,cpuMisses:%llu,cpuChainSteps:%llu,gpuHits:%llu,gpuMisses:%llu,gpuChainSteps:%llu; cumulative-Find-only-not-GPU-time-not-validity\n",
+        prefix,descriptor_counts.cpu_lookup_hits,descriptor_counts.cpu_lookup_misses,descriptor_counts.cpu_lookup_steps,
+        descriptor_counts.gpu_lookup_hits,descriptor_counts.gpu_lookup_misses,descriptor_counts.gpu_lookup_steps);
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
         FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
             prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);

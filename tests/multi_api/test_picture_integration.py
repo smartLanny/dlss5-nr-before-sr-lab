@@ -92,10 +92,19 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_source_frame.hpp',
             'src/nr_source_frame_forward.inl',
             'src/nr_source_frame_runtime.inl',
+            'src/nr_source_state_table.inl',
             'src/nr_source_observer.inl',
             'src/nr_source_transport.inl',
             'src/nr_source_views.inl',
             'src/nrchain_nvngx.cpp',
+            'src/nr_native_guide_snapshot.inl',
+            'src/nr_source_present_feedback.inl',
+            'src/nr_source_guide_diagnostics.inl',
+            'src/nr_fg_presentation.h',
+            'src/nr_descriptor_scratch.h',
+            'src/nr_launch_preferences.h',
+            'src/nr_late_present_receipt.hpp',
+            'src/nr_present_mapping.h',
         })
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
 

@@ -1,5 +1,88 @@
 # 统一开发与测试交接入口
 
+## 2026-09-20 Perf12：辅助依赖退休与显存账目，包含Perf11复用
+
+接续 #297 / Perf11，显存机制跟踪 #298。原收集器在主实例退休后可能留下未被再次访问的辅助实例；新实现先按完整父实例/载体代次/路线标记相关辅助退休，再等待每个辅助自己的命令列表、fence、绑定和隔离条件。正常F6关闭保留可复用实例，历史变化仍按Perf11真实Reset，不强制清空或共享模型历史。
+
+冻结 `ab1a4ab7` 已从新目录完整Windows双语构建passed/0；46组canonical、全继承门禁、新父子退休反例、350项F8输出、完整Core描述符WARP669、来源传输1700、快照1045/3场景和负控通过。229生成文件、164固定输入及6个关键生产函数已核验，26个shader与Perf11相同。中文Core `72239e29…`、OTA `a9052c6d…` 已生成未安装。首次失败仅为F8测试夹具未接新快照，补齐实际序列化断言后重新完整运行，原failed记录保留。
+
+F8新增contextMemory分类已注册、退休等待和排队销毁的实例及辅助纹理账目；live不等于当前执行，账目不含主层全部资源或NGX内部内存，不是进程/整机VRAM。新游戏/NVIDIA/实际显存下降仍未验证；不能把旧424MB与新106MB的不同进程Perf10快照写成75%优化。D21new本身不含VRAM曲线或帧CSV，#277/#296保持开放。
+
+[机制、已有PR覆盖与边界](D21_PERF12_AUX_MEMORY_20260920.md) · [Windows交付和最小测试](D21_PERF12_WINDOWS_20260920.md)。无需先测Perf11再测Perf12，本候选包含累计性能和同合同辅助复用。独立uniform/colour分支仍须按#294合并，不自动纳入或覆盖其功能。
+
+## 2026-09-19 Perf11：辅助实例复用与强制历史 Reset
+
+D21new同进程记录确认F6热开时主实例1保持、辅助2→3重复创建。候选只在全部Create合同一致时保留辅助实例，Invalidate历史并保持Reset到实际成功；父实例/尺寸/模型/格式变化、queue/fence和预热门槛保留。D13同样存在这条旧规则，不将其等同D21相对D13全部回退根因。
+
+冻结源码 `f4645cbd` 已Windows双语完整构建passed/0，46组canonical、新复用反例与全部旧门禁、描述符WARP669、来源传输1700、快照1045/3场景和负控通过。229文件/164输入及生成函数已核验，26个shader与Perf10相同。中文Core `fc8c8ede…`、OTA `fb82a9ba…` 已生成未部署；调试层、NVIDIA/游戏收益未验收。Perf10保留基线，#277/#296保持开放。[新录制和机制](D21_PERF11_AUX_HISTORY_20260919.md) · [Windows交付与边界](D21_PERF11_WINDOWS_20260919.md)。
+
+## 2026-09-19 Perf10：录制状态数据写入和无引导图提交路径
+
+新Perf8/Perf9均为匹配NR→SR配置，ON约62.05→62.97FPS，再次OFF插件self约74.13→62.21 CPU ms/s，但后台安全扫描/PowerShell负载仍不同，不将全部差距归功于代码。继续完成关联修复：Reset仅失效根参数头而不重写8192个无效常量词；保留小批次原循环，大批次顶点绑定合并复制/掩码；提交时用已有精确pending证明避开无工作引导图扫描。实际新旧状态、绑定、COM、队列/fence、失败提交对照和24场景WARP已通过。本次继续时复用已冻结实现 `bdc9cf8c`，在新输出目录从头重新跑Windows双语完整构建并passed/0；46组canonical、所有继承门禁、描述符WARP669、来源传输1700和快照1045/3场景及负控完成。229生成文件、164固定输入及两处生产字节已核验，中文Core `321c65c4…`、OTA `7c2a30ed…` 已生成未安装。调试层未验证、托管CI单独报告，首次NGX初始化未混入改动，游戏/NVIDIA/FPS仍待验收。[实现与测量边界](D21_PERF10_20260919.md) · [Windows回执与交付](D21_PERF10_WINDOWS_20260919.md)。
+
+## 2026-09-19 D21 Perf9：来源批次冷热分离与快照碰撞处理
+
+新录制确认加载正确 Perf8，但两次捕获期间均有约两个 CPU 核的并行着色器编译，且后置 NR 从上轮实际 3520×1984 改为 3840×2160、UI 校正从 0 改为 1，不能把帧率差直接归因于版本。Perf9 接续实测快照扫描和 Pending/Reset/Execute 成本：64 份批次头与事件载荷分开，精确 pending 位图替代全扫描；快照使用四路提示保留原 epoch/锁/别名规则。真实新旧函数差分、容量/失败提交/复用和 Windows SRW 通过；新增录制前编译/空间检查，不终止并行任务。冻结 `e59649c5` 完整双语构建、46 组 canonical、描述符 WARP 669 项、来源传输 1700 项与快照 1045 项/3 场景及负控全部完成，进程退出 0。229 生成文件、164 固定输入已核验；两处生产代码匹配冻结 Git（.hpp 仅既有 CRLF 展开），26 个 shader 与 Perf8 一致。中文 Core `ecc45017…`、OTA `95214b6f…` 已生成未安装；调试层不可用单独记 false，游戏/NVIDIA/FPS 待实测。[实测与改动](D21_PERF9_20260919.md) · [Windows 验证与交付](D21_PERF9_WINDOWS_20260919.md)。
+
+## 2026-09-19 D21 Perf8：两路线 Reset/状态退休与复制维护整批修复
+
+两份 Perf7 的实际构建身份一致，前置 NR→SR 与后置 SR→NR 分开分析。共同热点已核对到 Reset 内联的 256 项状态扫描、全索引 Rebuild 和未知描述符范围排序。Perf8 用稳定值槽的成员链及局部探测簇修复替代全表重建，增加只缓存位置的 token 提示，并将可重入范围存储复用与按输入形状选择的排序合为一批。保留锁、容量、第一空槽、pending/unknown、别名/Reset/退休及画质工作量。实际新旧状态差分、Windows SRW、范围并集及所有继承门禁已通过。冻结源码 `7e2dfd27` 已从头完成双语完整编译、46 组 canonical、完整 Core 描述符 WARP 669 项、来源传输 1700 项及快照 1045 项/3 场景与负控。229 生成文件、164 固定输入和四处生产字节已核验，26 个 shader 与 Perf7 相同。中文 Core `f1b6a35f…`，中文 OTA `407303d8…` 已生成未部署。首次构建的独立头文件依赖问题修正后重新全流程通过，原失败记录保留；调试层未验证，游戏/NVIDIA 与真实 FPS 收益待验收。[实现、实测依据与边界](D21_PERF8_20260919.md) · [Windows 回执与交付](D21_PERF8_WINDOWS_20260919.md)。
+
+## 2026-09-18 D21 Perf7：来源观察整条热路径合批优化
+
+按维护者要求，不再单独交付一个小型缓存改动。本轮依据 Perf6 实测，将来源状态表的精确键索引、同批次资源身份复用、Core/observer 命令列表身份查询、同生命周期设备 cookie 复用合为一批；保留容量、别名、Reset/退休、pending/unknown 和恢复保护。实际 OnBarrier 新旧差分、完整身份与真实 Windows SRW 并发、前后路由回归通过。冻结源码 `9184fb60` 已完成中英文 Core 编译和 46 组 canonical 验证；末尾来源传输夹具入口修正后补跑 1,700 项 WARP，生产代码逐字节不变，原失败记录保留、完成过程另有回执。229 个生成文件、164 项固定输入已核验，26 个 shader 与 Perf6 一致。中文 Core `b72b5c38…`，中文 OTA `a4e35473…` 已生成未部署。由于原工作盘耗尽，构建/交付及附带录制入口改用有空间的盘；旧 ETL/旧包未删除。调试层仍未验证，新候选游戏性能待实测。[Windows 产物与完成边界](D21_PERF7_WINDOWS_20260918.md)。
+Perf6 这份录制实际是后置 SR→NR、4K NR、强度/局部色调/结构 2/2/2，且清单 PID 与 CSV/F8 不同；已在分析副本纠正 PID，不能把约 50 FPS 与旧前置录制的约 62 FPS 相除判定回退。冷启动停顿未混入本轮状态跟踪修改。[整批范围、验证和测试要求](D21_PERF7_20260918.md)。
+
+
+## 2026-09-18 D21 Perf6：真实槽查询热点接续
+
+Perf5 实测确认有序范围路径已使用、旧线性回退为零；首次关闭／开启态插件 self 降低，但整帧尚未提速。当前首要描述符采样落在 BeginLocked 内的完整键链式查询。Perf6 在同一 registry 锁下增加有界槽编号缓存，命中仍核对 heap／index，pending／revision／incarnation／寿命检查不变；已排序范围不再重复排序。F8 增加 `descriptor.slotQueries`，保留 Perf5 范围计数。只有描述符头文件和反馈行是新增运行时代码；构建入口 `scripts/build-perf6-candidate.ps1`，最终产物状态以本次回执为准。[实现与验收](D21_PERF6_20260918.md)。
+
+## 2026-09-18 D21 Perf5：描述符密集范围与回退查询
+
+按维护者“调查后直接推进修复和测试交付”的要求，从已测 Perf4 `ea9e0b89` 接续。复制前只整理插件自有范围数组，保留精确字节地址空隙；密集回退、逐槽遮罩和每 heap 前置检查改用有序查询，并补 F8 累计分支计数。Perf4 来源满表优化、NR/SR/RR/FG 画质和恢复契约不变。冻结源码 `3e1dd7992a94dbdd4700fb41377a7a4f6f1bd102` 已完成完整 Windows 双语构建、46 组 canonical 验证、真实 Core 描述符 WARP 669 项及来源传输 WARP 1,700 项；Perf3/4 和 Perf5 新旧差分门禁全部通过。中文 Core 哈希 `eeb94db9…`，中文配套 OTA 已生成且未部署；26 个着色器与 Perf4 字节一致。调试层不可用单独记为未验证，真实读回与负控已执行，游戏性能仍待实测。详情见 [Perf5 范围与验证](D21_PERF5_20260918.md) 和 [Windows 交付记录](D21_PERF5_WINDOWS_20260918.md)。
+
+## 2026-09-18 D21 Perf4：实测外层扫描与满表失效
+
+Perf3 的实测并未明显降低 Lock2 的主要开销，本轮据精确热点收敛为两个生产头文件：用现有 heap 范围索引避免 heap×range 外层扫描；对来源满表后的重复查找和幂等 Unknown 重写做有界消重，保留所有失败返回、寿命、taint 和重新发布后的失效。
+冻结源码 `13cca5a2` 已完成 Windows 双语构建、46 组 canonical 检查、描述符 WARP 669 项、来源传输 WARP 1,700 项与原有恢复/负控；26 个 shader 与 Perf3 哈希相同。
+中文 Core 哈希 `bb7d907d…`，中文配套 OTA 已生成、未部署。调试层不可用单独标记未验证，NVIDIA/游戏性能等待复测，不把微基准降幅当作 FPS 收益。
+[实现与测试](D21_PERF4_20260918.md) · [实际产物与限制](D21_PERF4_WINDOWS_20260918.md)。
+
+
+## 2026-09-18 D21 Perf3：描述符范围与来源批次热路径
+
+从实际已测 Cursor Lock2 `63efc2bd` 独立接续。仅修改描述符范围失效／写入有效载荷，以及来源批次的完整录制身份索引缓存；模型、画质、NR/SR/RR/FG 路由和恢复保护不变。Windows CPU 新旧差分、描述符 2,225 项、来源 399 项、120,000 操作及 8,000 线程生命周期检查通过。完整构建入口为 `scripts/build-perf3-candidate.ps1`，旧 Lock2 入口仅转发，生成版本为 `beta0.5-dline21-perf3`。冻结源码 `8ea3206f` 已完成 Windows 双语构建、46 组 canonical 验证、完整 Core 描述符 WARP 669 项和来源传输 WARP 1,700 项；中文 Core 哈希 `ec3e432e…`，配套中文 OTA 已生成且未部署。26 个着色器与 Lock2 字节一致。使用显式无调试层模式完成快照读回及负控，调试层验证仍未完成；NVIDIA／游戏性能待维护者实测。详情见 [Perf3 范围与验证](D21_PERF3_20260918.md) 和 [Windows 产物与验收记录](D21_PERF3_WINDOWS_20260918.md)。
+
+## 2026-09-17 D21 lockperf2：中文测试 OTA
+
+给其他电脑导入用的中文 OTA 已打好，不含 NVIDIA 游戏 DLL。路径 `D:\ChatGPT\DLSS5\deliveries\d21-lockperf2-1bacd72c-20260917-ota\DLSS5-0.5-D21-lockperf2-zh-CN-OTA.zip`，SHA256 `a0373e3a317f38d7eb571947641b319922ebec746da842734e11fb94e906691a`。包内 5 项：中文 Core `dd3a66d9…`、配套 nrchain `1acf3cbe…`、说明、许可证、`ota-manifest.json`。管理器「导入核心更新」后需再对该游戏应用 `0.5 D21-lockperf2`。不是游戏验收。
+
+## 2026-09-17 D21 lockperf2：已装入异环
+
+维护者要求把中文 lockperf2 整套换进异环查看。原活动是 D13 Core（`3f67cc32…`）加 D13 的 8KB `nrchain`（`46041a5f…`）。现已配对为 lockperf2 Core `dd3a66d9…` + 与 D21/lockperf1 相同的 222KB `nrchain` `1acf3cbe…`。INI、ReShade.ini 未变。D13 的 Core 和 8KB chain 均在游戏目录外备份。未启动游戏，GPU 跑满与否仍待维护者看。
+
+## 2026-09-17 D21 lockperf2：Windows 测试包已出
+
+隔离 worktree `nr-d21-lockperf2-build-20260917` 已完成本地 Windows 双语 Core 编译与 WARP，并打出可替换游戏的单 Core 测试 ZIP。运行时仍是 PR #280 的 lockperf2 修复；本机额外提交只修继承夹具和 PowerShell 5 负控宿主中断，没有改 NR 层数、分辨率、shader 或画质参数。未推送、未合并、未装游戏、未关 #277/#272/#273。
+
+| 项 | 值 |
+|---|---|
+| 包源 HEAD | `1bacd72c2cf383013c78c0516c45d99691adbe91` |
+| 版本串 | `beta0.5-dline21-lockperf2` |
+| 中文 ZIP | `D:\ChatGPT\DLSS5\deliveries\d21-lockperf2-1bacd72c-20260917\DLSS5-D21-lockperf2-zh-CN-test.zip` |
+| 中文 ZIP SHA256 | `c802ed0c99b81e740468885684cd41db3e67698aa04b3a875990fd02df5d2173` |
+| 中文 Core SHA256 | `dd3a66d984c9b32fe53f47060368711c4f166be4d73c2864a433c57685811c69` |
+| 英文 ZIP SHA256 | `7f0bff71f6086bc6ecda762d3ac618c48bfa230fe5ad49011104afb2b2751580` |
+| 英文 Core SHA256 | `3e51c21f0c5d9b944b06711c2eceadb250dc611f73c276a7576b83b04352b679` |
+| nrchain 复用 | `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2` |
+
+包内只有一个 Core 与 `READ-FIRST.txt`，不含 INI、模型、nrchain、桥接器或覆盖用游戏文件。这是源码/WARP 候选，不是游戏或 NVIDIA 验收。官方 `build-lockperf2-candidate.ps1` 未能一次跑通：本机没有 D3D12 debug layer，`post_sr_snapshot_gpu` 未跑。继承 Windows 回归在 `9ff0ac27` 上通过（除 snapshot）；本 HEAD 另过 SRW 27 项、hotpath（16000→4 扫描、64/64 常量、20000 序列）和完整双语 canonical 构建。GitHub Actions 仍未启动。下一步是原弱 CPU 场景换 Core 实测，保留旧 D21lock 回退。[范围与边界](D21_COMMAND_STATE_LOCKPERF2_20260917.md)。
+
+## 2026-09-17 D21 lockperf2：状态维护热路径候选
+
+从 d8de528 的 lockperf1 构建修复基线接续 #277，减少未使用根常量载荷的清零，并把模板内单项查找缓存改为跨 setter 共享的四项线程缓存。保留 registry/slot 生命周期锁、epoch、Reset/恢复、全部观察器与画质工作量。两项旧源码负控失败、新源码通过，20,000 组有效状态差分与原 27 项同步/读取场景通过 macOS ASan/UBSan；这不是 Windows、WARP 或游戏验收。Windows 构建入口为 `scripts/build-lockperf2-candidate.ps1`。CI 因账单/额度未启动；本地 Windows 包见上方最新条目，#277/#272/#273 保持开放。[范围、验证与交付条件](D21_COMMAND_STATE_LOCKPERF2_20260917.md)。
+
 ## 2026-09-14 D21 追加澄清：默认仅用于无保存配置
 
 维护者最新要求覆盖下方旧“每进程 Before、显式记忆”的描述：没有保存位置时默认前置，有效 INI 遵循用户选择，删除额外记忆勾选。保留 #223 入口修复。兼容模式悬浮说明明确 FG 下临时后置/无入口跳过，FG 最终整图与更广泛输入覆盖仍跟踪 #190；#257–#259 不自动合并。[范围与未完成边界](D21_SAVED_ROUTE_FG_BOUNDARY_20260914.md)。

@@ -121,8 +121,8 @@ std::printf("production layer normalization: %u cases passed\n",checks);}
     assert 'layered_enhancement' in config and 'layered_enhancement' not in history
     assert 'LayeredEnhancement=0' in ini and 'bool layered_enhancement = false;' in source
     assert '((v2_combine && g_config.layered_enhancement) ? 2048u : 0u)' in source
-    assert 'kCodecRootConstantCount = 35;' in source
-    assert 'kCodecSrvCount = 5;' in source and 'kCodecUavCount = 5;' in source
+    assert 'kCodecRootConstantCount = 60;' in source
+    assert 'kCodecSrvCount = 13;' in source and 'kCodecUavCount = 8;' in source
     assert 'layerMean = localMean;' in combine
     assert 'layeredActive && LayerTone != LayerStructure' in combine
     assert 'abs(baseLog), lumaStrength - 1.0, budget)' in combine
@@ -132,6 +132,6 @@ std::printf("production layer normalization: %u cases passed\n",checks);}
     assert 'FrameConfidence <= 0.000001' in combine
     assert 'Reset only these layers' in ui
     assert 'next.layered_enhancement = false;' in ui
-    print('Layer config / Mode2 / independent colour / history / ABI / capture integration passed.')
+    print('Layer config / pre-post route / independent colour / history / ABI / capture integration passed.')
 
 if __name__=='__main__':main()

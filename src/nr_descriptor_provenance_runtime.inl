@@ -227,7 +227,9 @@ nr_descriptor::Write NrDescriptorBeginRtv(ID3D12Device *device,ID3D12Resource *r
 struct NrDescriptorCopy {
     static constexpr unsigned kMaximum=256;
     nr_descriptor::ScratchBuffer<nr_descriptor::Write,kMaximum> writes;
-    std::unique_ptr<nr_descriptor::UnknownRange[]> ranges;
+    // Both the range array and radix scratch use bounded, reentrancy-safe TLS
+    // blocks. Ownership lasts through the complete native copy/UnknownCopy scope.
+    nr_descriptor::ScratchBuffer<nr_descriptor::UnknownRange,2048> ranges;
     nr_descriptor::UnknownCopy unknown;
     unsigned count=0;
     ~NrDescriptorCopy(){
@@ -257,7 +259,7 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
             g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;
         }
         if(!destinations)return;
-        copy.ranges.reset(new(std::nothrow) nr_descriptor::UnknownRange[destinations]);
+        (void)copy.ranges.Acquire(destinations);
         if(!copy.ranges){g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;}
         unsigned range_count=0;
         for(UINT i=0;i<destinations;++i) {
@@ -270,6 +272,13 @@ void NrDescriptorBeginCopy(NrDescriptorCopy& copy,ID3D12Device *device,UINT dest
             }
             copy.ranges[range_count++]={first,first+static_cast<nr_descriptor::Id>(size-1)*stride,
                 static_cast<unsigned>(type)};
+        }
+        // Prepare only our owned copy, before publishing the scope or taking
+        // the registry mutex. Never reorder the application's native arguments.
+        // Union uses exact byte intervals; stride gaps cannot be filled because
+        // a live overlapping heap may place a real descriptor in such a gap.
+        if(range_count && !nr_descriptor::NormalizeUnknownRanges(copy.ranges.get(),range_count)) {
+            g_nr_descriptors.BeginUnknownCopy(copy.unknown,nullptr,0,true);return;
         }
         if(range_count)g_nr_descriptors.BeginUnknownCopy(copy.unknown,copy.ranges.get(),range_count);
     };

@@ -11,17 +11,35 @@ nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *nativ
     nr_post_boundary::List result;result.address=reinterpret_cast<std::uint64_t>(native);
     if(!native)return result;
     // Preserve the native fast path: recording hooks read only value records.
-    thread_local ID3D12GraphicsCommandList *last_native=nullptr;
-    thread_local std::uint64_t last_epoch=0;
-    thread_local CommandStateRecord *last_record=nullptr;
+    struct Hint {ID3D12GraphicsCommandList* native=nullptr;std::uint64_t epoch=0;CommandStateRecord* record=nullptr;};
+    // Several native lists can share the same address-hash bucket. A single
+    // direct-mapped hint repeatedly rescans 2048 records when they alternate.
+    // Four ways retain colliding lists; epoch/lock and first-match semantics are
+    // deliberately unchanged, including negative hints and live alias scopes.
+    struct Set {Hint ways[4]{};unsigned recent=0,next=0;};
+    thread_local Set sets[16]{};
     AcquireSRWLockShared(&g_command_state_lock);
     const auto epoch=g_command_state_epoch.load(std::memory_order_relaxed);
-    if(last_native!=native || last_epoch!=epoch) {
-        last_record=nullptr;
-        for(auto &entry:g_command_states)if(entry.native==native && entry.token) {last_record=&entry;break;}
-        last_native=native;last_epoch=epoch;
+    const auto address=reinterpret_cast<std::uint64_t>(native);
+    auto& set=sets[static_cast<unsigned>((address>>4)^(address>>12)^(address>>20))&15u];
+    unsigned selected=set.recent;
+    const auto matches=[&](unsigned i){return set.ways[i].native==native&&set.ways[i].epoch==epoch;};
+    if(!matches(selected)) {
+        selected=4;
+        for(unsigned i=0;i<4;++i)if(matches(i)){selected=i;break;}
+        if(selected==4) {
+            selected=set.next;set.next=(set.next+1)&3u;
+            auto& replacement=set.ways[selected];replacement.record=nullptr;
+            for(auto &entry:g_command_states)if(entry.native==native && entry.token) {replacement.record=&entry;break;}
+            replacement.native=native;replacement.epoch=epoch;
+        }
     }
-    const auto *record=last_record;
+    set.recent=selected;
+    const auto& hint=set.ways[selected];
+    // The registry shared lock is held before using a hint. Metadata is read
+    // fresh below, including native reset and lifetime_ready. Negative hints
+    // still traverse the current alias scope: aliases never persist in TLS.
+    const auto *record=hint.record;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     // Proxy mappings are cold-verified, bounded by an actual original call,
     // and invalidated by record retirement/replacement. Never read COM here.

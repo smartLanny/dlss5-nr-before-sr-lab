@@ -6261,9 +6261,33 @@ void DrainNgxFeatureRetirementsLocked() {
     }
 }
 
+// An auxiliary owns immutable inputs from this exact root instance. Once that
+// root is retired, waiting for another PrepareOne to notice the changed parent
+// can retain an unreachable NGX feature and its textures indefinitely (e.g. a
+// resize followed by disabling layers). Mark dependencies before moving roots
+// out of g_contexts; actual destruction still requires each child's own proof.
+std::atomic<unsigned long long> g_aux_parent_retirements{0};
+void RetireAuxiliaryDependenciesLocked() {
+    unsigned changed=0;
+    for (const auto &parent : g_contexts) {
+        if (!parent.sr_handle || parent.layer_index != 0 ||
+            !parent.instance_id || !parent.retired) continue;
+        for (auto &child : g_contexts) {
+            if (child.sr_handle == parent.sr_handle && !child.retired &&
+                child.layer_index != 0 && child.parent_instance_id == parent.instance_id &&
+                child.feature_generation == parent.feature_generation && child.mode == parent.mode) {
+                child.retired = true;
+                ++changed;
+            }
+        }
+    }
+    if (changed) g_aux_parent_retirements.fetch_add(changed,std::memory_order_relaxed);
+}
+
 void CollectRetiredContextsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     DrainNgxFeatureRetirementsLocked();
+    RetireAuxiliaryDependenciesLocked();
     CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
         if (context.sr_handle != nullptr && context.retired &&
@@ -6315,6 +6339,45 @@ void DrainPendingContextDestructions() {
         if (source == nullptr) break;
         DestroyContext(pending);
     }
+}
+
+// Read-only metadata for F8. These bytes are the existing auxiliary texture
+// ledger, NOT primary textures, opaque NGX allocations, process residency or a
+// hardware VRAM reading. Destruction runs outside g_chain_cs and may be between
+// tables, so the global and enumerated ledgers are deliberately not equated.
+struct NrContextMemorySnapshot {
+    unsigned live_primary=0,live_auxiliary=0,retired_primary=0,retired_auxiliary=0;
+    unsigned pending_primary=0,pending_auxiliary=0,quarantined=0;
+    unsigned live_slots=0,retired_slots=0,pending_slots=0;
+    unsigned long long live_aux_bytes=0,retired_aux_bytes=0,pending_aux_bytes=0;
+    unsigned long long tracked_aux_bytes=0,parent_retirements=0;
+};
+NrContextMemorySnapshot SnapshotNrContextMemory() {
+    NrContextMemorySnapshot out{};
+    EnterCriticalSection(&g_chain_cs);
+    for (const auto &context : g_contexts) {
+        if (!context.sr_handle) continue;
+        if (context.retired) {
+            if(context.layer_index)++out.retired_auxiliary;else ++out.retired_primary;
+        } else {
+            if(context.layer_index)++out.live_auxiliary;else ++out.live_primary;
+        }
+        if(context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined)++out.quarantined;
+        for(const auto& slot:context.slots)if(slot.dual_bytes) {
+            if(context.retired){++out.retired_slots;out.retired_aux_bytes+=slot.dual_bytes;}
+            else {++out.live_slots;out.live_aux_bytes+=slot.dual_bytes;}
+        }
+    }
+    for(const auto& context:g_pending_destroy_contexts) {
+        if(!context.sr_handle)continue;
+        if(context.layer_index)++out.pending_auxiliary;else ++out.pending_primary;
+        if(context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined)++out.quarantined;
+        for(const auto& slot:context.slots)if(slot.dual_bytes){++out.pending_slots;out.pending_aux_bytes+=slot.dual_bytes;}
+    }
+    out.tracked_aux_bytes=g_dual_allocated_bytes.load(std::memory_order_relaxed);
+    out.parent_retirements=g_aux_parent_retirements.load(std::memory_order_relaxed);
+    LeaveCriticalSection(&g_chain_cs);
+    return out;
 }
 
 void RetireContextForHandle(const NgxHandle *sr_handle) {
@@ -7522,7 +7585,10 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation == feature_generation &&
             context.mode == mode && context.layer_index == layer_index) {
-            if(layer_index!=0 && (context.parent_instance_id!=parent_instance || context.parent_input_epoch!=parent_epoch)){context.retired=true;continue;}
+            // Parent object identity owns this layer's immutable Create inputs.
+            // A history-only epoch change is handled by Reset below after every
+            // storage/tuning check, not by destroying the unchanged NGX model.
+            if(layer_index!=0 && context.parent_instance_id!=parent_instance){context.retired=true;continue;}
             // One temporal history per carrier/generation/mode. Keeping an
             // active context for every DRS extent resurrected stale history
             // on A->B->A and eventually occupied all 16 context entries.
@@ -7585,7 +7651,24 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         if (empty == nullptr && context.sr_handle == nullptr) empty = &context;
     }
-    if (matching != nullptr) return matching;
+    if (matching != nullptr) {
+        if (layer_index != 0 && matching->parent_input_epoch != parent_epoch) {
+            const auto previous_epoch = matching->parent_input_epoch;
+            matching->parent_input_epoch = parent_epoch;
+            // Never retain the old temporal answer. Keep Reset pending across
+            // queue/slot refusals; RunOne consumes it only on successful Evaluate.
+            // Existing Create-completion fences, sealed inputs, current guide
+            // checks and primary/secondary warmup gates remain authoritative.
+            matching->dual_history.Invalidate();
+            matching->reset_retry_pending = true;
+            Log("[dual-nr] reuse instance=%llu parent=%llu layer=%u history=%llu->%llu "
+                "extent=%ux%u; same Create contract, temporal Reset pending; "
+                "not an Evaluate or GPU-completion receipt.",
+                matching->instance_id, parent_instance, layer_index,
+                previous_epoch, parent_epoch, width, height);
+        }
+        return matching;
+    }
     if (empty != nullptr) {
         empty->layer_index=layer_index;empty->parent_instance_id=parent_instance;empty->parent_input_epoch=parent_epoch;
         empty->sr_handle = sr_handle;

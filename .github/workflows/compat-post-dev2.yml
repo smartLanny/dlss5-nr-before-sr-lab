@@ -74,7 +74,7 @@ jobs:
       - name: Canonical source, host regressions, WARP and complete bilingual build
         shell: pwsh
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-multi-api-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -OutputRoot build/compat-dev2
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-lockperf2-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -OutputRoot build/compat-dev2
           if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
       - name: Package separate languages; preserve user INI, do not publish a Release
         shell: pwsh
@@ -87,4 +87,8 @@ jobs:
           path: |
             build/candidate/*.zip
             build/candidate/packages.json
+            build/compat-dev2/DLSS5-D21-lockperf2-*-test.zip
+            build/compat-dev2/LOCKPERF2-CANDIDATE.json
+            build/compat-dev2.lockperf-checks/validation.json
+            build/compat-dev2.hotpath-checks/validation.json
           if-no-files-found: error

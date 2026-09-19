@@ -3,7 +3,9 @@
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
     [Parameter(Mandatory=$true)][string]$DirectXMathRoot,
-    [Parameter(Mandatory=$true)][string]$OutputRoot
+    [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$NrchainReuseRoot,
+    [string]$CodecCacheRoot
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -13,6 +15,7 @@ $Toolchain = (Resolve-Path -LiteralPath $ToolchainRoot).Path
 $ReShade = (Resolve-Path -LiteralPath $ReShadeSourceRoot).Path
 $Math = (Resolve-Path -LiteralPath $DirectXMathRoot).Path
 $Output = [IO.Path]::GetFullPath($OutputRoot)
+$CodecCache = if ($CodecCacheRoot) { (Resolve-Path -LiteralPath $CodecCacheRoot).Path } else { '' }
 if (Test-Path -LiteralPath $Output) { throw 'OutputRoot must not exist; previous candidates are never overwritten.' }
 function Assert-Commit([string]$Path, [string]$Expected) {
     $Actual = (& git -C $Path rev-parse HEAD).Trim()
@@ -135,11 +138,25 @@ try {
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -NegativeControl
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -LayerNegativeControl
-    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 35-root ABI and independent negative controls')
-    & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
-    $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
-    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
-    $Checks.Add('staged bilingual core + nrchain compilation and link')
+    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 60-root ABI and independent negative controls')
+    $StaticArgs = @{}
+    if ($NrchainReuseRoot) { $StaticArgs['CoreOnly'] = $true }
+    & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core') @StaticArgs
+    if ($NrchainReuseRoot) {
+        $Checks.Add('actual staged bilingual core LLVM static analysis: zero diagnostics; exact-source nrchain verified from signed SDK build receipt')
+    } else {
+        $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
+    }
+    $CodecArgs = @{}
+    if ($CodecCache) { $CodecArgs['CodecCacheRoot'] = $CodecCache }
+    # Existing codec builder verifies exact source/options, compiler bytes and
+    # every cached DXBC hash. This does not skip any runtime/WARP/static gate.
+    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -NrchainReuseRoot $NrchainReuseRoot @CodecArgs
+    if ($NrchainReuseRoot) {
+        $Checks.Add('staged bilingual core compilation/link + exact-source verified nrchain reuse')
+    } else {
+        $Checks.Add('staged bilingual core + nrchain compilation and link')
+    }
     $CarrierRoot = Join-Path $Stage 'carrier/src'
     $CarrierResource = Join-Path $Output 'carrier-version.o'
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -169,6 +186,7 @@ try {
         directxmath_commit='28929ac6f3c1649a7641741b689ebecccb17aa8d'
         compiler=$CompilerVersion; powershell=$PSVersionTable.PSVersion.ToString()
         source_verified=$true; compile_verified=$true; warp_verified=$true
+        nrchain_reused=[bool]$NrchainReuseRoot
         game_runtime_verified=$false; nvidia_feature18_verified=$false
         completed_utc=[DateTime]::UtcNow.ToString('o'); checks=@($Checks.ToArray()); binaries=$Hashes
     }

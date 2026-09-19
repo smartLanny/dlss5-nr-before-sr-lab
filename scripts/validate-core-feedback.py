@@ -49,6 +49,7 @@ HARNESS = r'''
 #include "nr_compat_present_policy.hpp"
 #include "nr_full_pass.hpp"
 #include "nr_source_frame.hpp"
+#include "nr_late_present_receipt.hpp"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -113,6 +114,8 @@ std::atomic<unsigned long long> g_nr_successful_evaluations{0},g_nr_transfer_sub
 std::atomic<unsigned> g_live_rr_handles{0},g_rr_create_in_progress{0};
 std::atomic<int> g_last_bypass_reason{0},g_last_carrier_feature{1},g_module_observer_fault{0};
 std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true},g_preflight_dlssd_loaded{false},g_command_signature_hook_published{true},g_command_signature_start_deferred{false};
+std::atomic<bool> g_loader_init_hooks_ready{true},g_core_lifecycle_hooks_ready{true};
+std::atomic<unsigned long long> g_loader_init_completions{1};
 enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
@@ -152,12 +155,43 @@ bool fixture_capture_fg=false;
 unsigned CaptureStatus(bool fg){return fixture_capture_status[fg];}
 unsigned CaptureWorkers(bool fg){return fixture_capture_workers[fg];}
 bool CaptureUsesFg(){return fixture_capture_fg;}
+bool TrySnapshotExperimentModes(unsigned& requested,unsigned& active,bool& has_active,bool& low_requested){
+    requested=active=0;has_active=false;low_requested=false;return true;
+}
 }
 namespace nr_source_runtime {
 nr_source_frame::PresentObservation fixture_source;
 bool fixture_source_busy=false;
 bool TryPresentObservation(nr_source_frame::PresentObservation& out){out={};if(fixture_source_busy||!fixture_source.ordinal)return false;out=fixture_source;return true;}
+SRWLOCK source_lock=SRWLOCK_INIT;
+unsigned long long present_demand_skips=0;
+struct GuideCaptureDiagnostic {
+    nr_source_frame::Source source{};
+    unsigned config=0,depth_physical_width=0,depth_physical_height=0;
+    unsigned depth_x=0,depth_y=0,depth_width=0,depth_height=0;
+    unsigned motion_width=0,motion_height=0,output_width=0,output_height=0;
+    bool depth_state_observed=false,motion_state_observed=false,shader_snapshot=false;
+    const char* stage="unobserved";
+};
+struct GuideReceiptDiagnostics {
+    GuideCaptureDiagnostic last{};
+    unsigned long long attempts=0,recorded=0,native_success=0,native_failure=0;
+    unsigned long long submitted=0,signal_failure=0,selected=0;
+    unsigned present_width=0,present_height=0;
+    nr_late_present::Decision selection=nr_late_present::Decision::None;
+};
+bool TryGuideReceiptDiagnostics(GuideReceiptDiagnostics& out){out={};return false;}
 }
+struct DescriptorCountersFixture {
+    unsigned long long gpu_shadow_skipped_calls=0,gpu_shadow_skipped_descriptors=0;
+    unsigned long long heap_retire_slot_visits=0,unknown_slot_visits=0;
+    unsigned long long copy_begin_batches=0,copy_finish_batches=0;
+    unsigned long long copy_begin_cpu_ns=0,copy_finish_cpu_ns=0;
+    unsigned long long heap_retire_cpu_ns=0,unknown_cpu_ns=0;
+    bool gpu_mirror=true,profile_enabled=false;
+};
+struct DescriptorRegistryFixture {DescriptorCountersFixture SnapshotCounters() const{return {};}};
+DescriptorRegistryFixture g_nr_descriptors;
 namespace nr_processing_runtime {
 nr_processing::Start fixture_effective=nr_processing::Start::Before;
 nr_processing::Start Effective(){return fixture_effective;}
@@ -202,6 +236,11 @@ SnapshotPair g_dual_snapshot{};
 SnapshotPair SnapshotUiAndSecondary() { return g_dual_snapshot; }
 }
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
+// Explicit serialization seam only. The actual locked ledger collector and
+// retirement/fence behavior are exercised by validate-aux-parent-retirement.
+MEMORY_SNAPSHOT
+NrContextMemorySnapshot fixture_memory{};
+NrContextMemorySnapshot SnapshotNrContextMemory(){return fixture_memory;}
 constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
 DUAL_SNAPSHOT
@@ -303,6 +342,12 @@ int main(int argc,char **argv) {
         // Synthetic snapshot values test the real serialization body only.
         // They are never interpreted as GPU/NGX evidence from this harness.
         nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
+        fixture_memory.live_auxiliary=2;fixture_memory.retired_auxiliary=1;
+        fixture_memory.pending_auxiliary=1;fixture_memory.quarantined=1;
+        fixture_memory.live_slots=2;fixture_memory.retired_slots=1;fixture_memory.pending_slots=1;
+        fixture_memory.live_aux_bytes=200;fixture_memory.retired_aux_bytes=100;
+        fixture_memory.pending_aux_bytes=100;fixture_memory.tracked_aux_bytes=500;
+        fixture_memory.parent_retirements=4;
         nr_dual_runtime::fixture_full.enabled=true;
         nr_dual_runtime::fixture_full.requested=5;
         nr_dual_runtime::fixture_full.layers[4].instance=45;
@@ -322,6 +367,11 @@ int main(int argc,char **argv) {
         const auto current=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*current,"sample");
         check(std::strstr(current->report,"sample.processing.actual=Present\n"),"actual effective route reaches feedback with sample prefix");
+        check(std::strstr(current->report,"sample.contextMemory.contexts=livePrimary:0,liveAux:2,retiredPrimary:0,retiredAux:1,pendingPrimary:0,pendingAux:1,quarantined:1\n"),"memory context categories remain distinct");
+        check(std::strstr(current->report,"sample.contextMemory.auxSlots=live:2,retired:1,pending:1\n")&&
+              std::strstr(current->report,"sample.contextMemory.auxTrackedBytes=live:200,retired:100,pending:100,global:500\n"),"unlisted global bytes are not relabeled live or leaked");
+        check(std::strstr(current->report,"sample.contextMemory.parentRetirements=4\n")&&
+              std::strstr(current->report,"not process or hardware VRAM\n"),"memory scope and retirement count survive serialization");
         check(std::strstr(current->report,"sample.fullNR.requestedPasses=5\n") &&
               std::strstr(current->report,"sample.fullNR.lastAdoptedPasses=3\n") &&
               std::strstr(current->report,"sample.fullNR.layer3=instance:42,"),
@@ -360,6 +410,7 @@ int main(int argc,char **argv) {
         nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
         nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
         nr_processing_runtime::fixture_effective=nr_processing::Start::Before;
+        fixture_memory={};
         nr_fg_runtime::attempts=0;nr_fg_runtime::recorded=0;nr_fg_runtime::adopted=0;
         nr_compat_present_runtime::fixture_capture_status[0]=nr_compat_present_runtime::fixture_capture_status[1]=0;
         nr_compat_present_runtime::fixture_capture_workers[1]=0;nr_compat_present_runtime::fixture_capture_fg=false;
@@ -709,6 +760,7 @@ def production_values():
         'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
         'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
+        'MEMORY_SNAPSHOT': definition(source, 'struct NrContextMemorySnapshot {', True),
         'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
@@ -741,7 +793,7 @@ def main():
     print(f'Core feedback validation output: {out}', flush=True)
     cpp, exe = out/'core.cpp', out/'core.exe'
     cpp.write_text(text, encoding='utf-8')
-    subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
+    subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-Wno-format-security',
                     '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe)], check=True)
     if args.compile_only:
         print('Windows harness cross-compiled; not executed.')
