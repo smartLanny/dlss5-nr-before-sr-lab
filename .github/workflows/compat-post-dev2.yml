@@ -1,4 +1,4 @@
-name: Compatibility dev2 - exact staged RR post and scaled work
+name: Unified1 - exact staged bilingual Core and full face backend
 on:
   workflow_call:
   workflow_dispatch:
@@ -44,6 +44,9 @@ jobs:
     needs: host
     runs-on: windows-latest
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -70,25 +73,59 @@ jobs:
           if ($LASTEXITCODE) { throw 'DirectXMath clone failed' }
           git -C directxmath-source checkout --detach 28929ac6f3c1649a7641741b689ebecccb17aa8d
           if ($LASTEXITCODE) { throw 'DirectXMath checkout failed' }
+          Invoke-WebRequest 'https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip' -OutFile onnxruntime.zip
+          if ((Get-FileHash onnxruntime.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd') { throw 'Official ORT archive hash mismatch' }
+          Expand-Archive onnxruntime.zip -DestinationPath face-runtime
+          $faceRuntime = (Resolve-Path 'face-runtime/onnxruntime-win-x64-1.23.2').Path
+          New-Item -ItemType Directory -Path face-model | Out-Null
+          Invoke-WebRequest 'https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx' -OutFile face-model/yunet-original.onnx
+          Invoke-WebRequest 'https://raw.githubusercontent.com/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/LICENSE' -OutFile face-model/YUNET-LICENSE
+          if ((Get-FileHash face-model/YUNET-LICENSE -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958') { throw 'YuNet license hash mismatch' }
+          python -m venv face-model/venv
+          if ($LASTEXITCODE) { throw 'Face serializer environment failed' }
+          & face-model/venv/Scripts/python.exe -m pip install onnx==1.19.1
+          if ($LASTEXITCODE) { throw 'Pinned face serializer installation failed' }
+          & face-model/venv/Scripts/python.exe scripts/prepare-face-model.py face-model/yunet-original.onnx face-model/yunet-dynamic.onnx
+          if ($LASTEXITCODE) { throw 'Pinned face model preparation failed' }
+          if ((Get-FileHash face-model/yunet-dynamic.onnx -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Prepared face model hash mismatch' }
+          "FACE_RUNTIME_ROOT=$faceRuntime" | Out-File $env:GITHUB_ENV -Append
           "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+      - name: Actual bilingual packaging and pinned dependency negative controls
+        shell: pwsh
+        run: |
+          $env:DLSS5_FACE_TEST_ASSETS = (Resolve-Path face-model).Path
+          $env:DLSS5_FACE_TEST_RUNTIME = $env:FACE_RUNTIME_ROOT
+          python -m unittest discover -s tests -p test_lockperf2_workflow.py -v
+          if ($LASTEXITCODE) { throw 'Unified workflow routing regression' }
+          python -m unittest discover -s tests/multi_api -p test_candidate_packaging.py -v
+          if ($LASTEXITCODE) { throw 'Actual packaging contract regression' }
       - name: Canonical source, host regressions, WARP and complete bilingual build
         shell: pwsh
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-lockperf2-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -OutputRoot build/compat-dev2
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-unified-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -OutputRoot build/unified1
           if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+      - name: Actual face tracker and pinned CPU worker gate
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/validate-face-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModelPath face-model/yunet-dynamic.onnx -OutputRoot build/unified1.face-checks
+          if ($LASTEXITCODE) { throw 'Full face runtime validation failed' }
       - name: Package separate languages; preserve user INI, do not publish a Release
         shell: pwsh
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-multi-api-candidate.ps1 -BuildRoot build/compat-dev2 -OutputRoot build/candidate
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-multi-api-candidate.ps1 -BuildRoot build/unified1 -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModel face-model/yunet-dynamic.onnx -FaceModelLicense face-model/YUNET-LICENSE -OutputRoot build/candidate-unified1
           if ($LASTEXITCODE) { throw 'Verified candidate packaging failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: compat-post-dev2-NOT-game-verified
+          name: unified1-full-face-NOT-game-verified
           path: |
-            build/candidate/*.zip
-            build/candidate/packages.json
-            build/compat-dev2/DLSS5-D21-lockperf2-*-test.zip
-            build/compat-dev2/LOCKPERF2-CANDIDATE.json
-            build/compat-dev2.lockperf-checks/validation.json
-            build/compat-dev2.hotpath-checks/validation.json
+            build/candidate-unified1/*.zip
+            build/candidate-unified1/packages.json
+            build/unified1/DLSS5-D21-unified1-*-test.zip
+            build/unified1/UNIFIED1-CANDIDATE.json
+            build/unified1.lockperf-checks/validation.json
+            build/unified1.hotpath-checks/validation.json
+            build/unified1.face-checks/validation.json
+            build/unified1/validation.json
+            build/unified1/source/source-manifest.json
+            build/unified1/source/core/build/face-backend.json
           if-no-files-found: error
