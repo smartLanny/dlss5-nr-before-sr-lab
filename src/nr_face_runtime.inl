@@ -119,7 +119,7 @@ unsigned Begin(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
     c.motion_valid=guides.valid_motion_scale_x&&guides.valid_motion_scale_y&&
         GetFloat(context.params,"DLSSNR.MVecScaleX",&sx)&&GetFloat(context.params,"DLSSNR.MVecScaleY",&sy);
     c.motion_scale_x=sx/context.width;c.motion_scale_y=sy/context.height;
-    c.depth_valid=1;c.reset=context.diagnostic_reset_requested?1:0;
+    c.depth_valid=guides.signature.rr_depth_placeholder?0:1;c.reset=context.diagnostic_reset_requested?1:0;
     const bool jitter_known=guides.jitter.valid_x&&guides.jitter.valid_y&&guides.jitter.source_width&&guides.jitter.source_height;
     const float jx=jitter_known?guides.jitter.source_x/guides.jitter.source_width:0;
     const float jy=jitter_known?guides.jitter.source_y/guides.jitter.source_height:0;

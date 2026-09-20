@@ -22,6 +22,7 @@ struct NrGuideSignature {
     int normalized_create_flags = 0;
     int depth_inverted = 0;
     bool linear_depth = false;
+    bool rr_depth_placeholder = false; // Explicit experiment; never a converted camera depth.
     float depth_projection_a = 0, depth_projection_b = 0;
     bool resample_motion = false;
 };
@@ -34,6 +35,7 @@ inline bool SameNrGuideStorageContract(const NrGuideSignature &a,
            a.motion_bound_width == b.motion_bound_width &&
            a.motion_bound_height == b.motion_bound_height &&
            a.normalized_create_flags == b.normalized_create_flags &&
+           a.rr_depth_placeholder == b.rr_depth_placeholder &&
            a.resample_motion == b.resample_motion;
 }
 

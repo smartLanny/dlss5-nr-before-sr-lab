@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <atomic>
 
 namespace nr_rr_depth {
 // NGX RR Guide: Linear is view-space depth; matrices are row-major and
@@ -38,4 +39,39 @@ inline float Convert(const Projection &p, float view_z) {
     if (!std::isfinite(value)) return far_depth;
     return value<0?0:value>1?1:value;
 }
+
+// Current Evaluate only. Missing data is distinct from a copied but unsupported
+// projection; neither permits guessing units, a near plane or matrix layout.
+enum class InputState : unsigned { Unobserved, Absent, Unreadable, Nonfinite, Supported, Unsupported };
+inline const char* Name(InputState s) {
+    switch(s) {
+    case InputState::Unobserved:return "unobserved";
+    case InputState::Absent:return "missing-current-matrix";
+    case InputState::Unreadable:return "unreadable-current-matrix";
+    case InputState::Nonfinite:return "nonfinite-current-matrix";
+    case InputState::Supported:return "supported-current-projection";
+    case InputState::Unsupported:return "unsupported-current-projection";
+    }
+    return "unknown";
+}
+struct CurrentInput { InputState state=InputState::Absent; float matrix[16]{}; Projection projection{}; };
+template<class GetPointer, class Copy>
+CurrentInput ReadCurrent(GetPointer get, Copy copy) {
+    CurrentInput input; void* pointer=nullptr;
+    if(!get(pointer)||!pointer)return input;
+    if(!copy(pointer,input.matrix,sizeof(input.matrix))) { input.state=InputState::Unreadable;return input; }
+    for(float value:input.matrix)if(!std::isfinite(value)){input.state=InputState::Nonfinite;return input;}
+    input.state=Resolve(input.matrix,input.projection)?InputState::Supported:InputState::Unsupported;
+    return input;
+}
+inline bool UsePlaceholder(InputState state,bool requested) {
+    // An explicit experiment for absent camera data ONLY. Corrupt/unreadable or
+    // unsupported supplied matrices keep the native RR bypass even when ON.
+    return requested&&state==InputState::Absent;
+}
+struct Observations {
+    std::atomic<InputState> input{InputState::Unobserved};
+    std::atomic<unsigned long long> admitted{0}, placeholder_admitted{0}, placeholder_recorded{0};
+};
+inline Observations observations;
 } // namespace nr_rr_depth

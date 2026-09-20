@@ -20,16 +20,19 @@ wchar_t g_ini_path[]=L"test.ini";
 int g_chain_cs=0,locks=0,writes=0;
 bool persist=true,hold_on_lock=false,revision_on_lock=false;
 unsigned rr_ini=1,pct_ini=100;
+unsigned missing_ini=0;
 ULONGLONG tick=1000;
 void EnterCriticalSection(int*);
 void LeaveCriticalSection(int*){--locks;}
 ULONGLONG GetTickCount64(){return tick;}
 void Log(const char*,...){}
 unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,unsigned,const wchar_t*) {
+ if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)return missing_ini;
  return std::wcscmp(key,L"RRPostEnabled")==0?rr_ini:pct_ini;
 }
 bool WriteIniInt(const wchar_t* key,int value){
- ++writes;if(persist){if(std::wcscmp(key,L"RRPostEnabled")==0)rr_ini=value;else pct_ini=value;}return persist;
+ ++writes;if(persist){if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)missing_ini=value;
+ else if(std::wcscmp(key,L"RRPostEnabled")==0)rr_ini=value;else pct_ini=value;}return persist;
 }
 #include "src/interop/nr_post_settings.inl"
 void EnterCriticalSection(int*){
@@ -123,5 +126,19 @@ int main(){
  CHECK(historical.text.find("capture.post.rr.recentAttempt=0\n")!=std::string::npos);
  last_rr_tick=0;FeedbackSession unavailable;EmitPostFeedback(unavailable);
  CHECK(unavailable.text.find("capture.post.rr.attemptAgeMs=-1\n")!=std::string::npos);
+ CHECK(!missing_projection);
+ nr_f8::g_config_hold=true;CHECK(!RequestMissingProjection(true));CHECK(!missing_projection);
+ nr_f8::g_config_hold=false;
+ gen=g_config_generation;hist=g_history_generation;
+ CHECK(RequestMissingProjection(true));CHECK(missing_projection&&missing_ini==1);
+ CHECK(g_config_generation==gen+1&&g_history_generation==hist+1);
+ Request({true,100});CHECK(missing_projection&&missing_ini==1); // Scale is not a permission editor.
+ missing_ini=0;tick+=1000;Poll();CHECK(!missing_projection);
+ nr_rr_depth::observations.input=nr_rr_depth::InputState::Absent;
+ nr_rr_depth::observations.placeholder_recorded=3;
+ FeedbackSession fallback;EmitPostFeedback(fallback);
+ CHECK(fallback.text.find("depthAdapter.currentInput=missing-current-matrix\n")!=std::string::npos);
+ CHECK(fallback.text.find("missingProjection.recorded=3\n")!=std::string::npos);
+ CHECK(fallback.text.find("depthAdapter.recorded=0\n")!=std::string::npos);
  std::printf("%u actual setting/hold/persistence/revision checks passed (CPU seam)\n",checks);
 }

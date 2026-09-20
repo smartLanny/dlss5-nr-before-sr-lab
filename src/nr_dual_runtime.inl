@@ -244,7 +244,7 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
     if(!prepared||!prepared.binding)return 0;
     auto& source=prepared.source?*prepared.source:main;
     auto& aux=*prepared.context;auto& slot=*prepared.slot;
-    if(primary.diagnostic_reset_requested||primary.successful_evaluations_since_reset<=g_config.warmup_after_create){
+    if(primary.diagnostic_warmup_reset||primary.successful_evaluations_since_reset<=g_config.warmup_after_create){
         aux.dual_history.Invalidate();SetStatus(Status::PrimaryWarming);return 0;
     }
     if(!RecordNrUseLocked(list,aux,slot)){SetStatus(Status::QueuePending);return 0;}
@@ -257,7 +257,7 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
     }
     if(!DispatchRrDepth(list,slot,prepared.guides)){SetStatus(Status::UnsupportedGuides);return 0;}
     const nr_dual::LayerKey key{aux.layer_index,primary.instance_id,primary.history_generation,aux.instance_id?aux.instance_id:1,prepared.plan.secondary};
-    const bool reset=aux.dual_history.NeedsReset(key,primary.evaluations,primary.diagnostic_reset_requested);
+    const bool reset=aux.dual_history.NeedsReset(key,primary.evaluations,primary.diagnostic_warmup_reset);
     if(!BindNrParameters(aux,slot,prepared.guides,feature,aux.width,aux.height,color,reset,slot.motion_proxy)) {
         aux.dual_history.Invalidate();SetStatus(Status::UnsupportedGuides);return 0;
     }
@@ -291,7 +291,7 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
     if(!attempt.HasSecond()){aux.dual_history.Invalidate();SetStatus(Status::QueuePending);return 0;}
     aux.guide_history.CommitOnEvaluate(prepared.guides.signature,true);
     ++aux.evaluations;
-    aux.successful_evaluations_since_reset=aux.diagnostic_reset_requested?1:aux.successful_evaluations_since_reset+1;
+    aux.successful_evaluations_since_reset=aux.diagnostic_warmup_reset?1:aux.successful_evaluations_since_reset+1;
     aux.reset_retry_pending=false;
     aux.dual_history.CommitSuccess(key,primary.evaluations);
     second_evaluations.fetch_add(1);last_primary_instance.store(primary.instance_id);last_second_instance.store(aux.instance_id);last_parent_evaluation.store(primary.evaluations);

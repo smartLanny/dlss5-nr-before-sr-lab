@@ -5487,6 +5487,7 @@ struct NrContext {
     unsigned int successful_evaluations_since_reset = 0;
     bool diagnostic_first_sample_logged = false;
     bool diagnostic_reset_requested = false;
+    bool diagnostic_warmup_reset = false; // Excludes deliberate per-frame unknown-depth reset.
     unsigned diagnostic_reset_reasons = 0;
     bool reset_retry_pending = false;
     int last_input_filter = -1;
@@ -5573,7 +5574,7 @@ NrContext g_contexts[16] = {};
 
 void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     context.reset_retry_pending = false;
-    if (context.diagnostic_reset_requested)
+    if (context.diagnostic_warmup_reset)
         context.successful_evaluations_since_reset = 0;
     ++context.successful_evaluations_since_reset;
     NrDiagnosticIdentity identity = {};
@@ -10174,9 +10175,11 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
         (history_changed ? 4u : 0u) |
         (color_contract_reset ? 8u : 0u) |
         (guide_reset ? 16u : 0u) |
-        (context.reset_retry_pending ? 32u : 0u);
-    const bool reset_requested = reset || game_reset != 0 || history_changed ||
+        (context.reset_retry_pending ? 32u : 0u) |
+        (s.rr_depth_placeholder ? 64u : 0u);
+    const bool warmup_reset = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
+    const bool reset_requested = warmup_reset || s.rr_depth_placeholder;
 #if defined(NR_HAS_TIMING)
     const unsigned timing_reset_reasons = (reset ? nr_timing::FirstCreate : 0u) |
         (game_reset != 0 ? nr_timing::GameReset : 0u) |
@@ -10184,11 +10187,13 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
         (color_contract_reset ? nr_timing::ColorContract : 0u) |
         (guide_reset ? nr_timing::GuideChanged : 0u) |
         (context.reset_retry_pending ? nr_timing::RetryPending : 0u) |
-        (delayed_texture_reset ? nr_timing::ExposureReadback : 0u);
+        (delayed_texture_reset ? nr_timing::ExposureReadback : 0u) |
+        (s.rr_depth_placeholder ? nr_timing::UnknownDepth : 0u);
 #endif
     slot.suppress_transfer_this_frame =
-        g_config.suppress_reset_frame && reset_requested;
+        g_config.suppress_reset_frame && warmup_reset;
     context.diagnostic_reset_requested = reset_requested;
+    context.diagnostic_warmup_reset = warmup_reset;
     context.diagnostic_reset_reasons = diagnostic_reset_reasons;
     slot.capture_params.reset = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.

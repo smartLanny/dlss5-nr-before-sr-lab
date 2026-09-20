@@ -22,7 +22,7 @@ enum Flag : unsigned {
 enum ResetReason : unsigned {
     FirstCreate = 1u, GameReset = 2u, HistoryChanged = 4u,
     ColorContract = 8u, GuideChanged = 16u, RetryPending = 32u,
-    ExposureReadback = 64u
+    ExposureReadback = 64u, UnknownDepth = 128u
 };
 struct Policy { unsigned mode = 0; std::uint64_t phase = 1; };
 struct Policies { std::uint64_t epoch = 1; Policy probe{}, wait{}; };

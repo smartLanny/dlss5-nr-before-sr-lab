@@ -125,6 +125,17 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
     }
     nr_face_runtime::DrawUi(next,changed);
     DrawEnergyGateOptions();
+    SettingsSection(NrUi("RR compatibility candidate","RR 兼容候选"));
+    bool missing=nr_post_settings::missing_projection.load(std::memory_order_acquire);
+    if(ImGui::Checkbox(NrUi("Try post NR without a camera projection","RR 缺投影时尝试后置 NR"),&missing))
+        nr_post_settings::RequestMissingProjection(missing);
+    SettingsNote(NrUi("Off by default. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
+        "默认关闭。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
+    ImGui::TextWrapped(NrUi("Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Save F8 to verify NR adoption.",
+        "最近投影输入：%s。转换／占位录制次数：%llu／%llu。是否真正采用 NR 请查看 F8。"),
+        nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
+        g_rr_depth_conversions.load(std::memory_order_relaxed),
+        nr_rr_depth::observations.placeholder_recorded.load(std::memory_order_relaxed));
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
