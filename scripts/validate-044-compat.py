@@ -270,9 +270,9 @@ if __name__=='__main__':
         assert 'next.processing_start=route;' in route
         assert 'if(i<2)next.mode=i==0?2:1;' in route
         assert 'changed=true; // Clicking the already-selected button explicitly retries its starting point.' in route
-        assert 'zh?"先增强，后放大":"Enhance first"' in route
-        assert 'zh?"先放大，后增强":"Upscale first"' in route
-        assert 'zh?"兼容模式":"Compatibility"' in route
+        assert 'zh?"先增强后放大":"Enhance first"' in route
+        assert 'zh?"先放大后增强":"Upscale first"' in route
+        assert 'zh?"自动兼容":"Compatibility"' in route
         assert 'if(nr_processing_runtime::FgRedirectRequested())' in route
         assert 'mode_guarded' not in route
         assert 'ImGui::BeginDisabled' not in route

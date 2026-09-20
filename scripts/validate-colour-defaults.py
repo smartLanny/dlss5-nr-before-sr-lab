@@ -25,20 +25,20 @@ def main():
     # Verify real loader/default/persistence wiring; a standalone default-only
     # mock cannot detect a different fallback in the actual INI loader.
     assert 'next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);' in source
-    assert 'next.intensity = ReadIniFloat(L"Intensity", 1.2f);' in source
+    assert 'next.intensity = ReadIniFloat(L"Intensity", 1.5f);' in source
     assert 'next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);' in source
     assert 'L"NRBeforeSR", L"AutoMask", 1, g_ini_path) != 0' in source
     assert 'WriteIniFloat(L"ColorStrength", config.color_strength)' in source
     assert 'WriteIniFloat(L"Intensity", config.intensity)' in source
     assert re.search(r'^ColorStrength=1\.0$',ini,re.M)
-    assert re.search(r'^Intensity=1\.2$',ini,re.M)
+    assert re.search(r'^Intensity=1\.5$',ini,re.M)
     assert 'AllowUnverifiedHdrColor=0' in ini
     layers=(root/'src/nr_layers_ui.inl').read_text(encoding='utf-8-sig')
-    model=definition(layers,'            if(ImGui::Button(zh?"重置本层":"Reset this layer"))')
-    commit=definition(layers,'            if(edited) {')
-    assert ui.count('DrawColorControls(next, has_pending, changed);')==1
-    assert '"HDR and colour"' not in ui
-    assert ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);')<ui.index('DrawColorControls(next, has_pending, changed);')
+    model=definition(layers,'if(ImGui::Button(zh?"重置本层":"Reset this layer"))')
+    commit=definition(layers,'if(edited){')
+    final=(root/'src/nr_unified_settings.inl').read_text(encoding='utf-8')
+    assert final.count('"##final-colour"')==1
+    assert final.index('"##final-colour"')<final.index('DrawUniformLayerControls(')
     assert 'next.allow_unverified_hdr_color' not in model+commit
     assert 'next.enabled' not in model+commit
     body=definition(source,'struct ChainConfig {')+';'
@@ -70,11 +70,11 @@ COMMIT
 }
 int main(){
  ChainConfig d;
- check(d.color_strength==1.f&&d.intensity==1.2f,"aggregate defaults match production");
+ check(d.color_strength==1.f&&d.intensity==1.5f,"aggregate defaults match production");
  for(unsigned i=0;i<nr_layers::Count;++i){const auto m=nr_layers::Read(d,i);
   check(m.auto_mask&&m.skin_structure==.4f&&m.ui_correction,"all native layer protection defaults agree");}
  check(!d.face_protection,"independent face backend remains opt-in");
- for(bool zh:{false,true})for(bool enabled:{false,true})for(unsigned layer=0;layer<nr_layers::Count;++layer)for(float saved:{0.f,.25f,1.f,1.2f,2.f})for(bool pressed:{false,true}){
+ for(bool zh:{false,true})for(bool enabled:{false,true})for(unsigned layer=0;layer<nr_layers::Count;++layer)for(float saved:{0.f,.25f,1.f,1.5f,2.f})for(bool pressed:{false,true}){
   ChainConfig c;c.intensity=saved;c.enabled=enabled;c.color_strength=.37f;c.mode=1;
   c.depth_mode=1;c.r8_output_encoding=2;c.allow_unverified_hdr_color=true;
   c.transfer_strength=2.3f;c.post_transfer_strength=2.4f;c.custom_work_scale=.75f;
@@ -91,12 +91,12 @@ int main(){
   for(unsigned i=0;i<c.nr_layers.size();++i)check(c.nr_layers[i].enabled==before.nr_layers[i].enabled,"reset preserves enabled layers");
   check(buttons==1,"single reset entry per layer");
   NormalizeConfig(c);
-  check(nr_layers::Read(c,layer).intensity==(pressed?1.2f:saved)&&c.color_strength==.37f,"normalization retains valid saved choices");
+  check(nr_layers::Read(c,layer).intensity==(pressed?1.5f:saved)&&c.color_strength==.37f,"normalization retains valid saved choices");
  }
  for(bool enabled:{false,true}){
   ChainConfig c;c.enabled=enabled;c.intensity=2.f;c.color_strength=.37f;
   RestoreRecommendedPictureSettings(c);NormalizeConfig(c);
-  check(c.intensity==1.2f&&c.color_strength==1.f,"one click recommendation restores defaults");
+  check(c.intensity==1.5f&&c.color_strength==1.f,"one click recommendation restores defaults");
   check(c.enabled==enabled&&!c.allow_unverified_hdr_color,"recommendation never unlocks safety or master");
  }
  std::printf("production colour defaults/reset: %d checks, %d failures\n",checks,failures);
