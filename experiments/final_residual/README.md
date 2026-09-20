@@ -246,12 +246,11 @@ test image; the direction/unit thresholds were not relaxed. Both early failures
 are retained in external evidence. The tested driver is 616.92; the system's
 D3D12 debug layer was unavailable, so no debug-layer pass is claimed.
 
-**Lifecycle boundary before Core integration:** the destructor conservatively
-retains state on a held result, an executed list without a published Signal, or
-an incomplete/removed-device fence. The current mechanism releases the C++
-`unique_ptr` ownership and intentionally leaks that state until process exit.
-This prevents premature destruction in the isolated probe. It is **not** a full
-retirement queue or a game-ready lifecycle. Core integration requires an explicit
-retirement owner, bounded quarantine/accounting, failure/teardown tests and a
-proven capture/consumer fence contract. This source does not implement those
-production responsibilities or modify the current Core package.
+**Remaining boundary before Core integration:** the former untracked destructor
+retention was replaced by the four-slot registry described above. Pending and
+quarantined states now have a bounded owner; independent producer and consumer
+completion remain mandatory. Core still has to supply the exact last-consumer
+fence and its real source/capture contract. Actual device-loss and Signal-failure
+injection, the residual pixel consumer, HDR input mapping and game acceptance
+remain outstanding. Bounded standalone retirement does not establish those
+production responsibilities or change the current Core package.
