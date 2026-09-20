@@ -167,6 +167,6 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
         text=(stage/'core'/path).read_text(encoding='utf-8-sig')
         if 'dline21-uniform3' not in text: raise ValueError('Unexpected staged identity: '+path)
-        updates[path]=text.replace('dline21-uniform3','dline21-unified3')
+        updates[path]=text.replace('dline21-uniform3',VERSION.removeprefix('beta0.5-'))
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])

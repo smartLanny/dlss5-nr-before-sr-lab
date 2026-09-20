@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 import unittest
 import subprocess
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = None
@@ -78,6 +79,11 @@ class UnifiedUi(unittest.TestCase):
         self.assertEqual(ui.count('#include "nr_unified_settings.inl"'),1)
         self.assertFalse('void DrawSettings(' in ui)
         self.assertEqual(self.settings.count('void DrawSettings('),1)
+        core = (GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+        version = re.search(r'kAddonVersion\s*=\s*"([^"]+)"',core).group(1)
+        for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
+            payload_identity = (GENERATED/path).read_text(encoding='utf-8-sig')
+            self.assertIn(version,payload_identity)
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
             # Exported files are canonical Git blobs, not CRLF working-tree bytes.
             frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)
