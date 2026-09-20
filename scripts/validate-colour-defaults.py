@@ -24,13 +24,15 @@ def main():
     ini=(root/'config/nr_before_sr.ini').read_text(encoding='utf-8-sig')
     # Verify real loader/default/persistence wiring; a standalone default-only
     # mock cannot detect a different fallback in the actual INI loader.
-    assert 'next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);' in source
+    banked = "nr_colour_preferences::Load(next," in source
+    default_colour = .5 if banked else 1.
+    assert ('ReadIniFloat(L"ColorStrength",std::nanf(""))' if banked else 'next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);') in source
     assert 'next.intensity = ReadIniFloat(L"Intensity", 1.5f);' in source
     assert 'next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);' in source
     assert 'L"NRBeforeSR", L"AutoMask", 1, g_ini_path) != 0' in source
     assert 'WriteIniFloat(L"ColorStrength", config.color_strength)' in source
     assert 'WriteIniFloat(L"Intensity", config.intensity)' in source
-    assert re.search(r'^ColorStrength=1\.0$',ini,re.M)
+    assert re.search(r'^ColorStrength='+str(default_colour).replace('.',r'\.')+'$',ini,re.M)
     assert re.search(r'^Intensity=1\.5$',ini,re.M)
     assert 'AllowUnverifiedHdrColor=0' in ini
     layers=(root/'src/nr_layers_ui.inl').read_text(encoding='utf-8-sig')
@@ -51,6 +53,8 @@ def main():
 #include "nr_dual_pass.hpp"
 #include "nr_layer_config.h"
 #include "nr_colour_lab_policy.h"
+#include "nr_hotkeys.h"
+#include "nr_colour_preferences.h"
 #include "nr_colour_restore_policy.h"
 #include "nr_colour_edge_policy.h"
 #include "nr_generic_residual.h"
@@ -70,7 +74,7 @@ COMMIT
 }
 int main(){
  ChainConfig d;
- check(d.color_strength==1.f&&d.intensity==1.5f,"aggregate defaults match production");
+ check(d.color_strength==DEFAULT_COLOUR&&d.intensity==1.5f,"aggregate defaults match production");
  for(unsigned i=0;i<nr_layers::Count;++i){const auto m=nr_layers::Read(d,i);
   check(m.auto_mask&&m.skin_structure==.4f&&m.ui_correction,"all native layer protection defaults agree");}
  check(!d.face_protection,"independent face backend remains opt-in");
@@ -96,13 +100,13 @@ int main(){
  for(bool enabled:{false,true}){
   ChainConfig c;c.enabled=enabled;c.intensity=2.f;c.color_strength=.37f;
   RestoreRecommendedPictureSettings(c);NormalizeConfig(c);
-  check(c.intensity==1.5f&&c.color_strength==1.f,"one click recommendation restores defaults");
+  check(c.intensity==1.5f&&c.color_strength==DEFAULT_COLOUR,"one click recommendation restores defaults");
   check(c.enabled==enabled&&!c.allow_unverified_hdr_color,"recommendation never unlocks safety or master");
  }
  std::printf("production colour defaults/reset: %d checks, %d failures\n",checks,failures);
  return failures?1:0;
 }
-'''.replace('MODEL',model).replace('COMMIT',commit)
+'''.replace('MODEL',model).replace('COMMIT',commit).replace('DEFAULT_COLOUR',str(default_colour)+'f')
     with tempfile.TemporaryDirectory(prefix='nr-defaults-') as td:
         s=Path(td)/'test.cpp';e=Path(td)/('test.exe' if os.name=='nt' else 'test')
         s.write_text(code,encoding='utf-8')
