@@ -21,8 +21,9 @@ const char *EditName(Edit edit) {
     }
     return "invalid";
 }
-Float3 Decode(Float4 p, unsigned domain) {
+Float3 Decode(Float4 p, unsigned domain, float source_to_canonical=1.f) {
     if (domain == 32u) return SrgbToLinear({p.x,p.y,p.z});
+    if (domain == 0u) return {p.x*source_to_canonical,p.y*source_to_canonical,p.z*source_to_canonical};
     return {p.x,p.y,p.z};
 }
 Float3 ModelDecode(Float4 p) { return SrgbToLinear({p.x,p.y,p.z}); }
@@ -110,7 +111,7 @@ void CheckGpuHalfStorage(Gpu& gpu) {
 }
 
 std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
-                       bool wrong_origin) {
+                       bool wrong_origin, bool actual_controls) {
     unsigned nw=W,nh=H;
     if(percent!=100){
         const auto plan=nr_post_compat::Work({W,H},percent);
@@ -141,6 +142,10 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
     c.width=nw;c.height=nh;c.model_width=nw;c.model_height=nh;
     c.source_width=W;c.source_height=H;c.source_base_x=wrong_origin?0:SX;c.source_base_y=SY;
     c.proxy_scale=1.f;c.source_to_canonical=1.f;c.pre_exposure=1.f;
+    if(actual_controls){
+        c.pre_exposure=1.6f;c.source_to_canonical=1.f/c.pre_exposure;
+        c.lighting_lock=.2f;c.edge_guard=.25f;
+    }
     c.transfer_strength=1.f;c.color_strength=1.f;c.max_luma_ratio=4.f;
     c.frame_confidence=1.f;c.proxy_curve=1u;c.passthrough=scene.domain;
     Dispatch(gpu,gpu.encode.p,c);
@@ -155,7 +160,7 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
         double sums[3]={},weight=0;
         for(unsigned iy=unsigned(std::floor(y0));iy<unsigned(std::ceil(y1));++iy)
             for(unsigned ix=unsigned(std::floor(x0));ix<unsigned(std::ceil(x1));++ix){
-                const auto value=Decode(s[(iy+SY)*sw+ix+SX],scene.domain);
+                const auto value=Decode(s[(iy+SY)*sw+ix+SX],scene.domain,c.source_to_canonical);
                 const double a=(std::min(x1,double(ix+1))-std::max(x0,double(ix)))*
                                (std::min(y1,double(iy+1))-std::max(y0,double(iy)));
                 sums[0]+=value.x*a;sums[1]+=value.y*a;sums[2]+=value.z*a;weight+=a;
@@ -195,7 +200,7 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
             const unsigned ix=x-DX,iy=y-DY;const auto stored=s[(iy+SY)*sw+ix+SX];
             Require(value.w==stored.w,"nonzero compose changed native alpha");
             Require(std::isfinite(value.x)&&std::isfinite(value.y)&&std::isfinite(value.z),"non-finite composed pixel");
-            const auto sv=Decode(stored,scene.domain),ev=Decode(value,scene.domain);
+            const auto sv=Decode(stored,scene.domain,c.source_to_canonical),ev=Decode(value,scene.domain,c.source_to_canonical);
             const float delta=std::max({std::fabs(ev.x-sv.x),std::fabs(ev.y-sv.y),std::fabs(ev.z-sv.z)});
             measure.mean_luma+=DotLuma(ev);measure.mean_edit+=delta;measure.max_edit=std::max(measure.max_edit,delta);
             measure.e.push_back(value);if(delta>0.001f)++changed;
@@ -236,13 +241,14 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
 int main(int argc,char** argv){
     try{
         std::setvbuf(stdout,nullptr,_IONBF,0);
-        bool hardware=false,wrong_origin=false,half_only=false,inherited=false;
+        bool hardware=false,wrong_origin=false,half_only=false,inherited=false,actual_controls=false;
         const char* artifacts=nullptr;
         for(int i=1;i<argc;++i){
             if(std::strcmp(argv[i],"--hardware")==0)hardware=true;
             else if(std::strcmp(argv[i],"--negative-source-origin")==0)wrong_origin=true;
             else if(std::strcmp(argv[i],"--half-only")==0)half_only=true;
             else if(std::strcmp(argv[i],"--inherited-post")==0)inherited=true;
+            else if(std::strcmp(argv[i],"--actual-controls")==0)actual_controls=true;
             else if(std::strncmp(argv[i],"--artifacts=",12)==0)artifacts=argv[i]+12;
             else throw std::runtime_error("unknown colour validation argument");
         }
@@ -260,8 +266,10 @@ int main(int argc,char** argv){
         Gpu gpu(hardware,"EncodeV2CS",false,artifacts,true);
         using namespace colour_nonzero;
         CheckGpuHalfStorage(gpu);
+        std::printf("CONTROLS,preExposure=%g,sourceToCanonical=%g,LightingLock=%g,EdgeGuard=%g\n",
+            actual_controls?1.6:1.,actual_controls?.625:1.,actual_controls?.2:0.,actual_controls?.25:0.);
         const Scene scenes[]={
-            {"flat",16u,{.25f,.25f,.25f},{.25f,.25f,.25f},true},
+            {actual_controls?"hdr-flat":"flat",actual_controls?0u:16u,{.25f,.25f,.25f},{.25f,.25f,.25f},true},
             {"gray-step",16u,{.0625f,.0625f,.0625f},{.75f,.75f,.75f},false},
             {"colour-step",16u,{.125f,.25f,.375f},{.625f,.4375f,.1875f},false},
             {"saturated-step",16u,{.875f,.0625f,.125f},{.0625f,.8125f,.09375f},false},
@@ -273,7 +281,7 @@ int main(int argc,char** argv){
         for(const auto& scene:scenes)for(auto edit:{Edit::Identity,Edit::LightPlus,Edit::LightMinus,Edit::ColourPlus,Edit::ColourMinus}){
             std::vector<Result> reference;
             for(unsigned percent:{100u,99u,75u,50u}){
-                auto result=Run(gpu,scene,percent,edit,wrong_origin);scenarios+=3;
+                auto result=Run(gpu,scene,percent,edit,wrong_origin,actual_controls);scenarios+=3;
                 if(percent==100){reference=std::move(result);continue;}
                 for(unsigned mode=0;mode<3;++mode){
                     double difference=0;float peak=0;

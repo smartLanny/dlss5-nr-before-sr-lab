@@ -42,6 +42,7 @@ def run_method(relative_path: str, class_name: str, method_name: str,
     namespace = {'unittest': unittest, 'REPO': None, 'GENERATED': None,
                  'patch': SimpleNamespace(patch_runtime=unexpected_transform,
                                           patch_policy=unexpected_transform,
+                                          patch_settings_ui=unexpected_transform,
                                           patch_ui=unexpected_transform)}
     exec(compile(ast.fix_missing_locations(isolated), str(path), 'exec'), namespace)
     namespace[path_name] = SourceReadProbe() if selected else None

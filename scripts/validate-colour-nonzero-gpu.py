@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument('--toolchain', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--hardware', action='store_true')
+    parser.add_argument('--actual-controls', action='store_true',
+                        help='PreExposure 1.6, SourceToCanonical .625, LightingLock .2, EdgeGuard .25; HDR flat fixture.')
     parser.add_argument('--codec-artifacts', type=Path)
     parser.add_argument('--include-inherited', action='store_true')
     args = parser.parse_args()
@@ -79,6 +81,7 @@ def main() -> None:
         cases += [('inherited-post-WARP', ['--inherited-post'], 0)]
     for label, extra, expected in cases:
         cmd = [str(exe)] + (['--hardware'] if args.hardware else []) + \
+              (['--actual-controls'] if args.actual_controls and label != 'inherited-post-WARP' else []) + \
               (['--artifacts='+str(artifacts)] if artifacts else []) + extra
         start = time.monotonic()
         with (output / (label+'.stdout.txt')).open('w', encoding='utf-8') as stdout, \
@@ -112,6 +115,10 @@ def main() -> None:
                    adapter='NVIDIA hardware' if args.hardware else 'WARP',
                    adapter_identity=adapter_lines[0],
                    fp16_model_planes=True, actual_generated_pre_codec=True,
+                   control_profile=dict(pre_exposure=1.6 if args.actual_controls else 1.,
+                       source_to_canonical=.625 if args.actual_controls else 1.,
+                       lighting_lock=.2 if args.actual_controls else 0.,
+                       edge_guard=.25 if args.actual_controls else 0.),
                    production_cso_receipts=artifact_records,
                    nvidia_feature18_verified=False, native_sr_output_O_verified=False,
                    game_runtime_verified=False, passed=not failures,

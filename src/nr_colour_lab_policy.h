@@ -17,6 +17,14 @@ constexpr bool AllowUnverified(int value, bool legacy_request) noexcept {
     }
     return false;
 }
+// The preparation log reports admission, not the final consumer gain budget.
+constexpr bool AllowHdrColour(int value, bool legacy_request,
+                              bool verified_exposure) noexcept {
+    return verified_exposure || AllowUnverified(value, legacy_request);
+}
+constexpr bool LegacyPermissionEditable(int value) noexcept {
+    return Normalize(value) == Mode::Legacy;
+}
 constexpr const char *Name(int value) noexcept {
     switch (Normalize(value)) {
     case Mode::Legacy: return "legacy-configured";
