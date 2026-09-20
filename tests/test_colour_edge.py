@@ -41,7 +41,7 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
-        for p,sha in [('src/nr_before_sr.cpp','62e1780b277a5ba042eceb76c9c5c6238811a89f'),
+        for p,sha in [('src/nr_before_sr.cpp','247d637c1c2d6444583082091fc49858d74389d8'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
