@@ -51,7 +51,7 @@ void TestFaceDiagnostic() {
     const auto original=config;disk_config=config;simulate_disk_poll=true;reshade::api::effect_runtime r;StartFace(r,2228,1256);
     for(unsigned group=0;group<9;++group) {
         ChainConfig expected=original;
-        if(group>=2&&group<=7){expected.intensity=1.2f;expected.local_tone=expected.local_structure=1.f;expected.style=0;expected.ui_correction=true;}
+        if(group>=2&&group<=7){expected.intensity=1.5f;expected.local_tone=expected.local_structure=1.f;expected.style=0;expected.ui_correction=true;}
         if(group==4||group==5)expected.local_tone=2.f;
         if(group==6||group==7)expected.local_structure=2.f;
         expected.auto_mask=(group%2)!=0||group==8;expected.skin_structure=0;
