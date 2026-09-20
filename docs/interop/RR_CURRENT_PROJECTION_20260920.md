@@ -53,6 +53,7 @@ NVIDIA 的 [RR 参数定义](https://github.com/NVIDIA/DLSS/blob/main/include/nv
 | `post.rr.depthAdapter.projectionAdmitted` | 合法投影和输入存储准入累计次数，不是 GPU 完成 |
 | `post.rr.depthAdapter.recorded` | 真正投影转换的累计录制次数；不计占位初始化 |
 | `post.rr.missingProjection.requested` | 独立实验保存请求 |
+| `post.rr.missingProjection.saveFailed` | 写回失败时保持本次会话请求，并明确提示；不是运行成功 |
 | `post.rr.missingProjection.admitted` / `.recorded` | 占位候选准入／初始化录制次数；按层计，不是帧数 |
 | `post.rr.nrRecordings` / `nrSuccess` | 结合同进程增量核查后置采用与推理；单看请求和占位次数不算有效 |
 
@@ -68,8 +69,40 @@ NVIDIA 的 [RR 参数定义](https://github.com/NVIDIA/DLSS/blob/main/include/nv
   INI／撤销许可／诊断序列化检查通过。原生 RR 恰好一次和失败分支测试保留。
 - 实际生产深度 shader WARP：10 场景通过。8 个原转换场景，2 个占位场景；
   R16 / R32、子区域、NaN、负值、原深度逐字节不变及私有输出读回检查。
-- 核查最终生成和 Windows Core 另记结果。NVIDIA、鸣潮修后 F8、游戏画质与
-  RR/FG 共存未验证；本地通过不关闭 #254。
+- 最终源码 `3ef9cfaa733a043a40310ed87cc7afe144308577` 完整生成及双语 Windows
+  Core 编译通过，含完整独立人脸后端；配套 nrchain 按相同源码复用已验证二进制。
+  实际生成源码的 UI / 颜色接线检查通过，界面、PE 资源和输出文件名均为 `unified3-rr1`。
+- 实际导引历史与诊断 Reset / 完成路径检查通过；54 类 RR 退休场景及历史缺陷负对照通过。
+- 本批未重跑统一发行流程的全部 46 组检查。前版 unified3 的完整 Core 描述符／传输、
+  NVIDIA 和人脸推理记录仍归属于前版，不能挪作本次通过。
+  新版 NVIDIA 推理、鸣潮修后 F8、游戏画质与 RR/FG 共存未验证；本地通过不关闭 #254。
+
+## 构建与增量交付身份
+
+| 产物 | SHA256 |
+| --- | --- |
+| 中文 Core | `bf0c7de534cb242816dda2598254f1f1d25eacc02a0363b18c57b9edaa331046` |
+| 英文 Core | `f76b6a6fa404dfcd9b62bdb0aced14e01488654046eaf65e7ee3b47ea703145e` |
+| nrchain | `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2` |
+
+定向测试增量包只含一个语言的 Core、nrchain、许可证、说明及文件哈希；
+适用于已有 D21 安装，不是首次安装全套包，也未进行管理器导入验证。
+保留 INI、ReShade、NVIDIA 运行库及模型；独立人脸后端已编译，其可选资源沿用
+已安装的完整包。本包不自动安装或开启实验。退出游戏后备份旧 Core 和 nrchain
+到插件搜索目录外，再替换两者，保证只加载一份 Core；回退使用原两文件与原配置。
+
+生成器以冻结的干净提交导出并叠加已核验变换，因此生成 Core 的 `source_dirty=1`
+与原始源码工作树的干净状态分别记录；生成后文件清单、源提交及二进制哈希一起核查。
+此前主动停止的构建和文件名身份不完整的中间构建已保留记录，均不进入交付包。
+编译器有 SDK 和保留 UI 辅助函数等警告，不宣称零警告；本批未取得调试层通过证据。
+
+增量 ZIP 已解包逐文件核对，247 项生成源文件与构建源清单一致。
+包内 `candidate-manifest.json` 明列定向检查与未验证项，不使用完整发行通过标记。
+
+| 增量包 | SHA256 |
+| --- | --- |
+| 中文 RR-Candidate-Patch.zip | `23e79d2140edecfd10f869ed29d55a92e3f371f56ee511da22cd4b6168b26a90` |
+| 英文 RR-Candidate-Patch.zip | `c4c36e93f1188e91d2884e9fdcf8c77464e53c2291c5b62f17db2cf684df5639` |
 
 ## 鸣潮最短验收（候选构建后）
 
