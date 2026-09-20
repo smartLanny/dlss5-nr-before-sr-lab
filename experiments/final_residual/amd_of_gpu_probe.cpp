@@ -139,8 +139,65 @@ void scenario(Host& host,unsigned percent){
         check(history.prepare(frame).action==Action::Duplicate,"duplicate display does not rotate residual");
     }
 }
+void retirement(Host& host){
+    constexpr unsigned w=512,h=384;
+    auto empty=AmdOfProducer::collect_retired();
+    check(empty.active+empty.pending+empty.quarantined==0,"ordinary completed outputs leave no retired contexts");
+    for(unsigned cycle=0;cycle<2;++cycle){
+        auto source=host.upload(w,h,0,0,0);
+        std::array<std::unique_ptr<AmdOfProducer>,4> producers;
+        for(auto& p:producers){p=std::make_unique<AmdOfProducer>(host.device.Get(),host.queue.Get(),w,h);
+            check(p->initialized(),"retirement test creates real FFX contexts");}
+        ComPtr<ID3D12Fence> gate;
+        hr(host.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"retirement gate");
+        struct Unblock{ID3D12Fence* fence;~Unblock(){fence->Signal(1);}}unblock{gate.Get()};
+        hr(host.queue->Wait(gate.Get(),1),"controlled pending GPU work");
+        for(unsigned i=0;i<producers.size();++i){
+            auto& p=*producers[i];HistoryContract history;
+            Frame frame{{2+i,1,1},{1,1,1,w,h,Backend::AmdOpticalFlow},1,false};
+            auto plan=history.prepare(frame);
+            check(p.dispatch(frame,plan,source.Get())==Submit::Submitted,"retirement real dispatch");
+            GpuFlow flow{};check(p.poll(flow)&&flow.receipt.status==FlowStatus::Pending,"queue gate keeps producer pending");
+            check(!p.begin_retirement(plan.token+1,flow.completion,flow.value),"wrong token cannot retire");
+            // No external output consumer in this test; producer completion is
+            // the exact last use. Production callers must supply their own last reader.
+            check(p.begin_retirement(plan.token,flow.completion,flow.value),"pending completion may enter terminal retirement");
+            GpuFlow after{};check(!p.poll(after),"terminal handoff cannot lend a new output");
+            check(p.dispatch(frame,plan,source.Get())==Submit::Faulted,"retiring context cannot submit again");
+            producers[i].reset();
+        }
+        auto pending=AmdOfProducer::collect_retired();
+        check(pending.active==0&&pending.pending==4&&pending.quarantined==0,"all four pending contexts retained safely");
+        AmdOfProducer refused(host.device.Get(),host.queue.Get(),w,h);
+        check(!refused.initialized()&&std::strstr(refused.status(),"capacity exhausted"),"fifth context refused before GPU allocation");
+        hr(gate->Signal(1),"release controlled GPU gate");
+        hr(host.queue->Signal(host.done.Get(),++host.value),"ordered retirement completion");wait(host.done.Get(),host.value);
+        auto released=AmdOfProducer::collect_retired();
+        check(released.active+released.pending+released.quarantined==0,"exact completion returns all slots and resources");
+    }
+    {
+        auto source=host.upload(w,h,0,0,0);
+        auto producer=std::make_unique<AmdOfProducer>(host.device.Get(),host.queue.Get(),w,h);
+        check(producer->initialized(),"consumer retirement context");HistoryContract history;
+        Frame frame{{99,1,1},{1,1,1,w,h,Backend::AmdOpticalFlow},1,false};auto plan=history.prepare(frame);
+        check(producer->dispatch(frame,plan,source.Get())==Submit::Submitted,"consumer retirement dispatch");
+        GpuFlow flow{};check(producer->poll(flow),"consumer test output");wait(flow.completion,flow.value);
+        ComPtr<ID3D12Fence> gate,consumer;
+        hr(host.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)),"consumer gate");
+        hr(host.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&consumer)),"consumer fence");
+        struct Unblock{ID3D12Fence* fence;~Unblock(){fence->Signal(1);}}unblock{gate.Get()};
+        hr(host.queue->Wait(gate.Get(),1),"hold last-consumer completion");
+        hr(host.queue->Signal(consumer.Get(),1),"publish pending consumer completion");
+        check(producer->begin_retirement(plan.token,consumer.Get(),1),"attach actual last consumer fence");producer.reset();
+        auto pending=AmdOfProducer::collect_retired();
+        check(pending.pending==1,"producer completion cannot substitute for pending consumer");
+        hr(gate->Signal(1),"release last consumer");wait(consumer.Get(),1);
+        auto released=AmdOfProducer::collect_retired();check(released.pending+released.quarantined+released.active==0,"consumer proof releases context");
+    }
+    std::puts("PASS bounded AMD retirement: two cycles, eight actual contexts, pending capacity refusal and completion recovery");
+}
 }
 int main(){
-    try{Host host;scenario(host,100);scenario(host,50);host.validate_debug();std::printf("PASS checks=%u actual_amd_dispatches=48\n",checks);return 0;}
+    try{Host host;scenario(host,100);scenario(host,50);retirement(host);host.validate_debug();std::printf("PASS checks=%u actual_amd_dispatches=57\n",checks);return 0;}
     catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);std::fflush(stdout);return 1;}
 }

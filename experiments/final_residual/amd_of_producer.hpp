@@ -15,6 +15,7 @@ struct GpuFlow {
     unsigned frames_since_reset=0,scene_history_bits=0;
     float scene_change=0; // SDK histogram divergence, not per-pixel confidence.
 };
+struct RetirementStats {unsigned limit=4,active=0,pending=0,quarantined=0;};
 
 // Standalone actual FFX1.1.4 producer; no Core/ExternalProvider/NGX dependency.
 // One serialized owner and one outstanding result. The caller's DIRECT queue
@@ -35,6 +36,14 @@ public:
     // After all actual output reads are submitted, pass their exact completion.
     // Fence must be same-device and already complete; false never releases.
     bool release_output(Id token,ID3D12Fence* consumer_completion,Id value) noexcept;
+    // Terminal handoff after the LAST consumer was submitted on the owner
+    // queue. Unlike release_output this may be pending. No future dispatch or
+    // consumer is permitted after success; a token is not a completion fence.
+    bool begin_retirement(Id token,ID3D12Fence* consumer_completion,Id value) noexcept;
+    // Configuration/shutdown owner calls this outside rendering locks. Never
+    // waits for GPU. A maximum of four active/retired contexts can own resources;
+    // unresolved Signal, consumer or device-loss evidence occupies its slot.
+    static RetirementStats collect_retired() noexcept;
     Id dispatch_count() const noexcept;
 private:
     struct Impl;

@@ -5,6 +5,28 @@ AMD FidelityFX 1.1.4 D3D12 optical-flow producer. It contains no temporal pixel
 shader and is not a feature in the current Core package. No GPL source was
 copied or translated. It does not change Core, INI or source pins.
 
+### 2026-09-21: bounded retirement implemented
+
+The standalone producer now reserves one of four context slots **before** GPU
+allocation. Its destructor transfers pending work into that bounded registry;
+it no longer abandons an untracked allocation on each settings change.
+`begin_retirement` accepts the exact last-consumer completion as a terminal
+handoff. `collect_retired` polls without waiting and destroys only after both
+producer and consumer completion. Unpublished submission, absent consumer proof,
+device loss or a failed vendor destroy keeps its slot quarantined. Capacity
+exhaustion refuses the new configuration; it does not lower the work size.
+
+Verified on RTX 5090 D / driver 616.92 with actual FidelityFX 1.1.4: 57 real
+dispatches, 1,544 checks, two four-context pending/complete cycles, refusal of a
+fifth context before GPU allocation, and a pending consumer fence after the
+producer already completed. Both existing wrong-direction/scale controls were
+detected. Debug layer unavailable; no actual device-loss or failed-Signal
+injection, Core integration, game denoising or VRAM-savings claim.
+
+GPU probe SHA256:
+`279aac63effdce05c278fba6ab7b9d1df1c7438db09c0595098ee6c88edea007`.
+Full build, hardware log and readbacks remain in the private evidence archive.
+
 ## Verified upstream reference
 
 The actual repository is [SAOG0721/Magpie](https://github.com/SAOG0721/Magpie).

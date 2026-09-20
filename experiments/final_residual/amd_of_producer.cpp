@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <array>
+#include <mutex>
 
 namespace nr::final_residual {
 using Microsoft::WRL::ComPtr;
@@ -68,6 +70,17 @@ struct Pass {
 };
 }
 struct AmdOfProducer::Impl {
+    struct Registry {
+        std::mutex lock;
+        std::array<Impl*,4> slots{};
+        std::array<bool,4> retired{};
+    };
+    // Deliberately process-lifetime storage: unresolved GPU work is never
+    // destroyed by static teardown. The four slots bound that retention.
+    static Registry& registry(){static Registry* value=new Registry;return *value;}
+    int slot=-1;
+    bool retiring=false,destroy_failed=false;
+    ComPtr<ID3D12Fence> consumer_done;Id consumer_value=0;
     ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12CommandAllocator> alloc;ComPtr<ID3D12GraphicsCommandList> list;ComPtr<ID3D12Fence> done;
     ComPtr<ID3D12Resource> input,raw,dense,scd,source,scd_readback;
@@ -106,21 +119,52 @@ struct AmdOfProducer::Impl {
     }
     void poison(const char* s){fault=true;ready=false;message=s;}
     bool complete() const {return done&&done->GetCompletedValue()!=UINT64_MAX&&done->GetCompletedValue()>=value;}
+    bool consumer_complete() const {
+        if(!held)return true;
+        if(!consumer_done||!consumer_value)return false;
+        const auto v=consumer_done->GetCompletedValue();return v!=UINT64_MAX&&v>=consumer_value;
+    }
+    bool quarantined() const {
+        return unpublished||destroy_failed||(held&&!consumer_done)||
+            (done&&done->GetCompletedValue()==UINT64_MAX)||
+            (consumer_done&&consumer_done->GetCompletedValue()==UINT64_MAX);
+    }
+    bool destroyable() const {
+        return !quarantined()&&(!value||complete())&&consumer_complete();
+    }
 };
 AmdOfProducer::AmdOfProducer(ID3D12Device* d,ID3D12CommandQueue* q,unsigned w,unsigned h,unsigned s):p_(std::make_unique<Impl>()){
+    collect_retired();
+    {auto& r=Impl::registry();std::lock_guard<std::mutex> guard(r.lock);
+        for(unsigned i=0;i<r.slots.size();++i)if(!r.slots[i]){r.slots[i]=p_.get();p_->slot=int(i);break;}}
+    if(p_->slot<0){p_->poison("AMD OF context capacity exhausted; pending retirement retained");return;}
     try{p_->init(d,q,w,h,s);}catch(const std::exception& e){p_->poison(e.what());}
 }
 AmdOfProducer::~AmdOfProducer(){
     if(!p_)return;
-    // A failed Signal, held output or device removal never proves retirement.
-    if(p_->unpublished||p_->held||(p_->value&&!p_->complete())){(void)p_.release();return;}
-    if(p_->created&&ffxOpticalflowContextDestroy(p_->amd.get())!=FFX_OK)(void)p_.release();
+    if(p_->slot<0)return; // Capacity refusal happened before any GPU allocation.
+    {auto& r=Impl::registry();std::lock_guard<std::mutex> guard(r.lock);
+        r.retired[unsigned(p_->slot)]=true;(void)p_.release();} // Registry owns it.
+    collect_retired();
+}
+RetirementStats AmdOfProducer::collect_retired()noexcept{
+    auto& r=Impl::registry();std::lock_guard<std::mutex> guard(r.lock);
+    RetirementStats stats;
+    for(unsigned i=0;i<r.slots.size();++i){auto* p=r.slots[i];if(!p)continue;
+        if(!r.retired[i]){++stats.active;continue;}
+        if(p->destroyable()){
+            if(p->created&&ffxOpticalflowContextDestroy(p->amd.get())!=FFX_OK)p->destroy_failed=true;
+            else {delete p;r.slots[i]=nullptr;r.retired[i]=false;continue;}
+        }
+        if(p->quarantined())++stats.quarantined;else ++stats.pending;
+    }
+    return stats;
 }
 bool AmdOfProducer::initialized()const noexcept{return p_->ready&&!p_->fault;}
 const char* AmdOfProducer::status()const noexcept{return p_->message.c_str();}
 Id AmdOfProducer::dispatch_count()const noexcept{return p_->count;}
 Submit AmdOfProducer::dispatch(const Frame& f,const Plan& plan,ID3D12Resource* snapshot)noexcept{
-    auto& p=*p_;if(p.fault||!p.ready)return Submit::Faulted;
+    auto& p=*p_;if(p.retiring||p.fault||!p.ready)return Submit::Faulted;
     if(p.previous.source.valid()&&same_stream(f.source,p.previous.source)&&f.source.sequence==p.previous.source.sequence)return Submit::Duplicate;
     if(p.held)return Submit::Busy;
     if(!f.valid()||!plan.work()||!plan.history_generation||plan.token<=p.last_token||f.contract.backend!=Backend::AmdOpticalFlow||
@@ -155,7 +199,7 @@ Submit AmdOfProducer::dispatch(const Frame& f,const Plan& plan,ID3D12Resource* s
     }catch(const std::exception& e){p.poison(e.what());return Submit::Faulted;}
 }
 bool AmdOfProducer::poll(GpuFlow& out)noexcept{
-    out={};auto& p=*p_;if(!p.held||p.fault)return false;
+    out={};auto& p=*p_;if(p.retiring||!p.held||p.fault)return false;
     const auto v=p.done->GetCompletedValue();if(v==UINT64_MAX){p.poison("device removed; retain producer resources");return false;}
     auto r=p.receipt;r.status=v>=p.value?FlowStatus::Ready:FlowStatus::Pending;
     unsigned bits=0;float scene=0;r.motion_usable=false;
@@ -168,8 +212,15 @@ bool AmdOfProducer::poll(GpuFlow& out)noexcept{
     out={r,p.pending.token,p.dense.Get(),p.scd.Get(),p.done.Get(),p.value,p.age,bits,scene};return true;
 }
 bool AmdOfProducer::release_output(Id token,ID3D12Fence* fence,Id value)noexcept{
-    auto& p=*p_;if(p.fault||!p.held||token!=p.pending.token||!value||value==UINT64_MAX||!p.complete()||!same_device(fence,p.device.Get()))return false;
+    auto& p=*p_;if(p.retiring||p.fault||!p.held||token!=p.pending.token||!value||value==UINT64_MAX||!p.complete()||!same_device(fence,p.device.Get()))return false;
     const auto v=fence->GetCompletedValue();if(v==UINT64_MAX||v<value)return false;
     p.source.Reset();p.held=false;p.pending={};return true;
+}
+bool AmdOfProducer::begin_retirement(Id token,ID3D12Fence* fence,Id value)noexcept{
+    auto& p=*p_;
+    if(p.retiring||p.unpublished||!p.held||token!=p.pending.token||!value||value==UINT64_MAX||
+       !same_device(fence,p.device.Get())||fence->GetCompletedValue()==UINT64_MAX)return false;
+    p.consumer_done=fence;p.consumer_value=value;p.retiring=true;p.ready=false;
+    return true;
 }
 }
