@@ -194,7 +194,7 @@ $DisplayVersion — 中文研究候选，尚未游戏验收。
 D3D12：使用本包核心和 nrchain_nvngx.dll；不安装 DX11 carrier。
 DX11 已有 DLSS 兼容路线：另需 ${CarrierLeaf}；不宣称支持所有 DX11 游戏或 Vulkan。
 若包含 nr_face，请保持该目录与核心相邻；它包含可选人脸功能的 CPU 运行库、模型和许可证，不会自动开启功能。
-F6 对比，F8 导出反馈。Windows/WARP 通过不等于游戏通过；使用同场景同配置验收。
+默认 F6 对比、F8 导出文字反馈；可在开发者页改键。Windows/WARP 通过不等于游戏通过；使用同场景同配置验收。
 回退时退出游戏，移出本批核心/桥接/人脸目录，恢复备份。包不含 INI、ReShade 或 NVIDIA 私有运行库/模型。
 身份、依赖和哈希见 build-info.json、SHA256.json。
 "@
@@ -205,7 +205,7 @@ Exit the game and back up the prior Core. Keep exactly one language Core and pre
 D3D12: use the Core and nrchain_nvngx.dll; do not install the DX11 carrier.
 DX11 with an existing compatible DLSS input path additionally needs ${CarrierLeaf}; this is not universal DX11 or Vulkan support.
 If present, keep nr_face beside the Core. It contains the optional face feature's CPU runtime, model and licenses; packaging does not enable it.
-Compare with F6 and export feedback with F8. Windows/WARP validation is not game validation; keep scene and settings identical.
+Default keys: F6 compares and F8 exports a text report; remap them on Developer. Windows/WARP validation is not game validation; keep scene and settings identical.
 For rollback, exit the game, remove this candidate's Core/bridge/face directory and restore backups. No INI, ReShade or NVIDIA private runtime/model is included.
 See build-info.json and SHA256.json for exact identity, dependencies and hashes.
 "@
@@ -214,11 +214,17 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
         if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4')) {
             $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
+            if ($Version -eq 'beta0.5-dline21-unified4') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED4_UI_EN_20260921.md' } else { 'UNIFIED4_UI_20260921.md' }
+            }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
         }
-        if ($Version -in @('beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4'),'beta0.5-dline21-unified4') {
+        if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RR_CURRENT_PROJECTION_20260920.md') -Destination (Join-Path $Package 'RR-CANDIDATE.md')
+        }
+        if ($Version -eq 'beta0.5-dline21-unified4') {
+            Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED4_CONTINUATION_20260921.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
         }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
             language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
