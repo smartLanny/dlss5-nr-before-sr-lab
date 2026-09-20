@@ -131,21 +131,21 @@ int main() {
 
     def test_face_controls_round_trip(self) -> None:
         layer_ui=source_path.with_name("nr_layers_ui.inl").read_text(encoding="utf-8-sig")
-        start=layer_ui.index('            if(ImGui::Checkbox(zh?"皮肤／人脸保护":"Skin / face protection"')
-        end=layer_ui.index('            ImGui::EndDisabled();',start)+len('            ImGui::EndDisabled();')
+        start=layer_ui.index('        NrLayerField(zh?"原生皮肤遮罩":"Native skin mask"')
+        end=layer_ui.index('        ImGui::EndDisabled();',start)+len('        ImGui::EndDisabled();')
         controls=layer_ui[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;bool disabled=false;
 float slider_value = -100.f;
 void SettingsTooltip(const char *) {}
-void SettingsField(const char *) {} // Layout only; controls below remain production code.
+void NrLayerField(const char *,bool) {} // Layout only; controls below remain production code.
 void SettingsNote(const char *) {}
 namespace ImGui {
 void BeginDisabled(bool value){disabled=value;}
 void EndDisabled(){disabled=false;}
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Skin / face protection" || text == "皮肤／人脸保护") {
+    if (text == "##native-mask") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
@@ -164,7 +164,7 @@ bool SettingsSliderFloat(const char *label, const char *, float *value, float lo
     return ImGui::SliderFloat(label, value, lo, hi, format);
 }
 bool DrawFaceControls(ChainConfig &next, bool chinese) {
-    bool edited=false,discrete=false;const bool zh=chinese;auto model=nr_layers::Read(next,0);
+    bool edited=false,discrete=false;const bool zh=chinese;const bool table=false;auto model=nr_layers::Read(next,0);
 CONTROLS
     (void)discrete;
     if(edited)nr_layers::WritePrimary(next,model);
@@ -175,7 +175,7 @@ int main() {
         ChainConfig c; c.skin_structure = -1.f; c.auto_mask = false;
         toggle = -1; slider_value = -100.f; sliders = 0;
         check(!DrawFaceControls(c, chinese), "disabled face controls do not edit settings");
-        check(sliders == 0, "mask off hides skin slider");
+        check(sliders == 0, "mask off disables skin editing");
         toggle = 1; sliders = 0;
         check(DrawFaceControls(c, chinese), "enabling face mask commits edit");
         check(c.auto_mask && c.skin_structure == .4f && sliders == 1, "first enable initializes native skin strength 0.4");
