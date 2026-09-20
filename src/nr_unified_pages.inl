@@ -124,7 +124,7 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         if(next.colour_input_curve!=sample.policy.recorded_input_curve)SettingsNote(NrUi("The selected input curve was not applied to the recorded frame.","所选输入曲线未用于最近记录的帧。"));
     }
     nr_face_runtime::DrawUi(next,changed);
-    SettingsSection(NrUi("Energy saving","省电"));DrawEnergyGateOptions();
+    DrawEnergyGateOptions();
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
@@ -208,8 +208,8 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     if(ImGui::Button(NrUi("Text report F8","生成文字报告 F8")))nr_f8::RequestCore();
     SettingsTooltip(NrUi("Bounded TXT; settings unchanged; path copied when ready.","生成有界 TXT，不改画质设置；完成后复制路径。"));
     if(row)ImGui::SameLine();
-    if(ImGui::Button(NrUi("Capture current view","采集当前画面")))nr_f8::RequestFullscreen();
-    SettingsTooltip(NrUi("Full-screen screenshot at native resolution; no parameter changes.","原分辨率全屏画面，不改参数。"));
+    if(ImGui::Button(NrUi("Capture current view F7","采集当前画面 F7")))nr_f8::RequestFullscreen();
+    SettingsTooltip(NrUi("Current-path full-screen images and available model stages, with a text report. Saved settings stay unchanged; stage capture resets/warms history and affects timing.","采集当前路径全屏画面、可用模型阶段和文字报告；保存设置不变，阶段采集会重置/预热历史并影响计时。"));
     if(row)ImGui::SameLine();
     if(ImGui::Button(NrUi("Capture comparison","采集对照")))nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix);
     SettingsTooltip(NrUi("Temporarily compares NR off and both orders at 50/75/100%. RR skips pre-SR groups. Restores settings; resets history and affects timing.","临时比较关闭 NR 与前后置 50/75/100%；RR 跳过前置组。结束恢复设置，会重置历史并影响帧率。"));
@@ -233,9 +233,9 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::EndDisabled();
     SettingsNote(NrUi("Session-only; NR continues. Close the menu, hold the same scene for 30 seconds, then F8. Captures affect timing.","仅本次运行生效，NR 继续处理。关闭菜单后固定场景30秒，再按F8；图像采集会影响计时。"));
     SettingsSection(NrUi("Detailed captures","深度采集"));
-    ImGui::BeginDisabled(busy||StageCaptureStatus()!=0u);
-    if(ImGui::Button(NrUi("Capture model stages (F7)","采集模型阶段（F7）")))RequestStageCapture();ImGui::EndDisabled();
-    SettingsNote(NrUi("F7 resets/warms history for S/P/real N/E. Pre-SR E is not the native SR output. This is not a continuous replay.","F7 重置/预热历史后采集原图、P、真实N和E；前置E不是原生SR输出，也不是连续重放。"));
+    ImGui::BeginDisabled(busy||StageCaptureStatus()==1u||StageCaptureStatus()==2u);
+    if(ImGui::Button(NrUi("Capture centre model stages","采集中央区域模型阶段")))nr_f8::RequestWithOptions({});ImGui::EndDisabled();
+    SettingsNote(NrUi("Captures S/P/real N/E in the centre region with a paired report; resets/warms history. Pre-SR E is not the native SR output. Compatibility input captures available current-path layers instead.","采集中央区域原图、P、真实N和E并附报告，会重置/预热历史。前置E不是原生SR输出；兼容入口改为采集当前路径可用的各层。"));
     nr_replay::DrawUi();DrawFaceDiagnosticControls(runtime,config);
     SettingsSection(NrUi("Runtime information","详细运行信息"));
     nr_dual_runtime::DrawDetailsUi(config.nr_passes==2,pending);
@@ -245,6 +245,6 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::TextWrapped("%s",UseChineseUi()?kAddonAuthor:kAddonAuthorAscii);
     ImGui::TextWrapped("%s",kOfficialReleaseUrl);
     ImGui::TextWrapped("%s",NrUi("QQ group 2: 392308850","交流群（二群）：392308850"));
-    SettingsNote(NrUi("F6: NR on/off · F8: text report · F7: model stages · minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
-        "F6：NR开关 · F8：文字报告 · F7：模型阶段 · 减号：截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
+    SettingsNote(NrUi("F6: NR on/off · F8: text report · F7: current-path images · minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
+        "F6：NR开关 · F8：文字报告 · F7：当前路径图像 · 减号：截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
 }

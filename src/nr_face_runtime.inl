@@ -197,9 +197,9 @@ void DrawUi(ChainConfig& next,bool& changed) {
     ImGui::TextWrapped("%s",zh?"随包资源占安装空间；关闭时仅保留少量状态检查，不启动检测模型或新脸区处理。与每层原生皮肤遮罩无联动。":"Bundled resources use disk space. Off keeps small state checks without starting the detector or new face work; native layer skin masks are independent.");
     static const char* en[]={"Off","Waiting for detection","Face region available","No face detected","Detection expired","Input contract changed","Motion history unavailable","Depth unavailable","Unverified region source","Region rejected by correspondence checks","Invalid extent","Detector unavailable","GPU resources unavailable"};
     static const char* cn[]={"关闭","等待识别","脸区可用","未识别人脸","识别结果已过期","输入合同变化","运动历史不可用","深度不可用","区域来源未验证","脸区未通过对应检查","范围无效","识别器不可用","GPU资源不可用"};
-    const auto status=std::min(state.load(),static_cast<unsigned>(std::size(en)-1));
-    ImGui::Text(zh?"%s；检测 %u 张脸；最近确认脸区 %u 像素":"%s; %u detected faces; last confirmed mask %u pixels",zh?cn[status]:en[status],detected_faces.load(),confirmed_mask_pixels.load());
-    ImGui::TextDisabled(zh?"最近检测 CPU %.2f ms；非整帧 GPU 开销":"Last detection CPU %.2f ms; not whole-frame GPU overhead",detector_cpu_ms.load());
-    ImGui::TextWrapped("%s",zh?"不修改模型的人脸参数。两项原图保护均为100%时，脸内恢复当前合成节点的原输入。动漫、真实人物及5%整帧开销仍待游戏验收；也可能识别到界面肖像。":"Model Skin settings are unchanged. Both original protections at 100% restore this composition node's input inside the face. Anime, realistic characters and the 5% whole-frame cost still require game acceptance; UI portraits may also be detected.");
+    const auto status=next.face_protection?std::min(state.load(),static_cast<unsigned>(std::size(en)-1)):0u;
+    ImGui::TextWrapped(zh?"%s；最近检测 %u 张脸；最近确认脸区 %u 像素":"%s; last detection %u faces; last confirmed mask %u pixels",zh?cn[status]:en[status],detected_faces.load(),confirmed_mask_pixels.load());
+    ImGui::TextWrapped(zh?"最近检测 CPU %.2f ms；非整帧 GPU 开销":"Last detection CPU %.2f ms; not whole-frame GPU overhead",detector_cpu_ms.load());
+    ImGui::TextWrapped("%s",zh?"不修改模型的人脸参数。两项原图保护均为100%时，脸内恢复当前合成节点的原输入。实际效果与整帧开销需游戏对照；也可能识别到界面肖像。":"Model Skin settings are unchanged. Both original protections at 100% restore this composition node's input inside the face. Quality and whole-frame cost need game comparison; UI portraits may also be detected.");
 }
 }

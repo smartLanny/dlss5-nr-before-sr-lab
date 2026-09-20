@@ -536,8 +536,8 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
             "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
     else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f) {
         displayed=Display::Native;
-        ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
-            "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
+        ImGui::TextWrapped("%s", ui("NR is off; game output continues.",
+            "NR 已关闭，显示游戏原画面。"));
     }
     else if (reason == BypassReason::ContextReleasePending) {
         displayed=Display::Checking;

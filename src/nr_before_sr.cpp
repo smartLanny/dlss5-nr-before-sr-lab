@@ -1690,7 +1690,7 @@ void ReloadConfig(bool force = false) {
     g_next_config_poll_tick.store(now + 500, std::memory_order_relaxed);
 
     // Snapshot existence before strength/mode migrations can create the file.
-    // Missing work keys in an existing or unreadable file retain legacy 75%.
+    // Missing work keys use 100%; explicit saved requests retain their scale.
     const bool new_work_file = IsNewWorkConfigFile();
     const auto work_request = ReadWorkRequest(new_work_file);
     ChainConfig next = {};

@@ -6,10 +6,10 @@ void DrawEnergyGateOptions() {
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     auto status = nr_processing_runtime::ReadEnergyGateStatus();
 
-    SettingsSection(ui("Power saving", "省电"));
+    SettingsSection(ui("Power saving (experimental)", "省电（实验）"));
     bool conservative = status.conservative;
-    if (ImGui::Checkbox(ui("Pause NR in game menus (conservative, experimental)###nr-energy-safe",
-                           "菜单暂停 NR 省电（保守，实验）###nr-energy-safe"), &conservative)) {
+    if (ImGui::Checkbox(ui("Conservative pause###nr-energy-safe",
+                           "保守省电###nr-energy-safe"), &conservative)) {
         (void)nr_processing_runtime::SetEnergyGateOption(true, conservative);
         status = nr_processing_runtime::ReadEnergyGateStatus();
     }
@@ -18,8 +18,8 @@ void DrawEnergyGateOptions() {
         "只使用游戏明确提供的 DLSSG NotRenderingGameFrames 信号。短暂防抖后连续两次确认才暂停插件自己的 NR；一次明确恢复就立即放行。信号缺失或超过 2 秒未刷新会 fail-open 自动恢复。DLSS / SR / FG 原链路继续，NR 资源不会反复销毁。"));
 
     bool heuristic = status.heuristic;
-    if (ImGui::Checkbox(ui("Guess menu/fullscreen-UI pauses (experimental)###nr-energy-guess",
-                           "猜测菜单 / 大界面暂停（实验）###nr-energy-guess"), &heuristic)) {
+    if (ImGui::Checkbox(ui("Heuristic pause###nr-energy-guess",
+                           "猜测省电###nr-energy-guess"), &heuristic)) {
         (void)nr_processing_runtime::SetEnergyGateOption(false, heuristic);
         status = nr_processing_runtime::ReadEnergyGateStatus();
     }
@@ -44,11 +44,11 @@ void DrawEnergyGateOptions() {
     } else if (status.explicit_samples) {
         SettingsNote(ui("Confirming the game's pause signal; NR is still running.", "正在确认游戏暂停信号；NR 仍在运行。"));
     } else if (status.heuristic && status.guess_samples) {
-        ImGui::TextDisabled(zh ? "猜测候选：FG 源帧停滞 %u/4，等待 300 ms 确认。" :
+        ImGui::TextWrapped(zh ? "猜测候选：FG 源帧停滞 %u/4，等待 300 ms 确认。" :
             "Heuristic candidate: FG source stalled %u/4 observations; waiting for 300 ms confirmation.",
             status.guess_samples);
     } else if (status.conservative || status.heuristic) {
-        ImGui::TextDisabled("%s", ui(
+        ImGui::TextWrapped("%s", ui(
             "Waiting for usable pause evidence; NR is still running. Enabling this option alone does not save power.",
             "等待可用暂停信号；NR 仍在运行。开启选项本身不代表已经节能。"));
     }

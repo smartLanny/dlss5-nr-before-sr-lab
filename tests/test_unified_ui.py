@@ -48,7 +48,11 @@ class UnifiedUi(unittest.TestCase):
         self.assertTrue('nr_colour_lab::LegacyPermissionEditable(mode)' in self.pages)
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
-        self.assertEqual(self.pages.count('RequestStageCapture();'),1)
+        self.assertNotIn('RequestStageCapture();',self.pages)
+        self.assertEqual(self.pages.count('nr_f8::RequestFullscreen();'),1)
+        self.assertEqual(self.pages.count('nr_f8::RequestWithOptions({});'),1)
+        self.assertIn('Capture current view F7',self.pages)
+        self.assertNotIn('SettingsSection(NrUi("Energy saving"',self.pages)
         picture = self.settings[:self.settings.index('Lighting###')]
         self.assertFalse('RequestStageCapture(' in picture)
         for field in ('face_protection','pause_nr_on_fullscreen_ui','guess_pause_nr'):
