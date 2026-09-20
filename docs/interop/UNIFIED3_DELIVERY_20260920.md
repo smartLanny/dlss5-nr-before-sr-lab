@@ -44,3 +44,12 @@ NVIDIA宿主使用独立冻结导出，202个生产源文件与规范构建逐�
 颜色/纹理同源P/N/E/O定位 → 同工作量RR+NR+FG等待/提交优化 → 后置残差私有SR、前置旁路、跨RR和AMDOF独立实验。具体保护和验收要求继续以统一交接为准。
 
 七棵旧dirty树的恢复、归档及移除在前批已完成，本批不重复计数；不关闭未解决的颜色、性能、显存Issue。UI增量并入现有#300，不新开并行入口。
+
+## 已核对的 OTA 包
+
+| 语言 | SHA256 |
+| --- | --- |
+| DLSS5-beta0.5-dline21-unified3-en-OTA.zip | `8f853960c055f5e66eff1cf2eddd422b665c877b99f5dfbbefb82107479ecf76` |
+| DLSS5-beta0.5-dline21-unified3-zh-CN-OTA.zip | `1b51ab5646a10bb3f17db04de52c26f62dc8a40435e24ea145af1bebfcd8be46` |
+
+两个 ZIP 的 CRC、逐文件 SHA256、单语言 Core、完整 face 资源与菜单说明检查通过；没有 INI 或 NVIDIA 游戏运行库。打包提交 `a4d6ed27`，后续本段只登记包哈希。旧 unified2 中文包哈希仍为 `015741b8e4181b2ecf17ba8c5304bc4d8dd1ce2d56eda1a06e06a11b6c5d8cce`。
