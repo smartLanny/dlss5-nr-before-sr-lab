@@ -46,7 +46,7 @@ def main():
     'context.reset_retry_pending = reset_requested;', 'SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);']
    for text in required:
     if text not in bind:raise AssertionError('Review reset-forwarding contract: '+text)
-   for text in ['aux.dual_history.NeedsReset(key,primary.evaluations,primary.diagnostic_reset_requested)',
+   for text in ['aux.dual_history.NeedsReset(key,primary.evaluations,primary.diagnostic_warmup_reset)',
     'aux.width,aux.height,color,reset,slot.motion_proxy)', 'aux.reset_retry_pending=false;',
     'aux.dual_history.CommitSuccess(key,primary.evaluations)',
     'primary.successful_evaluations_since_reset<=g_config.warmup_after_create']:
