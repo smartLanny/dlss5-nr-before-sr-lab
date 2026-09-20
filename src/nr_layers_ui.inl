@@ -42,18 +42,17 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
                 drag_layer=-1;
             }
             edited|=SettingsSliderFloat(zh?"强度":"Intensity","##intensity",&model.intensity,0.f,2.f,"%.2f");
-            if(ImGui::CollapsingHeader(zh?"本层细调":"Layer fine controls")) {
             edited|=SettingsSliderFloat(zh?"局部结构":"Local structure","##structure",&model.local_structure,0.f,2.f,"%.2f");
             edited|=SettingsSliderFloat(zh?"局部色调":"Local tone","##tone",&model.local_tone,0.f,2.f,"%.2f");
-            if(ImGui::Checkbox(zh?"自动皮肤遮罩":"Automatic skin mask",&model.auto_mask)){
-                if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=0.f;
+            if(ImGui::Checkbox(zh?"皮肤／人脸保护":"Skin / face protection",&model.auto_mask)){
+                if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=nr_layers::Model{}.skin_structure;
                 edited=true;discrete=true;
             }
+            SettingsTooltip(zh?"本层 NR 模型自带的自动皮肤遮罩。用下方皮肤结构调节皮肤增强量，默认 0.4；不启动独立人脸检测模型。":"This NR layer's built-in skin mask. Skin structure controls its skin enhancement, default 0.4; this does not start the separate face detector.");
             ImGui::BeginDisabled(!model.auto_mask);
             edited|=SettingsSliderFloat(zh?"皮肤结构":"Skin structure","##skin",&model.skin_structure,model.auto_mask?0.f:-1.f,2.f,"%.2f");
             ImGui::EndDisabled();
             if(ImGui::Checkbox(zh?"文字与界面保护":"UI correction",&model.ui_correction)){edited=true;discrete=true;}
-            }
             if(ImGui::Button(zh?"重置本层":"Reset this layer")){model={};edited=true;discrete=true;}
             SettingsTooltip(zh?"仅恢复本层模型参数；不改变层数、工作分辨率和最终合成。":"Resets this layer's model controls only; keeps layer count, work resolution and final composition.");
             if(edited) {

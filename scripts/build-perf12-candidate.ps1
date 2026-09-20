@@ -13,7 +13,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
-$LeafVersion = if ($QualitySuccessor) { 'unified1' } else { 'perf12' }
+$LeafVersion = if ($QualitySuccessor) { 'unified2' } else { 'perf12' }
 $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
@@ -71,6 +71,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Auxiliary allocation/history separation gate f
 & python (Join-Path $PSScriptRoot 'validate-aux-parent-retirement.py') --compiler $Cxx --output $MemoryGate
 if ($LASTEXITCODE -ne 0) { throw 'Auxiliary parent retirement/fence/memory gate failed.' }
 if ($QualitySuccessor) {
+    & python (Join-Path $PSScriptRoot 'validate-context-release-admission.py') --compiler $Cxx --output ($Output + '.create-release-checks')
+    if ($LASTEXITCODE) { throw 'Model replacement release ordering and route preservation failed.' }
     & python (Join-Path $PSScriptRoot 'validate-submit-batch.py') --compiler $Cxx --output ($Output + '.submit-checks')
     if ($LASTEXITCODE) { throw 'Submission batch relevance and inverse controls failed.' }
     & python (Join-Path $Root 'tests/run_d21_energy_gate.py') --compiler $Cxx --output ($Output + '.energy-checks')
@@ -78,6 +80,8 @@ if ($QualitySuccessor) {
     $env:NR_LLVM_BIN = Join-Path $ToolchainRoot 'bin'
     & python (Join-Path $Root 'tests/test_d13_ui_compile.py') -v
     if ($LASTEXITCODE) { throw 'Layer UI transaction checks failed.' }
+    & python (Join-Path $Root 'tests/test_working_scale_ui.py')
+    if ($LASTEXITCODE) { throw 'Selected working-scale UI transaction checks failed.' }
     & python (Join-Path $Root 'tests/test_quality_panel.py') -v
     if ($LASTEXITCODE) { throw 'Quality policy and UI checks failed.' }
     foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py','run_quality_recipe.py')) {

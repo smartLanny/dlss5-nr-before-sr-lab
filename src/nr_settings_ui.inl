@@ -539,6 +539,11 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     }
+    else if (reason == BypassReason::ContextReleasePending) {
+        displayed=Display::Checking;
+        ImGui::TextWrapped("%s", ui("Releasing the previous model before applying the new settings. Native output continues; your selected scale and route are retained.",
+            "正在释放旧模型，随后应用新设置。期间继续显示游戏原图；所选比例和处理顺序不变。"));
+    }
     else if (!activity.valid) {
         displayed=Display::Checking;
         ImGui::TextWrapped("%s", ui("Checking recent NR activity...", "正在检查近期 NR 处理状态……"));

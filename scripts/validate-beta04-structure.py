@@ -10,7 +10,7 @@ guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
 # The raw stage deliberately remains uniform3. The final reviewed colour
-# exporter stamps unified1; historical dev4 packaging/docs are not active inputs.
+# exporter stamps unified2; historical dev4 packaging/docs are not active inputs.
 current_identity_files = {
     "source": source,
     "resource": (root / "src/nr_before_sr.rc").read_text(encoding="utf-8"),
@@ -26,7 +26,7 @@ identity_requirements = {
                  "beta0.5-dline21-uniform3-@"],
     "build": ["DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@",
               "DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@"],
-    "overlay": ["VERSION = 'beta0.5-dline21-unified1'"],
+    "overlay": ["VERSION = 'beta0.5-dline21-unified2'"],
     "generator": ["INTEGRATION_CORE_PINS", "m.VERSION = VERSION"],
     "handoff": ["scripts/build-unified-candidate.ps1", "next/0.5", "#294"],
 }

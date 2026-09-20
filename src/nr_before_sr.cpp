@@ -9,6 +9,7 @@
 #include <d3dcompiler.h>
 #include <tlhelp32.h>
 #include <shlobj.h>
+#include <psapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -413,6 +414,7 @@ enum class BypassReason : int {
     CodecUnavailable,
     QueueRetirementTimeout,
     ExternalNrOwner,
+    ContextReleasePending,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -525,6 +527,7 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::RuntimeUnavailable: return "nr-runtime-unavailable";
     case BypassReason::CodecUnavailable: return "codec-unavailable";
     case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
+    case BypassReason::ContextReleasePending: return "context-release-pending";
     default: return "unknown";
     }
 }
@@ -958,10 +961,10 @@ struct ChainConfig {
     float intensity = 1.2f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
-    float skin_structure = -1.0f;
-    bool auto_mask = false;
+    float skin_structure = 0.4f;
+    bool auto_mask = true;
     unsigned int style = 0;
-    bool ui_correction = false;
+    bool ui_correction = true;
     int perf_epoch = 0;
     // 0 = unknown/fail closed, 1 = verified linear UNORM, 2 = verified
     // sRGB-encoded values stored through an UNORM view. This is a profile
@@ -1415,8 +1418,8 @@ void ReadUniformLayers(ChainConfig& next) {
         const auto number=[&](const wchar_t* suffix,float fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return ReadIniFloat(key,fallback);};
         layer.enabled=integer(L"Enabled",0)!=0;layer.initialized=integer(L"Configured",0)!=0;
         layer.intensity=number(L"Intensity",1.2f);layer.local_tone=number(L"LocalToneStrength",1.f);
-        layer.local_structure=number(L"LocalStructureStrength",1.f);layer.skin_structure=number(L"SkinStructureStrength",-1.f);
-        layer.auto_mask=integer(L"AutoMask",0)!=0;layer.style=integer(L"Style",0);layer.ui_correction=integer(L"UICorrection",1)!=0;
+        layer.local_structure=number(L"LocalStructureStrength",1.f);layer.skin_structure=number(L"SkinStructureStrength",.4f);
+        layer.auto_mask=integer(L"AutoMask",1)!=0;layer.style=integer(L"Style",0);layer.ui_correction=integer(L"UICorrection",1)!=0;
     }
 }
 bool SaveUniformLayers(const ChainConfig& config) {
@@ -1847,9 +1850,9 @@ void ReloadConfig(bool force = false) {
     next.intensity = ReadIniFloat(L"Intensity", 1.2f);
     next.local_tone = ReadIniFloat(L"LocalToneStrength", 1.0f);
     next.local_structure = ReadIniFloat(L"LocalStructureStrength", 1.0f);
-    next.skin_structure = ReadIniFloat(L"SkinStructureStrength", -1.0f);
+    next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);
     next.auto_mask = GetPrivateProfileIntW(
-        L"NRBeforeSR", L"AutoMask", 0, g_ini_path) != 0;
+        L"NRBeforeSR", L"AutoMask", 1, g_ini_path) != 0;
     next.style = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"Style", 0, g_ini_path));
     next.ui_correction = GetPrivateProfileIntW(
@@ -5594,6 +5597,11 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
 NrContext g_pending_destroy_contexts[16] = {};
+// Covers the interval after detaching from the pending table until all owned
+// model/COM releases finish outside g_chain_cs. Existing models may still run;
+// only a new allocation waits for this small, asynchronous retirement window.
+std::atomic<unsigned> g_nr_context_releases_in_progress{0};
+std::atomic<unsigned long long> g_nr_create_release_deferrals{0};
 
 // GPU lifetime tracking is deliberately fixed-size and fail-closed.  The
 // command-list marker survives the ReShade proxy and can therefore be read
@@ -6331,6 +6339,7 @@ void DrainPendingContextDestructions() {
             }
         }
         if (source != nullptr) {
+            g_nr_context_releases_in_progress.fetch_add(1,std::memory_order_acq_rel);
             pending = *source;
             nr_dual::RebindSlotOwners(pending);
             *source = {};
@@ -6338,7 +6347,26 @@ void DrainPendingContextDestructions() {
         LeaveCriticalSection(&g_chain_cs);
         if (source == nullptr) break;
         DestroyContext(pending);
+        g_nr_context_releases_in_progress.fetch_sub(1,std::memory_order_release);
     }
+}
+
+bool DeferNrCreationForReleaseLocked() {
+    // Selection may just have retired the old model. Collect again now, before
+    // creating its replacement, so ready old/new allocations do not overlap.
+    // The collector still uses each resource's exact recorded/submitted fence.
+    CollectRetiredContextsLocked();
+    bool pending=g_nr_context_releases_in_progress.load(std::memory_order_acquire)!=0;
+    for(const auto& context:g_pending_destroy_contexts)pending|=context.sr_handle!=nullptr;
+    if(!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
+    // Keep native SR/RR and the saved route. A transient release is not a reason
+    // to create yet another model at Present, or to block the CPU on a GPU fence.
+    nr_processing_runtime::BlockSource();
+    SetBypassReason(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)
+        ? BypassReason::LifecycleIsolation:BypassReason::ContextReleasePending);
+    const auto count=g_nr_create_release_deferrals.fetch_add(1,std::memory_order_relaxed)+1;
+    if(count<=3||count%120==0)Log("[nr-create-release] deferred=%llu; release ready retired models outside locks before replacement Create; saved scale/route retained.",count);
+    return true;
 }
 
 // Read-only metadata for F8. These bytes are the existing auxiliary texture
@@ -7674,6 +7702,11 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         return matching;
     }
+    if(DeferNrCreationForReleaseLocked())return nullptr;
+    // The second collection may have reclaimed a slot from a previously full
+    // table; do not retain the old empty-slot observation across that move.
+    empty=nullptr;
+    for(auto& context:g_contexts)if(context.sr_handle==nullptr){empty=&context;break;}
     if (empty != nullptr) {
         empty->layer_index=layer_index;empty->parent_instance_id=parent_instance;empty->parent_input_epoch=parent_epoch;
         empty->sr_handle = sr_handle;
@@ -10186,6 +10219,30 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
 #include "nr_replay_runtime.inl"
 #include "nr_face_runtime.inl"
 
+// Sample only at opaque model creation, never per-frame Evaluate. A missing
+// reading is explicit: zero from an unavailable API is not evidence of OOM.
+// These are CPU process/system counters, not NGX or video-memory accounting.
+void LogNrCreateMemory(const char* phase,const NrContext& context,NgxResult result) {
+    MEMORYSTATUSEX system{};system.dwLength=sizeof(system);
+    const bool system_valid=GlobalMemoryStatusEx(&system)!=FALSE;
+    PROCESS_MEMORY_COUNTERS_EX process{};process.cb=sizeof(process);
+    const bool process_valid=K32GetProcessMemoryInfo(GetCurrentProcess(),
+        reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&process),sizeof(process))!=FALSE;
+    PERFORMANCE_INFORMATION perf{};perf.cb=sizeof(perf);
+    const bool perf_valid=K32GetPerformanceInfo(&perf,sizeof(perf))!=FALSE;
+    Log("[nr-create-memory] phase=%s mode=%d extent=%ux%u result=0x%08X "
+        "systemValid=%d processAvailableCommitBytes=%llu processCommitLimitBytes=%llu "
+        "availablePhysicalBytes=%llu processValid=%d privateCommitBytes=%llu workingSetBytes=%llu "
+        "perfValid=%d systemCommitBytes=%llu systemLimitBytes=%llu systemPeakCommitBytes=%llu.",
+        phase,context.mode,context.width,context.height,result,system_valid?1:0,
+        system.ullAvailPageFile,system.ullTotalPageFile,system.ullAvailPhys,process_valid?1:0,
+        static_cast<unsigned long long>(process.PrivateUsage),
+        static_cast<unsigned long long>(process.WorkingSetSize),perf_valid?1:0,
+        static_cast<unsigned long long>(perf.CommitTotal)*perf.PageSize,
+        static_cast<unsigned long long>(perf.CommitLimit)*perf.PageSize,
+        static_cast<unsigned long long>(perf.CommitPeak)*perf.PageSize);
+}
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
@@ -10215,9 +10272,11 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
+        LogNrCreateMemory("begin",context,0);
         result = g_nr_api.bridge_create(
             g_nr_api.signed_create, command_list, 18,
             context.params, &handle);
+        LogNrCreateMemory("end",context,result);
         observed.Finish(result, static_cast<const NgxHandle *>(handle), context.params);
     }
     if (result == kNgxSuccess && handle != nullptr) {

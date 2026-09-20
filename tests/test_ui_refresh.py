@@ -17,7 +17,7 @@ class UiRefreshContract(unittest.TestCase):
         cls.notices = (ROOT / "src" / "nr_settings_notices_ui.inl").read_text(encoding="utf-8")
 
     def test_work_scale_is_one_continuous_supported_slider(self):
-        self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f', self.ui)
+        self.assertRegex(self.ui, r'"##nr-processing-precision",\s*&precision,\s*50\.(?:0)?f,\s*100\.(?:0)?f')
         self.assertIn('ImGui::SliderInt("##post-nr-working-scale",&edit,50,100', self.post)
         self.assertNotIn("for(int percent", self.post)
         self.assertNotIn("100,75,67,50", self.post)
@@ -239,7 +239,10 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('if(!layer.enabled){ImGui::PopID();break;}', self.layers)
         self.assertIn('"Default","Natural","Cinematic"', self.layers)
         self.assertNotIn('ImGui::Combo', self.layers)
-        self.assertIn('if(ImGui::CollapsingHeader(zh?"本层细调":"Layer fine controls"))', self.layers)
+        self.assertNotIn('"Layer fine controls"', self.layers)
+        self.assertIn('"##structure"', self.layers)
+        self.assertIn('"##tone"', self.layers)
+        self.assertIn('"##skin"', self.layers)
         self.assertIn('nr_dual_runtime::DrawDetailsUi(current.config.nr_passes == 2, has_pending);', self.ui[experiment_start:])
 
     def test_d13_dual_status_uses_current_snapshot_and_hides_pending_observation(self):

@@ -53,6 +53,19 @@ void Check(bool yes,const char* why){++checks;if(!yes)throw std::runtime_error(w
 int main(){try{
     wchar_t temporary[32768]{};Check(GetTempPathW(32768,temporary)!=0,"temporary directory available");
     Check(GetTempFileNameW(temporary,L"unr",0,g_ini_path)!=0,"isolated INI created");
+    // Exercise missing fields through the production Win32 loader, then prove
+    // that explicit old preferences are not overwritten by the new defaults.
+    WriteIniInt(L"UniformChainVersion",1);
+    ChainConfig fresh;ReadUniformLayers(fresh);
+    for(unsigned i=0;i<5;++i){const auto m=nr_layers::Read(fresh,i);
+        Check(m.auto_mask&&m.skin_structure==.4f&&m.ui_correction,"missing model fields enable native skin/UI protection at 0.4");}
+    fresh.auto_mask=false;fresh.skin_structure=-1;fresh.ui_correction=false;
+    for(auto& m:fresh.nr_layers){m.auto_mask=false;m.skin_structure=-1;m.ui_correction=false;}
+    Check(SaveUniformLayers(fresh),"save explicit legacy per-layer mask preferences");
+    ChainConfig explicit_old;ReadUniformLayers(explicit_old);
+    for(unsigned i=1;i<5;++i){const auto m=nr_layers::Read(explicit_old,i);
+        Check(!m.auto_mask&&m.skin_structure==-1&&!m.ui_correction,"explicit saved protections stay disabled");}
+    Check(DeleteFileW(g_ini_path)!=0,"clear fixture before old-schema migration");
     ChainConfig old;old.nr_passes=2;old.nr_full_reference=true;old.nr_full_passes=5;
     old.intensity=1.7f;old.local_tone=.37f;old.style=2;ReadUniformLayers(old);
     Check(nr_layers::Active(old.nr_layers)==5&&old.nr_uniform_migrated,"old mixed-size five-layer config migrates explicitly");

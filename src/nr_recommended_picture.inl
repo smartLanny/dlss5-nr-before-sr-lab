@@ -50,8 +50,8 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.intensity = 1.2f;
     next.local_tone = 1.0f;
     next.local_structure = 1.0f;
-    next.skin_structure = -1.0f;
-    next.auto_mask = false;
+    next.skin_structure = 0.4f;
+    next.auto_mask = true;
     next.style = 0;
     next.ui_correction = true;
     next.jitter_mode = NrJitterMode::Legacy;

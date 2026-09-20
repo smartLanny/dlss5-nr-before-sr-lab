@@ -7,7 +7,7 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-unified1'
+VERSION = 'beta0.5-dline21-unified2'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
           'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl')
 
@@ -160,6 +160,6 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
         text=(stage/'core'/path).read_text(encoding='utf-8-sig')
         if 'dline21-uniform3' not in text: raise ValueError('Unexpected staged identity: '+path)
-        updates[path]=text.replace('dline21-uniform3','dline21-unified1')
+        updates[path]=text.replace('dline21-uniform3','dline21-unified2')
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])

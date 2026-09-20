@@ -9,8 +9,8 @@ namespace nr_layers {
 constexpr unsigned Count = 5;
 struct Model {
     float intensity=1.2f, local_tone=1.f, local_structure=1.f;
-    float skin_structure=-1.f;
-    bool auto_mask=false;
+    float skin_structure=.4f;
+    bool auto_mask=true;
     unsigned style=0;
     bool ui_correction=true;
     bool operator==(const Model&) const = default;
