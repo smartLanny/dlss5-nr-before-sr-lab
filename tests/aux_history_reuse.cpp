@@ -27,6 +27,7 @@ struct NrContext {
 };
 NrContext g_contexts[16]{};std::atomic<bool>g_lifecycle_tracking_uncertain{false},g_nr_failed_create_process_latched{false};
 void CollectRetiredContextsLocked(){} // No completed fence: retired objects cannot be recycled.
+bool DeferNrCreationForReleaseLocked(){return false;} // This fixture has no ready/detached releases; integration is tested separately.
 void Log(const char*,...){}
 void PrepareStageCaptureContextLocked(const NgxHandle*,unsigned long long,int){}
 unsigned long long PreparedStageCaptureRequestId(const NgxHandle*,unsigned long long,int){return 0;}
