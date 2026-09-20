@@ -38,7 +38,7 @@ INTEGRATION_CORE_PINS = {
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
     'scripts/patch-exposure-access.py': '41f6d5f16edc79784d086545be06c0f49d506cd4',
     'scripts/patch-format-access.py': '3da3e0fff4f44f7768d9f5ec1d1a304520f522dc',
-    'scripts/patch-post-compat.py': 'd8f1bac7e50333c523e88414e6c93376c22891c2',
+    'scripts/patch-post-compat.py': '59d0c8534c63b9b4ffe667345a8931dabe164a0f',
     'scripts/prepare-codec-artifacts.py': 'fae58e7744fff25c4aafedb055b9f36b788bb8c5',
     'src/interop/nr_exposure_access_d3d12.inl': 'bb75d0d5294fd96f20e5419f7a9e8d7a74d9fa39',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
