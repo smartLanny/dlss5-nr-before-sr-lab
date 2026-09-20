@@ -95,7 +95,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_diagnostic.h': '40894d16ccf00fdd64dc2ab351d40b4043dcb858',
     'src/nr_face_diagnostic_ui.inl': '2c9b5a34f2a5a821cc738c2cad4b3e13f194a67d',
     'src/nr_face_region_selection.inl': 'aabd0d3e6e2d5044f0d16f67b9fc30516a8d5e91',
-    'src/nr_face_runtime.inl': '62889cb4c69668dc2e056b6c948af42ee8085da2',
+    'src/nr_face_runtime.inl': 'b63d2e158e6afa71526ed2f92c3bd81ca09b2aa1',
     'src/nr_face_tracker_gpu.inl': '48bce7fe01838387d319b943451cedfc99bc3c10',
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
