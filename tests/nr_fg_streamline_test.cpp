@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include "../src/nr_source_frame.hpp"
 #include "../src/nr_fg_presentation.h"
+#include "../src/nr_rr_projection_source.h"
 // CPU contract test of the actual adapter. SDK calls and MinHook outcomes are
 // explicit doubles; this does not claim Streamline/NVIDIA execution.
 enum MH_STATUS{MH_OK,MH_ERROR_ALREADY_INITIALIZED,MH_ERROR_ENABLED,MH_ERROR_MEMORY_ALLOC};
@@ -17,6 +18,7 @@ MH_STATUS MH_CreateHook(void* target,void*,void** original){++creates;*original=
 MH_STATUS MH_EnableHook(void*){++enables;return enable_failure?MH_ERROR_MEMORY_ALLOC:MH_OK;}
 namespace nr_processing_runtime{std::atomic<bool> work_enabled{true};}
 nr_fg_presentation::Policy g_fg_presentation_policy;
+std::atomic<unsigned> g_history_generation{1};
 namespace adapter {
 using nr_source_frame::Id;using nr_source_frame::Source;
 SRWLOCK source_lock=SRWLOCK_INIT;
@@ -31,7 +33,13 @@ void Check(bool value,const char* why){++checks;if(!value)throw std::runtime_err
 int constants_result=0;adapter::Source seen{};
 int FakeConstants(const void*,const void*,const void*){return constants_result;}
 int FakeTags(const void*,const void*,const void*,unsigned,void*){return constants_result;}
-int FakeEvaluate(unsigned,const void*,const void*const*,unsigned,void*){seen=adapter::sl_source;return 0;}
+nr_rr_depth::CurrentInput seen_projection;
+int projection_params;
+int FakeEvaluate(unsigned,const void*,const void*const*,unsigned,void* commands){
+ seen=adapter::sl_source;
+ nr_rr_projection::NativeScope native(commands,&projection_params,17);
+ seen_projection=nr_rr_projection::Choose({},&projection_params,17);return 0;
+}
 int FakeMarker(unsigned,const void*){return 0;}
 int fg_options_result=0;bool advance_options_lifecycle=false;
 const void* seen_options_view=nullptr;const void* seen_options=nullptr;
@@ -69,6 +77,21 @@ int main(){try{using namespace adapter;using namespace adapter::sl_wire;
     HookEvaluate(1000,&token,inputs,1,nullptr);Check(seen==first,"explicit viewport resolves multiple view source");
     token.value=1;constants_result=-1;HookConstants(nullptr,&token,&viewport);Check(!OneView(&token),"failed SDK constants call cannot publish new frame");constants_result=0;
     HookConstants(nullptr,&token,&viewport);Check(OneView(&token).sequence==2,"next successful real frame advances source");
+    ConstantsPrefix cp{};cp.base.type=constants_type;cp.base.version=2;
+    cp.camera_view_to_clip[0]=cp.camera_view_to_clip[5]=cp.camera_view_to_clip[11]=1;
+    cp.camera_view_to_clip[14]=.1f;
+    HookConstants(&cp,&token,&viewport);
+    HookEvaluate(1001,&token,inputs,1,reinterpret_cast<void*>(123));
+    Check(seen_projection.state==nr_rr_depth::InputState::Supported,"same-frame RR scope supplies copied projection");
+    cp.camera_view_to_clip[14]=9.f; // caller storage is no longer consulted
+    HookEvaluate(1001,&token,inputs,1,reinterpret_cast<void*>(123));
+    Check(seen_projection.projection.b==.1f,"camera copy survives caller mutation");
+    HookEvaluate(1000,&token,inputs,1,reinterpret_cast<void*>(123));
+    Check(seen_projection.state==nr_rr_depth::InputState::Absent,"FG cannot borrow RR projection");
+    constants_result=-1;HookConstants(&cp,&token,&viewport);constants_result=0;
+    HookEvaluate(1001,&token,inputs,1,reinterpret_cast<void*>(123));
+    Check(seen_projection.state==nr_rr_depth::InputState::Absent,"failed same-frame constants invalidate cached camera");
+    Check(!nr_rr_projection::evaluation.source,"projection scope ends with SDK Evaluate");
     void* original=nullptr;
     Check(!Install(reinterpret_cast<void*>(&FakeMarker),reinterpret_cast<void*>(&HookMarker),&original)&&original&&!Ready(&original),"create success with enable failure stays uninstalled");
     Check(creates==1&&enables==1,"one owned disabled hook retained");enable_failure=false;

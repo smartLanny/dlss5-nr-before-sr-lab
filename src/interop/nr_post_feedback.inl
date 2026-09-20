@@ -110,3 +110,7 @@
         prefix, nr_post_settings::rr_finish_gate_rejected.load(std::memory_order_acquire),
         prefix);
 }
+
+    FeedbackAppend(s,"%s.post.rr.depthAdapter.projectionSource=%s\n%s.post.rr.depthAdapter.slScopeMatches=%llu\n%s.post.rr.depthAdapter.slCommandMismatches=%llu\n%s.post.rr.depthAdapter.slProjectionSelected=%llu\n",
+        prefix,nr_rr_projection::last_origin.load()==1?"same-frame-streamline":"current-ngx-or-unavailable",
+        prefix,nr_rr_projection::scope_matches.load(),prefix,nr_rr_projection::scope_mismatches.load(),prefix,nr_rr_projection::used.load());

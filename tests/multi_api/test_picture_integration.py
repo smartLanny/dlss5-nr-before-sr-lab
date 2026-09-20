@@ -82,6 +82,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_fg_hud_runtime.inl',
             'src/nr_fg_hud_shader.h',
             'src/nr_fg_streamline.inl',
+            'src/nr_rr_projection_source.h', 'src/nr_process_memory.h',
             'src/nr_full_capture.inl',
             'src/nr_full_feedback.inl',
             'src/nr_full_pass.hpp',

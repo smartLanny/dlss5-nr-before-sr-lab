@@ -1,3 +1,4 @@
+#include "../../src/nr_rr_projection_source.h"
 // Portable control-flow test of the actual production includes.
 // D3D12/NGX/Win32 boundaries below are test doubles, not GPU/game validation.
 #include <atomic>

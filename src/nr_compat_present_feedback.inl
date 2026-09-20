@@ -9,7 +9,9 @@
         prefix,nr_compat_present_runtime::CaptureUsesFg()?"FG":"Present",prefix);
     const auto append_compat=[&](const char* format,auto... values) {
         char text[4096]{};
-        const int length=std::snprintf(text,sizeof(text),format,values...);
+        int length=0;
+        if constexpr(sizeof...(values)==0)length=std::snprintf(text,sizeof(text),"%s",format);
+        else length=std::snprintf(text,sizeof(text),format,values...);
         if(length<0 || static_cast<std::size_t>(length)>=sizeof(text)) {
             FeedbackAppend(s,"%s.compatPost.snapshot=serialization-overflow\n",prefix);return;
         }
@@ -51,7 +53,7 @@
                 static_cast<unsigned long long>(ds.copy_finish_cpu_ns),
                 static_cast<unsigned long long>(ds.heap_retire_cpu_ns),
                 static_cast<unsigned long long>(ds.unknown_cpu_ns));
-        } else append_compat("descriptor.profileMeaning=unavailable;NR_DESCRIPTOR_PROFILE-build-required\n");
+        } else append_compat("%s","descriptor.profileMeaning=unavailable;NR_DESCRIPTOR_PROFILE-build-required\n");
     }
 
     {

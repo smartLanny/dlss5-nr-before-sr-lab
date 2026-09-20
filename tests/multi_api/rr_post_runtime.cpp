@@ -1,3 +1,4 @@
+#include "src/nr_rr_projection_source.h"
 // Executes the actual ProcessRrPost implementation using a CPU API seam.
 // No Windows/NGX or game-runtime claim. Checks ordering, exact native result,
 // no retry, retained feature identity, and requested Mode2 never overwritten.

@@ -46,9 +46,11 @@
 #include "nr_guide_contract.h"
 #include "nr_motion_slot_selection.h"
 #include "nr_rr_depth_projection.h"
+#include "nr_rr_projection_source.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
+#include "nr_process_memory.h"
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
@@ -14685,6 +14687,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
         DrainPendingContextDestructions();
     }
     PollConfigFromPresent();
+    nr_processing_runtime::EnsureEnergyGateLoaded(); // Load saved choices even before an FG signal/UI visit.
     // Measure presented frames instead of NGX evaluations. This keeps the
     // reference sampler alive while F6 is off and avoids counting engines that
     // submit more than one NGX evaluation per displayed frame.

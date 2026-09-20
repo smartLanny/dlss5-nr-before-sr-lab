@@ -211,7 +211,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     if args.omit_end_verdict_negative: flags += ['-DNR_COMBINED_OMIT_END_VERDICT']
     command_line = [args.compiler, '-std=c++20', '-O1', '-Wall', '-Wextra', '-Werror',
                     '-Wno-unused-function', '-static', *flags,
-                    '-I', str(snapshot / 'src'), str(generated), '-o', str(exe)]
+                    '-I', str(snapshot / 'src'), str(generated), '-o', str(exe), '-ldxguid']
     build = subprocess.run(command_line, capture_output=True, text=True, creationflags=HIDDEN)
     (output / 'build.log').write_text(build.stdout + build.stderr, encoding='utf-8')
     if build.returncode:

@@ -27,6 +27,24 @@ std::atomic<ULONGLONG> next_poll{0};
 struct Hook {void* target=nullptr;void** original=nullptr;bool enabled=false;};
 Hook hooks[5]{};
 bool Ready(void** original){for(const auto& hook:hooks)if(hook.original==original)return hook.enabled;return false;}
+// Public sl::Constants prefix, versions 1/2 (sl_consts.h v2.12.0).
+struct ConstantsPrefix { Base base; float camera_view_to_clip[16]; };
+static_assert(offsetof(ConstantsPrefix,camera_view_to_clip)==32 && sizeof(ConstantsPrefix)==96);
+const GUID constants_type={0xdcd35ad7,0x4e4a,0x4bad,{0xa9,0x0c,0xe0,0xc4,0x9e,0xb2,0x3a,0xfe}};
+nr_rr_projection::Cache projection_cache; // Protected by the source lock.
+nr_rr_depth::CurrentInput CopyProjection(const void* values) {
+    nr_rr_depth::CurrentInput input;
+    if(!values)return input;
+    ConstantsPrefix prefix{};SIZE_T copied=0;
+    if(!ReadProcessMemory(GetCurrentProcess(),values,&prefix,sizeof(prefix),&copied)||copied!=sizeof(prefix)) {
+        input.state=nr_rr_depth::InputState::Unreadable;return input;
+    }
+    if(!IsEqualGUID(prefix.base.type,constants_type)||(prefix.base.version!=1&&prefix.base.version!=2))return input;
+    std::memcpy(input.matrix,prefix.camera_view_to_clip,sizeof(input.matrix));
+    for(float value:input.matrix)if(!std::isfinite(value)){input.state=nr_rr_depth::InputState::Nonfinite;return input;}
+    input.state=nr_rr_depth::Resolve(input.matrix,input.projection)?nr_rr_depth::InputState::Supported:nr_rr_depth::InputState::Unsupported;
+    return input;
+}
 struct View {unsigned view=0,frame=0;Source source{};bool occupied=false;};
 View views[16]{};
 bool FrameValue(const void* pointer,unsigned& value){
@@ -55,7 +73,15 @@ Source OneView(const void* token){
 }
 int HookConstants(const void* values,const void* frame,const void* viewport){
     const auto result=constants(values,frame,viewport);
-    if(result==0&&enabled.load(std::memory_order_relaxed)&&nr_processing_runtime::work_enabled.load(std::memory_order_relaxed))(void)Remember(frame,viewport);
+    if(enabled.load(std::memory_order_relaxed)&&nr_processing_runtime::work_enabled.load(std::memory_order_relaxed)) {
+        // A failed call never publishes source identity, but invalidates an
+        // earlier same-token camera so it cannot silently survive failure.
+        if(result==0){const auto source=Remember(frame,viewport);const auto input=CopyProjection(values);
+            Lock lock;projection_cache.Put(source,input,GetTickCount64(),g_history_generation.load());}
+        else {unsigned f=0,v=0;if(provider&&FrameValue(frame,f)&&ViewValue(viewport,v)) {
+            const auto source=PublishStreamlineSource(reinterpret_cast<Id>(provider),1,v,f);
+            Lock lock;projection_cache.Put(source,{},GetTickCount64(),g_history_generation.load());}}
+    }
     return result;
 }
 int HookTags(const void* frame,const void* viewport,const void* resources,unsigned count,void* commands){
@@ -64,11 +90,14 @@ int HookTags(const void* frame,const void* viewport,const void* resources,unsign
     return result;
 }
 int HookEvaluate(unsigned feature,const void* frame,const void*const* inputs,unsigned count,void* commands){
+    nr_rr_projection::Evaluation projection_scope;
     if(!enabled.load(std::memory_order_relaxed)||!nr_processing_runtime::work_enabled.load(std::memory_order_relaxed))return evaluate(feature,frame,inputs,count,commands);
     Source source{};
     if(inputs&&count<=64)for(unsigned i=0;i<count;++i){unsigned viewport=0;
         if(ViewValue(inputs[i],viewport)){source=Remember(frame,inputs[i]);break;}}
     if(!source)source=OneView(frame);
+    if(feature==1001 && source && commands){Lock lock;
+        projection_scope.Set(source,projection_cache.Get(source,GetTickCount64(),g_history_generation.load()),commands);}
     StreamlineScope scope(source);return evaluate(feature,frame,inputs,count,commands);
 }
 int HookMarker(unsigned value,const void* frame){

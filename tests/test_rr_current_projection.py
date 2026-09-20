@@ -15,10 +15,11 @@ HARNESS = r'''
 #include <cstring>
 #include <limits>
 #include "src/nr_rr_depth_projection.h"
+#include "src/nr_rr_projection_source.h"
 #include "src/nr_guide_contract.h"
 constexpr int kNgxSuccess=1;
 struct NgxParams {void* matrix=nullptr; bool present=true;};
-struct FeatureRecord {int feature_id=13,rr_depth_type=0;};
+struct FeatureRecord {int feature_id=13,rr_depth_type=0;unsigned long long generation=1;};
 using GetVoidFn=int(*)(const NgxParams*,const char*,void**);
 int Get(const NgxParams* p,const char* key,void** out){assert(!std::strcmp(key,"ViewToClipMatrix"));*out=p->matrix;return p->present?1:0;}
 template<class T>T ParamSlot(const NgxParams*,unsigned slot){assert(slot==8);return Get;}
@@ -53,6 +54,28 @@ int main(){
  assert(!ResolveRrLinearDepth(&params,feature,guides));assert(rejected==RrDepthReject::Projection);
  assert(nr_rr_depth::observations.input==nr_rr_depth::InputState::Absent);
  assert(!guides.signature.linear_depth);
+ // Real admission consumes a same-evaluation SL camera only when native NGX
+ // lacks it. No opt-in placeholder is required for this verified conversion.
+ float camera[16]{1,0,0,0,0,1,0,0,0,0,0,1,0,0,.25f,0};
+ nr_rr_depth::CurrentInput sl;
+ std::memcpy(sl.matrix,camera,sizeof(camera));
+ assert(nr_rr_depth::Resolve(sl.matrix,sl.projection));
+ sl.state=nr_rr_depth::InputState::Supported;
+ int commands=0,other_commands=0;
+ {
+   nr_rr_projection::Evaluation evaluation;evaluation.Set({1,1,8},sl,&commands);
+   nr_rr_projection::NativeScope native(&commands,&params,feature.generation);
+   assert(ResolveRrLinearDepth(&params,feature,guides));
+   assert(guides.signature.linear_depth&&!guides.signature.rr_depth_placeholder);
+   assert(guides.signature.depth_projection_b==.25f&&nr_rr_projection::last_origin==1);
+   {nr_rr_projection::NativeScope wrong(&other_commands,&params,feature.generation);
+    assert(!ResolveRrLinearDepth(&params,feature,guides));}
+   params.matrix=reinterpret_cast<void*>(1);
+   assert(!ResolveRrLinearDepth(&params,feature,guides));
+   assert(nr_rr_depth::observations.input==nr_rr_depth::InputState::Unreadable);
+   params.matrix=nullptr;
+ }
+ assert(!ResolveRrLinearDepth(&params,feature,guides)); // Lease ended, no stale camera.
  nr_post_settings::missing_projection=true;
  assert(ResolveRrLinearDepth(&params,feature,guides));assert(guides.signature.rr_depth_placeholder);
  assert(guides.signature.linear_depth&&guides.signature.depth_inverted==1);

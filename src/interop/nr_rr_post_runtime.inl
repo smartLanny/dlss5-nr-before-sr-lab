@@ -86,6 +86,7 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     ++nr_post_settings::rr_attempts;
     nr_post_settings::last_rr_tick.store(GetTickCount64(),std::memory_order_relaxed);
     nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+    nr_rr_projection::NativeScope projection_scope(command_list,params,feature.generation);
     NativeCommandStateScope before(command_list);
     PostSrSubstitution prepared{};
     if(before.active) {

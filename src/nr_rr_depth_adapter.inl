@@ -64,14 +64,16 @@ bool IsSameRrDepthDevice(ID3D12Device *first, ID3D12Device *second) {
 
 bool ResolveRrLinearDepth(const NgxParams *params, const FeatureRecord &feature,
                           NrGuideBinding &guides) {
+    nr_rr_projection::last_origin.store(0,std::memory_order_relaxed);
     if (feature.feature_id!=13 || feature.rr_depth_type==1) return true;
     if (feature.rr_depth_type!=0) return false;
     // Read this Evaluate's matrix, not the one-second diagnostic cache.
     const auto getter=ParamSlot<GetVoidFn>(params,8);
-    const auto input=nr_rr_depth::ReadCurrent(
+    auto input=nr_rr_depth::ReadCurrent(
         [&](void*& pointer){return getter&&getter(params,"ViewToClipMatrix",&pointer)==kNgxSuccess;},
         [](void* pointer,void* target,size_t size){SIZE_T copied=0;
             return ReadProcessMemory(GetCurrentProcess(),pointer,target,size,&copied)&&copied==size;});
+    input=nr_rr_projection::Choose(input,params,feature.generation);
     nr_rr_depth::observations.input.store(input.state,std::memory_order_relaxed);
     const bool placeholder=nr_rr_depth::UsePlaceholder(input.state,nr_post_settings::missing_projection.load(std::memory_order_acquire));
     if(input.state!=nr_rr_depth::InputState::Supported&&!placeholder)

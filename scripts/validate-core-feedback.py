@@ -25,6 +25,9 @@ def definition(source, marker, semicolon=False):
 HARNESS = r'''
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
 #include <windows.h>
 #include <tlhelp32.h>
 #include <algorithm>
@@ -52,11 +55,13 @@ HARNESS = r'''
 #include "nr_full_pass.hpp"
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
+#include "nr_process_memory.h"
 namespace reshade { namespace api {
-enum class device_properties { description,driver_version,vendor_id };
+enum class device_properties { description,driver_version,vendor_id,adapter_luid };
 enum class device_api { d3d12=49152 };
 struct device {
     bool get_property(device_properties p,void *out) const {
+        if(p==device_properties::adapter_luid)return false; // No invented GPU identity.
         if(p==device_properties::description)std::strcpy(static_cast<char *>(out),"TEST GPU (no NGX)");
         else *static_cast<std::uint32_t *>(out)=p==device_properties::driver_version?12345:4318;
         return true;
@@ -526,6 +531,10 @@ int main(int argc,char **argv) {
     check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Copied,
           "UI may claim copied only after the platform copier reports success");
     const auto &report=*nr_core_feedback::g_full_report;
+    check(report.find("start.processMemory.attempted=0\n")!=std::string::npos &&
+          report.find("end.processMemory.local.valid=0\n")!=std::string::npos &&
+          report.find("processMemory.local.usageBytes=")==std::string::npos,
+          "missing adapter identity remains unknown, never zero usage or invented memory savings");
     check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
     check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
     check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
@@ -810,7 +819,7 @@ def main():
     cpp, exe = out/'core.cpp', out/'core.exe'
     cpp.write_text(text, encoding='utf-8')
     subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-Wno-format-security',
-                    '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe)], check=True)
+                    '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe), '-ldxguid'], check=True)
     if args.compile_only:
         print('Windows harness cross-compiled; not executed.')
         return

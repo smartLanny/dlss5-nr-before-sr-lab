@@ -1,5 +1,6 @@
 """Host behaviour and final export contracts. No game acceptance is inferred."""
 import argparse
+import importlib.util
 from pathlib import Path
 import os
 import shutil
@@ -72,6 +73,56 @@ class UserControls(unittest.TestCase):
             subprocess.run([str(exe)],check=True,cwd=td)
 
     def test_behaviour(self):self.run_cpp(CPP)
+
+    def test_actual_remapped_dispatch(self):
+        if GENERATED is None:self.skipTest('complete export checked separately')
+        spec=importlib.util.spec_from_file_location('hotkey_fixture',ROOT/'scripts/validate-feedback-hotkeys.py')
+        helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+        source=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+        present=helper.function(source,'void OnReShadePresent(')
+        a=present.index('    const auto shortcut_bindings=')
+        b=present.index('    // Core feedback has no GPU-stage request',a)
+        f8=present[a:b]
+        a=present.index('    const auto image_key=')
+        b=present.index('    nr_core_feedback::Present(runtime);',a)
+        f7=present[a:b]
+        sequence=(GENERATED/'src/nr_f8_sequence.inl').read_text(encoding='utf-8')
+        page='\n'.join(helper.function(sequence,s) for s in (
+            'void RequestSettingsFeedbackPage(','bool TakeSettingsFeedbackPageRequest(','void OpenWindow('))
+        code=helper.HARNESS[:helper.HARNESS.index('int main()')]
+        code=code.replace('#include "nr_shortcut_edge.h"','#include "nr_hotkeys.h"')
+        code=code.replace('    static bool feedback_key_was_down = false;','')
+        code=code.replace('    static bool stage_key_was_down = false;','    static nr_hotkeys::Edge image_edge;')
+        code=code.replace('F8_BLOCK',f8).replace('F7_BLOCK',f7).replace('PAGE_FUNCTIONS',page)
+        # Compile the actual generated F6 edge dispatcher as well.
+        a=source.index('    static nr_hotkeys::Edge master_edge;')
+        b=source.index('    UpdateEvaluateHookActivation();',a)
+        code+='''\nunsigned toggles=0;ULONGLONG clock_tick=1000;
+void ToggleMasterFromHotkey(){++toggles;}
+ULONGLONG TestTick(){return clock_tick;}
+#define GetTickCount64 TestTick
+void Master(){\n'''+source[a:b]+'''\n}
+int main(){
+ reshade::api::effect_runtime runtime;
+ nr_hotkeys::published=nr_hotkeys::Pack(VK_F9,VK_F10,VK_F11);
+ Dispatch(&runtime,1000);Master(); // Arm released bindings.
+ key_state[VK_F6]=key_state[VK_F7]=key_state[VK_F8]=SHORT(0x8001);
+ Dispatch(&runtime,1100);Master();
+ Require(!toggles&&!nr_f8::current_requests&&!nr_f8::core_requests,"old keys remained active");
+ key_state[VK_F9]=key_state[VK_F10]=key_state[VK_F11]=SHORT(0x8001);
+ Dispatch(&runtime,2000);Master();
+ Require(toggles==1&&nr_f8::current_requests==1&&nr_f8::core_requests==1,"remapped action missing");
+ for(unsigned i=0;i<100;++i){Dispatch(&runtime,2001+i);Master();}
+ Require(toggles==1&&nr_f8::current_requests==1&&nr_f8::core_requests==1,"held keys repeated");
+ nr_hotkeys::published=nr_hotkeys::Pack(VK_F6,0,VK_F8); // Both new keys currently held.
+ clock_tick=3000;Dispatch(&runtime,3000);Master();
+ Require(toggles==1&&nr_f8::core_requests==1,"rebinding fired a held key");
+ key_state[VK_F6]=key_state[VK_F8]=0;Dispatch(&runtime,3100);Master();
+ key_state[VK_F6]=key_state[VK_F8]=SHORT(0x8001);clock_tick=4000;Dispatch(&runtime,4000);Master();
+ Require(toggles==2&&nr_f8::core_requests==2&&nr_f8::current_requests==1,"released remapped keys failed");
+}
+'''
+        self.run_cpp(code)
 
     def test_actual_ini_load_save(self):
         if GENERATED is None:self.skipTest('complete export checked separately')

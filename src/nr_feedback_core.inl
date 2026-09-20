@@ -15,6 +15,8 @@ struct PairSnapshot {
 };
 struct CoreSession {
     FeedbackSession activity{};
+    LUID adapter_luid{};
+    bool adapter_known=false;
     wchar_t directory[1024] = {};
     wchar_t exe[1024] = {}, reshade_module[1024] = {};
     std::wstring carrier_log; // Worker-only path from the uniquely matched loaded companion.
@@ -385,6 +387,21 @@ void Modules(FeedbackSession &s) {
     }
     FeedbackAppend(s, "modules.contract=name inventory plus bounded loaded-file fingerprints; no module bytes or process addresses exported\n");
 }
+void AppendProcessMemory(FeedbackSession& s,const char* phase,const nr_process_memory::Snapshot& m) {
+    FeedbackAppend(s,"%s.processMemory.attempted=%d\n%s.processMemory.adapterHr=%08lx\n"
+        "%s.processMemory.sampleTick=%llu\n"
+        "%s.processMemory.contract=process DXGI usage/budget, runtime adapter node 0; two F8 samples, not peak or NR-only bytes\n",
+        phase,m.attempted,phase,static_cast<unsigned long>(m.adapter_result),phase,m.tick,phase);
+    const auto segment=[&](const char* name,HRESULT hr,const DXGI_QUERY_VIDEO_MEMORY_INFO& v){
+        const bool valid=SUCCEEDED(hr);
+        FeedbackAppend(s,"%s.processMemory.%s.valid=%d\n%s.processMemory.%s.hr=%08lx\n",
+            phase,name,valid,phase,name,static_cast<unsigned long>(hr));
+        if(valid)FeedbackAppend(s,"%s.processMemory.%s.usageBytes=%llu\n%s.processMemory.%s.budgetBytes=%llu\n"
+            "%s.processMemory.%s.overBudget=%d\n",phase,name,v.CurrentUsage,phase,name,v.Budget,
+            phase,name,v.Budget>0&&v.CurrentUsage>v.Budget);
+    };
+    segment("local",m.local_result,m.local);segment("nonlocal",m.nonlocal_result,m.nonlocal);
+}
 DWORD WINAPI Worker(void *opaque) {
     auto *session = static_cast<CoreSession *>(opaque);
     auto &s = session->activity;
@@ -393,6 +410,7 @@ DWORD WINAPI Worker(void *opaque) {
     bool complete = false;
     nr_feedback_report::Output text;
     try {
+        const auto memory_start=nr_process_memory::Read(session->adapter_luid,session->adapter_known);
         // Bounded CPU observation interval, independent of Present/NR/GPU.
         for (unsigned i = 0; i < 15 && !g_cancel.load(); ++i) Sleep(50);
         AcquireSRWLockExclusive(&g_feedback_lock);
@@ -400,6 +418,9 @@ DWORD WINAPI Worker(void *opaque) {
         g_feedback_status.store(2, std::memory_order_release);
         ReleaseSRWLockExclusive(&g_feedback_lock);
         FeedbackAppendActivity(s, "end");
+        // Only append after detaching the shared parameter observer above.
+        AppendProcessMemory(s,"start",memory_start);
+        AppendProcessMemory(s,"end",nr_process_memory::Read(session->adapter_luid,session->adapter_known));
 #if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
         FeedbackAppendCommandHistory(s);
 #endif
@@ -477,6 +498,7 @@ void Present(reshade::api::effect_runtime *runtime) {
     }
     char gpu[256] = {}; std::uint32_t driver = 0, vendor = 0, width = 0, height = 0;
     auto *device = runtime->get_device();
+    session->adapter_known=device&&device->get_property(reshade::api::device_properties::adapter_luid,&session->adapter_luid);
     const bool gpu_known = device && device->get_property(reshade::api::device_properties::description, gpu);
     const bool driver_known = device && device->get_property(reshade::api::device_properties::driver_version, &driver);
     if (device) device->get_property(reshade::api::device_properties::vendor_id, &vendor);
