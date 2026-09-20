@@ -7,6 +7,7 @@
 #include <cstdarg>
 #include <string>
 #include "src/interop/nr_post_compat.h"
+#include "src/nr_rr_projection_source.h"
 using ULONGLONG=unsigned long long;
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};
 std::atomic<unsigned long long> g_all_evaluations{900},g_rr_guarded_sr_evaluations{12};
