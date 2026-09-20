@@ -131,7 +131,7 @@ int main() {
 
     def test_face_controls_round_trip(self) -> None:
         layer_ui=source_path.with_name("nr_layers_ui.inl").read_text(encoding="utf-8-sig")
-        start=layer_ui.index('            if(ImGui::Checkbox(zh?"自动皮肤遮罩":"Automatic skin mask"')
+        start=layer_ui.index('            if(ImGui::Checkbox(zh?"皮肤／人脸保护":"Skin / face protection"')
         end=layer_ui.index('            ImGui::EndDisabled();',start)+len('            ImGui::EndDisabled();')
         controls=layer_ui[start:end]
         self.run_cpp("face-ui", config_code() + r'''
@@ -145,7 +145,7 @@ void BeginDisabled(bool value){disabled=value;}
 void EndDisabled(){disabled=false;}
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Automatic skin mask" || text == "自动皮肤遮罩") {
+    if (text == "Skin / face protection" || text == "皮肤／人脸保护") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
@@ -178,7 +178,7 @@ int main() {
         check(sliders == 0, "mask off hides skin slider");
         toggle = 1; sliders = 0;
         check(DrawFaceControls(c, chinese), "enabling face mask commits edit");
-        check(c.auto_mask && c.skin_structure == 0.f && sliders == 1, "first enable initializes zero skin strength");
+        check(c.auto_mask && c.skin_structure == .4f && sliders == 1, "first enable initializes native skin strength 0.4");
         toggle = -1; slider_value = 1.7f;
         check(DrawFaceControls(c, chinese), "skin slider commits chosen preference");
         toggle = 0; slider_value = -100.f; sliders = 0;
