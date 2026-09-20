@@ -238,8 +238,10 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     SettingsNote(NrUi("Captures S/P/real N/E in the centre region with a paired report; resets/warms history. Pre-SR E is not the native SR output. Compatibility input captures available current-path layers instead.","采集中央区域原图、P、真实N和E并附报告，会重置/预热历史。前置E不是原生SR输出；兼容入口改为采集当前路径可用的各层。"));
     nr_replay::DrawUi();DrawFaceDiagnosticControls(runtime,config);
     SettingsSection(NrUi("Runtime information","详细运行信息"));
+    ImGui::PushTextWrapPos(0.f);
     nr_dual_runtime::DrawDetailsUi(config.nr_passes==2,pending);
     ImGui::PushID("technical");DrawTechnicalDiagnostics(runtime);ImGui::PopID();
+    ImGui::PopTextWrapPos();
     SettingsSection(NrUi("About","关于"));
     ImGui::TextWrapped("%s",kAddonVersion);
     ImGui::TextWrapped("%s",UseChineseUi()?kAddonAuthor:kAddonAuthorAscii);

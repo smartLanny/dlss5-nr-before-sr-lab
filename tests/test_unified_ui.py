@@ -6,6 +6,7 @@ are covered by test_d13_ui_compile, test_working_scale_ui and test_light_style.
 import argparse
 from pathlib import Path
 import unittest
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = None
@@ -75,7 +76,9 @@ class UnifiedUi(unittest.TestCase):
         self.assertFalse('void DrawSettings(' in ui)
         self.assertEqual(self.settings.count('void DrawSettings('),1)
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
-            self.assertEqual((GENERATED/'src'/name).read_bytes(),(ROOT/'src'/name).read_bytes())
+            # Exported files are canonical Git blobs, not CRLF working-tree bytes.
+            frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)
+            self.assertEqual((GENERATED/'src'/name).read_bytes(),frozen)
 
 
 if __name__ == '__main__':
