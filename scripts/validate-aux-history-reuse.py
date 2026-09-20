@@ -40,7 +40,9 @@ def main():
    dual=(ROOT/'src/nr_dual_runtime.inl').read_text(encoding='utf-8-sig')
    bind=definition(new,'bool BindNrParameters(')
    # These are dependencies, not substitutes for the extracted behavior checks.
-   required=['const bool reset_requested = reset || game_reset != 0 || history_changed ||',
+   required=['const bool warmup_reset = reset || game_reset != 0 || history_changed ||',
+    'const bool reset_requested = warmup_reset || s.rr_depth_placeholder;',
+    'context.diagnostic_warmup_reset = warmup_reset;',
     'context.reset_retry_pending = reset_requested;', 'SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);']
    for text in required:
     if text not in bind:raise AssertionError('Review reset-forwarding contract: '+text)
