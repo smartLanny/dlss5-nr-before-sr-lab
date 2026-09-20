@@ -32,7 +32,7 @@ class UnifiedUi(unittest.TestCase):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
         markers = ['DrawProcessingModeBlocks(', '##nr-processing-precision',
-                   'DrawUniformLayerCount(', '##final-gain', '##final-colour',
+                   'DrawUniformLayerCount(', '##final-gain',
                    'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
         positions = [self.settings.index(m) for m in markers]
         self.assertEqual(positions, sorted(positions))
@@ -49,14 +49,15 @@ class UnifiedUi(unittest.TestCase):
             self.assertEqual(self.layers.count('"'+control+'"'),1)
 
     def test_one_colour_permission_and_feedback_owner(self):
-        self.assertEqual(self.pages.count('&next.allow_unverified_hdr_color'),1)
-        self.assertTrue('nr_colour_lab::LegacyPermissionEditable(mode)' in self.pages)
+        self.assertEqual(self.pages.count('&next.allow_unverified_hdr_color'),0)
+        self.assertTrue('nr_colour_preferences::Select(next,colour_policy)' in self.settings)
+        self.assertLess(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
         self.assertNotIn('RequestStageCapture();',self.pages)
         self.assertEqual(self.pages.count('nr_f8::RequestFullscreen();'),1)
         self.assertEqual(self.pages.count('nr_f8::RequestWithOptions({});'),1)
-        self.assertIn('Capture current view F7',self.pages)
+        self.assertIn('nr_hotkeys::Key(nr_hotkeys::Image)',self.pages)
         self.assertNotIn('SettingsSection(NrUi("Energy saving"',self.pages)
         picture = self.settings[:self.settings.index('Lighting###')]
         self.assertFalse('RequestStageCapture(' in picture)

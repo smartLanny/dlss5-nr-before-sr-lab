@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$FaceRuntimeRoot,
@@ -26,7 +26,7 @@ foreach ($Key in @('colour_lab', 'colour_edge')) {
     }
 }
 $Version = [string]$Product.version
-$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1')
+$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
@@ -212,12 +212,12 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         }
         $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
-        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1')) {
+        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4')) {
             $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
         }
-        if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
+        if ($Version -in @('beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4'),'beta0.5-dline21-unified4') {
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RR_CURRENT_PROJECTION_20260920.md') -Destination (Join-Path $Package 'RR-CANDIDATE.md')
         }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;

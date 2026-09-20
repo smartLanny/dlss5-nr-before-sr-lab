@@ -10,7 +10,7 @@ import subprocess
 import sys
 ROOT=Path(__file__).resolve().parents[1]
 BASE='843d1e1c7f61e563b8913242b8756542af169a80'
-EXTRA=('tests/test_unified_ui.py','scripts/prepare-colour4-edge.py','scripts/build-colour4-edge.ps1',
+EXTRA=('scripts/patch-user-controls.py','tests/test_user_controls.py','tests/test_unified_ui.py','scripts/prepare-colour4-edge.py','scripts/build-colour4-edge.ps1',
        'tests/test_colour_edge.py','tests/run_colour_edge_math.py','tests/colour_edge_math.cpp', 'tests/test_quality_panel.py', 'tests/quality_recipe_test.cpp', 'tests/run_quality_recipe.py')
 
 def load(name,path):
@@ -24,6 +24,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     colour4=load('edge_colour4',core/'scripts/prepare-colour4.py')
     stage_patch=load('edge_stage',core/'scripts/patch-colour-stage.py')
     edge_patch=load('edge_patch',core/'scripts/patch-colour-edge.py')
+    user_patch=load('user_patch',core/'scripts/patch-user-controls.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
@@ -52,13 +53,15 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         stage_patch.apply(stage,inputs,m3)
         check('test_colour_stage.py',stage)
         edge_patch.apply(stage,inputs,m3)
+        user_patch.apply(stage,inputs,m3)
         check('test_colour_edge.py',stage)
         check('test_unified_ui.py',stage)
+        check('test_user_controls.py',stage)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
             'version':edge_patch.VERSION,'source_commit':source,'base_commit':BASE,
-            'default_mode':1,'default_restore_mode':0,'default_input_curve':0,
+            'default_mode':1,'default_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
             'edge_routes':['scaled-v2-rgb'],'edge_selection_resets_history':False,
@@ -89,4 +92,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated unified3-rr1 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified4 source only; Windows/GPU/game verification is separate.')

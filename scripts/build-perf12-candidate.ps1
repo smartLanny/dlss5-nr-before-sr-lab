@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -14,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
 $LeafVersion = if ($QualitySuccessor) { 'unified3' } else { 'perf12' }
-$CandidateVersion = if ($QualitySuccessor) { 'beta0.5-dline21-unified3-rr1' } else { 'beta0.5-dline21-' + $LeafVersion }
+$CandidateVersion = if ($QualitySuccessor) { 'beta0.5-dline21-unified4' } else { 'beta0.5-dline21-' + $LeafVersion }
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'

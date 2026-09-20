@@ -32,10 +32,28 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,4.f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(ImGui::GetStyle().ItemSpacing.x,6.f));
     ImGui::BeginDisabled(collecting);
-    if(ImGui::Checkbox(ui("NR (F6)","启用 NR（F6）"),&next.enabled)){changed=true;apply_discrete_edit=true;}
+    char nr_label[96]{};
+    std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key));
+    if(ImGui::Checkbox(nr_label,&next.enabled)){changed=true;apply_discrete_edit=true;}
     ImGui::EndDisabled();
     if(SettingsContentWidth()>ImGui::GetFontSize()*24.f)ImGui::SameLine();
     DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
+    ImGui::BeginDisabled(collecting);
+    unsigned colour_policy=nr_colour_preferences::Policy(next);
+    const char* colour_choices[]={ui("Colour priority","颜色优先"),ui("Conservative colour","保守颜色")};
+    if(NrChoice("colour-policy",colour_policy,colour_choices,2)){
+        nr_colour_preferences::Select(next,colour_policy);changed=true;apply_discrete_edit=true;
+    }
+    if(SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
+        nr_colour_preferences::Remember(next);changed=true;
+    }
+    SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.5, conservative to 1.0.",
+        "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.5，保守颜色默认 1.0。"));
+    ImGui::EndDisabled();
+    if(next.color_strength==0.f)SettingsNote(ui("Game colour retained.","保留游戏原色。"));
+    SettingsNote(colour_policy?ui("Conservative: unverified HDR colour is blocked; other supported inputs still use the strength above.","保守颜色：限制未确认的 HDR 调色；其他可用输入仍采用上方强度。"):
+        ui("Colour priority permits unverified HDR colour. Return to Conservative if unwanted shifts appear.","颜色优先：允许未确认的 HDR 调色；出现异常偏色时可切回保守颜色。"));
+    DrawUnifiedColourState(next,current.generation,has_pending||changed);
     const char* routes[]={ui("Enhance → upscale","增强→放大"),ui("Upscale → enhance","放大→增强"),ui("Compatibility","自动兼容")};
     const auto actual=nr_processing_runtime::Effective();
     unsigned actual_w=current.work_width,actual_h=current.work_height;
@@ -144,9 +162,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             float strength=ActiveTransferStrength(next);
             if(SettingsSliderFloat(ui("Final extra enhancement","最终额外增强"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
             SettingsTooltip(ui("Scales final brightness/detail edits, not model strength. 1 keeps the model result's base amount.","调整最终明暗和细节修改量，不是模型强度；1 保留模型原量。"));
-            changed|=SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f");
-            SettingsTooltip(ui("Adopts NR colour changes under the current colour policy. 0 keeps game colour; not model strength or whole-image saturation.","在当前颜色策略下采用 NR 颜色变化。0 保留游戏颜色；不是模型强度或全画面饱和度。"));
-            DrawUnifiedColourState(next,current.generation,has_pending||changed);
             if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting detail settings are active; inspect Developer > Legacy lighting.","旧光影细分设置正在影响效果，详见开发者页。"));
             if(next.layered_enhancement||next.low_grid_edit_field||next.low_grid_color_edit_field||next.independent_chroma_composition||next.colour_scaled_proxy_mode||next.colour_edge_recovery||!next.color_protection||!next.high_strength_protection)
                 SettingsNote(ui("Custom composition or safeguard settings are active; inspect Developer.","自定义合成或保护设置正在生效，详见开发者页。"));
@@ -160,8 +175,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.nr_full_reference=false;next.nr_full_passes=3;
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
-            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final/colour 1, lighting/edge protection 0 and picture experiments. Keeps NR enabled state and compatibility preferences.",
-                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终/颜色1、光照/边缘保护0及画质实验默认；保留总开关与兼容设置。"));
+            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, colour 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
+                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、颜色0.5、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

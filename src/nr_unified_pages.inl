@@ -22,7 +22,7 @@ void DrawUnifiedColourState(const ChainConfig& next,unsigned generation,bool pen
     }
     ImGui::TextWrapped(NrUi("AI colour: request %.2f / recorded %.2f","AI 色彩：请求 %.2f／已录制 %.2f"),
         next.color_strength,sample.policy.effective_color_strength);
-    if(!sample.policy.color_allowed)SettingsNote(NrUi("Colour is limited by the current policy; see Developer > Colour policy.","当前颜色策略限制了颜色采用，见开发者页“颜色策略”。"));
+    if(!sample.policy.color_allowed)SettingsNote(NrUi("Colour is limited by the current input or saved legacy permission; requested strength is not the applied amount.","当前输入或旧版许可限制了颜色采用，请求强度不等于实际采用量。"));
 }
 void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     nr_light_style::UndoState& undo,bool has_pending,bool& pending_undo,bool& changed,bool& discrete) {
@@ -154,13 +154,23 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     int jitter=static_cast<int>(next.jitter_mode);
     if(NrCombo(NrUi("Jitter input","Jitter 输入"),"##jitter",jitter,NrUi("Off\0Verified game pixel jitter\0","不传递\0已验证的游戏像素抖动\0"))){next.jitter_mode=static_cast<NrJitterMode>(jitter);changed=true;discrete=true;}
     SettingsTooltip(NrUi("Experimental. Changes NR history, not the game's SR jitter; binding does not prove the model uses it.","实验选项；改变 NR 历史，不改游戏 SR 抖动。参数写入不等于模型一定采用。"));
-    SettingsSection(NrUi("Colour policy","颜色策略"));
-    int mode=static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));
-    if(NrCombo(NrUi("Policy","颜色许可"),"##colour-policy",mode,NrUi("Legacy custom\0Colour priority\0Conservative HDR\0","旧版自定义\0颜色优先\0保守 HDR\0"))){next.colour_lab_mode=mode;changed=true;discrete=true;}
-    if(nr_colour_lab::LegacyPermissionEditable(mode))
-        changed|=ImGui::Checkbox(NrUi("Legacy custom: allow unverified HDR colour","旧版自定义：允许未验证 HDR 颜色"),&next.allow_unverified_hdr_color);
-    else SettingsNote(mode==1?NrUi("Colour priority permits unverified HDR colour. The saved Legacy value is retained.","颜色优先允许未验证 HDR 颜色，旧版许可值仍保留。"):
-        NrUi("Conservative policy limits unverified HDR colour. The saved Legacy value is retained.","保守策略限制未验证 HDR 颜色，旧版许可值仍保留。"));
+    SettingsSection(NrUi("Shortcuts","快捷键"));
+    const char* shortcut_names[]={NrUi("Toggle NR","启用／关闭 NR"),NrUi("Capture current view","采集当前画面"),NrUi("Text report","生成文字报告")};
+    const unsigned shortcut_values[]={next.master_virtual_key,next.image_virtual_key,next.feedback_virtual_key};
+    static bool shortcut_conflict=false;
+    for(unsigned i=0;i<3;++i){
+        ImGui::PushID(static_cast<int>(i));
+        int choice=shortcut_values[i]?static_cast<int>(shortcut_values[i])-111:0;
+        if(NrCombo(shortcut_names[i],"##shortcut",choice,NrUi("Off\0F1\0F2\0F3\0F4\0F5\0F6\0F7\0F8\0F9\0F10\0F11\0F12\0","关闭\0F1\0F2\0F3\0F4\0F5\0F6\0F7\0F8\0F9\0F10\0F11\0F12\0"))){
+            shortcut_conflict=!nr_hotkeys::Set(next,static_cast<nr_hotkeys::Action>(i),choice?static_cast<unsigned>(choice+111):0);
+            if(!shortcut_conflict){changed=true;discrete=true;}
+        }
+        ImGui::PopID();
+    }
+    if(shortcut_conflict)SettingsNote(NrUi("Key already assigned. Choose another key or disable its existing action first.","此按键已有用途，请换一个，或先关闭原绑定。"));
+    if(ImGui::Button(NrUi("Reset shortcuts","恢复默认快捷键"))){next.master_virtual_key=117;next.image_virtual_key=118;next.feedback_virtual_key=119;shortcut_conflict=false;changed=true;discrete=true;}
+    SettingsNote(NrUi("Defaults: F6 NR, F7 picture, F8 text report. F8 does not record video. Reassigned keys activate after release. Avoid keys used by the game or ReShade.",
+        "默认 F6 开关 NR、F7 采集画面、F8 生成文字报告；F8 不是录像。改键后松开再按生效，请避开游戏及 ReShade 已用按键。"));
     SettingsSection(NrUi("Recovery and composition","恢复与合成"));
     int order=nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
     if(NrCombo(NrUi("Low-resolution input order","低分输入顺序"),"##scaled-proxy",order,NrUi("Scale source first\0Encode proxy first (no proven gain)\0","先缩放场景\0先编码 Proxy（未证实收益）\0"))){next.colour_scaled_proxy_mode=order;changed=true;discrete=true;}
@@ -218,10 +228,13 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     const bool busy=nr_f8::IsActive()||nr_f8::g_status.load()==nr_f8::Status::Packaging||nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);
     const bool row=SettingsContentWidth()>ImGui::GetFontSize()*42.f;
-    if(ImGui::Button(NrUi("Text report F8","生成文字报告 F8")))nr_f8::RequestCore();
+    char report_label[96]{},image_label[96]{};
+    std::snprintf(report_label,sizeof(report_label),NrUi("Text report (%s)###report","生成文字报告（%s）###report"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Report)));
+    std::snprintf(image_label,sizeof(image_label),NrUi("Capture current view (%s)###capture","采集当前画面（%s）###capture"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Image)));
+    if(ImGui::Button(report_label))nr_f8::RequestCore();
     SettingsTooltip(NrUi("Bounded TXT; settings unchanged; path copied when ready.","生成有界 TXT，不改画质设置；完成后复制路径。"));
     if(row)ImGui::SameLine();
-    if(ImGui::Button(NrUi("Capture current view F7","采集当前画面 F7")))nr_f8::RequestFullscreen();
+    if(ImGui::Button(image_label))nr_f8::RequestFullscreen();
     SettingsTooltip(NrUi("Current-path full-screen images and available model stages, with a text report. Saved settings stay unchanged; stage capture resets/warms history and affects timing.","采集当前路径全屏画面、可用模型阶段和文字报告；保存设置不变，阶段采集会重置/预热历史并影响计时。"));
     if(row)ImGui::SameLine();
     if(ImGui::Button(NrUi("Capture comparison","采集对照")))nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix);
@@ -260,6 +273,6 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::TextWrapped("%s",UseChineseUi()?kAddonAuthor:kAddonAuthorAscii);
     ImGui::TextWrapped("%s",kOfficialReleaseUrl);
     ImGui::TextWrapped("%s",NrUi("QQ group 2: 392308850","交流群（二群）：392308850"));
-    SettingsNote(NrUi("F6: NR on/off · F8: text report · F7: current-path images · minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
-        "F6：NR开关 · F8：文字报告 · F7：当前路径图像 · 减号：截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
+    SettingsNote(NrUi("Shortcut keys can be changed on Developer. Minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
+        "可在开发者页修改快捷键；减号为截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
 }
