@@ -160,7 +160,7 @@ int wmain(int argc,wchar_t **argv) {
         check(!SameNrTuningSignature(before_tuning,CurrentNrTuningSignature()),
             "model baseline reaches the existing NR recreation signature");
         check(g_config.intensity==1.2f&&g_config.local_tone==1.f&&g_config.local_structure==1.f&&
-            g_config.auto_mask&&g_config.skin_structure==0.f&&g_config.style==0&&g_config.ui_correction,
+            g_config.auto_mask&&g_config.skin_structure==.4f&&g_config.style==0&&g_config.ui_correction,
             "independent seven-field model baseline");
         auto unrelated=g_config;
         nr_model_controls::Write(unrelated,nr_model_controls::Read(before));
@@ -169,7 +169,7 @@ int wmain(int argc,wchar_t **argv) {
         check(nr_light_style::SameSnapshot(nr_light_style::Read(g_config),nr_light_style::Read(before))&&
             g_config.light_preview==2,"model baseline preserves D coefficients, mode, colour and preview");
         check(ReadIniFloat(L"Intensity",-1.f)==1.2f&&ReadIniFloat(L"LocalToneStrength",-1.f)==1.f&&
-            ReadIniFloat(L"LocalStructureStrength",-1.f)==1.f&&ReadIniFloat(L"SkinStructureStrength",-1.f)==0.f&&
+            ReadIniFloat(L"LocalStructureStrength",-1.f)==1.f&&ReadIniFloat(L"SkinStructureStrength",-1.f)==.4f&&
             GetPrivateProfileIntW(L"NRBeforeSR",L"AutoMask",0,g_ini_path)==1&&
             GetPrivateProfileIntW(L"NRBeforeSR",L"Style",99,g_ini_path)==0&&
             GetPrivateProfileIntW(L"NRBeforeSR",L"UICorrection",0,g_ini_path)==1,

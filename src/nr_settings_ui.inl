@@ -761,7 +761,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
     const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
-        "##nr-processing-precision",&precision,50.f,100.f,"%.0f%%");
+        "##nr-processing-precision", &precision, 50.0f, 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
         if (edit_target==nr_precision_ui::Target::Present) {

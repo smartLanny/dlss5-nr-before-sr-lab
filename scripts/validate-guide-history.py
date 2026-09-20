@@ -76,6 +76,7 @@ NrContext g_contexts[16]{};
 std::atomic<bool> g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_process_latched{false};
 std::atomic<unsigned long long> g_nr_instance_serial{0}, g_next_nr_instance_id{0};
 void CollectRetiredContextsLocked() {} // No fence has completed in this trace.
+bool DeferNrCreationForReleaseLocked() { return false; } // No completed release; actual admission/collector/drain is covered separately.
 void Log(const char*, ...) {}
 // Stage capture stays off in the guide/context regression. Its request and
 // retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
