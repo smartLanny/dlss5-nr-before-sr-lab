@@ -129,6 +129,8 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
     bool missing=nr_post_settings::missing_projection.load(std::memory_order_acquire);
     if(ImGui::Checkbox(NrUi("Try post NR without a camera projection","RR 缺投影时尝试后置 NR"),&missing))
         nr_post_settings::RequestMissingProjection(missing);
+    if(nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire))
+        SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验设置未能保存；本次会话保留请求，请查看 F8。"));
     SettingsNote(NrUi("Off by default. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
         "默认关闭。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
     ImGui::TextWrapped(NrUi("Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Save F8 to verify NR adoption.",

@@ -54,6 +54,7 @@ struct NrContext {
     bool jitter_binding_written=true,jitter_last_known=true;
     unsigned successful_evaluations_since_reset=0, evaluations=0, config_generation=7;
     bool diagnostic_reset_requested=false, reset_retry_pending=false;
+    bool diagnostic_warmup_reset=false;
     unsigned diagnostic_reset_reasons=0;
     bool lifecycle_dependencies_quarantined=false;
     NrTuningSignature tuning_signature{};
@@ -103,8 +104,9 @@ bool PostComplete(NrContext& context,NrSlot& slot,unsigned evaluated) {
 struct NgxParams { int reset_value=-1; };
 void SetInt(NgxParams* params,const char*,int value) { params->reset_value=value; }
 int BindReset(NrContext& context,bool config_changed,bool color_contract_reset=false,
-              bool guide_reset=false,bool* suppressed=nullptr) {
+              bool guide_reset=false,bool* suppressed=nullptr,bool placeholder=false) {
     bool reset=false; int game_reset=0;
+    NrGuideSignature s{};s.rr_depth_placeholder=placeholder;
     const bool history_changed=config_changed;
     NrSlot slot{};
     NgxParams block{}; NgxParams* params=&block;

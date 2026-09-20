@@ -140,5 +140,10 @@ int main(){
  CHECK(fallback.text.find("depthAdapter.currentInput=missing-current-matrix\n")!=std::string::npos);
  CHECK(fallback.text.find("missingProjection.recorded=3\n")!=std::string::npos);
  CHECK(fallback.text.find("depthAdapter.recorded=0\n")!=std::string::npos);
+ persist=false;CHECK(!RequestMissingProjection(true));CHECK(missing_projection_save_failed&&missing_projection);
+ persist=true;Request({true,75});CHECK(missing_projection_save_failed); // Other setting cannot hide this write failure.
+ tick+=1000;Poll();CHECK(missing_projection); // Stale INI must not undo the session request.
+ CHECK(RequestMissingProjection(true));CHECK(!missing_projection_save_failed&&missing_ini==1);
+ CHECK(RequestMissingProjection(false));CHECK(!missing_projection&&missing_ini==0);
  std::printf("%u actual setting/hold/persistence/revision checks passed (CPU seam)\n",checks);
 }

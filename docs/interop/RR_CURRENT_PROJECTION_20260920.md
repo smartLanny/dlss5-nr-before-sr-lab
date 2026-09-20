@@ -64,7 +64,7 @@ NVIDIA 的 [RR 参数定义](https://github.com/NVIDIA/DLSS/blob/main/include/nv
 - 实际 `ResolveRrLinearDepth`、实际 Reset / 预热块：Windows O0 / O2 通过。
   包括修前缺失条件、默认拒绝、显式占位、矩阵恢复、拒绝旧矩阵复用、坏指针、
   非有限、斜投影、不支持存储和五层逐帧 Reset。真实游戏 Reset / 历史变化仍重新预热。
-- 原投影数学、COM 设备身份、RR 控制流及 F8 回归通过；67 项实际配置／占用／
+- 原投影数学、COM 设备身份、RR 控制流及 F8 回归通过；75 项实际配置／占用／
   INI／撤销许可／诊断序列化检查通过。原生 RR 恰好一次和失败分支测试保留。
 - 实际生产深度 shader WARP：10 场景通过。8 个原转换场景，2 个占位场景；
   R16 / R32、子区域、NaN、负值、原深度逐字节不变及私有输出读回检查。

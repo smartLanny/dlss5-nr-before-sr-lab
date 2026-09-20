@@ -4,6 +4,7 @@
 namespace nr_post_settings {
 // Independent opt-in, deliberately not part of ordinary scale/reset requests.
 std::atomic<bool> missing_projection{false};
+std::atomic<bool> missing_projection_save_failed{false};
 struct Options { bool rr=true; unsigned percent=100; };
 std::atomic<unsigned> bits{100u | 256u};
 std::atomic<unsigned long long> revision{0};
@@ -71,7 +72,8 @@ void ApplyLocked(Options value) {
 }
 void Poll() {
     if(nr_f8::g_config_hold.load(std::memory_order_acquire) || !g_ini_path[0] ||
-       persistence_failed.load(std::memory_order_acquire)) return;
+       persistence_failed.load(std::memory_order_acquire) ||
+       missing_projection_save_failed.load(std::memory_order_acquire)) return;
     const auto now=GetTickCount64();
     auto next_tick=next_poll.load(std::memory_order_relaxed);
     if(now<next_tick || !next_poll.compare_exchange_strong(next_tick,now+500,
@@ -128,7 +130,7 @@ bool RequestMissingProjection(bool enabled) {
         g_history_generation.fetch_add(1,std::memory_order_relaxed);
     }
     const bool saved=WriteIniInt(L"RRMissingProjectionFallback",enabled?1:0);
-    if(!saved)persistence_failed.store(true,std::memory_order_release);
+    missing_projection_save_failed.store(!saved,std::memory_order_release);
     Log("[RR-depth] explicit missing-projection fallback=%d; placeholder depth, reset each frame, native RR unchanged; request is not NR success.",enabled?1:0);
     LeaveCriticalSection(&g_chain_cs);return saved;
 }

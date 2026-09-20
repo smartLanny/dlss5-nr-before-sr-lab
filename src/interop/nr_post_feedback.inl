@@ -8,6 +8,8 @@
     const bool compatibility_attempt_recent=IsCompatibilityPostObserved();
 #endif
     FeedbackAppend(s,"%s.settings.colorProtection=%d\n",prefix,g_config.color_protection?1:0);
+    FeedbackAppend(s,"%s.post.rr.missingProjection.saveFailed=%d\n",prefix,
+        nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire)?1:0);
     FeedbackAppend(s,"%s.post.rr.depthAdapter.currentInput=%s\n%s.post.rr.depthAdapter.projectionAdmitted=%llu\n%s.post.rr.missingProjection.requested=%d\n%s.post.rr.missingProjection.admitted=%llu\n%s.post.rr.missingProjection.recorded=%llu\n%s.post.rr.missingProjection.note=explicit unknown-depth post candidate; Reset every Evaluate; normal creation/transition warmup retained; counts are layer dispatches, not converted depth, completed GPU work or NR adoption\n",
         prefix,nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
         prefix,nr_rr_depth::observations.admitted.load(std::memory_order_relaxed),
