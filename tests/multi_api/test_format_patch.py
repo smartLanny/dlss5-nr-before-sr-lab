@@ -82,7 +82,9 @@ class Patches(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('MULTIAPI_CORE_SOURCE'), 'requires real full core file; not available in host fixture test')
     def test_actual_core_input(self):
         import hashlib
-        source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
+        # Match the reviewed Git text blob on both LF and CRLF checkouts. Keep
+        # every character (including a BOM if present); only EOL is canonical.
+        source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
         self.assertEqual(digest,'902688a4bb3a3c37c1bc2e3f7f0e169c78b30d73')
         text=source.decode('utf-8')
