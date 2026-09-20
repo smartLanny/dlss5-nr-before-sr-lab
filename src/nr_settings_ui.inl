@@ -728,54 +728,68 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (rr_guarded) DrawPostRouteStatus();
     if (compatibility_post) DrawCompatibilityFallbackNotice(compatibility_snapshot);
+    // BEGIN WORKING SCALE REQUEST: edit the selected start, never live fallback.
+    // Other picture controls retain their existing effective-route guards.
     const bool compatibility_mode=!nr_processing_runtime::FgRedirectRequested() &&
         (next.processing_start==nr_processing::Start::Present ||
         (!has_pending && nr_processing_runtime::PresentSelected()));
     const bool before_sr = !compatibility_mode && !rr_guarded && !compatibility_post &&
         nr_processing_runtime::Effective()==nr_processing::Start::Before;
 #if NR_HAS_DETAIL_STABILITY
-    const bool effective_post = !before_sr;
-    // These atomics are historical observations, NOT a coherent frame tuple.
-    // They only seed a visibly labelled estimate; no config is migrated until
-    // the user edits the slider. The GPU resolver still checks the real tuple.
-    auto post_options = nr_post_settings::Read();
-    static float post_precision = 100.0f;
-    static unsigned observed_post_precision = 0;
-    if (observed_post_precision != post_options.percent) {
-        post_precision = static_cast<float>(post_options.percent);
-        observed_post_precision = post_options.percent;
-    }
-    float precision = compatibility_mode ? static_cast<float>(next.compat_percent) : effective_post ? post_precision :
-        nr_precision_ui::LegacyEstimate(next.work_mode, next.custom_work_scale,
-            g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
-            g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
-    precision = std::clamp(precision, 50.0f, 100.0f);
-    if (SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
-            "##nr-processing-precision", &precision, 50.0f, 100.0f, "%.0f%%")) {
-        if (compatibility_mode) {
-            next.compat_percent=static_cast<unsigned>(std::lround(precision));changed=true;
-        } else if (effective_post) {
-            post_precision = precision;
+    const auto scale_target=nr_precision_ui::SelectedTarget(
+        static_cast<unsigned>(next.processing_start),rr_guarded,
+        nr_processing_runtime::FgRedirectRequested());
+    const auto post_options=nr_post_settings::Read();
+    const auto post_revision=nr_post_settings::revision.load(std::memory_order_acquire);
+    const float saved_precision=scale_target==nr_precision_ui::Target::Present
+        ? static_cast<float>(next.compat_percent)
+        : scale_target==nr_precision_ui::Target::Post ? static_cast<float>(post_options.percent)
+        : nr_precision_ui::LegacyEstimate(next.work_mode,next.custom_work_scale,
+            g_last_dlss_input_width.load(),g_last_dlss_input_height.load(),
+            g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
+    static nr_precision_ui::Edit scale_edit;
+    float precision=scale_edit.Observe(scale_target,current.generation,post_revision,
+        next.processing_selection,std::clamp(saved_precision,50.f,100.f));
+    const auto edit_target=scale_edit.target;
+    const char* request_name=edit_target==nr_precision_ui::Target::Before
+        ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
+        ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
+    ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
+    const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
+        "##nr-processing-precision",&precision,50.f,100.f,"%.0f%%");
+    if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
+            ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
+        if (edit_target==nr_precision_ui::Target::Present) {
+            next.compat_percent=static_cast<unsigned>(std::lround(scale_edit.preview));
+            changed=true;
+        } else if (edit_target==nr_precision_ui::Target::Post) {
+            // The ordinary Post request publishes separately from the overlay.
+            // Keep its existing chain lock while checking the captured revision,
+            // so a concurrent INI/config update cannot be overwritten after check.
+            EnterCriticalSection(&g_chain_cs);
+            if (g_config_generation.load(std::memory_order_relaxed)==scale_edit.generation &&
+                nr_post_settings::revision.load(std::memory_order_acquire)==scale_edit.post_revision) {
+                auto request=post_options;
+                request.percent=static_cast<unsigned>(std::lround(scale_edit.preview));
+                if (!nr_post_settings::Request(request)) scale_edit.conflict=true;
+            } else scale_edit.conflict=true;
+            LeaveCriticalSection(&g_chain_cs);
         } else {
-            const auto request = nr_precision_ui::Resolve(precision, true);
+            const auto request=nr_precision_ui::Resolve(scale_edit.preview,true);
             if (request.accepted) {
-                next.work_mode = request.mode;
-                next.custom_work_scale = request.scale;
-                changed = true;
+                next.work_mode=request.mode;next.custom_work_scale=request.scale;changed=true;
             }
         }
     }
-    if (effective_post && !compatibility_mode && ImGui::IsItemDeactivatedAfterEdit()) {
-        post_options.percent = static_cast<unsigned>(std::lround(post_precision));
-        if (nr_post_settings::Request(post_options))
-            observed_post_precision = post_options.percent;
-    }
     SettingsTooltip(ui(
-        "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. New installs use pre-SR 100% (N=R); existing presets/custom requests are retained. 100% uses the route's full input.",
-        "所有层共用此比例，仅乘一次。前置以游戏 SR 输入尺寸为基准，后置以重建输出为基准；100% 不额外缩小。游戏本身的分辨率不变。"));
+        "Sets the selected start from 50% to 100%, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
+        "设置所选起点的比例，所有层共用且仅乘一次；自动降级不切换保存字段。RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变；实际路线和尺寸单独显示。"));
+    if (scale_edit.conflict)
+        SettingsNote(ui("The scale edit was not applied: its target or settings changed, or the request was unavailable. Release and adjust the current value again.",
+            "比例编辑未应用：编辑目标或设置已变化，或请求暂不可用。请松手后按当前值重新调整。"));
     unsigned observed_base_w=current.base_width,observed_base_h=current.base_height;
     unsigned observed_work_w=current.work_width,observed_work_h=current.work_height;
-    if (compatibility_mode) {
+    if (nr_processing_runtime::Effective()==nr_processing::Start::Present) {
         nr_compat_present::Observation dimensions{};
         if (nr_compat_present_runtime::TrySnapshot(dimensions)) {
             observed_base_w=dimensions.source_width;observed_base_h=dimensions.source_height;
@@ -787,7 +801,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "最近运行：基准 %u × %u → 模型 %u × %u（每层）"),
             observed_base_w,observed_base_h,observed_work_w,observed_work_h);
     else SettingsNote(ui("Model dimensions appear after NR runs.","NR 运行后显示实际模型尺寸。"));
-    if (before_sr &&
+    if (scale_target==nr_precision_ui::Target::Before &&
         g_work_request_rejected.load(std::memory_order_acquire)) {
         SettingsNote(ui(
             "The INI work request was rejected. Previous valid precision is retained; 1-49% is unavailable, not silently raised to 50%.",
