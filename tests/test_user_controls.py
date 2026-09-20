@@ -61,15 +61,61 @@ int main(){
 '''
 
 class UserControls(unittest.TestCase):
-    def test_behaviour(self):
+    def run_cpp(self,code):
         compiler=os.environ.get('DLSS5_TEST_CXX') or str(Path(os.environ.get('NR_LLVM_BIN',str(Path(os.environ.get('DLSS5_LLVM_MINGW_ROOT',''))/'bin')))/'x86_64-w64-mingw32-clang++.exe')
         if not Path(compiler).is_file():compiler=shutil.which('clang++') or compiler
         if not Path(compiler).is_file():self.skipTest('Windows host compiler unavailable')
         root=GENERATED or ROOT
         with tempfile.TemporaryDirectory(prefix='nr-user-controls-') as td:
-            cpp=Path(td)/'test.cpp';exe=Path(td)/'test.exe';cpp.write_text(CPP)
+            cpp=Path(td)/'test.cpp';exe=Path(td)/'test.exe';cpp.write_text(code,encoding='utf-8')
             subprocess.run([compiler,'-std=c++17','-O2','-static','-Wall','-Wextra','-Werror','-I',str(root/'src'),str(cpp),'-o',str(exe)],check=True)
-            subprocess.run([str(exe)],check=True)
+            subprocess.run([str(exe)],check=True,cwd=td)
+
+    def test_behaviour(self):self.run_cpp(CPP)
+
+    def test_actual_ini_load_save(self):
+        if GENERATED is None:self.skipTest('complete export checked separately')
+        core=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+        start=core.index('    wchar_t saved_mode[32]{}')
+        end=core.index('    next.light_preset_color',start)
+        colour_load=core[start:end]
+        start=core.index('    next.master_virtual_key=')
+        key_load=core[start:core.index('    next.enabled =',start)]
+        start=core.index('    record_light(WriteIniFloat(L"ColorStrength"')
+        last='    record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));'
+        saved=core[start:core.index(last,start)+len(last)]
+        # Run the generated loader and writes against real Win32 INI storage,
+        # including a fresh load after mode changes and partial old settings.
+        code=CPP[:CPP.index('int main()')]+r'''
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <cwchar>
+const wchar_t* g_ini_path=L".\\user.ini";
+void put(const wchar_t* key,const wchar_t* value){assert(WritePrivateProfileStringW(L"NRBeforeSR",key,value,g_ini_path));}
+bool WriteIniFloat(const wchar_t* key,float value){wchar_t s[64];swprintf(s,64,L"%.9g",double(value));put(key,s);return true;}
+bool WriteIniInt(const wchar_t* key,unsigned value){wchar_t s[64];swprintf(s,64,L"%u",value);put(key,s);return true;}
+float ReadIniFloat(const wchar_t* key,float fallback){wchar_t s[64]{};GetPrivateProfileStringW(L"NRBeforeSR",key,L"",s,64,g_ini_path);return s[0]?float(wcstod(s,nullptr)):fallback;}
+Config load(){Config next;next.colour_lab_mode=GetPrivateProfileIntW(L"NRBeforeSR",L"ColourLabMode",1,g_ini_path);
+next.allow_unverified_hdr_color=GetPrivateProfileIntW(L"NRBeforeSR",L"AllowUnverifiedHdrColor",0,g_ini_path)!=0;
+'''+key_load+colour_load+r'''
+nr_hotkeys::Normalize(next);return next;}
+void save(const Config& config){auto record_light=[](bool ok){assert(ok);};auto record_write=record_light;
+'''+saved+r'''
+WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
+int main(){
+ auto c=load();assert(c.color_strength==.5f && c.colour_lab_mode==1);
+ put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
+ assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
+ nr_colour_preferences::Select(c,0);assert(c.color_strength==.5f);
+ c.color_strength=.6f;nr_colour_preferences::Remember(c);
+ assert(nr_hotkeys::Set(c,nr_hotkeys::Master,120));save(c);c=load();
+ assert(c.color_strength==.6f && c.master_virtual_key==120);
+ nr_colour_preferences::Select(c,1);assert(c.color_strength==1.f);
+ c.color_strength=.2f;nr_colour_preferences::Remember(c);save(c);c=load();
+ assert(c.color_strength==.2f);nr_colour_preferences::Select(c,0);assert(c.color_strength==.6f);
+}
+'''
+        self.run_cpp(code)
 
     def test_final_wiring(self):
         if GENERATED is None:self.skipTest('complete export checked separately')
