@@ -44,7 +44,7 @@ if ($ReuseBridgeRoot) { $Options.ReuseBridgeRoot=$ReuseBridgeRoot }
 & (Join-Path $GeneratedRoot 'scripts/build.ps1') @Options
 if (-not $?) { throw 'Full Windows Core/canonical build failed.' }
 $Manifest=Get-Content -LiteralPath (Join-Path $OutputRoot 'source-manifest.json') -Raw | ConvertFrom-Json
-if ($Manifest.colour_lab.version -ne 'beta0.5-dline21-unified2') { throw 'Wrong candidate identity.' }
+if ($Manifest.colour_lab.version -ne 'beta0.5-dline21-unified3') { throw 'Wrong candidate identity.' }
 Write-Host 'Build command returned successfully. Inspect the actual Core/shader validation reports and binary identity.'
 Write-Host 'No game is modified. Keep the existing INI, bridge and NVIDIA DLLs. No game/performance result is implied.'
 Write-Host 'Quality1: new configs use colour-priority + D21 composition. Saved experiments are preserved and warned, not silently changed.'

@@ -182,7 +182,7 @@ void CheckRestorePreservesContracts() {
     Check(c.mode == 2, "default reset did not select NR before SR");
     Check(c.work_mode == 0 && c.custom_work_scale == 1.f,
           "default reset did not select exact N=R work");
-    Check(c.intensity == 1.2f, "default reset did not select model strength 1.2");
+    Check(c.intensity == 1.5f, "default reset did not select model strength 1.5");
     Check(c.color_protection, "default reset did not enable colour protection");
     Check(c.jitter_mode == NrJitterMode::Legacy,
           "default reset did not disable experimental NR jitter");
@@ -197,14 +197,14 @@ void CheckAppliedReset(unsigned old_percent, bool no_op) {
     next.enabled = false;
     next.work_mode = 0;
     next.custom_work_scale = 1.f;
-    next.intensity = 1.2f;
+    next.intensity = 1.5f;
     next.color_protection = true;
     const unsigned generation_before = g_config_generation.load();
     g_force_noop.store(no_op, std::memory_order_release);
     const auto result = ApplyPictureReset(next, 1);
     Check(result == OverlayApplyResult::Applied, "default reset was not applied");
     Check(!g_config.enabled && g_config.work_mode == 0 &&
-          g_config.custom_work_scale == 1.f && g_config.intensity == 1.2f &&
+          g_config.custom_work_scale == 1.f && g_config.intensity == 1.5f &&
           g_config.color_protection, "core reset did not preserve/apply defaults");
     const unsigned packed = nr_post_settings::bits.load(std::memory_order_acquire);
     Check((packed & 255u) == 100u && (packed & 256u) != 0,
@@ -244,7 +244,7 @@ void CheckCaptureSeesWholeTransaction() {
     next.enabled = false;
     next.work_mode = 0;
     next.custom_work_scale = 1.f;
-    next.intensity = 1.2f;
+    next.intensity = 1.5f;
     next.color_protection = true;
     g_pause_after_core.store(true, std::memory_order_release);
     std::atomic<int> result_code{-1};
@@ -280,7 +280,7 @@ void CheckCaptureSeesWholeTransaction() {
     capture.join();
     Check(result_code.load() == static_cast<int>(OverlayApplyResult::Applied),
           "atomic reset did not complete");
-        Check(captured.config.work_mode == 0 && captured.config.intensity == 1.2f &&
+        Check(captured.config.work_mode == 0 && captured.config.intensity == 1.5f &&
           captured.config.color_protection && captured.post_percent == 100 &&
           captured.post_rr, "capture did not see the complete reset transaction");
     Check(!nr_f8::g_config_hold.load(), "capture hold was not released");

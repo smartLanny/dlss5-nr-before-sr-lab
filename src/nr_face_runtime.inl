@@ -10,7 +10,7 @@ std::atomic<unsigned> state{static_cast<unsigned>(nr_region::Status::Off)},detec
 std::atomic<float> detector_cpu_ms{0};
 std::atomic<std::uint64_t> confirmed_frame{0};
 void State(nr_region::Status value){state.store(static_cast<unsigned>(value),std::memory_order_relaxed);}
-bool Requested(){return g_config.enabled&&g_config.face_protection_version==1&&(g_config.face_protection||g_config.face_preview);}
+bool Requested(){return g_config.enabled&&g_config.face_protection_version==1&&g_config.face_protection;}
 void ClearHistory() {
     for(auto& entry:history)entry.reset();
     detection={};detected_faces.store(0);confirmed_mask_pixels.store(0);confirmed_frame.store(0);last_detection_request=0;current={};++epoch;
@@ -182,13 +182,17 @@ void DrawUi(ChainConfig& next,bool& changed) {
     if(!NR_FACE_BACKEND) {
         ImGui::TextWrapped("%s",zh?"此构建未包含识别后端；人脸保护不可用。":"This build has no detection backend; face protection is unavailable.");return;
     }
-    changed|=ImGui::Checkbox(zh?"启用独立脸区":"Enable independent face region",&next.face_protection);
+    if(ImGui::Checkbox(zh?"启用独立脸区":"Enable independent face region",&next.face_protection)){if(!next.face_protection)next.face_preview=0;changed=true;}
+    ImGui::BeginDisabled(!next.face_protection);
     changed|=ImGui::Checkbox(zh?"脸内额外增强限制为 1 倍":"Cap extra face enhancement at 1x",&next.face_extra_cap);
     float luma=next.face_original_luma*100,color=next.face_original_color*100;
     if(ImGui::SliderFloat(zh?"脸部原图明暗保护":"Original face luma protection",&luma,0,100,"%.0f%%")){next.face_original_luma=luma/100;changed=true;}
     if(ImGui::SliderFloat(zh?"脸部原图颜色保护":"Original face colour protection",&color,0,100,"%.0f%%")){next.face_original_color=color/100;changed=true;}
     bool preview=next.face_preview!=0;
     if(ImGui::Checkbox(zh?"预览当前可信脸区":"Preview current trusted face region",&preview)){next.face_preview=preview?1:0;changed=true;}
+    ImGui::EndDisabled();
+    if(!next.face_protection)SettingsNote(zh?"独立检测已关闭；保留参数，已提交工作安全收尾。":"Independent detection is off; settings retained and submitted work drains safely.");
+    SettingsNote(zh?"随包资源占安装空间；关闭时仅保留少量状态检查，不启动检测模型或新脸区处理。与每层原生皮肤遮罩无联动。":"Bundled resources use disk space. Off keeps small state checks without starting the detector or new face work; native layer skin masks are independent.");
     static const char* en[]={"Off","Waiting for detection","Face region available","No face detected","Detection expired","Input contract changed","Motion history unavailable","Depth unavailable","Unverified region source","Region rejected by correspondence checks","Invalid extent","Detector unavailable","GPU resources unavailable"};
     static const char* cn[]={"关闭","等待识别","脸区可用","未识别人脸","识别结果已过期","输入合同变化","运动历史不可用","深度不可用","区域来源未验证","脸区未通过对应检查","范围无效","识别器不可用","GPU资源不可用"};
     const auto status=std::min(state.load(),static_cast<unsigned>(std::size(en)-1));

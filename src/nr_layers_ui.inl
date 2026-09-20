@@ -1,66 +1,85 @@
-// Shared model panel: every visible value feeds this layer's Create signature.
+// One layer-count entry; disabled layers retain their complete parameter set.
+#include "nr_unified_ui_policy.h"
+void DrawUniformLayerCount(ChainConfig& next,bool& changed,bool& discrete) {
+    const bool zh=UseChineseUi();
+    SettingsField(zh?"模型层数":"Model layers");
+    ImGui::PushID("nr-layer-count");
+    const float width=std::max(1.f,(SettingsContentWidth()-4.f*ImGui::GetStyle().ItemSpacing.x)/5.f);
+    const auto active=nr_layers::Active(next.nr_layers);
+    for(unsigned count=1;count<=nr_layers::Count;++count) {
+        if(count>1)ImGui::SameLine();
+        char label[8];std::snprintf(label,sizeof(label),"%u",count);
+        if(active==count)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        if(ImGui::Button(label,ImVec2(width,0))&&active!=count){nr_unified_ui::SetLayers(next,count);changed=true;discrete=true;}
+        if(active==count)ImGui::PopStyleColor();
+    }
+    ImGui::PopID();
+}
+void NrLayerField(const char* label,bool table) {
+    if(table){ImGui::TableNextRow();ImGui::TableSetColumnIndex(0);ImGui::AlignTextToFramePadding();}
+    ImGui::TextWrapped("%s",label);
+    if(table)ImGui::TableSetColumnIndex(1);
+    ImGui::SetNextItemWidth(-1.f);
+}
 void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();
-    SettingsSection(zh?"模型层数与参数":"Model layers and controls");
-    SettingsNote(zh?"所有层使用上方同一工作分辨率。松开滑条时应用设置。":"All layers use the work resolution above. Settings apply when sliders are released.");
-    if(next.nr_uniform_migrated)SettingsNote(zh?
-        "旧辅助层比例已归档；各层现与第一层同尺寸，辅助层开销可能增加。当前为自定义配置。":
-        "Legacy auxiliary scale is archived. All layers now match layer 1; auxiliary cost may increase. This is a custom configuration.");
-    for(unsigned i=0;i<nr_layers::Count;++i) {
+    SettingsSection(zh?"每层模型参数":"Model parameters per layer");
+    SettingsNote(zh?"同一工作尺寸；松手或提交输入后应用。减少层数会保留后续层设置。":"One work size; apply on release or input commit. Reducing layers retains their settings.");
+    if(next.nr_uniform_migrated)SettingsNote(zh?"旧辅助层比例已归档；统一尺寸改变了辅助层工作量，当前为自定义。":"Legacy auxiliary scales are archived. Uniform sizing changes their workload; this is a custom configuration.");
+    const auto count=nr_layers::Active(next.nr_layers);
+    for(unsigned i=0;i<count;++i) {
         ImGui::PushID(static_cast<int>(i));
-        if(i) {
-            auto& layer=next.nr_layers[i-1];
-            char toggle[64];std::snprintf(toggle,sizeof(toggle),zh?"启用第 %u 层":"Enable layer %u",i+1);
-            if(ImGui::Checkbox(toggle,&layer.enabled)) {
-                if(layer.enabled)layer.initialized=true; // Constructor/migration supplied defaults; keep saved INI edits.
-                changed=true;discrete=true;
-            }
-            if(!layer.enabled){ImGui::PopID();break;}
-        }
         char title[64];std::snprintf(title,sizeof(title),zh?"第 %u 层":"Layer %u",i+1);
-        if(ImGui::CollapsingHeader(title,ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto model=nr_layers::Read(next,i);bool edited=false;
-            const char* stylesEn[]={"Default","Natural","Cinematic"};
-            const char* stylesZh[]={"默认","自然","电影"};
-            // Keep drag preview separate from the config transaction: crossing
-            // segments must not recreate models until the mouse is released.
-            static int drag_layer=-1;
-            static unsigned drag_style=0;
-            const float segment_width=std::max(1.f,(SettingsContentWidth()-2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
-            for(unsigned style=0;style<3;++style) {
-                if(style)ImGui::SameLine();
-                const unsigned selected=drag_layer==static_cast<int>(i)?drag_style:model.style;
-                if(selected==style)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
-                const bool clicked=ImGui::Button(zh?stylesZh[style]:stylesEn[style],ImVec2(segment_width,0));
-                if(selected==style)ImGui::PopStyleColor();
-                if(ImGui::IsItemActivated()){drag_layer=static_cast<int>(i);drag_style=style;}
-                if(drag_layer==static_cast<int>(i)&&ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))drag_style=style;
-                if(clicked&&drag_layer<0&&model.style!=style){model.style=style;edited=true;discrete=true;}
-            }
-            if(drag_layer==static_cast<int>(i)&&!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                if(model.style!=drag_style){model.style=drag_style;edited=true;discrete=true;}
-                drag_layer=-1;
-            }
-            edited|=SettingsSliderFloat(zh?"强度":"Intensity","##intensity",&model.intensity,0.f,2.f,"%.2f");
-            edited|=SettingsSliderFloat(zh?"局部结构":"Local structure","##structure",&model.local_structure,0.f,2.f,"%.2f");
-            edited|=SettingsSliderFloat(zh?"局部色调":"Local tone","##tone",&model.local_tone,0.f,2.f,"%.2f");
-            if(ImGui::Checkbox(zh?"皮肤／人脸保护":"Skin / face protection",&model.auto_mask)){
-                if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=nr_layers::Model{}.skin_structure;
-                edited=true;discrete=true;
-            }
-            SettingsTooltip(zh?"本层 NR 模型自带的自动皮肤遮罩。用下方皮肤结构调节皮肤增强量，默认 0.4；不启动独立人脸检测模型。":"This NR layer's built-in skin mask. Skin structure controls its skin enhancement, default 0.4; this does not start the separate face detector.");
-            ImGui::BeginDisabled(!model.auto_mask);
-            edited|=SettingsSliderFloat(zh?"皮肤结构":"Skin structure","##skin",&model.skin_structure,model.auto_mask?0.f:-1.f,2.f,"%.2f");
-            ImGui::EndDisabled();
-            if(ImGui::Checkbox(zh?"文字与界面保护":"UI correction",&model.ui_correction)){edited=true;discrete=true;}
-            if(ImGui::Button(zh?"重置本层":"Reset this layer")){model={};edited=true;discrete=true;}
-            SettingsTooltip(zh?"仅恢复本层模型参数；不改变层数、工作分辨率和最终合成。":"Resets this layer's model controls only; keeps layer count, work resolution and final composition.");
-            if(edited) {
-                if(i){static_cast<nr_layers::Model&>(next.nr_layers[i-1])=model;next.nr_layers[i-1].initialized=true;}
-                else nr_layers::WritePrimary(next,model);
-                changed=true;
-            }
+        SettingsSection(title);
+        auto model=nr_layers::Read(next,i);bool edited=false;
+        const bool table=SettingsContentWidth()>=ImGui::GetFontSize()*25.f &&
+            ImGui::BeginTable("layer-fields",2,ImGuiTableFlags_SizingStretchProp);
+        if(table){ImGui::TableSetupColumn("name",ImGuiTableColumnFlags_WidthFixed,ImGui::GetFontSize()*9.f);ImGui::TableSetupColumn("value",ImGuiTableColumnFlags_WidthStretch);}
+        NrLayerField(zh?"风格":"Style",table);
+        const char* stylesEn[]={"Default","Natural","Cinematic"};
+        const char* stylesZh[]={"默认","自然","电影"};
+        // Keep drag preview separate from the config transaction: crossing
+        // segments must not recreate models until the mouse is released.
+        static int drag_layer=-1;
+        static unsigned drag_style=0;
+        const float segment_width=std::max(1.f,(SettingsContentWidth()-2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
+        for(unsigned style=0;style<3;++style) {
+            if(style)ImGui::SameLine();
+            const unsigned selected=drag_layer==static_cast<int>(i)?drag_style:model.style;
+            if(selected==style)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
+            const bool clicked=ImGui::Button(zh?stylesZh[style]:stylesEn[style],ImVec2(segment_width,0));
+            if(selected==style)ImGui::PopStyleColor();
+            if(ImGui::IsItemActivated()){drag_layer=static_cast<int>(i);drag_style=style;}
+            if(drag_layer==static_cast<int>(i)&&ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))drag_style=style;
+            if(clicked&&drag_layer<0&&model.style!=style){model.style=style;edited=true;discrete=true;}
         }
+        if(drag_layer==static_cast<int>(i)&&!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            if(model.style!=drag_style){model.style=drag_style;edited=true;discrete=true;}
+            drag_layer=-1;
+        }
+
+        NrLayerField(zh?"模型强度":"Model strength",table);
+        edited|=ImGui::SliderFloat("##intensity",&model.intensity,0.f,2.f,"%.2f");
+        NrLayerField(zh?"局部结构":"Local structure",table);
+        edited|=ImGui::SliderFloat("##structure",&model.local_structure,0.f,2.f,"%.2f");
+        NrLayerField(zh?"局部色调":"Local tone",table);
+        edited|=ImGui::SliderFloat("##tone",&model.local_tone,0.f,2.f,"%.2f");
+        NrLayerField(zh?"原生皮肤遮罩":"Native skin mask",table);
+        if(ImGui::Checkbox("##native-mask",&model.auto_mask)) {
+            if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=nr_layers::Model{}.skin_structure;
+            edited=true;discrete=true;
+        }
+        SettingsTooltip(zh?"NR 模型自带的皮肤遮罩，不启动独立人脸检测；下方皮肤结构默认 0.4。":"NR's native skin mask; no separate face detector. Skin structure defaults to 0.4.");
+        NrLayerField(zh?"皮肤结构":"Skin structure",table);
+        ImGui::BeginDisabled(!model.auto_mask);
+        edited|=ImGui::SliderFloat("##skin",&model.skin_structure,model.auto_mask?0.f:-1.f,2.f,"%.2f");
+        ImGui::EndDisabled();
+        NrLayerField(zh?"文字/UI保护":"Text / UI protection",table);
+        if(ImGui::Checkbox("##ui-correction",&model.ui_correction)){edited=true;discrete=true;}
+        if(table)ImGui::EndTable();
+        if(ImGui::Button(zh?"重置本层":"Reset this layer")){model={};edited=true;discrete=true;}
+        SettingsTooltip(zh?"仅重置本层：强度 1.5、结构/色调 1、皮肤 0.4、原生遮罩和 UI 保护开。不改层数、工作尺寸及最终效果。":"Only this layer: strength 1.5, structure/tone 1, skin 0.4, native mask/UI on. Keeps layer count, work size and final composition.");
+        if(edited){if(i){static_cast<nr_layers::Model&>(next.nr_layers[i-1])=model;next.nr_layers[i-1].initialized=true;}else nr_layers::WritePrimary(next,model);changed=true;}
         ImGui::PopID();
     }
 }

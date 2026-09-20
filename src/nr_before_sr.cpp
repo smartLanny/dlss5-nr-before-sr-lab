@@ -908,8 +908,8 @@ struct ChainConfig {
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 0;
     float custom_work_scale = 1.0f;
-    float lighting_lock = 0.20f;
-    float edge_guard = 0.25f;
+    float lighting_lock = 0.0f;
+    float edge_guard = 0.0f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
     bool color_protection = true; // Additional enhancement chroma budget; composition only.
@@ -944,7 +944,7 @@ struct ChainConfig {
     float light_reflection = 1.f, light_structure = 1.f, light_glow = 0.f;
     unsigned light_preview = 0; // Transient diagnostic view; never persisted.
     unsigned light_style_version = 1, light_preset = 0;
-    unsigned light_control_mode = 0; // Old INIs retain detail-layer controls; composition only.
+    unsigned light_control_mode = 1; // Missing/new: whole residual light/dark; explicit old values retained.
     float light_preset_color = 1.f; // Resolved colour snapshot of selected preset.
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
@@ -958,7 +958,7 @@ struct ChainConfig {
     unsigned int warmup_after_create = 2;
     bool retry_original_on_sr_failure = false; // Legacy key retained; no same-source native SR retry.
     int depth_mode = -1;
-    float intensity = 1.2f;
+    float intensity = 1.5f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
     float skin_structure = 0.4f;
@@ -1417,7 +1417,7 @@ void ReadUniformLayers(ChainConfig& next) {
         const auto integer=[&](const wchar_t* suffix,int fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return GetPrivateProfileIntW(L"NRBeforeSR",key,fallback,g_ini_path);};
         const auto number=[&](const wchar_t* suffix,float fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return ReadIniFloat(key,fallback);};
         layer.enabled=integer(L"Enabled",0)!=0;layer.initialized=integer(L"Configured",0)!=0;
-        layer.intensity=number(L"Intensity",1.2f);layer.local_tone=number(L"LocalToneStrength",1.f);
+        layer.intensity=number(L"Intensity",1.5f);layer.local_tone=number(L"LocalToneStrength",1.f);
         layer.local_structure=number(L"LocalStructureStrength",1.f);layer.skin_structure=number(L"SkinStructureStrength",.4f);
         layer.auto_mask=integer(L"AutoMask",1)!=0;layer.style=integer(L"Style",0);layer.ui_correction=integer(L"UICorrection",1)!=0;
     }
@@ -1560,8 +1560,8 @@ void NormalizeConfig(ChainConfig &config) {
     config.post_transfer_strength = config.transfer_strength;
     // Work request validity is checked against the previous effective pair at
     // each locked entry point; never silently normalize a rejected percentage.
-    config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.20f), 0.0f, 1.0f);
-    config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.25f), 0.0f, 1.0f);
+    config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.0f), 0.0f, 1.0f);
+    config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.0f), 0.0f, 1.0f);
     config.detail_stability = std::isfinite(config.detail_stability)
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
@@ -1579,13 +1579,13 @@ void NormalizeConfig(ChainConfig &config) {
     if(config.face_protection_version!=1){config.face_protection=false;config.face_preview=0;}
     config.face_original_luma=std::clamp(FiniteOr(config.face_original_luma,0.f),0.f,1.f);
     config.face_original_color=std::clamp(FiniteOr(config.face_original_color,0.f),0.f,1.f);
-    config.face_preview=std::min(config.face_preview,1u);
+    config.face_preview=config.face_protection?std::min(config.face_preview,1u):0u;
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
     config.depth_mode = std::clamp(config.depth_mode, -1, 1);
     config.intensity = std::clamp(
-        FiniteOr(config.intensity, 1.2f), 0.0f, 2.0f);
+        FiniteOr(config.intensity, 1.5f), 0.0f, 2.0f);
     config.local_tone = std::clamp(
         FiniteOr(config.local_tone, 1.0f), 0.0f, 2.0f);
     config.local_structure = std::clamp(
@@ -1759,8 +1759,8 @@ void ReloadConfig(bool force = false) {
             work_request.status == nr_work_config::Status::Disable);
     }
     g_work_config_loaded = true;
-    next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
-    next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
+    next.lighting_lock = ReadIniFloat(L"LightingLock", 0.0f);
+    next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.0f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
@@ -1818,7 +1818,7 @@ void ReloadConfig(bool force = false) {
     next.light_reflection = ReadIniFloat(L"LightReflection", 1.f);
     next.light_structure = ReadIniFloat(L"LightStructure", 1.f);
     next.light_glow = ReadIniFloat(L"LightGlow", 0.f);
-    next.light_control_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"LightControlMode", 0, g_ini_path);
+    next.light_control_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"LightControlMode", 1, g_ini_path);
     next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 0, g_ini_path);
     next.light_preset = GetPrivateProfileIntW(L"NRBeforeSR", L"LightPreset", 0, g_ini_path);
     next.light_preview = g_config.light_preview;
@@ -1847,7 +1847,7 @@ void ReloadConfig(bool force = false) {
     next.retry_original_on_sr_failure = GetPrivateProfileIntW(
         L"NRBeforeSR", L"RetryOriginalOnSRFailure", 1, g_ini_path) != 0;
     next.depth_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"DepthMode", -1, g_ini_path);
-    next.intensity = ReadIniFloat(L"Intensity", 1.2f);
+    next.intensity = ReadIniFloat(L"Intensity", 1.5f);
     next.local_tone = ReadIniFloat(L"LocalToneStrength", 1.0f);
     next.local_structure = ReadIniFloat(L"LocalStructureStrength", 1.0f);
     next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);
@@ -5122,7 +5122,7 @@ bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) 
 }
 
 struct NrTuningSignature {
-    float intensity = 1.2f;
+    float intensity = 1.5f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
     float skin_structure = -1.0f;
@@ -9156,7 +9156,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         light_style_active ? g_config.light_structure : 1.0f,
         light_style_active ? g_config.light_glow : 0.0f,
         light_style_active ? g_config.light_preview : 0u,
-        any_combine && slot.face_mask && (g_config.face_protection || g_config.face_preview)
+        any_combine && slot.face_mask && g_config.face_protection
             ? 1u | (g_config.face_protection && g_config.face_extra_cap?2u:0u) | (g_config.face_preview?4u:0u) : 0u,
         g_config.face_protection?g_config.face_original_luma:0.f,
         g_config.face_protection?g_config.face_original_color:0.f};
@@ -14461,7 +14461,7 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
     const int written = std::snprintf(postfix, capacity,
         "DLSS5_%.16s_%s_%s_REQ-G%u_I%.2f_S%u_B%.2f_C%.2f_HP%d",
         kBuildIdentity, mode, state, requested_generation,
-        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.2f),
+        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.5f),
                                       0.0f, 2.0f)),
         std::min(config.style, 2u),
         static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f)),
@@ -15013,7 +15013,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
                "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
             live_rr_handles);
     }
-    if (ImGui::CollapsingHeader(ui("Per-evaluation details", "单次评估细节"))) {
+    ImGui::SeparatorText(ui("Per-evaluation details", "单次评估细节"));
+    {
     ImGui::BeginChild("nr-evaluation-detail",ImVec2(0,ImGui::GetTextLineHeightWithSpacing()*4.25f),true);
     if (generic_renodx_conflict) {
         ImGui::TextWrapped("%s", ui(

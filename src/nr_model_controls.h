@@ -3,7 +3,7 @@
 // An isolated model-control comparison. No composition, route or raster fields.
 namespace nr_model_controls {
 struct Snapshot {
-    float intensity = 1.2f, local_tone = 1.f, local_structure = 1.f;
+    float intensity = 1.5f, local_tone = 1.f, local_structure = 1.f;
     float skin_structure = .4f;
     bool auto_mask = true;
     unsigned style = 0;

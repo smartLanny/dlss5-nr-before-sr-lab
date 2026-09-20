@@ -10,15 +10,15 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.post_transfer_strength = 1.0f;
     next.work_mode = 0;
     next.custom_work_scale = 1.0f;
-    next.lighting_lock = 0.20f;
-    next.edge_guard = 0.25f;
+    next.lighting_lock = 0.0f;
+    next.edge_guard = 0.0f;
     next.detail_stability = 0.0f;
     next.high_strength_protection = true;
     next.color_protection = true;
     next.layered_enhancement = false;
     next.independent_chroma_composition = false;
-    // The second inference stays opt-in, but its first requested precision is
-    // 50%.  Existing saved legal ratios are preserved by the config loader.
+    // Legacy auxiliary ratios are archived only; active layers share one scale.
+    // A reset disables auxiliary layers without introducing per-layer scaling.
     next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=2;
     next.nr_layers={};next.nr_uniform_migrated=false;
     next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
@@ -47,7 +47,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.experimental_peak_shoulder = false;
     next.warmup_after_create = 2;
     next.retry_original_on_sr_failure = true;
-    next.intensity = 1.2f;
+    next.intensity = 1.5f;
     next.local_tone = 1.0f;
     next.local_structure = 1.0f;
     next.skin_structure = 0.4f;

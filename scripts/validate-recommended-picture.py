@@ -50,8 +50,8 @@ UI_RESET_FIELDS={'processing_start','processing_selection','compat_percent','nr_
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
 # current model recommendation and the protection gate enabled.
 RECOMMENDED_OVERRIDES={
- 'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
- 'color_protection':'1', 'lighting_lock':'0.2', 'light_control_mode':'1', 'jitter_mode':'0',
+ 'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.5',
+ 'color_protection':'1', 'lighting_lock':'0', 'edge_guard':'0', 'light_control_mode':'1', 'jitter_mode':'0',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 

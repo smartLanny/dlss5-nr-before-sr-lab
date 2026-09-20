@@ -7,9 +7,10 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-unified2'
+VERSION = 'beta0.5-dline21-unified3'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
-          'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl')
+          'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl',
+          'src/nr_unified_settings.inl', 'src/nr_unified_pages.inl')
 
 
 def patch_runtime(text: str, shader: str, helpers) -> str:
@@ -155,11 +156,17 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
         'src/nr_settings_ui.inl':lambda s:helpers.once(s, '    DrawColorControls(next, has_pending, changed);', '    DrawColorControls(next, has_pending, changed);\n    DrawColourLabControls(next, current.generation, has_pending, changed, apply_discrete_edit);', 'common colour recipe'),
         'src/nr_color_policy.inl':policy,'src/nr_feedback_picture.inl':feedback}
     updates={p:f((stage/'core'/p).read_text(encoding='utf-8')) for p,f in transforms.items()}
+    # Historic route/colour adapters operate on their reviewed anchor layout.
+    # Publish exactly one final DrawSettings with the successor's flat pages;
+    # retain the shared transaction, activity and capture helpers above it.
+    ui_path='src/nr_settings_ui.inl'
+    first,last=helpers.definition(updates[ui_path],'void DrawSettings(')
+    updates[ui_path]=updates[ui_path][:first]+'#include "nr_unified_settings.inl"\n'+updates[ui_path][last:]
     # Freeze the same identity in the overlay, PE resources and payload names.
     # Intermediate overlays intentionally retain their historical identities.
     for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
         text=(stage/'core'/path).read_text(encoding='utf-8-sig')
         if 'dline21-uniform3' not in text: raise ValueError('Unexpected staged identity: '+path)
-        updates[path]=text.replace('dline21-uniform3','dline21-unified2')
+        updates[path]=text.replace('dline21-uniform3','dline21-unified3')
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])

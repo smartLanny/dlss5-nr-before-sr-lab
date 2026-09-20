@@ -95,11 +95,11 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_face_diagnostic_is_separate_and_uses_validated_runtime_geometry(self):
         panel = (ROOT / "src" / "nr_face_diagnostic_ui.inl").read_text(encoding="utf-8")
-        self.assertIn('"人脸自动对照诊断###nr-face-diagnostic"', panel)
-        self.assertIn('"Automatic face comparison###nr-face-diagnostic"', panel)
+        self.assertIn('"人脸参数对照"', panel)
+        self.assertIn('"Face parameter comparison"', panel)
         self.assertIn('"开始自动对照###nr-face-start"', panel)
         self.assertIn('"取消并恢复设置###nr-face-cancel"', panel)
-        self.assertIn('ImGui::CollapsingHeader(', panel)
+        self.assertNotIn('ImGui::CollapsingHeader(', panel)
         self.assertIn('if (!view.enabled || !viewport.valid) ImGui::BeginDisabled();', panel)
         self.assertIn('if (view.blocked) ImGui::BeginDisabled();', panel)
         self.assertIn('nr_face_diagnostic::ResolveRoi(g.source_width, g.source_height, center_x, center_y)', panel)
@@ -159,7 +159,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('static_cast<nr_layers::Model&>(next.nr_layers[i-1])=model', self.layers)
         self.assertIn('else nr_layers::WritePrimary(next,model);', self.layers)
         self.assertNotIn('Both AI passes use these model face parameters', self.ui)
-        self.assertIn('仅恢复本层模型参数；不改变层数、工作分辨率和最终合成。', self.layers)
+        self.assertIn('不改层数、工作尺寸及最终效果。', self.layers)
         reset = (ROOT / 'src' / 'nr_model_controls.h').read_text(encoding='utf-8')
         self.assertNotIn('transfer_strength', reset)
 
@@ -193,10 +193,10 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_game_render_query_stays_experimental_and_rr_safe(self):
         self.assertIn("IsRayReconstructionRouteObserved()", self.render)
-        self.assertIn('SliderInt("##game-render-scale", &edit, 50, 100', self.render)
+        self.assertIn('SliderInt("##game-render-scale",&edit,50,100', self.render)
         self.assertIn("Request on next engine query", self.render)
-        self.assertIn("Game-owned on next query", self.render)
-        self.assertIn("only on a later engine query", self.render)
+        self.assertIn("Return resolution control to game", self.render)
+        self.assertIn("only a later engine optimal-settings query", self.render)
         self.assertNotIn("IsD3d11PresentRuntime", self.render)
 
     def test_post_route_enables_only_original_lighting_protection(self):
@@ -214,9 +214,9 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("not guaranteed face detection", self.ui)
 
     def test_uniform_common_controls_keep_route_scale_layer_composition_order(self):
-        self.assertIn('zh?"先增强，后放大":"Enhance first"', self.ui)
-        self.assertIn('zh?"先放大，后增强":"Upscale first"', self.ui)
-        self.assertIn('zh?"兼容模式":"Compatibility"', self.ui)
+        self.assertIn('zh?"先增强后放大":"Enhance first"', self.ui)
+        self.assertIn('zh?"先放大后增强":"Upscale first"', self.ui)
+        self.assertIn('zh?"自动兼容":"Compatibility"', self.ui)
         picture_start = self.ui.index('if (ImGui::BeginTabItem(ui("Picture###nr-picture"')
         experiment_start = self.ui.index('if (ImGui::BeginTabItem(ui("Experiments###nr-experiments"')
         picture = self.ui[picture_start:experiment_start]
@@ -235,8 +235,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn('DrawEnergyGateControls(', picture)
         self.assertNotIn('"##nr-model-strength"', picture)
         self.assertNotIn('dual_work_scale', self.layers)
-        self.assertIn('for(unsigned i=0;i<nr_layers::Count;++i)', self.layers)
-        self.assertIn('if(!layer.enabled){ImGui::PopID();break;}', self.layers)
+        self.assertIn('for(unsigned i=0;i<count;++i)', self.layers)
+        self.assertIn('const auto count=nr_layers::Active(next.nr_layers);', self.layers)
         self.assertIn('"Default","Natural","Cinematic"', self.layers)
         self.assertNotIn('ImGui::Combo', self.layers)
         self.assertNotIn('"Layer fine controls"', self.layers)

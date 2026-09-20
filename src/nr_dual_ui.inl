@@ -62,10 +62,6 @@ void DrawDetailsUi(bool requested=true, bool has_pending=false) {
             count,time_median[5].load(),time_p95[5].load(),time_median[2].load());
         SettingsNote(zh?"这里只计 NR 与 SR 链路，不代表游戏整帧耗时；切换后的暖机不纳入稳定窗口。":"This measures the NR/SR chain, not the whole game frame; switch warmup is excluded.");
     }
-    if(ImGui::Button(zh?"采集双次 NR 对照（F7）":"Capture dual NR comparison (F7)"))RequestStageCapture();
-    SettingsTooltip(zh
-        ?"F7 在双次 NR 生效时保存同一帧的 P1、L1、L2、第二层导引和最终合成；它是观察帧，不是完整历史重放。"
-        :"When both passes are active, F7 saves P1, L1, L2, bound NR2 guides and final composition from one observed frame; it is not a complete history replay.");
     ImGui::TextWrapped(zh?"双次采集状态：%u（0未开始 / 1等待 / 2已导出 / 3失败）":"Dual capture status: %u (0 idle / 1 pending / 2 exported / 3 failed)",nr_dual_capture::status.load());
     if(value==Status::UnsupportedGuides||value==Status::ResourceBudget||value==Status::Failed||
        value==Status::DeviceIdentity||value==Status::PipelineUnavailable||value==Status::ResourceContract)

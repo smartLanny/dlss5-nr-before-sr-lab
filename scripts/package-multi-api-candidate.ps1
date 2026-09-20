@@ -26,7 +26,7 @@ foreach ($Key in @('colour_lab', 'colour_edge')) {
     }
 }
 $Version = [string]$Product.version
-$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2')
+$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {

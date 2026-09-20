@@ -98,9 +98,14 @@ void check(bool value,const char* message){if(!value){std::fprintf(stderr,"FAIL:
 def run(legacy_ref=None, require_fixed=False):
     source = (subprocess.check_output(['git', '-C', str(ROOT), 'show',
               legacy_ref + ':src/nr_settings_ui.inl']).decode('utf-8') if legacy_ref else
-              (ROOT / 'src/nr_settings_ui.inl').read_text(encoding='utf-8'))
-    start = source.index('    // BEGIN WORKING SCALE REQUEST') if '// BEGIN WORKING SCALE REQUEST' in source else source.index('    const bool compatibility_mode=!nr_processing_runtime::FgRedirectRequested()')
-    block = source[start:source.index('    DrawUniformLayerControls(', start)]
+              (ROOT / 'src/nr_unified_settings.inl').read_text(encoding='utf-8'))
+    if legacy_ref:
+        start = source.index('    // BEGIN WORKING SCALE REQUEST') if '// BEGIN WORKING SCALE REQUEST' in source else source.index('    const bool compatibility_mode=!nr_processing_runtime::FgRedirectRequested()')
+        block = source[start:source.index('    DrawUniformLayerControls(', start)]
+    else:
+        start=source.index('#if NR_HAS_DETAIL_STABILITY')
+        block=source[start:source.index('            DrawUniformLayerCount(',start)]
+        block+='\nconst bool before_sr=nr_processing_runtime::Effective()==nr_processing::Start::Before;\n'
     footer = source[source.rindex('    if (changed) {'):]
     footer = definition(footer, '    if (changed) {') + '\n' + definition(footer, '    if (has_pending &&')
     frame = r'''

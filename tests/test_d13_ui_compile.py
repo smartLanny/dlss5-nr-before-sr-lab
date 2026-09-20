@@ -44,7 +44,7 @@ PRELUDE = r'''
 #include "nr_compat_present_policy.hpp"
 struct ImVec2 { float x, y; ImVec2(float a=0, float b=0) : x(a), y(b) {} };
 struct ImVec4 { float x=0,y=0,z=0,w=1; };
-enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen, ImGuiHoveredFlags_AllowWhenBlockedByActiveItem, ImGuiMouseButton_Left };
+enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen, ImGuiHoveredFlags_AllowWhenBlockedByActiveItem, ImGuiMouseButton_Left, ImGuiTableFlags_SizingStretchProp, ImGuiTableColumnFlags_WidthFixed, ImGuiTableColumnFlags_WidthStretch };
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 
@@ -67,12 +67,17 @@ std::string slider_key;float slider_value=0;bool active_item=false;
 unsigned disabled=0;
 namespace ImGui {
 void SeparatorText(const char*) {}
+bool BeginTable(const char*,int,int){return true;}
+void EndTable(){}
+void TableSetupColumn(const char*,int,float=0){}
+void TableNextRow(){}
+void TableSetColumnIndex(int){}
 bool Checkbox(const char* label, bool* value) {
     checkboxes.emplace_back(label);
     if(disabled || click.empty() || std::strstr(label,click.c_str())==nullptr)return false;
     *value=!*value;return true;
 }
-bool SliderFloat(const char*, float*, float, float, const char*) { return false; }
+bool SliderFloat(const char* id, float* value, float, float, const char*) { if(disabled||current_layer!=slider_layer||slider_key!=id)return false;*value=slider_value;slider_layer=-1;return true; }
 bool Button(const char* label,ImVec2 = {}) { last_button=label; buttons.emplace_back(label); return !disabled && (button_layer<0||current_layer==button_layer) && !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
 void BeginDisabled(bool value=true) { if(value)++disabled; }
 void EndDisabled() { if(disabled)--disabled; }
@@ -153,7 +158,8 @@ class D13UiCompile(unittest.TestCase):
         core=(ROOT / 'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
         layers=(ROOT / 'src/nr_layers_ui.inl').read_text(encoding='utf-8')
         config=definition(core,'struct ChainConfig')+';'
-        footer=settings[settings.rindex('    if (changed) {'):]
+        final=(ROOT/'src/nr_unified_settings.inl').read_text(encoding='utf-8')
+        footer=final[final.rindex('    if (changed) {'):]
         apply_blocks=definition(footer,'    if (changed) {')+'\n'+definition(footer,'    if (has_pending &&')
         release_harness=r'''
 enum class OverlayApplyResult {Applied,Busy,Conflict};
@@ -173,28 +179,25 @@ int main() {
     ChainConfig c; c.nr_passes=2; c.nr_second_numerator=2; c.nr_second_denominator=3;
     show_more=true; click.clear();
     bool changed=false, discrete=false;
-    nr_dual_runtime::DrawQuickUi(c, changed, discrete);
+    DrawUniformLayerControls(c, changed, discrete);
     if (c.nr_second_numerator!=2 || c.nr_second_denominator!=3 || changed || discrete) return 1;
     if (std::find(buttons.begin(),buttons.end(),"50%###dual-scale-50")!=buttons.end() ||
         std::find(buttons.begin(),buttons.end(),"75%###dual-scale-75")!=buttons.end() ||
         std::find(buttons.begin(),buttons.end(),"100%###dual-scale-100")!=buttons.end()) return 2;
     const auto primary=nr_layers::Primary(c);
     for(unsigned pass=2;pass<=5;++pass){
-        click="Enable layer "+std::to_string(pass);changed=discrete=false;
-        nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        click=std::to_string(pass);changed=discrete=false;
+        DrawUniformLayerCount(c,changed,discrete);
         if(nr_layers::Active(c.nr_layers)!=pass||!changed||!discrete)return 3;
     }
     if(nr_layers::Primary(c)!=primary)return 4;
     c.nr_layers[2].intensity=.37f;c.nr_layers[2].style=2;
-    click="Enable layer 2";changed=discrete=false;
-    nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+    click="1";changed=discrete=false;DrawUniformLayerCount(c,changed,discrete);
     if(nr_layers::Active(c.nr_layers)!=1||c.nr_layers[2].intensity!=.37f||c.nr_layers[2].style!=2)return 5;
-    checkboxes.clear();click.clear();nr_dual_runtime::DrawQuickUi(c,changed,discrete);
-    if(std::find(checkboxes.begin(),checkboxes.end(),"Enable layer 3")!=checkboxes.end())return 6;
-    click="Enable layer 2";nr_dual_runtime::DrawQuickUi(c,changed,discrete);click.clear();
+    click="5";DrawUniformLayerCount(c,changed,discrete);click.clear();
     if(nr_layers::Active(c.nr_layers)!=5||c.nr_layers[2].intensity!=.37f)return 7;
     slider_layer=3;slider_key="##intensity";slider_value=.82f;active_item=true;
-    changed=discrete=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+    changed=discrete=false;DrawUniformLayerControls(c,changed,discrete);
     if(!changed||discrete||c.nr_layers[2].intensity!=.82f||nr_layers::Primary(c)!=primary)return 8;
     ApplyUiEdits(c,changed,discrete);
     if(!has_pending||apply_calls)return 9;
@@ -208,19 +211,19 @@ int main() {
     if(has_pending||!edit_conflict||apply_calls!=4)return 18;
     click.clear();
     const auto before_reset=c;click="Reset this layer";button_layer=3;changed=discrete=false;
-    nr_dual_runtime::DrawQuickUi(c,changed,discrete);button_layer=-1;click.clear();
+    DrawUniformLayerControls(c,changed,discrete);button_layer=-1;click.clear();
     if(!changed||!discrete||nr_layers::Read(c,3)!=nr_layers::Model{}||
        nr_layers::Primary(c)!=primary||c.nr_layers[0]!=before_reset.nr_layers[0]||
        c.nr_layers[1]!=before_reset.nr_layers[1]||c.nr_layers[3]!=before_reset.nr_layers[3]||
        nr_layers::Active(c.nr_layers)!=5||c.nr_second_numerator!=2||c.nr_second_denominator!=3)return 21;
     for(unsigned layer=0;layer<5;++layer){
         click="Natural";button_layer=layer;changed=discrete=false;
-        nr_dual_runtime::DrawQuickUi(c,changed,discrete);click.clear();
+        DrawUniformLayerControls(c,changed,discrete);click.clear();
         if(nr_layers::Read(c,layer).style!=1||!changed||!discrete)return 30;
         activate="Natural";hover="Cinematic";mouse_down=true;changed=discrete=false;
-        nr_dual_runtime::DrawQuickUi(c,changed,discrete);activate.clear();
+        DrawUniformLayerControls(c,changed,discrete);activate.clear();
         if(nr_layers::Read(c,layer).style!=1||changed||discrete)return 31;
-        mouse_down=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        mouse_down=false;DrawUniformLayerControls(c,changed,discrete);
         if(nr_layers::Read(c,layer).style!=2||!changed||!discrete)return 32;
         hover.clear();
     }
@@ -246,14 +249,14 @@ int main() {
     for(bool zh:{false,true}) {
         chinese=zh;c.nr_layers={};
         for(unsigned pass=2;pass<=5;++pass){
-            click=zh?"启用第 "+std::to_string(pass)+" 层":"Enable layer "+std::to_string(pass);
-            changed=discrete=false;nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+            click=std::to_string(pass);
+            changed=discrete=false;DrawUniformLayerCount(c,changed,discrete);
             if(nr_layers::Active(c.nr_layers)!=pass||!changed||!discrete)return 19;
         }
-        checkboxes.clear();click.clear();nr_dual_runtime::DrawQuickUi(c,changed,discrete);
+        checkboxes.clear();click.clear();DrawUniformLayerControls(c,changed,discrete);
         if(std::find(checkboxes.begin(),checkboxes.end(),zh?"启用第 6 层":"Enable layer 6")!=checkboxes.end())return 20;
         const char* labelsEn[]={"Enhance first","Upscale first","Compatibility"};
-        const char* labelsZh[]={"先增强，后放大","先放大，后增强","兼容模式"};
+        const char* labelsZh[]={"先增强后放大","先放大后增强","自动兼容"};
         for(unsigned route=0;route<3;++route){
             const auto previous=c.processing_selection;const int oldmode=c.mode;
             click=zh?labelsZh[route]:labelsEn[route];buttons.clear();
@@ -276,7 +279,7 @@ int main() {
         if(rendered.find(zh?"占位深度和运动":"placeholder depth and motion")!=std::string::npos)return 22;
     }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
-    std::puts("D21 UI adapters: nested layers 2-5, retained values, local reset and release-to-apply compiled");
+    std::puts("D21 UI adapters: single count 1-5, retained values, local reset and release-to-apply compiled");
     return 0;
 }
 '''

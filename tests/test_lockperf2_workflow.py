@@ -30,7 +30,7 @@ class Lockperf2Workflow(unittest.TestCase):
         windows = read('.github/workflows/compat-post-dev2.yml')
         self.assertIn('-File scripts/build-unified-candidate.ps1', windows)
         self.assertNotIn('-File scripts/build-lockperf2-candidate.ps1', windows)
-        self.assertIn('-FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -OutputRoot build/unified2', windows)
+        self.assertIn('-FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -OutputRoot build/unified3', windows)
         self.assertIn('-QualitySuccessor', read('scripts/build-unified-candidate.ps1'))
 
     def test_full_face_assets_and_gate_are_bound_before_packaging(self):
@@ -44,7 +44,7 @@ class Lockperf2Workflow(unittest.TestCase):
         self.assertIn('-FaceModelPath face-model/yunet-dynamic.onnx', text)
         self.assertLess(text.index('-File scripts/validate-face-runtime.ps1'), text.index('-File scripts/package-multi-api-candidate.ps1'))
         self.assertIn('-FaceModel face-model/yunet-dynamic.onnx -FaceModelLicense face-model/YUNET-LICENSE', text)
-        for artifact in ('build/candidate-unified2/*.zip', 'UNIFIED2-CANDIDATE.json', 'unified2.face-checks/validation.json', 'source/core/build/face-backend.json'):
+        for artifact in ('build/candidate-unified3/*.zip', 'UNIFIED2-CANDIDATE.json', 'unified3.face-checks/validation.json', 'source/core/build/face-backend.json'):
             self.assertIn(artifact, text)
 
     def test_frozen_git_source_is_available_and_head_is_consistent(self):

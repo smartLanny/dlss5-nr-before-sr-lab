@@ -10,7 +10,7 @@ import subprocess
 import sys
 ROOT=Path(__file__).resolve().parents[1]
 BASE='843d1e1c7f61e563b8913242b8756542af169a80'
-EXTRA=('scripts/prepare-colour4-edge.py','scripts/build-colour4-edge.ps1',
+EXTRA=('tests/test_unified_ui.py','scripts/prepare-colour4-edge.py','scripts/build-colour4-edge.ps1',
        'tests/test_colour_edge.py','tests/run_colour_edge_math.py','tests/colour_edge_math.cpp', 'tests/test_quality_panel.py', 'tests/quality_recipe_test.cpp', 'tests/run_quality_recipe.py')
 
 def load(name,path):
@@ -53,6 +53,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         check('test_colour_stage.py',stage)
         edge_patch.apply(stage,inputs,m3)
         check('test_colour_edge.py',stage)
+        check('test_unified_ui.py',stage)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
@@ -66,8 +67,9 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'v2_capture_proxy_neural_use_effective_edge_weights':True,
             'capture_detail_decision_plane':'legacy filter, not edge or early raw consumer',
             'extra_nr_invocations':0,'extra_gpu_passes':0,'default_model_input_changed':False,
-            'ui_recipes':['colour-baseline', 'n2-shadow-comparison'],
-            'saved_custom_settings_preserved':True, 'diagnostics_collapsed':True,
+            'ui_pages':['picture','lighting','experiments','developer','feedback'],
+            'model_default_strength':1.5, 'skin_default':0.4, 'light_edge_protection_defaults':[0,0],
+            'saved_custom_settings_preserved':True, 'diagnostics_collapsed':False,
             'n2_legacy_combination_game_verified':False,
             'runtime_verified':False,
             'overlay_sha256':{p:hashlib.sha256(data).hexdigest() for p,data in inputs.items()}}
@@ -87,4 +89,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated quality1 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified3 source only; Windows/GPU/game verification is separate.')

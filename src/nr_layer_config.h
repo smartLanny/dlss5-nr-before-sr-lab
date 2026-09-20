@@ -8,7 +8,7 @@
 namespace nr_layers {
 constexpr unsigned Count = 5;
 struct Model {
-    float intensity=1.2f, local_tone=1.f, local_structure=1.f;
+    float intensity=1.5f, local_tone=1.f, local_structure=1.f;
     float skin_structure=.4f;
     bool auto_mask=true;
     unsigned style=0;
@@ -30,7 +30,7 @@ template<class C> void WritePrimary(C& c,const Model& m) {
 }
 inline void Normalize(Model& m) {
     const auto bound=[](float v,float fallback,float low,float high){return std::clamp(std::isfinite(v)?v:fallback,low,high);};
-    m.intensity=bound(m.intensity,1.2f,0.f,2.f);
+    m.intensity=bound(m.intensity,1.5f,0.f,2.f);
     m.local_tone=bound(m.local_tone,1.f,0.f,2.f);
     m.local_structure=bound(m.local_structure,1.f,0.f,2.f);
     const float low=m.auto_mask?0.f:-1.f;

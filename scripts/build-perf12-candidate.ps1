@@ -13,7 +13,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
-$LeafVersion = if ($QualitySuccessor) { 'unified2' } else { 'perf12' }
+$LeafVersion = if ($QualitySuccessor) { 'unified3' } else { 'perf12' }
 $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
@@ -82,6 +82,8 @@ if ($QualitySuccessor) {
     if ($LASTEXITCODE) { throw 'Layer UI transaction checks failed.' }
     & python (Join-Path $Root 'tests/test_working_scale_ui.py')
     if ($LASTEXITCODE) { throw 'Selected working-scale UI transaction checks failed.' }
+    & python (Join-Path $Root 'tests/test_unified_ui.py') -v
+    if ($LASTEXITCODE) { throw 'Final flat UI contract checks failed.' }
     & python (Join-Path $Root 'tests/test_quality_panel.py') -v
     if ($LASTEXITCODE) { throw 'Quality policy and UI checks failed.' }
     foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py','run_quality_recipe.py')) {

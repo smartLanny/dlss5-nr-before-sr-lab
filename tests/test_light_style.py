@@ -39,6 +39,7 @@ HARNESS=r'''
 #include "nr_layer_config.h"
 #include "nr_fg_presentation.h"
 #include "nr_model_controls.h"
+#include "nr_unified_ui_policy.h"
 #include "nr_work_config.h"
 #include "nr_config_policy.h"
 #include "nr_f8_types.h"
@@ -159,7 +160,7 @@ int wmain(int argc,wchar_t **argv) {
             "model baseline publishes once without changing raster history");
         check(!SameNrTuningSignature(before_tuning,CurrentNrTuningSignature()),
             "model baseline reaches the existing NR recreation signature");
-        check(g_config.intensity==1.2f&&g_config.local_tone==1.f&&g_config.local_structure==1.f&&
+        check(g_config.intensity==1.5f&&g_config.local_tone==1.f&&g_config.local_structure==1.f&&
             g_config.auto_mask&&g_config.skin_structure==.4f&&g_config.style==0&&g_config.ui_correction,
             "independent seven-field model baseline");
         auto unrelated=g_config;
@@ -168,7 +169,7 @@ int wmain(int argc,wchar_t **argv) {
         check(SameConfig(unrelated,before),"model baseline preserves every other configuration field");
         check(nr_light_style::SameSnapshot(nr_light_style::Read(g_config),nr_light_style::Read(before))&&
             g_config.light_preview==2,"model baseline preserves D coefficients, mode, colour and preview");
-        check(ReadIniFloat(L"Intensity",-1.f)==1.2f&&ReadIniFloat(L"LocalToneStrength",-1.f)==1.f&&
+        check(ReadIniFloat(L"Intensity",-1.f)==1.5f&&ReadIniFloat(L"LocalToneStrength",-1.f)==1.f&&
             ReadIniFloat(L"LocalStructureStrength",-1.f)==1.f&&ReadIniFloat(L"SkinStructureStrength",-1.f)==.4f&&
             GetPrivateProfileIntW(L"NRBeforeSR",L"AutoMask",0,g_ini_path)==1&&
             GetPrivateProfileIntW(L"NRBeforeSR",L"Style",99,g_ini_path)==0&&
@@ -236,7 +237,7 @@ int wmain(int argc,wchar_t **argv) {
         const auto value=nr_light_style::Read(g_config);
         check(value.preset==preset && value.version==1 && value.preset_color==value.color,"resolved preset metadata");
         check(value.control_mode==light_mode,"all presets preserve the selected light control mode");
-        check(value.color==(preset==1?.8f:.37f),"only Natural changes existing colour");
+        check(value.color==.37f,"all lighting presets preserve AI colour");
         if(preset==1)check(value.broad==1.f&&value.dark==.85f&&value.reflection==1.1f&&value.structure==1.05f&&value.glow==.3f,"Natural independent coefficients");
         else check(value.broad==1.f&&value.dark==1.f&&value.reflection==1.f&&value.structure==1.f&&value.glow==(preset==2?.7f:0.f),"neutral or less-glow coefficients");
         check(nr_light_style::SameSnapshot(value,nr_light_style::Read(LoadGroup())),"real INI restart preserves snapshot");
@@ -278,7 +279,7 @@ int wmain(int argc,wchar_t **argv) {
     g_config.light_preview=2;check(LoadGroup().light_preview==2,"INI polling preserves process preview");
     g_config={};check(LoadGroup().light_preview==0,"new process starts outside preview");
     next=LoadGroup();next.color_strength=.53f;NormalizeConfig(next);
-    check(next.light_preset==nr_light_style::Custom,"external colour edit marks Custom");
+    check(next.light_preset==1,"external colour edit preserves lighting preset");
     nr_light_style::Write(next,nr_light_style::Select(0,next.color_strength,next.light_control_mode));
     next.light_broad=.5f;nr_light_style::MarkCustom(next);next.light_broad=1.f;NormalizeConfig(next);
     check(next.light_preset==nr_light_style::Custom,"manual edits stay Custom even when returned to preset values");
@@ -291,10 +292,10 @@ int wmain(int argc,wchar_t **argv) {
     DeleteFileW(g_ini_path);WritePrivateProfileStringW(L"NRBeforeSR",L"ColorStrength",L"0.37",g_ini_path);
     g_config={};const auto old=LoadGroup();
     check(!nr_light_style::Active(old)&&old.color_strength==.37f&&old.light_preset==0&&old.light_preset_color==.37f,"old INI gets neutral group with existing colour");
-    check(old.light_control_mode==0,"old INI missing LightControlMode preserves detail layers");
+    check(old.light_control_mode==1,"missing scope uses new whole-light default");
     for(const wchar_t *invalid:{L"99",L"-1"}) {
         WritePrivateProfileStringW(L"NRBeforeSR",L"LightControlMode",invalid,g_ini_path);
-        check(LoadGroup().light_control_mode==0,"unknown control modes retain legacy semantics");
+        check(LoadGroup().light_control_mode==1,"invalid scope uses new whole-light default");
     }
     WritePrivateProfileStringW(L"NRBeforeSR",L"LightControlMode",L"1",g_ini_path);
     check(LoadGroup().light_control_mode==1,"explicit whole light/dark preference loads without migration");
@@ -339,7 +340,7 @@ int wmain(int argc,wchar_t **argv) {
         check(LightFlags(config,2)==0,"scope does not expand V2 post route admission");
     }
     {
-        ChainConfig requested,actual;requested.light_control_mode=1;requested.light_glow=.5f;
+        ChainConfig requested,actual;actual.light_control_mode=0;requested.light_control_mode=1;requested.light_glow=.5f;
         NrStageCaptureInfo f8_info;f8_info.light_supported=true;
         const unsigned base_codec_flags=LightFlags(requested,1);
         f8_info.codec_flags=base_codec_flags;
@@ -398,6 +399,46 @@ CAPTURE_MODE_BIND
     layered=g_config;layered.nr_layers[0].enabled=true;
     check(ApplyConfig(layered,"fixture-restore-layers",true)&&g_config.nr_layers==saved_layers,
         "re-enabling layer two restores all five saved layers");
+
+    {
+        ChainConfig c;
+        check(c.intensity==1.5f&&c.skin_structure==.4f&&c.auto_mask&&c.ui_correction&&
+            c.lighting_lock==0.f&&c.edge_guard==0.f&&!c.face_protection,"new picture defaults");
+        const auto primary=nr_layers::Primary(c);
+        nr_unified_ui::SetLayers(c,5);
+        check(nr_layers::Active(c.nr_layers)==5&&nr_layers::Read(c,4)==primary,"new layers get new defaults");
+        c.nr_layers[3].intensity=.73f;c.nr_layers[3].skin_structure=.81f;
+        nr_unified_ui::SetLayers(c,1);NormalizeConfig(c);nr_unified_ui::SetLayers(c,5);NormalizeConfig(c);
+        check(nr_layers::Active(c.nr_layers)==5&&c.nr_layers[3].intensity==.73f&&c.nr_layers[3].skin_structure==.81f,"single count retains disabled layers");
+        c.generic_gains[2]=.45f;c.region_gains[3]=1.72f;c.light_reflection=.63f;
+        c.color_strength=.19f;c.lighting_lock=.42f;c.proxy_scale=.75f;
+        for(unsigned method:{1u,2u,0u,2u,1u}) {
+            c.light_preview=2;c.region_preview=4;nr_unified_ui::SetLightMethod(c,method);
+            check(nr_unified_ui::LightMethod(c)==method&&!(c.generic_residual&&c.region_enabled)&&!c.light_preview&&!c.region_preview,"method exclusive, old previews exit");
+            check(c.generic_gains[2]==.45f&&c.region_gains[3]==1.72f&&c.light_reflection==.63f,"mode switch preserves each group's gains");
+        }
+        nr_unified_ui::ResetLightMethod(c);
+        check(c.region_gains[3]==1.f&&c.generic_gains[2]==.45f&&c.light_reflection==.63f&&c.color_strength==.19f&&c.lighting_lock==.42f&&c.proxy_scale==.75f,"region reset stays within current method");
+        nr_unified_ui::SetLightMethod(c,0);c.light_control_mode=0;nr_unified_ui::ResetLightMethod(c);
+        check(c.light_control_mode==1&&c.light_reflection==1.f&&c.generic_gains[2]==.45f&&c.color_strength==.19f,"ordinary reset restores whole-light default and keeps colour");
+        for(float colour:{0.f,.31f,1.f}) for(unsigned preset:{0u,1u,2u}) {
+            c.color_strength=colour;const auto before=nr_light_style::Read(c);
+            nr_light_style::Write(c,nr_light_style::Select(preset,colour,c.light_control_mode));
+            check(c.color_strength==colour,"preset never changes AI colour");
+            nr_light_style::UndoState receipt;receipt.Record(before,42);c.color_strength=.77f;
+            check(receipt.Restore(c,42)&&c.color_strength==.77f,"undo never restores a captured colour value");
+        }
+        c.face_protection=false;c.face_preview=1;NormalizeConfig(c);
+        check(!c.face_preview&&c.auto_mask&&c.ui_correction,"independent face off clears preview without changing native mask");
+        DeleteFileW(g_ini_path);g_config={};auto fresh=LoadGroup();
+        check(fresh.intensity==1.5f&&fresh.lighting_lock==0&&fresh.edge_guard==0&&fresh.skin_structure==.4f,"missing INI fields use defaults");
+        WritePrivateProfileStringW(L"NRBeforeSR",L"Intensity",L"1.2",g_ini_path);
+        WritePrivateProfileStringW(L"NRBeforeSR",L"LightingLock",L"0.2",g_ini_path);
+        WritePrivateProfileStringW(L"NRBeforeSR",L"EdgeGuard",L"0.25",g_ini_path);
+        WritePrivateProfileStringW(L"NRBeforeSR",L"LightControlMode",L"0",g_ini_path);
+        auto saved=LoadGroup();
+        check(saved.intensity==1.2f&&saved.lighting_lock==.2f&&saved.edge_guard==.25f&&saved.light_control_mode==0,"explicit old INI values survive");
+    }
     DeleteCriticalSection(&g_chain_cs);
     std::printf("Light style: %u checks, %u failures; real helpers/config/Win32 INI, no GPU\n",checks,failures);
     return failures?1:0;
@@ -426,14 +467,14 @@ def main():
     assert apply_settings.count('ApplyLightStyleOverlay(')==1
     layers=(ROOT/'src/nr_layers_ui.inl').read_text(encoding='utf-8')
     assert 'DrawUniformLayerControls(next,changed,apply_discrete_edit);' in ui
-    assert 'for(unsigned i=0;i<nr_layers::Count;++i)' in layers
+    assert 'for(unsigned i=0;i<count;++i)' in layers
     assert 'Reset this layer' in layers and 'if(edited)' in layers
-    assert 'if(!layer.enabled){ImGui::PopID();break;}' in layers
+    assert 'const auto count=nr_layers::Active(next.nr_layers);' in layers
     assert 'nr_layers::WritePrimary(next,model)' in layers
     assert 'next.nr_layers[i-1])=model' in layers
     for forbidden in ('CreateFeature', 'ReleaseNr', 'ApplyPictureReset(', 'SaveConfig(', 'ApplyConfig('):
         assert forbidden not in layers and forbidden not in apply_settings
-    assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' in ui
+    assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' not in ui
     assert 'next.mode=' not in group and 'independent_chroma_composition' not in group
     assert group.index('##nr-light-reflection')<group.index('ImGui::CollapsingHeader')
     assert group.index('##nr-light-broad')>group.index('ImGui::CollapsingHeader')
@@ -472,6 +513,12 @@ def main():
     }
     reload=definition(core,'void ReloadConfig(')
     replacements['LOAD_GROUP']=reload[reload.index('    next.light_broad ='):reload.index('    next.high_strength_protection =')]
+    # Execute the real fallback expressions as well as the light-group loader.
+    for field in ('intensity','skin_structure','auto_mask','ui_correction','lighting_lock','edge_guard'):
+        import re
+        line=re.search(r'    next\.'+field+r'\s*=.*?;',reload,re.S)
+        assert line,field
+        replacements['LOAD_GROUP']+='\n'+line.group(0)
     harness=HARNESS
     for token,value in replacements.items():harness=harness.replace('\n'+token+'\n','\n'+value+'\n')
     with tempfile.TemporaryDirectory(prefix='nr-light-style-') as temporary:

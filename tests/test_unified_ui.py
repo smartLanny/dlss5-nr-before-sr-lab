@@ -1,0 +1,83 @@
+"""Final successor UI contracts, separate from retained historical adapter tests.
+
+Use --generated for a real complete export. CPU interaction and Win32 persistence
+are covered by test_d13_ui_compile, test_working_scale_ui and test_light_style.
+"""
+import argparse
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+GENERATED = None
+
+
+class UnifiedUi(unittest.TestCase):
+    def setUp(self):
+        root = GENERATED or ROOT
+        self.root = root
+        self.settings = (root/'src/nr_unified_settings.inl').read_text(encoding='utf-8')
+        self.pages = (root/'src/nr_unified_pages.inl').read_text(encoding='utf-8')
+        self.layers = (root/'src/nr_layers_ui.inl').read_text(encoding='utf-8')
+        self.maxDiff = 500
+
+    def test_flat_navigation_and_order(self):
+        self.assertEqual(self.settings.count('ImGui::BeginTabBar('), 1)
+        self.assertEqual(self.settings.count('ImGui::BeginTabItem('), 5)
+        for text in (self.settings, self.pages, self.layers):
+            self.assertFalse('CollapsingHeader(' in text)
+        self.assertFalse('BeginTabBar(' in self.pages+self.layers)
+        markers = ['DrawProcessingModeBlocks(', '##nr-processing-precision',
+                   'DrawUniformLayerCount(', '##final-gain', '##final-colour',
+                   'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
+        positions = [self.settings.index(m) for m in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertFalse('next.compat_percent=100;' in self.settings)
+        self.assertTrue('ApplySettingsOverlay(pending,pending_generation,' in self.settings)
+
+    def test_only_active_layers_without_secondary_enable_controls(self):
+        self.assertTrue('const auto count=nr_layers::Active(next.nr_layers);' in self.layers)
+        self.assertTrue('i<count' in self.layers)
+        self.assertFalse('Enable layer' in self.layers)
+        self.assertTrue('BeginTable("layer-fields",2' in self.layers)
+        self.assertTrue('GetFontSize()*25.f' in self.layers)
+        for control in ('##intensity','##structure','##tone','##skin','##native-mask','##ui-correction'):
+            self.assertEqual(self.layers.count('"'+control+'"'),1)
+
+    def test_one_colour_permission_and_feedback_owner(self):
+        self.assertEqual(self.pages.count('&next.allow_unverified_hdr_color'),1)
+        self.assertTrue('nr_colour_lab::LegacyPermissionEditable(mode)' in self.pages)
+        self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
+        self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
+        self.assertEqual(self.pages.count('RequestStageCapture();'),1)
+        picture = self.settings[:self.settings.index('Lighting###')]
+        self.assertFalse('RequestStageCapture(' in picture)
+        for field in ('face_protection','pause_nr_on_fullscreen_ui','guess_pause_nr'):
+            self.assertFalse('next.'+field+'=' in self.settings)
+        self.assertFalse('AMDOF' in self.pages)
+
+    def test_face_disabled_preview_cannot_request_work(self):
+        face = (self.root/'src/nr_face_runtime.inl').read_text(encoding='utf-8')
+        at = face.index('bool Requested(')
+        requested = face[at:face.index('}',at)]
+        self.assertTrue('g_config.face_protection' in requested)
+        self.assertFalse('face_preview' in requested)
+        self.assertTrue('next.face_preview=0' in face)
+
+    def test_final_export_uses_successor_once(self):
+        if GENERATED is None:
+            self.skipTest('real complete export checked by the generator')
+        ui = (GENERATED/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+        self.assertEqual(ui.count('#include "nr_unified_settings.inl"'),1)
+        self.assertFalse('void DrawSettings(' in ui)
+        self.assertEqual(self.settings.count('void DrawSettings('),1)
+        for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
+            self.assertEqual((GENERATED/'src'/name).read_bytes(),(ROOT/'src'/name).read_bytes())
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser()
+    p.add_argument('--repo',type=Path)  # shared final-generator invocation
+    p.add_argument('--generated',type=Path)
+    args,rest = p.parse_known_args()
+    GENERATED = args.generated
+    unittest.main(argv=['test_unified_ui.py']+rest)

@@ -105,9 +105,8 @@ void PickRegion(Selection &s, const View &view, ImDrawList *draw,
 Requests Draw(Selection &s, const View &view, bool zh) {
     Requests requests;
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
-    const bool expanded = ImGui::CollapsingHeader(ui(
-        "Automatic face comparison###nr-face-diagnostic", "人脸自动对照诊断###nr-face-diagnostic"),
-        ImGuiTreeNodeFlags_DefaultOpen);
+    ImGui::SeparatorText(ui("Face parameter comparison", "人脸参数对照"));
+    const bool expanded = true;
     ImDrawList *draw = ImGui::GetForegroundDrawList(nullptr);
     const ImVec2 low = draw->GetClipRectMin(), high = draw->GetClipRectMax();
     const auto viewport = Viewport(view.geometry, low, high);

@@ -42,7 +42,7 @@ float SettingsContentWidth() {
 void SettingsSliderLabel(const char *label) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
-    ImGui::SameLine();
+    if(SettingsContentWidth()>ImGui::GetFontSize()*28.f) ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
 }
 
@@ -154,8 +154,8 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
     bool compatible_post_locked, int effective_mode) {
     (void)rr_guarded; (void)compatible_post_locked; (void)effective_mode;
     const bool zh=UseChineseUi(); bool changed=false;
-    const char* labels[]={zh?"先增强，后放大":"Enhance first",
-        zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
+    const char* labels[]={zh?"先增强后放大":"Enhance first",
+        zh?"先放大后增强":"Upscale first",zh?"自动兼容":"Compatibility"};
     const float width=std::max(1.f,(SettingsContentWidth()-2.f*ImGui::GetStyle().ItemSpacing.x)/3.f);
     const bool stacked=width<ImGui::GetFontSize()*6.f;
     ImGui::PushID("nr-processing-mode");
@@ -180,7 +180,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
     ImGui::PopID();
     nr_processing::Snapshot route_snapshot{};
     const auto actual=nr_processing_runtime::TrySnapshot(route_snapshot)?route_snapshot.current:nr_processing_runtime::Effective();
-    const char* names[]={zh?"先增强，后放大":"Enhance first",zh?"先放大，后增强":"Upscale first",zh?"兼容模式":"Compatibility"};
+    const char* names[]={zh?"先增强后放大":"Enhance first",zh?"先放大后增强":"Upscale first",zh?"自动兼容":"Compatibility"};
     ImGui::TextWrapped(zh?"实际处理位置：%s":"Actual processing position: %s",names[static_cast<unsigned>(actual)]);
     if(nr_processing_runtime::FgRedirectRequested())
         ImGui::TextWrapped("%s",zh?"FG 已接管呈现，当前在原生 SR 后、FG 前尝试增强，沿用后置精度；FG 设置和所选起点保持。":"FG owns presentation. NR uses an available post-SR, pre-FG entry with post-SR precision. FG settings and your selected start are preserved.");
@@ -211,7 +211,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     SettingsTooltip(ui("Controls only NR hue and saturation follow, not brightness, detail or the overall mix. If the model changes only luminance, this may have little effect. Applies after releasing the slider. 0 keeps the game colour. Experimental HDR permission is a separate developer option.",
         "决定画面采用多少 AI 生成的颜色。0 保留游戏原色，1 使用允许范围内的完整 AI 色彩；它不增加细节，也不单独调整明暗。AI 没有明显改变颜色时，对比也会很小。松开滑块后生效。"));
     changed |= color_follow_changed;
-    if (color_follow_changed) nr_light_style::MarkCustom(next);
+    // AI colour is independent of lighting presets and their undo receipt.
     if (color_follow_changed &&
         color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
@@ -556,8 +556,8 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
     }
     else if (activity.Processing()) {
         displayed=Display::Observed;
-        ImGui::TextWrapped("%s", ui("Recent NR processing and output submission observed. Use F6 to compare the picture.",
-            "最近已观察到 NR 处理和画面输出提交。按 F6 对比实际效果。"));
+        ImGui::TextWrapped("%s", ui("Processing: recent NR output submitted.",
+            "处理中：近期已提交 NR 输出。"));
     }
     else if (reason == BypassReason::QueueRetirementTimeout) {
         displayed=Display::QueueTimeout;
