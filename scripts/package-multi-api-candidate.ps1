@@ -212,6 +212,11 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         }
         $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
+        if ($Version -eq 'beta0.5-dline21-unified3') {
+            $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
+            $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
+            Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
+        }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
             language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
             core_file_version=$Addon.VersionInfo.FileVersion; carrier_upstream_file_version=(Get-Item -LiteralPath (Join-Path $Build $CarrierLeaf)).VersionInfo.FileVersion; bridge_upstream_commit=$Manifest.integration.bridge_commit;
