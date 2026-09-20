@@ -181,7 +181,7 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
     nr_processing::Snapshot route_snapshot{};
     const auto actual=nr_processing_runtime::TrySnapshot(route_snapshot)?route_snapshot.current:nr_processing_runtime::Effective();
     const char* names[]={zh?"先增强后放大":"Enhance first",zh?"先放大后增强":"Upscale first",zh?"自动兼容":"Compatibility"};
-    ImGui::TextWrapped(zh?"实际处理位置：%s":"Actual processing position: %s",names[static_cast<unsigned>(actual)]);
+    ImGui::TextWrapped(zh?"当前入口（运行状态见顶部）：%s":"Current entry (activity shown above): %s",names[static_cast<unsigned>(actual)]);
     if(nr_processing_runtime::FgRedirectRequested())
         ImGui::TextWrapped("%s",zh?"FG 已接管呈现，当前在原生 SR 后、FG 前尝试增强，沿用后置精度；FG 设置和所选起点保持。":"FG owns presentation. NR uses an available post-SR, pre-FG entry with post-SR precision. FG settings and your selected start are preserved.");
     else if(actual!=next.processing_start)

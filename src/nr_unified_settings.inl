@@ -52,10 +52,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::EndDisabled();
     }
     if(g_config_persistence_failed.load())SettingsNote(ui("Settings could not be saved; current session still uses them.","设置无法保存，当前运行仍采用这些设置。"));
+    if (edit_conflict)
+        ImGui::TextWrapped("%s", ui(
+            "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
+            "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
     DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),migration_notice_dismissed);
     if(ImGui::BeginTabBar("nr-main-tabs",ImGuiTabBarFlags_FittingPolicyScroll)){
         const ImGuiTabItemFlags feedback_tab_flags=nr_f8::TakeSettingsFeedbackPageRequest()?ImGuiTabItemFlags_SetSelected:ImGuiTabItemFlags_None;
         if(ImGui::BeginTabItem(ui("Picture###nr-picture","画面###nr-picture"))){
+            ImGui::BeginChild("nr-page-picture",ImVec2(0,0));
             ImGui::BeginDisabled(collecting);
             SettingsSection(ui("Processing order","处理顺序"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
@@ -157,21 +162,25 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             }
             SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final/colour 1, lighting/edge protection 0 and picture experiments. Keeps NR enabled state and compatibility preferences.",
                 "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终/颜色1、光照/边缘保护0及画质实验默认；保留总开关与兼容设置。"));
-            ImGui::EndDisabled();ImGui::EndTabItem();
+            ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){
-            ImGui::BeginDisabled(collecting);DrawUnifiedLight(next,before_sr,current.generation,light_undo,has_pending,pending_light_undo,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndTabItem();
+            ImGui::BeginChild("nr-page-lighting",ImVec2(0,0));
+            ImGui::BeginDisabled(collecting);DrawUnifiedLight(next,before_sr,current.generation,light_undo,has_pending,pending_light_undo,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Experiments###nr-experiments","实验###nr-experiments"))){
-            ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndTabItem();
+            ImGui::BeginChild("nr-page-experiments",ImVec2(0,0));
+            ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Developer###nr-developer","开发者###nr-developer"))){
-            ImGui::BeginDisabled(collecting);DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndTabItem();
+            ImGui::BeginChild("nr-page-developer",ImVec2(0,0));
+            ImGui::BeginDisabled(collecting);DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Feedback###nr-feedback-diagnostics","反馈###nr-feedback-diagnostics"),nullptr,feedback_tab_flags)){
+            ImGui::BeginChild("nr-page-feedback-diagnostics",ImVec2(0,0));
             DrawUnifiedFeedback(runtime,current.config,has_pending);
             if(kChineseUi&&!use_chinese_ui)SettingsNote("Chinese glyphs are unavailable. Select a Chinese font in ReShade to use this language.");
-            ImGui::EndTabItem();
+            ImGui::EndChild();ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
@@ -188,9 +197,5 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         if (result == OverlayApplyResult::Conflict) edit_conflict = true;
     }
-    if (edit_conflict)
-        ImGui::TextWrapped("%s", ui(
-            "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
-            "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
     ImGui::PopStyleVar(2);
 }

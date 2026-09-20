@@ -24,6 +24,9 @@ class UnifiedUi(unittest.TestCase):
     def test_flat_navigation_and_order(self):
         self.assertEqual(self.settings.count('ImGui::BeginTabBar('), 1)
         self.assertEqual(self.settings.count('ImGui::BeginTabItem('), 5)
+        self.assertEqual(self.settings.count('ImGui::BeginChild("nr-page-'),5)
+        self.assertEqual(self.settings.count('ImGui::EndChild();ImGui::EndTabItem();'),5)
+        self.assertLess(self.settings.index('DrawNrActivityStatus('),self.settings.index('ImGui::BeginTabBar('))
         for text in (self.settings, self.pages, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
