@@ -28,7 +28,7 @@ def runtime(s, h):
            a.feedback_virtual_key==b.feedback_virtual_key &&
            a.colour_priority_strength==b.colour_priority_strength &&
            a.colour_conservative_strength==b.colour_conservative_strength && ''','preference transactions')
-    anchor='    record_write(WriteIniFloat(L"ColorStrength", config.color_strength));'
+    anchor='    record_light(WriteIniFloat(L"ColorStrength", config.color_strength));'
     s=once(s,anchor,anchor+'''
     record_write(WriteIniFloat(L"ColourPriorityStrength",config.colour_priority_strength));
     record_write(WriteIniFloat(L"ColourConservativeStrength",config.colour_conservative_strength));
@@ -87,7 +87,7 @@ def apply(stage: Path, inputs, helpers):
     p=root/'config/nr_before_sr.ini'
     s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'ColorStrength=1.0','ColorStrength=0.5\nColourPriorityStrength=0.5\nColourConservativeStrength=1.0','template colour defaults')
-    s=s.replace('; F6 toggles NR and F7 captures images; neither can be a custom feedback key.',
+    s=s.replace('; F6/F7 cannot be used as custom core-feedback shortcuts.',
         '; Shortcuts: 0=disabled, 112..123=F1..F12; duplicate keys are disabled.')
     s+='\n; Master NR / current picture; FeedbackVirtualKey remains the text report key.\nMasterVirtualKey=117\nImageVirtualKey=118\n'
     p.write_text(s,encoding='utf-8',newline='\n')
