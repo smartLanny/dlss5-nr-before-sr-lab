@@ -54,13 +54,22 @@ def main():
             args+=['-I',sdk/'sdk/include/FidelityFX/gpu','-I',sdk/'sdk/include/FidelityFX/gpu/opticalflow',
                    '-output='+str(gen),src]
             run(args,name)
-    # Only the optional PIX instrumentation is disabled. Preserve the SDK's
-    # copyright/license in the external copy; do not alter OF shaders or ABI.
+    # Keep official checkout immutable. Besides optional PIX, fix the pinned
+    # backend's scratch layout: EffectContext is alignas(32), but the allocator
+    # merely appended it after byte arrays. Clang's aligned memory-usage load
+    # actually faulted at an address ending in ...e8. Reserve and apply padding;
+    # no algorithm, shader, interface or resource ownership contract changes.
     original=sdk/'sdk/src/backends/dx12/ffx_dx12.cpp'
     s=original.read_text()
     assert s.count('#define ENABLE_PIX_CAPTURES 1') == 1
     patched=out/'ffx_dx12_no_pix.cpp'
-    patched.write_text(s.replace('#define ENABLE_PIX_CAPTURES 1','// Optional PIX instrumentation disabled in portable experiment.'))
+    s=s.replace('#define ENABLE_PIX_CAPTURES 1','// Optional PIX instrumentation disabled in portable experiment.')
+    size='return FFX_ALIGN_UP(sizeof(BackendContext_DX12) + resourceArraySize + contextArraySize + stagingRingBufferArraySize + gpuJobDescArraySize, sizeof(uint64_t));'
+    place='backendContext->pEffectContexts = reinterpret_cast<BackendContext_DX12::EffectContext*>(pMem);'
+    assert s.count(size)==1 and s.count(place)==1
+    s=s.replace(size,size.replace('return FFX_ALIGN_UP','return alignof(BackendContext_DX12::EffectContext) - 1 + FFX_ALIGN_UP'))
+    s=s.replace(place,'pMem = reinterpret_cast<uint8_t*>(FFX_ALIGN_UP(reinterpret_cast<uintptr_t>(pMem), alignof(BackendContext_DX12::EffectContext)));\n        '+place)
+    patched.write_text(s)
     sources=[sdk/'sdk/src/components/opticalflow/ffx_opticalflow.cpp',patched,
              sdk/'sdk/src/backends/shared/ffx_shader_blobs.cpp',
              sdk/'sdk/src/backends/shared/blob_accessors/ffx_opticalflow_shaderblobs.cpp']
@@ -75,7 +84,7 @@ def main():
     if not a.sdk_only:
         here=Path(__file__).resolve().parent
         frozen=out/'source';frozen.mkdir(exist_ok=True)
-        inputs=['amd_of_producer.cpp','amd_of_producer.hpp','amd_of_shader.hpp','amd_of_gpu_probe.cpp','history_contract.hpp','build_amd_probe.py','validate_amd_probe.py']
+        inputs=['amd_of_producer.cpp','amd_of_producer.hpp','amd_of_shader.hpp','amd_of_gpu_probe.cpp','history_contract.hpp','temporal_controls.hpp','build_amd_probe.py','validate_amd_probe.py']
         source_hashes={}
         for name in inputs:
             data=(here/name).read_bytes();(frozen/name).write_bytes(data);source_hashes[name]=sha(frozen/name)
@@ -85,6 +94,7 @@ def main():
         assert all(sha(here/name)==digest for name,digest in source_hashes.items()), 'production source changed during build'
         records.append(dict(executable_sha256=sha(exe),source_sha256=source_hashes))
     (out/'build.json').write_text(json.dumps(dict(sdk_commit=PIN,license_sha256=sha(sdk/'LICENSE.txt'),
+        effect_context_alignment_fixed=True, sdk_objects=[dict(path=str(p),sha256=sha(p)) for p in objects],
         pix_disabled_original_sha256=sha(original),pix_disabled_build_sha256=sha(patched),
         sdk_tool_sha256={name:sha(sdk/'sdk/tools/binary_store'/name) for name in ['FidelityFX_SC.exe','dxcompiler.dll','dxil.dll']},
         compiler_sha256=sha(a.compiler.resolve()),commands=records),indent=2))

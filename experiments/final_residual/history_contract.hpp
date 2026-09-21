@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <limits>
+#include "temporal_controls.hpp"
 
 // Project-owned transaction policy. No shader, optical-flow implementation,
 // SDK type, resource pointer or copied upstream implementation lives here.
@@ -16,19 +17,23 @@ inline bool operator==(Source a,Source b) noexcept {
 inline bool same_stream(Source a,Source b) noexcept {
     return a.stream==b.stream&&a.epoch==b.epoch;
 }
-enum class Backend { None, AmdOpticalFlow, NvidiaOpticalFlow };
+enum class Backend { None, AmdOpticalFlow, NvidiaOpticalFlow, NativeMotion };
 struct Contract {
     Id device_generation=0, config_generation=0, color_domain=0;
     unsigned width=0,height=0;
     Backend backend=Backend::None;
+    Scope scope=Scope::WholeChain;
+    RasterContract raster{};
     bool valid() const noexcept {
         return device_generation&&config_generation&&color_domain&&width&&height&&
-            (backend==Backend::AmdOpticalFlow||backend==Backend::NvidiaOpticalFlow);
+            (backend==Backend::AmdOpticalFlow||backend==Backend::NvidiaOpticalFlow||backend==Backend::NativeMotion)&&
+            (scope==Scope::WholeChain||scope==Scope::LaterLayers);
     }
 };
 inline bool operator==(const Contract& a,const Contract& b) noexcept {
     return a.device_generation==b.device_generation&&a.config_generation==b.config_generation&&
-        a.color_domain==b.color_domain&&a.width==b.width&&a.height==b.height&&a.backend==b.backend;
+        a.color_domain==b.color_domain&&a.width==b.width&&a.height==b.height&&a.backend==b.backend&&
+        a.scope==b.scope&&a.raster==b.raster;
 }
 struct Frame {
     Source source{};
@@ -54,6 +59,14 @@ struct FlowReceipt {
     // Actual provider warmup/SCD can invalidate motion while its reference
     // still advances. Seed the current residual without restarting OF forever.
     bool motion_usable=false;
+};
+// Ordered recording metadata is deliberately not a completion receipt. The
+// caller proves list/queue ownership and GPU readiness is tested by the shader.
+struct OrderedFlow {
+    Backend backend=Backend::None;
+    Id history_generation=0;
+    Source current{},reference{};
+    bool reset_recorded=false;
 };
 enum class FlowDecision { Invalid, Wait, Seed, ReseedResidual, Accumulate, ResetRequired, Quarantined };
 enum class ResidualStatus { NotSubmitted, SubmittedNotAdopted, SubmittedAdopted, SubmitFailed, DeviceLost };
@@ -126,6 +139,16 @@ public:
         }
         flow_ready_=true;
         return reset?FlowDecision::Seed:flow.motion_usable?FlowDecision::Accumulate:FlowDecision::ReseedResidual;
+    }
+
+    bool observe_ordered_recording(Id token,const OrderedFlow& flow) noexcept {
+        if(!owns(token)||flow_started_||flow_ready_)return false;
+        if(pending_.contract.backend!=flow.backend||plan_.history_generation!=flow.history_generation||
+           !(pending_.source==flow.current)||!(plan_.reference==flow.reference)||
+           flow.reset_recorded!=(plan_.action==Action::ResetBoth))return false;
+        // Keeps the transaction pending until actual submission/adoption or a
+        // proven cancellation. No completed fence or usable motion is invented.
+        flow_started_=flow_ready_=true;observed_=pending_;return true;
     }
 
     // Called only after the consumer's real record/submit outcome is known.

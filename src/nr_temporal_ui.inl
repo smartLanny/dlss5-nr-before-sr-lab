@@ -1,0 +1,23 @@
+void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
+    const bool zh=UseChineseUi();const auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
+    SettingsSection(ui("Residual stabilization (experimental)","残差防闪（实验）"));
+    const char* modes[]={ui("Off","关闭"),ui("Native motion","原生运动"),"AMDOF"};
+    for(unsigned i=0;i<3;++i){if(i)ImGui::SameLine();ImGui::PushID(int(i));
+        if(ImGui::RadioButton(modes[i],next.temporal_backend==i)){next.temporal_backend=i;changed=discrete=true;}ImGui::PopID();}
+    ImGui::BeginDisabled(next.temporal_backend==0);
+    if(ImGui::RadioButton(ui("Whole chain","整链"),next.temporal_scope==0)){next.temporal_scope=0;changed=discrete=true;}
+    ImGui::SameLine();if(ImGui::RadioButton(ui("Later layers","后续层"),next.temporal_scope==1)){next.temporal_scope=1;changed=discrete=true;}
+    ImGui::EndDisabled();
+    SettingsNote(ui("Current route: native DX12 SR, then NR, SDR. Native motion needs a proven prepared guide; AMD uses the unenhanced picture. Does not replace model guides. Other routes retain the current NR candidate.",
+        "当前支持：DX12 原生 SR 后增强、SDR。原生运动需已确认的导引；AMDOF 读取未增强画面，不替换模型导引。其他路线保留当前 NR 结果。"));
+    if(next.temporal_scope&&next.nr_passes<2)SettingsNote(ui("Later-layer scope is unavailable with one layer; the selection is retained.","仅一层时后续层范围不可用，保留所选范围。"));
+    if(next.temporal_backend){
+        const auto state=nr_temporal_status::state.load();const auto tick=nr_temporal_status::last_tick.load();
+        if(state==8&&GetTickCount64()-tick<2000)SettingsNote(ui("Stabilization was submitted for a recent source frame. Check F8 for adoption counts.","最近源帧已提交防闪处理；F8 可查看实际采用次数。"));
+        else if(state==9)SettingsNote(ui("Recording fault: resources quarantined. Save F8 and restart after disabling the experiment.","录制异常，资源已隔离。保存 F8，关闭实验后重启。"));
+        else if(state==6)SettingsNote(ui("Waiting for a recording/resource slot; current NR result retained.","等待录制／资源槽，保留当前 NR 结果。"));
+        else if(state==3)SettingsNote(ui("Creation budget or resource retirement unavailable; current NR result retained.","创建预算或资源退休条件不足，保留当前 NR 结果。"));
+        else if(state==5)SettingsNote(ui("Native motion source, units or sampling phase could not be proven. AMDOF is a separate manual choice.","尚不能确认原生运动来源、单位或采样相位。可手动另选 AMDOF。"));
+        else SettingsNote(ui("Waiting for the supported route and source/queue evidence; selection alone does not mean stabilization is running.","等待支持的路线及来源／队列证据；选择功能不代表已经执行防闪。"));
+    }
+}

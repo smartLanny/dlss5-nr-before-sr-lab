@@ -7,9 +7,10 @@
 namespace {
 std::uint16_t half(float value){_Float16 h=static_cast<_Float16>(value);std::uint16_t bits;std::memcpy(&bits,&h,2);return bits;}
 float unhalf(const unsigned char* bytes){_Float16 h;std::memcpy(&h,bytes,2);return static_cast<float>(h);}
-ComPtr<ID3D12Resource> upload_pixels(Host& host,unsigned w,unsigned h,DXGI_FORMAT format,unsigned bpp,const void* bytes){
+ComPtr<ID3D12Resource> upload_pixels(Host& host,unsigned w,unsigned h,DXGI_FORMAT format,unsigned bpp,const void* bytes,bool uav=false){
     D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;
     d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=format;
+    if(uav)d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_DEFAULT;ComPtr<ID3D12Resource> texture;
     hr(host.device->CreateCommittedResource(&hp,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&texture)),"fixture texture");
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 size=0;host.device->GetCopyableFootprints(&d,0,1,0,&fp,nullptr,nullptr,&size);
@@ -209,8 +210,10 @@ void residual_retirement(Host& host){
 }
 }
 #include "residual_finite_probe.inl"
+#ifndef FINAL_RESIDUAL_NO_MAIN
 int main(int argc,char** argv){try{Host host;
     if(argc>1&&std::strcmp(argv[1],"--finite-only")==0){run_finite_pixels(host);host.validate_debug();std::printf("PASS special-value GPU checks=%u residual_dispatches=2 AMD_dispatches=0\n",checks);return 0;}
     run_controlled(host);run_actual_amd(host);residual_retirement(host);host.validate_debug();
     std::printf("PASS final signed residual checks=%u actual_AMD_sources=12 residual_dispatches=24\n",checks);return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);std::fflush(stdout);return 1;}}
+#endif

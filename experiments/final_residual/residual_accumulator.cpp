@@ -40,7 +40,7 @@ struct ResidualAccumulator::Impl {
     ComPtr<ID3D12Fence> done,consumer;Id value=0,consumer_value=0,count=0,bytes=0,last_token=0;
     ComPtr<ID3D12RootSignature> root;ComPtr<ID3D12PipelineState> pso;ComPtr<ID3D12DescriptorHeap> heap;
     std::array<ComPtr<ID3D12Resource>,2> residual,original;
-    ComPtr<ID3D12Resource> output,input_original,input_enhanced,input_flow;
+    ComPtr<ID3D12Resource> output,input_original,input_enhanced,input_flow,input_anchor;
     Frame previous{};Id generation=0;unsigned width=0,height=0,index=1;bool accumulated=false;
     std::string message="uninitialized";
     ComPtr<ID3D12Resource> texture(DXGI_FORMAT format,bool uav){
@@ -67,7 +67,7 @@ struct ResidualAccumulator::Impl {
         for(auto& r:residual)r=texture(DXGI_FORMAT_R16G16B16A16_FLOAT,true);
         for(auto& r:original)r=texture(DXGI_FORMAT_R8G8B8A8_UNORM,false);
         output=texture(DXGI_FORMAT_R16G16B16A16_FLOAT,true);
-        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,5,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,2,0,0,5}};
+        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,6,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,2,0,0,6}};
         D3D12_ROOT_PARAMETER parameters[2]{};
         parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;parameters[0].DescriptorTable={2,ranges};
         parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;parameters[1].Constants={0,0,6};
@@ -83,7 +83,7 @@ struct ResidualAccumulator::Impl {
         if(FAILED(result)&&error)throw std::runtime_error(static_cast<const char*>(error->GetBufferPointer()));hr(result,"residual shader");
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};pd.pRootSignature=root.Get();pd.CS={blob->GetBufferPointer(),blob->GetBufferSize()};
         hr(d->CreateComputePipelineState(&pd,IID_PPV_ARGS(&pso)),"residual PSO");
-        D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=7;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=8;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&heap)),"residual descriptors");ready=true;message="signed final residual ready";
     }
     bool quarantined() const {return unpublished||(held&&!consumer)||(done&&done->GetCompletedValue()==UINT64_MAX)||
@@ -92,7 +92,7 @@ struct ResidualAccumulator::Impl {
     void poison(const char* why){fault=true;ready=false;message=why;}
     void bind(unsigned next){
         auto cpu=heap->GetCPUDescriptorHandleForHeapStart();const auto step=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        ID3D12Resource* inputs[]={input_original.Get(),input_enhanced.Get(),input_flow.Get(),original[index].Get(),residual[index].Get()};
+        ID3D12Resource* inputs[]={input_original.Get(),input_enhanced.Get(),input_flow.Get(),original[index].Get(),residual[index].Get(),input_anchor?input_anchor.Get():input_original.Get()};
         for(auto* r:inputs){D3D12_SHADER_RESOURCE_VIEW_DESC v{};v.Format=r->GetDesc().Format;v.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
             v.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;v.Texture2D.MipLevels=1;
             device->CreateShaderResourceView(r,&v,cpu);cpu.ptr+=step;}
@@ -126,9 +126,10 @@ ResidualSubmit ResidualAccumulator::submit(bool enabled,const Frame& frame,const
     if(p.previous.source.valid()&&frame.source==p.previous.source)return ResidualSubmit::Duplicate;
     if(p.held)return ResidualSubmit::Busy;
     const bool reset=plan.action==Action::ResetBoth;const auto& f=flow.receipt;
-    if(!frame.valid()||frame.contract.color_domain!=kResidualSdrCodeValues||!plan.work()||!plan.history_generation||
+    if(!inputs.settings.enabled||!inputs.settings.valid()||inputs.settings.scope!=frame.contract.scope||
+        !frame.valid()||frame.contract.color_domain!=kResidualSdrCodeValues||!plan.work()||!plan.history_generation||
         plan.token<=p.last_token||flow.token!=plan.token||f.status!=FlowStatus::Ready||
-        f.backend!=Backend::AmdOpticalFlow||frame.contract.backend!=f.backend||
+        (f.backend!=Backend::AmdOpticalFlow&&f.backend!=Backend::NativeMotion)||frame.contract.backend!=f.backend||
         f.history_generation!=plan.history_generation||!(f.current==frame.source)||!(f.reference==plan.reference)||f.reset_executed!=reset||
         !(inputs.original_source==frame.source)||!(inputs.enhanced_source==frame.source)||
         frame.contract.width!=p.width||frame.contract.height!=p.height||
@@ -136,6 +137,9 @@ ResidualSubmit ResidualAccumulator::submit(bool enabled,const Frame& frame,const
         !shape(inputs.original,p.device.Get(),p.width,p.height,DXGI_FORMAT_R8G8B8A8_UNORM)||
         !shape(inputs.enhanced,p.device.Get(),p.width,p.height,DXGI_FORMAT_R16G16B16A16_FLOAT)||
         !shape(flow.vectors,p.device.Get(),p.width,p.height,DXGI_FORMAT_R32G32_FLOAT)||p.value>=UINT64_MAX-1)return ResidualSubmit::Rejected;
+    const bool later=inputs.settings.scope==Scope::LaterLayers;
+    if(later&&(!(inputs.anchor_source==frame.source)||
+        !shape(inputs.anchor,p.device.Get(),p.width,p.height,DXGI_FORMAT_R16G16B16A16_FLOAT)))return ResidualSubmit::Rejected;
     if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return ResidualSubmit::Rejected;}
     else if(!p.valid||!p.previous.valid()||frame.scene_reset||!(frame.contract==p.previous.contract)||
         !same_stream(frame.source,p.previous.source)||frame.source.sequence!=p.previous.source.sequence+1||
@@ -143,20 +147,25 @@ ResidualSubmit ResidualAccumulator::submit(bool enabled,const Frame& frame,const
     if(p.previous.source.valid()&&same_stream(frame.source,p.previous.source)&&frame.source.sequence<p.previous.source.sequence)return ResidualSubmit::Rejected;
     // Caller-owned immutable inputs must not alias a rotating private target.
     for(auto* owned:{p.residual[0].Get(),p.residual[1].Get(),p.original[0].Get(),p.original[1].Get(),p.output.Get()})
-        if(inputs.original==owned||inputs.enhanced==owned||flow.vectors==owned)return ResidualSubmit::Rejected;
+        if(inputs.original==owned||inputs.enhanced==owned||flow.vectors==owned||(later&&inputs.anchor==owned))return ResidualSubmit::Rejected;
+    if(later&&(inputs.anchor==inputs.original||inputs.anchor==inputs.enhanced||inputs.anchor==flow.vectors))return ResidualSubmit::Rejected;
     try{
         hr(p.allocator->Reset(),"residual allocator Reset");hr(p.list->Reset(p.allocator.Get(),nullptr),"residual list Reset");
         p.input_original=inputs.original;p.input_enhanced=inputs.enhanced;p.input_flow=flow.vectors;
+        p.input_anchor=later?inputs.anchor:nullptr;
         const unsigned next=1-p.index;p.bind(next);auto* l=p.list.Get();
         ID3D12Resource* reads[]={p.input_original.Get(),p.input_enhanced.Get(),p.input_flow.Get(),p.original[p.index].Get(),p.residual[p.index].Get()};
         for(auto* r:reads)barrier(l,r,copy,read);
+        if(later)barrier(l,p.input_anchor.Get(),copy,read);
         barrier(l,p.residual[next].Get(),copy,write);barrier(l,p.output.Get(),copy,write);
-        const bool accumulate=!reset&&f.motion_usable;
-        struct {unsigned w,h,accumulate,reserved;float weight,tolerance;} params{p.width,p.height,unsigned(accumulate),0,.5f,.035f};
+        const float weight=HistoryWeight(inputs.settings,inputs.source_delta_ms);
+        const bool accumulate=!reset&&f.motion_usable&&weight>0;
+        struct {unsigned w,h,accumulate,later;float weight,tolerance;} params{p.width,p.height,unsigned(accumulate),unsigned(later),weight,inputs.settings.color_tolerance};
         ID3D12DescriptorHeap* heaps[]={p.heap.Get()};l->SetDescriptorHeaps(1,heaps);l->SetComputeRootSignature(p.root.Get());l->SetPipelineState(p.pso.Get());
         l->SetComputeRootDescriptorTable(0,p.heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,6,&params,0);
         l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
         for(auto* r:reads)barrier(l,r,read,copy);
+        if(later)barrier(l,p.input_anchor.Get(),read,copy);
         barrier(l,p.residual[next].Get(),write,copy);barrier(l,p.output.Get(),write,copy);
         barrier(l,p.original[next].Get(),copy,D3D12_RESOURCE_STATE_COPY_DEST);l->CopyResource(p.original[next].Get(),p.input_original.Get());
         barrier(l,p.original[next].Get(),D3D12_RESOURCE_STATE_COPY_DEST,copy);
@@ -174,7 +183,7 @@ bool ResidualAccumulator::poll(ResidualOutput& out)noexcept{
 bool ResidualAccumulator::release_output(Id token,ID3D12Fence* fence,Id value)noexcept{
     auto& p=*p_;if(p.retiring||p.fault||!p.held||token!=p.last_token||!complete(p.done.Get(),p.value)||
         !same_device(fence,p.device.Get())||!complete(fence,value))return false;
-    p.held=false;p.input_original.Reset();p.input_enhanced.Reset();p.input_flow.Reset();return true;
+    p.held=false;p.input_original.Reset();p.input_enhanced.Reset();p.input_flow.Reset();p.input_anchor.Reset();return true;
 }
 bool ResidualAccumulator::begin_retirement(Id token,ID3D12Fence* fence,Id value)noexcept{
     auto& p=*p_;if(p.retiring||p.unpublished||!p.held||token!=p.last_token||!value||value==UINT64_MAX||

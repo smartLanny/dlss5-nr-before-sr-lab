@@ -17,6 +17,7 @@ def main():
     ap.add_argument('--output',required=True,type=Path)
     ap.add_argument('--build-only',action='store_true')
     ap.add_argument('--finite-only',action='store_true',help='two controlled GPU dispatches; no AMD source loop')
+    ap.add_argument('--recorded',action='store_true',help='borrowed command-list production seam and GPU SCD')
     args=ap.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
     sdk=args.sdk.resolve();cache=args.sdk_cache.resolve();compiler=args.compiler.resolve();root=Path(__file__).resolve().parent
     os.environ['TEMP']=os.environ['TMP']=str(out/'temp');(out/'temp').mkdir(exist_ok=True)
@@ -25,13 +26,21 @@ def main():
     build=json.loads((cache/'build.json').read_text())
     assert build['sdk_commit']==PIN and build['compiler_sha256']==sha(compiler)
     assert build['license_sha256']==sha(sdk/'LICENSE.txt')
-    prior=next(c['command'] for c in build['commands'] if c.get('label')=='link-probe')
-    objects=[Path(arg) for arg in prior if arg.endswith('.o')]
+    if build.get('sdk_objects'):
+        objects=[Path(item['path']) for item in build['sdk_objects']]
+        assert all(sha(Path(item['path']))==item['sha256'] for item in build['sdk_objects'])
+    else:
+        prior=next(c['command'] for c in build['commands'] if c.get('label')=='link-probe')
+        objects=[Path(arg) for arg in prior if arg.endswith('.o')]
+    assert build.get('effect_context_alignment_fixed'), 'FFX aligned scratch repair required for memory query'
     assert len(objects)==8 and all(p.is_file() for p in objects)
     frozen=out/'source';frozen.mkdir(exist_ok=True)
     names=['amd_of_producer.cpp','amd_of_producer.hpp','amd_of_shader.hpp','amd_of_gpu_probe.cpp',
-           'history_contract.hpp','residual_accumulator.cpp','residual_accumulator.hpp',
+           'history_contract.hpp','temporal_controls.hpp','residual_accumulator.cpp','residual_accumulator.hpp',
            'residual_accumulator_shader.hpp','residual_gpu_probe.cpp','residual_finite_probe.inl','validate_residual_gpu.py']
+    if args.recorded:
+        assert not args.finite_only
+        names+=['recorded_temporal.hpp','recorded_temporal.cpp','recorded_temporal_probe.cpp']
     for name in names:shutil.copyfile(root/name,frozen/name)
     sources={n:sha(frozen/n) for n in names}
     record={'passed':False,'sdk_commit':PIN,'cache_build_sha256':sha(cache/'build.json'),
@@ -43,7 +52,8 @@ def main():
     def save(): (out/'validation.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
     def compile_variant(folder,label):
         exe=folder/'residual_gpu_probe.exe'
-        cmd=command+[str(folder/n) for n in ['amd_of_producer.cpp','residual_accumulator.cpp','residual_gpu_probe.cpp']]+list(map(str,objects))+[
+        cpp=['amd_of_producer.cpp','residual_accumulator.cpp']+(['recorded_temporal.cpp','recorded_temporal_probe.cpp'] if args.recorded else ['residual_gpu_probe.cpp'])
+        cmd=command+[str(folder/n) for n in cpp]+list(map(str,objects))+[
             '-static','-ld3d12','-ldxgi','-ld3dcompiler','-ldxguid','-lole32','-o',str(exe)]
         result=subprocess.run(cmd,capture_output=True,text=True)
         (folder/'build.log').write_text(result.stdout+result.stderr,encoding='utf-8')
@@ -71,11 +81,19 @@ def main():
          'false||','RESIDUAL_SOURCE_MISMATCH_ORACLE')]
     if args.finite_only:
         controls=[('ignore-invalid-enhanced','residual_accumulator_shader.hpp',
-            'float3 current=current_valid?enhanced-original.rgb:0;',
-            'float3 current=enhanced-original.rgb;','NONFINITE_HISTORY_ORACLE'),
+            'float3 current=current_valid?enhanced-base:0;',
+            'float3 current=enhanced-base;','NONFINITE_HISTORY_ORACLE'),
             ('ignore-invalid-flow','residual_accumulator_shader.hpp',
              'bool valid=all(isfinite(motion))&&all(reference>=0)&&all(reference<=float2(Width-1,Height-1));',
              'bool valid=true;','FLOW_RESEED_ORACLE')]
+    if args.recorded:
+        controls=[('reverse-flow','residual_accumulator_shader.hpp','float2 reference=float2(p)+motion;',
+            'float2 reference=float2(p)-motion;','RECORDED_NATIVE_PIXEL_ORACLE'),
+            ('discard-first-anchor','residual_accumulator_shader.hpp',
+             'float3 base=LaterLayers!=0?Anchor.Load(int3(p,0)).rgb:original.rgb;',
+             'float3 base=original.rgb;','LATER_COMPOSED_ANCHOR_ORACLE'),
+            ('skip-gpu-warmup','residual_accumulator_shader.hpp','motion_ready&&FlowAge>5&&',
+             'motion_ready&&','GPU_WARMUP_SCD_SEED_ORACLE')]
     for label,file,before,after,oracle in controls:
         work=out/label;work.mkdir(exist_ok=True)
         for n in names:shutil.copyfile(frozen/n,work/n)

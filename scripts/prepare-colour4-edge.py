@@ -25,10 +25,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     stage_patch=load('edge_stage',core/'scripts/patch-colour-stage.py')
     edge_patch=load('edge_patch',core/'scripts/patch-colour-edge.py')
     user_patch=load('user_patch',core/'scripts/patch-user-controls.py')
+    temporal_patch=load('temporal_patch',core/'scripts/patch-temporal-runtime.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -54,6 +55,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         check('test_colour_stage.py',stage)
         edge_patch.apply(stage,inputs,m3)
         user_patch.apply(stage,inputs,m3)
+        temporal_patch.apply(stage,inputs,m3)
         check('test_colour_edge.py',stage)
         check('test_unified_ui.py',stage)
         check('test_user_controls.py',stage)
@@ -77,6 +79,10 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'runtime_verified':False,
             'overlay_sha256':{p:hashlib.sha256(data).hexdigest() for p,data in inputs.items()}}
         manifest['files']=base.file_hashes(stage)
+        manifest['temporal']={'default_enabled':False,'backends':['native-prepared-MV','AMD-FFX-1.1.4'],
+            'scopes':['whole-chain','later-layers-composed-anchor'],'production_route':'DX12 native Feature1 post-SR SDR',
+            'cpu_readback_wait':False,'history_half_life_ms':60,'reliability':0.65,'maximum_gap_ms':250,
+            'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         if json.loads(mf.read_text(encoding='utf-8'))['files']!=base.file_hashes(stage):
             raise ValueError('Edge stage hash mismatch')
@@ -92,4 +98,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated unified5 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified6 source only; Windows/GPU/game verification is separate.')

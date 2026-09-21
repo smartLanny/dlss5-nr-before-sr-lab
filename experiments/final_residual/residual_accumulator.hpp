@@ -9,6 +9,10 @@ struct ResidualInputs {
     Source original_source{}, enhanced_source{};
     ID3D12Resource* original=nullptr; // immutable RGBA8_UNORM, COPY_SOURCE
     ID3D12Resource* enhanced=nullptr; // final chain result RGBA16_FLOAT, COPY_SOURCE
+    Source anchor_source{};
+    ID3D12Resource* anchor=nullptr; // LaterLayers only: same-domain composed NR1, never raw N1.
+    Settings settings{true,Scope::WholeChain,Validation::Legacy};
+    double source_delta_ms=16.6666666667;
 };
 struct ResidualOutput {
     Id token=0, history_generation=0;

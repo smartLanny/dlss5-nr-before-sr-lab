@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parent
 def main():
     p=argparse.ArgumentParser();p.add_argument('--compiler',required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     a.output.mkdir(parents=True,exist_ok=True)
-    paths=[ROOT/'history_contract.hpp',ROOT/'history_contract_test.cpp',Path(__file__)]
+    paths=[ROOT/'history_contract.hpp',ROOT/'history_contract_test.cpp',Path(__file__),ROOT/'temporal_controls.hpp']
     captured=[p.read_bytes() for p in paths]
     header,test=[b.decode('utf-8') for b in captured[:2]]
     mutations={
@@ -32,6 +32,7 @@ def main():
             if text.count(before)!=1:raise RuntimeError('mutation anchor changed: '+name)
             text=text.replace(before,after)
         (work/'history_contract.hpp').write_text(text,encoding='utf-8')
+        (work/'temporal_controls.hpp').write_bytes(captured[3])
         cpp=work/'test.cpp';cpp.write_text(test,encoding='utf-8');exe=work/'test.exe'
         command=[a.compiler,'-std=c++17','-O0','-Wall','-Wextra','-Werror','-static',str(cpp),'-o',str(exe)]
         build=subprocess.run(command,capture_output=True,text=True)
