@@ -93,6 +93,8 @@ def main() -> None:
         'feedback': args.source.parent / 'nr_feedback_capture.inl',
         'rr_dispatch': args.source.parent / 'interop/nr_rr_post_runtime.inl',
         'fg_presentation': args.source.parent / 'nr_fg_presentation.h',
+        'external_feedback': args.source.parent / 'interop/nr_external_provider_feedback.h',
+        'external_abi': args.source.parent / 'interop/nr_external_provider_abi.h',
         'harness': ROOT / 'tests/ngx_lifecycle_harness.cpp.in',
         'runner': Path(__file__),
     }
@@ -109,6 +111,8 @@ def main() -> None:
     # Freeze the included production module too. No later checkout edit can
     # silently change one variant's compiled registry relative to another.
     (args.output_dir / 'nr_ngx_lifecycle.inl').write_bytes(captured['lifecycle'])
+    for name in ('external_feedback', 'external_abi'):
+        (args.output_dir / paths[name].name).write_bytes(captured[name])
     source = captured['core'].decode('utf-8-sig')
     feedback_source = captured['feedback'].decode('utf-8-sig')
     template = captured['harness'].decode('utf-8-sig')

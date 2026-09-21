@@ -31,11 +31,28 @@ function Read-SourceSlice([string]$begin, [string]$end) {
     if ($finish -lt 0) { throw "Missing source marker: $end" }
     return $source.Substring($start, $finish - $start)
 }
+function Read-SourceFunction([string]$begin) {
+    $start = $source.IndexOf($begin, [StringComparison]::Ordinal)
+    if ($start -lt 0) { throw "Missing function marker: $begin" }
+    $opening = $source.IndexOf('{', $start)
+    if ($opening -lt 0) { throw "Missing function body: $begin" }
+    $depth = 1
+    $finish = $opening + 1
+    while ($depth -gt 0 -and $finish -lt $source.Length) {
+        if ($source[$finish] -eq '{') { ++$depth }
+        if ($source[$finish] -eq '}') { --$depth }
+        ++$finish
+    }
+    if ($depth -ne 0) { throw "Unbalanced function body: $begin" }
+    return $source.Substring($start, $finish - $start)
+}
 # Include the actual cold failure recorder, not a no-op testing replacement.
+# End at the owned function body, not an unrelated following declaration.
 $harness = $harness.Replace('// @PRODUCTION_CREATE_HOOK@',
-    (Read-SourceSlice '#define NR_HAS_NGX_HOOK_EVIDENCE 1' 'bool EnsureNativeQueueExecuteHook('))
+    ((Read-SourceSlice '#define NR_HAS_NGX_HOOK_EVIDENCE 1' 'bool CreateHook(') +
+     (Read-SourceFunction 'bool CreateHook(')))
 $harness = $harness.Replace('// @PRODUCTION_FINISH_OBSERVATION@',
-    (Read-SourceSlice 'void FinishFeature1CreateObservation(' 'void ProcessSubmittedCommandLists('))
+    (Read-SourceFunction 'void FinishFeature1CreateObservation('))
 $harness = $harness.Replace('// @PRODUCTION_MODULE_OBSERVER@',
     (Read-SourceSlice '// The loader reference closes' 'DWORD WINAPI HookWorker('))
 $build = Join-Path $projectRoot 'build\observer-validation'
