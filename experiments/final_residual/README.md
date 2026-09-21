@@ -1,9 +1,101 @@
 # Final residual history contract — next-batch experiment
 
-This directory contains original CPU transaction policy and an isolated, actual
-AMD FidelityFX 1.1.4 D3D12 optical-flow producer. It contains no temporal pixel
-shader and is not a feature in the current Core package. No GPL source was
-copied or translated. It does not change Core, INI or source pins.
+This directory contains original CPU transaction policy, an isolated actual
+AMD FidelityFX 1.1.4 D3D12 optical-flow producer, and an original minimal signed
+residual pixel accumulator. It is not a feature in the current Core package.
+No GPL source was copied or translated. It does not change Core, INI or source pins.
+
+## 2026-09-21: executable minimum accumulation consumer
+
+`residual_accumulator.cpp/.hpp` and `residual_accumulator_shader.hpp` implement
+one explicitly declared SDR domain (`kResidualSdrCodeValues=1`): sRGB code values
+in [0,1], original RGBA8_UNORM and the completed chain result RGBA16_FLOAT at
+the same full source extent. There is no implicit HDR, transfer-function or
+working-grid conversion. Source IDs for original and enhanced input must both
+match the flow's current source. The inputs are immutable, private, single-mip
+textures in COPY_SOURCE, already ordered on the constructor's same-device
+DIRECT queue. They cannot alias the consumer's rotating private resources.
+
+The project-owned shader computes signed `(enhanced - original)`. After a valid
+continuous source pair it pulls previous residual at `current + flow` using
+current-to-previous source-pixel vectors, then blends previous/current equally.
+Original (unenhanced) RGB rejects history when any channel differs by more than
+0.035. Out-of-bounds/nonfinite flow reseeds that pixel. This is a photometric
+disocclusion proxy, not depth or forward/backward visibility confidence; equal
+colors can still hide occlusions. Final RGB is clipped to SDR and source alpha
+is preserved. FP16 residual history stays signed and unclipped. Invalid enhanced
+RGB yields the original pixel and a zero residual rather than poisoning history.
+
+Both vendor warmup and actual SCD suppression reseed the entire residual image
+without restarting OF. Scene/reset/config/generation/source-reference checks
+remain explicit. Repeated source IDs add no dispatch. Disabled submission
+returns before inspecting inputs and adds no dispatch; the owner must also skip
+the separate OF producer when disabled, and change the shared config generation
+on re-enable so both histories reset. This experiment does not own Core's toggle.
+
+Persistent storage is bounded: two RGBA16F residual histories, two RGBA8 original
+histories, one RGBA16F final output, seven descriptors and one allocator/list.
+One result remains outstanding until the last reader's exact fence completes.
+No allocation occurs per submitted frame. At 512x384 the five texture allocation
+sizes sum to 6 MiB; at 3840x2160 their unaligned payload is 253.125 MiB. These
+figures exclude AMD OF resources, caller inputs, readback fixtures and driver/PSO
+overhead, and are not a VRAM-savings claim. A four-context registry reserves a
+slot before allocation, retains pending/uncertain work, rejects a fifth context,
+and collects only after both its own submission and the separate last consumer
+complete. Unpublished Signal or missing consumer evidence quarantines its slot.
+
+### Standalone ownership sequence
+
+1. One serialized owner calls `HistoryContract::prepare` on a genuine new source.
+2. Submit/poll actual `AmdOfProducer` with the original snapshot and the same plan.
+3. `observe_flow` records the actual receipt. Submit `ResidualAccumulator` with
+   that receipt and same-source original/final-chain input; its own strict check
+   independently rejects mismatched source, reference, generation and extent.
+4. Only `ResidualSubmit::Submitted` permits `SubmittedAdopted`. Report other
+   actual outcomes through the history contract; never mark failed work adopted.
+5. Release producer output after the residual consumer fence completes. Release
+   residual output after its final draw/copy reader's completion, or terminally
+   hand that exact last-reader fence to `begin_retirement` before destroying it.
+
+The probe uses synthetic enhanced images to exercise nonzero positive and
+negative residuals; it does not run NR inference or a real five-layer chain.
+The insertion contract is after the chain's final composition, never per layer.
+No stabilized output becomes the next OF input or enters NGX history.
+
+### Reproducible validation
+
+```text
+python experiments/final_residual/validate_residual_gpu.py --sdk <clean-fixed-FFX1.1.4-checkout> --sdk-cache <prior-build_amd_probe-output> --compiler <clang++.exe> --output <external-evidence-directory>
+python experiments/final_residual/validate.py --compiler <clang++.exe> --output <external-CPU-evidence-directory>
+```
+
+The GPU runner checks the pinned official SDK revision/license and compiler,
+records the earlier build manifest plus hashes of all eight reused SDK objects,
+freezes and recompiles current project sources, then saves actual pixel planes,
+hardware logs, executable hashes and two separately compiled negative controls.
+`--build-only` explicitly does not claim a GPU pass. SDK and tool licenses remain
+external; no vendored payload or GPL implementation was added.
+
+RTX 5090 D / 616.92: seven controlled-source frames exercise translation,
+appearance/removal of an original-color patch, NaN/out-of-range flow, new borders,
+scene reset, motion-unavailable reseed and disable/re-enable. Twelve real AMD
+source dispatches exercise six warmup seeds, four usable-motion accumulations and
+two actual white/black SCD reseeds. Independent known translation coordinates
+set the pixel oracle; vectors under test do not determine expected coordinates.
+Measured interior match is 1.000000 at a 0.0012 FP16 absolute tolerance, with
+nonzero positive and negative history samples. A reversed consumer flow fails
+at source two (match 0.022990); bypassing enhanced-source identity fails before
+the intended source-two submission. Four pending contexts, preallocation refusal
+and an actual separately fenced delayed output copy verify bounded retirement.
+HistoryContract's 281 CPU checks and five negative controls pass as well.
+
+The debug layer was unavailable. Actual device-loss/Signal-failure injection,
+live-game captures/quality/performance, fractional/complex motion quality, HDR,
+Core capture ownership and nonblocking scheduling remain unverified. This is
+minimum **accumulation**, not accumulation+, low-frequency reconstruction,
+NVOF integration, a game-flicker fix or a completed Core feature. The next seam is
+a Core owner that supplies the exact final-chain SDR baseline/result, genuine
+source IDs and last output-consumer fence under the same queue contract.
 
 ### 2026-09-21: bounded retirement implemented
 
@@ -238,9 +330,10 @@ dispatches occur. It also covers actual OF advancement followed by deliberate
 nonadoption, explicit scene reset, warmup recovery, and white/black cuts whose
 actual SCD history values progress through 1, 3, 6 and 12.
 
-These are synthetic hardware OF checks, not image-quality approval. Residual
-adoption in this fixture exercises the CPU protocol; no residual pixel shader
-is present. A first periodic sinusoid fixture produced large aperture/periodicity
+These producer-only fixtures are synthetic hardware OF checks, not image-quality
+approval. Their residual adoption exercises only the CPU protocol; the newer
+separate pixel-consumer probe above supplies actual residual readback. A first
+periodic sinusoid fixture produced large aperture/periodicity
 ambiguities and failed. A nonperiodic multiscale fixture replaced that ambiguous
 test image; the direction/unit thresholds were not relaxed. Both early failures
 are retained in external evidence. The tested driver is 616.92; the system's
@@ -251,6 +344,6 @@ retention was replaced by the four-slot registry described above. Pending and
 quarantined states now have a bounded owner; independent producer and consumer
 completion remain mandatory. Core still has to supply the exact last-consumer
 fence and its real source/capture contract. Actual device-loss and Signal-failure
-injection, the residual pixel consumer, HDR input mapping and game acceptance
-remain outstanding. Bounded standalone retirement does not establish those
+injection, Core connection of the new residual consumer, HDR input mapping and
+game acceptance remain outstanding. Bounded standalone retirement does not establish those
 production responsibilities or change the current Core package.
