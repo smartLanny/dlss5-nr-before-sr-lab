@@ -1,5 +1,32 @@
 # Manager Beta4 Core adapter
 
+## Unified7 configuration delta
+
+Keep the ProviderV1 ABI and single NR owner. Register the candidate's exact
+built identity and file hashes from its new handoff; previous binary hashes
+remain rollback evidence, not the new identity.
+
+- `PostWorkPercent`: integer 25–100 for native SR/RR post routes, including
+  compatibility redirected through those routes. Zero retains its existing
+  stop-NR/keep-precision meaning. Invalid requests retain the previous valid
+  setting, as implemented by the post configuration transaction.
+- `CompatPostPercent`: 25–100 for standalone Present; missing stays 100.
+  Existing out-of-range INI normalization remains distinct from UI validation.
+- Pre mode continues to use `WorkMode`/`CustomWorkScale`, 50–100%. Do not use
+  an automatic runtime fallback to overwrite the field currently being edited.
+- One scale applies once to all NR layers. Read the actual aligned dimensions;
+  a nominal percentage is not a model-memory or total-frame-cost estimate.
+- Conservative colour remains the missing-selection default, with its own 1.0
+  strength; optional colour priority keeps a separate 0.7 default. Preserve
+  explicit saved settings. Independent face, both energy modes and stabilization
+  default OFF. No new private reconstruction menu is enabled by this handoff.
+- Equal-size native MV support does not expand temporal route availability:
+  stabilization remains proven native DX12 Feature1 post-SR SDR only. Do not
+  enable it automatically in Bridge/Feeder recipes or consume ABI reserved fields.
+
+Actual Bridge/Feeder deployment and game combinations remain separate acceptance
+work. The handoff contains components/configuration evidence, not an installer.
+
 ## Delivered unified5 checkpoint
 
 The final built and packaged source is `38f5fff6fb6b20ce5fb09b0cca5020fcc4d9171d`.
