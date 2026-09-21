@@ -49,6 +49,7 @@ def main():
             "Reset with unfinished last replay fence retains resources",
             "replay retirement and same-configuration reconstruction",
             "master OFF maintenance without another temporal Prepare",
+            "processing route leaves After without another temporal Prepare",
             "actual outer NR Reset gate quarantines discarded unsubmitted NR",
         ],
         "synthetic_nr": True,

@@ -55,6 +55,7 @@ void RecordCurrent(queue_test::List& list,NrContext& context,NrSlot& slot,const 
     // PrepareAfterSr does before FinishAfterSr reaches temporal preparation.
     Check(context.recording_command_lists>0,"current NR lease exists before temporal preparation");
     nr_source_runtime::EvaluateScope source(list.native,nr_source_frame::Source{41,51,sequence},nr_source_runtime::NativeInputs{});
+    Check(nr_source_runtime::CurrentSource().sequence==sequence,"continuous frame owns its actual distinct source sequence");
     auto prepared=Prepare(list.native,context,slot,guides,feature,w,h);
     if(!prepared)std::printf("continuous prepare declined=%s backend=%u scope=%u\n",
         nr_temporal_status::Name(nr_temporal_status::state.load()),g_config.temporal_backend,g_config.temporal_scope);
@@ -111,11 +112,25 @@ void Run(){
     queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
     Check(FindOrCreateLifecycleQueueLocked(f.a)!=nullptr,"actual queue and fence owner");
     Check(RecordNrUseLocked(list.native,context,slot),"actual Core recording lease");
+    {
     nr_source_runtime::EvaluateScope source(list.native,nr_source_frame::Source{41,51,1},nr_source_runtime::NativeInputs{});
     Check(bool(nr_source_runtime::CurrentSource()),"existing source scope supplies identity");
     feature.feature_id=13;Check(!nr_temporal::Prepare(list.native,context,slot,guides,feature,w,h,0,0),"RR outside current supported route");
     feature.feature_id=1;feature.create_flags=1;Check(!nr_temporal::Prepare(list.native,context,slot,guides,feature,w,h,0,0),"HDR rejected");feature.create_flags=0;
     g_config.face_preview=1;Check(!nr_temporal::Prepare(list.native,context,slot,guides,feature,w,h,0,0),"face preview rejected");g_config.face_preview=0;
+    if constexpr(HasMotionSnapshotProof<decltype(&nr_temporal::Prepare)>){
+        auto missing=guides;missing.motion=nullptr;
+        Check(!Prepare(list.native,context,slot,missing,feature,w,h)&&nr_temporal_status::state.load()==15,
+            "native MV missing is distinct from wiring unavailable");
+        auto invalid=guides;invalid.capture_params.game_mv_x=0;invalid.valid_motion_scale_x=false;
+        // ResolveNrGuideBinding may retain a model fallback of 1 in the
+        // signature; the original zero unit is still invalid for temporal.
+        Check(!Prepare(list.native,context,slot,invalid,feature,w,h)&&nr_temporal_status::state.load()==16,
+            "native zero-unit fallback cannot become temporal motion proof");
+        auto jittered=feature;jittered.create_flags|=4;
+        Check(!Prepare(list.native,context,slot,guides,jittered,w,h)&&nr_temporal_status::state.load()==5,
+            "native jittered phase remains outside the supported contract");
+    }
     auto prepared=Prepare(list.native,context,slot,guides,feature,w,h);
     if(!prepared)std::printf("prepare declined=%s\n",nr_temporal_status::Name(nr_temporal_status::state.load()));
     Check(bool(prepared)&&prepared.primary_heap,"actual native temporal and primary descriptor preparation");
@@ -126,6 +141,7 @@ void Run(){
     Check(slot.recovery_probe_count==captures,"primary anchor does not claim final diagnostics");
     Check(nr_temporal::Record(list.native,context,slot,prepared),"actual Core records final residual");
     Check(context.temporal_token&&nr_temporal_status::recorded.load()==1&&nr_temporal_status::submitted.load()==0,"recording is not adoption");
+    }
     list.Close();list.Submit(f.a);f.Drain(f.a);
     Check(!g_lifecycle_tracking_uncertain.load()&&nr_temporal_status::submitted.load()==1&&!context.temporal_token,"actual Core Execute Signal adopts temporal once");
     auto anchor_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;const auto anchor=ReadTexture(f,context.temporal->anchor(),anchor_state);
@@ -200,6 +216,15 @@ void Run(){
     RecordCurrent(restart.list,context,slot,guides,feature,color,w,h,sequence++);
     restart.Submit();f.Drain(f.a);restart.Reset();
     Check(context.temporal&&context.temporal->initialized(),"ordinary completed Reset retains reusable same-key history");
+    auto route=g_config;route.processing_start=nr_processing::Start::Before;++route.processing_selection;
+    Check(ApplyConfig(route,"temporal-route-maintenance",false),"actual processing route leaves After");Collect();
+    Check(nr_processing_runtime::Effective()==nr_processing::Start::Before&&!context.temporal&&nr_temporal_status::bytes.load()==0,
+        "CORE_TEMPORAL_LEAVE_AFTER_MAINTENANCE_ORACLE");
+    route=g_config;route.processing_start=nr_processing::Start::After;++route.processing_selection;
+    Check(ApplyConfig(route,"temporal-route-return",false),"actual processing route returns to After");
+    Check(RecordNrUseLocked(ring0.list.native,context,slot),"NR restarts after explicit route return");
+    RecordCurrent(ring0.list,context,slot,guides,feature,color,w,h,sequence++);
+    ring0.Submit();f.Drain(f.a);ring0.Reset();
     Configure(1,0,false);Collect();
     Check(!context.temporal&&nr_temporal_status::bytes.load()==0,"CORE_TEMPORAL_MASTER_OFF_MAINTENANCE_ORACLE");
     Check(ReadTexture(f,output,slot.result_state)==single,"all temporal transitions preserve the actual zero-edit candidate");
