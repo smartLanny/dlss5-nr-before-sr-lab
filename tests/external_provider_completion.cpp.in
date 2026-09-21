@@ -1,0 +1,25 @@
+
+#include "nr_source_frame.hpp"
+#include "interop/nr_external_provider.h"
+#include "interop/nr_external_provider_feedback.h"
+#include <cassert>
+#include <cstdio>
+struct ID3D12Fence { unsigned long long done=0; int refs=1; };
+unsigned long long ID3D12Fence_GetCompletedValue(ID3D12Fence* f){return f->done;}
+void ReleaseCom(ID3D12Fence*& f){--f->refs;f=nullptr;}
+namespace nr_source_runtime { nr_source_frame::Claims claims;struct Lock{}; }
+nr_external_provider::Session session;
+// @PENDING_COMPLETION@
+int main(){
+ using namespace nr_source_frame;
+ ID3D12Fence fence;Source source{1,1,1};auto t=nr_source_runtime::claims.Begin({source,Role::Application},Point::Present);
+ assert(t&&nr_source_runtime::claims.Record(t));pending[0]={t,&fence,9,42};
+ PollCompletions();assert(HasPending(42)&&fence.refs==1&&nr_external_provider_feedback::pending_completions==1);
+ fence.done=8;PollCompletions();assert(HasPending(42)&&fence.refs==1);
+ fence.done=9;PollCompletions();assert(!HasPending(42)&&!fence.refs&&nr_external_provider_feedback::completion_frames==1);
+ assert(!nr_source_runtime::claims.Begin({source,Role::Application},Point::Present));
+ ID3D12Fence removed;removed.done=UINT64_MAX;source.sequence=2;t=nr_source_runtime::claims.Begin({source,Role::Application},Point::Present);
+ assert(t&&nr_source_runtime::claims.Record(t));pending[0]={t,&removed,10,42};PollCompletions();
+ assert(!HasPending(42)&&!removed.refs&&session.history_dirty&&nr_external_provider_feedback::completion_failures==1);
+ puts("PASS actual pending completion consumer: incomplete/exact fence, retained duplicate, removed device, release ownership blocker; CPU fake fence only");
+}

@@ -83,3 +83,31 @@ energy modes remain OFF. No new Core INI key is introduced by this adapter.
 Until the complete build, component and packaging gates pass, this is an adapter
 source candidate. Beta4 should retain its current working payload and mark the
 new unverified routes as pending adaptation.
+
+### Initial local checks
+
+Production source `0a4f2e0151cd02060322757e6377ff469e2b85e4` completed the
+canonical colour/unified export; all 256 source-manifest file hashes matched.
+Generated Core compiled to a real C++20 COFF object with FaceBackend=1, and all
+four external-provider export directives were present. This is not a linked
+DLL or full bilingual build. Compiler output retained eight existing warnings.
+
+`scripts/validate-external-provider-core.py --compiler <Windows clang++> --output <new-directory>`
+runs the ABI/ownership test plus the **actual extracted** pending-completion
+and exact-training consumers, source registry (407 checks), and actual Present
+admission/pre-record consumer (91 checks). Fence/COM objects in these tests are
+CPU fixtures. They prove incomplete-fence retention, exact completion,
+device-removal handling, duplicate rejection, and unrelated-list exclusion,
+not a real component or GPU queue submission.
+
+The existing uniform-layer INI/Feature18-tuning host passed 29 checks. The four
+generated user-control tests, including real Windows profile API load/save,
+passed after supplying `DLSS5_TEST_CXX`; the original generation log's three
+compiler-unavailable skips are preserved and superseded only by that rerun.
+
+Next runtime entry: reuse the actual signed-runtime FG/compat host with
+`NRExternalProvider_ClaimOwnershipV1` / `SubmitFrameV1` / exact Execute+Signal /
+Query / Release, then repeat using each pinned component itself. A controlled
+host's synthetic guides do not certify the component's guide extraction,
+Vulkan/IPC synchronization, motion semantics, or game output. No GPU run was
+performed for this adapter batch.
