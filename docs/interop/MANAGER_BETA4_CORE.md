@@ -1,5 +1,22 @@
 # Manager Beta4 Core adapter
 
+## Delivered unified5 checkpoint
+
+The final built and packaged source is `38f5fff6fb6b20ce5fb09b0cca5020fcc4d9171d`.
+Canonical r7 and the cumulative wrapper pass, including all 46 canonical groups,
+full-face bilingual Core and the additional descriptor/source-transport WARP gates.
+The final real external host recheck passes one layer (378 checks) and two layers
+(463 checks), including actual queue-blocked pending release, pixel readback,
+OFF and retirement. All 256 generated sources, 26 CSOs and both final DLLs match
+the independent GPU build copy. Raw LLVM bitcode object hashes are retained
+separately and are not represented as identical.
+
+Complete bilingual Core components, full INI/configuration contract and per-file
+sizes/hashes are delivered. Beta4 still needs new identity/colour-field registration;
+actual packaged Bridge/Feeder and game acceptance remain pending. Earlier validation
+checkpoints below remain historical evidence. See
+[delivery and remaining gates](UNIFIED5_DELIVERY_20260921.md).
+
 ## Identity and integration
 
 Base: cumulative unified `303b2058411972c333b393001bc72ad5b6f95314`.
