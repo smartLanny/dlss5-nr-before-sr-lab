@@ -134,9 +134,15 @@ def patch_processing(s):
   if 'g_config.transfer_strength' not in body:raise ValueError('Work enabled expression changed')
   return body.replace('g_config.transfer_strength','(g_config.edit_experiment.mode && g_config.mode==1 ? g_config.post_transfer_strength : g_config.transfer_strength)')
  return change_definition(s,'void Reconcile(',change)
-def patch_ui(s):
+def patch_ui(s,unified=False):
  s=once(s,'#include "nr_light_style_ui.inl"','#include "nr_edit_settings_ui.inl"\n#include "nr_light_style_ui.inl"')
+ if unified:
+  if s.count('#include "nr_unified_settings.inl"')!=1:raise ValueError('Unified settings owner changed')
+  return s
  return once(s,'    bool changed = false;','    bool changed = false;\n    changed |= DrawEditExperimentSettings(next);')
+def patch_unified_pages(s):
+ anchor='void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {'
+ return once(s,anchor,anchor+'\n    if(DrawEditExperimentSettings(next)){changed=true;discrete=true;}')
 def patch_build(s,source_commit):
  if not re.fullmatch(r'[0-9a-f]{40}',source_commit):raise ValueError('Invalid source commit')
  marker="$Common += '-DNR_CODEC_PRECOMPILED=1'"
@@ -180,8 +186,11 @@ def stage(source:Path,output:Path,source_commit:str):
  texts={r:(source/r).read_text(encoding='utf-8-sig') for r in required}
  version=re.search(r'constexpr const char \*kAddonVersion = "([^"\n]+)";',texts[required[0]])
  if not version:raise ValueError('Cannot establish original product version')
- changed={required[0]:patch_core(texts[required[0]]),required[1]:patch_ui(texts[required[1]]),
+ unified=(source/'src/nr_unified_pages.inl').is_file()
+ changed={required[0]:patch_core(texts[required[0]]),required[1]:patch_ui(texts[required[1]],unified),
   required[2]:patch_processing(texts[required[2]]),required[3]:patch_build(texts[required[3]],source_commit)}
+ if unified:
+  r='src/nr_unified_pages.inl';texts[r]=(source/r).read_text(encoding='utf-8-sig');changed[r]=patch_unified_pages(texts[r])
  if '#include "interop/nr_rr_post_runtime.inl"' in changed[required[0]]:
   r='src/interop/nr_rr_post_runtime.inl';texts[r]=(source/r).read_text(encoding='utf-8-sig');changed[r]=patch_rr_function(texts[r])
  allow_suffix={'.cpp','.c','.h','.hpp','.inl','.hlsl','.hlsli','.def','.rc','.manifest','.json','.py','.ps1','.ini','.txt','.md','.cmake'}
@@ -194,7 +203,7 @@ def stage(source:Path,output:Path,source_commit:str):
     if p.is_file() and p.suffix.lower() in allow_suffix:input_files.append(p)
  before={str(p.relative_to(source)).replace('\\','/'):digest(p) for p in input_files}
  overlay_hash={rel:digest(PACKAGE/rel) for rel in OVERLAY}
- # Independent model/present/descriptor modules outside these five generated
+ # Independent model/present/descriptor modules outside the changed generated
  # files must be byte-identical in the candidate.
  output.parent.mkdir(parents=True,exist_ok=True);temporary=Path(tempfile.mkdtemp(prefix='nr-edit-stage-',dir=output.parent))
  try:

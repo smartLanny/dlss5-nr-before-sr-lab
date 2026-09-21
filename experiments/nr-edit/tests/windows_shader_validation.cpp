@@ -134,7 +134,8 @@ void Run(Harness& h,unsigned kind){using namespace nr_edit_dx12;ResourceOwner ow
  auto rrResult=h.CopyOut(owner,rrFinal,10);
  auto* carrier=h.Texture(owner,4,4,10,0,0,false);auto* tail=h.Texture(owner,4,4,2,0,0,false);
  // Analytic SR output tests the codec, NOT NVIDIA DLSS.
- auto* carrierO=h.Texture(owner,8,8,10,carrierValue);auto* final=h.Texture(owner,8,8,10,0,0,false);
+ // A deliberately biased neutral SR output must not invent an edit.
+ auto* carrierO=h.Texture(owner,8,8,10,neutral?.625f:carrierValue);auto* final=h.Texture(owner,8,8,10,0,0,false);
  nr_deferred_dx12::Constants d{};d.render_size[0]=d.render_size[1]=4;d.output_size[0]=d.output_size[1]=8;d.frame_pair_valid=d.private_sr_succeeded=1;
  w={};w.width=w.height=4;w.kernel=Kernel::DeferredEncode;w.constants=&d;w.constant_bytes=sizeof(d);
  w.reads[0]=h.View(edited,10);w.reads[1]=h.View(original,10);w.writes[0]=h.View(carrier,10);w.writes[1]=h.View(tail,2);h.Record(w);
@@ -148,15 +149,16 @@ void TinyCarrier(Harness& h,bool negative,float exposure=1.f){using namespace nr
  auto* original=h.Texture(owner,4,4,10,1);auto* edited=h.Texture(owner,4,4,10,1+difference);
  auto* clean=h.Texture(owner,4,4,10,.5f);auto* carrier=h.Texture(owner,4,4,10,0,0,false);
  auto* tail=h.Texture(owner,4,4,2,0,0,false);auto* final=h.Texture(owner,4,4,10,0,0,false);
- // Identity reconstruction uses the actual stored carrier texture. This
- // isolates real FP16 quantization from any claimed NVIDIA SR behavior.
+ // Read actual FP16 encoding/tail; a biased SR neutral must not drown a tiny
+ // edit that is carried entirely by the FP32 tail.
+ auto* biased=h.Texture(owner,4,4,10,.625f);
  nr_deferred_dx12::Constants d{};d.render_size[0]=d.render_size[1]=4;d.output_size[0]=d.output_size[1]=4;
  d.frame_pair_valid=d.private_sr_succeeded=1;d.input_pre_exposure=d.output_pre_exposure=exposure;
  Work w{};w.width=w.height=4;w.kernel=Kernel::DeferredEncode;w.constants=&d;w.constant_bytes=sizeof(d);
  w.reads[0]=h.View(edited,10);w.reads[1]=h.View(original,10);w.writes[0]=h.View(carrier,10);w.writes[1]=h.View(tail,2);h.Record(w);
  auto stored=h.CopyOut(owner,carrier,10);auto lost=h.CopyOut(owner,tail,2);
  w.reads={};w.writes={};w.width=w.height=4;w.kernel=Kernel::DeferredCompose;
- w.reads[2]=h.View(carrier,10);w.reads[3]=h.View(tail,2);w.reads[4]=h.View(clean,10);w.writes[2]=h.View(final,10);h.Record(w);
+ w.reads[2]=h.View(biased,10);w.reads[3]=h.View(tail,2);w.reads[4]=h.View(clean,10);w.writes[2]=h.View(final,10);h.Record(w);
  auto composed=h.CopyOut(owner,final,10);h.Submit();
  const auto none=std::numeric_limits<float>::quiet_NaN();
  void* pixels=nullptr;Check(stored.buffer->Map(0,nullptr,&pixels),"quantized carrier Map");
@@ -165,7 +167,7 @@ void TinyCarrier(Harness& h,bool negative,float exposure=1.f){using namespace nr
  const float unquantized=.5f+.5f*difference/(exposure*d.carrier_range);
  if(quantized==unquantized)throw std::runtime_error("tiny fixture did not exercise FP16 quantization");
  h.Assert(stored,quantized,1,none,1e-7f);
- h.Assert(lost,difference/exposure-(2*quantized-1)*d.carrier_range,1,none,1e-7f);
+ h.Assert(lost,difference/exposure-(2*quantized-1)*d.carrier_range,quantized==.5f?1.f:2.f,none,1e-7f);
  h.Assert(composed,.5f+difference,.75f,none,1e-7f);h.Reset();
 }
 void HistoryCase(Harness& h,bool reject){using namespace nr_edit_dx12;ResourceOwner owner;

@@ -41,7 +41,13 @@ class Tests(unittest.TestCase):
  def test_safe_stage_preserves_all_unrelated_files(self):
   with tempfile.TemporaryDirectory() as t:
    out=Path(t)/'out';m=stage.stage(ROOT,out,'a'*40)
-   self.assertEqual(set(m['modified_files']),{'src/nr_before_sr.cpp','src/nr_settings_ui.inl','src/nr_processing_runtime.inl','scripts/build.ps1','src/interop/nr_rr_post_runtime.inl'})
+   expected={'src/nr_before_sr.cpp','src/nr_settings_ui.inl','src/nr_processing_runtime.inl','scripts/build.ps1','src/interop/nr_rr_post_runtime.inl'}
+   if (ROOT/'src/nr_unified_pages.inl').is_file():
+    expected.add('src/nr_unified_pages.inl')
+    pages=(out/'src/nr_unified_pages.inl').read_text()
+    self.assertEqual(pages.count('DrawEditExperimentSettings(next)'),1)
+    self.assertIn('if(DrawEditExperimentSettings(next)){changed=true;discrete=true;}',pages)
+   self.assertEqual(set(m['modified_files']),expected)
    self.assertGreater(len(m['preserved_files']),180)
    for rel in m['preserved_files']:self.assertEqual(stage.digest(ROOT/rel),stage.digest(out/rel),rel)
    original=(out/'edit-integration-manifest.json').read_bytes()

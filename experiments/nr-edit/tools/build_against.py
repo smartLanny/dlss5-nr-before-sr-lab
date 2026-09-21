@@ -48,7 +48,9 @@ def main():
  reshade=dependency(a.reshade,'DLSS5_RESHADE_ROOT',[lab/'toolchains/reshade-source'],'reshade')
  upstream=dependency(a.upstream,'DLSS5_UPSTREAM_ROOT',[lab/'deps/dlss5-dx11-bridge-28aed409'],'upstream')
  compiler=toolchain/'bin/x86_64-w64-mingw32-clang++.exe'
- for required in [compiler,reshade/'include/reshade.hpp',core/'scripts/prepare-multi-api-beta.py']:
+ generator=core/'scripts/prepare-colour4-edge.py'
+ if not generator.is_file():generator=core/'scripts/prepare-multi-api-beta.py'
+ for required in [compiler,reshade/'include/reshade.hpp',generator]:
   required.resolve(strict=True)
  timestamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
  out=(a.output or PACKAGE/'build'/('against-'+commit[:8]+'-'+timestamp)).resolve()
@@ -71,7 +73,7 @@ def main():
   if r.returncode:raise RuntimeError(name+' failed; inspect '+str(log))
  try:
   save();generated=out/'generated';candidate=out/'candidate'
-  run('product-generator',[sys.executable,core/'scripts/prepare-multi-api-beta.py','--core',core,'--upstream',upstream,'--output',generated])
+  run('product-generator',[sys.executable,generator,'--core',core,'--upstream',upstream,'--output',generated])
   if git(core,'rev-parse','HEAD')!=commit or source_snapshot(core)!=before:raise RuntimeError('Target changed during generation; reject this candidate and retry a frozen checkout')
   manifest=integration.stage(generated/'core',candidate,commit)
   report['version']=manifest['base_version'];report['preserved_count']=len(manifest['preserved_files'])

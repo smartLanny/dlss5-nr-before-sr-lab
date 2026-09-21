@@ -1,4 +1,59 @@
-# D21 private SR precision continuation (isolated experiment)
+# Unified5 private SR continuation — isolated, not the base Core
+
+The additive stager now accepts the final `prepare-colour4-edge.py` pipeline,
+puts its controls once on the unified Experiments page, and preserves every
+unrelated generated file. Verified target: `4976ca48` (exact hash in the private
+build manifest), six changed generated files and 219 preserved inputs. Both
+language addons with the full face backend compile. This is an independent
+overlay, not the base unified5 package or a new default.
+
+## Real private Feature1 and neutral-carrier repair (2026-09-21)
+
+`validate_private_sr_ngx.py` includes the frozen production Core, initializes
+the official NGX loader through the unchanged verified bridge, creates a real
+parent SR feature, exercises production owner resolution and the private SR
+state machine, then reads actual NVIDIA GPU output. It never installs into a
+game. Keep the explicit SR runtime beside the test bridge: placing the bridge
+in a separate dependency directory produced `FeatureInitResult=bad00004`;
+the co-located layout made the same runtime available. Both attempts are kept.
+
+The real SR model moved the neutral 0.5 carrier: mean 0.5004882, maximum error
+0.0036621 in this controlled fixture. The old compose then changed a 0.5 clean
+image to mean 0.5039055, maximum error 0.0292969. Shader-only identity tests had
+not exposed this nonidentity response.
+
+The encoder now records whether the FP16 carrier actually contains an edit in
+the existing FP32 tail alpha (0 invalid, 1 valid tail-only, 2 carrier edit).
+The compositor ignores SR's carrier contribution when all contributing taps
+have none, but still adds the exact spatial tail. Explicit nearest-even FP16
+encoding avoids asymmetric truncation around the neutral carrier. No threshold
+discards small residuals; no extra texture or GPU pass was added.
+
+Validation uses actual 320×192 to 640×384 Feature1 inference, including neutral,
+positive and negative carriers, resets, separate parameters and exact release.
+Composition with the real neutral SR output preserves zero, +1/1024 and -1/2048
+edits **exactly at FP16 output**. The frozen old shader fails the same real GPU
+zero-edit oracle. Six-shader WARP checks also preserve signed edits and quantized
+tails under deliberately biased neutral reconstruction. Eight full-source
+staging tests and the private lifecycle/native-once CPU suite pass.
+
+Run with a fresh evidence directory:
+
+```text
+python experiments/nr-edit/tools/validate_private_sr_ngx.py --core <frozen-overlay> --compiler <clang++.exe> --reshade <checkout> --nrchain <verified-bridge.dll> --sr-runtime <existing-nvngx_dlss.dll> --output <fresh-directory>
+```
+
+Limits: synthetic input, no actual Feature18 output or game scene in this host;
+no moving-scene ghosting/occlusion/performance approval. Tail-only correction
+remains spatial. The current-support rule can remove a historical edit where
+the current carrier is neutral; transitions need image-quality testing. The
+preferred post-reconstruction low-resolution route, five-layer integration on
+the latest bridge candidate, and complete SR/RR/OF combinations remain pending.
+This does not establish a separate full-image RR backend.
+
+---
+
+# Historical D21 private SR precision continuation
 
 Imported only this experiment from project commit `04eda2e4`; Core source and
 D21 runtime are unchanged. The older README below is historical build evidence,
