@@ -39,7 +39,8 @@ def main():
               'compiler_sha256': sha(compiler.read_bytes()), 'gpu': False, 'game': False,
               'actual_functions': ['ProcessSubmittedCommandLists', 'CaptureSubmissionBatchLocked',
                                    'CompleteSubmissionBatchLocked', 'QuarantineUnprovenSubmissionLocked',
-                                   'RememberLastSubmissionQueue', 'TrackGraphicsQueueLocked', 'FeedbackAppendTiming'],
+                                   'RememberLastSubmissionQueue', 'TrackGraphicsQueueLocked', 'FeedbackAppendTiming',
+                                   'NrExternalSetTraining', 'NrExternalTrainSubmission'],
               'seams': ['COM list and queue callbacks', 'queue fence creation',
                         'context/slot completion query', 'source/boundary/capture observers'], 'runs': []}
     functions = ('LifecycleCommandList *FindLifecycleCommandListLocked(',
@@ -79,7 +80,12 @@ def main():
                 text = text.replace(anchor, replacement)
             types = text[text.index('constexpr GUID kLifecycleCommandListGuid'):text.index('#include "nr_f8_gpu.inl"')]
             (folder / 'production_types.inl').write_text(types, encoding='utf-8')
-            (folder / 'production_submit.inl').write_text('\n\n'.join(extract(text, f) for f in functions), encoding='utf-8')
+            # Keep the actual inactive-provider fast path in the batch consumer.
+            # Active exact-list training has its own external-provider fixture.
+            training = text[text.index('SRWLOCK g_external_training_lock'):text.index('void ProcessSubmittedCommandLists(')]
+            bodies = [extract(text, f) for f in functions[:-1]]
+            bodies.extend((training, extract(text, functions[-1])))
+            (folder / 'production_submit.inl').write_text('\n\n'.join(bodies), encoding='utf-8')
             for name in ('src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl',
                          'src/nr_timing_feedback.inl', 'tests/submit_batch_cpu.cpp'):
                 (folder / Path(name).name).write_bytes(inputs[name])

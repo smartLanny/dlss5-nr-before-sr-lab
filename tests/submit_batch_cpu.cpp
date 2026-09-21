@@ -155,6 +155,8 @@ void NativeExecute(ID3D12CommandQueue*,UINT,ID3D12CommandList*const*){
 }
 #include "production_submit.inl"
 void Reset(){
+    Check(!g_external_training_pending.load()&&!g_external_training_list&&!g_external_training_queue,
+          "batch fixture has no external training target; actual inactive path retained");
     g_nr_timing={};g_nr_timing_recent_next=0;g_nr_timing_sequence=0;
     for(auto& r:g_lifecycle_command_lists)r={};for(auto& q:g_lifecycle_queues)q={};for(auto& q:g_graphics_queues)q={};
     g_graphics_queue_identity=1;g_lifecycle_tracking_uncertain=false;g_lifecycle_active_command_lists=1;
