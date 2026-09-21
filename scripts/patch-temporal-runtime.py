@@ -10,7 +10,7 @@ def runtime(s,h):
     once=h.once
     s=once(s,'#include "nr_colour_preferences.h"','#include "nr_colour_preferences.h"\n#define NR_HAS_TEMPORAL_RUNTIME 1\n#include "nr_temporal_status.h"\n#include "nr_process_memory.h"\n#include "temporal/recorded_temporal.hpp"','temporal module includes')
     s=once(s,'struct ChainConfig {','struct ChainConfig {\n    unsigned temporal_backend=0,temporal_scope=0;\n    bool temporal_legacy=false;','temporal default off')
-    s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    config.temporal_backend=std::min(config.temporal_backend,2u);\n    config.temporal_scope=std::min(config.temporal_scope,1u);','temporal normalization')
+    s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    if(config.temporal_backend>2u)config.temporal_backend=0;\n    if(config.temporal_scope>1u)config.temporal_scope=0;','temporal normalization')
     s=once(s,'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return ',
         'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_legacy==b.temporal_legacy && ','temporal same config')
     s=once(s,'    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);','', 'obsolete colour read') if '    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);' in s else s
@@ -132,6 +132,10 @@ def apply(stage:Path,inputs,h):
     update('src/nr_region_runtime.inl',lambda s:s.replace('NrSlot& slot,bool field){','NrSlot& slot,bool field,bool primary=false){').replace('auto* packet=field&&slot.dual_selected?', 'auto* packet=field&&!primary&&slot.dual_selected?'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',
         '''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    const auto temporal_memory=nr_temporal::SnapshotMemory();
+    FeedbackAppend(s,"%s.temporal.contexts=live:%u,retired:%u,pending:%u,quarantinedSubset:%u\\n%s.temporal.contextBytes=live:%llu,retired:%llu,pending:%llu,quarantinedSubset:%llu\\n",
+        prefix,temporal_memory.live,temporal_memory.retired,temporal_memory.pending,temporal_memory.quarantined,
+        prefix,temporal_memory.live_bytes,temporal_memory.retired_bytes,temporal_memory.pending_bytes,temporal_memory.quarantined_bytes);
     FeedbackAppend(s,"%s.temporal.state=%s\\n%s.temporal.recorded=%llu\\n%s.temporal.submitted=%llu\\n%s.temporal.declined=%llu\\n%s.temporal.accountedBytes=%llu\\n%s.temporal.peakBytes=%llu\\n%s.temporal.lastSubmitTick=%llu\\n%s.temporal.scope=Core-owned textures plus SDK report; excludes NGX/driver; recorded is not adopted or completed; game quality unverified\\n",
         prefix,nr_temporal_status::Name(nr_temporal_status::state.load()),prefix,nr_temporal_status::recorded.load(),
         prefix,nr_temporal_status::submitted.load(),prefix,nr_temporal_status::rejected.load(),prefix,nr_temporal_status::bytes.load(),

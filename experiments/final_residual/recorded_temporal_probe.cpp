@@ -216,6 +216,7 @@ void finite_pixels(Host& host){
                     if(p%8==4)anchor[p*4]=half(nan);
                     if(p%8==5)target[p*4]=half(nan);
                     if(p%8==6)base[p*4+3]=half(nan);
+                    if(p%8==7){target[p*4]=half(1.3f);target[p*4+1]=half(-.03f);}
                 }
             }
             auto b=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());

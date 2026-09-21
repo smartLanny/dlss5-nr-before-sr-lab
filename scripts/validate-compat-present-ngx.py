@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from temporal_test_objects import objects_for
 
 ROOT=Path(__file__).resolve().parents[1]
 def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -86,7 +87,7 @@ def main():
         if a.native_fg:common.append('-DNR_HOST_NATIVE_FG=1')
         if a.cold_bootstrap:common.append('-DNR_HOST_COLD_BOOTSTRAP=1')
         if a.capture:common.append('-DNR_HOST_FG_CAPTURE=1')
-        objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o']]
+        objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o']]+objects_for(core/'src/nr_before_sr.cpp')
         code=run([compiler,*common,'-static','-municode','-Wl,--gc-sections',host_source,*objs,
             '-o',binary,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-host',240)
     if not code:
@@ -117,7 +118,7 @@ def main():
     result['artifacts']={name:sha(out/name) for name in [binary.name,'ngx-bootstrap.dll','nvngx_dlssnr.dll','nrchain_nvngx.dll'] if (out/name).is_file()}
     result['cold_bootstrap']=a.cold_bootstrap
     result['face_build']={'receipt':str(face_receipt),'sha256':sha(face_receipt),'enabled':bool(face_backend)}
-    result['linked_objects']={str(f.relative_to(core)):sha(f) for f in objs} if 'objs' in locals() else {}
+    result['linked_objects']={str(f):sha(f) for f in objs} if 'objs' in locals() else {}
     if a.cold_bootstrap:
         result['scope']='real NVIDIA; initially absent NGX core; production nrchain official loader and signed Feature18; artificial input; no game, no host Init and no Feature1'
         if (out/'ngx-bootstrap.dll').exists():raise RuntimeError('Cold scenario must not contain a host bootstrap DLL')

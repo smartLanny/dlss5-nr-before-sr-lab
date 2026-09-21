@@ -26,7 +26,7 @@ foreach ($Key in @('colour_lab', 'colour_edge')) {
     }
 }
 $Version = [string]$Product.version
-$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5')
+$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
@@ -118,6 +118,13 @@ if (Test-Path -LiteralPath $NgxLicense) {
     Assert-Hash (Join-Path $CoreBuild 'nrchain_nvngx.dll') ([string]$NgxReceipt.binary_sha256)
 }
 $FaceAssets = [ordered]@{}
+$AmdLicense = $null
+if ($Version -eq 'beta0.5-dline21-unified6') {
+    $TemporalReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'obj/temporal/module.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $TemporalReceipt.passed) { throw 'Temporal backend compilation is not verified.' }
+    $AmdLicense = Join-Path $CoreBuild 'obj/temporal/AMD-FidelityFX-LICENSE.txt'
+    Assert-Hash $AmdLicense ([string]$TemporalReceipt.license_sha256)
+}
 $FaceHashes = @{}
 $FaceReceiptHash = $null
 if ($FaceEnabled) {
@@ -173,6 +180,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
         if (Test-Path -LiteralPath $NgxLicense) { Copy-Item -LiteralPath $NgxLicense -Destination $Package }
+        if ($AmdLicense) { Copy-Item -LiteralPath $AmdLicense -Destination $Package }
         foreach ($Leaf in @($Addon.Name, 'nrchain_nvngx.dll', $CarrierLeaf)) {
             $Evidence = @($Validation.binaries | Where-Object { $_.file -eq $Leaf })
             Assert-Hash (Join-Path $Package $Leaf) ([string]$Evidence[0].sha256)
@@ -212,13 +220,16 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         }
         $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
-        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5')) {
+        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6')) {
             $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
             if ($Version -eq 'beta0.5-dline21-unified4') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED4_UI_EN_20260921.md' } else { 'UNIFIED4_UI_20260921.md' }
             }
             if ($Version -eq 'beta0.5-dline21-unified5') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED5_UI_EN_20260921.md' } else { 'UNIFIED5_UI_20260921.md' }
+            }
+            if ($Version -eq 'beta0.5-dline21-unified6') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED6_UI_EN_20260921.md' } else { 'UNIFIED6_UI_20260921.md' }
             }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)

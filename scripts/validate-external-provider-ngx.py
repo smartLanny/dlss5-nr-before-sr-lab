@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from temporal_test_objects import objects_for
 
 ROOT=Path(__file__).resolve().parents[1]
 def sha(path):
@@ -64,10 +65,10 @@ def main():
         if report['runtime_signature']['status']!='Valid' or 'NVIDIA' not in report['runtime_signature']['subject'].upper():
             raise ValueError('Runtime must have a valid NVIDIA signature')
         inputs=[ROOT/'tests/external_provider_ngx_host.cpp',ROOT/'tests/compat_present_ngx_host.cpp',Path(__file__)]
-        objects=[core/'build/obj'/name for name in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o')]
+        objects=[core/'build/obj'/name for name in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o')]+objects_for(core/'src/nr_before_sr.cpp')
         compiled_header=core/'build/nr_codec_precompiled.h'
         frozen={str(file):sha(file) for file in inputs+objects+[compiled_header,face_path,variant_path,manifest_path]}
-        report['linked_objects']={str(file.relative_to(core)):frozen[str(file)] for file in objects}
+        report['linked_objects']={str(file):frozen[str(file)] for file in objects}
         report['codec_precompiled_sha256']=sha(compiled_header)
         report['fixture_inputs']={str(file.relative_to(ROOT)):sha(file) for file in inputs}
         binary=out/'external-provider-ngx.exe'

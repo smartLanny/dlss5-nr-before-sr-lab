@@ -1,5 +1,5 @@
 """Compile the actual production seam against an exact externally built SDK."""
-import argparse,hashlib,json,subprocess
+import argparse,hashlib,json,subprocess,shutil
 from pathlib import Path
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
@@ -25,5 +25,7 @@ def main():
         record['commands'].append({'command':cmd,'exit':r.returncode});save()
         if r.returncode:raise RuntimeError(r.stderr[-4000:])
         objects.append(str(obj))
+    shutil.copyfile(sdk/'LICENSE.txt',out/'AMD-FidelityFX-LICENSE.txt')
+    record['license_sha256']=sha(out/'AMD-FidelityFX-LICENSE.txt')
     record['passed']=True;record['object_sha256']={p:sha(Path(p)) for p in objects};save()
 if __name__=='__main__':main()

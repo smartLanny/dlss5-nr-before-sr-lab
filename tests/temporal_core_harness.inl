@@ -33,7 +33,8 @@ void Run(){
     // Native single-layer composition is the independent P1 reference.
     {queue_test::List one(f);DispatchCodec(one.native,slot,g_codec.combine,w,h,color,false,0,0,0,0,slot.codec_color_mode,w,h,w,h,1,1);UavBarrier(one.native,slot.result);Submit(f,one);}
     const auto single=ReadTexture(f,output,slot.result_state);Check(single!=before,"nonzero single-layer composition reference");
-    g_config.nr_passes=2;g_config.temporal_scope=1;slot.dual_selected=true;
+    auto later_slot=std::make_unique<NrSlot>();
+    g_config.nr_passes=2;g_config.temporal_scope=1;slot.dual_selected=later_slot.get();
     queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
     Check(FindOrCreateLifecycleQueueLocked(f.a)!=nullptr,"actual queue and fence owner");
     Check(RecordNrUseLocked(list.native,context,slot),"actual Core recording lease");

@@ -2,6 +2,15 @@
 // Original/guide/target leases and actual Execute/Signal remain Core-owned.
 namespace nr_temporal {
 using namespace nr::final_residual;
+struct Memory {unsigned live=0,retired=0,pending=0,quarantined=0;unsigned long long live_bytes=0,retired_bytes=0,pending_bytes=0,quarantined_bytes=0;};
+Memory SnapshotMemory(){
+ Memory out;EnterCriticalSection(&g_chain_cs);
+ const auto collect=[&](const NrContext& c,bool pending){if(!c.temporal)return;const auto bytes=c.temporal->stats().bytes;
+  if(pending){++out.pending;out.pending_bytes+=bytes;}else if(c.retired){++out.retired;out.retired_bytes+=bytes;}else{++out.live;out.live_bytes+=bytes;}
+  if(c.create_dependencies_quarantined||c.lifecycle_dependencies_quarantined){++out.quarantined;out.quarantined_bytes+=bytes;}};
+ for(const auto& c:g_contexts)collect(c,false);for(const auto& c:g_pending_destroy_contexts)collect(c,true);
+ LeaveCriticalSection(&g_chain_cs);return out;
+}
 void Status(unsigned value){nr_temporal_status::state.store(value,std::memory_order_relaxed);}
 bool DropAnchorBindings(NrContext& context){
  if(!context.temporal||!context.temporal->anchor()||!context.binding_pool)return true;
