@@ -238,6 +238,7 @@ std::atomic<NgxResult> fatal_result{{0}};
 std::atomic<const NgxHandle*> fatal_carrier{{nullptr}};
 }}
 #include "nr_native_clear_request.h"
+#include "interop/nr_external_provider_feedback.h"
 // Keep the actual one-call native wrapper; observer storage is a dependency seam.
 struct NrNativeFormatScope {{
     NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
@@ -251,7 +252,8 @@ struct NrRecoveryCarrierScope {{
 
 enum class BypassReason {{
     FailedCreateQuarantine, LifecycleIsolation, MasterDisabled,
-    ModuleObserverInstalling, ModuleObserverUncertain, RayReconstructionGuard
+    ModuleObserverInstalling, ModuleObserverUncertain, RayReconstructionGuard,
+    ExternalNrOwner
 }};
 
 std::atomic<bool> g_enabled_fast{{true}};
@@ -313,6 +315,21 @@ int main() {{
     NgxParams params;
     void* callback = nullptr;
     g_live_rr_handles.store(3);
+
+    // The real external-owner atomic participates in this same admission prefix.
+    // While held, both recognized native handles forward exactly once and do
+    // not reach NR tracking; releasing it restores the existing probe route.
+    nr_external_provider_feedback::owner_provider_id.store(123);
+    auto external = ProcessEvaluate(&Native, &command, &g_sr_first, &params, callback);
+    check(external == kNativeResult && g_native_calls == 1 &&
+              g_reason == BypassReason::ExternalNrOwner &&
+              g_last_carrier_feature.load() == -1, "external-owner-first-native");
+    external = ProcessEvaluate(&Native, &command, &g_sr_second, &params, callback);
+    check(external == kNativeResult && g_native_calls == 2 &&
+              g_reason == BypassReason::ExternalNrOwner &&
+              g_last_carrier_feature.load() == -1, "external-owner-second-native");
+    nr_external_provider_feedback::owner_provider_id.store(0);
+    g_native_calls = 0;
 
     // Two independently recognized Feature 1 handles both reach the same
     // probe boundary even while an inactive RR inventory entry remains.
