@@ -84,7 +84,7 @@ void DrawPostResolutionControl() {
     ImGui::TextUnformatted(ui("NR rendering scale","NR 渲染比例"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
-    ImGui::SliderInt("##post-nr-working-scale",&edit,50,100,"%d%%");
+    ImGui::SliderInt("##post-nr-working-scale",&edit,25,100,"%d%%");
     if(ImGui::IsItemDeactivatedAfterEdit()) {
         options.percent=static_cast<unsigned>(edit);
         nr_post_settings::Request(options);
@@ -92,8 +92,8 @@ void DrawPostResolutionControl() {
     }
     if(held) ImGui::EndDisabled();
     SettingsTooltip(ui(
-        "Controls only post-SR/RR NR work from 50% to 100%. It does not change the game's render scale or enable F6.",
-        "控制 DLSS5 NR AI 渲染的分辨率。数值越高，通常细节越完整，但会占用更多显卡性能，帧率可能降低。此处只调整 NR，游戏本身的分辨率不变。"));
+        "Controls only post-SR/RR NR work from 25% to 100%. It does not change the game's render scale or enable F6.",
+        "控制后置 NR 的工作比例，支持 25–100%。数值越高，通常细节越完整，但会占用更多显卡性能，帧率可能降低。此处只调整 NR，游戏本身的分辨率不变。"));
     if(nr_post_settings::request_rejected.load(std::memory_order_acquire))
         ImGui::TextWrapped(ui("Unsupported request %u%%: previous precision retained, not clamped. F8 TXT for BUG feedback.",
             "不支持 %u%% 请求：保留原精度，不暗中改为其他比例。异常时请 F8 收集 TXT 上传 BUG。"),

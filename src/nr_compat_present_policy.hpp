@@ -42,12 +42,12 @@ struct Options {
     bool fg_off_confirmed=false; // Manual experiment constraint, NOT measured evidence.
     unsigned percent=100;
 };
-inline bool Valid(Options o) noexcept {return o.percent>=50 && o.percent<=100;}
+inline bool Valid(Options o) noexcept {return o.percent>=25 && o.percent<=100;}
 struct Extent {unsigned width=0,height=0;};
 inline bool operator==(Extent a,Extent b) noexcept {return a.width==b.width&&a.height==b.height;}
 inline bool Valid(Extent e) noexcept {return e.width&&e.height&&e.width<=16384&&e.height<=16384;}
 inline Extent WorkExtent(Extent s,unsigned percent) noexcept {
-    if(!Valid(s)||percent<50||percent>100)return {};
+    if(!Valid(s)||percent<25||percent>100)return {};
     if(percent==100)return s;
     return {std::max(1u,unsigned((std::uint64_t(s.width)*percent+50)/100)),
             std::max(1u,unsigned((std::uint64_t(s.height)*percent+50)/100))};

@@ -76,7 +76,7 @@ namespace nr_compat_present_runtime {bool TrySnapshot(nr_compat_present::Observa
 std::atomic<unsigned> g_last_dlss_input_width{1920},g_last_dlss_input_height{1080},g_last_dlss_output_width{3840},g_last_dlss_output_height{2160};
 std::atomic<bool> g_work_request_rejected{false};
 bool item_active=false,item_activated=false,item_released=false,slider_changed=false;
-float slider_value=0,displayed=0;std::string notes,observations;
+float slider_value=0,displayed=0,slider_min=0;std::string notes,observations;
 namespace ImGui {
 bool IsItemActive(){return item_active;}
 bool IsAnyItemActive(){return item_active;}
@@ -85,8 +85,8 @@ bool IsItemDeactivatedAfterEdit(){return item_released;}
 void TextDisabled(const char* format,...) {char text[1024];va_list args;va_start(args,format);
     std::vsnprintf(text,sizeof(text),format,args);va_end(args);observations+=text;}
 }
-bool SettingsSliderFloat(const char*,const char*,float* value,float,float,const char*) {
-    displayed=*value;if(slider_changed)*value=slider_value;return slider_changed;
+bool SettingsSliderFloat(const char*,const char*,float* value,float minimum,float,const char*) {
+    displayed=*value;slider_min=minimum;if(slider_changed)*value=slider_value;return slider_changed;
 }
 void SettingsTooltip(const char*){}
 void SettingsNote(const char* s){notes+=s;}
@@ -175,6 +175,24 @@ int main(){
     check(post_calls==3&&nr_post_settings::Read().percent==77,"rejected request not treated as applied");
     nr_post_settings::reject=false;frame();check(displayed==77,"rejected request refreshes saved value");
     frame(true,true,70);frame(false);frame();check(post_calls==3&&displayed==77,"lost/deactivated item without release discards draft");
+    // The lower post bound must survive the actual widget's observation,
+    // release, persistence field and later route changes without becoming 50.
+    frame();check(slider_min==25,"Post slider starts at 25");
+    frame(true,true,25);frame(false,false,0,true);frame();
+    check(post_calls==4&&displayed==25&&nr_post_settings::Read().percent==25,"Post quarter scale commits and stays displayed");
+    frame(true,true,24);frame(false,false,0,true);frame();
+    check(post_calls==4&&displayed==25,"Post typed below-bound request rejected without publication");
+    saved.processing_start=nr_processing::Start::Present;++g_config_generation;
+    frame();check(slider_min==25,"Present slider starts at 25");
+    frame(true,true,25);frame(false,false,0,true);frame();
+    check(saved.compat_percent==25&&displayed==25,"Present quarter scale preserved after release");
+    saved.processing_start=nr_processing::Start::Before;++g_config_generation;
+    const auto before_calls=apply_calls;frame();check(slider_min==50&&displayed==66,"Before range and saved field preserved");
+    frame(true,true,25);frame(false,false,0,true);frame();
+    check(apply_calls==before_calls&&displayed==66&&saved.compat_percent==25,"Before rejects quarter scale and retains other route");
+    frame(false,false,0,false,true);check(slider_min==25&&displayed==25,"RR uses saved quarter Post request even when Before selected");
+    saved.processing_start=nr_processing::Start::Present;nr_processing_runtime::fg=true;++g_config_generation;
+    frame();check(slider_min==25&&displayed==25,"FG redirected compatibility uses quarter Post request");
     std::puts("Production working-scale widget + overlay footer: fallback, drag/release, RR/FG, external config/revision, locked race and rejection passed");
 }
 '''

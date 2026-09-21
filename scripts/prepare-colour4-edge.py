@@ -98,4 +98,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated unified6 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified7 source only; Windows/GPU/game verification is separate.')

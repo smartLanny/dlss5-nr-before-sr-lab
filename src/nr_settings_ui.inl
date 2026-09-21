@@ -754,17 +754,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
     static nr_precision_ui::Edit scale_edit;
     float precision=scale_edit.Observe(scale_target,current.generation,post_revision,
-        next.processing_selection,std::clamp(saved_precision,50.f,100.f));
+        next.processing_selection,std::clamp(saved_precision,nr_precision_ui::MinimumPercent(scale_target),100.f));
     const auto edit_target=scale_edit.target;
     const char* request_name=edit_target==nr_precision_ui::Target::Before
         ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
     const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
-        "##nr-processing-precision", &precision, 50.0f, 100.0f,"%.0f%%");
+        "##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
-        if (edit_target==nr_precision_ui::Target::Present) {
+        if (!nr_precision_ui::SupportedPercent(scale_edit.preview,edit_target)) {
+            scale_edit.conflict=true;
+        } else if (edit_target==nr_precision_ui::Target::Present) {
             next.compat_percent=static_cast<unsigned>(std::lround(scale_edit.preview));
             changed=true;
         } else if (edit_target==nr_precision_ui::Target::Post) {
@@ -787,8 +789,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
     }
     SettingsTooltip(ui(
-        "Sets the selected start from 50% to 100%, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
-        "设置所选起点的比例，所有层共用且仅乘一次；自动降级不切换保存字段。RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变；实际路线和尺寸单独显示。"));
+        "Sets 50-100% before upscaling, or 25-100% after upscaling and in Compatibility, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
+        "前置支持 50–100%，后置与兼容支持 25–100%；所有层共用且仅乘一次。自动降级不切换保存字段；RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变，实际路线和尺寸单独显示。"));
     if (scale_edit.conflict)
         SettingsNote(ui("The scale edit was not applied: its target or settings changed, or the request was unavailable. Release and adjust the current value again.",
             "比例编辑未应用：编辑目标或设置已变化，或请求暂不可用。请松手后按当前值重新调整。"));

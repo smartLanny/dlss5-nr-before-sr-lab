@@ -826,7 +826,10 @@ float RebuildEps(bool result_fp16) {
 
 void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
              NeuralMode neural_mode) {
-    constexpr unsigned ow = 64, oh = 48;
+    // At 25%, 128x96 -> 32x24 is exactly aligned. The old 64x48 fixture
+    // rounded the requested 16-wide model back to 32 and missed 4:1 filtering.
+    const unsigned ow = percent == 25 ? 128u : 64u;
+    const unsigned oh = percent == 25 ? 96u : 48u;
     constexpr unsigned dx = 3, dy = 2;
     Require(dx != 0 && dy != 0, "test must use nonzero destination offsets");
 
@@ -838,6 +841,8 @@ void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
     Require(nw > 0 && nh > 0 && nw <= ow && nh <= oh, "Npost extent invalid");
     if (percent == 100)
         Require(nw == ow && nh == oh, "100% must be exact O reference");
+    if (percent == 25)
+        Require(nw * 4 == ow && nh * 4 == oh, "25% must exercise actual 4:1 filtering after alignment");
 
     const bool result_fp16 = profile.format == DXGI_FORMAT_R16G16B16A16_FLOAT;
     const bool simple_sdr = (profile.passthrough & 16u) != 0u ||
@@ -1372,7 +1377,7 @@ int main(int argc, char **argv) {
         unsigned scenarios = 0;
         for (const auto &profile : profiles) {
             if (only != nullptr && std::strcmp(profile.name, only) != 0) continue;
-            for (unsigned percent : {50u, 67u, 75u, 100u}) {
+            for (unsigned percent : {25u, 50u, 67u, 75u, 100u}) {
                 RunCase(gpu, profile, percent, NeuralMode::Identity);
                 RunCase(gpu, profile, percent, NeuralMode::Perturb);
                 scenarios += 2;

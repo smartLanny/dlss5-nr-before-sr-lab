@@ -146,6 +146,7 @@ RetirementStats RecordedTemporal::collect_retired() noexcept {
     }AmdOfProducer::collect_retired();return stats;
 }
 bool RecordedTemporal::initialized()const noexcept{return p_->ready&&!p_->fault;}
+bool RecordedTemporal::releasable()const noexcept{return p_->destroyable();}
 const char* RecordedTemporal::status()const noexcept{return p_->message.c_str();}
 TemporalStats RecordedTemporal::stats()const noexcept{return p_->counters;}
 ID3D12Resource* RecordedTemporal::anchor()const noexcept{return p_->first.Get();}

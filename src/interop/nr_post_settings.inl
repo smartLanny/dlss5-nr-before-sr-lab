@@ -38,7 +38,7 @@ bool Reject(unsigned percent) {
     const bool was_rejected=request_rejected.exchange(true,std::memory_order_acq_rel);
     const unsigned previous=rejected_percent.exchange(percent,std::memory_order_acq_rel);
     if(!was_rejected || previous!=percent)
-        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 50-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
+        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 25-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
     return false;
 }
 bool PrepareRequestLocked(Options& value) {

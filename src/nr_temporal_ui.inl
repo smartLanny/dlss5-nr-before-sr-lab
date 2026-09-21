@@ -18,6 +18,9 @@ void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
         else if(state==6)SettingsNote(ui("Waiting for a recording/resource slot; current NR result retained.","等待录制／资源槽，保留当前 NR 结果。"));
         else if(state==3)SettingsNote(ui("Creation budget or resource retirement unavailable; current NR result retained.","创建预算或资源退休条件不足，保留当前 NR 结果。"));
         else if(state==5)SettingsNote(ui("Native motion source, units or sampling phase could not be proven. AMDOF is a separate manual choice.","尚不能确认原生运动来源、单位或采样相位。可手动另选 AMDOF。"));
+        else if(state==15)SettingsNote(ui("The current source did not provide motion vectors.","当前来源未提供运动向量。"));
+        else if(state==16)SettingsNote(ui("Native motion was provided, but its units are invalid or unverified.","已提供原生运动，但单位无效或未确认。"));
+        else if(state==17)SettingsNote(ui("Native motion exists, but a safe snapshot was not prepared; NR continues without stabilization.","原生运动存在，但尚未取得安全快照；继续 NR，暂不执行防闪。"));
         else if(state==12)SettingsNote(ui("Current candidate format or active snapshot does not match the temporal consumer; NR result retained.","当前候选格式或有效区域快照不满足防闪输入约定，保留 NR 结果。"));
         else if(state==13)SettingsNote(ui("Repeated source frame; no additional flow or history work.","重复源帧，不追加光流或历史工作。"));
         else SettingsNote(ui("Waiting for the supported route and source/queue evidence; selection alone does not mean stabilization is running.","等待支持的路线及来源／队列证据；选择功能不代表已经执行防闪。"));

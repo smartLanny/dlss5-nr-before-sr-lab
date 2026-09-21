@@ -47,8 +47,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if(SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
         nr_colour_preferences::Remember(next);changed=true;
     }
-    SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.5, conservative to 1.0.",
-        "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.5，保守颜色默认 1.0。"));
+    SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.7, conservative to 1.0.",
+        "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.7，保守颜色默认 1.0。"));
     ImGui::EndDisabled();
     if(next.color_strength==0.f)SettingsNote(ui("Game colour retained.","保留游戏原色。"));
     SettingsNote(colour_policy?ui("Conservative: unverified HDR colour is blocked; other supported inputs still use the strength above.","保守颜色：限制未确认的 HDR 调色；其他可用输入仍采用上方强度。"):
@@ -97,17 +97,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
     static nr_precision_ui::Edit scale_edit;
     float precision=scale_edit.Observe(scale_target,current.generation,post_revision,
-        next.processing_selection,std::clamp(saved_precision,50.f,100.f));
+        next.processing_selection,std::clamp(saved_precision,nr_precision_ui::MinimumPercent(scale_target),100.f));
     const auto edit_target=scale_edit.target;
     const char* request_name=edit_target==nr_precision_ui::Target::Before
         ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
     const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
-        "##nr-processing-precision", &precision, 50.0f, 100.0f,"%.0f%%");
+        "##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
-        if (edit_target==nr_precision_ui::Target::Present) {
+        if (!nr_precision_ui::SupportedPercent(scale_edit.preview,edit_target)) {
+            scale_edit.conflict=true;
+        } else if (edit_target==nr_precision_ui::Target::Present) {
             next.compat_percent=static_cast<unsigned>(std::lround(scale_edit.preview));
             changed=true;
         } else if (edit_target==nr_precision_ui::Target::Post) {
@@ -130,8 +132,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
     }
     SettingsTooltip(ui(
-        "Sets the selected start from 50% to 100%, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
-        "设置所选起点的比例，所有层共用且仅乘一次；自动降级不切换保存字段。RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变；实际路线和尺寸单独显示。"));
+        "Sets 50-100% before upscaling, or 25-100% after upscaling and in Compatibility, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
+        "前置支持 50–100%，后置与兼容支持 25–100%；所有层共用且仅乘一次。自动降级不切换保存字段；RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变，实际路线和尺寸单独显示。"));
     if (scale_edit.conflict)
         SettingsNote(ui("The scale edit was not applied: its target or settings changed, or the request was unavailable. Release and adjust the current value again.",
             "比例编辑未应用：编辑目标或设置已变化，或请求暂不可用。请松手后按当前值重新调整。"));
@@ -175,8 +177,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.nr_full_reference=false;next.nr_full_passes=3;
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
-            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, colour 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
-                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、颜色0.5、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
+            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, conservative colour 1.0, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
+                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、保守颜色1.0、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

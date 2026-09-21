@@ -71,6 +71,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Auxiliary allocation/history separation gate f
 & python (Join-Path $PSScriptRoot 'validate-aux-parent-retirement.py') --compiler $Cxx --output $MemoryGate
 if ($LASTEXITCODE -ne 0) { throw 'Auxiliary parent retirement/fence/memory gate failed.' }
 if ($QualitySuccessor) {
+    $ResetObservationProbe = $Output + '.reset-observation.exe'
+    & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $Root 'tests/reset_observation_test.cpp') '-o' $ResetObservationProbe
+    if ($LASTEXITCODE) { throw 'Reset observation schema test compilation failed.' }
+    & $ResetObservationProbe
+    if ($LASTEXITCODE) { throw 'Reset observation schema/count/source identity regression failed.' }
     & python (Join-Path $PSScriptRoot 'validate-context-release-admission.py') --compiler $Cxx --output ($Output + '.create-release-checks')
     if ($LASTEXITCODE) { throw 'Model replacement release ordering and route preservation failed.' }
     & python (Join-Path $PSScriptRoot 'validate-submit-batch.py') --compiler $Cxx --output ($Output + '.submit-checks')

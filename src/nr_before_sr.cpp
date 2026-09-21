@@ -1549,7 +1549,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 void NormalizeConfig(ChainConfig &config) {
     config.retry_original_on_sr_failure=false;
     if(!nr_processing::Valid(config.processing_start))config.processing_start=nr_processing::FromLegacy(config.mode);
-    config.compat_percent=std::clamp(config.compat_percent,50u,100u);
+    config.compat_percent=std::clamp(config.compat_percent,25u,100u);
     config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);

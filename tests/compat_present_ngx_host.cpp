@@ -95,12 +95,13 @@ int wmain(int argc,wchar_t** argv){
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
         Check(argc==4,"usage: host runtime-directory passes scale-percent");const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
-        Check(passes>=1&&passes<=5&&(scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
+        Check(passes>=1&&passes<=5&&(scale==25||scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
         nr_layers::Migrate(g_config.nr_layers,passes,nr_layers::Primary(g_config));
         for(unsigned i=1;i<passes;++i){auto& layer=g_config.nr_layers[i-1];
             layer.intensity=1.0f+0.1f*i;layer.local_tone=0.8f+0.05f*i;layer.local_structure=0.7f+0.05f*i;}
         g_config.compat_percent=scale;g_config.warmup_after_create=2;NormalizeConfig(g_config);
+        Check(g_config.compat_percent==scale,"normalization preserves selected Present scale");
         Check(present::RequestedPasses(g_config)==passes,"production active independent layer count");
         g_config.transfer_strength=1.0f;g_config_generation.store(1);
         swprintf_s(g_log_path,L"%ls\\present-ngx.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);

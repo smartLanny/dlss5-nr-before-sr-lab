@@ -32,7 +32,7 @@ int main(){try{
     nr_layers::Model invalid;invalid.intensity=std::numeric_limits<float>::quiet_NaN();invalid.local_tone=10;invalid.style=99;
     invalid.auto_mask=true;invalid.skin_structure=-1;nr_layers::Normalize(invalid);
     Check(invalid.intensity==1.5f&&invalid.local_tone==2&&invalid.style==2&&invalid.skin_structure==0,"invalid per-layer controls normalized consistently");
-    for(unsigned count=2;count<=5;++count)for(unsigned percent:{100u,75u,50u}){
+    for(unsigned count=2;count<=5;++count)for(unsigned percent:{100u,75u,50u,25u}){
         const nr_dual::Extent grid{1920*percent/100,1080*percent/100};
         const auto plan=nr_full::MakePlan({true,count},grid);
         Check(bool(plan)&&!plan.reduced,"whole-chain work scale never adds a second reduction");

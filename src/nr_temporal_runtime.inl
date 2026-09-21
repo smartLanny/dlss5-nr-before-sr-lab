@@ -23,9 +23,24 @@ bool DropAnchorBindings(NrContext& context){
 }
 bool ReleaseIdle(NrContext& context){
  if(!context.temporal)return true;
- if(context.temporal_token||context.recording_command_lists||!IsContextFenceCompleteLocked(context)||!DropAnchorBindings(context))return false;
+ // An unrelated, newly recorded NR frame cannot extend the lifetime of the
+ // old stabilizer. Its own leases/fences and P1 bindings are authoritative.
+ // Keep the Core's hard uncertainty gates; temporal proof cannot repair NGX
+ // recording or submission uncertainty in its parent context.
+ if(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)||
+    context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined||
+    context.temporal_token||!context.temporal->releasable()||!DropAnchorBindings(context))return false;
  nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
- delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;return true;
+ delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;
+ context.temporal_retry_tick=0;context.temporal_attempt_generation=0;return true;
+}
+void Maintain(NrContext& context){
+ if(!context.temporal)return;
+ const unsigned requested=g_config.temporal_backend|(g_config.temporal_scope<<8);
+ if(!g_config.enabled||!g_config.temporal_backend||context.retired||
+    nr_processing_runtime::Effective()!=nr_processing::Start::After||
+    !context.temporal->initialized()||context.temporal_key!=requested)
+  (void)ReleaseIdle(context);
 }
 struct Prepared {
  RecordedTemporal* runtime=nullptr;
@@ -35,7 +50,8 @@ struct Prepared {
  explicit operator bool()const{return runtime!=nullptr;}
 };
 Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
- const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y){
+ const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
+ bool native_motion_snapshot=false){
  Prepared out;
  if(!g_config.temporal_backend){Status(0);(void)ReleaseIdle(context);return out;}
  Status(1);
@@ -73,8 +89,11 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
   // Native MV is sampled directly while its existing Evaluate lease is valid.
   // Scales are the game's original units, then converted to THIS output grid;
   // do not use model-work-grid scales after WorkingScale was applied.
-  if(!sig.resample_motion||!slot.motion_proxy||!guides.capture_params.game_mv_valid||(feature.create_flags&4)||
-     !context.width||!context.height){Status(5);return {};}
+  if(!guides.motion){Status(15);return {};}
+  if(!guides.valid_motion_scale_x||!guides.valid_motion_scale_y||
+     !guides.capture_params.game_mv_valid){Status(16);return {};}
+  if((feature.create_flags&4)||!context.width||!context.height){Status(5);return {};}
+  if(!native_motion_snapshot||!slot.motion_proxy){Status(17);return {};}
   // Consume the Core's already prepared native-MV surface; do not guess the
   // game's resource state after an opaque SR call. It stores the original
   // vector values, while the signature carries conversion to model texels.

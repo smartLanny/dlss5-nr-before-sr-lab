@@ -76,9 +76,13 @@ int main(){
  Request({true,75});CHECK(g_config_generation==gen&&g_history_generation==hist);
  CHECK(revision.load()>request_revision); // invalidate a stale concurrent read even on no-op
 
- for(unsigned invalid:{1u,49u,101u,1000u,0xffffffffu}) {
+ for(unsigned invalid:{1u,24u,101u,1000u,0xffffffffu}) {
   CHECK(!Request({false,invalid}));
   CHECK(Read().rr&&Read().percent==75&&pct_ini==75&&rr_ini==1&&request_rejected);
+ }
+ for(unsigned accepted:{25u,26u,49u,50u,75u,100u}) {
+  CHECK(Request({false,accepted}));
+  CHECK(Read().rr&&Read().percent==accepted&&pct_ini==accepted&&rr_ini==1&&!request_rejected);
  }
  CHECK(Request({false,50}));CHECK(Read().rr&&Read().percent==50&&pct_ini==50&&rr_ini==1);
  nr_f8::g_config_hold=true;auto previous=bits.load();auto previous_writes=writes;
@@ -99,7 +103,9 @@ int main(){
  g_config.enabled=true;pct_ini=0;tick+=1000;Poll();
  CHECK(!g_config.enabled&&Read().percent==75&&pct_ini==75);
  g_config.enabled=true;tick+=1000;Poll();CHECK(g_config.enabled);
- pct_ini=49;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==75&&request_rejected);
+ pct_ini=25;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==25&&!request_rejected);
+ CHECK(Request({true,75}));
+ pct_ini=24;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==75&&request_rejected);
  nr_f8::g_config_hold=true;CHECK(!Request({true,0}));CHECK(g_config.enabled);
  nr_f8::g_config_hold=false;
  // Capture changes are temporary, require the existing hold, and restore the
@@ -107,9 +113,9 @@ int main(){
  auto saved=Read();auto capture_writes=writes;auto mode=g_config.mode;
  CHECK(!RequestForCapture({false,50}));
  nr_f8::g_config_hold=true;g_config.enabled=false;
- CHECK(RequestForCapture({false,50}));CHECK(Read().rr&&Read().percent==50);
- CHECK(!RequestForCapture({true,0}));CHECK(!RequestForCapture({true,49}));
- CHECK(!RequestForCapture({true,101}));CHECK(Read().percent==50);
+ CHECK(RequestForCapture({false,25}));CHECK(Read().rr&&Read().percent==25);
+ CHECK(!RequestForCapture({true,0}));CHECK(!RequestForCapture({true,24}));
+ CHECK(!RequestForCapture({true,101}));CHECK(Read().percent==25);
  CHECK(RequestForCapture(saved));CHECK(Read().percent==saved.percent);
  CHECK(writes==capture_writes&&g_config.mode==mode&&!g_config.enabled&&locks==0);
  nr_f8::g_config_hold=false;
@@ -117,7 +123,7 @@ int main(){
  FeedbackSession current;EmitPostFeedback(current);
  CHECK(current.text.find("capture.post.request.percent=75\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.requestRejected=1\n")!=std::string::npos);
- CHECK(current.text.find("capture.post.rejectedPercent=49\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.rejectedPercent=24\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.rr.nrRecordings=1\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.evaluateEntries=900\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.rr.srGuarded=12\n")!=std::string::npos);

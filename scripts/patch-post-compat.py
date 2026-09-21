@@ -318,7 +318,7 @@ def patch_ui(text: str) -> str:
     refreshed = '    const bool rr_guarded = IsRayReconstructionRouteObserved();'
     if refreshed in text:
         for required in (
-                '"##nr-processing-precision", &precision, 50.0f, 100.0f',
+                '"##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f',
                 'DrawSimpleFeedbackControls();',
                 'nr_f8::TakeSettingsFeedbackPageRequest()',
                 '"Feedback and diagnostics###nr-feedback-diagnostics"',

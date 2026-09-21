@@ -185,7 +185,7 @@ class SourcePatch(unittest.TestCase):
     def test_ui_is_real_control_not_global_mode_write(self):
         ui=(ROOT/'src/interop/nr_post_ui.inl').read_text(encoding='utf-8')
         self.assertIn('nr_post_settings::Request',ui)
-        self.assertIn('SliderInt("##post-nr-working-scale",&edit,50,100',ui)
+        self.assertIn('SliderInt("##post-nr-working-scale",&edit,25,100',ui)
         self.assertNotIn('for(int percent',ui)
         self.assertNotIn('Use RR -> NR when Ray Reconstruction is active',ui)
         self.assertIn('IsRayReconstructionRouteObserved()',ui)
@@ -203,7 +203,7 @@ class SourcePatch(unittest.TestCase):
         out=m.patch_ui(source)
         self.assertEqual(out,source)
         self.assertNotIn('Reduced post-SR precision is not implemented',out)
-        self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f',out)
+        self.assertIn('"##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f',out)
         self.assertIn('IsRayReconstructionRouteObserved()',out)
         self.assertIn('DrawSimpleFeedbackControls();',out)
         self.assertIn('"Feedback and diagnostics###nr-feedback-diagnostics"',out)

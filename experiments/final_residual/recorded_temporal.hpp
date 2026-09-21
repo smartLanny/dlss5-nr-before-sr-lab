@@ -46,6 +46,9 @@ public:
     bool initialized() const noexcept;
     const char* status() const noexcept;
     bool can_record() const noexcept;
+    // All of this instance's recordings must be non-replayable and its final
+    // consumers complete. Unrelated NR recordings do not own these resources.
+    bool releasable() const noexcept;
     ID3D12Resource* anchor() const noexcept; // FP16, UAV; only allocated for LaterLayers.
     RecordResult record(ID3D12GraphicsCommandList*,const RecordedInputs&) noexcept;
     bool submitted(ID3D12Fence* exact_last_consumer,Id value,Id recording_lease=0) noexcept;
