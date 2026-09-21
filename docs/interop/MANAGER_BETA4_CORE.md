@@ -111,3 +111,51 @@ Query / Release, then repeat using each pinned component itself. A controlled
 host's synthetic guides do not certify the component's guide extraction,
 Vulkan/IPC synchronization, motion semantics, or game output. No GPU run was
 performed for this adapter batch.
+
+## Complete component staging for Beta4
+
+`scripts/stage-manager-core-component.py` consumes a completed canonical build
+and the two packages already accepted by `package-multi-api-candidate.ps1`.
+It does not bypass that packager's validation or manufacture a validation file.
+
+```text
+python scripts/stage-manager-core-component.py
+  --build-root <complete-build-root>
+  --packages-root <verified-bilingual-package-root>
+  --manager-components <Beta4-components-manifest.json>
+  --manager-source <exact-Beta4-source-checkout>
+  --output <new-component-directory>
+```
+
+Each language directory contains its Core, same-source nrchain, matched carrier,
+the exact generated first-install INI, seven pinned face files, licenses and
+sanitized build/configuration receipts. The root `manager-core-handoff.json`
+records every delivered file's byte size and SHA-256. Source manifest, binary
+receipt, face build receipt, fixed face assets, input package inventory and all
+copied outputs are independently checked. Duplicate file identities, unsafe
+paths, modified assets, incomplete face packages and duplicate INI templates
+are rejected. Existing user INI files are never parsed or overwritten by this
+tool; their actual parsing authority remains the Core Windows profile API.
+
+The result is a complete **Core component**, with explicit Manager-owned
+ReShade and RTX-family NVIDIA runtime dependencies. It is not a standalone
+installer. The carrier is included for the selected compatible route; it must
+not be installed automatically into native D3D12 games. Provider-v1 exports
+are recorded only if present in the actual x64 PE. External route automatic
+enablement stays false pending actual component/GPU/game validation.
+
+The tool executes the exact Beta4 identity and reset code read-only. Beta4
+`211a8557` recognizes the uniform settings identity through its two fixed
+unified3 Core hashes; a newly built Core requires an identity registration.
+Its current field contract does not expose `ColourLabMode`, and its historical
+reset defaults cannot stand in for current generated colour defaults. The
+handoff includes the actual detected identity, pristine template values and
+reset differences, with `managerEditingReady=false`. The Manager owner must
+import the new identities and updated settings contract before full editing.
+No Manager files are modified by this adapter or staging tool.
+
+The staging tool was exercised against the existing fully validated bilingual
+unified3 build: both component inventories were re-read and verified. That
+reference validates packaging mechanics, not a new adapter binary. The final
+unified5 stage must be regenerated from its own completed build and packages.
+Seven focused Python input-rejection tests pass; they make no runtime claims.
