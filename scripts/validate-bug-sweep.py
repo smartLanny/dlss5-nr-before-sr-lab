@@ -258,6 +258,7 @@ int main() {
 
     def test_native_hook_enable_failure_retries_its_own_trampoline(self) -> None:
         functions = "\n".join(definition(source, marker) for marker in (
+            "bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue) {",
             "bool EnsureNativeQueueExecuteHook(",
             "bool EnsureNativeCommandListResetHookForNative(",
             "bool EnsureNativeCommandListResetHook("))
