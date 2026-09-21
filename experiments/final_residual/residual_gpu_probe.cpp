@@ -208,6 +208,9 @@ void residual_retirement(Host& host){
     std::puts("PASS bounded residual retirement: four pending, fifth refused, completion reclaims all");
 }
 }
-int main(){try{Host host;run_controlled(host);run_actual_amd(host);residual_retirement(host);host.validate_debug();
+#include "residual_finite_probe.inl"
+int main(int argc,char** argv){try{Host host;
+    if(argc>1&&std::strcmp(argv[1],"--finite-only")==0){run_finite_pixels(host);host.validate_debug();std::printf("PASS special-value GPU checks=%u residual_dispatches=2 AMD_dispatches=0\n",checks);return 0;}
+    run_controlled(host);run_actual_amd(host);residual_retirement(host);host.validate_debug();
     std::printf("PASS final signed residual checks=%u actual_AMD_sources=12 residual_dispatches=24\n",checks);return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);std::fflush(stdout);return 1;}}
