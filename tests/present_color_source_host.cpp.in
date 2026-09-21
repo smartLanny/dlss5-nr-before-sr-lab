@@ -6,6 +6,7 @@
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
 #include "nr_fg_presentation.h"
+#include "interop/nr_external_provider_feedback.h"
 using namespace nr_source_frame;
 struct ID3D12CommandQueue {Id identity=7;};
 struct ID3D12Fence {Id value=1;};
@@ -216,5 +217,10 @@ int main(){
     Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"new surface epoch cannot reuse pre-init content or old prepared lease");
     lineage.Reset(recording);lineage.Clear(recording,color.identity);lineage.Submit(recording,7,true);
     Check(Admit()&&present_lease.application_epoch!=old_epoch,"fresh full write after reinitialization uses new surface generation");
+    ApplicationSeed();Check(Admit(),"application source prepared before external claim");
+    nr_external_provider_feedback::owner_provider_id.store(42);
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"external ownership blocks existing prepared work and new native Present admission");
+    nr_external_provider_feedback::owner_provider_id.store(0);
+    ApplicationSeed();Check(Admit(),"external release permits a new valid application frame");
     std::printf("Present color source HOST: %u checks / 0 failures; actual admission and consumer; no GPU/NGX/game\n",checks);
 }

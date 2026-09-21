@@ -161,5 +161,22 @@ int main(){
      Check(!q.Admitted()&&!q.CanReuse(),"device removal fence sentinel rejected");q.completed=5;q.consumer_queue=9;
      Check(!q.Admitted(),"unproven cross queue rejected");q.consumer_queue=2;q.value=0;
      Check(!q.CanReuse(),"zero fence cannot retire");}
+    {using namespace source_producers;
+     const auto first=PublishExternalSource(800,900,1,1,7);
+     const auto duplicate=PublishExternalSource(800,900,1,1,7);
+     const auto other=PublishExternalSource(801,900,1,1,7);
+     Check(bool(first)&&first==duplicate&&first.stream!=other.stream,"external provider/view keys and duplicate frames retain exact source identity");
+     bool truthful=false;for(const auto& p:producers)if(p.stream==first.stream)truthful=p.external&&!p.native;
+     Check(truthful&&NativeProducerOnDevice(7),"external ownership blocks independent application fallback without native provenance");
+     const auto ticket=claims.Begin({first,Role::Application},Point::Present);
+     Check(bool(ticket)&&claims.Record(ticket),"external frame uses production source claim");
+     Check(!claims.Begin({duplicate,Role::Application},Point::Present),"recorded external duplicate cannot record twice");
+     Check(claims.Complete(ticket,true,true),"external exact completion closes actual source claim");
+     const auto resized=PublishExternalSource(800,900,2,1,7);
+     Check(bool(resized)&&resized.stream!=first.stream,"external epoch selects independent resize lifetime");
+     RetireExternalProvider(800);
+     Check(!ProducerActive(first)&&!ProducerActive(resized)&&ProducerActive(other),"provider exit retires all own epochs and preserves other owner");
+     RetireExternalProvider(801);Check(!ProducerActive(other),"final external owner retires");
+    }
     std::printf("source-frame: %u checks passed\n",checks);
 }
