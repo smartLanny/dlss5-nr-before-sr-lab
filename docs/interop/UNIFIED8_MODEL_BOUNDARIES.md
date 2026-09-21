@@ -99,6 +99,9 @@ NVIDIA results distinct from the CPU audit above and from model-DLL A/B.
 
 ## Remaining real-model experiments
 
+The flat-scene hot/cold comparison above is complete; do not repeat it as an
+unfinished delivery gate. Further work needs a richer captured sequence that
+can distinguish parameter effects, motion or exposure changes.
 Use this one fixed signed DLL, one explicitly selected model setting change,
 one complete compatible captured P/depth/MV sequence and the same work raster.
 Record actual typed parameters immediately before every Create/Evaluate, actual
