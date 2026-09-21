@@ -24,8 +24,8 @@ def main():
         'game_verified':False,'packaged_feeder_verified':False,'native_sr_verified':False,'fg_verified':False,
         'scope':'whole production Core; real D3D12 queue/list/fence; synthetic colour/depth/motion; real signed Feature18; no runtime function substitutions',
         'commands':[]}
-    def run(command,label,timeout=240):
-        try:r=subprocess.run([str(x) for x in command],cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout)
+    def run(command,label,timeout=240,env=None):
+        try:r=subprocess.run([str(x) for x in command],cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout,env=env)
         except subprocess.TimeoutExpired as error:
             def text(value):return value.decode('utf-8','replace') if isinstance(value,bytes) else value or ''
             r=subprocess.CompletedProcess(command,124,text(error.stdout),text(error.stderr)+'\nBounded test timed out; failure retained.\n')
@@ -53,9 +53,13 @@ def main():
         # Only a real vendor-signed private runtime is admitted. Path is passed
         # as an environment value rather than interpolated PowerShell code.
         os.environ['NR_EXTERNAL_HOST_RUNTIME']=str(a.nr_runtime.resolve(strict=True))
+        signature_env=os.environ.copy()
+        # Windows PowerShell must use its own built-in modules, not inherited
+        # PowerShell 7 module paths from the invoking development shell.
+        signature_env={key:value for key,value in signature_env.items() if key.casefold()!='psmodulepath'}
         signature=run(['powershell.exe','-NoProfile','-NonInteractive','-Command',
-            '$s=Get-AuthenticodeSignature -LiteralPath $env:NR_EXTERNAL_HOST_RUNTIME; '
-            '@{status=[string]$s.Status;subject=$s.SignerCertificate.Subject;thumbprint=$s.SignerCertificate.Thumbprint}|ConvertTo-Json -Compress'], 'runtime-signature')
+            '$ErrorActionPreference="Stop"; $s=Get-AuthenticodeSignature -LiteralPath $env:NR_EXTERNAL_HOST_RUNTIME; '
+            '@{status=[string]$s.Status;subject=$s.SignerCertificate.Subject;thumbprint=$s.SignerCertificate.Thumbprint}|ConvertTo-Json -Compress'], 'runtime-signature',env=signature_env)
         report['runtime_signature']=json.loads(signature)
         if report['runtime_signature']['status']!='Valid' or 'NVIDIA' not in report['runtime_signature']['subject'].upper():
             raise ValueError('Runtime must have a valid NVIDIA signature')

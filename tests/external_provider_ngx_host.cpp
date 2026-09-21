@@ -93,7 +93,12 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace host
         if(layers==2){g_config.nr_layers[0].intensity=1.1f;g_config.nr_layers[0].local_structure=.75f;}
         g_config.compat_percent=100;g_config.warmup_after_create=2;NormalizeConfig(g_config);g_config_generation=1;
         nr_processing_runtime::Reconcile();
-        swprintf_s(g_log_path,L"%ls\\external-provider-%u.log",argv[1],layers);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);
+        swprintf_s(g_log_path,L"%ls\\external-provider-%u.log",argv[1],layers);swprintf_s(g_ini_path,L"%ls\\host-%u.ini",argv[1],layers);
+        // The external ABI intentionally calls SnapshotConfig/ReloadConfig.
+        // Persist the fixture through the real writer, so missing INI defaults
+        // cannot silently replace its in-memory two-layer request at Claim.
+        Check(SaveConfig(g_config),"persist actual independent layer fixture");ReloadConfig(true);nr_processing_runtime::Reconcile();
+        Check(nr_layers::Active(g_config.nr_layers)==layers,"actual INI reload preserves requested layer count");
         IDXGIFactory4* factory=nullptr;IDXGIAdapter1* adapter=nullptr;ID3D12Device* device=nullptr;ID3D12CommandQueue* queue=nullptr;
         Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
         for(unsigned i=0;IDXGIFactory4_EnumAdapters1(factory,i,&adapter)!=DXGI_ERROR_NOT_FOUND;++i){DXGI_ADAPTER_DESC1 desc{};IDXGIAdapter1_GetDesc1(adapter,&desc);
@@ -120,7 +125,9 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace host
         for(unsigned attempt=1;attempt<=32&&writes<3;++attempt){
             io.Fill();RecordState(io);frame.frame_id=attempt;frame.fence_value=io.serial+1;
             const auto done_before=nr_external_provider_feedback::completion_frames.load();NrExternalSubmitResultV1 result{};
+            const auto second_before=nr_dual_runtime::second_evaluations.load();
             const auto accepted=NRExternalProvider_SubmitFrameV1(kNrExternalProviderAbi,&frame,&result);
+            Check(nr_layers::Active(g_config.nr_layers)==layers,"ABI snapshot retains independent layer request");
             std::printf("attempt=%u accepted=%d reason=%s writeback=%u pending=%u evaluations=%llu second=%llu\n",attempt,accepted,NrExternalProviderReasonName(result.reason),result.writeback_performed,
                 nr_external_provider_feedback::pending_completions.load(),g_nr_successful_evaluations.load(),nr_dual_runtime::second_evaluations.load());
             if(accepted){
@@ -147,7 +154,8 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace host
             Check(ID3D12Fence_GetCompletedValue(io.fence)>=frame.fence_value,"producer exact Execute/Signal completed");
             Query();
             if(accepted){++completed;Check(nr_external_provider_feedback::completion_frames.load()==done_before+1&&nr_external_provider_feedback::pending_completions.load()==0,"Query consumes exactly the real completed fence");}
-            const auto changed=io.Read();if(result.writeback_performed){Check(changed>0,"actual NR writeback changes synthetic colour pixels");++writes;}
+            const auto changed=io.Read();if(result.writeback_performed){Check(changed>0,"actual NR writeback changes synthetic colour pixels");
+                if(layers==1||nr_dual_runtime::second_evaluations.load()>second_before)++writes;}
         }
         Check(training_seen&&pending_checked&&writes==3&&completed>=writes,"trained actual producer completes three changed outputs");
         unsigned evaluated=0;std::vector<NgxHandle*> handles;
@@ -156,7 +164,8 @@ int wmain(int argc,wchar_t** argv){using namespace host_ngx;using namespace host
         Check(evaluated==layers,"every requested independent Feature18 layer actually evaluated");
         if(layers==2)Check(handles[0]!=handles[1]&&nr_dual_runtime::second_evaluations.load()>0,"two distinct actual signed model instances");
         io.Fill();RecordState(io);++frame.frame_id;frame.fence_value=io.serial+1;
-        g_config.enabled=false;g_enabled_fast=false;const auto before=nr_external_provider_feedback::completion_frames.load();
+        g_config.enabled=false;g_enabled_fast=false;Check(SaveConfig(g_config),"persist actual OFF fixture");ReloadConfig(true);
+        const auto before=nr_external_provider_feedback::completion_frames.load();
         const auto nr_before=g_nr_successful_evaluations.load();NrExternalSubmitResultV1 off{};
         Check(NRExternalProvider_SubmitFrameV1(kNrExternalProviderAbi,&frame,&off)==1&&off.reason==NrExternalProviderReason::Disabled&&!off.writeback_performed,"OFF returns explicit identity without work");
         io.Submit();Query();Check(nr_external_provider_feedback::completion_frames.load()==before&&g_nr_successful_evaluations.load()==nr_before&&io.Read()==0,"OFF submits no inference and preserves all pixels");
