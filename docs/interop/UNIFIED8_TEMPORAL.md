@@ -105,3 +105,23 @@ the production option/default is unchanged.
 These are unfrozen overlay probes, not the final consolidated source receipt.
 All GPU evidence above is WARP with constructed native/model pixels. No real
 Feature1/Feature13/Feature18 model, game, HDR quality or FG claim is implied.
+
+## Final frozen-source evidence
+
+The complete `5c10a0b7` build reran all eleven actual-entry WARP scenarios and
+passed. Its auxiliary creation oracle also passed with all nine precompiled
+payloads byte-identical to runtime compilation, zero auxiliary D3DCompile calls
+and eight retained PSO creations.
+
+A separate RTX 5090 D host using that final Core, its own 18 objects, fixed
+signed NR 310.8 and real native Feature1 then passed 1,567 checks over 64 source
+frames. The actual pre-SR whole-chain AMD seam recorded and submitted 62 times;
+history continued 61 times after one seed. The native callback consumed the
+actual temporal result; the last source's temporal input and native O shared
+the source/request/frame/recording/queue/final fence. The final NRO binary and
+JSON both carried the exact built-source commit after a test-only macro fix.
+
+This is one static artificial SDR scene with planar depth/zero native MV. It
+does not establish motion quality, flicker reduction, ghosting, game adoption,
+native Feature13 inference, FG pacing or HDR support. RR temporal still has
+constructed-frame WARP evidence, not real game/Feature13 acceptance.

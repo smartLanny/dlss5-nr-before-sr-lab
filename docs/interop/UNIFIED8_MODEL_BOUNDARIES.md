@@ -68,7 +68,36 @@ iteration incorrectly expected the pre-only input filter to recreate a post
 model; the corrected test asserts this intended non-effect and separately tests
 the pre context. No production change was needed.
 
-## Smallest remaining real-model experiment
+## Final fixed-model hot/cold experiment (2026-09-22)
+
+The final generated `5c10a0b7` Core, its own 18 linked objects, all 26 codec
+payloads and nine auxiliary payloads were checked before running on RTX 5090 D.
+The same signed 310.8 DLL was used in six processes: cold A twice, cold B twice,
+and two ordinary A→B→A retirement/recreation sequences (intensity 1.2/1.7).
+Each segment captured ten complete FP16 N planes from real Feature18, followed
+by actual Feature1. Full color/depth/MV input bytes, typed parameters and Reset
+sequences matched across corresponding cold/hot cases.
+
+All six processes passed. Each A→B→A created three instances and released two
+old ones after their actual fence, recording and pending-token obligations
+cleared. Eight comparisons of ten planes each were byte-identical: 50 repeated
+setting comparisons and 30 cold-versus-hot comparisons, with observed maximum,
+mean and RMS differences zero. Zero difference was observed, not imposed as a
+universal model-output acceptance threshold.
+
+The original test omitted production Collect/Drain maintenance after completed
+Reset/Detach, so the old instance correctly stayed pending destruction and
+replacement creation was refused. That failed receipt is preserved. Adding
+the actual locked collector and unlocked destruction calls to the test host
+resolved it; production lifetime/admission code was not changed.
+
+**Limit:** this static low-variation artificial scene produced identical N for
+A and B themselves, too. It establishes this scene's typed-setting delivery,
+recreation and hot/cold consistency, not visible intensity sensitivity, general
+convergence, game stability or all-parameter/HDR equivalence. Keep the actual
+NVIDIA results distinct from the CPU audit above and from model-DLL A/B.
+
+## Remaining real-model experiments
 
 Use this one fixed signed DLL, one explicitly selected model setting change,
 one complete compatible captured P/depth/MV sequence and the same work raster.
@@ -83,4 +112,4 @@ Do not register the experimental runtime callback in Core to make this test
 pass. If the source sequence, guide storage or exposure contract cannot be
 replayed exactly, mark that route unverified. Native HDR and non-unity exposure
 need their own complete source/guide/Reset sequence; color-only placeholders
-cannot stand in for it. No additional GPU experiment was run in this audit.
+cannot stand in for it. The experiment above does not cover these conditions.

@@ -1,4 +1,21 @@
-## Current successor: unified7 (2026-09-21)
+## Current successor: unified8 (2026-09-22)
+
+Read `docs/interop/UNIFIED8_DELIVERY_20260922.md`, `UNIFIED8_TEMPORAL.md` and
+the newest `UNIFIED_HANDOFF.md` section. Built production source is `5c10a0b7`.
+The new bounded routes are AMD-only pre-SR SDR whole-chain and successful
+RR-post SDR whole/later; existing proven Feature1 post-SR SDR native/AMD remains.
+Pre native MV, pre later scope, RR native MV, HDR temporal and private SR are
+not connected. No model DLL A/B: use the GPU-appropriate runtime and verify it.
+Guided acceptance is temporary, restores settings and never writes INI or
+switches runtime DLLs. Captures happen after timing. Native O is optional,
+same-call and exact-completion gated; unverified color domains stay unknown.
+Nine auxiliary shader entries are precompiled; PSO/model creation remains.
+The own-buffer audit found no proven new saving; do not invent a VRAM gain.
+Continue draft #300 / #294 to next/0.5. Keep #246/#254 open until game evidence.
+Final controlled GPU scope and known test-fixture corrections are in delivery
+receipts. Do not turn a static host run into game, HDR, FG or motion acceptance.
+
+## Historical successor: unified7 (2026-09-21)
 
 Read the newest section of `docs/interop/UNIFIED_HANDOFF.md`, the unified7 UI
 guide and research record. Post NR accepts 25–100%; pre NR stays 50–100%.

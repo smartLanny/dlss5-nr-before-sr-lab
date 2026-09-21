@@ -250,6 +250,7 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
             if ($Version -eq 'beta0.5-dline21-unified8') {
                 Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_DELIVERY_20260922.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
             }
         }
         if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
