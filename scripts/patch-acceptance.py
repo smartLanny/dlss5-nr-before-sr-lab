@@ -11,8 +11,8 @@ def apply(stage:Path,inputs,helpers):
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
         'namespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
     s=helpers.once(s,'    nr_f8::Present(runtime);','    nr_f8::Present(runtime);\n    nr_acceptance::Present(runtime);','guided Present tick')
-    s=helpers.once(s,'if(any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token)',
-        'if(any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token)',
+    s=helpers.once(s,'any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token)',
+        'any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token)',
         'configuration hold alone must not enter per-frame image capture preparation')
     p.write_text(s,encoding='utf-8',newline='\n')
     p=root/'src/nr_f8_sequence.inl';s=p.read_text(encoding='utf-8')

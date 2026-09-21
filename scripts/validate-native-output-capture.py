@@ -29,6 +29,10 @@ def main():
             DXGI_ADAPTER_DESC1 description{};IDXGIAdapter1_GetDesc1(candidate,&description);
             if(description.VendorId==0x10de&&!(description.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)){adapter=(IDXGIAdapter*)candidate;break;}
             ReleaseCom(candidate);}Check(adapter!=nullptr,"real NVIDIA required");''')
+        # NVIDIA does not provide WARP's known-null baseline. Supply a real
+        # already-created PSO to the host-owned command-list constructor.
+        q=q.replace('allocator, nullptr, IID_ID3D12GraphicsCommandList',
+                    'allocator, g_codec.encode, IID_ID3D12GraphicsCommandList')
     s=post.read_text(encoding='utf-8').split('std::vector<unsigned char> Case(queue_test::Fixture',1)[0]+'\n}\n'
     # Existing real native state setup, no injected state-admission bypass.
     d=descriptor.read_text(encoding='utf-8').split('struct Pipeline {',1)[0]+'\n}\n'

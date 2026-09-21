@@ -49,8 +49,8 @@ void Run(const wchar_t* directory){
     auto* output=Plane(f,640,384,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
     SetResource(params,"Color",color);SetResource(params,"Depth",depth);SetResource(params,"MotionVectors",motion);SetResource(params,"Output",output);
     SetUInt(params,"DLSS.Render.Subrect.Dimensions.Width",320);SetUInt(params,"DLSS.Render.Subrect.Dimensions.Height",192);
-    SetFloat(params,"DLSS.MV.Scale.X",1);SetFloat(params,"DLSS.MV.Scale.Y",1);
-    SetFloat(params,"DLSS.Jitter.Offset.X",0);SetFloat(params,"DLSS.Jitter.Offset.Y",0);
+    SetFloat(params,"MV.Scale.X",1);SetFloat(params,"MV.Scale.Y",1);
+    SetFloat(params,"Jitter.Offset.X",0);SetFloat(params,"Jitter.Offset.Y",0);
     SetFloat(params,"DLSS.Pre.Exposure",1);SetFloat(params,"DLSS.Exposure.Scale",1);SetFloat(params,"DLSS.FrameTimeDeltaInMsec",16.6667f);
     Check(RequestStageCapture(),"real pre-SR deep request");const auto request=g_stage_capture_request_id.load();
     bool captured=false;
