@@ -364,7 +364,8 @@ bool CanAutoRestorePristineNull(const NativeCommandState &state) {
 }
 
 // A separate, bounded subset after a fully observed successful Reset:
-// viewport/scissor arrays, blend factors and privately copied RTV/DSV slots.
+// viewport/scissor arrays, blend factors, privately copied RTV/DSV slots and
+// explicitly observed default-only scalar shading rate.
 // No predication, vertex/stream-output buffers, queries, opaque commands or
 // unknown domains are admitted. Full dynamic replay stays experimental.
 const FLOAT *CommandStateBlendFactorValues(const FLOAT values[4]) {
@@ -387,8 +388,19 @@ const char *RasterNullRejectionReason(const NativeCommandState &state) {
         state.raytracing_pipeline || !state.null_guard_covered ||
         !state.null_guard_reset_observed || state.null_guard_tainted ||
         state.unknown_domains != 0 || d.vertex_mask != 0 || d.stream_mask != 0 ||
-        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets)) != 0 ||
+        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets | kDynamicShadingRate)) != 0 ||
         d.viewport_count > 16 || d.scissor_count > 16) return "null-guard-graphics-state-used";
+    // Only the explicitly observed scalar VRS API default is automatic. NULL combiners
+    // mean two PASSTHROUGH values. Existing CL5 same-interface hook coverage,
+    // fresh Reset and slot77 replay preserve this scalar state exactly; no
+    // optional coarse shading, per-primitive combiner or image is inferred.
+    // Even an observed NULL shading-rate image remains outside this subset.
+    if ((d.recorded & kDynamicShadingRate) &&
+        (d.shading_rate != D3D12_SHADING_RATE_1X1 ||
+         (d.has_combiners &&
+          (d.combiners[0] != D3D12_SHADING_RATE_COMBINER_PASSTHROUGH ||
+           d.combiners[1] != D3D12_SHADING_RATE_COMBINER_PASSTHROUGH))))
+        return "null-guard-shading-rate-not-default";
     // Raw application CPU handles may be recycled; only privately copied
     // contiguous RTV and independently owned DSV descriptors may be restored.
     if ((d.recorded & kDynamicTargets) &&
@@ -653,6 +665,8 @@ struct CommandStateEvidence {
     bool roots[2] = {}, heaps[2] = {};
     bool blend_observed = false;
     float blend[4] = {}; // Valid only when blend_observed; never inferred from defaults.
+    bool shading_rate_observed = false, shading_combiners_explicit = false;
+    UINT shading_rate = 0, shading_combiners[2] = {}; // Payload valid only with observed=true.
     const char *reason = "no-carrier-sample";
     const char *baseline = "unobserved";
     const char *route = "native-bypass";
@@ -1751,6 +1765,15 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             evidence.blend_observed = (state.dynamic.recorded & kDynamicBlend) != 0;
             if (evidence.blend_observed)
                 std::memcpy(evidence.blend, state.dynamic.blend, sizeof(evidence.blend));
+            evidence.shading_rate_observed = (state.dynamic.recorded & kDynamicShadingRate) != 0;
+            if (evidence.shading_rate_observed) {
+                evidence.shading_rate = static_cast<UINT>(state.dynamic.shading_rate);
+                evidence.shading_combiners_explicit = state.dynamic.has_combiners;
+                for (unsigned i = 0; i < 2; ++i)
+                    evidence.shading_combiners[i] = state.dynamic.has_combiners ?
+                        static_cast<UINT>(state.dynamic.combiners[i]) :
+                        static_cast<UINT>(D3D12_SHADING_RATE_COMBINER_PASSTHROUGH);
+            }
             evidence.vertex_mask = state.dynamic.vertex_mask; evidence.stream_mask = state.dynamic.stream_mask;
             evidence.has_pipeline = state.pipeline != nullptr; evidence.has_ray_pipeline = state.raytracing_pipeline != nullptr;
             for (unsigned stage = 0; stage < 2; ++stage) {

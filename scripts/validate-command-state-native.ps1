@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly, [switch]$FirstRecordingOnly, [switch]$FirstRecordingNegativeControl, [switch]$BuildOnly)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly, [switch]$FirstRecordingOnly, [switch]$FirstRecordingNegativeControl, [switch]$BuildOnly, [switch]$VrsNullOnly, [switch]$VrsNullNegativeControl, [switch]$VrsReplayNegativeControl)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
@@ -7,6 +7,16 @@ $production = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_s
 $production = $production.Replace('#include "nr_command_pool_observation.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_pool_observation.inl') -Raw))
 $production = $production.Replace('#include "nr_command_creation_observer.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_creation_observer.inl') -Raw))
 $production = $production.Replace('#include "nr_native_command_record.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_native_command_record.inl') -Raw))
+if ($VrsNullNegativeControl) {
+    $needle='kDynamicBlend | kDynamicTargets | kDynamicShadingRate))'
+    if (!$production.Contains($needle)) { throw 'VRS admission inverse anchor missing' }
+    $production=$production.Replace($needle,'kDynamicBlend | kDynamicTargets))')
+}
+if ($VrsReplayNegativeControl) {
+    $needle='if (d.recorded & kDynamicShadingRate) CommandStateExtendedCall('
+    if (!$production.Contains($needle)) { throw 'VRS replay inverse anchor missing' }
+    $production=$production.Replace($needle,'if (false) CommandStateExtendedCall(')
+}
 if ($PoolNegativeControl) {
     $needle='PrimeCommandListBeforeResetLocked(*record, native);' # Removes both pre-notification and native-result recovery to reproduce old lazy-only policy
     if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
@@ -49,6 +59,7 @@ $pristine = (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_poo
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
 $harness = $harness.Replace('// @NATIVE_RECORD_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\native_command_record.inl') -Raw))
 $harness = $harness.Replace('// @FIRST_RECORDING_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\first_recording_native.inl') -Raw))
+$harness = $harness.Replace('// @VRS_NULL_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\vrs_null_native.inl') -Raw))
 # Preserve existing checkpoints if a native test process terminates before flushing.
 # This affects the test executable only, never the extracted production source.
 $entry = 'int main(int argc, char **argv) {'
@@ -72,6 +83,20 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
 if ($BuildOnly) { Write-Output "Built only: $binary"; exit 0 }
+if ($VrsNullOnly -or $VrsNullNegativeControl -or $VrsReplayNegativeControl) {
+    $output=& $binary '--vrs-null' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($VrsNullNegativeControl -or $VrsReplayNegativeControl) {
+        $oracle=if ($VrsNullNegativeControl) { 'FAIL VRS_DEFAULT_ADMISSION_ORACLE' } else { 'FAIL VRS_SLOT77_REPLAY_ORACLE' }
+        if ($code -ne 41 -or ($output -join "`n") -notmatch $oracle) { throw 'VRS inverse control failed for the wrong reason' }
+        Write-Output "VRS inverse control detected: $oracle"
+    } elseif ($code -ne 0) { throw "VRS null gate failed (exit=$code)." }
+    exit 0
+}
+# This bounded native API gate runs in the complete entry too (no submission).
+& $binary '--vrs-null'
+if ($LASTEXITCODE -ne 0) { throw 'VRS null gate failed.' }
 if ($FirstRecordingOnly -or $FirstRecordingNegativeControl) {
     $output=& $binary '--first-recording' 2>&1
     $code=$LASTEXITCODE
