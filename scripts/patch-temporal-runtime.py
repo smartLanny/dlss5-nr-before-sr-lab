@@ -38,7 +38,19 @@ def runtime(s,h):
     # These callbacks retain the existing native Reset, Execute and Signal proofs.
     a,b=h.definition(s,'void DetachLifecycleCommandListTokenLocked(')
     part=s[a:b]
-    part=once(part,'        --context->recording_command_lists;','''        if(context->temporal)context->temporal->end_recording(token);
+    part=once(part,'        --context->recording_command_lists;','''        if(context->temporal){
+            if(context->temporal_token==token){
+                const bool never_submitted=record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof;
+                if(never_submitted && context->temporal->cancelled_unsubmitted()){
+                    context->temporal_token=0;nr_temporal_status::cancelled.fetch_add(1);
+                    nr_temporal_status::state.store(14);
+                }else{
+                    context->lifecycle_dependencies_quarantined=true;
+                    MarkLifecycleUncertain("temporal reset missing non-submission proof");nr_temporal_status::state.store(9);
+                }
+            }
+            context->temporal->end_recording(token);
+        }
         --context->recording_command_lists;''','temporal recording end')
     s=s[:a]+part+s[b:]
     a,b=h.definition(s,'void CompleteSubmissionBatchLocked(');part=s[a:b]
@@ -133,6 +145,7 @@ def apply(stage:Path,inputs,h):
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',
         '''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     const auto temporal_memory=nr_temporal::SnapshotMemory();
+    FeedbackAppend(s,"%s.temporal.cancelledUnsubmitted=%llu\\n",prefix,nr_temporal_status::cancelled.load());
     FeedbackAppend(s,"%s.temporal.contexts=live:%u,retired:%u,pending:%u,quarantinedSubset:%u\\n%s.temporal.contextBytes=live:%llu,retired:%llu,pending:%llu,quarantinedSubset:%llu\\n",
         prefix,temporal_memory.live,temporal_memory.retired,temporal_memory.pending,temporal_memory.quarantined,
         prefix,temporal_memory.live_bytes,temporal_memory.retired_bytes,temporal_memory.pending_bytes,temporal_memory.quarantined_bytes);

@@ -64,6 +64,40 @@ void Run(){
     Hr(ID3D12GraphicsCommandList_Reset(list.native,allocator,nullptr),"actual completed Reset");list.Detach();list.Close();
     g_config.temporal_backend=0;Check(nr_temporal::ReleaseIdle(context),"OFF releases only safe idle temporal context");
     Check(!context.temporal&&nr_temporal_status::bytes.load()==0,"temporal resource account returns after safe retirement");
+    // A successful Reset can discard a recorded frame before Execute. The
+    // real Core callback must cancel only this proven-unsubmitted transaction.
+    g_config.temporal_backend=1;g_config.temporal_scope=0;g_config.nr_passes=1;slot.dual_selected=nullptr;
+    {queue_test::List abandoned(f);abandoned.Close();abandoned.Prime(f.a);abandoned.Prime(f.a);f.Drain(f.a);abandoned.ResetWithNewAllocator(f);
+        Check(RecordNrUseLocked(abandoned.native,context,slot),"unsubmitted Core recording owner");
+        nr_source_runtime::EvaluateScope next_source(abandoned.native,nr_source_frame::Source{41,51,2},nr_source_runtime::NativeInputs{});
+        auto pending=nr_temporal::Prepare(abandoned.native,context,slot,guides,feature,w,h,0,0);
+        Check(bool(pending),"unsubmitted temporal prepared");
+        Check(nr_temporal::Record(abandoned.native,context,slot,pending)&&context.temporal_token,"unsubmitted temporal recorded");
+        abandoned.Close();
+        ID3D12CommandAllocator* cancelled_allocator=nullptr;Hr(ID3D12Device_CreateCommandAllocator(f.device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,(void**)&cancelled_allocator),"unsubmitted reset allocator");
+        Hr(ID3D12GraphicsCommandList_Reset(abandoned.native,cancelled_allocator,nullptr),"actual unsubmitted Reset");abandoned.Detach();abandoned.Close();
+        Check(!context.temporal_token&&context.temporal->stats().cancelled==1&&!g_lifecycle_tracking_uncertain.load(),"CORE_UNSUBMITTED_RESET_CANCEL_ORACLE");
+        g_config.temporal_backend=0;Check(nr_temporal::ReleaseIdle(context),"unsubmitted reset releases only cancelled temporal context");
+        Check(!context.temporal&&nr_temporal_status::bytes.load()==0&&nr_temporal_status::submitted.load()==1,"cancel is not adoption and leaves no pending context");
+        ReleaseCom(cancelled_allocator);
+    }
+    // Inject missing Execute evidence into a second, actually unsubmitted
+    // fixture. Production must quarantine it instead of guessing cancellation.
+    g_config.temporal_backend=1;
+    {queue_test::List uncertain(f);uncertain.Close();uncertain.Prime(f.a);uncertain.Prime(f.a);f.Drain(f.a);uncertain.ResetWithNewAllocator(f);
+        Check(RecordNrUseLocked(uncertain.native,context,slot),"uncertain Core recording owner");
+        nr_source_runtime::EvaluateScope next_source(uncertain.native,nr_source_frame::Source{41,51,3},nr_source_runtime::NativeInputs{});
+        auto pending=nr_temporal::Prepare(uncertain.native,context,slot,guides,feature,w,h,0,0);
+        Check(bool(pending)&&nr_temporal::Record(uncertain.native,context,slot,pending),"uncertain temporal recorded");
+        auto* recording=FindLifecycleCommandListLocked(context.temporal_token);Check(recording!=nullptr,"actual lifecycle record for fault control");
+        recording->execution_attempted_without_proof=true;
+        uncertain.Close();ID3D12CommandAllocator* unknown_allocator=nullptr;
+        Hr(ID3D12Device_CreateCommandAllocator(f.device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,(void**)&unknown_allocator),"uncertain reset allocator");
+        Hr(ID3D12GraphicsCommandList_Reset(uncertain.native,unknown_allocator,nullptr),"actual uncertain Reset");uncertain.Detach();uncertain.Close();
+        Check(context.temporal_token&&context.temporal->stats().cancelled==0&&context.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain.load(),"missing submission proof quarantined, never cancelled");
+        Check(!nr_temporal::ReleaseIdle(context),"quarantined temporal not released");
+        ReleaseCom(unknown_allocator);
+    }
     DestroyBindings(context);DestroySlot(slot);ReleaseCom(output);ReleaseCom(allocator);
     std::printf("PASS temporal Core preparation P1 submit reset checks=%u; synthetic NR, WARP only\n",queue_test::checks);
 }
