@@ -16,6 +16,7 @@ def main():
     ap.add_argument('--compiler',required=True,type=Path)
     ap.add_argument('--output',required=True,type=Path)
     ap.add_argument('--build-only',action='store_true')
+    ap.add_argument('--finite-only',action='store_true',help='two controlled GPU dispatches; no AMD source loop')
     args=ap.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
     sdk=args.sdk.resolve();cache=args.sdk_cache.resolve();compiler=args.compiler.resolve();root=Path(__file__).resolve().parent
     os.environ['TEMP']=os.environ['TMP']=str(out/'temp');(out/'temp').mkdir(exist_ok=True)
@@ -30,7 +31,7 @@ def main():
     frozen=out/'source';frozen.mkdir(exist_ok=True)
     names=['amd_of_producer.cpp','amd_of_producer.hpp','amd_of_shader.hpp','amd_of_gpu_probe.cpp',
            'history_contract.hpp','residual_accumulator.cpp','residual_accumulator.hpp',
-           'residual_accumulator_shader.hpp','residual_gpu_probe.cpp','validate_residual_gpu.py']
+           'residual_accumulator_shader.hpp','residual_gpu_probe.cpp','residual_finite_probe.inl','validate_residual_gpu.py']
     for name in names:shutil.copyfile(root/name,frozen/name)
     sources={n:sha(frozen/n) for n in names}
     record={'passed':False,'sdk_commit':PIN,'cache_build_sha256':sha(cache/'build.json'),
@@ -54,7 +55,7 @@ def main():
     driver=subprocess.run(['nvidia-smi','--query-gpu=name,driver_version','--format=csv'],capture_output=True,text=True,check=True)
     (out/'driver.txt').write_text(driver.stdout,encoding='utf-8');record['hardware']=driver.stdout.strip()
     def run(exe,entry,work,oracle=None):
-        result=subprocess.run([str(exe)],cwd=work,capture_output=True,text=True,timeout=120)
+        result=subprocess.run([str(exe)]+(['--finite-only'] if args.finite_only else []),cwd=work,capture_output=True,text=True,timeout=120)
         text=result.stdout+result.stderr;(work/'gpu.log').write_text(text,encoding='utf-8');print(text,flush=True)
         entry.update(exit_code=result.returncode,log_sha256=sha(work/'gpu.log'),
             debug_layer_available='debug_layer=1' in text,
@@ -63,11 +64,19 @@ def main():
         save()
         if not entry['passed']:raise RuntimeError('unexpected '+entry['name']+' result; failure preserved')
     run(exe,entry,out)
-    for label,file,before,after,oracle in [
+    controls=[
         ('reverse-flow','residual_accumulator_shader.hpp','float2 reference=float2(p)+motion;',
          'float2 reference=float2(p)-motion;','RESIDUAL_TRANSLATION_ORACLE'),
         ('ignore-source-pair','residual_accumulator.cpp','!(inputs.enhanced_source==frame.source)||',
-         'false||','RESIDUAL_SOURCE_MISMATCH_ORACLE')]:
+         'false||','RESIDUAL_SOURCE_MISMATCH_ORACLE')]
+    if args.finite_only:
+        controls=[('ignore-invalid-enhanced','residual_accumulator_shader.hpp',
+            'float3 current=current_valid?enhanced-original.rgb:0;',
+            'float3 current=enhanced-original.rgb;','NONFINITE_HISTORY_ORACLE'),
+            ('ignore-invalid-flow','residual_accumulator_shader.hpp',
+             'bool valid=all(isfinite(motion))&&all(reference>=0)&&all(reference<=float2(Width-1,Height-1));',
+             'bool valid=true;','FLOW_RESEED_ORACLE')]
+    for label,file,before,after,oracle in controls:
         work=out/label;work.mkdir(exist_ok=True)
         for n in names:shutil.copyfile(frozen/n,work/n)
         path=work/file;original=path.read_text();assert original.count(before)==1

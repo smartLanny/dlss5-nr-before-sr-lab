@@ -97,6 +97,33 @@ NVOF integration, a game-flicker fix or a completed Core feature. The next seam 
 a Core owner that supplies the exact final-chain SDR baseline/result, genuine
 source IDs and last output-consumer fence under the same queue contract.
 
+### Special values and fixed timing policy
+
+`validate_residual_gpu.py --finite-only` is a separate two-dispatch 64x64
+hardware regression; it does not invoke the AMD source loop. Raw FP16 qNaN,
+negative signaling NaN, positive/negative infinity, negative and above-one
+enhanced samples must return original RGB with a zero residual. Raw RG32 positive
+and negative NaN/infinity and finite out-of-bounds motion must seed current
+residual. Legitimate negative in-bounds flow must still accumulate. Every output
+and history RGB component is checked finite. Negative controls remove enhanced
+sanitization or flow rejection and must fail their actual GPU pixel oracles.
+
+With the production FXC flags, the tested shader's three `isfinite` expressions
+compile to integer exponent-mask (`0x7f800000`) comparisons. They were not folded
+out in this build: removing those expressions changes actual DXBC from 65 to 51
+instruction slots. Hardware special-value tests pass without changing the
+production shader. This observation is bound to the tested compiler/runtime;
+keep the GPU regression when changing compilation or arithmetic. The separate
+project scalar shader's explicit `asuint` practice remains relevant if another
+compiler path folds these guards.
+
+`Weight=0.5` and `ColorTolerance=0.035` are fixed finite, legal C++ constants
+written by the consumer, not UI/config/user inputs. There is no dynamic-time EMA
+or maximum source-time-gap policy: time must increase, source sequence must be
+adjacent, and the other history/reset checks must match. A large timestamp gap
+with otherwise adjacent source IDs is not specially rejected in this minimum
+experiment. Adding a time-gap reset or time-dependent weight is deferred.
+
 ### 2026-09-21: bounded retirement implemented
 
 The standalone producer now reserves one of four context slots **before** GPU
