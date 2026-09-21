@@ -49,12 +49,45 @@ void Configure(unsigned backend,unsigned scope,bool enabled=true){
     Check(g_config.temporal_backend==backend&&g_config.temporal_scope==scope&&g_config.enabled==enabled&&g_config.nr_passes==2,
         "committed temporal choice and layer count retained");
 }
+NrContext* execute_context=nullptr;
+TrackedList* reset_after_execute=nullptr;
+void STDMETHODCALLTYPE NativeExecuteInterleave(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists){
+    queue_test::NativeExecute(queue,count,lists);
+    Check(execute_context&&execute_context->awaiting_fence_signal,"real Execute returned before retirement Signal receipt");
+    auto* retained=execute_context->temporal;
+    Check(retained!=nullptr,"interleaved collector observes an existing temporal owner");
+    if(reset_after_execute){
+        reset_after_execute->Reset();Collect();
+        Check(execute_context->temporal==retained&&execute_context->temporal_token&&
+            execute_context->lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain.load(),
+            "CORE_TEMPORAL_RESET_BEFORE_SUBMIT_RECEIPT_QUARANTINE_ORACLE");
+    }else{
+        // This submitted list has only an NR lease; the old temporal commands
+        // already completed and were Reset. A failing guard can delete only
+        // an unused old temporal instance, so this negative cannot cause UAF.
+        Collect();
+        Check(execute_context->temporal==retained,"CORE_TEMPORAL_AWAITING_SIGNAL_RETAINS_ORACLE");
+    }
+}
+struct NativeSource {
+    // Use the native Feature1 observer with a constructed public frame token.
+    // The external-frame constructor diagnoses missing native entry and may
+    // switch the real processing session to Present, so it is the wrong seam.
+    nr_source_runtime::StreamlineScope token;
+    NgxParams params{}; // No NGX API or synthetic game resource getters.
+    nr_source_runtime::EvaluateScope evaluation;
+    NativeSource(ID3D12GraphicsCommandList* list,unsigned long long sequence)
+        :token(nr_source_frame::Source{41,51,sequence}),
+         evaluation(list,reinterpret_cast<const NgxHandle*>(501),&params,1,551){
+        Check(nr_processing_runtime::Effective()==nr_processing::Start::After,"native source keeps the selected After route");
+    }
+};
 void RecordCurrent(queue_test::List& list,NrContext& context,NrSlot& slot,const NrGuideBinding& guides,
     const FeatureRecord& feature,const ColorContract& color,unsigned w,unsigned h,unsigned long long sequence){
     // The caller has already established the current NR lease, just as
     // PrepareAfterSr does before FinishAfterSr reaches temporal preparation.
     Check(context.recording_command_lists>0,"current NR lease exists before temporal preparation");
-    nr_source_runtime::EvaluateScope source(list.native,nr_source_frame::Source{41,51,sequence},nr_source_runtime::NativeInputs{});
+    NativeSource source(list.native,sequence);
     Check(nr_source_runtime::CurrentSource().sequence==sequence,"continuous frame owns its actual distinct source sequence");
     auto prepared=Prepare(list.native,context,slot,guides,feature,w,h);
     if(!prepared)std::printf("continuous prepare declined=%s backend=%u scope=%u\n",
@@ -70,7 +103,7 @@ void RecordCurrent(queue_test::List& list,NrContext& context,NrSlot& slot,const 
     Check(nr_temporal::Record(list.native,context,slot,prepared),"continuous temporal recording accepted");
     Check(context.temporal_token&&nr_temporal_status::recorded.load()==before+1,"continuous frame records exactly once");
 }
-void Run(){
+void Run(const char* mode="continuous"){
     queue_test::Fixture f;auto& context=g_contexts[0];auto& slot=context.slots[0];
     g_original_command_list_reset[0]=NativeReset;
     g_config=ChainConfig{};g_config.enabled=true;g_config.mode=1;g_config.transfer_strength=g_config.post_transfer_strength=1;
@@ -113,7 +146,7 @@ void Run(){
     Check(FindOrCreateLifecycleQueueLocked(f.a)!=nullptr,"actual queue and fence owner");
     Check(RecordNrUseLocked(list.native,context,slot),"actual Core recording lease");
     {
-    nr_source_runtime::EvaluateScope source(list.native,nr_source_frame::Source{41,51,1},nr_source_runtime::NativeInputs{});
+    NativeSource source(list.native,1);
     Check(bool(nr_source_runtime::CurrentSource()),"existing source scope supplies identity");
     feature.feature_id=13;Check(!nr_temporal::Prepare(list.native,context,slot,guides,feature,w,h,0,0),"RR outside current supported route");
     feature.feature_id=1;feature.create_flags=1;Check(!nr_temporal::Prepare(list.native,context,slot,guides,feature,w,h,0,0),"HDR rejected");feature.create_flags=0;
@@ -186,7 +219,7 @@ void Run(){
         }
         if constexpr(HasMotionSnapshotProof<decltype(&nr_temporal::Prepare)>){
             if(choices[i][0]==1){
-                nr_source_runtime::EvaluateScope proof_source(current.list.native,nr_source_frame::Source{41,51,sequence},nr_source_runtime::NativeInputs{});
+                NativeSource proof_source(current.list.native,sequence);
                 Check(!Prepare(current.list.native,context,slot,guides,feature,w,h,false),"same-size native MV without snapshot proof rejected");
             }
         }
@@ -199,22 +232,27 @@ void Run(){
         previous=&current;
     }
 
-    // Replay is a new GPU execution, not a new source frame. Hold its final
-    // fence, then Reset; neither the earlier fence nor Reset alone may release.
-    auto* replayed=context.temporal;const auto earlier_fence=context.completion_fence_value;
-    const auto before_replay=nr_temporal_status::submitted.load();ID3D12Fence* gate=f.Fence();
-    Hr(ID3D12CommandQueue_Wait(f.a,gate,1),"hold replay's real last consumer");
-    previous->list.Submit(f.a);
-    Check(context.completion_fence_value>earlier_fence&&!IsContextFenceCompleteLocked(context),"replay replaces earlier completed fence");
-    Check(nr_temporal_status::submitted.load()==before_replay&&!context.temporal->initialized(),"replay retires history without inventing a source frame");
+    // A normal first submission can be Reset after its exact receipt is
+    // published while the GPU is still pending. Hold that actual fence;
+    // neither the earlier completed frame nor Reset alone permits release.
+    previous->Reset();
     auto& restart=ring2;
-    Check(RecordNrUseLocked(restart.list.native,context,slot),"NR continues while old replay completion is pending");
-    previous->Reset();Collect();
-    Check(context.temporal==replayed&&!IsContextFenceCompleteLocked(context),"CORE_TEMPORAL_RESET_WITH_PENDING_FENCE_ORACLE");
-    Hr(ID3D12Fence_Signal(gate,1),"release actual replay fence");f.Drain(f.a);Collect();
-    Check(context.recording_command_lists>0&&!context.temporal,"CORE_TEMPORAL_REPLAY_SAFE_RECREATE_ORACLE");
+    Check(RecordNrUseLocked(restart.list.native,context,slot),"normal frame owns current NR lease");
     RecordCurrent(restart.list,context,slot,guides,feature,color,w,h,sequence++);
-    restart.Submit();f.Drain(f.a);restart.Reset();
+    ID3D12Fence* gate=f.Fence();auto* pending=context.temporal;
+    Hr(ID3D12CommandQueue_Wait(f.a,gate,1),"hold first submission's actual final consumer");
+    restart.Submit();
+    Check(!context.temporal_token&&!context.awaiting_fence_signal&&!g_lifecycle_tracking_uncertain.load(),
+        "ordinary submit receipt is published before Reset");
+    Check(RecordNrUseLocked(ring0.list.native,context,slot),"NR continues while old normal completion is pending");
+    Configure(0,0);restart.Reset();Collect();
+    Check(context.temporal==pending&&!IsContextFenceCompleteLocked(context),"CORE_TEMPORAL_RESET_WITH_PENDING_FENCE_ORACLE");
+    Hr(ID3D12Fence_Signal(gate,1),"release actual final consumer");f.Drain(f.a);Collect();
+    Check(context.recording_command_lists>0&&!context.temporal,"CORE_TEMPORAL_COMPLETED_RESET_SAFE_RECREATE_ORACLE");
+    Configure(1,0);RecordCurrent(ring0.list,context,slot,guides,feature,color,w,h,sequence++);
+    ring0.Submit();f.Drain(f.a);
+    Check(!g_lifecycle_tracking_uncertain.load()&&!context.temporal_token,"rebuilt normal frame is actually adopted");
+    ring0.Reset();
     Check(context.temporal&&context.temporal->initialized(),"ordinary completed Reset retains reusable same-key history");
     auto route=g_config;route.processing_start=nr_processing::Start::Before;++route.processing_selection;
     Check(ApplyConfig(route,"temporal-route-maintenance",false),"actual processing route leaves After");Collect();
@@ -225,10 +263,29 @@ void Run(){
     Check(RecordNrUseLocked(ring0.list.native,context,slot),"NR restarts after explicit route return");
     RecordCurrent(ring0.list,context,slot,guides,feature,color,w,h,sequence++);
     ring0.Submit();f.Drain(f.a);ring0.Reset();
+    // Keep the short Capture -> Execute -> Signal ownership transaction even
+    // when all previous temporal work has safely ended. This does not restore
+    // the old broad parent recording/fence gate that blocked continuous NR.
+    TrackedList submitting(f);
+    Check(RecordNrUseLocked(submitting.list.native,context,slot),"NR-only submit owns current parent");
+    Configure(0,0);execute_context=&context;g_original_queue_execute[0]=NativeExecuteInterleave;
+    submitting.Submit();g_original_queue_execute[0]=queue_test::NativeExecute;execute_context=nullptr;
+    Check(!context.awaiting_fence_signal,"actual retirement Signal receipt clears transaction pin");Collect();
+    Check(context.recording_command_lists>0&&!context.temporal,"completed transaction releases old temporal during live NR");
+    f.Drain(f.a);submitting.Reset();
+    Configure(1,0);Check(RecordNrUseLocked(ring0.list.native,context,slot),"master-off setup NR owner");
+    RecordCurrent(ring0.list,context,slot,guides,feature,color,w,h,sequence++);
+    ring0.Submit();f.Drain(f.a);ring0.Reset();
     Configure(1,0,false);Collect();
     Check(!context.temporal&&nr_temporal_status::bytes.load()==0,"CORE_TEMPORAL_MASTER_OFF_MAINTENANCE_ORACLE");
     Check(ReadTexture(f,output,slot.result_state)==single,"all temporal transitions preserve the actual zero-edit candidate");
     ReleaseCom(gate);ReleaseCom(allocator);
+
+    if(std::strcmp(mode,"continuous")==0){
+        ReleaseCom(output);
+        std::printf("PASS temporal Core continuous OFF/native/AMD/scope switches, completed/Reset fences and maintenance checks=%u; synthetic NR, WARP only\n",queue_test::checks);
+        return;
+    }
 
     // The outer NR Reset gate is authoritative: temporal's local cancellation
     // API does not prove opaque Feature18 state is safe after discarded NR.
@@ -237,14 +294,33 @@ void Run(){
     Check(RecordNrUseLocked(abandoned.list.native,context,slot),"unsubmitted full Core recording owner");
     RecordCurrent(abandoned.list,context,slot,guides,feature,color,w,h,sequence++);
     const auto cancelled=nr_temporal_status::cancelled.load();const auto submitted=nr_temporal_status::submitted.load();
-    auto* quarantined=context.temporal;abandoned.list.Close();abandoned.Reset();Collect();
+    auto* quarantined=context.temporal;
+    if(std::strcmp(mode,"replay")==0){
+        abandoned.Submit();f.Drain(f.a);
+        const auto adopted=nr_temporal_status::submitted.load();const auto executes=queue_test::native_executes;
+        abandoned.list.Submit(f.a);
+        Check(queue_test::native_executes==executes+1,"quarantined replay still forwards actual native Execute");
+        Check(context.temporal==quarantined&&context.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain.load()&&
+            nr_temporal_status::submitted.load()==adopted,"CORE_NR_REPLAY_QUARANTINE_ORACLE");
+        f.Drain(f.a);abandoned.Reset();
+    }else if(std::strcmp(mode,"submit-reset")==0){
+        execute_context=&context;reset_after_execute=&abandoned;g_original_queue_execute[0]=NativeExecuteInterleave;
+        abandoned.Submit();
+        g_original_queue_execute[0]=queue_test::NativeExecute;execute_context=nullptr;reset_after_execute=nullptr;
+        Check(context.awaiting_fence_signal&&nr_temporal_status::submitted.load()==submitted,
+            "quarantined first submit skips Complete and temporal adoption");
+        f.Drain(f.a);
+    }else{
+    Check(std::strcmp(mode,"unsubmitted")==0,"known isolated quarantine case");
+    abandoned.list.Close();abandoned.Reset();Collect();
     Check(context.temporal==quarantined&&context.temporal_token&&context.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain.load(),
         "CORE_UNSUBMITTED_NR_RESET_QUARANTINE_ORACLE");
     Check(nr_temporal_status::cancelled.load()==cancelled&&nr_temporal_status::submitted.load()==submitted,
         "outer NR quarantine is neither temporal cancellation nor adoption");
+    }
     Configure(0,0);Collect();
     Check(context.temporal==quarantined&&nr_temporal_status::bytes.load()>0,"OFF preserves quarantined dependency closure");
     ReleaseCom(output);
-    std::printf("PASS temporal Core P1 continuous OFF/native/AMD/scope switches replay fences and real Reset quarantine checks=%u; synthetic NR, WARP only\n",queue_test::checks);
+    std::printf("PASS temporal Core isolated %s quarantine checks=%u; synthetic NR, WARP only\n",mode,queue_test::checks);
 }
 }

@@ -1,4 +1,16 @@
-## Current temporal milestone (2026-09-21)
+## Current successor: unified7 (2026-09-21)
+
+Read the newest section of `docs/interop/UNIFIED_HANDOFF.md`, the unified7 UI
+guide and research record. Post NR accepts 25–100%; pre NR stays 50–100%.
+Temporal scope remains proven native DX12 Feature1 post-SR SDR only.
+Preserve the Core's outer NR replay/unsubmitted Reset quarantine. Earlier
+module/internal-Detach tests did not establish production cancellation/replay
+recovery; do not repeat that claim. Validate legal continuous switching and
+unsafe-operation quarantine separately. Private post-residual transport is an
+experiment, not a connected private SR feature. No default or game acceptance
+change is implied; final built source is fixed by the new delivery receipt.
+
+## Historical temporal milestone (2026-09-21)
 
 The approved unified5 successor now delivers unified6's first package. Read
 `docs/interop/UNIFIED6_DELIVERY_20260921.md` and `UNIFIED_HANDOFF.md` for exact

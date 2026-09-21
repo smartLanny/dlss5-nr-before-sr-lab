@@ -9,8 +9,8 @@ namespace colour_nonzero {
 // genuinely different 256x128 raster for 99%; 256x128 itself rounds back up.
 constexpr unsigned W = 257, H = 129, SX = 5, SY = 3, DX = 3, DY = 2;
 constexpr unsigned Rgb = 1073741824u, Raw = 134217728u;
-struct Scene { const char *name; unsigned domain; Float3 left, right; bool flat; };
-enum class Edit { Identity, LightPlus, LightMinus, ColourPlus, ColourMinus };
+struct Scene { const char *name; unsigned domain; Float3 left, right; bool flat; bool gradient=false; };
+enum class Edit { Identity, LightPlus, LightMinus, ColourPlus, ColourMinus, TinyPlus, TinyMinus };
 const char *EditName(Edit edit) {
     switch (edit) {
     case Edit::Identity: return "identity";
@@ -18,6 +18,8 @@ const char *EditName(Edit edit) {
     case Edit::LightMinus: return "light-";
     case Edit::ColourPlus: return "colour+";
     case Edit::ColourMinus: return "colour-";
+    case Edit::TinyPlus: return "tiny+";
+    case Edit::TinyMinus: return "tiny-";
     }
     return "invalid";
 }
@@ -51,6 +53,13 @@ Float3 Bilinear(const std::vector<Float4>& plane,unsigned nw,unsigned nh,
     return sum;
 }
 Float4 Perturb(Float4 stored,Edit edit) {
+    // Signed micro-edit in the actual encoded model domain, before the real
+    // FP16 upload. Readback below measures what survived storage.
+    if(edit==Edit::TinyPlus||edit==Edit::TinyMinus){
+        const float delta=(edit==Edit::TinyPlus?1.f:-1.f)/4096.f;
+        return {std::clamp(stored.x+delta,0.f,1.f),std::clamp(stored.y+delta,0.f,1.f),
+                std::clamp(stored.z+delta,0.f,1.f),stored.w};
+    }
     Float3 n=ModelDecode(stored);
     float* channels[]={&n.x,&n.y,&n.z};
     if(edit==Edit::LightPlus)for(auto* c:channels)*c+=(1.f-*c)/32.f;
@@ -111,7 +120,7 @@ void CheckGpuHalfStorage(Gpu& gpu) {
 }
 
 std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
-                       bool wrong_origin, bool actual_controls) {
+                       bool wrong_origin, bool actual_controls,float colour_strength=1.f,bool research=false) {
     unsigned nw=W,nh=H;
     if(percent!=100){
         const auto plan=nr_post_compat::Work({W,H},percent);
@@ -125,6 +134,10 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
     for(unsigned y=0;y<H;++y)for(unsigned x=0;x<W;++x){
         // Non-central, slanted edge exercises subpixel area and restore phases.
         Float3 value=scene.flat || x<103u+(y/11u)%3u ? scene.left:scene.right;
+        if(scene.gradient){const float f=float(x)/float(W-1);
+            value={scene.left.x+(scene.right.x-scene.left.x)*f,
+                   scene.left.y+(scene.right.y-scene.left.y)*f,
+                   scene.left.z+(scene.right.z-scene.left.z)*f};}
         if(scene.domain==32u)value=LinearToSrgb(value);
         source_pixels[(y+SY)*sw+x+SX]={value.x,value.y,value.z,
                                       float(1u+(x+y)%7u)/8.f};
@@ -146,7 +159,7 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
         c.pre_exposure=1.6f;c.source_to_canonical=1.f/c.pre_exposure;
         c.lighting_lock=.2f;c.edge_guard=.25f;
     }
-    c.transfer_strength=1.f;c.color_strength=1.f;c.max_luma_ratio=4.f;
+    c.transfer_strength=1.f;c.color_strength=colour_strength;c.max_luma_ratio=4.f;
     c.frame_confidence=1.f;c.proxy_curve=1u;c.passthrough=scene.domain;
     Dispatch(gpu,gpu.encode.p,c);
     gpu.ReadTexture(source);gpu.ReadTexture(proxy);gpu.Execute();
@@ -207,7 +220,7 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
             if(edit==Edit::Identity)Require(RgbEqual(value,stored,0.001f),"zero-edit source identity lost");
             if(edit==Edit::LightPlus)Require(DotLuma(ev)>=DotLuma(sv)-0.002f*std::max(1.f,DotLuma(sv)),"positive model edit became darkening");
             if(edit==Edit::LightMinus)Require(DotLuma(ev)<=DotLuma(sv)+0.002f*std::max(1.f,DotLuma(sv)),"negative model edit became brightening");
-            if(mode==2){
+            if(mode==2&&colour_strength==1.f&&!research){
                 const auto pp=Bilinear(p,nw,nh,ix,iy),nn=Bilinear(n,nw,nh,ix,iy);
                 const auto prepared=Prepare(sv,scene.domain);
                 const float k=std::max({sv.x,sv.y,sv.z})/std::max({prepared.x,prepared.y,prepared.z});
@@ -226,12 +239,17 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
                 }
             }
         }
-        Require(edit==Edit::Identity || changed>0,"nonzero model edit never reached composition");
-        if(mode==2)Require(invariant_pixels>W*H/2,"insufficient unclamped raw RGB oracle coverage");
+        // Research includes legitimate dark rejection, colour=0 and micro-edits
+        // below output storage precision. Report their transfer rather than
+        // weakening the established large-edit oracles above.
+        if(!research)Require(edit==Edit::Identity || changed>0,"nonzero model edit never reached composition");
+        if(mode==2&&colour_strength==1.f&&!research)Require(invariant_pixels>W*H/2,"insufficient unclamped raw RGB oracle coverage");
         measure.mean_luma/=W*H;measure.mean_edit/=W*H;
         std::printf("CASE,%s,%u,%u,%u,%s,%u,%.9g,%.9g,%.9g,%.9g,%u,%.9g\n",
             scene.name,percent,nw,nh,EditName(edit),mode,measure.mean_luma,
             measure.mean_edit,measure.max_edit,max_proxy_error,invariant_pixels,max_raw_error);
+        if(research)std::printf("RESEARCH,%s,%u,%s,mode=%u,colour=%.9g,stored_edit_pixels=%u,output_above_001=%u,mean_edit=%.9g,max_edit=%.9g\n",
+            scene.name,percent,EditName(edit),mode,colour_strength,nonzero,changed,measure.mean_edit,measure.max_edit);
         results.push_back(std::move(measure));
     }
     return results;
@@ -241,7 +259,7 @@ std::vector<Result> Run(Gpu& gpu,const Scene& scene,unsigned percent,Edit edit,
 int main(int argc,char** argv){
     try{
         std::setvbuf(stdout,nullptr,_IONBF,0);
-        bool hardware=false,wrong_origin=false,half_only=false,inherited=false,actual_controls=false;
+        bool hardware=false,wrong_origin=false,half_only=false,inherited=false,actual_controls=false,research=false;
         const char* artifacts=nullptr;
         for(int i=1;i<argc;++i){
             if(std::strcmp(argv[i],"--hardware")==0)hardware=true;
@@ -249,6 +267,7 @@ int main(int argc,char** argv){
             else if(std::strcmp(argv[i],"--half-only")==0)half_only=true;
             else if(std::strcmp(argv[i],"--inherited-post")==0)inherited=true;
             else if(std::strcmp(argv[i],"--actual-controls")==0)actual_controls=true;
+            else if(std::strcmp(argv[i],"--research-matrix")==0)research=true;
             else if(std::strncmp(argv[i],"--artifacts=",12)==0)artifacts=argv[i]+12;
             else throw std::runtime_error("unknown colour validation argument");
         }
@@ -266,6 +285,20 @@ int main(int argc,char** argv){
         Gpu gpu(hardware,"EncodeV2CS",false,artifacts,true);
         using namespace colour_nonzero;
         CheckGpuHalfStorage(gpu);
+        if(research){
+            const Scene research_scenes[]={
+                {"dark-gradient",16u,{1.f/65536,1.f/65536,1.f/65536},{1.f/128,1.f/128,1.f/128},false,true},
+                {"saturated-edge",16u,{.875f,.03125f,.0625f},{.03125f,.8125f,.046875f},false},
+                {"hdr-highlight",0u,{4.f,1.f,.25f},{16.f,6.f,1.5f},false}};
+            unsigned count=0;
+            for(const auto& scene:research_scenes)for(float strength:{0.f,.7f,1.f})
+                for(unsigned percent:{100u,99u,75u,50u,33u,25u})
+                    for(auto edit:{Edit::Identity,Edit::TinyPlus,Edit::TinyMinus,Edit::ColourPlus,Edit::ColourMinus}){
+                        Run(gpu,scene,percent,edit,wrong_origin,false,strength,true);count+=3;
+                    }
+            std::printf("PASS colour research: %u GPU observations with storage/source/finite/alpha/subrect oracles; transfer magnitude is measured, not a colour-quality acceptance\n",count);
+            return 0;
+        }
         std::printf("CONTROLS,preExposure=%g,sourceToCanonical=%g,LightingLock=%g,EdgeGuard=%g\n",
             actual_controls?1.6:1.,actual_controls?.625:1.,actual_controls?.2:0.,actual_controls?.25:0.);
         const Scene scenes[]={

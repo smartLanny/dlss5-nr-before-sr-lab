@@ -27,6 +27,7 @@ def main() -> None:
                         help='PreExposure 1.6, SourceToCanonical .625, LightingLock .2, EdgeGuard .25; HDR flat fixture.')
     parser.add_argument('--codec-artifacts', type=Path)
     parser.add_argument('--include-inherited', action='store_true')
+    parser.add_argument('--research-matrix', action='store_true', help='Additional dark/saturated/HDR, micro-edit and colour-strength observations; no new quality claim.')
     args = parser.parse_args()
     if os.name != 'nt':
         raise SystemExit('This gate requires real Windows D3D12; no host-only fallback.')
@@ -81,6 +82,7 @@ def main() -> None:
         cases += [('inherited-post-WARP', ['--inherited-post'], 0)]
     for label, extra, expected in cases:
         cmd = [str(exe)] + (['--hardware'] if args.hardware else []) + \
+              (['--research-matrix'] if args.research_matrix and label != 'inherited-post-WARP' else []) + \
               (['--actual-controls'] if args.actual_controls and label != 'inherited-post-WARP' else []) + \
               (['--artifacts='+str(artifacts)] if artifacts else []) + extra
         start = time.monotonic()

@@ -26,10 +26,11 @@ bool ReleaseIdle(NrContext& context){
  // An unrelated, newly recorded NR frame cannot extend the lifetime of the
  // old stabilizer. Its own leases/fences and P1 bindings are authoritative.
  // Keep the Core's hard uncertainty gates; temporal proof cannot repair NGX
- // recording or submission uncertainty in its parent context.
+ // recording or submission uncertainty in its parent context. Preserve the
+ // short Capture-to-Signal transaction until its completion receipt arrives.
  if(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)||
     context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined||
-    context.temporal_token||!context.temporal->releasable()||!DropAnchorBindings(context))return false;
+    context.awaiting_fence_signal||context.temporal_token||!context.temporal->releasable()||!DropAnchorBindings(context))return false;
  nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
  delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;
  context.temporal_retry_tick=0;context.temporal_attempt_generation=0;return true;

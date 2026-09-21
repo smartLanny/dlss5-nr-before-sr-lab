@@ -13,8 +13,18 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
-$LeafVersion = if ($QualitySuccessor) { 'unified3' } else { 'perf12' }
-$CandidateVersion = if ($QualitySuccessor) { 'beta0.5-dline21-unified6' } else { 'beta0.5-dline21-' + $LeafVersion }
+if ($QualitySuccessor) {
+    # The final generator owns identity. A new successor must not compile under
+    # one version while its receipt, file names and test ZIPs retain another.
+    $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
+    $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?))'\r?$")
+    if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
+    $CandidateVersion = $VersionMatch.Groups[1].Value
+    $LeafVersion = $VersionMatch.Groups[2].Value
+} else {
+    $LeafVersion = 'perf12'
+    $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
+}
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'

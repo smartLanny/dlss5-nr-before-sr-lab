@@ -57,6 +57,9 @@ def runtime(s,h):
     }
     for(auto& guide:context.dual_create_guides)ReleaseCom(guide);''','temporal safe context destruction')
     # These callbacks retain the existing native Reset, Execute and Signal proofs.
+    # Core's outer gates quarantine unsubmitted Reset and opaque NR replay.
+    # The module replay callback is not authority to relax either Core gate;
+    # direct module callers serialize its receipt before ending the lease.
     a,b=h.definition(s,'void DetachLifecycleCommandListTokenLocked(')
     part=s[a:b]
     part=once(part,'        --context->recording_command_lists;','''        if(context->temporal){

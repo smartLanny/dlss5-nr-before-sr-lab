@@ -20,6 +20,8 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
+    p.add_argument('--temporal-case',choices=('all','continuous','unsubmitted','replay','submit-reset'),default='all',
+                   help='Separate processes preserve each real Core quarantine latch.')
     p.add_argument('--temporal-negative',action='store_true',help='Explicit copied-source wrong-P1 binding negative control.')
     a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
@@ -47,7 +49,8 @@ def main():
     (out/'fixture.inl').write_text(q+s+fixture.read_text(encoding='utf-8'),encoding='utf-8')
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
-        'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);'+('temporal_core_test' if a.temporal else 'native_color_test')+'::Run();return 0;}\n',encoding='utf-8')
+        'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'+
+        ('temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
@@ -83,7 +86,16 @@ def main():
             'production_translation_unit':True,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
             'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
-        r=run([str(exe)],'run',120);record['run_exit']=r.returncode;print(r.stdout)
+        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else [None]
+        if a.temporal_negative:cases=['continuous']
+        records=[];logs=[]
+        for case in cases:
+            name='run-'+case if case else 'run'
+            r=run([str(exe)]+([case] if case else []),name,180 if a.temporal else 120)
+            records.append({'case':case,'run_exit':r.returncode});logs.append(r.stdout+r.stderr);print(r.stdout)
+            if r.returncode:break
+        (out/'run.txt').write_text('\n'.join(logs),encoding='utf-8')
+        record['run_exit']=r.returncode;record['cases']=records
         if a.temporal_negative:
             record['negative_control_rejected']=r.returncode==41 and 'FAIL P1_IS_EXISTING_SINGLE_LAYER_COMPOSITION_ORACLE' in r.stdout
             r.returncode=0 if record['negative_control_rejected'] else 1
