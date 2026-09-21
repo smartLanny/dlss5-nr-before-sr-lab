@@ -8,7 +8,7 @@ struct ID3D12Device;struct ID3D12Resource;struct ID3D12GraphicsCommandList;struc
 namespace nr_edit_dx12 {
 using Id=std::uint64_t;
 struct Bytecode {const void* data=nullptr;std::size_t bytes=0;};
-enum class Kernel:unsigned {RrGuides,RrAccumulate,RrCompose,DeferredEncode,DeferredCompose,SparseAdvance,NormalizeGuides,Count};
+enum class Kernel:unsigned {RrGuides,RrAccumulate,RrCompose,DeferredEncode,DeferredCompose,SparseAdvance,NormalizeGuides,PostExtract,PostCompose,Count};
 struct View {
     ID3D12Resource* resource=nullptr;
     unsigned format=0,mip=0,state=0;

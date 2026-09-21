@@ -103,7 +103,7 @@ Answer Record(Kernels* k,ID3D12GraphicsCommandList* list,const Work& w){
     if(!list||kernel>=k->pso.size()||!k->pso[kernel]||!w.recording||
        w.recording.list!=reinterpret_cast<Id>(list)||w.recording.device!=k->device_id||w.recording.queue!=k->queue_id||
        !w.width||!w.height||w.width>16384||w.height>16384||!w.constants||
-       w.constant_bytes!=(kernel<=2?144u:(w.kernel==Kernel::SparseAdvance||w.kernel==Kernel::NormalizeGuides)?64u:48u))return {Status::Invalid};
+       w.constant_bytes!=(kernel<=2?144u:kernel>=static_cast<unsigned>(Kernel::SparseAdvance)?64u:48u))return {Status::Invalid};
     unsigned raw_constants[36]{};std::memcpy(raw_constants,w.constants,w.constant_bytes);
     const auto read=[&](unsigned slot){return w.reads[slot].resource!=nullptr;};
     const auto write=[&](unsigned slot){return w.writes[slot].resource!=nullptr;};
@@ -115,6 +115,8 @@ Answer Record(Kernels* k,ID3D12GraphicsCommandList* list,const Work& w){
     case Kernel::DeferredEncode:required=read(0)&&read(1)&&write(0)&&write(1);break;
     case Kernel::DeferredCompose:required=read(2)&&read(3)&&read(4)&&write(2);break;
     case Kernel::NormalizeGuides:required=read(0)&&read(1)&&write(0)&&write(1);break;
+    case Kernel::PostExtract:required=read(0)&&read(1)&&write(0)&&write(1);break;
+    case Kernel::PostCompose:required=read(1)&&read(2)&&read(3)&&write(2);break;
     case Kernel::SparseAdvance:required=read(0)&&read(3)&&write(0)&&write(1)&&write(2)&&write(3)&&
         (!raw_constants[2]||read(1))&&(!raw_constants[3]||(read(2)&&read(4)&&read(5)&&read(6)&&read(7)));break;
     default:break;
