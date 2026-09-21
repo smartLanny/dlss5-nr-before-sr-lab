@@ -43,7 +43,14 @@ def runtime(s,h):
     s=s[:a]+part+s[b:]
     a,b=h.definition(s,'void CompleteSubmissionBatchLocked(');part=s[a:b]
     part=once(part,'        context->awaiting_fence_signal = false;','''        context->awaiting_fence_signal = false;
-        if(context->temporal && context->temporal_token){
+        if(context->temporal){
+            const auto just_recorded=context->temporal_token;
+            for(unsigned r=0;r<batch.record_count;++r)if(batch.records[r] && batch.records[r]->token!=just_recorded){
+                if(!context->temporal->resubmitted(batch.records[r]->token,queue_state->fence,batch.fence_value)){
+                    context->lifecycle_dependencies_quarantined=true;
+                    MarkLifecycleUncertain("temporal replay completion receipt rejected");nr_temporal_status::state.store(9);
+                }
+            }
             bool included=false;
             for(unsigned r=0;r<batch.record_count;++r)included|=batch.records[r] && batch.records[r]->token==context->temporal_token;
             if(included){

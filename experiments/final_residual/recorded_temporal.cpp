@@ -237,6 +237,21 @@ bool RecordedTemporal::submitted(ID3D12Fence* fence,Id value,Id recording)noexce
 void RecordedTemporal::end_recording(Id recording)noexcept {
     if(!recording)return;for(auto& slot:p_->slots)if(slot.recording==recording)slot.recording=0;
 }
+bool RecordedTemporal::resubmitted(Id recording,ID3D12Fence* fence,Id value)noexcept {
+    auto& p=*p_;bool found=false;
+    for(const auto& slot:p.slots)found|=recording&&slot.recording==recording;
+    if(!found)return true; // This recording has no temporal commands.
+    if(!value||value==UINT64_MAX||!device_is(fence,p.device.Get())||fence->GetCompletedValue()==UINT64_MAX){
+        p.recording_unsafe=true;p.fail("replayed recording missing its last completion receipt");return false;
+    }
+    // Same proven queue: this later signal also covers all earlier slots.
+    for(auto& slot:p.slots){slot.fence=fence;slot.value=value;}
+    if(p.amd&&!p.amd->retire_replayed_recording(fence,value)){
+        p.recording_unsafe=true;p.fail("replayed AMD retirement receipt rejected");return false;
+    }
+    p.retiring=true;p.ready=false;
+    p.message="replayed commands: retain latest fence and recreate before new source";return true;
+}
 bool RecordedTemporal::cancelled_unsubmitted()noexcept {
     auto& p=*p_;if(p.fault||p.pending_slot<0)return false;
     if(p.amd&&!p.amd->cancel_recording(p.plan.token))return false;

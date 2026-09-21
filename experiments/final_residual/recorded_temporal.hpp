@@ -49,6 +49,7 @@ public:
     ID3D12Resource* anchor() const noexcept; // FP16, UAV; only allocated for LaterLayers.
     RecordResult record(ID3D12GraphicsCommandList*,const RecordedInputs&) noexcept;
     bool submitted(ID3D12Fence* exact_last_consumer,Id value,Id recording_lease=0) noexcept;
+    bool resubmitted(Id recording_lease,ID3D12Fence*,Id value) noexcept;
     void end_recording(Id recording_lease) noexcept; // Core proved the list can no longer replay.
     bool cancelled_unsubmitted() noexcept; // Caller proved successful Reset, no Execute.
     TemporalStats stats() const noexcept;

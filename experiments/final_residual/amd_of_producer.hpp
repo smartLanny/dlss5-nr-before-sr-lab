@@ -57,6 +57,7 @@ public:
     Submit record(const Frame&,const Plan&,ID3D12GraphicsCommandList*,ID3D12Resource*,
         D3D12_RESOURCE_STATES snapshot_state,RecordedFlow&) noexcept;
     bool commit_recording(Id token,ID3D12Fence* last_reader,Id value) noexcept;
+    bool retire_replayed_recording(ID3D12Fence* last_reader,Id value) noexcept;
     bool cancel_recording(Id token) noexcept;
     // Configuration/shutdown owner calls this outside rendering locks. Never
     // waits for GPU. A maximum of four active/retired contexts can own resources;

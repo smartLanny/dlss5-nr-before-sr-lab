@@ -38,13 +38,13 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
  const auto source=nr_source_runtime::CurrentSource();if(!source)return out;
  if(g_config.temporal_scope&&g_config.nr_passes<2){Status(11);return out;}
  // Previews deliberately alter candidates and are not a stable colour domain.
- if(g_config.light_preview||g_config.region_preview||g_config.colour_neutral_probe){Status(10);return out;}
+ if(g_config.light_preview||g_config.region_preview||g_config.face_preview||g_config.colour_neutral_probe){Status(10);return out;}
  CommandListQueueMarker marker{};LifecycleQueue* queue=nullptr;
  if(!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||marker.stable_submissions<kRequiredStableQueueSubmissions){Status(2);return out;}
  for(auto& entry:g_lifecycle_queues)if(entry.identity==marker.identity&&entry.queue&&entry.fence){queue=&entry;break;}
  if(!queue||!ReadLifecycleToken(list,out.recording)||!CanBeginContextUseLocked(list,context,false)){Status(2);return {};}
  const unsigned key=g_config.temporal_backend|(g_config.temporal_scope<<8);
- if(context.temporal&&(context.temporal_key!=key||context.temporal_width!=width||context.temporal_height!=height||context.temporal_queue!=queue->identity)){
+ if(context.temporal&&(!context.temporal->initialized()||context.temporal_key!=key||context.temporal_width!=width||context.temporal_height!=height||context.temporal_queue!=queue->identity)){
   if(!ReleaseIdle(context)){Status(3);return {};}
  }
  auto& in=out.inputs;

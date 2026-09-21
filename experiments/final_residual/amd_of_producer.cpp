@@ -252,6 +252,17 @@ bool AmdOfProducer::cancel_recording(Id token)noexcept {
     p.retiring=true;p.ready=false;p.previous={};p.age=0;
     p.message="cancelled unsubmitted FFX recording; context requires recreation";return true;
 }
+bool AmdOfProducer::retire_replayed_recording(ID3D12Fence* fence,Id value)noexcept {
+    auto& p=*p_;
+    if(!p.borrowed||!value||value==UINT64_MAX||!same_device(fence,p.device.Get())||
+       fence->GetCompletedValue()==UINT64_MAX)return false;
+    // A recorded list was executed again. Its SDK commands have already run;
+    // do not reuse the now-inexact CPU/SDK history. The new same-queue fence
+    // covers all earlier uses and must replace the stale retirement receipts.
+    for(auto& slot:p.borrowed_slots){slot.fence=fence;slot.value=value;}
+    p.retiring=true;p.ready=false;
+    p.message="replayed AMD recording: retire after the latest real submission";return true;
+}
 Submit AmdOfProducer::dispatch(const Frame& f,const Plan& plan,ID3D12Resource* snapshot)noexcept{
     auto& p=*p_;if(p.borrowed||p.retiring||p.fault||!p.ready)return Submit::Faulted;
     if(p.previous.source.valid()&&same_stream(f.source,p.previous.source)&&f.source.sequence==p.previous.source.sequence)return Submit::Duplicate;

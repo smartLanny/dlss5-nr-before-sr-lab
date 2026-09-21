@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from temporal_test_objects import objects_for
 
 ROOT=Path(__file__).resolve().parents[1]
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -18,6 +19,7 @@ def main():
     p.add_argument('--runtime',type=Path,help='Explicit latest runtime overlay for a focused unfrozen-source check.')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
+    p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
     a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
@@ -34,11 +36,11 @@ def main():
     if post_text.count(post_boundary)!=1:raise SystemExit('Shared post helper boundary changed.')
     s=post_text.split(post_boundary,1)[0]+'\n} // namespace post_output_test\n'
     if 'struct Fixture' not in q or 'ReadTexture(' not in s:raise SystemExit('Shared fixture helper boundary changed.')
-    fixture=ROOT/'tests/native_color_view_harness.inl'
+    fixture=ROOT/('tests/temporal_core_harness.inl' if a.temporal else 'tests/native_color_view_harness.inl')
     (out/'fixture.inl').write_text(q+s+fixture.read_text(encoding='utf-8'),encoding='utf-8')
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
-        'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);native_color_test::Run();return 0;}\n',encoding='utf-8')
+        'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);'+('temporal_core_test' if a.temporal else 'native_color_test')+'::Run();return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
@@ -49,7 +51,7 @@ def main():
         (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
         if r.returncode:print((r.stdout+r.stderr)[-14000:])
         return r
-    objects=[]
+    objects=list(map(str,objects_for(source)))
     # The Core's dual spatial declarations are public-header only; compile the
     # captured D3D12 implementation as its real sibling translation unit.
     spatial_source=snapshot/'nr_dual_spatial_d3d12.cpp'
@@ -71,7 +73,8 @@ def main():
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
-            'production_translation_unit':True,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None}
+            'production_translation_unit':True,'temporal_seam':a.temporal,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
+            'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
         r=run([str(exe)],'run',120);record['run_exit']=r.returncode;print(r.stdout)
     (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
