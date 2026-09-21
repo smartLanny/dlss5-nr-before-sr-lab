@@ -1,0 +1,54 @@
+{
+  "schema": "nr-edit-verified-baselines-v4",
+  "scope": [258, 259],
+  "experiment_base": "305074d6f786064071fda24ac7f81d99645ab338",
+  "verified_target": "4542731470b48ba2493aed22fd8bec856a6fc439",
+  "verified_target_version": "beta0.5-dline19",
+  "verified_target_dirty": false,
+  "source_strategy": "additive experiment directory; extend a fresh target-generated candidate",
+  "target_generated_files_modified": [
+    "src/nr_before_sr.cpp",
+    "src/nr_settings_ui.inl",
+    "src/nr_processing_runtime.inl",
+    "src/interop/nr_rr_post_runtime.inl",
+    "scripts/build.ps1"
+  ],
+  "unchanged_target_files_verified": 194,
+  "compiler": "LLVM-MinGW clang 23.1.0, llvm ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+  "windows_sdk_backend_compilation": "three actual backend translation units passed",
+  "full_generated_product_build": "English and Chinese addon compilation/link passed",
+  "optional_separate_face_backend": "disabled in this verified build",
+  "unchanged_nrchain_rebuilt": false,
+  "new_shader_compilation": {
+    "target": "cs_5_0",
+    "flags": "O3, strictness, IEEE strictness, warnings as errors",
+    "six_entries": "passed",
+    "finite_guard": "explicit exponent-bit tests; NaN/Inf behavior verified on WARP"
+  },
+  "actual_warp": {
+    "six_production_shader_entries": "passed",
+    "constant_and_threadgroup_reflection": "passed",
+    "positive_identity_signed_pixels": "passed",
+    "matched_depth_history_acceptance": "passed",
+    "disocclusion_depth_history_rejection": "passed",
+    "nan_inf_motion": "passed"
+  },
+  "private_sr_host_contract": "passed; vendor calls are test callbacks, not NVIDIA inference",
+  "real_generated_source_migration_tests": "8 of 8 passed",
+  "integration_manifest_sha256": "daa447878d17ab21b36e33584a67a28587a857af183e45868d73e9979fd502a1",
+  "edit_shader_manifest_sha256": "a4fb8a498d0b37afdd42031d8dd3b06c494205f428c80f2fe29fdc126031be2f",
+  "verified_addons": {
+    "DLSS5-AI-Rendering-Upscaling-beta0.5-dline19-@野生的装机宅-Bilibili.en-edit-v4.addon64": "4d1441248ec5f1e09cdffd20f0d83f127925b6fb02461e3f1b9c5973c2f01481",
+    "DLSS5-AI渲染超分版-beta0.5-dline19-@野生的装机宅-Bilibili-edit-v4.addon64": "3db4e0ab10d807ccf7dcba3747f0032c06545ba3efc2889b72c87af33a5aa127"
+  },
+  "local_evidence_relative_to_experiment_worktree": "build/nr-edit-d19-verified/validation.json",
+  "nvidia_private_sr_nr": "not-run",
+  "game_validation": "not-run",
+  "game_performance_quality": "not-run",
+  "future_d20_build": "not-run; run Build-Against after D20 is frozen",
+  "full_project_regression_suite": "not-run",
+  "hosted_ci": "not-run",
+  "installed_game_modified": false,
+  "active_development_worktree_modified": false,
+  "automatic_main_merge_or_release": false
+}
