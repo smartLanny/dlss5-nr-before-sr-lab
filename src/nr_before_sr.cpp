@@ -11924,7 +11924,7 @@ void NrExternalTrainSubmission(ID3D12CommandQueue* queue,UINT count,ID3D12Comman
     if(!g_external_training_pending.load(std::memory_order_acquire)||!lists||!count)return;
     if(!TryAcquireSRWLockShared(&g_external_training_lock))return;
     if(queue==g_external_training_queue&&g_external_training_list){
-        for(UINT i=0;i<count;++i)if(lists[i]==static_cast<ID3D12CommandList*>(g_external_training_list)){
+        for(UINT i=0;i<count;++i)if(lists[i]==reinterpret_cast<ID3D12CommandList*>(g_external_training_list)){
             EnterCriticalSection(&g_chain_cs);
             if(auto* tracked=TrackGraphicsQueueLocked(queue))
                 if(tracked->identity)RememberLastSubmissionQueue(lists[i],tracked->identity);
