@@ -1,3 +1,14 @@
+## Current temporal milestone (2026-09-21)
+
+The approved unified5 successor now delivers unified6's first package. Read
+`docs/interop/UNIFIED6_DELIVERY_20260921.md` and `UNIFIED_HANDOFF.md` for exact
+source, supported routes and evidence. Native MV / AMD final-residual recording
+is connected only to proven native DX12 Feature1 post-SR SDR, default OFF.
+Do not report pre-SR, RR, HDR, ProviderV1, private reconstruction, Adaptive or
+NVOF as connected. Preserve unsubmitted Reset proof, replay leases, real final
+fences and the safe current candidate on refusal. Continue #300 / #294 and
+`next/0.5`; game evidence is still required for #246 / #254.
+
 ## Active unified successor (2026-09-20)
 
 Owner update 2026-09-21 supersedes historical colour-priority defaults below:
