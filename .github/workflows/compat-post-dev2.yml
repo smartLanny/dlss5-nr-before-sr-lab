@@ -1,4 +1,4 @@
-name: Unified1 - exact staged bilingual Core and full face backend
+name: Unified candidate - exact staged bilingual Core and full face backend
 on:
   workflow_call:
   workflow_dispatch:
@@ -90,6 +90,29 @@ jobs:
           if ((Get-FileHash face-model/yunet-dynamic.onnx -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Prepared face model hash mismatch' }
           "FACE_RUNTIME_ROOT=$faceRuntime" | Out-File $env:GITHUB_ENV -Append
           "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+      - name: Fixed AMD optical-flow build dependency (no GPU inference)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'experiments/final_residual/recorded_temporal.cpp') {
+            $ffxSdk = Join-Path $env:RUNNER_TEMP 'fidelityfx-sdk-1.1.4'
+            $ffxCache = Join-Path $env:RUNNER_TEMP 'ffx-opticalflow-build'
+            git init $ffxSdk
+            if ($LASTEXITCODE) { throw 'AMD dependency directory initialization failed' }
+            git -C $ffxSdk remote add origin https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
+            if ($LASTEXITCODE) { throw 'AMD dependency remote setup failed' }
+            git -C $ffxSdk fetch --depth 1 origin c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
+            if ($LASTEXITCODE) { throw 'Pinned AMD dependency fetch failed' }
+            git -C $ffxSdk checkout --detach FETCH_HEAD
+            if ($LASTEXITCODE) { throw 'Pinned AMD dependency checkout failed' }
+            git -C $ffxSdk lfs pull
+            if ($LASTEXITCODE) { throw 'Pinned AMD dependency payloads failed' }
+            $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
+            python experiments/final_residual/build_amd_probe.py --sdk $ffxSdk --compiler $compiler --output $ffxCache --sdk-only
+            if ($LASTEXITCODE) { throw 'Fixed AMD shader/backend compilation failed' }
+            "DLSS5_FFX_SDK_ROOT=$ffxSdk" | Out-File $env:GITHUB_ENV -Append
+            "DLSS5_FFX_CACHE_ROOT=$ffxCache" | Out-File $env:GITHUB_ENV -Append
+          }
       - name: Actual bilingual packaging and pinned dependency negative controls
         shell: pwsh
         run: |
@@ -109,6 +132,19 @@ jobs:
         run: |
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/validate-face-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModelPath face-model/yunet-dynamic.onnx -OutputRoot build/unified3.face-checks
           if ($LASTEXITCODE) { throw 'Full face runtime validation failed' }
+      - name: Temporal CPU contract and actual Core WARP consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'experiments/final_residual/recorded_temporal.cpp') {
+            $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
+            python experiments/final_residual/validate.py --compiler $compiler --output build/unified3.temporal-cpu
+            if ($LASTEXITCODE) { throw 'Temporal history contract failed' }
+            python scripts/validate-native-color-view.py --compiler $compiler --reshade reshade-source --source build/unified3/source/core/src/nr_before_sr.cpp --output build/unified3.temporal-core --temporal
+            if ($LASTEXITCODE) { throw 'Actual temporal Core WARP consumer failed' }
+            python scripts/validate-native-color-view.py --compiler $compiler --reshade reshade-source --source build/unified3/source/core/src/nr_before_sr.cpp --output build/unified3.temporal-wrong-p1 --temporal --temporal-negative
+            if ($LASTEXITCODE) { throw 'Wrong-P1 negative control was not rejected' }
+          }
       - name: Package separate languages; preserve user INI, do not publish a Release
         shell: pwsh
         run: |
@@ -128,4 +164,8 @@ jobs:
             build/unified3/validation.json
             build/unified3/source/source-manifest.json
             build/unified3/source/core/build/face-backend.json
+            build/unified3/source/core/build/obj/temporal/module.json
+            build/unified3.temporal-cpu/validation.json
+            build/unified3.temporal-core/result.json
+            build/unified3.temporal-wrong-p1/result.json
           if-no-files-found: error

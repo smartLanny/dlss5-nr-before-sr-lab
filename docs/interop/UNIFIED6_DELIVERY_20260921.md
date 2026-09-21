@@ -40,6 +40,13 @@ GPU 大量逐像素断言不等于同样数量的独立场景。取消缺口的�
 既有 unified5 中文回退 ZIP 的 SHA256 仍为
 `55d044a6739ba89b8411f33fe0a336fc5de1477c216db3c6672ebaab572c4162`。
 
+托管 [run 35591772388](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/35591772388)
+对应文档 HEAD `97c6c1b6`；相关失败 job 均为零步骤，annotation 明确为账号付款/
+额度限制。未重试。随后补齐现有可复用 CI 的固定 AMD SDK/外部编译缓存，以及
+CPU/实际 Core WARP 正负控步骤；本地六项接线检查和 YAML/PowerShell 语法通过，
+不等于托管运行。该 CI/文档提交使用 skip-ci，避免在已知账单阻塞时触发重跑。
+二进制仍来自 `cd4bc734`，CI 配置变化不替代构建或游戏证据。
+
 ## 实际功能与范围
 
 - 实验页提供关闭、原生运动、AMDOF；首次配置关闭。
