@@ -157,8 +157,6 @@ WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
 int main(){
  auto c=load();assert(c.color_strength==1.f && c.colour_lab_mode==2);
  assert(c.temporal_backend==0&&c.temporal_scope==0&&!c.temporal_legacy);
- c.temporal_backend=2;c.temporal_scope=1;c.temporal_legacy=true;save(c);c=load();
- assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_legacy);
  put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
  assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
  nr_colour_preferences::Select(c,0);assert(c.color_strength==.7f);
@@ -168,6 +166,8 @@ int main(){
  nr_colour_preferences::Select(c,1);assert(c.color_strength==1.f);
  c.color_strength=.2f;nr_colour_preferences::Remember(c);save(c);c=load();
  assert(c.color_strength==.2f);nr_colour_preferences::Select(c,0);assert(c.color_strength==.6f);
+ c.temporal_backend=2;c.temporal_scope=1;c.temporal_legacy=true;save(c);c=load();
+ assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_legacy);
 }
 '''
         self.run_cpp(code)
