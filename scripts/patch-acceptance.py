@@ -9,7 +9,7 @@ def apply(stage:Path,inputs,helpers):
         (root/path).write_bytes(inputs[path])
     p=root/'src/nr_before_sr.cpp';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
-        'namespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+        '#define NR_HAS_ACCEPTANCE 1\nnamespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
     s=helpers.once(s,'    nr_f8::Present(runtime);','    nr_f8::Present(runtime);\n    nr_acceptance::Present(runtime);','guided Present tick')
     s=helpers.once(s,'any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token)',
         'any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token)',
@@ -26,13 +26,3 @@ def apply(stage:Path,inputs,helpers):
     p=root/'src/nr_settings_ui.inl';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'    nr_f8::RuntimeDestroyed(runtime);','    nr_acceptance::RuntimeDestroyed(runtime);\n    nr_f8::RuntimeDestroyed(runtime);','guided runtime shutdown')
     p.write_text(s,encoding='utf-8',newline='\n')
-    p=root/'src/nr_unified_settings.inl';s=p.read_text(encoding='utf-8')
-    s=helpers.once(s,'    const bool collecting=nr_f8::IsActive();','    const bool collecting=nr_f8::g_config_hold.load();','guided UI config ownership')
-    p.write_text(s,encoding='utf-8',newline='\n')
-    p=root/'src/nr_unified_pages.inl';s=p.read_text(encoding='utf-8')
-    marker='void DrawUnifiedFeedback('
-    begin,end=helpers.definition(s,marker)
-    body=s[begin:end];at=body.index('{')+1
-    body=body[:at]+'\n    nr_acceptance::Draw(runtime,pending);\n    ImGui::BeginDisabled(nr_acceptance::Active());'+body[at:]
-    body=body[:-1]+'    ImGui::EndDisabled();\n}'
-    s=s[:begin]+body+s[end:];p.write_text(s,encoding='utf-8',newline='\n')

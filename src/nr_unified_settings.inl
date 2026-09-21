@@ -25,7 +25,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     bool changed = false;
 
     bool apply_discrete_edit=false;
-    const bool collecting=nr_f8::IsActive();
+    const bool collecting=nr_f8::g_config_hold.load();
     const bool rr_guarded=IsRayReconstructionRouteObserved();
     const bool compatibility_post=!rr_guarded&&next.mode==2&&compatibility_snapshot.recent&&compatibility_snapshot.effective_mode==1;
     const bool before_sr=!rr_guarded&&nr_processing_runtime::Effective()==nr_processing::Start::Before;

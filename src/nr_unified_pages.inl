@@ -237,6 +237,10 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
 }
 
 void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig& config,bool pending) {
+#if NR_HAS_ACCEPTANCE
+    nr_acceptance::Draw(runtime,pending);
+    ImGui::BeginDisabled(nr_acceptance::Active());
+#endif
     const bool busy=nr_f8::IsActive()||nr_f8::g_status.load()==nr_f8::Status::Packaging||nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);
     const bool row=SettingsContentWidth()>ImGui::GetFontSize()*42.f;
@@ -287,4 +291,7 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::TextWrapped("%s",NrUi("QQ group 2: 392308850","交流群（二群）：392308850"));
     SettingsNote(NrUi("Shortcut keys can be changed on Developer. Minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
         "可在开发者页修改快捷键；减号为截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
+#if NR_HAS_ACCEPTANCE
+    ImGui::EndDisabled();
+#endif
 }
