@@ -19,6 +19,7 @@ struct Config {
  int colour_lab_mode=nr_colour_lab::kDefaultMode; bool allow_unverified_hdr_color=false;
  float color_strength=1.f,colour_priority_strength=.7f,colour_conservative_strength=1.f;
  unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119;
+ unsigned temporal_backend=0,temporal_scope=0;bool temporal_legacy=false;
 };
 int main(){
  using namespace nr_colour_preferences;
@@ -130,7 +131,7 @@ int main(){
         start=core.index('    wchar_t saved_mode[32]{}')
         end=core.index('    next.light_preset_color',start)
         colour_load=core[start:end]
-        start=core.index('    next.master_virtual_key=')
+        start=core.index('    next.temporal_backend=') if '    next.temporal_backend=' in core else core.index('    next.master_virtual_key=')
         key_load=core[start:core.index('    next.enabled =',start)]
         start=core.index('    record_light(WriteIniFloat(L"ColorStrength"')
         last='    record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));'
@@ -155,6 +156,9 @@ void save(const Config& config){auto record_light=[](bool ok){assert(ok);};auto 
 WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
 int main(){
  auto c=load();assert(c.color_strength==1.f && c.colour_lab_mode==2);
+ assert(c.temporal_backend==0&&c.temporal_scope==0&&!c.temporal_legacy);
+ c.temporal_backend=2;c.temporal_scope=1;c.temporal_legacy=true;save(c);c=load();
+ assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_legacy);
  put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
  assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
  nr_colour_preferences::Select(c,0);assert(c.color_strength==.7f);
