@@ -156,7 +156,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
         records += '\n'.join(line for line in source.splitlines()
                              if line.startswith('std::atomic<') and prefix in line) + '\n'
     values['COMBINED_EVIDENCE'] = records
-    values['ACTIVITY'] = function(feedback, 'void FeedbackAppendCommandHistory(') + '\n' + values['ACTIVITY']
+    values['ACTIVITY'] += '\n' + function(feedback, 'void FeedbackAppendCommandHistory(')
     if args.omit_end_verdict_negative:
         before = '    FeedbackAppendCompatibilityVerdict(s, prefix, decision);'
         if values['ACTIVITY'].count(before) != 1: raise SystemExit('End-verdict control anchor changed')
@@ -245,6 +245,9 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
             'start.semantic.Exposure=', 'end.semantic.Exposure=',
             'end.semantic.ColorInput.candidate.5=', 'end.semantic.Output.candidate.5=',
             'commandHistory.11.blend=', 'end.post.boundary.native.5=',
+            'commandHistory.11.shadingRate.observation=observed-native-setter\n',
+            'commandHistory.11.shadingRate.combiners=4294967295,4294967295\n',
+            'commandHistory.11.shadingRate.deviceSupport=not-queried\n',
             'end.post.boundary.following.11=', 'ngxLifecycle.firstFault.15=',
             'ngxLifecycle.recent.15=', 'artifact.identityStatus=', 'color.contract=',
             'end.recovery.receipt=scopeAvailable:1,scopeMatchesDecision:0,config:9,',

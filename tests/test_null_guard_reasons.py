@@ -46,11 +46,13 @@ using UINT64 = uint64_t;
 constexpr int D3D12_VIEWPORT_BOUNDS_MIN = -32768;
 constexpr int D3D12_VIEWPORT_BOUNDS_MAX = 32767;
 constexpr UINT64 kDynamicViewport=2, kDynamicScissor=4, kDynamicBlend=8,
-    kDynamicTargets=64, kDynamicDepthBias=8192, kDynamicStripCut=16384;
+    kDynamicTargets=64, kDynamicShadingRate=2048, kDynamicDepthBias=8192, kDynamicStripCut=16384;
+constexpr unsigned D3D12_SHADING_RATE_1X1=0, D3D12_SHADING_RATE_COMBINER_PASSTHROUGH=0;
 struct Viewport { float TopLeftX=0, TopLeftY=0, Width=1, Height=1, MinDepth=0, MaxDepth=1; };
 struct Rect { long left=0, top=0, right=1, bottom=1; };
 struct Handle { uintptr_t ptr=0; };
 struct Dynamic {
+    unsigned shading_rate=0, combiners[2]{}; bool has_combiners=false;
     UINT64 recorded=kDynamicBlend;
     UINT vertex_mask=0, stream_mask=0, viewport_count=0, scissor_count=0, target_count=0;
     bool contiguous_targets=false, has_depth_target=false;

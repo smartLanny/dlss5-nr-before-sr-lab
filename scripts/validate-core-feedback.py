@@ -490,10 +490,41 @@ int main(int argc,char **argv) {
         const auto measured=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*measured,"sample");
         check(std::strstr(measured->report,"sample.commandState.blend=0.25,0.5,0.75,1\n"),"all four sampled blend values reach TXT formatting");
+        {
+            const auto absent=std::make_unique<FeedbackSession>();
+            FeedbackAppendActivity(*absent,"vrs");
+            check(std::strstr(absent->report,"vrs.commandState.shadingRate.observation=unobserved\n") &&
+                !std::strstr(absent->report,"vrs.commandState.shadingRate.rate="),
+                "absent VRS observation never prints default rate as evidence");
+            g_command_state_evidence.shading_rate_observed=true;
+            g_command_state_evidence.shading_rate=5;
+            g_command_state_evidence.shading_combiners_explicit=true;
+            g_command_state_evidence.shading_combiners[0]=2;
+            g_command_state_evidence.shading_combiners[1]=3;
+            const auto explicit_vrs=std::make_unique<FeedbackSession>();
+            FeedbackAppendActivity(*explicit_vrs,"vrs");
+            check(std::strstr(explicit_vrs->report,"vrs.commandState.shadingRate.rate=5\n") &&
+                std::strstr(explicit_vrs->report,"vrs.commandState.shadingRate.combiners=2,3\n") &&
+                std::strstr(explicit_vrs->report,"vrs.commandState.shadingRate.combinerSource=explicit-array\n") &&
+                std::strstr(explicit_vrs->report,"vrs.commandState.shadingRate.deviceSupport=not-queried\n"),
+                "pure F8 formatting preserves distinct nondefault payload without claiming device support");
+            g_command_state_evidence.shading_rate=0;
+            g_command_state_evidence.shading_combiners_explicit=false;
+            g_command_state_evidence.shading_combiners[0]=g_command_state_evidence.shading_combiners[1]=0;
+            const auto null_vrs=std::make_unique<FeedbackSession>();
+            FeedbackAppendActivity(*null_vrs,"vrs");
+            check(std::strstr(null_vrs->report,"vrs.commandState.shadingRate.combiners=0,0\n") &&
+                std::strstr(null_vrs->report,"vrs.commandState.shadingRate.combinerSource=null-means-passthrough\n"),
+                "NULL combiner observation is distinguished from an explicit zero array");
+        }
         AcquireSRWLockExclusive(&g_command_state_lock);
         const auto unavailable=std::make_unique<FeedbackSession>();
         FeedbackAppendActivity(*unavailable,"sample");
         ReleaseSRWLockExclusive(&g_command_state_lock);
+        check(std::strstr(unavailable->report,"sample.commandState.shadingRate.observation=unavailable\n") &&
+            !std::strstr(unavailable->report,"sample.commandState.shadingRate.rate="),
+            "busy snapshot omits scalar payload rather than reporting false defaults");
+        g_command_state_evidence.shading_rate_observed=false;
         check(std::strstr(unavailable->report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
     }
     g_config.high_strength_protection=false;g_config.layered_enhancement=true;
@@ -780,7 +811,7 @@ def production_values():
         'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
-        'ACTIVITY': definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
+        'ACTIVITY': definition(legacy, 'void FeedbackAppendCommandShadingRate(') + '\n' + definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
         'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
         'MEMORY_SNAPSHOT': definition(source, 'struct NrContextMemorySnapshot {', True),

@@ -65,6 +65,25 @@ const char *FeedbackStageBlockReason(const ChainConfig &config) {
     return nullptr;
 }
 
+#if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
+void FeedbackAppendCommandShadingRate(FeedbackSession &s, const char *prefix,
+                                     const CommandStateEvidence &e) {
+    // Pure formatting of the existing bounded snapshot. Never query a device,
+    // poll runtime state or present unobserved defaults as application writes.
+    if (!e.available || !e.shading_rate_observed) {
+        FeedbackAppend(s, "%s.shadingRate.observation=%s\n", prefix,
+            e.available ? "unobserved" : "unavailable");
+        return;
+    }
+    FeedbackAppend(s, "%s.shadingRate.observation=observed-native-setter\n"
+        "%s.shadingRate.rate=%u\n%s.shadingRate.combiners=%u,%u\n"
+        "%s.shadingRate.combinerSource=%s\n%s.shadingRate.deviceSupport=not-queried\n",
+        prefix, prefix, e.shading_rate, prefix, e.shading_combiners[0], e.shading_combiners[1],
+        prefix, e.shading_combiners_explicit ? "explicit-array" : "null-means-passthrough",
+        prefix);
+}
+#endif
+
 #if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
 void FeedbackAppendCommandHistory(FeedbackSession &s) {
     FeedbackAppend(s, "commandHistory.schema=1\ncommandHistory.scope=historical distinct carrier samples; not a fresh snapshot or frame identity\n"
@@ -107,6 +126,9 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
             FeedbackAppend(s, "commandHistory.%u.blend=%.9g,%.9g,%.9g,%.9g\n",
                 i, e.blend[0], e.blend[1], e.blend[2], e.blend[3]);
         else FeedbackAppend(s, "commandHistory.%u.blend=unobserved\n", i);
+        char shading_prefix[48]{};
+        std::snprintf(shading_prefix, sizeof(shading_prefix), "commandHistory.%u", i);
+        FeedbackAppendCommandShadingRate(s, shading_prefix, e);
     }
     FeedbackAppend(s, "commandHistory.methodLegend=0:unknown,1:CreateCommandList-initially-open,2:CreateCommandList1-initially-closed\n"
         "commandHistory.warning=ReShade-reset-notification-is-not-proof-of-native-Reset; next-steps-are-hypotheses-not-proven-fixes\ncommandLifetime.coverage=optional observers attempt each implementation once; missing receipts and earlier unobserved calls remain unknown\n");
@@ -763,6 +785,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
+    char shading_prefix[80]{};
+    std::snprintf(shading_prefix, sizeof(shading_prefix), "%s.commandState", prefix);
+    FeedbackAppendCommandShadingRate(s, shading_prefix, evidence);
     FeedbackAppend(s, "%s.commandState.available=%d\n%s.commandState.snapshotReason=%s\n",
         prefix, evidence.available ? 1 : 0, prefix, evidence.available ? "available" : evidence.reason);
     FeedbackAppend(s, "%s.commandState.blendObserved=%d\n", prefix,

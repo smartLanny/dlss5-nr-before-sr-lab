@@ -182,13 +182,14 @@ def raster(source: str) -> str:
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
 constexpr float D3D12_VIEWPORT_BOUNDS_MIN=-32768.f,D3D12_VIEWPORT_BOUNDS_MAX=32767.f;
-constexpr UINT64 kDynamicViewport=2,kDynamicScissor=4,kDynamicBlend=8,kDynamicTargets=64;
+constexpr UINT64 kDynamicViewport=2,kDynamicScissor=4,kDynamicBlend=8,kDynamicTargets=64,kDynamicShadingRate=2048;
+constexpr unsigned D3D12_SHADING_RATE_1X1=0,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH=0;
 struct Viewport {float TopLeftX=0,TopLeftY=0,Width=0,Height=0,MinDepth=0,MaxDepth=1;};
 struct Rect {long left=0,top=0,right=0,bottom=0;};
 struct NativeCommandState {
  bool known=true,null_pipeline_baseline=true,null_guard_covered=true,null_guard_reset_observed=true,null_guard_tainted=false;
  void *pipeline=nullptr,*raytracing_pipeline=nullptr,*rtv_cache=nullptr,*dsv_cache=nullptr;UINT unknown_domains=0;
- struct {UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
+ struct {UINT shading_rate=0,combiners[2]{};bool has_combiners=false;UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
 };
 HELPER
 ACTUAL
@@ -196,7 +197,12 @@ int main() {
  NativeCommandState s;s.dynamic.viewports[0]={0,0,1920,1080,0,1};s.dynamic.scissors[0]={1,2,1919,1079};
  check(CanAutoRestoreRasterNull(s),"observed viewport/scissor subset admitted");
  for(unsigned bit=0;bit<20;++bit) {auto t=s;t.dynamic.recorded|=UINT64{1}<<bit;
-   check(CanAutoRestoreRasterNull(t)==(bit==1||bit==2||bit==3||bit==6),"all other dynamic domains rejected");}
+   check(CanAutoRestoreRasterNull(t)==(bit==1||bit==2||bit==3||bit==6||bit==11),"only bounded raster and observed default scalar VRS admitted");}
+ {auto t=s;t.dynamic.recorded|=kDynamicShadingRate;t.dynamic.shading_rate=5;
+  check(!CanAutoRestoreRasterNull(t),"nondefault VRS remains rejected");}
+ for(unsigned lane=0;lane<2;++lane) {auto t=s;t.dynamic.recorded|=kDynamicShadingRate;
+  t.dynamic.has_combiners=true;t.dynamic.combiners[lane]=1;
+  check(!CanAutoRestoreRasterNull(t),"each nondefault VRS combiner remains rejected");}
  for(auto member:{&NativeCommandState::known,&NativeCommandState::null_pipeline_baseline,&NativeCommandState::null_guard_covered,&NativeCommandState::null_guard_reset_observed}) {
    auto t=s;t.*member=false;check(!CanAutoRestoreRasterNull(t),"no missing coverage or baseline admitted");}
  {auto t=s;t.null_guard_tainted=true;check(!CanAutoRestoreRasterNull(t),"taint remains sticky");}
