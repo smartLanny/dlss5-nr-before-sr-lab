@@ -159,3 +159,54 @@ unified3 build: both component inventories were re-read and verified. That
 reference validates packaging mechanics, not a new adapter binary. The final
 unified5 stage must be regenerated from its own completed build and packages.
 Seven focused Python input-rejection tests pass; they make no runtime claims.
+
+## Real provider ABI GPU host (2026-09-21)
+
+The independent `validate-external-provider-ngx.py` runner compiles the entire
+frozen Core into a host, with its actual linked objects and precompiled shaders.
+It verifies the complete source manifest, full-face build receipt, artifact
+hashes and current NVIDIA Authenticode signature before running. It supplies
+synthetic colour/depth/motion through the public provider ABI; it does not
+replace a production runtime function or invoke a packaged Feeder.
+
+```text
+python scripts/validate-external-provider-ngx.py --core <frozen-built-core>
+  --source-commit <exact-manifest-commit> --compiler <Windows-clang++>
+  --reshade <pinned-ReShade-source> --nr-runtime <signed-nvngx_dlssnr.dll>
+  --output <new-private-evidence-directory>
+```
+
+Frozen source `9ff3555a7bfdedd3389731bdb349224223b8f35f` passed on an actual
+RTX 5090 D. The source manifest SHA-256 was
+`6716aa6c4c43f364ec34c9704882eeb01787d95b452c771f0b82788286b99c4d`;
+all 256 source files matched the canonical source before and after the run.
+The host used a separately built, verified full-face copy of that exact source.
+Its seven linked object hashes and 26 shader hashes are retained privately;
+this is a same-source host test, not a claim that it loaded the eventual
+packaged Core DLL or completed the full canonical release gates.
+
+- One layer: 378 checks; five real primary model evaluations, six completed
+  external receipts and three changed output frames.
+- Two layers: 463 checks; seven primary and three secondary evaluations using
+  distinct real Feature18 handles, eight completed external receipts and three
+  changed frames on which the secondary actually evaluated.
+- Both cases exercised Claim, exact-list queue training, Submit, real Execute
+  and Signal, Query and Release. A separate real queue-wait fence deliberately
+  held submitted commands incomplete: Release was refused and model/transport
+  resources remained retained until the producer's declared completion fence.
+  A scope guard opens that test gate on exceptions; completion waits are bounded.
+- Duplicate frames were refused. OFF admitted only identity, added no model
+  evaluations, preserved every output pixel and allowed completed retirement.
+
+The passing validation receipt SHA-256 is
+`acca8d63f095c896ba7c7d03aa4b2297a4c927d6364c95bf50f6dfb38602098b`.
+Earlier signature-environment failures and a failed two-layer fixture remain
+preserved. The latter only wrote in-memory settings; the actual ABI's
+SnapshotConfig reloaded missing INI defaults to one layer. The corrected host
+uses the real SaveConfig/ReloadConfig path and asserts the requested layer
+count after every Submit. No production change or weakened assertion was used.
+
+This validates the bounded current external consumer, not real game quality,
+native SR/FG, Bridge, Vulkan/IPC, or actual packaged Feeder guide extraction.
+Non-unity exposure remains explicitly unsupported by the current Core ABI
+consumer. Per-component and game validation are still required.
