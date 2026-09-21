@@ -71,6 +71,18 @@ NgxResult Evaluate(void* fn,ID3D12GraphicsCommandList* list,const void* handle,c
 NgxResult Release(void* fn,void* handle){
     const auto result=original_release(fn,handle);++releases;Record("release",nullptr,handle,result);return result;
 }
+// Standalone hosts do not receive ReShade Present callbacks. Run the exact
+// production Present collector/drain transaction; never mark a fence complete.
+void Maintain(){
+    EnterCriticalSection(&g_chain_cs);
+    CollectRetiredContextsLocked();
+    auto account=[](const char* table,const NrContext& c){if(!c.sr_handle)return;
+        std::fprintf(events,"{\"event\":\"context-account\",\"segment\":%u,\"table\":\"%s\",\"instance\":%llu,\"nr_handle\":\"%p\",\"retired\":%s,\"recordings\":%u,\"pending_token\":%llu,\"awaiting_signal\":%s,\"fence_value\":%llu,\"fence_complete\":%s,\"intensity\":%.9g}\n",segment,table,c.instance_id,c.nr_handle,c.retired?"true":"false",c.recording_command_lists,c.pending_recording_token,c.awaiting_fence_signal?"true":"false",c.completion_fence_value,IsContextFenceCompleteLocked(c)?"true":"false",c.tuning_signature.intensity);};
+    for(const auto& c:g_contexts)account("active",c);
+    for(const auto& c:g_pending_destroy_contexts)account("pending-destroy",c);
+    LeaveCriticalSection(&g_chain_cs);
+    DrainPendingContextDestructions();std::fflush(events);
+}
 void Run(const wchar_t* directory,const wchar_t* mode){
     queue_test::Fixture f;swprintf_s(g_log_path,L"%ls\\core.log",directory);swprintf_s(g_ini_path,L"%ls\\host.ini",directory);
     wchar_t path[MAX_PATH];swprintf_s(path,L"%ls\\events.jsonl",directory);events=_wfopen(path,L"wb");Check(events!=nullptr,"events file");
@@ -126,6 +138,7 @@ void Run(const wchar_t* directory,const wchar_t* mode){
                 ReleaseCom(last_output);++count;
             }
             Hr(ID3D12CommandAllocator_Reset(list.replacement),"completed allocator reset");Hr(ID3D12GraphicsCommandList_Reset(list.native,list.replacement,g_codec.encode),"retire source recording");list.Close();list.Detach();
+            Maintain();
         }
         Check(count==10,"ten actual model frames per aligned segment");Check(creates==before_create+1,"normal Core creates exactly one model for changed setting");
         if(segment)Check(releases==before_release+1,"normal Core releases replaced model after completed work");

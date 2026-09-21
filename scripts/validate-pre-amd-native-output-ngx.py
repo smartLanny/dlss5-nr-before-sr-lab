@@ -47,7 +47,7 @@ def verify_build(source,core,nr,sr,expected_source_commit):
         pinned[str(path.resolve())]=sha(path)
     return {'source_commit':data['source_commit'],'source_manifest_sha256':sha(manifest),
             'aux_shader_count':9,'aux_precompiled':True,'aux_timing':True,'pinned_files':pinned}
-def verify_capture(out):
+def verify_capture(out,expected_source_commit):
     import math,struct
     reader_spec=importlib.util.spec_from_file_location('native_o_reader',ROOT/'scripts/read-native-output-capture.py')
     reader=importlib.util.module_from_spec(reader_spec);reader_spec.loader.exec_module(reader)
@@ -55,6 +55,9 @@ def verify_capture(out):
     if len(directories)!=1:raise ValueError('One complete deep capture required')
     native=reader.read_capture(directories[0]);amd=json.loads((case/'pre-amd-observation.json').read_text())
     if not native['present'] or not native['same_frame_verified']:raise ValueError('Actual same-source native O missing')
+    embedded_commit=reader.HEADER.unpack_from((directories[0]/'native-output.nro').read_bytes())[35].split(b'\0',1)[0].decode('ascii')
+    if embedded_commit!=expected_source_commit or native.get('source_commit')!=expected_source_commit:
+        raise ValueError('Embedded native O source commit does not match the verified frozen Core')
     if (native['source']!=amd['source'] or native['frame']!=amd['parent_nr_frame'] or
             native['request']!=amd['capture_request'] or amd['recorded']!=amd['submitted'] or not amd['continuation_observations']):
         raise ValueError('Temporal input/O identity, submission or continuing history mismatch')
@@ -115,6 +118,7 @@ def main():
     if (build/'obj/nr_aux_shader_runtime.o').is_file():objects.append(build/'obj/nr_aux_shader_runtime.o')
     proof['pinned_files'].update({str(path.resolve()):sha(path) for path in objects})
     command=[str(a.compiler),'-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',
+             '-DNR_SOURCE_COMMIT="'+proof['source_commit']+'"',
              '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(ROOT/'tests'),
              '-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui'),str(wrapper),*map(str,objects),
              '-o',str(out/'capture.exe'),'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt']
@@ -140,7 +144,7 @@ def main():
             if result:break
     capture=None
     if not result and a.run:
-        try:capture=verify_capture(out)
+        try:capture=verify_capture(out,proof['source_commit'])
         except Exception as error:result=1;capture={'error':str(error)}
     receipt={'result':result,'run_requested':a.run,'warp_only':not a.real_ngx,'real_ngx':a.real_ngx,'constructed_model_planes':not a.real_ngx,'commands':records,
              'core_source':str(a.source),'core_sha256':sha(a.source),'linked_objects':{str(o):sha(o) for o in objects},
