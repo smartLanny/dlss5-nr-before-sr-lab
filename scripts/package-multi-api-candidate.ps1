@@ -248,6 +248,9 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
             }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
+            if ($Version -eq 'beta0.5-dline21-unified8') {
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
+            }
         }
         if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RR_CURRENT_PROJECTION_20260920.md') -Destination (Join-Path $Package 'RR-CANDIDATE.md')

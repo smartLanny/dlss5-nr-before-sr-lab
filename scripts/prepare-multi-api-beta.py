@@ -264,7 +264,7 @@ def configure(core: Path):
         previous_prepare(core_root, upstream, stage)
         # The historical archive exports only build.ps1 from scripts. Copy the
         # explicitly pinned shader compiler inputs into this candidate as well.
-        for relative in ('src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/build-nrchain.ps1'):
+        for relative in ('src/nr_present_mapping.h', 'src/nr_launch_preferences.h', 'src/nr_descriptor_scratch.h', 'src/nr_fg_presentation.h', 'scripts/compile-codec-artifact.cpp', 'scripts/prepare-codec-artifacts.py', 'scripts/compile-aux-artifact.cpp', 'scripts/prepare-aux-artifacts.py', 'scripts/build-nrchain.ps1'):
             destination = stage / 'core' / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(git(core_root, 'show', 'HEAD:' + relative))
