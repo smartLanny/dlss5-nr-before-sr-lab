@@ -9,6 +9,7 @@
 #include <dxgi1_4.h>
 #include <array>
 #include <atomic>
+#include "interop/nr_external_provider_feedback.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
