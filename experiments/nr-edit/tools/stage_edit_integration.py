@@ -27,6 +27,14 @@ def add_parameter(s,param):
  a=s.index('(');b=span(s,a,'(',')');return s[:b-1]+', '+param+s[b-1:]
 def patch_core(text):
  if 'NR_EDIT_INTEGRATION_V' in text:raise ValueError('Edit experiment already staged')
+ # The temporal successor appends an optional descriptor heap after mode.
+ # Keep its position; the experiment's frame-config override follows it.
+ _,_,codec=definition(text,'void DispatchCodec(')
+ op=codec.index('(');end=private.end_bracket(codec,op,'(',')')
+ codec_args=private.arguments(codec[op+1:end])
+ if len(codec_args)==18:heap_argument=''
+ elif len(codec_args)==19 and re.fullmatch(r'\s*ID3D12DescriptorHeap\s*\*\s*primary_heap\s*=\s*nullptr\s*',codec_args[-1]):heap_argument=', nullptr'
+ else:raise ValueError('Unreviewed DispatchCodec parameter contract')
  text=private.patch(text)
  includes='''#define NR_EDIT_INTEGRATION_V4 1
 #define NR_EDIT_PRIVATE_SR_BYPASS_COMPLETE 1
@@ -76,7 +84,7 @@ def patch_core(text):
     ChainConfig frame_config=g_config;
     if(private_image){frame_config.transfer_strength=ActiveTransferStrength(g_config);frame_config.mode=2;}
 ''')
-  return s.replace(', private_image ? 2 : 0)',', private_image ? 2 : 0, private_image ? &frame_config : nullptr)')
+  return s.replace(', private_image ? 2 : 0)',', private_image ? 2 : 0'+heap_argument+', private_image ? &frame_config : nullptr)')
  text=change_definition(text,'Substitution PrepareNrPrivateOrBefore(',private_image)
  def dispatch(s):
   s=add_parameter(s,'const ChainConfig* requested_frame_config = nullptr')

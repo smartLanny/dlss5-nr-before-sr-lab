@@ -5,8 +5,14 @@
 The separate [post transport module](POST_RESIDUAL_TRANSPORT.md) extracts
 `Area(Z-B)` from proven same-frame FP16 SDR code values and adds one reconstructed
 edit back to B. It preserves the legacy Deferred/#258 entry points. It has no
-Core runtime hookup or NR/private SR inference claim; its dedicated validator
-also runs the legacy shader/lifecycle/staging regressions.
+Core runtime hookup; its foundation validator uses analytical reconstruction
+and also runs the legacy shader/lifecycle/staging regressions.
+
+The later [actual-output offline study](POST_ACTUAL_SR.md) connects audited NR
+capture pixels to real private SR using explicit SDR transcoding and artificial
+static-plane guides. Zero/tiny controls pass exactly, but all five 25% NR cases
+are rejected for final SDR range violations. Its source, private receipts and
+same-edit spatial comparisons are separate from the unified7 release package.
 
 The additive stager now accepts the final `prepare-colour4-edge.py` pipeline,
 puts its controls once on the unified Experiments page, and preserves every

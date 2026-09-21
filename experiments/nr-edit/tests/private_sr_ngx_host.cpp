@@ -147,4 +147,6 @@ int Run(const wchar_t* bridge){Host h;HMODULE module=LoadLibraryW(bridge);Requir
     std::printf("PASS actual Feature1 private backend checks=%u; synthetic carrier, no NR/game/ghosting claim\n",checks);return 0;
 }
 }
+#ifndef NR_PRIVATE_SR_HOST_LIBRARY
 int wmain(int argc,wchar_t** argv){if(argc!=2)return 2;try{return sr_host::Run(argv[1]);}catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);ExitProcess(1);}}
+#endif
