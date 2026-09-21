@@ -36,6 +36,8 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
     // Invalid/out-of-domain enhancement cannot poison an FP16 history.
     bool current_valid=all(isfinite(enhanced))&&all(enhanced>=0)&&all(enhanced<=1)&&
         all(isfinite(base))&&all(base>=0)&&all(base<=1);
+    bool original_valid=all(isfinite(original.rgb))&&all(original.rgb>=0)&&all(original.rgb<=1);
+    current_valid=current_valid&&original_valid;
     float3 current=current_valid?enhanced-base:0;
     float3 residual=current;
     bool motion_ready=Accumulate!=0;
@@ -65,10 +67,14 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
         }
     }
     NextResidual[p]=float4(residual,0); // signed, never saturate history
+    // Invalid P1 must not discard a valid whole-chain Z. Neither invalid B
+    // nor an invalid model pixel can seed nonfinite signed history.
+    float3 fallback=all(isfinite(enhanced))&&all(enhanced>=0)&&all(enhanced<=1)?enhanced:original_valid?original.rgb:0;
+    float4 result=float4(current_valid?saturate(base+residual):fallback,isfinite(original.a)?original.a:1);
 #ifdef RECORDING
-    Output[p+uint2(TargetX,TargetY)]=float4(current_valid?saturate(base+residual):original.rgb,original.a);
+    Output[p+uint2(TargetX,TargetY)]=result;
 #else
-    Output[p]=float4(current_valid?saturate(base+residual):original.rgb,original.a);
+    Output[p]=result;
 #endif
 }
 )HLSL";

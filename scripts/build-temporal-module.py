@@ -19,7 +19,7 @@ def main():
     record={'passed':False,'sdk_build_sha256':sha(cache/'build.json'),'objects':objects,'commands':[],'source_sha256':{p.name:sha(p) for p in src.iterdir() if p.is_file()}}
     def save():(out/'module.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
     for name in ('amd_of_producer','recorded_temporal'):
-        obj=out/(name+'.o');cmd=[str(compiler),'-std=c++20','-O2','-fms-extensions','-DNDEBUG','-DFFX_OF','-DUNICODE','-D_UNICODE',
+        obj=out/(name+'.o');cmd=[str(compiler),'-std=c++17','-O2','-fms-extensions','-DNDEBUG','-DFFX_OF','-DUNICODE','-D_UNICODE',
             '-include','windows.h','-include','cwchar','-Wall','-Wextra','-Werror','-isystem',str(sdk/'sdk/include'),'-c',str(src/(name+'.cpp')),'-o',str(obj)]
         r=subprocess.run(cmd,capture_output=True,text=True);(out/(name+'.log')).write_text(r.stdout+r.stderr,encoding='utf-8')
         record['commands'].append({'command':cmd,'exit':r.returncode});save()
