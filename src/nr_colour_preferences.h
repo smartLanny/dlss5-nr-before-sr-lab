@@ -4,7 +4,7 @@
 #include "nr_colour_lab_policy.h"
 
 namespace nr_colour_preferences {
-constexpr float PriorityDefault=0.5f, ConservativeDefault=1.f;
+constexpr float PriorityDefault=0.7f, ConservativeDefault=1.f;
 inline float Bound(float value,float fallback) {
     return std::isfinite(value)?std::clamp(value,0.f,2.f):fallback;
 }
@@ -30,7 +30,7 @@ template<class C> void Select(C& c,unsigned policy) {
     c.color_strength=policy?c.colour_conservative_strength:c.colour_priority_strength;
 }
 template<class C> void Reset(C& c) {
-    c.colour_lab_mode=1;c.colour_priority_strength=PriorityDefault;
-    c.colour_conservative_strength=ConservativeDefault;c.color_strength=PriorityDefault;
+    c.colour_lab_mode=nr_colour_lab::kDefaultMode;c.colour_priority_strength=PriorityDefault;
+    c.colour_conservative_strength=ConservativeDefault;c.color_strength=ConservativeDefault;
 }
 }

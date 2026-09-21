@@ -1,5 +1,12 @@
 ## Active unified successor (2026-09-20)
 
+Owner update 2026-09-21 supersedes historical colour-priority defaults below:
+new/missing colour selection and picture reset use Conservative; the optional
+ColourPriority strength defaults to 0.7, Conservative to 1.0. Preserve saved
+choices and strengths. Independent face detection remains experimental and OFF.
+Continue #246 flicker separately from #302 face protection, and the Manager
+Beta4 Core Bridge/Feeder handoff without changing Manager or installing games.
+
 The owner's approved unified implementation supersedes the branch-specific
 instructions below. Read `docs/interop/UNIFIED_HANDOFF.md` first. Issue #294 is
 the coordinator; `codex/d21-unified-next-20260920` combines quality1 #289 with

@@ -16,21 +16,21 @@ CPP=r'''
 #include "nr_colour_preferences.h"
 #include "nr_hotkeys.h"
 struct Config {
- int colour_lab_mode=1; bool allow_unverified_hdr_color=false;
- float color_strength=.5f,colour_priority_strength=.5f,colour_conservative_strength=1.f;
+ int colour_lab_mode=nr_colour_lab::kDefaultMode; bool allow_unverified_hdr_color=false;
+ float color_strength=1.f,colour_priority_strength=.7f,colour_conservative_strength=1.f;
  unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119;
 };
 int main(){
  using namespace nr_colour_preferences;
  const float missing=std::nanf("");
- Config c;Load(c,missing,missing,missing);assert(c.color_strength==.5f);
+ Config c;Load(c,missing,missing,missing);assert(c.color_strength==1.f && Policy(c)==1);
  Select(c,1);assert(c.color_strength==1.f && !nr_colour_lab::AllowUnverified(c.colour_lab_mode,false));
- c.color_strength=.3f;Select(c,0);assert(c.color_strength==.5f);
+ c.color_strength=.3f;Select(c,0);assert(c.color_strength==.7f);
  c.color_strength=.7f;Select(c,1);assert(c.color_strength==.3f);
  Select(c,0);assert(c.color_strength==.7f);
  for(int mode=0;mode<3;++mode)for(bool permission:{false,true}){
    Config old;old.colour_lab_mode=mode;old.allow_unverified_hdr_color=permission;
-   for(float saved:{0.f,.4f,1.f,1.7f}){
+   for(float saved:{0.f,.4f,.5f,.7f,1.f,1.7f}){
      Load(old,saved,missing,missing);assert(old.color_strength==saved);
      const auto active=Policy(old);Select(old,1-active);Select(old,active);assert(old.color_strength==saved);
      Config reloaded=old;
@@ -45,7 +45,7 @@ int main(){
  assert(nr_colour_lab::AllowHdrColour(1,false,false));
  c.colour_lab_mode=2;c.color_strength=0;Remember(c);
  assert(c.colour_lab_mode==2 && c.colour_conservative_strength==0);
- Reset(c);assert(c.color_strength==.5f && c.colour_conservative_strength==1.f);
+ Reset(c);assert(Policy(c)==1 && c.color_strength==1.f && c.colour_priority_strength==.7f);
  using namespace nr_hotkeys;
  assert(!Set(c,Master,118));assert(c.master_virtual_key==117);
  assert(Set(c,Image,0));assert(Set(c,Master,118));assert(Set(c,Image,117));
@@ -146,7 +146,7 @@ void put(const wchar_t* key,const wchar_t* value){assert(WritePrivateProfileStri
 bool WriteIniFloat(const wchar_t* key,float value){wchar_t s[64];swprintf(s,64,L"%.9g",double(value));put(key,s);return true;}
 bool WriteIniInt(const wchar_t* key,unsigned value){wchar_t s[64];swprintf(s,64,L"%u",value);put(key,s);return true;}
 float ReadIniFloat(const wchar_t* key,float fallback){wchar_t s[64]{};GetPrivateProfileStringW(L"NRBeforeSR",key,L"",s,64,g_ini_path);return s[0]?float(wcstod(s,nullptr)):fallback;}
-Config load(){Config next;next.colour_lab_mode=GetPrivateProfileIntW(L"NRBeforeSR",L"ColourLabMode",1,g_ini_path);
+Config load(){Config next;next.colour_lab_mode=GetPrivateProfileIntW(L"NRBeforeSR",L"ColourLabMode",nr_colour_lab::kDefaultMode,g_ini_path);
 next.allow_unverified_hdr_color=GetPrivateProfileIntW(L"NRBeforeSR",L"AllowUnverifiedHdrColor",0,g_ini_path)!=0;
 '''+key_load+colour_load+r'''
 nr_hotkeys::Normalize(next);return next;}
@@ -154,10 +154,10 @@ void save(const Config& config){auto record_light=[](bool ok){assert(ok);};auto 
 '''+saved+r'''
 WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
 int main(){
- auto c=load();assert(c.color_strength==.5f && c.colour_lab_mode==1);
+ auto c=load();assert(c.color_strength==1.f && c.colour_lab_mode==2);
  put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
  assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
- nr_colour_preferences::Select(c,0);assert(c.color_strength==.5f);
+ nr_colour_preferences::Select(c,0);assert(c.color_strength==.7f);
  c.color_strength=.6f;nr_colour_preferences::Remember(c);
  assert(nr_hotkeys::Set(c,nr_hotkeys::Master,120));save(c);c=load();
  assert(c.color_strength==.6f && c.master_virtual_key==120);
@@ -183,7 +183,9 @@ int main(){
         s=(GENERATED/'src/nr_f8_sequence.inl').read_text(encoding='utf-8')
         self.assertNotIn('Save shortcut',s)
         ini=(GENERATED/'config/nr_before_sr.ini').read_text(encoding='utf-8')
-        self.assertIn('ColorStrength=0.5',ini)
+        self.assertIn('ColorStrength=1.0',ini)
+        self.assertIn('ColourPriorityStrength=0.7',ini)
+        self.assertIn('ColourLabMode=2',ini)
         self.assertIn('nr_colour_preferences::Reset(next)',(GENERATED/'src/nr_recommended_picture.inl').read_text())
 
 if __name__=='__main__':

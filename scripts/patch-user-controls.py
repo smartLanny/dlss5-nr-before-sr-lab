@@ -8,7 +8,6 @@ def runtime(s, h):
     unsigned master_virtual_key=117, image_virtual_key=118, feedback_virtual_key=119;
     float colour_priority_strength=nr_colour_preferences::PriorityDefault;
     float colour_conservative_strength=nr_colour_preferences::ConservativeDefault;''','user preferences')
-    s=once(s,'    float color_strength = 1.0f;','    float color_strength = 0.5f;','new colour default')
     s=once(s,'    next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 1, g_ini_path) != 0;',
         '''    next.master_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"MasterVirtualKey",117,g_ini_path);
     next.image_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"ImageVirtualKey",118,g_ini_path);
@@ -86,7 +85,7 @@ def apply(stage: Path, inputs, helpers):
     p.write_text(s,encoding='utf-8',newline='\n')
     p=root/'config/nr_before_sr.ini'
     s=p.read_text(encoding='utf-8')
-    s=helpers.once(s,'ColorStrength=1.0','ColorStrength=0.5\nColourPriorityStrength=0.5\nColourConservativeStrength=1.0','template colour defaults')
+    s=helpers.once(s,'ColorStrength=1.0','ColourLabMode=2\nColorStrength=1.0\nColourPriorityStrength=0.7\nColourConservativeStrength=1.0','template colour defaults')
     s=s.replace('; F6/F7 cannot be used as custom core-feedback shortcuts.',
         '; Shortcuts: 0=disabled, 112..123=F1..F12; duplicate keys are disabled.')
     s+='\n; Master NR / current picture; FeedbackVirtualKey remains the text report key.\nMasterVirtualKey=117\nImageVirtualKey=118\n'

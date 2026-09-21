@@ -4,7 +4,7 @@
 // Values are persistent INI IDs; do not reorder when adding later experiments.
 namespace nr_colour_lab {
 enum class Mode : int { Legacy = 0, ColourPriority = 1, Conservative = 2 };
-constexpr int kDefaultMode = static_cast<int>(Mode::ColourPriority);
+constexpr int kDefaultMode = static_cast<int>(Mode::Conservative);
 constexpr Mode Normalize(int value) noexcept {
     return value == 0 ? Mode::Legacy : value == 1 ? Mode::ColourPriority
                                                 : Mode::Conservative;

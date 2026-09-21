@@ -61,7 +61,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
             'version':edge_patch.VERSION,'source_commit':source,'base_commit':BASE,
-            'default_mode':1,'default_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
+            'default_mode':2,'default_colour_strength':1.0,'priority_colour_strength':0.7,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
             'edge_routes':['scaled-v2-rgb'],'edge_selection_resets_history':False,
@@ -92,4 +92,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated unified4 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified5 source only; Windows/GPU/game verification is separate.')

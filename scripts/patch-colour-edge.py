@@ -7,7 +7,7 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-unified4'
+VERSION = 'beta0.5-dline21-unified5'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
           'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl','src/nr_hotkeys.h','src/nr_colour_preferences.h',
           'src/nr_unified_settings.inl', 'src/nr_unified_pages.inl')

@@ -3,7 +3,7 @@
 #include <limits>
 #include <initializer_list>
 using namespace nr_colour_lab;
-static_assert(kDefaultMode == 1);
+static_assert(kDefaultMode == 2);
 static_assert(!AllowUnverified(0, false));
 static_assert(AllowUnverified(0, true));
 static_assert(AllowUnverified(1, false));
