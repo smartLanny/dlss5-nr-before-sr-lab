@@ -15,6 +15,10 @@
 #include <limits>
 #include "nr_dual_spatial_d3d12.hpp"
 #include "nr_dual_embedded.hpp"
+#include "nr_aux_shader_runtime.hpp"
+#if NR_AUX_PRECOMPILED
+#include "nr_aux_dual_precompiled.h"
+#endif
 
 namespace nr_dual::dx12 {
 namespace {
@@ -158,9 +162,14 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error) {
     hr = device->CreateRootSignature(0, binary->GetBufferPointer(), binary->GetBufferSize(), IID_PPV_ARGS(&p->root));
     Drop(binary);
     if (FAILED(hr) || !p->root) { error = "CreateRootSignature failed"; DropPipelines(p); return nullptr; }
-    hr = D3DCompile(embedded::downsample, sizeof(embedded::downsample) - 1,
+#if NR_AUX_PRECOMPILED
+    const auto downsample=nr_aux_dual_precompiled::Find("DownsampleCS","cs_5_0");
+    hr=nr_aux_shader::Load(downsample.data,downsample.size,&binary);
+#else
+    hr = nr_aux_shader::Measure(nr_aux_shader::Shader::DualDownsample,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(embedded::downsample, sizeof(embedded::downsample) - 1,
         "nr_dual_downsample", nullptr, nullptr, "DownsampleCS", "cs_5_0",
-        D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors);
+        D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors);});
+#endif
     if (FAILED(hr) || !binary) {
         error = errors ? std::string(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize()) : "DownsampleCS compilation failed";
         Drop(binary); Drop(errors); DropPipelines(p); return nullptr;
@@ -168,14 +177,19 @@ Pipelines* CreatePipelines(ID3D12Device* device, std::string& error) {
     Drop(errors);
     D3D12_COMPUTE_PIPELINE_STATE_DESC d{}; d.pRootSignature = p->root;
     d.CS = {binary->GetBufferPointer(), binary->GetBufferSize()};
-    hr = device->CreateComputePipelineState(&d, IID_PPV_ARGS(&p->down));
+    hr = nr_aux_shader::Measure(nr_aux_shader::Shader::DualDownsample,nr_aux_shader::Operation::Pipeline,[&]{return device->CreateComputePipelineState(&d, IID_PPV_ARGS(&p->down));});
     Drop(binary);
     if (FAILED(hr) || !p->down) { error = "Downsample pipeline creation failed"; DropPipelines(p); return nullptr; }
-    hr=D3DCompile(embedded::residual,sizeof(embedded::residual)-1,"nr_dual_residual",nullptr,nullptr,"ResidualCS","cs_5_0",
-        D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&binary,&errors);
+#if NR_AUX_PRECOMPILED
+    const auto residual=nr_aux_dual_precompiled::Find("ResidualCS","cs_5_0");
+    hr=nr_aux_shader::Load(residual.data,residual.size,&binary);
+#else
+    hr=nr_aux_shader::Measure(nr_aux_shader::Shader::DualResidual,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(embedded::residual,sizeof(embedded::residual)-1,"nr_dual_residual",nullptr,nullptr,"ResidualCS","cs_5_0",
+        D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&binary,&errors);});
+#endif
     if(FAILED(hr)||!binary){error=errors?std::string(static_cast<const char*>(errors->GetBufferPointer()),errors->GetBufferSize()):"ResidualCS compilation failed";Drop(binary);Drop(errors);DropPipelines(p);return nullptr;}
     Drop(errors);d.CS={binary->GetBufferPointer(),binary->GetBufferSize()};
-    hr=device->CreateComputePipelineState(&d,IID_PPV_ARGS(&p->residual));Drop(binary);
+    hr=nr_aux_shader::Measure(nr_aux_shader::Shader::DualResidual,nr_aux_shader::Operation::Pipeline,[&]{return device->CreateComputePipelineState(&d,IID_PPV_ARGS(&p->residual));});Drop(binary);
     if(FAILED(hr)||!p->residual){error="Residual pipeline creation failed";DropPipelines(p);return nullptr;}
     return p;
 }

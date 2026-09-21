@@ -10281,9 +10281,13 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
         LogNrCreateMemory("begin",context,0);
+        NrTimingScope model_create_timing(nr_timing::Stage::ModelCreate);
         result = g_nr_api.bridge_create(
             g_nr_api.signed_create, command_list, 18,
             context.params, &handle);
+        model_create_timing.record.detail.flags |= nr_timing::ApiReturned | nr_timing::ApiResultKnown;
+        model_create_timing.record.detail.api_result = static_cast<std::int32_t>(result);
+        model_create_timing.Stop();
         LogNrCreateMemory("end",context,result);
         observed.Finish(result, static_cast<const NgxHandle *>(handle), context.params);
     }

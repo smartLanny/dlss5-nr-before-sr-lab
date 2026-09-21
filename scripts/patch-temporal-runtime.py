@@ -1,7 +1,7 @@
 """Final additive temporal seam; never replace cumulative NR/Core files."""
 from pathlib import Path
 
-LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_ui.inl','src/nr_reset_observation.h')
+LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_route.h','src/nr_temporal_ui.inl','src/nr_reset_observation.h')
 TEMPORAL=('temporal_controls.hpp','history_contract.hpp','amd_of_producer.hpp','amd_of_producer.cpp',
  'amd_of_shader.hpp','residual_accumulator.hpp','residual_accumulator_shader.hpp','recorded_temporal.hpp','recorded_temporal.cpp')
 INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py')+LOCAL+tuple('experiments/final_residual/'+n for n in TEMPORAL)
@@ -152,6 +152,24 @@ def runtime(s,h):
     marker='    if (pipeline == g_codec.encode)\n'
     part=once(part,marker,'    if(primary_heap)return; // P1 never updates final-output diagnostics.\n'+marker,'primary no final side effects')
     s=s[:a]+part+s[b:]
+    # Pre-SR uses its actual full-render-grid result, before the original SR
+    # sees the replacement Color. Never reuse an encoded model proxy as B.
+    s=once(s,'Substitution PrepareBeforeSr(', '#include "nr_temporal_runtime.inl"\n\nSubstitution PrepareBeforeSr(',
+        'temporal definitions before both native consumers')
+    a,b=h.definition(s,'Substitution PrepareBeforeSr(');part=s[a:b]
+    marker='''    UavBarrier(command_list, slot->result);
+    Transition(command_list, slot->result, slot->result_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);'''
+    part=once(part,marker,'''    UavBarrier(command_list, slot->result);
+    auto temporal=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PreSr,
+        command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y,
+        false);
+    if(!nr_temporal::Record(command_list,*context,*slot,temporal)){
+        substitution.fatal_recording=0xBAD00005u;return substitution;
+    }
+    Transition(command_list, slot->result, slot->result_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);''','pre actual final candidate before native SR')
+    s=s[:a]+part+s[b:]
     # Split the existing post fields into a helper, then reuse it for P1 and Z.
     assert s.count('    const bool post_color_field=g_config.low_grid_color_edit_field;')==2
     start=s.index('    const bool post_color_field=g_config.low_grid_color_edit_field;',
@@ -161,12 +179,14 @@ def runtime(s,h):
     fields=fields.replace('context.width,context.height,1.0f,1);','context.width,context.height,1.0f,1,primary_heap);')
     fields=fields.replace('nr_regions::Dispatch(command_list,slot,true);','nr_regions::Dispatch(command_list,slot,true,primary_heap!=nullptr);')
     helper='''
-#include "nr_temporal_runtime.inl"
 void RecordPostNrFields(ID3D12GraphicsCommandList* command_list,NrContext& context,NrSlot& slot,
     const FeatureRecord& feature,const ColorContract& color_contract,unsigned width,unsigned height,
     ID3D12DescriptorHeap* primary_heap=nullptr){
 '''+fields+'}\n'
-    s=s[:start]+'''    auto temporal=nr_temporal::Prepare(command_list,context,slot,substitution.guides,feature,
+    s=s[:start]+'''    // FinishAfterSr is reached for Feature13 only after ProcessRrPost's
+    // successful native result, generation and ownership checks.
+    const auto temporal_entry=feature.feature_id==13?nr_temporal_route::Entry::PostRr:nr_temporal_route::Entry::PostSr;
+    auto temporal=nr_temporal::PrepareForRoute(temporal_entry,command_list,context,slot,substitution.guides,feature,
         width,height,substitution.output_base_x,substitution.output_base_y,substitution.temporal_motion_snapshot);
     if(temporal && temporal.primary_heap){
         RecordPostNrFields(command_list,context,slot,feature,color_contract,width,height,temporal.primary_heap);

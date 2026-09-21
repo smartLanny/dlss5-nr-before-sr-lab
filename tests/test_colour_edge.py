@@ -41,9 +41,9 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
-        # unified7 changes only Present's normalization floor from 50 to 25;
-        # the pinned colour implementation itself is unchanged.
-        for p,sha in [('src/nr_before_sr.cpp','7aab534be06c4faaedf5f6d977364e39bf271ce0'),
+        # unified8 adds a separate CPU model-create timing scope; the pinned
+        # colour implementation itself is unchanged.
+        for p,sha in [('src/nr_before_sr.cpp','c27f7fe327022d39385cbc3b37136f08f6447920'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)

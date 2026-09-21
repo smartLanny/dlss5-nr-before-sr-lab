@@ -1,5 +1,6 @@
-// Native Feature1 post-SR only. Called under the existing chain owner lock.
+// Explicit native pre/post compositor seams. Called under the chain owner lock.
 // Original/guide/target leases and actual Execute/Signal remain Core-owned.
+#include "nr_temporal_route.h"
 namespace nr_temporal {
 using namespace nr::final_residual;
 struct Memory {unsigned live=0,retired=0,pending=0,quarantined=0;unsigned long long live_bytes=0,retired_bytes=0,pending_bytes=0,quarantined_bytes=0;};
@@ -39,7 +40,8 @@ void Maintain(NrContext& context){
  if(!context.temporal)return;
  const unsigned requested=g_config.temporal_backend|(g_config.temporal_scope<<8);
  if(!g_config.enabled||!g_config.temporal_backend||context.retired||
-    nr_processing_runtime::Effective()!=nr_processing::Start::After||
+    (context.mode==1?nr_processing_runtime::Effective()!=nr_processing::Start::After:
+                     nr_processing_runtime::Effective()!=nr_processing::Start::Before)||
     !context.temporal->initialized()||context.temporal_key!=requested)
   (void)ReleaseIdle(context);
 }
@@ -50,7 +52,7 @@ struct Prepared {
  unsigned long long recording=0;
  explicit operator bool()const{return runtime!=nullptr;}
 };
-Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
+Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
  const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
  bool native_motion_snapshot=false){
  Prepared out;
@@ -58,9 +60,12 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
  Status(1);
  // No guessed HDR/Present colour or ownership. Explicit linear SDR mapping is
  // a separate future domain, not silently reinterpreted as SDR code values.
- if(feature.feature_id!=1||(feature.create_flags&1)||
-    (slot.codec_color_mode!=CodecColorMode::Automatic&&slot.codec_color_mode!=CodecColorMode::SrgbEncodedSdr)||
-    !slot.snapshots_native_output){Status(10);return out;}
+ const auto route=nr_temporal_route::Admit(entry,{unsigned(feature.feature_id),unsigned(context.mode),
+    g_config.temporal_backend,g_config.temporal_scope,feature.create_flags_known,(feature.create_flags&1)!=0,
+    slot.codec_color_mode==CodecColorMode::Automatic||slot.codec_color_mode==CodecColorMode::SrgbEncodedSdr,
+    slot.snapshots_native_output,x==0&&y==0});
+ if(route!=nr_temporal_route::Decision::Supported){
+  Status(route==nr_temporal_route::Decision::Scope?18:route==nr_temporal_route::Decision::Motion?19:10);return out;}
  // Check the producer's packed active snapshot contract before allocating
  // history or composing P1. A larger atlas is not an exact CopyResource input.
  if(!slot.source||!slot.result){Status(12);return out;}
@@ -143,6 +148,14 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
   out.primary_heap=packet->heaps[nr_binding::Consumer];
  }
  out.runtime=context.temporal;return out;
+}
+// Existing post-SR callers retain their narrow entry. Changing feature_id
+// alone never opts one of those callers into RR or pre-SR support.
+Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
+ const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
+ bool native_motion_snapshot=false){
+ return PrepareForRoute(nr_temporal_route::Entry::PostSr,list,context,slot,guides,feature,
+    width,height,x,y,native_motion_snapshot);
 }
 bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prepared& p){
  if(!p)return true;

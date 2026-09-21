@@ -3,6 +3,10 @@
 // Read the real Depth/MV with the same shader-readable input contract as NGX.
 // No guessed StateBefore, source barrier, dummy guide, resampling or MV scaling.
 // A captured native command-state envelope restores every changed binding.
+#include "nr_aux_shader_runtime.hpp"
+#if NR_AUX_PRECOMPILED
+#include "nr_aux_guides_precompiled.h"
+#endif
 struct NativeGuideSnapshotObjects {
     ID3D12RootSignature* root=nullptr;
     ID3D12PipelineState* pipeline=nullptr;
@@ -85,14 +89,21 @@ bool BuildNativeGuideSnapshot(ID3D12Device* device,NativeGuideSnapshotObjects& o
         signature->lpVtbl->GetBufferPointer(signature),signature->lpVtbl->GetBufferSize(signature),
         IID_ID3D12RootSignature,reinterpret_cast<void**>(&out.root));
     ReleaseCom(signature);
-    if(SUCCEEDED(hr))hr=D3DCompile(kNativeGuideSnapshotShader,sizeof(kNativeGuideSnapshotShader)-1,
-        "NR.NativeGuideSnapshot",nullptr,nullptr,"SnapshotGuidesCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+    if(SUCCEEDED(hr)){
+#if NR_AUX_PRECOMPILED
+        const auto artifact=nr_aux_guides_precompiled::Find("SnapshotGuidesCS","cs_5_0");
+        hr=nr_aux_shader::Load(artifact.data,artifact.size,&code);
+#else
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::NativeGuides,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(kNativeGuideSnapshotShader,sizeof(kNativeGuideSnapshotShader)-1,
+            "NR.NativeGuideSnapshot",nullptr,nullptr,"SnapshotGuidesCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);});
+#endif
+    }
     ReleaseCom(errors);
     if(SUCCEEDED(hr)) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline{};pipeline.pRootSignature=out.root;
         pipeline.CS={code->lpVtbl->GetBufferPointer(code),code->lpVtbl->GetBufferSize(code)};
-        hr=ID3D12Device_CreateComputePipelineState(device,&pipeline,IID_ID3D12PipelineState,
-            reinterpret_cast<void**>(&out.pipeline));
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::NativeGuides,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(device,&pipeline,IID_ID3D12PipelineState,
+            reinterpret_cast<void**>(&out.pipeline));});
     }
     ReleaseCom(code);
     if(SUCCEEDED(hr)) {

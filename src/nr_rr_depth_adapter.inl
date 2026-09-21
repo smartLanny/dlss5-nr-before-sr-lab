@@ -1,4 +1,8 @@
 #include "nr_rr_depth_shader.h"
+#include "nr_aux_shader_runtime.hpp"
+#if NR_AUX_PRECOMPILED
+#include "nr_aux_rr_depth_precompiled.h"
+#endif
 std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0};
 std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
 enum class RrDepthReject : unsigned {
@@ -117,14 +121,21 @@ bool EnsureRrDepthPipeline(ID3D12Device *device) {
         root_blob->lpVtbl->GetBufferPointer(root_blob),root_blob->lpVtbl->GetBufferSize(root_blob),
         IID_ID3D12RootSignature,reinterpret_cast<void **>(&root));
     ReleaseCom(root_blob);
-    if (SUCCEEDED(hr)) hr=D3DCompile(kRrDepthShader,sizeof(kRrDepthShader)-1,"NR.RRDepth",
-        nullptr,nullptr,"ConvertRrDepthCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+    if(SUCCEEDED(hr)){
+#if NR_AUX_PRECOMPILED
+        const auto artifact=nr_aux_rr_depth_precompiled::Find("ConvertRrDepthCS","cs_5_0");
+        hr=nr_aux_shader::Load(artifact.data,artifact.size,&code);
+#else
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::RrDepth,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(kRrDepthShader,sizeof(kRrDepthShader)-1,"NR.RRDepth",
+            nullptr,nullptr,"ConvertRrDepthCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);});
+#endif
+    }
     ReleaseCom(errors);
     if (SUCCEEDED(hr)) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=root;
         desc.CS={code->lpVtbl->GetBufferPointer(code),code->lpVtbl->GetBufferSize(code)};
-        hr=ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&pipeline));
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::RrDepth,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+            reinterpret_cast<void **>(&pipeline));});
     }
     ReleaseCom(code);
     if (FAILED(hr)) {
