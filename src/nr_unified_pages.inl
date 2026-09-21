@@ -110,6 +110,9 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     if(method==2)SettingsNote(NrUi("Edit-types mode has no region preview.","修改类型方式未提供区域预览。"));
 }
 
+#if defined(NR_HAS_TEMPORAL_RUNTIME)
+#include "nr_temporal_ui.inl"
+#endif
 void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {
     SettingsSection(NrUi("Colour comparisons","颜色对照"));
     int curve=next.colour_input_curve==1?1:0;
@@ -124,6 +127,9 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         if(next.colour_input_curve!=sample.policy.recorded_input_curve)SettingsNote(NrUi("The selected input curve was not applied to the recorded frame.","所选输入曲线未用于最近记录的帧。"));
     }
     nr_face_runtime::DrawUi(next,changed);
+#if defined(NR_HAS_TEMPORAL_RUNTIME)
+    DrawTemporalOptions(next,changed,discrete);
+#endif
     DrawEnergyGateOptions();
     SettingsSection(NrUi("RR compatibility candidate","RR 兼容候选"));
     bool missing=nr_post_settings::missing_projection.load(std::memory_order_acquire);
@@ -141,6 +147,12 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
+#if defined(NR_HAS_TEMPORAL_RUNTIME)
+    SettingsSection(NrUi("Temporal comparison","时域对照"));
+    if(ImGui::Checkbox(NrUi("Legacy fixed residual weight 0.5","残差采用旧固定权重 0.5"),&next.temporal_legacy)){changed=discrete=true;}
+    SettingsNote(NrUi("Default uses real source intervals: reliability 0.65, half-life parameter 60 ms; gaps above 250 ms reseed.",
+        "默认按真实源帧间隔计算：可靠性 0.65、半衰期参数 60ms；超过 250ms 重新建立历史。"));
+#endif
     SettingsSection(NrUi("Input mechanisms","输入机制"));
     ImGui::BeginDisabled(!before_sr);
     int filter=static_cast<int>(next.nr_input_filter);

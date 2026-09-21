@@ -8,7 +8,7 @@ INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py')+
 
 def runtime(s,h):
     once=h.once
-    s=once(s,'#include "nr_colour_preferences.h"','#include "nr_colour_preferences.h"\n#include "nr_temporal_status.h"\n#include "nr_process_memory.h"\n#include "temporal/recorded_temporal.hpp"','temporal module includes')
+    s=once(s,'#include "nr_colour_preferences.h"','#include "nr_colour_preferences.h"\n#define NR_HAS_TEMPORAL_RUNTIME 1\n#include "nr_temporal_status.h"\n#include "nr_process_memory.h"\n#include "temporal/recorded_temporal.hpp"','temporal module includes')
     s=once(s,'struct ChainConfig {','struct ChainConfig {\n    unsigned temporal_backend=0,temporal_scope=0;\n    bool temporal_legacy=false;','temporal default off')
     s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    config.temporal_backend=std::min(config.temporal_backend,2u);\n    config.temporal_scope=std::min(config.temporal_scope,1u);','temporal normalization')
     s=once(s,'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return ',
@@ -123,7 +123,6 @@ def apply(stage:Path,inputs,h):
     update('src/nr_before_sr.cpp',lambda s:runtime(s,h))
     update('src/nr_source_frame_forward.inl',lambda s:h.once(s,'unsigned long long CurrentRetryToken();','nr_source_frame::Source CurrentSource();\nunsigned long long CurrentRetryToken();','source accessor'))
     update('src/nr_region_runtime.inl',lambda s:s.replace('NrSlot& slot,bool field){','NrSlot& slot,bool field,bool primary=false){').replace('auto* packet=field&&slot.dual_selected?', 'auto* packet=field&&!primary&&slot.dual_selected?'))
-    update('src/nr_unified_pages.inl',lambda s:'#include "nr_temporal_ui.inl"\n'+h.once(s,'    DrawEnergyGateOptions();','    DrawTemporalOptions(next,changed,discrete);\n    DrawEnergyGateOptions();','experimental temporal control'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',
         '''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     FeedbackAppend(s,"%s.temporal.state=%s\\n%s.temporal.recorded=%llu\\n%s.temporal.submitted=%llu\\n%s.temporal.declined=%llu\\n%s.temporal.accountedBytes=%llu\\n%s.temporal.peakBytes=%llu\\n%s.temporal.lastSubmitTick=%llu\\n%s.temporal.scope=Core-owned textures plus SDK report; excludes NGX/driver; recorded is not adopted or completed; game quality unverified\\n",

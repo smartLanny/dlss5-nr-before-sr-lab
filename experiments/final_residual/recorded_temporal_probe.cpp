@@ -127,8 +127,48 @@ void cancel_and_budget(Host& host){
     RecordedTemporal small(host.device.Get(),host.queue.Get(),1920,1080,Backend::NativeMotion,Scope::WholeChain,1024);
     check(!small.initialized()&&small.stats().bytes==0,"insufficient budget refused before texture allocation");
 }
+void recording_leases(Host& host){
+    constexpr unsigned w=128,h=128;
+    std::vector<std::uint16_t> data(w*h*4,half(.5f));std::vector<float> motion(w*h*2,0);
+    auto b=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,data.data());
+    auto z=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,data.data(),true);
+    auto mv=upload_pixels(host,w,h,DXGI_FORMAT_R32G32_FLOAT,8,motion.data());
+    for(auto backend:{Backend::NativeMotion,Backend::AmdOpticalFlow}){
+        auto owner=std::make_unique<RecordedTemporal>(host.device.Get(),host.queue.Get(),w,h,backend,Scope::WholeChain,128ull<<20);
+        check(owner->initialized(),owner->status());
+        std::array<ComPtr<ID3D12CommandAllocator>,3> alloc;
+        std::array<ComPtr<ID3D12GraphicsCommandList>,3> list;
+        ComPtr<ID3D12Fence> hold,done;
+        hr(host.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&hold)),"recording slot hold fence");
+        hr(host.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&done)),"recording slot completion fence");
+        // Real GPU queue hold: submitting and receiving a Signal value must
+        // not make this resource ring writable or destructible on the CPU.
+        hr(host.queue->Wait(hold.Get(),1),"hold recording slot consumers");
+        for(unsigned i=0;i<3;++i){
+            hr(host.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&alloc[i])),"ring allocator");
+            hr(host.device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,alloc[i].Get(),nullptr,IID_PPV_ARGS(&list[i])),"ring list");
+            RecordedInputs in;in.settings.enabled=true;in.frame={{55,1,i+1},{1,1,1,w,h,backend},(i+1)*16000ull,false};
+            in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
+            in.candidate=z.Get();in.candidate_format=DXGI_FORMAT_R16G16B16A16_FLOAT;in.candidate_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
+            in.native={in.frame.source,mv.Get(),DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_SOURCE,0,0,w,h,1,1,true};
+            check(owner->record(list[i].Get(),in)==RecordResult::Recorded,owner->status());
+            hr(list[i]->Close(),"ring close");ID3D12CommandList* one[]={list[i].Get()};host.queue->ExecuteCommandLists(1,one);
+            hr(host.queue->Signal(done.Get(),i+1),"ring actual Signal");
+            check(owner->submitted(done.Get(),i+1,i+101),"recording lease and actual pending Signal accepted");
+        }
+        check(done->GetCompletedValue()==0&&!owner->can_record(),"three pending slots refuse a fourth recording");
+        hr(hold->Signal(1),"release held GPU");wait(done.Get(),3);
+        check(!owner->can_record(),"completed GPU does not end replayable recording leases");
+        for(unsigned i=0;i<3;++i){
+            hr(alloc[i]->Reset(),"completed allocator reset");hr(list[i]->Reset(alloc[i].Get(),nullptr),"real recording reset");
+            owner->end_recording(i+101);hr(list[i]->Close(),"close new empty recording");
+        }
+        check(owner->can_record(),"recording Reset plus GPU completion permits reuse");owner.reset();
+        const auto stats=RecordedTemporal::collect_retired();check(stats.active+stats.pending+stats.quarantined==0,"ended recording resources retire");
+    }
+}
 }
 int main(){try{std::setvbuf(stdout,nullptr,_IONBF,0);policy_checks();Host host;native_pixels(host,Scope::WholeChain);native_pixels(host,Scope::LaterLayers);
-    amd_pixels(host);cancel_and_budget(host);host.validate_debug();
+    amd_pixels(host);cancel_and_budget(host);recording_leases(host);host.validate_debug();
     std::printf("PASS recorded Core seam checks=%u; GPU tests, no game claim\n",checks);return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);return 1;}}
