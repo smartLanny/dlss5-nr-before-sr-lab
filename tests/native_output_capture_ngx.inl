@@ -31,8 +31,11 @@ void Run(const wchar_t* directory){
     swprintf_s(g_ini_path,L"%ls\\host.ini",directory);
     g_config=ChainConfig{};g_config.enabled=true;g_config.mode=2;g_config.processing_start=nr_processing::Start::Before;g_config.processing_selection=1;
     g_config.warmup_after_create=2;g_config.transfer_strength=1;g_config_generation=1;g_requested_mode_fast=2;
-    nr_processing_runtime::Reconcile();descriptor_warp_test::InstallCommandObservation(f);
+    nr_processing_runtime::Reconcile();
     Check(EnsureNrApi(f.device),"actual signed NR bootstrap");Check(EnsureCodec(f.device),"actual production CSOs");
+    // NGX bootstrap may install its own D3D wrappers. Observe the real family
+    // only after bootstrap so Create/PSO receipts refer to the final native ABI.
+    descriptor_warp_test::InstallCommandObservation(f);
     HMODULE core=GetModuleHandleW(L"_nvngx.dll");Check(core!=nullptr,"official NGX core");
     auto create=(CreateFeatureFn)GetProcAddress(core,"NVSDK_NGX_D3D12_CreateFeature");
     auto evaluate=(EvaluateFeatureFn)GetProcAddress(core,"NVSDK_NGX_D3D12_EvaluateFeature");
@@ -55,14 +58,29 @@ void Run(const wchar_t* directory){
     Check(RequestStageCapture(),"real pre-SR deep request");const auto request=g_stage_capture_request_id.load();
     bool captured=false;
     for(unsigned frame=1;frame<=84&&!captured;++frame){
-        queue_test::List list(f);EnsurePostBoundaryNativeHooks(list.native);
+        queue_test::List list(f);
+        // This standalone host has no ReShade init-list callback. Let the
+        // production observer attach, then establish a real observed Reset
+        // and explicit PSO before any NR/NGX work is recorded.
+        auto snapshot=std::make_unique<NativeCommandState>();
+        (void)CaptureNativeCommandState(list.native,*snapshot);ReleaseNativeCommandState(*snapshot);
+        list.Close();list.ResetWithNewAllocator(f);ID3D12GraphicsCommandList_SetPipelineState(list.native,g_codec.encode);
+        const bool known=CaptureNativeCommandState(list.native,*snapshot);ReleaseNativeCommandState(*snapshot);
+        Check(known,"native host observed Reset and real PSO establish command state");
+        EnsurePostBoundaryNativeHooks(list.native);
+        nr_source_runtime::SeedCoreRecordingDevice(list.native);
         // The host owns the prior state; publish real legacy transitions in this
         // exact recording. This is an artificial legal-state fixture, not a
         // claim that every game's SR supplies such evidence.
         auto state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;Transition(list.native,output,state,D3D12_RESOURCE_STATE_COPY_DEST);Transition(list.native,output,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         SetInt(params,"Reset",frame==1?1:0);SetInt(params,"DLSS.Reset",frame==1?1:0);
         const auto result=DispatchEvaluate(evaluate,list.native,handle,params,nullptr);Ngx(result,"real production NR then native SR");
-        list.Close();list.Submit(f.a);f.Drain(f.a);list.Detach();
+        list.Close();list.Submit(f.a);f.Drain(f.a);
+        // A real post-completion Reset retires source-state observations too;
+        // the host does not synthesize a ReShade destroy-list notification.
+        Hr(ID3D12CommandAllocator_Reset(list.replacement),"retire completed allocator");
+        Hr(ID3D12GraphicsCommandList_Reset(list.native,list.replacement,g_codec.encode),"retire completed source recording");
+        list.Close();list.Detach();
         EnterCriticalSection(&g_chain_cs);for(auto& context:g_contexts)for(auto& slot:context.slots)CollectStageCaptureLocked(slot);LeaveCriticalSection(&g_chain_cs);
         StageCaptureExportReceipt receipt{};captured=ReadStageCaptureExportReceipt(request,receipt);
         std::printf("frame=%u requestStatus=%u nrFrame=%llu bypass=%d captured=%d\n",frame,StageCaptureStatus(),g_next_nr_frame_id,g_last_bypass_reason.load(),captured);
