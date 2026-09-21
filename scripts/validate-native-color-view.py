@@ -20,12 +20,19 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
+    p.add_argument('--temporal-negative',action='store_true',help='Explicit copied-source wrong-P1 binding negative control.')
     a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     original_runtime=sha(snapshot/'nr_native_format_runtime.inl')
     if a.runtime:shutil.copyfile(a.runtime,snapshot/'nr_native_format_runtime.inl')
+    if a.temporal_negative:
+        if not a.temporal:p.error('--temporal-negative requires --temporal')
+        target=snapshot/'nr_temporal_runtime.inl';text=target.read_text(encoding='utf-8')
+        old='views.Srv(2,slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT);'
+        if text.count(old)!=1:raise ValueError('Wrong-P1 negative-control anchor drift')
+        target.write_text(text.replace(old,'views.Srv(2,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);'),encoding='utf-8')
     hashes={str(f.relative_to(snapshot)):sha(f) for f in sorted(snapshot.rglob('*')) if f.is_file()}
     # Borrow only the unchanged real-WARP fixture helpers, not its queue tests
     # or main. The shared files are never edited and their inputs are hashed.
@@ -73,10 +80,13 @@ def main():
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
-            'production_translation_unit':True,'temporal_seam':a.temporal,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
+            'production_translation_unit':True,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
             'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
         r=run([str(exe)],'run',120);record['run_exit']=r.returncode;print(r.stdout)
+        if a.temporal_negative:
+            record['negative_control_rejected']=r.returncode==41 and 'FAIL P1_IS_EXISTING_SINGLE_LAYER_COMPOSITION_ORACLE' in r.stdout
+            r.returncode=0 if record['negative_control_rejected'] else 1
     (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
     raise SystemExit(r.returncode)
 if __name__=='__main__':main()

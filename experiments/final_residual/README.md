@@ -1,5 +1,46 @@
 # Final residual history contract — next-batch experiment
 
+## unified6 production seam
+
+`recorded_temporal` is now wired through the additive final generator overlay
+into native Feature1 post-SR SDR Core composition. New configuration is OFF.
+It offers explicit native MV or real AMD OF and whole-chain or later-layer
+scope. P1 reuses NR1's completed image and the actual current compositor;
+the additional FP16 target and composition work are counted. The original
+submit/poll host below remains a separate legacy baseline, not the production
+schedule. See `docs/interop/UNIFIED6_UI_20260921.md` for current supported routes.
+
+The production path records only on an already proven same-device/queue list,
+reads AMD warmup/SCD on GPU, and adopts through Core's real Execute/Signal hook.
+Three descriptor/input slots require GPU completion AND the end of replayable
+recording leases. A repeated command-list submission updates the last fence
+and retires the now-inexact history before a new source can use it. Four bounded
+contexts and creation-time process budget checks reject additional work safely.
+The baseline image drives rejection/OF; stabilized output is never its input.
+
+New basic weights use real-source milliseconds: `exp2(-dt/(60*0.65))`, with a
+250ms reset threshold. Legacy fixed 0.5 is a separate developer comparison.
+Native MV units/subrect/phase and source/contract generations are explicit.
+Unavailable scope retains Z. Nonfinite inputs cannot seed history; finite
+out-of-SDR-range Z remains untouched in the Core path. The old standalone
+bounded-SDR special-value fallback remains unchanged for its saved oracle.
+
+`--recorded` GPU checks use the actual AMD backend and synthetic final edits;
+the Core WARP consumer check uses complete generated Core and synthetic NR
+surfaces. Neither proves game quality. Three broken shader controls must fail
+the independent direction, anchor and warmup oracles. Whole-Core P1 also has
+an explicit wrong-binding negative control. Normal NR workload remains unchanged.
+
+Build SDK objects with `build_amd_probe.py` first, then set
+`DLSS5_FFX_SDK_ROOT` and `DLSS5_FFX_CACHE_ROOT` for the full unified builder.
+The cache pins official FFX 1.1.4 and verifies compiler, source and object hashes.
+Its external backend copy aligns `EffectContext` after the byte scratch arrays
+and reserves padding: the actual SDK memory-accounting query otherwise faults
+on an unaligned `movaps`. The official checkout remains immutable. AMD license
+accompanies packages. There is no vendor DLL/model payload in this repository.
+
+## Historical standalone baseline
+
 This directory contains original CPU transaction policy, an isolated actual
 AMD FidelityFX 1.1.4 D3D12 optical-flow producer, and an original minimal signed
 residual pixel accumulator. It is not a feature in the current Core package.

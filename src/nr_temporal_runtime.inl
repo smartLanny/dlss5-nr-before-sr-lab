@@ -44,6 +44,13 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
  if(feature.feature_id!=1||(feature.create_flags&1)||
     (slot.codec_color_mode!=CodecColorMode::Automatic&&slot.codec_color_mode!=CodecColorMode::SrgbEncodedSdr)||
     !slot.snapshots_native_output){Status(10);return out;}
+ // Check the producer's packed active snapshot contract before allocating
+ // history or composing P1. A larger atlas is not an exact CopyResource input.
+ if(!slot.source||!slot.result){Status(12);return out;}
+ const auto source_desc=ID3D12Resource_GetDesc(slot.source);
+ const auto target_desc=ID3D12Resource_GetDesc(slot.result);
+ if(source_desc.Width!=width||source_desc.Height!=height||source_desc.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT||
+    target_desc.Format!=slot.result_uav_format){Status(12);return out;}
  const auto source=nr_source_runtime::CurrentSource();if(!source)return out;
  if(g_config.temporal_scope&&g_config.nr_passes<2){Status(11);return out;}
  // Previews deliberately alter candidates and are not a stable colour domain.
@@ -128,6 +135,7 @@ bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prep
   context.lifecycle_dependencies_quarantined=true;MarkLifecycleUncertain("temporal opaque recording failure");
   Log("Temporal recording quarantined: %s",p.runtime->status());Status(9);return false;
  }
- nr_temporal_status::rejected.fetch_add(1);Status(result==RecordResult::Busy?6:5);return true;
+ if(result==RecordResult::Duplicate){Status(13);return true;}
+ nr_temporal_status::rejected.fetch_add(1);Status(result==RecordResult::Busy?6:12);return true;
 }
 }

@@ -71,7 +71,13 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
     // nor an invalid model pixel can seed nonfinite signed history.
     // Domain rejection means no temporal edit, not clipping a finite current
     // NR result into SDR. Preserve overshoots/undershoots in a float target.
+#ifdef RECORDING
     float3 fallback=all(isfinite(enhanced))?enhanced:all(isfinite(original.rgb))?original.rgb:0;
+#else
+    // Keep the standalone legacy bounded-SDR oracle unchanged. The borrowed
+    // Core path above preserves a finite pre-existing candidate on refusal.
+    float3 fallback=original_valid?original.rgb:0;
+#endif
     float4 result=float4(current_valid?saturate(base+residual):fallback,isfinite(original.a)?original.a:1);
 #ifdef RECORDING
     Output[p+uint2(TargetX,TargetY)]=result;

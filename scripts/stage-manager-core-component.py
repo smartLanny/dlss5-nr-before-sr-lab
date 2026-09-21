@@ -227,6 +227,13 @@ def stage(args):
                             'core/src/nr_colour_lab_policy.h','core/src/nr_user_controls.h',
                             'core/config/nr_before_sr.ini')},
             'authority':'exact generated Core source, not Manager historical defaults'}
+        if 'temporal' in manifest:
+            contract['rules']['residualStabilizer']={
+                'ResidualStabilizer':'0 OFF (missing/default), 1 prepared native motion, 2 AMD OF; preserve saved choice',
+                'ResidualStabilizerScope':'0 whole chain (missing/default), 1 later layers; one layer retains selection but is unavailable',
+                'ResidualLegacyWeight':'0 time-weighted basic (missing/default), 1 fixed 0.5 developer comparison',
+                'route':'native DX12 post-Feature1 SDR only; unavailable on external ProviderV1/Bridge/Feeder routes in this package',
+                'providerABI':'ProviderV1 unchanged; no reserved fields consumed; never auto-enable from bridge recipe'}
         (target/'CONFIG-CONTRACT.json').write_text(json.dumps(contract,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         public_info = {key:info[key] for key in ('version','display_version','source_commit','packaging_commit',
             'language','full_face_backend','face_backend_receipt_sha256','core_pe_version','core_file_version',
