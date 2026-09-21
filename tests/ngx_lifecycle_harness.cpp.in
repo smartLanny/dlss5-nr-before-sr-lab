@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "nr_fg_presentation.h"
+#include "nr_external_provider_feedback.h"
 // The generated lifecycle harness includes the actual production declaration
 // block, which owns the single Policy object. Keep the fixture dependency
 // explicit without defining a second object.
@@ -220,6 +221,7 @@ void Reset() {
     g_ngx_pending_retirement_count=0;g_lifecycle_tracking_uncertain=false;
     g_ngx_lifecycle_evidence={};
     g_external_nr_handles=0;g_external_nr_creates=0;g_external_nr_evaluations=0;
+    nr_external_provider_feedback::owner_provider_id=0;
     g_feature_tracking_uncertain=false;g_module_observer_gap_detected=false;
     g_module_observer_fault=static_cast<int>(ModuleObserverFault::None);g_module_observer_epoch=0;
     g_live_rr_handles=0;g_rr_create_in_progress=0;g_feature1_create_in_progress=0;
@@ -425,6 +427,13 @@ int main() {
     Check(!g_feature_tracking_uncertain && native_evals==1,"ShortFuse native owner policy preserved");
     Reset();HookCoreCreate(&list,13,&params,&h);HookCoreEvaluate(&list,h,&params,nullptr);
     Check(g_live_rr_handles==1 && plugin_attempts==0 && g_rr_passthrough_evaluations>0,"native RR remains correctly classified");
+    Reset();HookCoreCreate(&list,1,&params,&h);
+    nr_external_provider_feedback::owner_provider_id=19;
+    Check(HookCoreEvaluate(&list,h,&params,nullptr)==0xCAFE && native_evals==1 && plugin_attempts==0,
+          "external provider owner keeps native call once and blocks Core work");
+    nr_external_provider_feedback::owner_provider_id=0;
+    HookCoreEvaluate(&list,h,&params,nullptr);
+    Check(native_evals==2 && plugin_attempts==1,"released provider owner restores ordinary admission");
     DeleteCriticalSection(&g_chain_cs);
     std::printf("PASS production NGX hooks/registry/gate/F8: %u checks; real Win32 locks, fake native runtime; no GPU/game claim\n",checks);
 }

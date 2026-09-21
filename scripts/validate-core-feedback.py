@@ -56,6 +56,7 @@ HARNESS = r'''
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
 #include "nr_process_memory.h"
+#include "interop/nr_external_provider_feedback.h"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id,adapter_luid };
 enum class device_api { d3d12=49152 };
@@ -883,6 +884,8 @@ def main():
                     'start.commandState.blend=0.25,0.5,0.75,1',
                     'end.commandState.blend=0.25,0.5,0.75,1',
                     'end.ngxHookFailure.entry=existing-short-hotpatch',
+                    'external.owner=0', 'external.submitCalls=0', 'external.completedFrames=0',
+                    'external.contract=Submit/writeback mean commands recorded; completedFrames requires the declared producer fence',
                     'requested.highStrengthProtection=0', 'requested.layeredEnhancement=1',
                     'requested.layerBright=0.75', 'requested.layerShadow=1.25'):
             assert key in metadata, key
