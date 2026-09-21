@@ -22,7 +22,7 @@ PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'dc7d136624836f8472029ff8f22bac9ac4ace25d'
+STATE_CURRENT = '036a601f0948f95641fca61218c5404c5c30819c'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
 REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
@@ -61,7 +61,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_amplification.h': 'ec62c723a9ca88424309a795027e737900e8f587',
     'src/nr_color_policy.inl': '7388056586a4fee6ab333c4979793bcd64be243a',
     'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
-    'src/nr_command_state.inl': 'dc7d136624836f8472029ff8f22bac9ac4ace25d',
+    'src/nr_command_state.inl': '036a601f0948f95641fca61218c5404c5c30819c',
     'src/nr_compatibility_runtime.inl': '92e8f7c8b32c06c3de5aa8772d52077a4271af31',
     'src/nr_compatibility_verdict.h': 'd49019e6078e4237ff65207f56f5dca3fda0048e',
     'src/nr_compatibility_verdict_feedback.inl': 'e2d233a67c8a7aa6e3aefc99cce596e57e730da3',
@@ -105,7 +105,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_tracker_shader.h': '243cb1dae233f045b37951633a67cf3c1b2fb026',
     'src/nr_face_worker.cpp': 'acc6a4c79bb9bbbb8a4212874bf802d7ca5f4184',
     'src/nr_face_worker.h': '29ac5085dee8a9a4715838a6f037c9d3859f89f1',
-    'src/nr_feedback_capture.inl': '2873b9d03cfdaeeb5e6ba4d1e6666ab01bdbf6a0',
+    'src/nr_feedback_capture.inl': '79f8e9da18250e90fd620e2d27cade9ecd806e1b',
     'src/nr_feedback_core.inl': '390d9c3b662aae3d2294d58f53399dc9fc905082',
     'src/nr_feedback_limits.h': '80804056007f274e7589cd7de160f0ea5f0aef0e',
     'src/nr_feedback_picture.inl': '961d74f37483276b6b141adcaa4d8345b7c3d22b',
