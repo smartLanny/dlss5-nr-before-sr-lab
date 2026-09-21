@@ -69,6 +69,7 @@
 #include "nr_fg_contract.hpp"
 #include "nr_compat_present_policy.hpp"
 #include "nr_fg_hud_shader.h"
+#include "interop/nr_external_provider_feedback.h"
 #if NR_CODEC_PRECOMPILED
 #include "nr_codec_precompiled.h"
 #endif
@@ -11903,6 +11904,36 @@ void FinishFeature1CreateObservation(bool creating_feature1,
     }
 }
 
+// A declined external Submit declares exactly one live list/queue to learn.
+// Do not restore the old global Feeder flag that scanned every native batch.
+SRWLOCK g_external_training_lock=SRWLOCK_INIT;
+std::atomic<bool> g_external_training_pending{false};
+ID3D12GraphicsCommandList* g_external_training_list=nullptr;
+ID3D12CommandQueue* g_external_training_queue=nullptr;
+void NrExternalSetTraining(ID3D12GraphicsCommandList* list,ID3D12CommandQueue* queue){
+    AcquireSRWLockExclusive(&g_external_training_lock);
+    if(list!=g_external_training_list||queue!=g_external_training_queue){
+        if(list)ID3D12GraphicsCommandList_AddRef(list);if(queue)ID3D12CommandQueue_AddRef(queue);
+        ReleaseCom(g_external_training_list);ReleaseCom(g_external_training_queue);
+        g_external_training_list=list;g_external_training_queue=queue;
+    }
+    g_external_training_pending.store(list&&queue,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_external_training_lock);
+}
+void NrExternalTrainSubmission(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList*const* lists){
+    if(!g_external_training_pending.load(std::memory_order_acquire)||!lists||!count)return;
+    if(!TryAcquireSRWLockShared(&g_external_training_lock))return;
+    if(queue==g_external_training_queue&&g_external_training_list){
+        for(UINT i=0;i<count;++i)if(lists[i]==static_cast<ID3D12CommandList*>(g_external_training_list)){
+            EnterCriticalSection(&g_chain_cs);
+            if(auto* tracked=TrackGraphicsQueueLocked(queue))
+                if(tracked->identity)RememberLastSubmissionQueue(lists[i],tracked->identity);
+            LeaveCriticalSection(&g_chain_cs);break;
+        }
+    }
+    ReleaseSRWLockShared(&g_external_training_lock);
+}
+
 void ProcessSubmittedCommandLists(std::size_t hook_index,
                                   ID3D12CommandQueue *queue,
                                   UINT count,
@@ -11914,6 +11945,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         return;
     }
     NrPostBoundarySubmitScope boundary_submission(queue,count,command_lists);
+    NrExternalTrainSubmission(queue,count,command_lists);
 
     // The detour stays installed after the first real NR submission, but an
     // ordinary game submission must not pay queue queries, locks, COM calls or
@@ -12529,6 +12561,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // branch avoids parameter lookups, rendering locks, instrumentation and
     // GPU work; only a rate-limited bypass-state transition may be published.
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 ||
         OtherNrOwnerActive() ||
         g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
@@ -12536,6 +12569,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
         if (!g_enabled_fast.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::MasterDisabled);
+        else if (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0)
+            SetBypassReason(BypassReason::ExternalNrOwner);
         else if (OtherNrOwnerActive())
             SetBypassReason(OtherNrOwnerBypassReason());
         else if (g_module_rescan_in_progress.load(std::memory_order_relaxed))
@@ -12730,12 +12765,14 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         !g_config.identity_use_original &&
         ActiveTransferStrength(g_config) <= 0.000001f;
     if (!g_config.enabled || zero_transfer_native ||
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 ||
         OtherNrOwnerActive()) {
         SetBypassReason(!g_config.enabled
             ? BypassReason::MasterDisabled
-            : (OtherNrOwnerActive()
+            : (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0
+                ? BypassReason::ExternalNrOwner : (OtherNrOwnerActive()
                 ? OtherNrOwnerBypassReason()
-                : BypassReason::None));
+                : BypassReason::None)));
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
                                                         std::memory_order_relaxed);
@@ -13377,12 +13414,16 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
     return status == MH_OK;
 }
 
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue);
 bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     if (queue == nullptr || queue->get_device() == nullptr ||
         queue->get_device()->get_api() != reshade::api::device_api::d3d12)
         return true;
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
+    return EnsureNativeQueueExecuteHookForNative(native_queue);
+}
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue) {
     if (native_queue == nullptr) return false;
     const D3D12_COMMAND_QUEUE_DESC queue_desc =
         ID3D12CommandQueue_GetDesc(native_queue);
@@ -15361,6 +15402,7 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 }
 #include "nr_fg_consumer.inl"
 #include "nr_fg_capture.inl"
+#include "interop/nr_external_provider_consumer.inl"
 #include "nr_settings_ui.inl"
 
 } // namespace

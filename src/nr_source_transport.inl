@@ -373,6 +373,7 @@ bool AcquirePresentColorOnly(const Label& label,Resource resource,unsigned width
 }
 bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
     present_blocked_by_fg=false;
+    if(nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0)return false;
     if(!present_ticket||!queue)return false;
     if(g_fg_presentation_policy.Read().late_owned){present_blocked_by_fg=true;return false;}
     if(present_lease.color_only){
