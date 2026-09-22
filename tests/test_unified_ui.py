@@ -53,7 +53,7 @@ class UnifiedUi(unittest.TestCase):
         self.assertTrue('nr_colour_preferences::SetRange(next,next.color_strength)' in self.settings)
         self.assertNotIn('NrChoice("colour-policy"',self.settings)
         self.assertGreater(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
-        self.assertLess(self.settings.index('kAddonVersion'),self.settings.index('ImGui::BeginTabBar('))
+        self.assertLess(self.settings.index('DLSS 5  0.5.1 Beta'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
         self.assertNotIn('RequestStageCapture();',self.pages)

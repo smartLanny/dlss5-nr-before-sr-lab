@@ -25,6 +25,7 @@ void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
         else if(state==17)SettingsNote(ui("Native motion exists, but a safe snapshot was not prepared; NR continues without stabilization.","原生运动存在，但尚未取得安全快照；继续 NR，暂不执行防闪。"));
         else if(state==18)SettingsNote(ui("Pre-SR later-layer anchor is not proven; choose whole chain to use the supported AMDOF route.","前置后续层锚点尚未确认；整链范围才支持此 AMDOF 路线。"));
         else if(state==19)SettingsNote(ui("Native motion phase is not proven on this route. AMDOF is a separate manual choice.","此路线尚不能确认原生运动相位；AMDOF 是独立的手动选项。"));
+        else if(state==20)SettingsNote(ui("Snapshot allocation was refused; the current NR result is retained without stabilization. Save and upload F8 feedback.","防闪快照分配被拒绝；保留当前 NR 结果，暂不防闪。请保存并上传 F8 反馈。"));
         else if(state==10)SettingsNote(ui("The source encoding, same-frame exposure or native route is unverified. Keep the current NR result; F8 records the reason.","来源编码、同帧曝光或原生路线尚未确认，保留当前 NR 结果；F8 可查看原因。"));
         else if(state==12)SettingsNote(ui("Current candidate format or active snapshot does not match the temporal consumer; NR result retained.","当前候选格式或有效区域快照不满足防闪输入约定，保留 NR 结果。"));
         else if(state==13)SettingsNote(ui("Repeated source frame; no additional flow or history work.","重复源帧，不追加光流或历史工作。"));

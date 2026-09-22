@@ -33,7 +33,13 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
 [numthreads(8,8,1)] void CS(uint3 id:SV_DispatchThreadID) {
     uint2 p=id.xy; if(p.x>=Width||p.y>=Height)return;
     float4 original=Original.Load(int3(p,0));
+#if defined(RECORDING) && defined(INPLACE_FP16)
+    // Opt-in only: typed FP16 UAV load, one unique pixel per thread. No current
+    // neighbor reads; the two reprojected histories are different resources.
+    float3 enhanced=Output.Load(p+uint2(TargetX,TargetY)).rgb;
+#else
     float3 enhanced=Enhanced.Load(int3(p,0)).rgb;
+#endif
     float3 base=LaterLayers!=0?Anchor.Load(int3(p,0)).rgb:original.rgb;
     // Invalid/out-of-domain enhancement cannot poison an FP16 history.
     bool current_valid=all(isfinite(enhanced))&&all(enhanced>=0)&&all(enhanced<=1)&&

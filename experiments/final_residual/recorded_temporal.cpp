@@ -6,6 +6,13 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <memory>
+#include <utility>
+#include <cstdint>
+#include <dxgi1_4.h>
+#ifdef NR_TEMPORAL_PRECOMPILED
+#include "nr_temporal_precompiled.hpp"
+#endif
 
 namespace nr::final_residual {
 using Microsoft::WRL::ComPtr;
@@ -36,6 +43,179 @@ struct Constants {
     unsigned hdr,target_kind;float source_to_scene,previous_to_scene;
 };
 static_assert(sizeof(Constants)==20*4);
+
+// TEMPORAL_CACHE_PORTABLE_BEGIN
+// Fixed keys describe code compiled into this module, never external shader text.
+// A failed build is not published. Serialized creation prevents duplicate work.
+template<class T, std::size_t Count> class ImmutableArtifactCache {
+    std::mutex mutex_;
+    std::array<std::shared_ptr<const T>,Count> entries_{};
+public:
+    template<class Build> std::shared_ptr<const T> get(std::size_t key,Build&& build) {
+        if(key>=Count)throw std::out_of_range("temporal artifact cache key");
+        std::lock_guard<std::mutex> lock(mutex_);
+        if(!entries_[key]) {
+            auto value=build();
+            if(!value)throw std::runtime_error("empty temporal artifact");
+            entries_[key]=std::move(value);
+        }
+        return entries_[key];
+    }
+};
+// GPU objects are shared only while an owning context retains them. Weak entries
+// cannot keep an unused device/PSO resident, nor authorize early context release.
+template<class T, std::size_t Count> class LiveArtifactCache {
+    std::mutex mutex_;
+    std::array<std::weak_ptr<T>,Count> entries_{};
+public:
+    template<class Match,class Build> std::shared_ptr<T> get(Match&& match,Build&& build) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t empty=Count;
+        for(std::size_t i=0;i<Count;++i) {
+            if(auto value=entries_[i].lock()) {
+                if(match(*value))return value;
+            } else if(empty==Count)empty=i;
+        }
+        auto value=build();
+        if(!value)throw std::runtime_error("empty temporal live artifact");
+        if(empty<Count)entries_[empty]=value;
+        // Saturation does not invalidate another live context. Return uncached.
+        return value;
+    }
+};
+// Context-owned, serialized by the existing owner contract. Hardware format
+// capabilities are immutable for its retained device; transient failures are
+// NOT published. No per-frame allocation, global lock, or cross-device reuse.
+template<class T, std::size_t Count> class SuccessfulQueryCache {
+    std::array<T,Count> entries_{};
+    std::array<bool,Count> valid_{};
+public:
+    template<class Query> bool get(std::size_t key,T& out,Query&& query) {
+        if(key>=Count)return false;
+        if(!valid_[key]) {
+            T value{};
+            if(!query(value))return false;
+            entries_[key]=value;valid_[key]=true;
+        }
+        out=entries_[key];return true;
+    }
+};
+constexpr bool temporal_inplace_choice(bool enabled,bool exact_fp16,bool typed_load) {
+    return enabled&&exact_fp16&&typed_load;
+}
+constexpr bool temporal_fits_increment(std::uint64_t budget,std::uint64_t used,std::uint64_t extra) {
+    return budget&&extra&&used<=budget&&extra<=budget-used;
+}
+// TEMPORAL_CACHE_PORTABLE_END
+
+bool temporal_env_equals(const wchar_t* name,wchar_t expected) {
+    wchar_t value[2]{};
+    return GetEnvironmentVariableW(name,value,2)==1&&value[0]==expected;
+}
+// Process-start controls for independent A/B tests; no INI/UI/default changes.
+// The new pixel path stays opt-in until Windows/WARP/NVIDIA parity is recorded.
+bool temporal_inplace_requested() {
+    static const bool value=temporal_env_equals(L"DLSS5_TEMPORAL_INPLACE_FP16",L'1');
+    return value;
+}
+bool temporal_cache_enabled() {
+    static const bool value=!temporal_env_equals(L"DLSS5_TEMPORAL_PIPELINE_CACHE",L'0');
+    return value;
+}
+using ShaderBlob=ComPtr<ID3DBlob>;
+struct TemporalBytecode {
+    D3D12_SHADER_BYTECODE code{};
+    std::shared_ptr<const ShaderBlob> owner; // Only the standalone compiler path owns a blob.
+};
+TemporalBytecode temporal_bytecode(unsigned variant) {
+    need(variant<3,"temporal shader variant");
+#ifdef NR_TEMPORAL_PRECOMPILED
+    const auto blob=nr_temporal_precompiled::Find(variant);
+    need(blob.data&&blob.size,"required temporal build artifact missing");
+    return {{blob.data,blob.size},{}};
+#else
+    // Independent probe/reference builds retain their original dynamic compiler.
+    // Production builds require the generated header and cannot silently compile.
+    static ImmutableArtifactCache<ShaderBlob,3> cache;
+    auto build=[&]() {
+        ShaderBlob code,error;
+        const D3D_SHADER_MACRO macros[]={{"RECORDING","1"},
+            {variant==2?"INPLACE_FP16":nullptr,variant==2?"1":nullptr},{nullptr,nullptr}};
+        const auto hr=D3DCompile(residual_accumulator_shader,sizeof(residual_accumulator_shader)-1,
+            "recorded-temporal",macros,nullptr,variant==0?"CopyCandidate":"CS","cs_5_0",
+            D3DCOMPILE_ENABLE_STRICTNESS,0,&code,&error);
+        if(FAILED(hr)&&error)throw std::runtime_error(static_cast<const char*>(error->GetBufferPointer()));
+        checked(hr,"temporal shader");
+        return std::make_shared<const ShaderBlob>(code);
+    };
+    auto owner=temporal_cache_enabled()?cache.get(variant,build):build();
+    const D3D12_SHADER_BYTECODE code={(*owner)->GetBufferPointer(),(*owner)->GetBufferSize()};
+    return {code,std::move(owner)};
+#endif
+}
+struct TemporalPipelines {
+    ComPtr<ID3D12Device> device; // Strong exact identity while contexts use the bundle.
+    bool requested_inplace=false;
+    ComPtr<ID3D12RootSignature> root;
+    ComPtr<ID3D12PipelineState> copy,accumulate,inplace;
+};
+std::shared_ptr<TemporalPipelines> temporal_pipelines(ID3D12Device* d,bool inplace) {
+    static LiveArtifactCache<TemporalPipelines,4> cache;
+    need(d&&d->GetDeviceRemovedReason()==S_OK,"temporal pipeline device unavailable");
+    auto build=[&]() {
+        auto out=std::make_shared<TemporalPipelines>();out->device=d;out->requested_inplace=inplace;
+        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,9,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,4,0,0,9}};
+        D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants={0,0,20};
+        D3D12_STATIC_SAMPLER_DESC sampler{};sampler.Filter=D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.ComparisonFunc=D3D12_COMPARISON_FUNC_ALWAYS;sampler.MaxLOD=D3D12_FLOAT32_MAX;
+        D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=parameters;desc.NumStaticSamplers=1;desc.pStaticSamplers=&sampler;
+        ShaderBlob code,error;checked(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&code,&error),"temporal root serialization");
+        checked(d->CreateRootSignature(0,code->GetBufferPointer(),code->GetBufferSize(),IID_PPV_ARGS(&out->root)),"temporal root");
+        auto pipeline=[&](unsigned variant,ComPtr<ID3D12PipelineState>& pso) {
+            const auto blob=temporal_bytecode(variant);
+            D3D12_COMPUTE_PIPELINE_STATE_DESC p{};p.pRootSignature=out->root.Get();
+            p.CS=blob.code;
+            checked(d->CreateComputePipelineState(&p,IID_PPV_ARGS(&pso)),"temporal pipeline");
+        };
+        pipeline(0,out->copy);pipeline(1,out->accumulate);
+        if(inplace) {
+            // An optional shader/PSO failure retains the established snapshot path.
+            try {pipeline(2,out->inplace);}catch(const std::exception&) {out->inplace.Reset();}
+        }
+        return out;
+    };
+    return temporal_cache_enabled()?cache.get([&](const TemporalPipelines& p) {
+        return p.device.Get()==d&&p.requested_inplace==inplace;
+    },build):build();
+}
+bool temporal_fp16_load_supported(ID3D12Device* d) {
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options{};
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT format{};format.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    return SUCCEEDED(d->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS,&options,sizeof(options)))&&
+        options.TypedUAVLoadAdditionalFormats&&
+        SUCCEEDED(d->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&format,sizeof(format)))&&
+        (format.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD)&&
+        (format.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
+}
+void temporal_uav_barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource) {
+    D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource=resource;list->ResourceBarrier(1,&barrier);
+}
+// Used only for the opt-in path's first fallback allocation, never each frame.
+// Original admission checked the full legacy footprint; it was not an exclusive
+// reservation. Recheck now because the process budget may have changed.
+bool temporal_snapshot_headroom(ID3D12Device* d,ID3D12CommandQueue* q,Id bytes) {
+    if(q->GetDesc().NodeMask>1)return false; // Existing textures are node zero.
+    ComPtr<IDXGIFactory4> factory;ComPtr<IDXGIAdapter3> adapter;
+    if(FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))||
+       FAILED(factory->EnumAdapterByLuid(d->GetAdapterLuid(),IID_PPV_ARGS(&adapter))))return false;
+    DXGI_QUERY_VIDEO_MEMORY_INFO info{};
+    return SUCCEEDED(adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_LOCAL,&info))&&
+        temporal_fits_increment(info.Budget,info.CurrentUsage,bytes);
+}
 }
 struct RecordedTemporal::Impl {
     struct Registry {std::mutex mutex;std::array<Impl*,4> objects{};std::array<bool,4> retired{};};
@@ -52,6 +232,10 @@ struct RecordedTemporal::Impl {
     std::string message="not initialized";
     ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12RootSignature> root;ComPtr<ID3D12PipelineState> copy_pso,accumulate_pso;
+    std::shared_ptr<TemporalPipelines> pipelines;
+    SuccessfulQueryCache<D3D12_FEATURE_DATA_FORMAT_SUPPORT,3> candidate_formats;
+    bool inplace_enabled=false,snapshot_refused=false;
+    Id texture_bytes=0,granted_budget=0;
     std::array<ComPtr<ID3D12Resource>,2> originals,residuals;
     ComPtr<ID3D12Resource> snapshot,first;
     std::array<Slot,3> slots;
@@ -74,40 +258,41 @@ struct RecordedTemporal::Impl {
         device=d;queue=q;width=w;height=h;backend=b;scope=s;
         auto td=description();const auto one=d->GetResourceAllocationInfo(0,1,&td).SizeInBytes;
         need(one&&one!=UINT64_MAX,"temporal allocation estimate");
+        texture_bytes=one;granted_budget=budget;
         const Id own=one*(scope==Scope::LaterLayers?6:5);
         // Conservative creation allowance for the pinned FFX pyramid/context.
         // Actual SDK usage is checked as well, before any GPU recording.
         const Id sdk_allowance=backend==Backend::AmdOpticalFlow?Id(w)*h*64+16*1024*1024:0;
         need(own<=budget&&sdk_allowance<=budget-own,"temporal creation budget exhausted");
+        pipelines=temporal_pipelines(d,temporal_inplace_requested()&&temporal_fp16_load_supported(d));
+        root=pipelines->root;copy_pso=pipelines->copy;accumulate_pso=pipelines->accumulate;
+        inplace_enabled=pipelines->inplace.Get()!=nullptr;
         if(backend==Backend::AmdOpticalFlow){
             amd=std::make_unique<AmdOfProducer>(d,q,w,h,100,true);need(amd->initialized(),amd->status());
             need(amd->gpu_allocation_bytes()<=budget-own,"actual FFX allocation exceeds temporal budget");
         }
-        for(auto& r:originals)r=texture();for(auto& r:residuals)r=texture();snapshot=texture();
+        for(auto& r:originals)r=texture();for(auto& r:residuals)r=texture();
+        if(!inplace_enabled)snapshot=texture();
         if(scope==Scope::LaterLayers)first=texture(ua);
-        counters.bytes=own+(amd?amd->gpu_allocation_bytes():0);
-        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,9,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,4,0,0,9}};
-        D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        parameters[1].Constants={0,0,20};
-        D3D12_STATIC_SAMPLER_DESC sampler{};sampler.Filter=D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        sampler.ComparisonFunc=D3D12_COMPARISON_FUNC_ALWAYS;sampler.MaxLOD=D3D12_FLOAT32_MAX;
-        D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=parameters;desc.NumStaticSamplers=1;desc.pStaticSamplers=&sampler;
-        ComPtr<ID3DBlob> code,error;checked(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&code,&error),"temporal root serialization");
-        checked(d->CreateRootSignature(0,code->GetBufferPointer(),code->GetBufferSize(),IID_PPV_ARGS(&root)),"temporal root");
-        const D3D_SHADER_MACRO macros[]={{"RECORDING","1"},{nullptr,nullptr}};
-        auto pipeline=[&](const char* entry,ComPtr<ID3D12PipelineState>& pso){
-            const auto result=D3DCompile(residual_accumulator_shader,sizeof(residual_accumulator_shader)-1,
-                "recorded-temporal",macros,nullptr,entry,"cs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&code,&error);
-            if(FAILED(result)&&error)throw std::runtime_error(static_cast<const char*>(error->GetBufferPointer()));checked(result,"temporal shader");
-            D3D12_COMPUTE_PIPELINE_STATE_DESC p{};p.pRootSignature=root.Get();p.CS={code->GetBufferPointer(),code->GetBufferSize()};
-            checked(d->CreateComputePipelineState(&p,IID_PPV_ARGS(&pso)),"temporal pipeline");
-        };
-        pipeline("CopyCandidate",copy_pso);pipeline("CS",accumulate_pso);
+        counters.bytes=own-(inplace_enabled?one:0)+(amd?amd->gpu_allocation_bytes():0);
+        counters.inplace_available=inplace_enabled;
+        counters.snapshot_bytes=snapshot?one:0;
         D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=13;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         for(auto& slot:slots)checked(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&slot.heap)),"temporal descriptor set");
         ready=true;message="ready; no temporal work recorded";
+    }
+    bool ensure_snapshot() {
+        if(snapshot)return true;
+        if(snapshot_refused)return false;
+        if(!temporal_fits_increment(granted_budget,counters.bytes,texture_bytes)||
+           !temporal_snapshot_headroom(device.Get(),queue.Get(),texture_bytes)) {
+            snapshot_refused=true;counters.snapshot_refused=true;return false;
+        }
+        try {snapshot=texture();}catch(const std::exception&) {
+            snapshot_refused=true;counters.snapshot_refused=true;return false;
+        }
+        counters.bytes+=texture_bytes;counters.snapshot_bytes=texture_bytes;
+        return true;
     }
     bool quarantined() const {
         if(recording_unsafe||pending_slot>=0)return true;
@@ -116,16 +301,18 @@ struct RecordedTemporal::Impl {
     }
     bool destroyable() const {if(quarantined())return false;for(const auto& s:slots)if(s.recording||!reached(s.fence.Get(),s.value))return false;return true;}
     void fail(const char* why){fault=true;ready=false;counters.faulted=true;message=why;}
-    void bind(const RecordedInputs& in,const RecordedFlow& flow,unsigned next){
+    void bind(const RecordedInputs& in,const RecordedFlow& flow,unsigned next,bool inplace){
         auto cpu=slots[next_slot].heap->GetCPUDescriptorHandleForHeapStart();const auto step=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         auto srv=[&](ID3D12Resource* r,DXGI_FORMAT format){D3D12_SHADER_RESOURCE_VIEW_DESC v{};v.Format=format;
             v.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;v.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;v.Texture2D.MipLevels=1;
             device->CreateShaderResourceView(r,&v,cpu);cpu.ptr+=step;};
         const auto fp=DXGI_FORMAT_R16G16B16A16_FLOAT;
-        srv(in.original,in.original->GetDesc().Format);srv(snapshot.Get(),fp);
+        srv(in.original,in.original->GetDesc().Format);srv(inplace?nullptr:snapshot.Get(),fp);
         srv(backend==Backend::NativeMotion?in.native.resource:nullptr,backend==Backend::NativeMotion?in.native.format:DXGI_FORMAT_R32G32_FLOAT);
         srv(originals[index].Get(),fp);srv(residuals[index].Get(),fp);srv(first.Get(),fp);
-        srv(flow.grid,DXGI_FORMAT_R16G16_SINT);srv(flow.scene_data,DXGI_FORMAT_R32_UINT);srv(in.candidate,in.candidate_format);
+        srv(flow.grid,DXGI_FORMAT_R16G16_SINT);srv(flow.scene_data,DXGI_FORMAT_R32_UINT);
+        // No SRV aliases the UAV target in the in-place shader variant.
+        srv(inplace?nullptr:in.candidate,in.candidate_format);
         auto uav=[&](ID3D12Resource* r,DXGI_FORMAT format){D3D12_UNORDERED_ACCESS_VIEW_DESC v{};v.Format=format;v.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
             device->CreateUnorderedAccessView(r,nullptr,&v,cpu);cpu.ptr+=step;};
         uav(residuals[next].Get(),fp);uav(in.candidate,in.candidate_format);uav(snapshot.Get(),fp);uav(originals[next].Get(),fp);
@@ -184,10 +371,22 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             p.message="native motion identity, phase, units or readable format unavailable";return RecordResult::Unavailable;
         }
     }
-    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};support.Format=in.candidate_format;
-    if(FAILED(p.device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&support,sizeof(support)))||
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+    const unsigned format_key=in.candidate_format==DXGI_FORMAT_R16G16B16A16_FLOAT?0:
+        in.candidate_format==DXGI_FORMAT_R8G8B8A8_UNORM?1:2;
+    if(!p.candidate_formats.get(format_key,support,[&](auto& value){
+            value.Format=in.candidate_format;
+            return SUCCEEDED(p.device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&value,sizeof(value)));
+        })||
         !(support.Support1&D3D12_FORMAT_SUPPORT1_SHADER_LOAD)||!(support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)){
         p.message="temporal candidate typed read/write unavailable";return RecordResult::Unavailable;
+    }
+    const bool inplace=temporal_inplace_choice(p.inplace_enabled,
+        in.candidate_format==DXGI_FORMAT_R16G16B16A16_FLOAT,
+        (support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD)!=0);
+    if(!inplace&&!p.ensure_snapshot()) {
+        p.message="temporal snapshot fallback allocation refused; current candidate retained; collect F8 feedback";
+        return RecordResult::Unavailable;
     }
     Frame next_frame=frame;
     const double delta=p.previous.valid()&&frame.source_time>p.previous.source_time?double(frame.source_time-p.previous.source_time)/1000.:0;
@@ -204,7 +403,7 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             p.recording_unsafe=true;
         }
         need(p.history.observe_ordered_recording(p.plan.token,{p.backend,p.plan.history_generation,frame.source,p.plan.reference,p.plan.action==Action::ResetBoth}),"temporal recording contract rejected");
-        const unsigned next=1-p.index;p.bind(in,flow,next);
+        const unsigned next=1-p.index;p.bind(in,flow,next,inplace);
         auto& slot=p.slots[p.next_slot];slot.inputs={in.original,in.candidate,in.native.resource};
         p.pending_slot=int(p.next_slot);p.recording_unsafe=true;
         const float weight=HistoryWeight(in.settings,delta);
@@ -215,14 +414,22 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             unsigned(hdr),(in.candidate_format==DXGI_FORMAT_R11G11B10_FLOAT?2u:1u)|(copy_pixels?256u:0u),frame.source_to_scene,p.previous.source_to_scene};
         ID3D12DescriptorHeap* heaps[]={slot.heap.Get()};l->SetDescriptorHeaps(1,heaps);l->SetComputeRootSignature(p.root.Get());
         l->SetComputeRootDescriptorTable(0,slot.heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,20,&c,0);
-        state(l,in.candidate,in.candidate_state,sr);state(l,p.snapshot.Get(),cs,ua);
-        l->SetPipelineState(p.copy_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
-        state(l,p.snapshot.Get(),ua,sr);state(l,in.candidate,sr,ua);state(l,in.original,in.original_state,sr);
+        if(inplace) {
+            state(l,in.candidate,in.candidate_state,ua);
+            // A no-op UAV->UAV transition does not publish the preceding compositor.
+            if(in.candidate_state==ua)temporal_uav_barrier(l,in.candidate);
+        } else {
+            state(l,in.candidate,in.candidate_state,sr);state(l,p.snapshot.Get(),cs,ua);
+            l->SetPipelineState(p.copy_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
+            state(l,p.snapshot.Get(),ua,sr);state(l,in.candidate,sr,ua);
+        }
+        state(l,in.original,in.original_state,sr);
         state(l,p.originals[p.index].Get(),cs,sr);state(l,p.residuals[p.index].Get(),cs,sr);state(l,p.residuals[next].Get(),cs,ua);
         if(later)state(l,p.first.Get(),ua,sr);if(!p.amd)state(l,in.native.resource,in.native.state,sr);
         if(copy_pixels)state(l,p.originals[next].Get(),cs,ua);
-        l->SetPipelineState(p.accumulate_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
-        state(l,p.snapshot.Get(),sr,cs);state(l,in.candidate,ua,in.candidate_state);
+        l->SetPipelineState(inplace?p.pipelines->inplace.Get():p.accumulate_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
+        if(!inplace)state(l,p.snapshot.Get(),sr,cs);
+        state(l,in.candidate,ua,in.candidate_state);
         if(in.candidate_state==ua){D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;b.UAV.pResource=in.candidate;l->ResourceBarrier(1,&b);}
         state(l,p.originals[p.index].Get(),sr,cs);state(l,p.residuals[p.index].Get(),sr,cs);state(l,p.residuals[next].Get(),ua,cs);
         if(later)state(l,p.first.Get(),sr,ua);if(!p.amd)state(l,in.native.resource,sr,in.native.state);
@@ -233,8 +440,10 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             state(l,p.originals[next].Get(),D3D12_RESOURCE_STATE_COPY_DEST,cs);state(l,in.original,cs,in.original_state);
         }
         p.pending_frame=next_frame;p.index=next;p.recording_unsafe=false;
+        if(inplace)++p.counters.inplace_recorded;else ++p.counters.snapshot_recorded;
         ++p.counters.recorded;if(!c.accumulate)++p.counters.seeded;p.counters.weight=weight;p.counters.pending_token=p.plan.token;
-        p.message="temporal work recorded; awaiting actual owner submission";return RecordResult::Recorded;
+        p.message=inplace?"temporal work recorded; fp16-inplace experiment; awaiting actual owner submission":
+            "temporal work recorded; snapshot path; awaiting actual owner submission";return RecordResult::Recorded;
     }catch(const std::exception& e){p.fail(e.what());return RecordResult::Faulted;}
 }
 bool RecordedTemporal::submitted(ID3D12Fence* fence,Id value,Id recording)noexcept {

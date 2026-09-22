@@ -18,6 +18,7 @@ def main():
     ap.add_argument('--build-only',action='store_true')
     ap.add_argument('--finite-only',action='store_true',help='two controlled GPU dispatches; no AMD source loop')
     ap.add_argument('--recorded',action='store_true',help='borrowed command-list production seam and GPU SCD')
+    ap.add_argument('--temporal-artifact-builder',type=Path,help='bake each recorded shader variant, including each negative control')
     args=ap.parse_args();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
     sdk=args.sdk.resolve();cache=args.sdk_cache.resolve();compiler=args.compiler.resolve();root=Path(__file__).resolve().parent
     os.environ['TEMP']=os.environ['TMP']=str(out/'temp');(out/'temp').mkdir(exist_ok=True)
@@ -41,8 +42,15 @@ def main():
     if args.recorded:
         assert not args.finite_only
         names+=['recorded_temporal.hpp','recorded_temporal.cpp','recorded_temporal_probe.cpp']
+    if args.temporal_artifact_builder:
+        assert args.recorded, 'precompiled temporal path requires recorded consumer'
+        names+=['compile_temporal_artifacts.cpp']
     for name in names:shutil.copyfile(root/name,frozen/name)
     sources={n:sha(frozen/n) for n in names}
+    builder=None
+    if args.temporal_artifact_builder:
+        builder=out/'prepare-temporal-artifacts.py'
+        shutil.copyfile(args.temporal_artifact_builder.resolve(),builder)
     record={'passed':False,'sdk_commit':PIN,'cache_build_sha256':sha(cache/'build.json'),
         'object_sha256':{str(p):sha(p) for p in objects},'compiler_sha256':sha(compiler),
         'source_sha256':sources,'license_sha256':sha(sdk/'LICENSE.txt'),'variants':[]}
@@ -50,14 +58,28 @@ def main():
         '-DFFX_OF','-include','windows.h','-include','cwchar','-Wall','-Wextra','-Werror','-Wno-unused-function',
         '-isystem',str(sdk/'sdk/include')]
     def save(): (out/'validation.json').write_text(json.dumps(record,indent=2),encoding='utf-8')
+    if builder:record['artifact_builder_sha256']=sha(builder)
     def compile_variant(folder,label):
+        extra=[]
+        if builder:
+            artifacts=folder/'bytecode'
+            bake=subprocess.run([os.sys.executable,str(builder),'--source',str(folder),
+                '--compiler',str(compiler),'--output',str(artifacts)],capture_output=True,text=True)
+            (folder/'bytecode.log').write_text(bake.stdout+bake.stderr,encoding='utf-8')
+            if bake.returncode:raise RuntimeError('temporal artifact compilation failed: '+bake.stderr[-4000:])
+            receipt=json.loads((artifacts/'temporal-artifacts.json').read_text(encoding='utf-8'))
+            assert receipt['passed'] and receipt['source_sha256']==sha(folder/'residual_accumulator_shader.hpp')
+            assert receipt['header_sha256']==sha(artifacts/'nr_temporal_precompiled.hpp')
+            extra=['-DNR_TEMPORAL_PRECOMPILED=1','-I',str(artifacts)]
         exe=folder/'residual_gpu_probe.exe'
         cpp=['amd_of_producer.cpp','residual_accumulator.cpp']+(['recorded_temporal.cpp','recorded_temporal_probe.cpp'] if args.recorded else ['residual_gpu_probe.cpp'])
-        cmd=command+[str(folder/n) for n in cpp]+list(map(str,objects))+[
+        cmd=command+extra+[str(folder/n) for n in cpp]+list(map(str,objects))+[
             '-static','-ld3d12','-ldxgi','-ld3dcompiler','-ldxguid','-lole32','-o',str(exe)]
         result=subprocess.run(cmd,capture_output=True,text=True)
         (folder/'build.log').write_text(result.stdout+result.stderr,encoding='utf-8')
-        entry={'name':label,'command':cmd,'build_exit':result.returncode};record['variants'].append(entry);save()
+        entry={'name':label,'command':cmd,'build_exit':result.returncode}
+        if builder:entry['temporal_artifacts_sha256']=sha(folder/'bytecode/temporal-artifacts.json')
+        record['variants'].append(entry);save()
         if result.returncode:raise RuntimeError(result.stderr[-6000:])
         entry['binary_sha256']=sha(exe);save();return exe,entry
     exe,entry=compile_variant(frozen,'production')
@@ -105,6 +127,7 @@ def main():
         path.write_text(original.replace(before,after),encoding='utf-8')
         exe,entry=compile_variant(work,label);run(exe,entry,work,oracle)
     record['source_unchanged']=all(sha(root/n)==digest for n,digest in sources.items())
+    if builder:record['source_unchanged'] &= sha(args.temporal_artifact_builder.resolve())==sha(builder)
     record['passed']=record['source_unchanged'] and all(v['passed'] for v in record['variants'])
     save();assert record['passed']
 

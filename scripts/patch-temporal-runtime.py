@@ -3,8 +3,9 @@ from pathlib import Path
 
 LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_route.h','src/nr_temporal_ui.inl','src/nr_reset_observation.h')
 TEMPORAL=('temporal_controls.hpp','history_contract.hpp','amd_of_producer.hpp','amd_of_producer.cpp',
- 'amd_of_shader.hpp','residual_accumulator.hpp','residual_accumulator_shader.hpp','recorded_temporal.hpp','recorded_temporal.cpp')
-INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py')+LOCAL+tuple('experiments/final_residual/'+n for n in TEMPORAL)
+ 'amd_of_shader.hpp','residual_accumulator.hpp','residual_accumulator_shader.hpp','recorded_temporal.hpp','recorded_temporal.cpp',
+ 'compile_temporal_artifacts.cpp')
+INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py','scripts/prepare-temporal-artifacts.py')+LOCAL+tuple('experiments/final_residual/'+n for n in TEMPORAL)
 
 def runtime(s,h):
     once=h.once
@@ -211,6 +212,7 @@ def apply(stage:Path,inputs,h):
     target=root/'src/temporal';target.mkdir(exist_ok=True)
     for name in TEMPORAL:(target/name).write_bytes(inputs['experiments/final_residual/'+name])
     (root/'scripts/build-temporal-module.py').write_bytes(inputs['scripts/build-temporal-module.py'])
+    (root/'scripts/prepare-temporal-artifacts.py').write_bytes(inputs['scripts/prepare-temporal-artifacts.py'])
     def update(path,fn):
         p=root/path;p.write_text(fn(p.read_text(encoding='utf-8')),encoding='utf-8',newline='\n')
     update('src/nr_before_sr.cpp',lambda s:runtime(s,h))

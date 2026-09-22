@@ -30,6 +30,9 @@ struct TemporalStats {
     Id pending_token=0;
     float weight=0;
     bool faulted=false;
+    Id snapshot_bytes=0,inplace_recorded=0,snapshot_recorded=0;
+    bool inplace_available=false; // Availability/recording are not GPU completion.
+    bool snapshot_refused=false; // Allocation/budget refusal; current NR is retained.
 };
 
 // One serialized Core context; all work and final consumers use the proven

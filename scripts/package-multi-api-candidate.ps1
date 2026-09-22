@@ -250,6 +250,8 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED9_UI.en.md' } else { 'UNIFIED9_UI.md' }
             }
             if ($Version -eq 'beta0.5-dline21-unified10') {
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_CHANGELOG.zh-CN.md') -Destination (Join-Path $Package '更新说明-0.5.1Beta.md')
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_ACCEPTANCE.zh-CN.md') -Destination (Join-Path $Package '验收指南-0.5.1Beta.md')
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED10_UI.en.md' } else { 'UNIFIED10_UI.md' }
             }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
