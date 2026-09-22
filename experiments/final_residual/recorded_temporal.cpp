@@ -10,6 +10,9 @@
 #include <utility>
 #include <cstdint>
 #include <dxgi1_4.h>
+#ifdef NR_TEMPORAL_PRECOMPILED
+#include "nr_temporal_precompiled.hpp"
+#endif
 
 namespace nr::final_residual {
 using Microsoft::WRL::ComPtr;
@@ -79,6 +82,23 @@ public:
         return value;
     }
 };
+// Context-owned, serialized by the existing owner contract. Hardware format
+// capabilities are immutable for its retained device; transient failures are
+// NOT published. No per-frame allocation, global lock, or cross-device reuse.
+template<class T, std::size_t Count> class SuccessfulQueryCache {
+    std::array<T,Count> entries_{};
+    std::array<bool,Count> valid_{};
+public:
+    template<class Query> bool get(std::size_t key,T& out,Query&& query) {
+        if(key>=Count)return false;
+        if(!valid_[key]) {
+            T value{};
+            if(!query(value))return false;
+            entries_[key]=value;valid_[key]=true;
+        }
+        out=entries_[key];return true;
+    }
+};
 constexpr bool temporal_inplace_choice(bool enabled,bool exact_fp16,bool typed_load) {
     return enabled&&exact_fp16&&typed_load;
 }
@@ -102,9 +122,20 @@ bool temporal_cache_enabled() {
     return value;
 }
 using ShaderBlob=ComPtr<ID3DBlob>;
-std::shared_ptr<const ShaderBlob> temporal_bytecode(unsigned variant) {
-    static ImmutableArtifactCache<ShaderBlob,3> cache;
+struct TemporalBytecode {
+    D3D12_SHADER_BYTECODE code{};
+    std::shared_ptr<const ShaderBlob> owner; // Only the standalone compiler path owns a blob.
+};
+TemporalBytecode temporal_bytecode(unsigned variant) {
     need(variant<3,"temporal shader variant");
+#ifdef NR_TEMPORAL_PRECOMPILED
+    const auto blob=nr_temporal_precompiled::Find(variant);
+    need(blob.data&&blob.size,"required temporal build artifact missing");
+    return {{blob.data,blob.size},{}};
+#else
+    // Independent probe/reference builds retain their original dynamic compiler.
+    // Production builds require the generated header and cannot silently compile.
+    static ImmutableArtifactCache<ShaderBlob,3> cache;
     auto build=[&]() {
         ShaderBlob code,error;
         const D3D_SHADER_MACRO macros[]={{"RECORDING","1"},
@@ -116,7 +147,10 @@ std::shared_ptr<const ShaderBlob> temporal_bytecode(unsigned variant) {
         checked(hr,"temporal shader");
         return std::make_shared<const ShaderBlob>(code);
     };
-    return temporal_cache_enabled()?cache.get(variant,build):build();
+    auto owner=temporal_cache_enabled()?cache.get(variant,build):build();
+    const D3D12_SHADER_BYTECODE code={(*owner)->GetBufferPointer(),(*owner)->GetBufferSize()};
+    return {code,std::move(owner)};
+#endif
 }
 struct TemporalPipelines {
     ComPtr<ID3D12Device> device; // Strong exact identity while contexts use the bundle.
@@ -142,7 +176,7 @@ std::shared_ptr<TemporalPipelines> temporal_pipelines(ID3D12Device* d,bool inpla
         auto pipeline=[&](unsigned variant,ComPtr<ID3D12PipelineState>& pso) {
             const auto blob=temporal_bytecode(variant);
             D3D12_COMPUTE_PIPELINE_STATE_DESC p{};p.pRootSignature=out->root.Get();
-            p.CS={(*blob)->GetBufferPointer(),(*blob)->GetBufferSize()};
+            p.CS=blob.code;
             checked(d->CreateComputePipelineState(&p,IID_PPV_ARGS(&pso)),"temporal pipeline");
         };
         pipeline(0,out->copy);pipeline(1,out->accumulate);
@@ -198,6 +232,7 @@ struct RecordedTemporal::Impl {
     ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12RootSignature> root;ComPtr<ID3D12PipelineState> copy_pso,accumulate_pso;
     std::shared_ptr<TemporalPipelines> pipelines;
+    SuccessfulQueryCache<D3D12_FEATURE_DATA_FORMAT_SUPPORT,3> candidate_formats;
     bool inplace_enabled=false,snapshot_refused=false;
     Id texture_bytes=0,granted_budget=0;
     std::array<ComPtr<ID3D12Resource>,2> originals,residuals;
@@ -250,9 +285,11 @@ struct RecordedTemporal::Impl {
         if(snapshot_refused)return false;
         if(!temporal_fits_increment(granted_budget,counters.bytes,texture_bytes)||
            !temporal_snapshot_headroom(device.Get(),queue.Get(),texture_bytes)) {
-            snapshot_refused=true;return false;
+            snapshot_refused=true;counters.snapshot_refused=true;return false;
         }
-        try {snapshot=texture();}catch(const std::exception&) {snapshot_refused=true;return false;}
+        try {snapshot=texture();}catch(const std::exception&) {
+            snapshot_refused=true;counters.snapshot_refused=true;return false;
+        }
         counters.bytes+=texture_bytes;counters.snapshot_bytes=texture_bytes;
         return true;
     }
@@ -327,8 +364,13 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             p.message="native motion identity, phase, units or readable format unavailable";return RecordResult::Unavailable;
         }
     }
-    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};support.Format=in.candidate_format;
-    if(FAILED(p.device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&support,sizeof(support)))||
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+    const unsigned format_key=in.candidate_format==DXGI_FORMAT_R16G16B16A16_FLOAT?0:
+        in.candidate_format==DXGI_FORMAT_R8G8B8A8_UNORM?1:2;
+    if(!p.candidate_formats.get(format_key,support,[&](auto& value){
+            value.Format=in.candidate_format;
+            return SUCCEEDED(p.device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&value,sizeof(value)));
+        })||
         !(support.Support1&D3D12_FORMAT_SUPPORT1_SHADER_LOAD)||!(support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)){
         p.message="temporal candidate typed read/write unavailable";return RecordResult::Unavailable;
     }

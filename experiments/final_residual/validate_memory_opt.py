@@ -74,6 +74,17 @@ int main() {
     require(!temporal_fits_increment(100,1,0),"invalid allocation refused");
     require(temporal_fits_increment(max,max-1,1),"64-bit boundary");
     require(!temporal_fits_increment(max,max-1,2),"64-bit overflow refused");
+    SuccessfulQueryCache<int,3> capabilities;
+    int queries=0,value=0;
+    auto query=[&](int& out){++queries;out=91;return true;};
+    for(unsigned i=0;i<10000;++i)require(capabilities.get(0,value,query)&&value==91,"stable format capability");
+    require(queries==1,"format support queried every frame");
+    require(capabilities.get(1,value,query)&&queries==2,"format keys not independent");
+    require(!capabilities.get(3,value,query)&&queries==2,"format cache bounds");
+    require(!capabilities.get(2,value,[](int& out){out=17;return false;}),"failed capability query published");
+    require(capabilities.get(2,value,query)&&value==91&&queries==3,"failed query prevented retry");
+    SuccessfulQueryCache<int,3> another_context;
+    require(another_context.get(0,value,query)&&queries==4,"capabilities crossed context/device");
     std::cout<<"PASS production portable cache/policy checks="<<checks<<"\n";
 }
 '''

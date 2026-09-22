@@ -67,10 +67,14 @@ def main() -> None:
     out.mkdir(parents=True,exist_ok=False)
     inputs=[p for p in root.iterdir() if p.is_file() and p.suffix in {'.py','.hpp','.cpp','.inl'}]
     manifest={p.name:sha(p) for p in inputs}
-    report={'passed':False,'source_sha256':manifest,'modes':[],'game_verified':False}
+    builder=root.parents[1]/'scripts/prepare-temporal-artifacts.py'
+    if not builder.is_file():raise RuntimeError('production temporal artifact builder missing')
+    frozen_builder=out/'prepare-temporal-artifacts.py';shutil.copyfile(builder,frozen_builder)
+    report={'passed':False,'source_sha256':manifest,'modes':[],'game_verified':False,
+        'artifact_builder_sha256':sha(builder)}
     def save():(out/'comparison.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     save()
-    for name,cache,inplace in [('reference','0','0'),('cache','1','0'),('inplace','1','1')]:
+    for name,cache,inplace in [('reference','0','0'),('cache','1','0'),('inplace','1','1'),('precompiled','1','1')]:
         stage=out/name/'source';stage.mkdir(parents=True)
         for p in inputs:shutil.copyfile(p,stage/p.name)
         probe=stage/'recorded_temporal_probe.cpp'
@@ -80,6 +84,7 @@ def main() -> None:
         command=[sys.executable,str(stage/'validate_residual_gpu.py'),'--recorded',
             '--sdk',str(args.sdk.resolve()),'--sdk-cache',str(args.sdk_cache.resolve()),
             '--compiler',str(args.compiler.resolve()),'--output',str(result_dir)]
+        if name=='precompiled':command+=['--temporal-artifact-builder',str(frozen_builder)]
         run=subprocess.run(command,env=env,capture_output=True,text=True,timeout=900)
         (out/name/'runner.log').write_text(run.stdout+run.stderr,encoding='utf-8')
         row={'name':name,'exit':run.returncode,'instrumented_probe_sha256':sha(probe),'command':command}
@@ -92,7 +97,7 @@ def main() -> None:
         row['gpu_validation_sha256']=sha(result_dir/'validation.json');save()
     baseline=report['modes'][0]['native_images']
     report['native_images_bit_identical']=all(row['native_images']==baseline for row in report['modes'][1:])
-    report['source_unchanged']=all(sha(root/name)==value for name,value in manifest.items())
+    report['source_unchanged']=all(sha(root/name)==value for name,value in manifest.items()) and sha(builder)==sha(frozen_builder)
     report['passed']=report['native_images_bit_identical'] and report['source_unchanged']
     save()
     if not report['passed']:raise RuntimeError('A/B parity or source immutability failed')

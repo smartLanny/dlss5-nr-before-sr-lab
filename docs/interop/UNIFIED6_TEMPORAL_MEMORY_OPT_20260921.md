@@ -1,5 +1,10 @@
 # unified6 temporal memory/creation optimization candidate
 
+> Historical first #303 receipt. The 2026-09-23 successor is based on unified9;
+> see [PR303_UNIFIED9_20260923.md](PR303_UNIFIED9_20260923.md) for build-time
+> temporal bytecode, capability caching, lazy-allocation accounting and the
+> current validation boundary. The original results below are not new GPU tests.
+
 Source-only isolated successor to `5567bb479275bf4eb24be4c8db5bbba9a11d5177`,
 coordinated by #294 and intended for #300, then `next/0.5`. The existing
 unified6 binary remains built from `cd4bc734`; this change is not that binary,

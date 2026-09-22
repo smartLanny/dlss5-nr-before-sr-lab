@@ -160,7 +160,13 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
 bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prepared& p){
  if(!p)return true;
  p.inputs.original_state=slot.source_state;p.inputs.candidate_state=slot.result_state;
+ const auto bytes_before=p.runtime->stats().bytes;
  const auto result=p.runtime->record(list,p.inputs);
+ // A format fallback can allocate its snapshot before history/AMD recording.
+ // Account the growth on every outcome, including refusal or quarantine;
+ // retirement later subtracts the module's actual retained byte count.
+ const auto bytes_after=p.runtime->stats().bytes;
+ if(bytes_after>bytes_before)nr_temporal_status::Allocated(bytes_after-bytes_before);
  if(result==RecordResult::Recorded){
   context.temporal_token=p.recording;nr_temporal_status::recorded.fetch_add(1);Status(7);return true;
  }
@@ -169,6 +175,7 @@ bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prep
   Log("Temporal recording quarantined: %s",p.runtime->status());Status(9);return false;
  }
  if(result==RecordResult::Duplicate){Status(13);return true;}
- nr_temporal_status::rejected.fetch_add(1);Status(result==RecordResult::Busy?6:12);return true;
+ nr_temporal_status::rejected.fetch_add(1);
+ Status(result==RecordResult::Busy?6:p.runtime->stats().snapshot_refused?20:12);return true;
 }
 }
