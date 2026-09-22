@@ -1,3 +1,27 @@
+## Current UI successor: unified9 (2026-09-23)
+
+Read `docs/interop/UNIFIED9_DELIVERY_20260922.md` and `UNIFIED9_UI.md`.
+The final built-source identity is recorded there; older milestone headings below
+are historical. Continue #300/#294 to next/0.5. The owner is running game acceptance;
+do not take over games or replace game files during that work.
+
+The common header is read-only; master/route/colour/workload edits live in Picture.
+All light/dark gains live in Lighting. Ordinary broad brightening shows the saved
+Broad*(1-Glow); viewing does not normalize it, an explicit edit writes one factor.
+Legacy component gains remain only when already requested, with explicit exit and
+undo. Do not silently reinterpret legacy math or add a fourth lighting algorithm.
+Presets/reset/undo do not write AI colour. Sampling/MV/protection help must describe
+the actual consumer, not promise final saturation or halo removal.
+
+New/missing RRMissingProjectionFallback is ON; explicit saved OFF is retained.
+Only the existing missing-matrix candidate is enabled: all resource/projection
+checks and native RR survive. This is not #254 game acceptance. Other experimental
+features remain OFF by default; native skin mask stays ON for new/reset layers.
+Guided acceptance consumes complete text-report receipts separately from image
+archive completion, still requiring matching session and configuration.
+No new temporal/private reconstruction route or image algorithm ships in this UI
+milestone. Preserve the existing unified8 experimental scopes below.
+
 ## Current successor: unified8 (2026-09-22)
 
 Read `docs/interop/UNIFIED8_DELIVERY_20260922.md`, `UNIFIED8_TEMPORAL.md` and
