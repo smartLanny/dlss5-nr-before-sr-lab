@@ -24,7 +24,7 @@ void NrLayerField(const char* label,bool table) {
 void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();
     SettingsSection(zh?"每层模型参数":"Model parameters per layer");
-    SettingsNote(zh?"同一工作尺寸；松手或提交输入后应用。减少层数会保留后续层设置。":"One work size; apply on release or input commit. Reducing layers retains their settings.");
+    SettingsTooltip(zh?"各层同一工作尺寸；松手或提交输入后应用。减少层数会保留后续层设置。":"All layers share one work size; apply on release or input commit. Reducing layers retains their settings.");
     if(next.nr_uniform_migrated)SettingsNote(zh?"旧辅助层比例已归档；统一尺寸改变了辅助层工作量，当前为自定义。":"Legacy auxiliary scales are archived. Uniform sizing changes their workload; this is a custom configuration.");
     const auto count=nr_layers::Active(next.nr_layers);
     for(unsigned i=0;i<count;++i) {
@@ -60,10 +60,13 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
 
         NrLayerField(zh?"模型强度":"Model strength",table);
         edited|=ImGui::SliderFloat("##intensity",&model.intensity,0.f,2.f,"%.2f");
+        SettingsTooltip(zh?"传给本层 NR 模型的强度；不是最终额外增强。修改后仅重建必要实例。":"Strength sent to this NR layer, distinct from final enhancement. Changes rebuild only required instances.");
         NrLayerField(zh?"局部结构":"Local structure",table);
         edited|=ImGui::SliderFloat("##structure",&model.local_structure,0.f,2.f,"%.2f");
+        SettingsTooltip(zh?"本层模型的局部结构参数，影响推理；不同于光影页对已有明暗细节的倍率。":"Local structure passed to this layer. Distinct from scaling existing light/detail edits on Lighting.");
         NrLayerField(zh?"局部色调":"Local tone",table);
         edited|=ImGui::SliderFloat("##tone",&model.local_tone,0.f,2.f,"%.2f");
+        SettingsTooltip(zh?"本层模型的局部色调参数；不是最终 AI 色彩采用量，也不是全画面饱和度。":"Local tone passed to this layer; not final AI colour amount or global saturation.");
         NrLayerField(zh?"原生皮肤遮罩":"Native skin mask",table);
         if(ImGui::Checkbox("##native-mask",&model.auto_mask)) {
             if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=nr_layers::Model{}.skin_structure;

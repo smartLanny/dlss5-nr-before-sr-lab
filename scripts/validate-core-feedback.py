@@ -705,6 +705,7 @@ int main(int argc,char **argv) {
     check(g_feedback_status==3,"fresh core completes after image-result reset");
     check(!g_feedback_last_zip[0],"F8 never publishes a ZIP path");
     check(!nr_core_feedback::SnapshotPair().complete,"text-only capture cannot masquerade as a paired image core");
+    check(nr_core_feedback::SnapshotPair().text_complete,"complete TXT has an independent acceptance receipt");
     check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"F8 standalone text saved");
     const auto named = std::filesystem::path(nr_core_feedback::g_report_path);
     unsigned siblings=0;

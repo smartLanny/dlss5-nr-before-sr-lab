@@ -12,6 +12,7 @@ struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
     bool ready = false, complete = false, archive_requested = false;
+    bool text_complete = false; // A text-only F8 never claims a complete image archive.
 };
 struct CoreSession {
     FeedbackSession activity{};
@@ -107,6 +108,7 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
     g_pair.ready = true;
+    g_pair.text_complete = g_report_complete;
     g_pair.complete = archive_requested && complete && result.required_complete && result.zip_path[0];
     const unsigned status = archive_requested ?
         (result.status == nr_bundle::Status::Failed ? 5u : g_pair.complete ? 3u : 4u) :

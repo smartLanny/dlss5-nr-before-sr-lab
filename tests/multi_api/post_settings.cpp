@@ -21,14 +21,14 @@ wchar_t g_ini_path[]=L"test.ini";
 int g_chain_cs=0,locks=0,writes=0;
 bool persist=true,hold_on_lock=false,revision_on_lock=false;
 unsigned rr_ini=1,pct_ini=100;
-unsigned missing_ini=0;
+unsigned missing_ini=0;bool missing_present=true;
 ULONGLONG tick=1000;
 void EnterCriticalSection(int*);
 void LeaveCriticalSection(int*){--locks;}
 ULONGLONG GetTickCount64(){return tick;}
 void Log(const char*,...){}
-unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,unsigned,const wchar_t*) {
- if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)return missing_ini;
+unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,unsigned fallback,const wchar_t*) {
+ if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)return missing_present?missing_ini:fallback;
  return std::wcscmp(key,L"RRPostEnabled")==0?rr_ini:pct_ini;
 }
 bool WriteIniInt(const wchar_t* key,int value){
@@ -134,6 +134,8 @@ int main(){
  last_rr_tick=0;FeedbackSession unavailable;EmitPostFeedback(unavailable);
  CHECK(unavailable.text.find("capture.post.rr.attemptAgeMs=-1\n")!=std::string::npos);
  CHECK(!missing_projection);
+ pct_ini=Read().percent;missing_present=false;tick+=1000;Poll();CHECK(missing_projection);
+ missing_present=true;missing_ini=0;tick+=1000;Poll();CHECK(!missing_projection);
  nr_f8::g_config_hold=true;CHECK(!RequestMissingProjection(true));CHECK(!missing_projection);
  nr_f8::g_config_hold=false;
  gen=g_config_generation;hist=g_history_generation;

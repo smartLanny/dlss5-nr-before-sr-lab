@@ -31,7 +31,7 @@ class UnifiedUi(unittest.TestCase):
         for text in (self.settings, self.pages, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
-        markers = ['DrawProcessingModeBlocks(', '##nr-processing-precision',
+        markers = ['###master-nr', 'DrawProcessingModeBlocks(', 'NrChoice("colour-policy"', '##final-colour', '##nr-processing-precision',
                    'DrawUniformLayerCount(', '##final-gain',
                    'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
         positions = [self.settings.index(m) for m in markers]
@@ -51,7 +51,8 @@ class UnifiedUi(unittest.TestCase):
     def test_one_colour_permission_and_feedback_owner(self):
         self.assertEqual(self.pages.count('&next.allow_unverified_hdr_color'),0)
         self.assertTrue('nr_colour_preferences::Select(next,colour_policy)' in self.settings)
-        self.assertLess(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
+        self.assertGreater(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
+        self.assertLess(self.settings.index('kAddonVersion'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
         self.assertNotIn('RequestStageCapture();',self.pages)
@@ -63,7 +64,7 @@ class UnifiedUi(unittest.TestCase):
         self.assertFalse('RequestStageCapture(' in picture)
         for field in ('face_protection','pause_nr_on_fullscreen_ui','guess_pause_nr'):
             self.assertFalse('next.'+field+'=' in self.settings)
-        self.assertFalse('AMDOF' in self.pages)
+        self.assertEqual(self.pages.count('DrawTemporalOptions(next,changed,discrete);'),1)
 
     def test_face_disabled_preview_cannot_request_work(self):
         face = (self.root/'src/nr_face_runtime.inl').read_text(encoding='utf-8')

@@ -30,13 +30,23 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     auto method=nr_unified_ui::LightMethod(next);
     const char* methods[]={NrUi("Light / dark","普通亮暗"),NrUi("Regions · test","精细分区·实验"),NrUi("Edit types · test","修改类型·实验")};
     if(NrChoice("light-method",method,methods,3)){nr_unified_ui::SetLightMethod(next,method);changed=true;discrete=true;}
-    SettingsNote(NrUi("These modes adjust NR's edits, not the whole game image. Final enhancement, AI colour and applicable safeguards still affect the result.",
+    SettingsTooltip(NrUi("These modes adjust NR's edits, not the whole game image. Final enhancement, AI colour and applicable safeguards still affect the result.",
         "三种方式只调节 NR 新增修改；最终增强、AI 色彩及适用的保护仍会影响结果。"));
     if(method==0){
         bool manual=false;
-        manual|=LightStylePercent(NrUi("Brightening","增亮强度"),"##daily-bright",next.light_reflection,2.f);
-        manual|=LightStylePercent(NrUi("Darkening","压暗强度"),"##daily-dark",next.light_structure,2.f);
-        manual|=LightStylePercent(NrUi("Glow suppression","辉光抑制"),"##daily-glow",next.light_glow,1.f);
+        const bool detail_scope=next.light_control_mode==nr_light_style::DetailLayers;
+        manual|=LightStylePercent(detail_scope?NrUi("Fine brightening","细节增亮"):NrUi("Brightening","增亮强度"),"##daily-bright",next.light_reflection,2.f);
+        SettingsTooltip(NrUi("Scales NR-added brightening. In the current whole-light scope this includes broad and fine changes; it is not whole-image brightness.","调整 NR 新增提亮。全部亮暗范围下包含大范围和细节；旧版细节范围下仅调整细节。不是全画面亮度。"));
+        manual|=LightStylePercent(detail_scope?NrUi("Fine darkening","细节压暗"):NrUi("Darkening","压暗强度"),"##daily-dark",next.light_structure,2.f);
+        SettingsTooltip(NrUi("Scales NR-added darkening, using the same scope as Brightening. It does not darken the original game image directly.","调整 NR 新增压暗，作用范围与增亮相同，不直接压暗游戏原图。"));
+        SettingsSection(NrUi("Broad changes","大范围变化"));
+        float broad=nr_unified_ui::BroadBright(next);
+        if(LightStylePercent(NrUi("Broad brightening","大范围增亮"),"##daily-broad-bright",broad,2.f)){
+            nr_unified_ui::SetBroadBright(next,broad);manual=true;
+        }
+        SettingsTooltip(NrUi("One effective multiplier combines old broad brightening and glow suppression. 100% keeps the broad edit; 0 removes it. Viewing preserves old values; editing replaces the two factors with this amount. No halo detector is used.","将原大范围增亮与辉光抑制合为实际倍率：100% 保留，0% 去掉大范围增亮。只打开菜单不改旧值；调节后用此倍率代替两项乘积。不识别真实光晕。"));
+        manual|=LightStylePercent(NrUi("Broad darkening","大范围压暗"),"##daily-broad-dark",next.light_dark,2.f);
+        SettingsTooltip(NrUi("Additional multiplier for broad NR darkening. In whole-light scope it follows Darkening; fine edits keep their existing amount.","单独调整大范围的 NR 压暗；全部亮暗范围下还受上方压暗强度影响，细小修改不受此额外倍率影响。"));
         if(manual){nr_light_style::MarkCustom(next);changed=true;}
         SettingsField(NrUi("Light preset","光影预设"));
         unsigned preset=next.light_preset;
@@ -44,11 +54,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
         if(NrChoice("light-presets",preset,names,3)){
             nr_light_style::Write(next,nr_light_style::Select(preset,next.color_strength,next.light_control_mode));changed=true;discrete=true;
         }
-        SettingsNote(NrUi("Presets change only lighting. AI colour stays as saved.","光影预设仅改光影，不改变 AI 色彩强度。"));
-        if(nr_unified_ui::LegacyLightActive(next))SettingsNote(NrUi("Legacy detail settings are active; the controls may affect fine edits only. Inspect Developer > Legacy lighting.","旧光影细项正在生效，当前亮暗控件可能仅作用于细小修改；见开发者页“旧光影细分”。"));
-        ImGui::BeginDisabled(has_pending||changed||!undo.Available(generation));
-        if(ImGui::Button(NrUi("Undo lighting edit","撤销光影修改"))&&undo.Restore(next,generation)){pending_undo=true;changed=true;discrete=true;}
-        ImGui::EndDisabled();
+        SettingsTooltip(NrUi("Presets change only these lighting coefficients and retain the saved scope. AI colour and legacy component gains stay as saved.","预设仅改这组光影系数，保留作用范围；不修改 AI 色彩及旧分项倍率。“减少辉光”通过减少大范围增亮实现。"));
     }else if(method==1){
         const auto status=nr_regions::status.load(std::memory_order_acquire);
         const auto color=SnapshotColorPolicy();
@@ -82,6 +88,43 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
         const char* names[]={NrUi("Total edit gain","总改动倍率"),NrUi("Brightening edits","增亮修改"),NrUi("Darkening edits","压暗修改"),NrUi("Saturation edits","饱和度修改"),NrUi("Lightness edits","明度修改")};
         for(unsigned i=0;i<5;++i){ImGui::PushID(static_cast<int>(i));changed|=SettingsSliderFloat(names[i],"##edit-gain",&next.generic_gains[i],i?0.f:1.f,2.f,"%.2fx");ImGui::PopID();}
         SettingsNote(NrUi("Saturation edits scale only the change added by NR, not whole-image saturation. All 1x preserves the current edit.","饱和度修改只调节 NR 新增颜色变化，不是全画面饱和度。全部 1 倍保留当前修改。"));
+    }
+    // Legacy algorithms remain visible only while requested, in the same page
+    // as the controls with which they can combine. No hidden cross-page gain.
+    if(nr_unified_ui::LegacyLightActive(next)) {
+        SettingsSection(NrUi("Saved legacy lighting combination","已保存的旧版光影组合"));
+        SettingsNote(NrUi("Additional legacy settings are enabled. Values are retained until you explicitly leave this combination.","旧版设置仍开启，可能与当前方式叠加；退出前保留原值和效果。"));
+        if(next.light_control_mode==nr_light_style::DetailLayers){
+            SettingsNote(method==0?NrUi("Ordinary sliders currently affect fine edits only.","普通亮暗的主滑条当前只影响细节。"):
+                NrUi("Saved fine-only scope is inactive in this method.","保存的仅细节范围不参与当前方式。"));
+        }
+        if(next.layered_enhancement){
+            const bool supported=before_sr||next.independent_chroma_composition;
+            ImGui::BeginDisabled(!supported);
+            changed|=SettingsSliderFloat(NrUi("Broad tone multiplier","大范围明暗倍率"),"##component-tone",&next.layer_tone,0.f,2.f,"%.2fx");
+            SettingsTooltip(NrUi("Old decomposition: scales broad bright and dark edits together. Its classification differs from ordinary lighting.","旧分解算法同时调整大范围增亮和压暗，其分区计算与普通亮暗不同。"));
+            changed|=SettingsSliderFloat(NrUi("Fine detail multiplier","明暗细节倍率"),"##component-structure",&next.layer_structure,0.f,2.f,"%.2fx");
+            SettingsTooltip(NrUi("Scales fine light/dark edits; not the model's Local structure parameter. No extra NR evaluation.","调整细小明暗变化，不是模型的局部结构参数，不增加 NR 推理次数。"));
+            changed|=SettingsSliderFloat(NrUi("Legacy brightening multiplier","旧分项增亮倍率"),"##component-bright",&next.layer_bright,0.f,2.f,"%.2fx");
+            SettingsTooltip(NrUi("Multiplies both broad and fine positive edits after the old split. Can compound with the selected lighting method.","在旧分解基础上同时放大大范围与细节增亮，可能与当前光影方式继续叠加。"));
+            changed|=SettingsSliderFloat(NrUi("Legacy darkening multiplier","旧分项压暗倍率"),"##component-dark",&next.layer_shadow,0.f,2.f,"%.2fx");
+            SettingsTooltip(NrUi("Multiplies both broad and fine negative edits after the old split. Additional limits still apply.","在旧分解基础上同时放大大范围与细节压暗，最终仍受适用保护和上限约束。"));
+            ImGui::EndDisabled();
+            if(!supported)SettingsNote(NrUi("Legacy component gains are not used by this route; their values are retained.","当前路线不采用旧分项倍率，保存值保留。"));
+        }
+        if(ImGui::Button(NrUi("Use only unified lighting","只使用统一光影控制"))){
+            nr_unified_ui::UseUnifiedLight(next);changed=true;discrete=true;
+        }
+        SettingsTooltip(NrUi("Disables legacy component gains and returns ordinary sliders to all light/dark edits. Keeps their saved amounts, model settings and colour. May change the picture; Undo lighting restores the previous combination.","关闭旧分项倍率，并将普通滑条切回全部亮暗；保留旧倍率数值、当前方式、模型与颜色。画面可能改变，可撤销光影修改恢复原组合。"));
+    }
+    if(method==0||undo.Available(generation)){
+        ImGui::BeginDisabled(has_pending||changed||!undo.Available(generation));
+        if(ImGui::Button(NrUi("Undo lighting edit","撤销光影修改"))&&undo.Restore(next,generation)){pending_undo=true;changed=true;discrete=true;}
+        ImGui::EndDisabled();
+        SettingsTooltip(NrUi("Restores the last ordinary/legacy lighting edit only, including a legacy-combination exit. Later unrelated settings invalidate undo; AI colour is never restored by this action.","仅恢复最近一次普通/旧版光影修改，包含退出旧组合。之后修改其他设置会使撤销失效；不会回写 AI 色彩。"));
+    }
+    if(next.light_preview||next.region_preview||next.face_preview){
+        if(ImGui::Button(NrUi("Exit all previews","退出所有预览"))){next.light_preview=next.region_preview=next.face_preview=0;changed=true;discrete=true;}
     }
     SettingsSection(NrUi("Shared controls","公共设置"));
     changed|=SettingsSliderFloat(NrUi("Preserve original lighting","保留原始光照"),"##lighting-lock",&next.lighting_lock,0.f,1.f,"%.2f");
@@ -137,8 +180,8 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         nr_post_settings::RequestMissingProjection(missing);
     if(nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire))
         SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验设置未能保存；本次会话保留请求，请查看 F8。"));
-    SettingsNote(NrUi("Off by default. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
-        "默认关闭。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
+    SettingsTooltip(NrUi("On for new settings; saved choices are retained. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
+        "新配置默认开启，旧保存值保留。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
     ImGui::TextWrapped(NrUi("Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Save F8 to verify NR adoption.",
         "最近投影输入：%s。转换／占位录制次数：%llu／%llu。是否真正采用 NR 请查看 F8。"),
         nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
@@ -187,7 +230,8 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     int order=nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
     if(NrCombo(NrUi("Low-resolution input order","低分输入顺序"),"##scaled-proxy",order,NrUi("Scale source first\0Encode proxy first (no proven gain)\0","先缩放场景\0先编码 Proxy（未证实收益）\0"))){next.colour_scaled_proxy_mode=order;changed=true;discrete=true;}
     int edge=nr_colour_edge::Normalize(next.colour_edge_recovery);
-    if(NrCombo(NrUi("Paired sampling","配对取样"),"##paired-edge",edge,NrUi("D21 bilinear\0Paired positive weights\0","D21 双线性\0配对正权重\0"))){next.colour_edge_recovery=edge;changed=true;discrete=true;}
+    if(NrCombo(NrUi("Low-resolution RGB sampling","低分 RGB 恢复取样"),"##paired-edge",edge,NrUi("Standard interpolation (D21)\0Edge-guided pair (experimental)\0","普通插值（D21）\0边缘引导配对（实验）\0"))){next.colour_edge_recovery=edge;changed=true;discrete=true;}
+    SettingsTooltip(NrUi("D21 interpolates nearby samples. The experiment uses identical nonnegative source-guided weights for model input/output to reduce cross-edge mixing; it may weaken edits. This is not dual-NR HDR or temporal denoising; equal-size input keeps ordinary sampling.","D21 使用附近像素插值；实验按原图为模型输入和输出使用相同非负权重，尝试减少跨边缘混色，也可能减弱增强。不是双层 HDR 开关或时域防闪；同尺寸时保留普通取样。"));
     if(edge&&next.colour_restore_mode==0&&!next.colour_neutral_probe)SettingsNote(NrUi("D21 composition does not use paired recovery.","D21 合成不采用配对恢复。"));
     changed|=ImGui::Checkbox(NrUi("Independent chroma","独立色度"),&next.independent_chroma_composition);
     changed|=ImGui::Checkbox(NrUi("Low-grid luminance field","低分亮度场"),&next.low_grid_edit_field);
@@ -198,35 +242,19 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     changed|=ImGui::Checkbox(NrUi("N=P zero-edit diagnostic","N=P 零修改诊断"),&next.colour_neutral_probe);
     changed|=ImGui::Checkbox(NrUi("Run NR but discard its result","运行 NR 但丢弃结果"),&next.identity_use_original);
     SettingsNote(NrUi("These are recovery experiments. A neutral diagnostic is not a quality/performance comparison; low-grid paths can add passes and storage.","这些是恢复实验。零修改诊断不能作为画质或性能对照；低分场可能增加处理和存储。"));
-    const bool layered=before_sr||next.independent_chroma_composition;
-    ImGui::BeginDisabled(!layered);
-    changed|=ImGui::Checkbox(NrUi("Component gains from one NR result","单次 NR 分项强化"),&next.layered_enhancement);
-    ImGui::BeginDisabled(!next.layered_enhancement);
-    changed|=SettingsSliderFloat(NrUi("Broad tone","大范围明暗"),"##component-tone",&next.layer_tone,0.f,2.f,"%.2fx");
-    changed|=SettingsSliderFloat(NrUi("Structure","结构"),"##component-structure",&next.layer_structure,0.f,2.f,"%.2fx");
-    changed|=SettingsSliderFloat(NrUi("Brightening","增亮"),"##component-bright",&next.layer_bright,0.f,2.f,"%.2fx");
-    changed|=SettingsSliderFloat(NrUi("Darkening","压暗"),"##component-dark",&next.layer_shadow,0.f,2.f,"%.2fx");
-    ImGui::EndDisabled();ImGui::EndDisabled();
-    if(!layered)SettingsNote(NrUi("Component gains require pre-SR or the shared independent-chroma compositor.","分项强化需前置或独立色度的共用合成路线。"));
     SettingsSection(NrUi("Safeguards","保护边界"));
-    changed|=ImGui::Checkbox(NrUi("High-strength protection","高强度保护"),&next.high_strength_protection);
-    changed|=ImGui::Checkbox(NrUi("Colour protection","色彩保护"),&next.color_protection);
+    changed|=ImGui::Checkbox(NrUi("Limit extra enhancement","额外增强软限制"),&next.high_strength_protection);
+    SettingsTooltip(NrUi("Soft-limits extra luminance amplification above the base amount; legacy composition also limits extra chroma. It does not guarantee that multi-layer NR at 1x cannot be oversaturated. Existing numeric/gamut safety remains.","软限制超过原量的额外明暗放大，旧合成也限制额外颜色放大；不保证最终增强为 1 时多层本身不会过艳。数值与色域安全仍保留。"));
+    changed|=ImGui::Checkbox(NrUi("Keep extra enhancement from boosting colour","防止额外增强放大颜色"),&next.color_protection);
+    SettingsTooltip(NrUi("Prevents the final enhancement gain from multiplying colour again in coupled composition. Independent colour consumers do not divide by that gain. This is not a general saturation limiter and does not change HDR permission.","在明暗与颜色耦合的合成中，避免最终增强重复放大颜色；独立颜色分支不再除以该增益。不是全局饱和度上限，也不改变 HDR 许可。"));
     changed|=SettingsSliderFloat(NrUi("Luminance ratio limit","明暗变化上限"),"##luma-limit",&next.max_luma_ratio,1.f,8.f,"%.2f");
     ImGui::BeginDisabled(!before_sr);
     changed|=SettingsSliderFloat(NrUi("Detail stability","细节稳定保护"),"##detail-stability",&next.detail_stability,0.f,1.f,"%.2f");ImGui::EndDisabled();
     if(!before_sr)SettingsNote(NrUi("Detail stability applies before SR only.","细节稳定保护仅用于前置。"));
-    SettingsSection(NrUi("Legacy lighting","旧光影细分"));
-    SettingsNote(NrUi("These saved settings affect normal light/dark only. Non-neutral values remain visible on the Picture and Lighting pages.","以下保存值影响普通亮暗；非默认状态会在画面和光影页提示。"));
-    int scope=static_cast<int>(next.light_control_mode);
-    bool light_edit=NrCombo(NrUi("Daily slider scope","日常滑条作用范围"),"##legacy-scope",scope,NrUi("Fine edits only (legacy)\0All light/dark edits\0","仅细小变化（旧版）\0全部亮暗变化\0"));
-    if(light_edit){next.light_control_mode=static_cast<unsigned>(scope);discrete=true;}
-    light_edit|=LightStylePercent(NrUi("Broad brightening","大范围提亮"),"##legacy-broad",next.light_broad,2.f);
-    light_edit|=LightStylePercent(NrUi("Broad darkening","大范围压暗"),"##legacy-dark",next.light_dark,2.f);
-    if(light_edit){nr_light_style::MarkCustom(next);changed=true;}
     SettingsSection(NrUi("Compatibility and recording","兼容与记录"));
     int motion=static_cast<int>(next.present_mv_compensation);
-    if(NrCombo(NrUi("Motion size compensation","运动向量尺寸补偿"),"##motion-compensation",motion,NrUi("Conservative automatic\0Force compensation\0","保守自动\0强制补偿\0"))){next.present_mv_compensation=static_cast<unsigned>(motion);changed=true;discrete=true;}
-    SettingsTooltip(NrUi("Compatibility input only. Changes model history; compare motion and ghosting.","仅影响兼容入口；切换改变模型历史，需对比运动与拖影。"));
+    if(NrCombo(NrUi("Compatibility motion-unit conversion","兼容入口运动量换算"),"##motion-compensation",motion,NrUi("Conservative automatic\0Force compensation\0","保守自动\0强制补偿\0"))){next.present_mv_compensation=static_cast<unsigned>(motion);changed=true;discrete=true;}
+    SettingsTooltip(NrUi("Compatibility input only: forced mode rebases existing motion scales from the captured image to the model raster. It neither creates motion nor selects native MV, AMDOF or NVOF. Conservative keeps established units. Changing it rebuilds this compatibility context/history; do not force it merely because sizes differ.","仅兼容入口：强制时将已有运动量从捕获画面尺寸换算到模型尺寸，不生成运动，也不选择原生 MV、AMDOF 或 NVOF。保守模式保留现有单位。切换会更新兼容实例和历史，不能仅因尺寸不同就认定需要强制。"));
     changed|=ImGui::Checkbox(NrUi("Low-overhead descriptor recording (default on)","低开销描述符记录（默认开启）"),&next.descriptor_low_overhead);
     SettingsNote(next.descriptor_low_overhead!=NrDescriptorLowOverheadActive()?NrUi("Restart required to apply this descriptor setting.","描述符设置需重启游戏生效。"):
         NrDescriptorLowOverheadActive()?NrUi("Active: low-overhead recording.","实际：低开销记录。"):

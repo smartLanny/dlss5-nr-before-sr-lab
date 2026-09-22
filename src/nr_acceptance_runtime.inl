@@ -162,7 +162,7 @@ void Tick(reshade::api::effect_runtime* runtime){
         }
         if(nr_core_feedback::Busy()&&now-g.stage_tick<15000)return;
         const auto pair=nr_core_feedback::SnapshotPair();
-        if(g.report_requested&&pair.ready&&pair.complete&&!std::strcmp(pair.session,g.report_session)&&pair.config==g.generation){
+        if(g.report_requested&&pair.ready&&pair.text_complete&&!std::strcmp(pair.session,g.report_session)&&pair.config==g.generation){
             AcquireSRWLockShared(&g_feedback_lock);wcscpy_s(g.report_path,nr_core_feedback::g_report_path);ReleaseSRWLockShared(&g_feedback_lock);
         }else {Reason(g,"paired-report-unavailable");if(nr_core_feedback::Busy())nr_core_feedback::Cancel();}
         s->window.phase=Phase::Capture;g.stage_tick=now;

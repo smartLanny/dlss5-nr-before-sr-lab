@@ -55,6 +55,37 @@ void Run(){
     Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Current,false),"current baseline restarts");
     const auto history=g_history_generation.load();nr_acceptance::Cancel();DrainExport();
     Check(g_history_generation.load()==history,"unchanged baseline restore causes no gratuitous reset");
+    // Exercise the real text publisher -> acceptance consumer seam. No GPU or
+    // game evidence is fabricated: only report contents/config are test inputs.
+    for(unsigned report_case=0;report_case<3;++report_case){
+        Sleep(2);
+        Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Current,false),"report pairing starts");
+        AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
+        auto& run=*nr_acceptance::session;auto& group=run.groups[0];
+        Check(nr_core_feedback::Request(),"actual text-only report requested");
+        group.report_requested=true;group.stage_tick=GetTickCount64();
+        auto pair=nr_core_feedback::SnapshotPair();
+        std::snprintf(group.report_session,sizeof(group.report_session),"%s",pair.session);
+        AcquireSRWLockExclusive(&g_feedback_lock);
+        nr_core_feedback::g_pair.config=group.generation+(report_case==1?1:0);
+        ReleaseSRWLockExclusive(&g_feedback_lock);
+        g_feedback_requested=false; // simulated worker claim, no fake render callback
+        nr_core_feedback::nr_feedback_report::Output report{};
+        report.text=std::make_shared<const std::string>("fixture TXT");
+        report.path=L"fixture-report.txt";report.complete=report_case!=2;
+        nr_bundle::Result archive{};
+        nr_core_feedback::Publish(archive,false,"fixture",nullptr,&report,false);
+        pair=nr_core_feedback::SnapshotPair();
+        Check(!pair.complete&&pair.text_complete==(report_case!=2),"text and image completion remain distinct");
+        run.window.phase=nr_acceptance_policy::Phase::Report;
+        nr_acceptance::Tick(runtime);
+        ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);
+        DrainExport();
+        FILE* receipt=_wfopen(nr_acceptance::last_path,L"rb");char contents[8192]{};
+        Check(receipt!=nullptr,"paired acceptance receipt exists");
+        std::fread(contents,1,sizeof(contents)-1,receipt);std::fclose(receipt);
+        Check((std::strstr(contents,"paired-report-unavailable")!=nullptr)==(report_case!=0),"complete text accepted; wrong config and partial text refused");
+    }
     Sleep(2);
     Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Temporal,false),"temporal comparison starts without changing layer count");
     Check(g_config.nr_passes==original.nr_passes,"test does not increase NR workload");

@@ -26,7 +26,7 @@ foreach ($Key in @('colour_lab', 'colour_edge')) {
     }
 }
 $Version = [string]$Product.version
-if ($Version -eq 'beta0.5-dline21-unified8') {
+if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9')) {
     $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if(-not $Extra.passed -or -not $Extra.acceptance -or -not $Extra.restoration_negative -or
        -not $Extra.temporal_entries -or -not $Extra.auxiliary -or -not $Extra.native_output -or
@@ -34,7 +34,7 @@ if ($Version -eq 'beta0.5-dline21-unified8') {
         throw 'Unified8 exact-source runtime checks are incomplete.'
     }
 }
-$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8')
+$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
@@ -100,7 +100,7 @@ foreach ($Binary in $ExpectedBinaries) {
     Assert-Hash $Binary ([string]$Evidence[0].sha256)
 }
 $PostLog = Join-Path $Build 'tests/post-scaled-work/stdout.txt'
-$PostScenarios = if ($Version -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8')) { 60 } else { 48 }
+$PostScenarios = if ($Version -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9')) { 60 } else { 48 }
 if (-not (Test-Path -LiteralPath $PostLog) -or (Get-Content -LiteralPath $PostLog -Raw -Encoding UTF8) -notmatch ("PASS post-scaled-work WARP: " + $PostScenarios + " scenarios")) {
     throw "Successful $PostScenarios-scenario post WARP log is missing."
 }
@@ -128,7 +128,7 @@ if (Test-Path -LiteralPath $NgxLicense) {
 }
 $FaceAssets = [ordered]@{}
 $AmdLicense = $null
-if ($Version -in @('beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8')) {
+if ($Version -in @('beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9')) {
     $TemporalReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'obj/temporal/module.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $TemporalReceipt.passed) { throw 'Temporal backend compilation is not verified.' }
     $AmdLicense = Join-Path $CoreBuild 'obj/temporal/AMD-FidelityFX-LICENSE.txt'
@@ -229,7 +229,7 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         }
         $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
-        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8')) {
+        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9')) {
             $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
             if ($Version -eq 'beta0.5-dline21-unified4') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED4_UI_EN_20260921.md' } else { 'UNIFIED4_UI_20260921.md' }
@@ -243,14 +243,18 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
             if ($Version -eq 'beta0.5-dline21-unified7') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED7_UI_20260921.en.md' } else { 'UNIFIED7_UI_20260921.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified8') {
+            if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9')) {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED8_UI.en.md' } else { 'UNIFIED8_UI.md' }
+            }
+            if ($Version -eq 'beta0.5-dline21-unified9') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED9_UI.en.md' } else { 'UNIFIED9_UI.md' }
             }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
-            if ($Version -eq 'beta0.5-dline21-unified8') {
+            if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9')) {
                 Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
-                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_DELIVERY_20260922.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
+                $StatusSource = if ($Version -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
+                Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
             }
         }
         if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
