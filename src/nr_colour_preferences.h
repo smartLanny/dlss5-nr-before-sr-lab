@@ -5,6 +5,7 @@
 
 namespace nr_colour_preferences {
 constexpr float PriorityDefault=0.7f, ConservativeDefault=1.f;
+constexpr float RangeDefault=0.5f;
 inline float Bound(float value,float fallback) {
     return std::isfinite(value)?std::clamp(value,0.f,2.f):fallback;
 }
@@ -14,23 +15,38 @@ template<class C> unsigned Policy(const C& c) {
 // Keep the existing effective request as the sole compositor input. The banks
 // remember UI requests and never grant HDR permission or change model tuning.
 template<class C> void Remember(C& c) {
+    if(c.colour_range_control){
+        c.colour_lab_mode=1;
+        c.color_strength=std::isfinite(c.color_strength)?std::clamp(c.color_strength,0.f,1.f):RangeDefault;
+    }
     c.colour_priority_strength=Bound(c.colour_priority_strength,PriorityDefault);
     c.colour_conservative_strength=Bound(c.colour_conservative_strength,ConservativeDefault);
     c.color_strength=Bound(c.color_strength,Policy(c)?ConservativeDefault:PriorityDefault);
     (Policy(c)?c.colour_conservative_strength:c.colour_priority_strength)=c.color_strength;
 }
 template<class C> void Load(C& c,float old_value,float priority,float conservative) {
+    c.colour_range_control=false;
     c.colour_priority_strength=Bound(priority,Policy(c)==0?Bound(old_value,PriorityDefault):PriorityDefault);
     c.colour_conservative_strength=Bound(conservative,Policy(c)==1?Bound(old_value,ConservativeDefault):ConservativeDefault);
     c.color_strength=Policy(c)?c.colour_conservative_strength:c.colour_priority_strength;
 }
 template<class C> void Select(C& c,unsigned policy) {
     Remember(c);
+    c.colour_range_control=false; // Legacy migration/test entry; no product toggle.
     c.colour_lab_mode=policy?2:1;
     c.color_strength=policy?c.colour_conservative_strength:c.colour_priority_strength;
 }
+template<class C> void SetRange(C& c,float value) {
+    c.colour_range_control=true;c.color_strength=value;Remember(c);
+}
+template<class C> void LoadRange(C& c,float saved,bool has_legacy) {
+    // Preserve a saved legacy contract until an explicit slider edit. A missing
+    // new key must not reinterpret conservative SDR/HDR with one guessed value.
+    if(std::isfinite(saved))SetRange(c,saved);
+    else if(!has_legacy)SetRange(c,RangeDefault);
+}
 template<class C> void Reset(C& c) {
-    c.colour_lab_mode=nr_colour_lab::kDefaultMode;c.colour_priority_strength=PriorityDefault;
-    c.colour_conservative_strength=ConservativeDefault;c.color_strength=ConservativeDefault;
+    c.colour_priority_strength=PriorityDefault;c.colour_conservative_strength=ConservativeDefault;
+    SetRange(c,RangeDefault);
 }
 }

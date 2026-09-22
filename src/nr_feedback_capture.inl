@@ -304,6 +304,8 @@ void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
         return;
     }
     const auto& status=snapshot.status;
+    FeedbackAppend(s,"%s.energyGate.observations=total:%llu,pauseTrue:%llu,pauseFalse:%llu,unknown:%llu,unbound:%llu,lastSignal:%u\n",
+        prefix,status.observations,status.pause_true,status.pause_false,status.pause_unknown,status.unbound,status.last_signal);
     const char* state=status.active?(snapshot.stale_streams?"paused-recorded-expiry-pending":"paused-recorded"):
         snapshot.stale_streams?"confirmation-expiry-pending":snapshot.confirming_streams?"confirming":
         status.recently_resumed?"recently-resumed":(!status.conservative&&!status.heuristic)?"off":"waiting-for-evidence";

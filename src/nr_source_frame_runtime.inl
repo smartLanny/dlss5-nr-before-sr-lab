@@ -11,6 +11,10 @@ std::atomic<bool> energy_gate_has_evidence{false};
 std::atomic<bool> energy_gate_conservative{false},energy_gate_heuristic{false};
 std::atomic<bool> energy_gate_persistence_failed{false};
 std::atomic<unsigned long long> energy_gate_resets{0},energy_gate_blocked_checks{0};
+// Count usable AND rejected observations while enabled. The old table only
+// retained pause candidates, making explicit false and missing FG look alike.
+std::atomic<unsigned long long> energy_gate_observations{0},energy_gate_true{0},energy_gate_false{0},energy_gate_unknown{0},energy_gate_unbound{0};
+std::atomic<unsigned> energy_gate_last_signal{0}; // 0=none, 1=false, 2=true, 3=unknown, 4=unbound.
 unsigned long long energy_gate_last_resume_ms=0; // Protected by energy_gate_lock.
 nr_energy_gate::Options EnergyGateOptions() {
     return {energy_gate_conservative.load(std::memory_order_acquire),
@@ -44,10 +48,16 @@ void PublishEnergyGateLocked() {
 }
 void ObserveEnergyPause(nr_energy_gate::StreamKey key,unsigned long long observer,
     unsigned long long epoch,bool known,bool paused,unsigned long long frame) {
-    if(!key)return;
     EnsureEnergyGateLoaded();
     if(!energy_gate_loaded.load(std::memory_order_acquire))return;
     const auto options=EnergyGateOptions();
+    if(options.conservative||options.heuristic){
+        energy_gate_observations.fetch_add(1,std::memory_order_relaxed);
+        (known?(paused?energy_gate_true:energy_gate_false):energy_gate_unknown).fetch_add(1,std::memory_order_relaxed);
+        if(!key)energy_gate_unbound.fetch_add(1,std::memory_order_relaxed);
+        energy_gate_last_signal.store(!key?4u:!known?3u:paused?2u:1u,std::memory_order_relaxed);
+    }
+    if(!key)return;
     if(!energy_gate_has_evidence.load(std::memory_order_acquire)&&
        !(known&&paused&&options.conservative)&&!(!known&&frame&&options.heuristic))return;
     AcquireSRWLockExclusive(&energy_gate_lock);
@@ -108,7 +118,15 @@ struct EnergyGateStatus {
     unsigned guess_samples=0,explicit_samples=0,active_streams=0;
     bool recently_resumed=false;
     unsigned long long resets=0,blocked_checks=0;
+    unsigned last_signal=0;
+    unsigned long long observations=0,pause_true=0,pause_false=0,pause_unknown=0,unbound=0;
 };
+void ReadEnergyObservations(EnergyGateStatus& out){
+    out.last_signal=energy_gate_last_signal.load(std::memory_order_relaxed);
+    out.observations=energy_gate_observations.load(std::memory_order_relaxed);
+    out.pause_true=energy_gate_true.load(std::memory_order_relaxed);out.pause_false=energy_gate_false.load(std::memory_order_relaxed);
+    out.pause_unknown=energy_gate_unknown.load(std::memory_order_relaxed);out.unbound=energy_gate_unbound.load(std::memory_order_relaxed);
+}
 EnergyGateStatus ReadEnergyGateStatus() {
     EnsureEnergyGateLoaded();
     EnergyGateStatus out{};const auto options=EnergyGateOptions();
@@ -126,6 +144,7 @@ EnergyGateStatus ReadEnergyGateStatus() {
     ReleaseSRWLockExclusive(&energy_gate_lock);
     out.persistence_failed=energy_gate_persistence_failed.load(std::memory_order_acquire);
     out.resets=energy_gate_resets.load();out.blocked_checks=energy_gate_blocked_checks.load();
+    ReadEnergyObservations(out);
     return out;
 }
 // F8 observes recorded state only. Unlike the UI read above, this must never
@@ -166,6 +185,7 @@ bool TrySnapshotEnergyGateStatus(EnergyGateSnapshot& out) {
         out.status.persistence_failed=energy_gate_persistence_failed.load(std::memory_order_relaxed);
         out.status.resets=energy_gate_resets.load(std::memory_order_relaxed);
         out.status.blocked_checks=energy_gate_blocked_checks.load(std::memory_order_relaxed);
+        ReadEnergyObservations(out.status);
     }
     ReleaseSRWLockShared(&energy_gate_lock);
     return true;

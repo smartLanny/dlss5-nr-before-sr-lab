@@ -88,6 +88,13 @@ int main() {
     Check(!R::EnergyGateOptions().conservative&&!R::EnergyGateOptions().heuristic);
     Check(R::SetEnergyGateOption(true,true));host_tick=100;
     Contains(Feedback(),"energyGate.state=waiting-for-evidence");
+    R::ObserveEnergyPause(a,100,3,true,false,1);
+    auto observed=R::ReadEnergyGateStatus();
+    Check(observed.last_signal==1&&observed.pause_false==1&&!observed.active);
+    R::ObserveEnergyPause({},100,3,false,false,0);
+    observed=R::ReadEnergyGateStatus();Check(observed.last_signal==4&&observed.unbound==1);
+    Contains(Feedback(),"observations=total:2,pauseTrue:0,pauseFalse:1,unknown:1,unbound:1,lastSignal:4");
+    Check(!R::EnergyGateBlocks(a)); // Diagnostic observations never fabricate a pause.
     R::ObserveEnergyPause(a,100,3,true,true,10);
     Contains(Feedback(),"energyGate.state=confirming");
     Check(R::ReadEnergyGateStatus().explicit_samples==1&&!R::ReadEnergyGateStatus().active);

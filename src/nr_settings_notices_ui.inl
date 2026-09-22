@@ -48,7 +48,12 @@ void DrawEnergyGateOptions() {
             "Heuristic candidate: FG source stalled %u/4 observations; waiting for 300 ms confirmation.",
             status.guess_samples);
     } else if (status.conservative || status.heuristic) {
-        ImGui::TextWrapped("%s", ui(
+        ImGui::TextWrapped("%s", status.last_signal==1?ui(
+            "Last game signal says rendering continues; NR remains on even in a menu. Heuristic pause cannot override it.",
+            "最近游戏信号仍为继续渲染，菜单中 NR 也会继续；猜测省电不会覆盖这个信号。"):
+            status.last_signal==4?ui("Pause observation has no proven picture ownership; NR remains on.","暂停观察尚未关联到可信画面来源，NR 继续运行。"):
+            !status.observations?ui("No FG pause observation while enabled. This does not detect menus or the ReShade overlay by appearance.","开启后尚未收到 FG 暂停观察；此功能不会根据外观识别游戏菜单或 ReShade 面板。"):
+            ui(
             "Waiting for usable pause evidence; NR is still running. Enabling this option alone does not save power.",
             "等待可用暂停信号；NR 仍在运行。开启选项本身不代表已经节能。"));
     }

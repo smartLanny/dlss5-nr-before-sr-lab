@@ -40,8 +40,10 @@ void Run(){
     g_nr_successful_evaluations.fetch_add(64);
     nr_acceptance::Tick(runtime);
     Check(s.window.phase==nr_acceptance_policy::Phase::Warmup,"real controller rejects evaluations without submission");
+    Check(s.groups[0].warmup_evaluations==64&&s.groups[0].warmup_submissions==0,"warmup activity separate from unstarted measurement");
     g_nr_transfer_submitted_frames.fetch_add(1);nr_acceptance::Tick(runtime);
     Check(s.window.phase==nr_acceptance_policy::Phase::Measure,"real adoption and warmup admit measurement");
+    Check(s.groups[0].warmup_submissions==1,"warmup submission recorded even before measured interval");
     Check(!g_feedback_requested.load()&&StageCaptureStatus()==0,"no capture or report during measurement");
     // Exercise A->B->A through production request and normalization, not direct
     // config assignment. Only test time and upstream observation are synthetic.

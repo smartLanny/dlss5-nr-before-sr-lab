@@ -25,7 +25,7 @@ def main():
     # Verify real loader/default/persistence wiring; a standalone default-only
     # mock cannot detect a different fallback in the actual INI loader.
     banked = "nr_colour_preferences::Load(next," in source
-    default_colour = 1.
+    default_colour = .5 if 'nr_colour_preferences::LoadRange(next,' in source else 1.
     assert ('ReadIniFloat(L"ColorStrength",std::nanf(""))' if banked else 'next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);') in source
     assert 'next.intensity = ReadIniFloat(L"Intensity", 1.5f);' in source
     assert 'next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);' in source

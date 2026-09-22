@@ -218,8 +218,8 @@ def stage(args):
                     'LocalStructureStrength':[0,2],'Style':[0,2],
                     'SkinStructureStrength':'0..2 with AutoMask; -1..2 without; model receives -1 when AutoMask is off'},
                 'scale':'one WorkMode/CustomWorkScale for the whole chain; legacy auxiliary scales are archived by UniformChainVersion migration',
-                'colour':'ColourLabMode controls HDR permission: 0 saved Legacy flag, 1 colour priority permits, 2 Conservative denies unverified HDR; ColorStrength never grants permission',
-                'colourMemory':'newer generated templates retain separate ColourPriorityStrength and ColourConservativeStrength; preserve explicit saved values',
+                'colour':'If AIColorRange is present it owns admission and amount (0..1, new default 0.5), using colour-priority admission. Otherwise preserve legacy ColourLabMode/ColorStrength behaviour until an explicit range edit. Manager must not add the new key during an unrelated edit.',
+                'colourMemory':'Legacy policy strengths remain for rollback; do not silently map Conservative to zero (verified SDR could still adopt colour). Core range edits supersede old HDR permission.',
                 'energy':'missing pause/guess keys are OFF; preserve explicit saved values',
                 'provider':'external provider has separate configuration; no new Core INI keys in this adapter'},
             'authoritativeSourceFiles':{name:digest for name,digest in manifest['files'].items()

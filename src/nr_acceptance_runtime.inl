@@ -10,6 +10,8 @@ struct Group {
     unsigned long long eval_start=0,submit_start=0,temporal_start=0,eval_end=0,submit_end=0,temporal_end=0;
     unsigned long long carrier_start=0,carrier_end=0,attempt_start=0,attempt_end=0;
     unsigned long long measured_instance=0;
+    unsigned long long warmup_eval_start=0,warmup_submit_start=0,warmup_evaluations=0,warmup_submissions=0;
+    unsigned warmup_temporal_state=0;
     unsigned long long usage_start=0,usage_end=0,usage_sampled_peak=0,budget=0;
     bool memory_known=false,adopted=false,temporal_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false;
     unsigned long long capture_id=0,stage_tick=0;
@@ -40,7 +42,7 @@ bool SameRequested(const ChainConfig& expected,ChainConfig actual){actual.perf_e
 void StartGroup(Session& s){
     auto& g=s.groups[s.index];g.step=Get(s.program,s.index,s.original_effective==nr_processing::Start::Before);g.requested=s.original;
     if(g.step.backend>=0){g.requested.temporal_backend=static_cast<unsigned>(g.step.backend);g.requested.temporal_scope=g.step.scope;}
-    if(g.step.colour>=0){g.requested.color_strength=float(g.step.colour)/10.f;nr_colour_preferences::Remember(g.requested);}
+    if(g.step.colour>=0)nr_colour_preferences::SetRange(g.requested,float(g.step.colour)/10.f);
     g.percent=s.post_original.percent;
     if(g.step.percent){
         if(s.original_effective==nr_processing::Start::Before){g.requested.work_mode=5;g.requested.custom_work_scale=float(g.step.percent)/100.f;}
@@ -59,6 +61,7 @@ void StartGroup(Session& s){
         LeaveCriticalSection(&g_chain_cs);
     }
     g.eval_start=g_nr_successful_evaluations.load();g.submit_start=g_nr_transfer_submitted_frames.load();g.temporal_start=nr_temporal_status::submitted.load();
+    g.warmup_eval_start=g.eval_start;g.warmup_submit_start=g.submit_start;
     s.window.Start(GetTickCount64());
     if(g.reason[0])s.window.phase=Phase::Report;
 }
@@ -79,6 +82,8 @@ DWORD WINAPI Export(void* opaque){
         std::fprintf(f,"adoptionDenominator=observed carrier calls, not unique displayed frames; compare NR submissions, transfer attempts and source continuity; NR evaluate can include several layers\n");
         std::fprintf(f,"resetSchema=nr_reset_observation.Sample primary layer; bit64 is RR placeholder depth, not exposure readback; primary_source_to_canonical is the actual normalization multiplier, not nits; repeated rows of the same source are not new evaluations\n");
         for(unsigned i=0;i<s->count;++i){const auto& g=s->groups[i];char report[4096]{};WideToUtf8(g.report_path,report,sizeof(report));
+            std::fprintf(f,"group.%u.warmup.nrEvaluations=%llu\ngroup.%u.warmup.nrSubmissions=%llu\ngroup.%u.warmup.temporalState=%s\n",
+                i,g.warmup_evaluations,i,g.warmup_submissions,i,nr_temporal_status::Name(g.warmup_temporal_state));
             wchar_t local_report[1024]{};swprintf_s(local_report,L"%ls\\group-%u-f8.txt",s->directory,i);
             if(g.report_path[0]&&CopyFileW(g.report_path,local_report,TRUE))WideToUtf8(local_report,report,sizeof(report));
             char capture[4096]{};WideToUtf8(g.capture_path,capture,sizeof(capture));std::fprintf(f,"group.%u.captureDirectory=%s\n",i,capture);
@@ -138,6 +143,14 @@ void Tick(reshade::api::effect_runtime* runtime){
         r.carriers=g_carrier_evaluations.load();r.attempts=g_nr_transfer_attempted_frames.load();
         o.adopted=CountersAdvanced(g.submit_start,r.submitted);o.temporal=!o.enabled||g.requested.temporal_backend==0||CountersAdvanced(g.temporal_start,r.temporal_submitted);
         const auto previous=s->window.phase;s->window.Tick(now,o);
+        if(previous==Phase::Warmup){
+            g.warmup_evaluations=r.evaluations>=g.warmup_eval_start?r.evaluations-g.warmup_eval_start:0;
+            g.warmup_submissions=r.submitted>=g.warmup_submit_start?r.submitted-g.warmup_submit_start:0;
+            g.warmup_temporal_state=r.temporal_state;
+            if(s->window.phase==Phase::Report&&o.matches&&g.requested.temporal_backend&&
+               (r.temporal_state==10||r.temporal_state==11||r.temporal_state==18||r.temporal_state==19))
+                Reason(g,nr_temporal_status::Name(r.temporal_state));
+        }
         if(previous==Phase::Warmup&&s->window.phase==Phase::Measure){
             g.eval_start=r.evaluations;g.submit_start=r.submitted;g.temporal_start=r.temporal_submitted;SnapshotNrTiming(g.cpu_before);
             g.carrier_start=r.carriers;g.attempt_start=r.attempts;
@@ -231,7 +244,7 @@ void Draw(reshade::api::effect_runtime* runtime,bool pending){
     const bool running=Active();ImGui::BeginDisabled(running||packaging.load()||pending||nr_f8::IsActive()||nr_core_feedback::Busy());
     ImGui::Combo(zh?"本次方案":"This comparison",&program,zh?"当前设置·性能基准\0颜色与比例\0原生/AMD防闪\0":"Current settings / baseline\0Colour and scale\0Native / AMD temporal\0");
     ImGui::TextWrapped("%s",zh?"临时设置不写入INI，不切模型。每组预热后记录20秒；结束/取消恢复。RR/HDR/FG在游戏内手动切换，每次切好后重新开始。":"Temporary settings never write INI or switch models. Each group warms up then records 20 seconds. Finish/cancel restores settings. Change game RR/HDR/FG manually before starting a new comparison.");
-    ImGui::TextWrapped("%s",program==1?(zh?"保持当前路线与模型；关闭防闪，比较100/99/低分，再以原比例比较当前颜色策略的0/0.7/1。":"Keep route/model; temporal OFF; compare 100/99/low scale, then 0/0.7/1 of the current colour policy at original scale."):program==2?(zh?"保持模型和比例；比较关闭、原生、AMD及双层以上的后续层范围。不可用组合明确记录。":"Keep model/scale; compare OFF, Native, AMD, then later-layer scope when available. Unsupported groups are explicit."):(zh?"保持全部设置，记录当前基准；用于同设置对比两个版本。":"Keep all settings; record a baseline for equal-settings version comparison."));
+    ImGui::TextWrapped("%s",program==1?(zh?"保持当前路线与模型；关闭防闪，比较100/99/低分，再以原比例比较新AI色彩范围0/0.7/1（临时启用对应颜色许可）。":"Keep route/model; temporal OFF; compare 100/99/low scale, then the new colour range 0/0.7/1 (temporary colour admission) at original scale."):program==2?(zh?"保持模型和比例；比较关闭、原生、AMD及双层以上的后续层范围。不可用组合明确记录。":"Keep model/scale; compare OFF, Native, AMD, then later-layer scope when available. Unsupported groups are explicit."):(zh?"保持全部设置，记录当前基准；用于同设置对比两个版本。":"Keep all settings; record a baseline for equal-settings version comparison."));
     if(program==1)ImGui::Checkbox(zh?"计时结束后采集模型阶段（会重置历史）":"Capture stages AFTER timing (resets history)",&deep);
     if(ImGui::Button(zh?"开始集中验收":"Start guided acceptance")){if(Start(runtime,static_cast<Program>(program),deep))runtime->open_overlay(false,reshade::api::input_source::mouse);}
     ImGui::EndDisabled();

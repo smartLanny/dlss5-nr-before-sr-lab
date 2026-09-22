@@ -60,23 +60,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             char nr_label[96]{};
             std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key));
             if(ImGui::Checkbox(nr_label,&next.enabled)){changed=true;apply_discrete_edit=true;}
+            if(SettingsSliderFloat(ui("AI colour range","AI 色彩范围"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
+                nr_colour_preferences::SetRange(next,next.color_strength);changed=true;
+            }
+            SettingsTooltip(ui("0: no added NR chroma, while NR light/detail edits remain. 1: full requested NR colour amount, still subject to existing confidence/gamut safeguards; not guaranteed identical to raw model output. Default 0.5. Editing uses the former colour-priority admission, including internal HDR inputs, without a separate permission. Not whole-image saturation or model strength; 0 is not universally identical to the old Conservative mode.",
+                "0：不采用 NR 新增色彩，仍保留 NR 明暗与细节修改；1：请求完整采用 NR 色彩，仍受现有置信度、色域等保护，不保证等于模型原图。默认 0.5。调整即采用原颜色优先的许可，包含游戏内部 HDR 输入，不再另开 HDR 调色许可。不是全画面饱和度或模型强度；0 不保证在所有路线都等同旧保守颜色。"));
+            if(!next.colour_range_control)SettingsNote(ui("Saved legacy colour behaviour retained; this is its requested amount. Editing this slider adopts the new colour range.","已保留旧颜色规则；当前数值为旧请求量。调整此滑条后改用新的色彩范围。"));
+            DrawUnifiedColourState(next,current.generation,has_pending||changed);
             SettingsSection(ui("Processing order","处理顺序"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
-            SettingsSection(ui("Colour","颜色"));
-            unsigned colour_policy=nr_colour_preferences::Policy(next);
-            const char* colour_choices[]={ui("Colour priority","颜色优先"),ui("Conservative colour","保守颜色")};
-            if(NrChoice("colour-policy",colour_policy,colour_choices,2)){
-                nr_colour_preferences::Select(next,colour_policy);changed=true;apply_discrete_edit=true;
-            }
-            SettingsTooltip(colour_policy?ui("Conservative: unverified HDR colour is blocked; other supported inputs still use the strength below.","保守颜色：限制未确认的 HDR 调色；其他可用输入仍采用下方强度。"):
-                ui("Colour priority permits unverified HDR colour. Return to Conservative if unwanted shifts appear.","颜色优先：允许未确认的 HDR 调色；出现异常偏色时可切回保守颜色。"));
-            if(SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
-                nr_colour_preferences::Remember(next);changed=true;
-            }
-            SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.7, conservative to 1.0.",
-                "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.7，保守颜色默认 1.0。"));
-            if(next.color_strength==0.f)SettingsNote(ui("Game colour retained.","保留游戏原色。"));
-            DrawUnifiedColourState(next,current.generation,has_pending||changed);
             SettingsSection(ui("Workload","工作量"));
 #if NR_HAS_DETAIL_STABILITY
     const auto scale_target=nr_precision_ui::SelectedTarget(
@@ -172,8 +164,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.nr_full_reference=false;next.nr_full_passes=3;
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
-            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, conservative colour 1.0, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
-                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、保守颜色1.0、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
+            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, AI colour range 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
+                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、AI色彩范围0.5、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

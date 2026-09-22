@@ -6,6 +6,7 @@ def runtime(s, h):
     s=once(s,'#include "nr_shortcut_edge.h"','#include "nr_shortcut_edge.h"\n#include "nr_hotkeys.h"\n#include "nr_colour_preferences.h"','user controls includes')
     s=once(s,'struct ChainConfig {','''struct ChainConfig {
     unsigned master_virtual_key=117, image_virtual_key=118, feedback_virtual_key=119;
+    bool colour_range_control=true;
     float colour_priority_strength=nr_colour_preferences::PriorityDefault;
     float colour_conservative_strength=nr_colour_preferences::ConservativeDefault;''','user preferences')
     s=once(s,'    next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 1, g_ini_path) != 0;',
@@ -20,17 +21,27 @@ def runtime(s, h):
     if(!saved_mode[0] && saved_permission[0])next.colour_lab_mode=0;
     nr_colour_preferences::Load(next,ReadIniFloat(L"ColorStrength",std::nanf("")),
         ReadIniFloat(L"ColourPriorityStrength",std::nanf("")),
-        ReadIniFloat(L"ColourConservativeStrength",std::nanf("")));''','colour request migration')
+        ReadIniFloat(L"ColourConservativeStrength",std::nanf("")));
+    const bool legacy_colour=saved_mode[0]||saved_permission[0]||
+        std::isfinite(ReadIniFloat(L"ColorStrength",std::nanf("")))||
+        std::isfinite(ReadIniFloat(L"ColourPriorityStrength",std::nanf("")))||
+        std::isfinite(ReadIniFloat(L"ColourConservativeStrength",std::nanf("")));
+    nr_colour_preferences::LoadRange(next,ReadIniFloat(L"AIColorRange",std::nanf("")),legacy_colour);''','colour request migration')
+    s=once(s,'int colour_lab_mode = nr_colour_lab::kDefaultMode;', 'int colour_lab_mode = 1;', 'range default admission')
+    s=once(s,'float color_strength = 1.0f;', 'float color_strength = nr_colour_preferences::RangeDefault;', 'range aggregate default')
     s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    nr_hotkeys::Normalize(config);\n    nr_colour_preferences::Remember(config);','preference normalize')
     anchor='bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return '
     s=once(s,anchor,anchor+'''a.master_virtual_key==b.master_virtual_key && a.image_virtual_key==b.image_virtual_key &&
            a.feedback_virtual_key==b.feedback_virtual_key &&
+           a.colour_range_control==b.colour_range_control &&
            a.colour_priority_strength==b.colour_priority_strength &&
            a.colour_conservative_strength==b.colour_conservative_strength && ''','preference transactions')
     anchor='    record_light(WriteIniFloat(L"ColorStrength", config.color_strength));'
     s=once(s,anchor,anchor+'''
     record_write(WriteIniFloat(L"ColourPriorityStrength",config.colour_priority_strength));
     record_write(WriteIniFloat(L"ColourConservativeStrength",config.colour_conservative_strength));
+    record_write(config.colour_range_control?WriteIniFloat(L"AIColorRange",config.color_strength):
+        WritePrivateProfileStringW(L"NRBeforeSR",L"AIColorRange",nullptr,g_ini_path)!=FALSE);
     record_write(WriteIniInt(L"MasterVirtualKey",config.master_virtual_key));
     record_write(WriteIniInt(L"ImageVirtualKey",config.image_virtual_key));
     record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));''','save user preferences')
@@ -85,7 +96,7 @@ def apply(stage: Path, inputs, helpers):
     p.write_text(s,encoding='utf-8',newline='\n')
     p=root/'config/nr_before_sr.ini'
     s=p.read_text(encoding='utf-8')
-    s=helpers.once(s,'ColorStrength=1.0','ColourLabMode=2\nColorStrength=1.0\nColourPriorityStrength=0.7\nColourConservativeStrength=1.0','template colour defaults')
+    s=helpers.once(s,'ColorStrength=1.0','; AIColorRange owns colour admission and amount; old keys are retained for rollback.\nAIColorRange=0.5\nColourLabMode=1\nColorStrength=0.5\nColourPriorityStrength=0.5\nColourConservativeStrength=1.0','template colour defaults')
     s=s.replace('; F6/F7 cannot be used as custom core-feedback shortcuts.',
         '; Shortcuts: 0=disabled, 112..123=F1..F12; duplicate keys are disabled.')
     s+='\n; Master NR / current picture; FeedbackVirtualKey remains the text report key.\nMasterVirtualKey=117\nImageVirtualKey=118\n'

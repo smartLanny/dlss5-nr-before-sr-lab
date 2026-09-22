@@ -31,7 +31,7 @@ class UnifiedUi(unittest.TestCase):
         for text in (self.settings, self.pages, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
-        markers = ['###master-nr', 'DrawProcessingModeBlocks(', 'NrChoice("colour-policy"', '##final-colour', '##nr-processing-precision',
+        markers = ['###master-nr', '##final-colour', 'DrawProcessingModeBlocks(', '##nr-processing-precision',
                    'DrawUniformLayerCount(', '##final-gain',
                    'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
         positions = [self.settings.index(m) for m in markers]
@@ -50,7 +50,8 @@ class UnifiedUi(unittest.TestCase):
 
     def test_one_colour_permission_and_feedback_owner(self):
         self.assertEqual(self.pages.count('&next.allow_unverified_hdr_color'),0)
-        self.assertTrue('nr_colour_preferences::Select(next,colour_policy)' in self.settings)
+        self.assertTrue('nr_colour_preferences::SetRange(next,next.color_strength)' in self.settings)
+        self.assertNotIn('NrChoice("colour-policy"',self.settings)
         self.assertGreater(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
         self.assertLess(self.settings.index('kAddonVersion'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)

@@ -17,6 +17,7 @@ CPP=r'''
 #include "nr_hotkeys.h"
 struct Config {
  int colour_lab_mode=nr_colour_lab::kDefaultMode; bool allow_unverified_hdr_color=false;
+ bool colour_range_control=false;
  float color_strength=1.f,colour_priority_strength=.7f,colour_conservative_strength=1.f;
  unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119;
  unsigned temporal_backend=0,temporal_scope=0;bool temporal_legacy=false;
@@ -46,7 +47,11 @@ int main(){
  assert(nr_colour_lab::AllowHdrColour(1,false,false));
  c.colour_lab_mode=2;c.color_strength=0;Remember(c);
  assert(c.colour_lab_mode==2 && c.colour_conservative_strength==0);
- Reset(c);assert(Policy(c)==1 && c.color_strength==1.f && c.colour_priority_strength==.7f);
+ Reset(c);assert(Policy(c)==0 && c.color_strength==.5f && c.colour_range_control);
+ for(float v:{0.f,.5f,.7f,1.f}){SetRange(c,v);assert(c.color_strength==v&&c.colour_lab_mode==1);}
+ Load(c,1.f,missing,missing);LoadRange(c,missing,true);assert(!c.colour_range_control&&c.color_strength==1.f);
+ LoadRange(c,missing,false);assert(c.colour_range_control&&c.color_strength==.5f);
+ LoadRange(c,2.f,true);assert(c.color_strength==1.f);
  using namespace nr_hotkeys;
  assert(!Set(c,Master,118));assert(c.master_virtual_key==117);
  assert(Set(c,Image,0));assert(Set(c,Master,118));assert(Set(c,Image,117));
@@ -155,7 +160,7 @@ void save(const Config& config){auto record_light=[](bool ok){assert(ok);};auto 
 '''+saved+r'''
 WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
 int main(){
- auto c=load();assert(c.color_strength==1.f && c.colour_lab_mode==2);
+ auto c=load();assert(c.color_strength==.5f && c.colour_lab_mode==1 && c.colour_range_control);
  assert(c.temporal_backend==0&&c.temporal_scope==0&&!c.temporal_legacy);
  put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
  assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
@@ -168,6 +173,9 @@ int main(){
  assert(c.color_strength==.2f);nr_colour_preferences::Select(c,0);assert(c.color_strength==.6f);
  c.temporal_backend=2;c.temporal_scope=1;c.temporal_legacy=true;save(c);c=load();
  assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_legacy);
+ nr_colour_preferences::SetRange(c,.5f);save(c);put(L"AllowUnverifiedHdrColor",L"0");put(L"ColourLabMode",L"2");c=load();
+ assert(c.colour_range_control&&c.colour_lab_mode==1&&c.color_strength==.5f);
+ nr_colour_preferences::SetRange(c,0.f);save(c);c=load();assert(c.color_strength==0.f&&c.colour_lab_mode==1);
 }
 '''
         self.run_cpp(code)
@@ -187,9 +195,9 @@ int main(){
         s=(GENERATED/'src/nr_f8_sequence.inl').read_text(encoding='utf-8')
         self.assertNotIn('Save shortcut',s)
         ini=(GENERATED/'config/nr_before_sr.ini').read_text(encoding='utf-8')
-        self.assertIn('ColorStrength=1.0',ini)
-        self.assertIn('ColourPriorityStrength=0.7',ini)
-        self.assertIn('ColourLabMode=2',ini)
+        self.assertIn('AIColorRange=0.5',ini)
+        self.assertIn('ColorStrength=0.5',ini)
+        self.assertIn('ColourLabMode=1',ini)
         self.assertIn('nr_colour_preferences::Reset(next)',(GENERATED/'src/nr_recommended_picture.inl').read_text())
 
 if __name__=='__main__':
