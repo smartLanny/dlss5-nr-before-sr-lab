@@ -255,7 +255,9 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
             if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
-                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
+                if ($Version -ne 'beta0.5-dline21-unified10') {
+                    Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
+                }
                 $StatusSource = if ($Version -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($Version -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
             }

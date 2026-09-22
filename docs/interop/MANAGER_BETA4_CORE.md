@@ -1,6 +1,20 @@
 # Manager Beta4 Core adapter
 
-## Unified7 configuration delta
+## Unified10 configuration and capability delta
+
+`AIColorRange` owns one colour amount/admission, default/reset 0.5, range 0–1.
+Explicit legacy settings remain until a slider edit/reset; do not rewrite them
+just to register a new Core identity. The new slider replaces the two policy
+buttons. Existing standalone face/power/temporal defaults stay OFF.
+
+AMDOF now accepts proven native linear-HDR SR-pre whole-chain / SR-post / RR-post
+with same-Evaluate valid PreExposure. HDR does not grant external ProviderV1
+capabilities or validate arbitrary Present encodings. No ABI reserved field is
+repurposed. Keep the single input/NR owner and verify the actual Core hash.
+`temporal.lastPreparedDomain=2` is preparation evidence; submitted and completion
+remain separate. This is not a Bridge/Feeder HDR acceptance result.
+
+## Historical Unified7 configuration delta
 
 Keep the ProviderV1 ABI and single NR owner. Register the candidate's exact
 built identity and file hashes from its new handoff; previous binary hashes
