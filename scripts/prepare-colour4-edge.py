@@ -67,7 +67,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
             'version':edge_patch.VERSION,'source_commit':source,'base_commit':BASE,
-            'default_mode':2,'default_colour_strength':1.0,'priority_colour_strength':0.7,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
+            'default_mode':1,'default_colour_strength':0.5,'default_colour_range':0.5,'priority_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
             'edge_routes':['scaled-v2-rgb'],'edge_selection_resets_history':False,
@@ -87,8 +87,9 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'scopes':['whole-chain','later-layers-composed-anchor'],
             'production_routes':{'DX12 Feature1 post-SR SDR':['native','AMD'],
                 'DX12 Feature1 pre-SR explicit SDR whole-chain':['AMD'],
-                'DX12 proven RR post SDR':['AMD']},
-            'not_connected':['HDR','pre-native-MV','pre-later-layers','NVOF'],
+                'DX12 proven RR post SDR':['AMD'],
+                'DX12 declared-linear-HDR pre-SR whole/post-SR/post-RR; same-frame PreExposure':['AMD']},
+            'not_connected':['unknown-or-PQ-HDR','HDR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
             'cpu_readback_wait':False,'history_half_life_ms':60,'reliability':0.65,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,

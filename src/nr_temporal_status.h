@@ -2,6 +2,8 @@
 #include <atomic>
 namespace nr_temporal_status {
 inline std::atomic<unsigned> state{0};
+inline std::atomic<unsigned> domain{0};
+inline std::atomic<float> source_to_scene{1.f};
 inline std::atomic<unsigned long long> recorded{0},submitted{0},cancelled{0},rejected{0},bytes{0},peak{0},last_tick{0};
 inline const char* Name(unsigned s){switch(s){
  case 0:return "off";case 1:return "waiting-supported-source";case 2:return "unproven-queue";

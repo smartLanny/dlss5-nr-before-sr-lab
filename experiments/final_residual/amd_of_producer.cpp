@@ -43,7 +43,7 @@ struct Pass {
     void init(ID3D12Device* d,bool prep){
         D3D12_DESCRIPTOR_RANGE range[2]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,1}};
         D3D12_ROOT_PARAMETER p[2]{};p[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;p[0].DescriptorTable={2,range};
-        p[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;p[1].Constants={0,0,8};
+        p[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;p[1].Constants={0,0,12};
         D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=p;
         ComPtr<ID3DBlob> b,e;hr(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&b,&e),"serialize root");
         hr(d->CreateRootSignature(0,b->GetBufferPointer(),b->GetBufferSize(),IID_PPV_ARGS(&root)),"root");
@@ -61,10 +61,10 @@ struct Pass {
         d->CreateShaderResourceView(src,&s,h);h.ptr+=d->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_UNORDERED_ACCESS_VIEW_DESC u{};u.Format=dst->GetDesc().Format;u.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;d->CreateUnorderedAccessView(dst,nullptr,&u,h);
     }
-    void run(ID3D12GraphicsCommandList* l,unsigned w,unsigned h,unsigned fw,unsigned fh,bool reset,bool prep){
-        struct {unsigned w,h,fw,fh,grid,reset;float x,y;} c{w,h,fw,fh,8,unsigned(reset),float(w)/fw,float(h)/fh};
+    void run(ID3D12GraphicsCommandList* l,unsigned w,unsigned h,unsigned fw,unsigned fh,bool reset,bool prep,bool hdr=false,float scale=1.f){
+        struct {unsigned w,h,fw,fh,grid,reset;float x,y;unsigned hdr;float scale;unsigned pad0,pad1;} c{w,h,fw,fh,8,unsigned(reset),float(w)/fw,float(h)/fh,unsigned(hdr),scale,0,0};
         ID3D12DescriptorHeap* heaps[]={heap.Get()};l->SetDescriptorHeaps(1,heaps);l->SetComputeRootSignature(root.Get());l->SetPipelineState(pso.Get());
-        l->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,8,&c,0);
+        l->SetComputeRootDescriptorTable(0,heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,12,&c,0);
         l->Dispatch(((prep?fw:w)+7)/8,((prep?fh:h)+7)/8,1);
     }
 };
@@ -202,6 +202,8 @@ Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsComma
        f.contract.backend!=Backend::AmdOpticalFlow||f.contract.width!=p.w||f.contract.height!=p.h||
        !same_device(l,p.device.Get())||l->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||
        !same_device(snapshot,p.device.Get()))return Submit::Rejected;
+    if(f.contract.color_domain==kResidualLinearScene&&
+       (!std::isfinite(f.source_to_scene)||f.source_to_scene<1.f/1024.f||f.source_to_scene>1024.f))return Submit::Rejected;
     const bool reset=plan.action==Action::ResetBoth;
     if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return Submit::Rejected;}
     else if(!p.previous.valid()||f.scene_reset||!(plan.reference==p.previous.source)||
@@ -209,8 +211,9 @@ Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsComma
         f.source_time<=p.previous.source_time||!(f.contract==p.previous.contract)||
         plan.history_generation!=p.generation)return Submit::Rejected;
     const auto d=snapshot->GetDesc();
-    if(d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.Width!=p.w||d.Height!=p.h||
-       (d.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&d.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT)||
+    if(d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.Width<p.w||d.Height<p.h||
+       (d.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&d.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&
+        !(f.contract.color_domain==kResidualLinearScene&&d.Format==DXGI_FORMAT_R11G11B10_FLOAT))||
        d.MipLevels!=1||d.DepthOrArraySize!=1||d.SampleDesc.Count!=1)return Submit::Rejected;
     auto& slot=p.borrowed_slots[p.borrowed_next];
     try {
@@ -219,7 +222,7 @@ Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsComma
         // of three independently fenced sets, below the SDK's queued-frame cap.
         p.borrowed_pending=int(p.borrowed_next);p.recording_failed=true;
         barrier(l,snapshot,snapshot_state,read);
-        slot.preparation.run(l,p.w,p.h,p.fw,p.fh,false,true);
+        slot.preparation.run(l,p.w,p.h,p.fw,p.fh,false,true,f.contract.color_domain==kResidualLinearScene,f.source_to_scene);
         barrier(l,snapshot,read,snapshot_state);barrier(l,p.input.Get(),write,read);
         if(p.count){barrier(l,p.raw.Get(),read,write);barrier(l,p.scd.Get(),read,write);}
         FfxOpticalflowDispatchDescription job{};job.commandList=ffxGetCommandListDX12(l);

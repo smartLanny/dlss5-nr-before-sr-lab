@@ -7,6 +7,8 @@
 // SDK type, resource pointer or copied upstream implementation lives here.
 namespace nr::final_residual {
 using Id = std::uint64_t;
+constexpr Id kResidualSdrCodeValues=1;
+constexpr Id kResidualLinearScene=2; // signed scene-linear residual; not display PQ.
 struct Source {
     Id stream=0, epoch=0, sequence=0;
     bool valid() const noexcept { return stream&&epoch&&sequence; }
@@ -40,6 +42,7 @@ struct Frame {
     Contract contract{};
     Id source_time=0; // Caller-selected monotonic source time; not a Present counter.
     bool scene_reset=false;
+    float source_to_scene=1.f; // 1 / same-source PreExposure; not display white/nits.
     bool valid() const noexcept {return source.valid()&&contract.valid()&&source_time;}
 };
 enum class Action { Invalid, Busy, Duplicate, Stale, Quarantined, ResetBoth, Continue };

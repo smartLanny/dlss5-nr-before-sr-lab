@@ -93,7 +93,11 @@ def main():
              'float3 base=LaterLayers!=0?Anchor.Load(int3(p,0)).rgb:original.rgb;',
              'float3 base=original.rgb;','LATER_COMPOSED_ANCHOR_ORACLE'),
             ('skip-gpu-warmup','residual_accumulator_shader.hpp','motion_ready&&FlowAge>5&&',
-             'motion_ready&&','GPU_WARMUP_SCD_SEED_ORACLE')]
+             'motion_ready&&','GPU_WARMUP_SCD_SEED_ORACLE'),
+            ('clip-hdr','residual_accumulator_shader.hpp','result.rgb=current_valid&&fits?restored:fallback;',
+             'result.rgb=current_valid&&fits?saturate(restored):fallback;','HDR_EXPOSURE_HIGHLIGHT_ORACLE'),
+            ('ignore-hdr-exposure','residual_accumulator_shader.hpp','current*=SourceToScene;',
+             'current*=1;','HDR_EXPOSURE_HIGHLIGHT_ORACLE')]
     for label,file,before,after,oracle in controls:
         work=out/label;work.mkdir(exist_ok=True)
         for n in names:shutil.copyfile(frozen/n,work/n)

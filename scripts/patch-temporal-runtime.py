@@ -163,7 +163,7 @@ def runtime(s,h):
     part=once(part,marker,'''    UavBarrier(command_list, slot->result);
     auto temporal=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PreSr,
         command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y,
-        false);
+        false,&color_contract);
     if(!nr_temporal::Record(command_list,*context,*slot,temporal)){
         substitution.fatal_recording=0xBAD00005u;return substitution;
     }
@@ -187,7 +187,7 @@ void RecordPostNrFields(ID3D12GraphicsCommandList* command_list,NrContext& conte
     // successful native result, generation and ownership checks.
     const auto temporal_entry=feature.feature_id==13?nr_temporal_route::Entry::PostRr:nr_temporal_route::Entry::PostSr;
     auto temporal=nr_temporal::PrepareForRoute(temporal_entry,command_list,context,slot,substitution.guides,feature,
-        width,height,substitution.output_base_x,substitution.output_base_y,substitution.temporal_motion_snapshot);
+        width,height,substitution.output_base_x,substitution.output_base_y,substitution.temporal_motion_snapshot,&color_contract);
     if(temporal && temporal.primary_heap){
         RecordPostNrFields(command_list,context,slot,feature,color_contract,width,height,temporal.primary_heap);
         DispatchCodec(command_list,slot,g_codec.combine,width,height,color_contract,false,
@@ -236,6 +236,7 @@ def apply(stage:Path,inputs,h):
     for(unsigned long long i=reset_observations.reset_events-reset_count;i<reset_observations.reset_events;++i){const auto& r=reset_observations.recent_resets[i%reset_observations.recent_resets.size()];
         FeedbackAppend(s,"%s.resetObservation.event%llu=source:%llu/%llu/%llu,layer:%u,instance:%llu,feature:%llu,evaluation:%llu,config:%u,history:%u,reasons:%u,delayedExposure:%u,sourceToCanonical:%.9g\\n",
             prefix,i,r.stream,r.epoch,r.source_frame,r.layer+1,r.instance,r.feature,r.evaluation,r.config_generation,r.history_generation,r.reasons,r.delayed_exposure?1u:0u,double(r.source_to_canonical));}
+    FeedbackAppend(s,"%s.temporal.lastPreparedDomain=%u\\n%s.temporal.lastPreparedSourceToScene=%.9g\\n",prefix,nr_temporal_status::domain.load(),prefix,nr_temporal_status::source_to_scene.load());
     const auto temporal_memory=nr_temporal::SnapshotMemory();
     FeedbackAppend(s,"%s.temporal.cancelledUnsubmitted=%llu\\n",prefix,nr_temporal_status::cancelled.load());
     FeedbackAppend(s,"%s.temporal.contexts=live:%u,retired:%u,pending:%u,quarantinedSubset:%u\\n%s.temporal.contextBytes=live:%llu,retired:%llu,pending:%llu,quarantinedSubset:%llu\\n",

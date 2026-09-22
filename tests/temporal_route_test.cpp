@@ -20,6 +20,8 @@ int main(){
     for(auto entry:{Entry::PreSr,Entry::PostRr}){
         auto good=entry==Entry::PreSr?pre:rr;
         e=good;e.hdr=true;Check(Admit(entry,e)==Decision::Domain,"HDR refused before allocation");
+        e.linear_hdr=true;Check(Admit(entry,e)==Decision::Supported,"proven scene-linear HDR accepted");
+        e.flags_known=false;Check(Admit(entry,e)==Decision::Domain,"linear codec alone is not native HDR proof");
         e=good;e.sdr_codec=false;Check(Admit(entry,e)==Decision::Domain,"PQ/linear/model domains not relabeled SDR");
         e=good;e.flags_known=false;Check(Admit(entry,e)==Decision::Domain,"unknown flags cannot prove SDR");
         e=good;e.feature=18;Check(Admit(entry,e)==Decision::Route,"private NR is not native source");

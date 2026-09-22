@@ -1,3 +1,17 @@
+## Current successor: unified10 (2026-09-23)
+
+Read `docs/interop/UNIFIED10_UI.md` and `UNIFIED10_DELIVERY_20260923.md`.
+The user explicitly requested HDR stabilization. New source adds AMDOF for
+same-Evaluate declared linear HDR + valid PreExposure on pre-SR whole-chain,
+post-SR and successful post-RR. Support FP16/R11G11B10 and bounded zero-origin
+active regions with padding. Do not relabel unknown/PQ data as SDR. Pre native
+MV, pre later scope and private SR remain unavailable; native post MV is SDR.
+Scene-linear signed residuals and compressed flow guides are separate domains.
+AIColorRange is the single picture slider, new/reset default 0.5. Preserve
+explicit legacy settings until a range edit/reset. Power observation diagnostics
+are not an established game-menu power fix. Owner handles game acceptance.
+Continue #300/#294 and next/0.5; no game installation or stable release.
+
 ## Current UI successor: unified9 (2026-09-23)
 
 Read `docs/interop/UNIFIED9_DELIVERY_20260922.md` and `UNIFIED9_UI.md`.

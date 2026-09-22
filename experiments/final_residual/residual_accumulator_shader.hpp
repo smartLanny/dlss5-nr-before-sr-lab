@@ -13,6 +13,7 @@ Texture2D<int2> RawFlow : register(t6);
 Texture2D<uint> SceneData : register(t7);
 Texture2D<float4> CurrentTarget : register(t8);
 RWTexture2D<float4> Snapshot : register(u2);
+RWTexture2D<float4> NextOriginal : register(u3);
 #endif
 RWTexture2D<float4> NextResidual : register(u0);
 RWTexture2D<float4> Output : register(u1);
@@ -21,6 +22,7 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
 #ifdef RECORDING
     uint FlowWidth,FlowHeight,FlowX,FlowY; float UnitX,UnitY;
     uint IsAmd,FlowAge,TargetX,TargetY;
+    uint LinearHdr,TargetKind; float SourceToScene,PreviousToScene;
 #endif
 };
 #ifdef RECORDING
@@ -37,8 +39,21 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
     bool current_valid=all(isfinite(enhanced))&&all(enhanced>=0)&&all(enhanced<=1)&&
         all(isfinite(base))&&all(base>=0)&&all(base<=1);
     bool original_valid=all(isfinite(original.rgb))&&all(original.rgb>=0)&&all(original.rgb<=1);
+#ifdef RECORDING
+    if(LinearHdr!=0){
+        current_valid=all(isfinite(enhanced))&&all(isfinite(base));
+        original_valid=all(isfinite(original.rgb));
+    }
+#endif
     current_valid=current_valid&&original_valid;
     float3 current=current_valid?enhanced-base:0;
+#ifdef RECORDING
+    if(LinearHdr!=0){
+        current*=SourceToScene;
+        current_valid=current_valid&&all(isfinite(current))&&all(abs(current)<=65504);
+        if(!current_valid)current=0;
+    }
+#endif
     float3 residual=current;
     bool motion_ready=Accumulate!=0;
 #ifdef RECORDING
@@ -62,11 +77,17 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
             float3 previous_residual=PreviousResidual.SampleLevel(LinearClamp,uv,0).rgb;
             // Photometric rejection plus out-of-bounds disocclusion proxy.
             // No claim of depth/forward-backward optical-flow confidence.
-            if(all(isfinite(previous_residual))&&all(abs(original.rgb-previous_original)<=ColorTolerance))
+            float3 current_match=original.rgb,previous_match=previous_original;
+#ifdef RECORDING
+            if(LinearHdr!=0){
+                current_match*=SourceToScene;previous_match*=PreviousToScene;
+                current_match=current_match/(1+abs(current_match));previous_match=previous_match/(1+abs(previous_match));
+            }
+#endif
+            if(all(isfinite(previous_residual))&&all(isfinite(previous_match))&&all(abs(current_match-previous_match)<=ColorTolerance))
                 residual=lerp(current,previous_residual,Weight);
         }
     }
-    NextResidual[p]=float4(residual,0); // signed, never saturate history
     // Invalid P1 must not discard a valid whole-chain Z. Neither invalid B
     // nor an invalid model pixel can seed nonfinite signed history.
     // Domain rejection means no temporal edit, not clipping a finite current
@@ -80,6 +101,19 @@ cbuffer Params : register(b0) { uint Width,Height,Accumulate,LaterLayers; float 
 #endif
     float4 result=float4(current_valid?saturate(base+residual):fallback,isfinite(original.a)?original.a:1);
 #ifdef RECORDING
+    if(LinearHdr!=0){
+        float3 restored=base+residual/SourceToScene;
+        bool fits=all(isfinite(restored))&&all(abs(restored)<=65504);
+        if((TargetKind&255u)==2)fits=fits&&all(restored>=0)&&all(restored<=float3(65024,65024,64512));
+        result.rgb=current_valid&&fits?restored:fallback;
+        if(!fits)residual=0;
+    }
+#endif
+    NextResidual[p]=float4(residual,0); // signed scene/code residual, never saturated
+#ifdef RECORDING
+    // Packed or padded float source is converted into the already-owned history slot.
+    // No extra full-resolution texture or dispatch. Exact-size FP16 retains CopyResource.
+    if((TargetKind&256u)!=0)NextOriginal[p]=original;
     Output[p+uint2(TargetX,TargetY)]=result;
 #else
     Output[p]=result;

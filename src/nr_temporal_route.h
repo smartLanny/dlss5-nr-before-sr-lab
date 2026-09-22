@@ -8,10 +8,11 @@ struct Evidence {
     unsigned feature=0, mode=0, backend=0, scope=0;
     bool flags_known=false, hdr=false, sdr_codec=false;
     bool native_output_snapshot=false, packed_original=false;
+    bool linear_hdr=false; // actual same-source linear float + PreExposure proof
 };
 enum class Decision : unsigned { Supported, Domain, Route, Scope, Motion };
 constexpr Decision Admit(Entry entry,const Evidence& e) {
-    if(e.hdr||!e.sdr_codec)return Decision::Domain;
+    if(e.hdr?(!e.flags_known||!e.linear_hdr):!e.sdr_codec)return Decision::Domain;
     if(entry==Entry::PostSr)
         return e.feature==1&&e.mode==1&&e.native_output_snapshot
             ?Decision::Supported:Decision::Route;

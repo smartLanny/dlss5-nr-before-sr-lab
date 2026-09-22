@@ -3,7 +3,7 @@
 
 namespace nr::final_residual {
 // Explicit experiment domain: SDR sRGB code values in [0,1], no HDR conversion.
-constexpr Id kResidualSdrCodeValues=1;
+// Domain IDs are shared with the recording/flow contract in history_contract.hpp.
 enum class ResidualSubmit { Disabled, Rejected, Duplicate, Busy, Submitted, Faulted };
 struct ResidualInputs {
     Source original_source{}, enhanced_source{};

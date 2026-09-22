@@ -37,7 +37,8 @@ void Run(const char* scenario){
     const bool off=choice.find("off")!=std::string::npos,hdr=choice.find("hdr")!=std::string::npos;
     const bool native=choice.find("native")!=std::string::npos,later=choice.find("later")!=std::string::npos;
     const bool scaled=choice.find("scale")!=std::string::npos;
-    const bool reject=hdr||native||(pre&&later);
+    const bool reject=native||(pre&&later);
+    const bool packed=choice.find("r11")!=std::string::npos;
     queue_test::Fixture f;device=f.device;g_original_command_list_reset[0]=Reset;
     g_config=ChainConfig{};g_config.enabled=true;g_config.mode=pre?2:1;
     g_config.processing_start=pre?nr_processing::Start::Before:nr_processing::Start::After;g_config.processing_selection=1;
@@ -50,7 +51,7 @@ void Run(const char* scenario){
     g_nr_api.bridge_create=Create;g_nr_api.bridge_evaluate=Evaluate;g_nr_api.bridge_release=Release;
     Check(EnsureCodec(device),"actual production shaders");
     constexpr unsigned w=128,h=128;ID3D12Resource *color=nullptr,*output=nullptr,*depth=nullptr,*motion=nullptr;
-    Check(CreateTexture(device,w,h,L"source B",&color)&&CreateTexture(device,w,h,L"native output",&output)&&
+    Check(CreateTexture(device,w,packed?h+3:h,L"source B",&color,packed?DXGI_FORMAT_R11G11B10_FLOAT:DXGI_FORMAT_R16G16B16A16_FLOAT)&&CreateTexture(device,w,h,L"native output",&output)&&
         CreateTexture(device,w,h,L"native depth",&depth,DXGI_FORMAT_R32_FLOAT)&&CreateTexture(device,w,h,L"native motion",&motion,DXGI_FORMAT_R16G16_FLOAT),"real typed producer surfaces");
     D3D12_RESOURCE_STATES cs=D3D12_RESOURCE_STATE_COMMON,os=cs,ds=cs,ms=cs;
     {queue_test::List init(f);post_output_test::ClearViews c(device),d(device);const float b[]={.25f,.375f,.5f,1},one[]={1,1,1,1},zero[]={0,0,0,0};
@@ -66,7 +67,7 @@ void Run(const char* scenario){
     Parameters params;SetResource(&params,"Color",color);SetResource(&params,"Output",output);SetResource(&params,"Depth",depth);SetResource(&params,"MotionVectors",motion);
     SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Width",w);SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Height",h);
     SetFloat(&params,"MV.Scale.X",1);SetFloat(&params,"MV.Scale.Y",1);SetFloat(&params,"Jitter.Offset.X",0);SetFloat(&params,"Jitter.Offset.Y",0);
-    SetFloat(&params,"PreExposure",1);SetFloat(&params,"ExposureScale",1);SetInt(&params,"Reset",0);
+    SetFloat(&params,"DLSS.Pre.Exposure",1);SetFloat(&params,"DLSS.Exposure.Scale",1);SetInt(&params,"Reset",0);
     queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
     NrContext* context=nullptr;NrSlot* slot=nullptr;unsigned expected_recordings=0;
     const unsigned frames=off||reject?1:9;
@@ -90,6 +91,7 @@ void Run(const char* scenario){
         }
         if(pre)for(auto&c:g_contexts)for(auto&s:c.slots)if(&s==slot)context=&c;
         Check(context!=nullptr,"actual production context owner");
+        if(hdr&&frame>1)Check(nr_temporal_status::domain.load()==2,"HDR enters scene-linear consumer rather than SDR relabeling");
         const auto recorded=nr_temporal_status::recorded.load();
         std::printf("frame=%u route=%s state=%s recorded=%llu work=%ux%u codec=%u sourceFmt=%u flagsKnown=%u temporal=%s\n",
             frame,scenario,nr_temporal_status::Name(nr_temporal_status::state.load()),recorded,context->width,context->height,

@@ -54,24 +54,30 @@ struct Prepared {
 };
 Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
  const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
- bool native_motion_snapshot=false){
+ bool native_motion_snapshot=false,const ColorContract* colour=nullptr){
  Prepared out;
  if(!g_config.temporal_backend){Status(0);(void)ReleaseIdle(context);return out;}
  Status(1);
- // No guessed HDR/Present colour or ownership. Explicit linear SDR mapping is
- // a separate future domain, not silently reinterpreted as SDR code values.
+ // Native NGX HDR + Automatic float storage is scene-linear, not swapchain PQ.
+ // Use the same Evaluate's PreExposure, never a delayed readback/global sample.
+ // Strict interior bounds reject values that the legacy reader may have clamped.
+ const bool hdr=(feature.create_flags&1)!=0;
+ const bool linear_hdr=feature.create_flags_known&&hdr&&slot.codec_color_mode==CodecColorMode::Automatic&&
+    colour&&colour->has_pre_exposure&&std::isfinite(colour->pre_exposure)&&
+    colour->pre_exposure>1.f/1024.f&&colour->pre_exposure<1024.f&&
+    (slot.result_uav_format==DXGI_FORMAT_R16G16B16A16_FLOAT||slot.result_uav_format==DXGI_FORMAT_R11G11B10_FLOAT);
  const auto route=nr_temporal_route::Admit(entry,{unsigned(feature.feature_id),unsigned(context.mode),
     g_config.temporal_backend,g_config.temporal_scope,feature.create_flags_known,(feature.create_flags&1)!=0,
     slot.codec_color_mode==CodecColorMode::Automatic||slot.codec_color_mode==CodecColorMode::SrgbEncodedSdr,
-    slot.snapshots_native_output,x==0&&y==0});
+    slot.snapshots_native_output,x==0&&y==0,linear_hdr});
  if(route!=nr_temporal_route::Decision::Supported){
   Status(route==nr_temporal_route::Decision::Scope?18:route==nr_temporal_route::Decision::Motion?19:10);return out;}
- // Check the producer's packed active snapshot contract before allocating
- // history or composing P1. A larger atlas is not an exact CopyResource input.
+ // The active region starts at (0,0). Ignore allocation padding using typed
+ // loads into the existing history; never CopyResource mismatched extents.
  if(!slot.source||!slot.result){Status(12);return out;}
  const auto source_desc=ID3D12Resource_GetDesc(slot.source);
  const auto target_desc=ID3D12Resource_GetDesc(slot.result);
- if(source_desc.Width!=width||source_desc.Height!=height||source_desc.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT||
+ if(source_desc.Width<width||source_desc.Height<height||(source_desc.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&!(linear_hdr&&source_desc.Format==DXGI_FORMAT_R11G11B10_FLOAT))||
     target_desc.Format!=slot.result_uav_format){Status(12);return out;}
  const auto source=nr_source_runtime::CurrentSource();if(!source)return out;
  if(g_config.temporal_scope&&g_config.nr_passes<2){Status(11);return out;}
@@ -129,7 +135,10 @@ Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandLis
  const auto time=static_cast<unsigned long long>((static_cast<long double>(clock.QuadPart)*1000000.0L)/frequency.QuadPart);
  in.frame={{source.stream,source.epoch,source.sequence},
   {context.instance_id,(static_cast<unsigned long long>(g_config_generation.load())<<32)|g_history_generation.load(),
-   kResidualSdrCodeValues,width,height,backend,in.settings.scope,{x,y,width,height,0,context.feature_generation}},time,guides.game_reset!=0};
+   linear_hdr?kResidualLinearScene:kResidualSdrCodeValues,width,height,backend,in.settings.scope,{x,y,width,height,0,context.feature_generation}},time,guides.game_reset!=0};
+ in.frame.source_to_scene=linear_hdr?1.f/colour->pre_exposure:1.f;
+ nr_temporal_status::domain.store(unsigned(in.frame.contract.color_domain));
+ nr_temporal_status::source_to_scene.store(in.frame.source_to_scene);
  in.original=slot.source;in.original_state=slot.source_state;
  in.candidate=slot.result;in.candidate_format=slot.result_uav_format;in.candidate_state=slot.result_state;
  in.candidate_x=x;in.candidate_y=y;

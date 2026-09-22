@@ -6,7 +6,7 @@ New configurations and picture reset use 0.5. Zero omits added NR chroma while
 keeping light/detail edits; one requests the full colour amount, still subject
 to confidence, gamut and consumer safeguards. It is not model strength or global
 saturation. Editing uses the former colour-priority admission, including internal
-HDR inputs, without a separate permission toggle. Temporal HDR admission is unchanged.
+HDR inputs, without a separate permission toggle. Temporal stabilization remains an independent opt-in.
 
 Explicit legacy settings remain until a range edit/reset. The notice identifies
 that state; zero does not universally reproduce the old Conservative mode.
@@ -25,3 +25,17 @@ configuration without writing INI. Unsupported temporal routes remain unavailabl
 Exit before replacement; retain INI and the previous package. Check 0/0.5/1 and
 persistence, then one menu F8 with power saving enabled and recovery after leaving.
 Existing acceptance captures remain useful; no full recapture is requested.
+
+## HDR stabilization
+
+AMDOF now accepts declared scene-linear HDR with valid same-frame PreExposure
+on pre-SR whole-chain, post-SR and successful post-RR routes. FP16 and packed
+R11G11B10 inputs are accepted with active-region bounds; allocation padding is
+excluded. Residual history uses scene units and is re-exposed on composition.
+Only the flow guide is compressed; HDR output is not clamped to SDR white.
+
+For the reported NTE setup, repeat only OFF versus AMDOF whole-chain. Pre-SR
+native motion and later scope with one layer remain unavailable. F8 submitted
+counts must increase. lastPreparedDomain=2 alone is not submission or quality
+acceptance. Inspect motion trails, highlights and cuts. Unknown/PQ encoding and
+invalid exposure retain the current NR candidate. Private SR is not connected.

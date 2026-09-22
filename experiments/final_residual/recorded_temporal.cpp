@@ -33,8 +33,9 @@ struct Constants {
     unsigned width,height,accumulate,later;float weight,tolerance;
     unsigned flow_width,flow_height,flow_x,flow_y;float unit_x,unit_y;
     unsigned amd,age,target_x,target_y;
+    unsigned hdr,target_kind;float source_to_scene,previous_to_scene;
 };
-static_assert(sizeof(Constants)==16*4);
+static_assert(sizeof(Constants)==20*4);
 }
 struct RecordedTemporal::Impl {
     struct Registry {std::mutex mutex;std::array<Impl*,4> objects{};std::array<bool,4> retired{};};
@@ -85,10 +86,10 @@ struct RecordedTemporal::Impl {
         for(auto& r:originals)r=texture();for(auto& r:residuals)r=texture();snapshot=texture();
         if(scope==Scope::LaterLayers)first=texture(ua);
         counters.bytes=own+(amd?amd->gpu_allocation_bytes():0);
-        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,9,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,3,0,0,9}};
+        D3D12_DESCRIPTOR_RANGE ranges[]={{D3D12_DESCRIPTOR_RANGE_TYPE_SRV,9,0,0,0},{D3D12_DESCRIPTOR_RANGE_TYPE_UAV,4,0,0,9}};
         D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        parameters[1].Constants={0,0,16};
+        parameters[1].Constants={0,0,20};
         D3D12_STATIC_SAMPLER_DESC sampler{};sampler.Filter=D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.ComparisonFunc=D3D12_COMPARISON_FUNC_ALWAYS;sampler.MaxLOD=D3D12_FLOAT32_MAX;
@@ -104,7 +105,7 @@ struct RecordedTemporal::Impl {
             checked(d->CreateComputePipelineState(&p,IID_PPV_ARGS(&pso)),"temporal pipeline");
         };
         pipeline("CopyCandidate",copy_pso);pipeline("CS",accumulate_pso);
-        D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=12;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=13;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         for(auto& slot:slots)checked(d->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&slot.heap)),"temporal descriptor set");
         ready=true;message="ready; no temporal work recorded";
     }
@@ -121,13 +122,13 @@ struct RecordedTemporal::Impl {
             v.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;v.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;v.Texture2D.MipLevels=1;
             device->CreateShaderResourceView(r,&v,cpu);cpu.ptr+=step;};
         const auto fp=DXGI_FORMAT_R16G16B16A16_FLOAT;
-        srv(in.original,fp);srv(snapshot.Get(),fp);
+        srv(in.original,in.original->GetDesc().Format);srv(snapshot.Get(),fp);
         srv(backend==Backend::NativeMotion?in.native.resource:nullptr,backend==Backend::NativeMotion?in.native.format:DXGI_FORMAT_R32G32_FLOAT);
-        srv(originals[index].Get(),fp);srv(residuals[index].Get(),fp);srv(first?first.Get():in.original,fp);
+        srv(originals[index].Get(),fp);srv(residuals[index].Get(),fp);srv(first.Get(),fp);
         srv(flow.grid,DXGI_FORMAT_R16G16_SINT);srv(flow.scene_data,DXGI_FORMAT_R32_UINT);srv(in.candidate,in.candidate_format);
         auto uav=[&](ID3D12Resource* r,DXGI_FORMAT format){D3D12_UNORDERED_ACCESS_VIEW_DESC v{};v.Format=format;v.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
             device->CreateUnorderedAccessView(r,nullptr,&v,cpu);cpu.ptr+=step;};
-        uav(residuals[next].Get(),fp);uav(in.candidate,in.candidate_format);uav(snapshot.Get(),fp);
+        uav(residuals[next].Get(),fp);uav(in.candidate,in.candidate_format);uav(snapshot.Get(),fp);uav(originals[next].Get(),fp);
     }
 };
 RecordedTemporal::RecordedTemporal(ID3D12Device* d,ID3D12CommandQueue* q,unsigned w,unsigned h,Backend b,Scope s,Id budget):p_(std::make_unique<Impl>()){
@@ -160,15 +161,21 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
     if(p.previous.source.valid()&&in.frame.source==p.previous.source)return RecordResult::Duplicate;
     if(!can_record()){p.message="temporal recording or GPU resource slot is still occupied";return RecordResult::Busy;}
     const auto& frame=in.frame;const bool later=p.scope==Scope::LaterLayers;
+    const bool hdr=frame.contract.color_domain==kResidualLinearScene;
+    const auto original_format=in.original?in.original->GetDesc().Format:DXGI_FORMAT_UNKNOWN;
+    const bool packed=original_format==DXGI_FORMAT_R11G11B10_FLOAT;
+    const bool copy_pixels=in.original&&(packed||in.original->GetDesc().Width!=p.width||in.original->GetDesc().Height!=p.height);
     if(!in.settings.valid()||in.settings.scope!=p.scope||!frame.valid()||frame.contract.backend!=p.backend||frame.contract.scope!=p.scope||
-        frame.contract.color_domain!=kResidualSdrCodeValues||frame.contract.width!=p.width||frame.contract.height!=p.height||
+        (frame.contract.color_domain!=kResidualSdrCodeValues&&!hdr)||
+        (hdr&&(!std::isfinite(frame.source_to_scene)||frame.source_to_scene<1.f/1024.f||frame.source_to_scene>1024.f||in.candidate_format==DXGI_FORMAT_R8G8B8A8_UNORM))||
+        frame.contract.width!=p.width||frame.contract.height!=p.height||
         in.layers<1||in.layers>5||(later&&(in.layers<2||!(in.anchor_source==frame.source)))||
         !device_is(l,p.device.Get())||l->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||
-        !region(in.original,p.device.Get(),DXGI_FORMAT_R16G16B16A16_FLOAT,0,0,p.width,p.height)||
-        in.original->GetDesc().Width!=p.width||in.original->GetDesc().Height!=p.height||
+        (original_format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&!(hdr&&packed))||
+        !region(in.original,p.device.Get(),original_format,0,0,p.width,p.height)||
         !target_format(in.candidate_format)||!region(in.candidate,p.device.Get(),in.candidate_format,in.candidate_x,in.candidate_y,p.width,p.height)||
         !(in.candidate->GetDesc().Flags&D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)||in.candidate==in.original){
-        p.message="temporal source, scope, SDR format or active rectangle unavailable";return RecordResult::Unavailable;
+        p.message="temporal source, scope, colour/exposure or active rectangle unavailable";return RecordResult::Unavailable;
     }
     if(p.backend==Backend::NativeMotion){const auto& m=in.native;
         if(!(m.source==frame.source)||!m.phase_proven||!std::isfinite(m.scale_x)||!std::isfinite(m.scale_y)||m.scale_x==0||m.scale_y==0||
@@ -204,22 +211,27 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
         Constants c{p.width,p.height,unsigned(p.plan.action==Action::Continue&&weight>0),unsigned(later),weight,in.settings.color_tolerance,
             p.amd?flow.flow_width:in.native.width,p.amd?flow.flow_height:in.native.height,
             p.amd?0:in.native.x,p.amd?0:in.native.y,p.amd?float(p.width)/flow.flow_width:in.native.scale_x,
-            p.amd?float(p.height)/flow.flow_height:in.native.scale_y,unsigned(bool(p.amd)),flow.frames_since_reset,in.candidate_x,in.candidate_y};
+            p.amd?float(p.height)/flow.flow_height:in.native.scale_y,unsigned(bool(p.amd)),flow.frames_since_reset,in.candidate_x,in.candidate_y,
+            unsigned(hdr),(in.candidate_format==DXGI_FORMAT_R11G11B10_FLOAT?2u:1u)|(copy_pixels?256u:0u),frame.source_to_scene,p.previous.source_to_scene};
         ID3D12DescriptorHeap* heaps[]={slot.heap.Get()};l->SetDescriptorHeaps(1,heaps);l->SetComputeRootSignature(p.root.Get());
-        l->SetComputeRootDescriptorTable(0,slot.heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,16,&c,0);
+        l->SetComputeRootDescriptorTable(0,slot.heap->GetGPUDescriptorHandleForHeapStart());l->SetComputeRoot32BitConstants(1,20,&c,0);
         state(l,in.candidate,in.candidate_state,sr);state(l,p.snapshot.Get(),cs,ua);
         l->SetPipelineState(p.copy_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
         state(l,p.snapshot.Get(),ua,sr);state(l,in.candidate,sr,ua);state(l,in.original,in.original_state,sr);
         state(l,p.originals[p.index].Get(),cs,sr);state(l,p.residuals[p.index].Get(),cs,sr);state(l,p.residuals[next].Get(),cs,ua);
         if(later)state(l,p.first.Get(),ua,sr);if(!p.amd)state(l,in.native.resource,in.native.state,sr);
+        if(copy_pixels)state(l,p.originals[next].Get(),cs,ua);
         l->SetPipelineState(p.accumulate_pso.Get());l->Dispatch((p.width+7)/8,(p.height+7)/8,1);
         state(l,p.snapshot.Get(),sr,cs);state(l,in.candidate,ua,in.candidate_state);
         if(in.candidate_state==ua){D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;b.UAV.pResource=in.candidate;l->ResourceBarrier(1,&b);}
         state(l,p.originals[p.index].Get(),sr,cs);state(l,p.residuals[p.index].Get(),sr,cs);state(l,p.residuals[next].Get(),ua,cs);
         if(later)state(l,p.first.Get(),sr,ua);if(!p.amd)state(l,in.native.resource,sr,in.native.state);
-        state(l,in.original,sr,cs);state(l,p.originals[next].Get(),cs,D3D12_RESOURCE_STATE_COPY_DEST);
-        l->CopyResource(p.originals[next].Get(),in.original);
-        state(l,p.originals[next].Get(),D3D12_RESOURCE_STATE_COPY_DEST,cs);state(l,in.original,cs,in.original_state);
+        if(copy_pixels){state(l,p.originals[next].Get(),ua,cs);state(l,in.original,sr,in.original_state);}
+        else{
+            state(l,in.original,sr,cs);state(l,p.originals[next].Get(),cs,D3D12_RESOURCE_STATE_COPY_DEST);
+            l->CopyResource(p.originals[next].Get(),in.original);
+            state(l,p.originals[next].Get(),D3D12_RESOURCE_STATE_COPY_DEST,cs);state(l,in.original,cs,in.original_state);
+        }
         p.pending_frame=next_frame;p.index=next;p.recording_unsafe=false;
         ++p.counters.recorded;if(!c.accumulate)++p.counters.seeded;p.counters.weight=weight;p.counters.pending_token=p.plan.token;
         p.message="temporal work recorded; awaiting actual owner submission";return RecordResult::Recorded;

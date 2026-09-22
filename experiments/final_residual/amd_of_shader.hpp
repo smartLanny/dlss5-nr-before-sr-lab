@@ -7,6 +7,7 @@ inline constexpr char amd_conversion_shader[] = R"hlsl(
 cbuffer Params : register(b0) {
     uint SourceWidth; uint SourceHeight; uint FlowWidth; uint FlowHeight;
     uint Grid; uint Reset; float UnitX; float UnitY;
+    uint LinearHdr; float SourceToScene; uint Padding0; uint Padding1;
 };
 #ifdef PREP
 Texture2D<float4> Source : register(t0);
@@ -35,6 +36,13 @@ float4 Filter(uint2 p) {
 [numthreads(8,8,1)] void CS(uint3 p : SV_DispatchThreadID) {
     if (p.x >= FlowWidth || p.y >= FlowHeight) return;
     float4 c=Filter(p.xy);
+    if(LinearHdr!=0){
+        // Only the unenhanced flow guide is compressed. Residuals/output remain
+        // scene-linear, so bright HDR values are never clipped to SDR white.
+        float3 scene=c.rgb*SourceToScene;
+        scene=all(isfinite(scene))?scene:0;
+        c.rgb=0.5+0.5*scene/(1+abs(scene));
+    }
 #ifdef PREP_RGBA
     Target[p.xy]=c;
 #else

@@ -18,23 +18,24 @@ void policy_checks(){
     check(!h.cancel_before_flow(p.token),"recorded work cannot masquerade as unrecorded");
     check(h.finish(p.token,p.history_generation,ResidualStatus::NotSubmitted)==Completion::ResetRequired,"cancelled recording resets history");
 }
-void native_pixels(Host& host,Scope scope){
+void native_pixels(Host& host,Scope scope,bool hdr=false){
     constexpr unsigned w=129,h=97,tw=w+8,th=h+6;
     RecordedTemporal owner(host.device.Get(),host.queue.Get(),w,h,Backend::NativeMotion,scope,128ull<<20);
     check(owner.initialized(),owner.status());
     std::vector<float> previous(w*h*3);Id timestamp=1000;
     for(unsigned seq=1;seq<=7;++seq){
         const unsigned dt=seq==5?300000:seq==3?33000:16000;timestamp+=dt;
+        const float exposure=hdr?(seq%3==1?1.f:seq%3==2?2.f:.5f):1.f;
         std::vector<std::uint16_t> base(w*h*4),anchor(w*h*4),target(tw*th*4,half(.875f));
         std::vector<float> current(w*h*3),anchor_values(w*h*3);
         for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){const auto p=y*w+x;
-            for(unsigned c=0;c<3;++c){const float b=.4f+.03f*c;const float a=scope==Scope::LaterLayers?(c==0?(seq%2?.12f:.04f):-.02f):0;
+            for(unsigned c=0;c<3;++c){const float b=hdr?(c==0?.0009765625f:c==1?4.f:-.25f):.4f+.03f*c;const float a=scope==Scope::LaterLayers?(c==0?(seq%2?.12f:.04f):-.02f):0;
                 // Later layers partly cancel the first layer, with moving signed detail.
-                const float edit=(c==0?-.08f:c==1?.06f:((int(x)-int(seq)*4+1024)/8)%2?.02f:-.02f)*(seq%2?1:.3f);
-                base[p*4+c]=half(b);anchor[p*4+c]=half(stored(b)+a);
-                const float stable_base=scope==Scope::LaterLayers?stored(stored(b)+a):stored(b);
-                target[((y+2)*tw+x+3)*4+c]=half(stable_base+edit);
-                current[p*3+c]=stored(stable_base+edit)-stable_base;anchor_values[p*3+c]=stable_base;
+                const float edit=hdr&&c==0?(seq%2?.000244140625f:-.0001220703125f):(c==0?-.08f:c==1?.06f:((int(x)-int(seq)*4+1024)/8)%2?.02f:-.02f)*(seq%2?1:.3f);
+                base[p*4+c]=half(b*exposure);anchor[p*4+c]=half(stored(b*exposure)+a*exposure);
+                const float stable_base=scope==Scope::LaterLayers?stored(stored(b*exposure)+a*exposure):stored(b*exposure);
+                target[((y+2)*tw+x+3)*4+c]=half(stable_base+edit*exposure);
+                current[p*3+c]=(stored(stable_base+edit*exposure)-stable_base)/exposure;anchor_values[p*3+c]=stable_base;
             }base[p*4+3]=anchor[p*4+3]=half(1);target[((y+2)*tw+x+3)*4+3]=half(1);
         }
         auto b=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());
@@ -44,6 +45,7 @@ void native_pixels(Host& host,Scope scope){
         auto motion=upload_pixels(host,mw,mh,DXGI_FORMAT_R32G32_FLOAT,8,mv.data());
         RecordedInputs in;in.settings.enabled=true;in.settings.scope=scope;in.layers=scope==Scope::LaterLayers?5:1;
         in.frame={{9+unsigned(scope),1,seq},{1,1,1,w,h,Backend::NativeMotion,scope,{0,0,w,h,1,1}},timestamp,seq==6};
+        if(hdr){in.frame.contract.color_domain=kResidualLinearScene;in.frame.source_to_scene=1/exposure;}
         in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         in.candidate=z.Get();in.candidate_format=DXGI_FORMAT_R16G16B16A16_FLOAT;in.candidate_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         in.candidate_x=3;in.candidate_y=2;
@@ -55,6 +57,8 @@ void native_pixels(Host& host,Scope scope){
             in.anchor_source=in.frame.source;
         }
         host.begin();if(seq==1){auto bad=in;bad.settings.enabled=false;check(owner.record(host.list.Get(),bad)==RecordResult::Disabled,"OFF is before recording");
+            if(hdr){bad=in;bad.frame.source_to_scene=0;check(owner.record(host.list.Get(),bad)==RecordResult::Unavailable,"missing HDR exposure cannot record");
+                bad.frame.source_to_scene=std::numeric_limits<float>::quiet_NaN();check(owner.record(host.list.Get(),bad)==RecordResult::Unavailable,"nonfinite HDR exposure cannot record");}
             bad=in;bad.native.source.sequence++;check(owner.record(host.list.Get(),bad)==RecordResult::Unavailable,"wrong native source rejected");
             if(scope==Scope::LaterLayers){bad=in;bad.layers=1;check(owner.record(host.list.Get(),bad)==RecordResult::Unavailable,"later scope unavailable single layer");
                 bad=in;bad.anchor_source={};check(owner.record(host.list.Get(),bad)==RecordResult::Unavailable,"missing anchor never changes scope");}
@@ -72,26 +76,38 @@ void native_pixels(Host& host,Scope scope){
             for(unsigned c=0;c<3;++c){float expected=.875f;
                 if(inside){const auto p=(y-2)*w+x-3;float r=current[p*3+c];
                     if(use&&x>=7&&y>=4)r=r*(1-weight)+previous[((y-4)*w+x-7)*3+c]*weight;
-                    current[p*3+c]=stored(r);expected=stored(std::clamp(anchor_values[p*3+c]+r,0.f,1.f));}
-                check(std::abs(unhalf(pixels.data()+(y*tw+x)*8+c*2)-expected)<.0012f,
-                    scope==Scope::LaterLayers?"LATER_COMPOSED_ANCHOR_ORACLE":"RECORDED_NATIVE_PIXEL_ORACLE");
+                    current[p*3+c]=stored(r);const float value=anchor_values[p*3+c]+r*exposure;expected=stored(hdr?value:std::clamp(value,0.f,1.f));}
+                const float actual=unhalf(pixels.data()+(y*tw+x)*8+c*2);
+                // GPU typed FP16 stores may differ by one storage ULP from the CPU conversion.
+                const float tolerance=hdr?std::max(std::ldexp(1.f,-24),std::ldexp(1.f,std::ilogb(std::max(std::abs(expected),1e-8f))-10))*1.01f:.0012f;
+                if(std::abs(actual-expected)>tolerance)std::printf("native mismatch hdr=%u scope=%u frame=%u xy=%u,%u c=%u expected=%.9g actual=%.9g exposure=%.9g\n",unsigned(hdr),unsigned(scope),seq,x,y,c,expected,actual,exposure);
+                check(std::abs(actual-expected)<=tolerance,
+                    hdr?"HDR_EXPOSURE_HIGHLIGHT_ORACLE":scope==Scope::LaterLayers?"LATER_COMPOSED_ANCHOR_ORACLE":"RECORDED_NATIVE_PIXEL_ORACLE");
             }
         }
         previous=std::move(current);
     }
     check(owner.stats().submitted==7&&owner.stats().seeded==3,"real frame counts and gap/reset seeds");
-    std::printf("PASS recorded native scope=%u frames=7 odd_extent=129x97 subrect=3,2 cancellation_counterexample=%u\n",unsigned(scope),unsigned(scope==Scope::LaterLayers));
+    std::printf("PASS recorded native scope=%u hdr=%u frames=7 odd_extent=129x97 subrect=3,2 cancellation_counterexample=%u\n",unsigned(scope),unsigned(hdr),unsigned(scope==Scope::LaterLayers));
 }
-void amd_pixels(Host& host){
+void amd_pixels(Host& host,bool hdr=false,bool packed=false){
     constexpr unsigned w=512,h=384;RecordedTemporal owner(host.device.Get(),host.queue.Get(),w,h,Backend::AmdOpticalFlow,Scope::WholeChain,256ull<<20);
     check(owner.initialized(),owner.status());std::vector<float> previous(w*h*3);unsigned accumulate=0;
     for(unsigned seq=1;seq<=12;++seq){auto picture_data=picture(host,w,h,seq,false,seq==12?1:0);
+        const float exposure=hdr?(seq%3==1?1.f:seq%3==2?2.f:.5f):1.f;
         std::vector<std::uint16_t> base(w*h*4),target(w*h*4);
-        for(unsigned i=0;i<w*h;++i){for(unsigned c=0;c<3;++c){base[i*4+c]=half(picture_data.base[i*4+c]/255.f);
-            target[i*4+c]=half(stored(picture_data.base[i*4+c]/255.f)+picture_data.residual[i*3+c]);}base[i*4+3]=target[i*4+3]=half(1);}
-        auto b=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());
+        for(unsigned i=0;i<w*h;++i){for(unsigned c=0;c<3;++c){const float scene=picture_data.base[i*4+c]/255.f*(hdr?4.f:1.f);
+            base[i*4+c]=half(scene*exposure);
+            if(packed)base[i*4+c]&=c==2?0xffe0:0xfff0;
+            target[i*4+c]=half(unhalf(reinterpret_cast<const unsigned char*>(&base[i*4+c]))+picture_data.residual[i*3+c]*exposure);}base[i*4+3]=target[i*4+3]=half(1);}
+        const unsigned source_height=packed?h+3:h;
+        std::vector<std::uint32_t> packed_data(w*source_height,0x78078078);
+        if(packed)for(unsigned i=0;i<w*h;++i)packed_data[i]=(base[i*4]>>4)|((base[i*4+1]>>4)<<11)|((base[i*4+2]>>5)<<22);
+        auto b=packed?upload_pixels(host,w,source_height,DXGI_FORMAT_R11G11B10_FLOAT,4,packed_data.data()):
+            upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());
         auto z=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,target.data(),true);
         RecordedInputs in;in.settings.enabled=true;in.frame=frame_for(seq,33);in.frame.source_time=seq*16000;
+        if(hdr){in.frame.contract.color_domain=kResidualLinearScene;in.frame.source_to_scene=1/exposure;}
         in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         in.candidate=z.Get();in.candidate_format=DXGI_FORMAT_R16G16B16A16_FLOAT;in.candidate_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         host.begin();check(owner.record(host.list.Get(),in)==RecordResult::Recorded,owner.status());
@@ -100,13 +116,13 @@ void amd_pixels(Host& host){
         unsigned matched=0,total=0;std::vector<float> next(w*h*3);
         for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){auto p=y*w+x;bool ok=true;
             for(unsigned c=0;c<3;++c){const float bvalue=unhalf(reinterpret_cast<unsigned char*>(&base[p*4+c]));
-                const float cur=unhalf(reinterpret_cast<unsigned char*>(&target[p*4+c]))-bvalue;
+                const float cur=(unhalf(reinterpret_cast<unsigned char*>(&target[p*4+c]))-bvalue)/exposure;
                 float r=cur;if(use&&x>=4&&y>=2)r=cur*(1-weight)+previous[((y-2)*w+x-4)*3+c]*weight;
-                next[p*3+c]=stored(r);ok&=std::abs(unhalf(pixels.data()+p*8+c*2)-stored(std::clamp(bvalue+r,0.f,1.f)))<.0015f;
+                next[p*3+c]=stored(r);const float value=bvalue+r*exposure;ok&=std::abs(unhalf(pixels.data()+p*8+c*2)-stored(hdr?value:std::clamp(value,0.f,1.f)))<(hdr?.007f:.0015f);
             }if(x>=64&&x<w-64&&y>=64&&y<h-64){++total;if(ok)++matched;}
         }
-        const float fraction=float(matched)/total;std::printf("AMD recorded frame=%u expected_accumulate=%u pixel_match=%.6f\n",seq,unsigned(use),fraction);
-        check(fraction>.97f,use?"RECORDED_AMD_DIRECTION_AND_WEIGHT_ORACLE":"GPU_WARMUP_SCD_SEED_ORACLE");
+        const float fraction=float(matched)/total;std::printf("AMD recorded frame=%u hdr=%u packed=%u expected_accumulate=%u pixel_match=%.6f\n",seq,unsigned(hdr),unsigned(packed),unsigned(use),fraction);
+        check(fraction>.97f,hdr?"HDR_AMD_EXPOSURE_FLOW_ORACLE":use?"RECORDED_AMD_DIRECTION_AND_WEIGHT_ORACLE":"GPU_WARMUP_SCD_SEED_ORACLE");
         if(use)++accumulate;previous=std::move(next);
     }check(accumulate==5,"real AMD GPU warmup/accumulation/cut sequence");
 }
@@ -199,7 +215,7 @@ void replay_retirement(Host& host){
         stats=RecordedTemporal::collect_retired();check(stats.pending+stats.quarantined+stats.active==0,"replay safe final retirement");
     }
 }
-void finite_pixels(Host& host){
+void finite_pixels(Host& host,bool hdr=false){
     constexpr unsigned w=128,h=128;const float nan=std::numeric_limits<float>::quiet_NaN();
     for(auto scope:{Scope::WholeChain,Scope::LaterLayers}){
         RecordedTemporal owner(host.device.Get(),host.queue.Get(),w,h,Backend::NativeMotion,scope,128ull<<20);
@@ -216,7 +232,7 @@ void finite_pixels(Host& host){
                     if(p%8==4)anchor[p*4]=half(nan);
                     if(p%8==5)target[p*4]=half(nan);
                     if(p%8==6)base[p*4+3]=half(nan);
-                    if(p%8==7){target[p*4]=half(1.3f);target[p*4+1]=half(-.03f);}
+                    if(p%8==7){target[p*4]=half(hdr?13.f:1.3f);target[p*4+1]=half(hdr?-.3f:-.03f);}
                 }
             }
             auto b=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());
@@ -224,6 +240,7 @@ void finite_pixels(Host& host){
             auto mv=upload_pixels(host,w,h,DXGI_FORMAT_R32G32_FLOAT,8,flow.data());
             RecordedInputs in;in.settings.enabled=true;in.settings.scope=scope;in.layers=scope==Scope::LaterLayers?2:1;
             in.frame={{88,1,seq},{1,1,1,w,h,Backend::NativeMotion,scope},seq*16000ull,false};
+            if(hdr){in.frame.contract.color_domain=kResidualLinearScene;in.frame.scene_reset=true;}
             in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
             in.candidate=z.Get();in.candidate_format=DXGI_FORMAT_R16G16B16A16_FLOAT;in.candidate_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
             in.native={in.frame.source,mv.Get(),DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_SOURCE,0,0,w,h,1,1,true};
@@ -242,6 +259,6 @@ void finite_pixels(Host& host){
 }
 }
 int main(){try{std::setvbuf(stdout,nullptr,_IONBF,0);policy_checks();Host host;native_pixels(host,Scope::WholeChain);native_pixels(host,Scope::LaterLayers);
-    amd_pixels(host);cancel_and_budget(host);recording_leases(host);replay_retirement(host);finite_pixels(host);host.validate_debug();
+    amd_pixels(host);native_pixels(host,Scope::WholeChain,true);native_pixels(host,Scope::LaterLayers,true);amd_pixels(host,true);amd_pixels(host,true,true);cancel_and_budget(host);recording_leases(host);replay_retirement(host);finite_pixels(host);finite_pixels(host,true);host.validate_debug();
     std::printf("PASS recorded Core seam checks=%u; GPU tests, no game claim\n",checks);return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);return 1;}}
