@@ -1,5 +1,13 @@
 # Unified5 private SR continuation — isolated, not the base Core
 
+## Post-reconstruction final-residual transport foundation
+
+The separate [post transport module](POST_RESIDUAL_TRANSPORT.md) extracts
+`Area(Z-B)` from proven same-frame FP16 SDR code values and adds one reconstructed
+edit back to B. It preserves the legacy Deferred/#258 entry points. It has no
+Core runtime hookup or NR/private SR inference claim; its dedicated validator
+also runs the legacy shader/lifecycle/staging regressions.
+
 The additive stager now accepts the final `prepare-colour4-edge.py` pipeline,
 puts its controls once on the unified Experiments page, and preserves every
 unrelated generated file. Verified target: `4976ca48` (exact hash in the private

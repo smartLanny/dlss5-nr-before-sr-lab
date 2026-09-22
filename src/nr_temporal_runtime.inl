@@ -1,5 +1,6 @@
-// Native Feature1 post-SR only. Called under the existing chain owner lock.
+// Explicit native pre/post compositor seams. Called under the chain owner lock.
 // Original/guide/target leases and actual Execute/Signal remain Core-owned.
+#include "nr_temporal_route.h"
 namespace nr_temporal {
 using namespace nr::final_residual;
 struct Memory {unsigned live=0,retired=0,pending=0,quarantined=0;unsigned long long live_bytes=0,retired_bytes=0,pending_bytes=0,quarantined_bytes=0;};
@@ -23,9 +24,26 @@ bool DropAnchorBindings(NrContext& context){
 }
 bool ReleaseIdle(NrContext& context){
  if(!context.temporal)return true;
- if(context.temporal_token||context.recording_command_lists||!IsContextFenceCompleteLocked(context)||!DropAnchorBindings(context))return false;
+ // An unrelated, newly recorded NR frame cannot extend the lifetime of the
+ // old stabilizer. Its own leases/fences and P1 bindings are authoritative.
+ // Keep the Core's hard uncertainty gates; temporal proof cannot repair NGX
+ // recording or submission uncertainty in its parent context. Preserve the
+ // short Capture-to-Signal transaction until its completion receipt arrives.
+ if(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)||
+    context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined||
+    context.awaiting_fence_signal||context.temporal_token||!context.temporal->releasable()||!DropAnchorBindings(context))return false;
  nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
- delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;return true;
+ delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;
+ context.temporal_retry_tick=0;context.temporal_attempt_generation=0;return true;
+}
+void Maintain(NrContext& context){
+ if(!context.temporal)return;
+ const unsigned requested=g_config.temporal_backend|(g_config.temporal_scope<<8);
+ if(!g_config.enabled||!g_config.temporal_backend||context.retired||
+    (context.mode==1?nr_processing_runtime::Effective()!=nr_processing::Start::After:
+                     nr_processing_runtime::Effective()!=nr_processing::Start::Before)||
+    !context.temporal->initialized()||context.temporal_key!=requested)
+  (void)ReleaseIdle(context);
 }
 struct Prepared {
  RecordedTemporal* runtime=nullptr;
@@ -34,16 +52,20 @@ struct Prepared {
  unsigned long long recording=0;
  explicit operator bool()const{return runtime!=nullptr;}
 };
-Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
- const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y){
+Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
+ const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
+ bool native_motion_snapshot=false){
  Prepared out;
  if(!g_config.temporal_backend){Status(0);(void)ReleaseIdle(context);return out;}
  Status(1);
  // No guessed HDR/Present colour or ownership. Explicit linear SDR mapping is
  // a separate future domain, not silently reinterpreted as SDR code values.
- if(feature.feature_id!=1||(feature.create_flags&1)||
-    (slot.codec_color_mode!=CodecColorMode::Automatic&&slot.codec_color_mode!=CodecColorMode::SrgbEncodedSdr)||
-    !slot.snapshots_native_output){Status(10);return out;}
+ const auto route=nr_temporal_route::Admit(entry,{unsigned(feature.feature_id),unsigned(context.mode),
+    g_config.temporal_backend,g_config.temporal_scope,feature.create_flags_known,(feature.create_flags&1)!=0,
+    slot.codec_color_mode==CodecColorMode::Automatic||slot.codec_color_mode==CodecColorMode::SrgbEncodedSdr,
+    slot.snapshots_native_output,x==0&&y==0});
+ if(route!=nr_temporal_route::Decision::Supported){
+  Status(route==nr_temporal_route::Decision::Scope?18:route==nr_temporal_route::Decision::Motion?19:10);return out;}
  // Check the producer's packed active snapshot contract before allocating
  // history or composing P1. A larger atlas is not an exact CopyResource input.
  if(!slot.source||!slot.result){Status(12);return out;}
@@ -73,8 +95,11 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
   // Native MV is sampled directly while its existing Evaluate lease is valid.
   // Scales are the game's original units, then converted to THIS output grid;
   // do not use model-work-grid scales after WorkingScale was applied.
-  if(!sig.resample_motion||!slot.motion_proxy||!guides.capture_params.game_mv_valid||(feature.create_flags&4)||
-     !context.width||!context.height){Status(5);return {};}
+  if(!guides.motion){Status(15);return {};}
+  if(!guides.valid_motion_scale_x||!guides.valid_motion_scale_y||
+     !guides.capture_params.game_mv_valid){Status(16);return {};}
+  if((feature.create_flags&4)||!context.width||!context.height){Status(5);return {};}
+  if(!native_motion_snapshot||!slot.motion_proxy){Status(17);return {};}
   // Consume the Core's already prepared native-MV surface; do not guess the
   // game's resource state after an opaque SR call. It stores the original
   // vector values, while the signature carries conversion to model texels.
@@ -123,6 +148,14 @@ Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot
   out.primary_heap=packet->heaps[nr_binding::Consumer];
  }
  out.runtime=context.temporal;return out;
+}
+// Existing post-SR callers retain their narrow entry. Changing feature_id
+// alone never opts one of those callers into RR or pre-SR support.
+Prepared Prepare(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
+ const NrGuideBinding& guides,const FeatureRecord& feature,unsigned width,unsigned height,unsigned x,unsigned y,
+ bool native_motion_snapshot=false){
+ return PrepareForRoute(nr_temporal_route::Entry::PostSr,list,context,slot,guides,feature,
+    width,height,x,y,native_motion_snapshot);
 }
 bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prepared& p){
  if(!p)return true;

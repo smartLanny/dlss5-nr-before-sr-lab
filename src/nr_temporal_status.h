@@ -11,6 +11,11 @@ inline const char* Name(unsigned s){switch(s){
  case 10:return "color-domain-unavailable";case 11:return "later-scope-needs-two-layers";
  case 12:return "candidate-source-contract-unavailable";case 13:return "duplicate-source-no-new-work";
  case 14:return "cancelled-unsubmitted";
+ case 15:return "native-motion-not-provided";
+ case 16:return "native-motion-units-invalid";
+ case 17:return "native-motion-snapshot-unavailable";
+ case 18:return "pre-sr-later-anchor-unavailable";
+ case 19:return "route-native-motion-unproven";
  default:return "unavailable";}}
 inline void Allocated(unsigned long long count){const auto total=bytes.fetch_add(count)+count;
  auto old=peak.load();while(old<total&&!peak.compare_exchange_weak(old,total)){};}

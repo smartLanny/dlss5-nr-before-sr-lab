@@ -108,7 +108,7 @@ try {
         $Checks.Add($Test)
     }
     & (Join-Path $PSScriptRoot 'validate-post-scaled-work-gpu.ps1') -SourceRoot (Join-Path $Stage 'core') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $TestBuild 'post-scaled-work')
-    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
+    $Checks.Add('post scaled-work WARP: 60 actual EncodeCS/CombineCS scenarios including 25 percent plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
     & python (Join-Path $PSScriptRoot 'validate-colour-defaults.py') --compiler $Cxx --root (Join-Path $Stage 'core')
     if ($LASTEXITCODE) { throw 'Actual staged colour defaults/model reset failed.' }
     $Checks.Add('actual staged colour defaults and independent model-only reset: 2805 checks')

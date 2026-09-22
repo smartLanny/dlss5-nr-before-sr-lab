@@ -94,13 +94,16 @@ int wmain(int argc,wchar_t** argv){
     using namespace host_ngx;namespace present=nr_compat_present_runtime;
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
-        Check(argc==4,"usage: host runtime-directory passes scale-percent");const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
-        Check(passes>=1&&passes<=5&&(scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
+        Check(argc==4||(argc==5&&std::wcscmp(argv[4],L"--preset-zero")==0),"usage: host directory passes percent [--preset-zero]");
+        const bool preset_zero=argc==5;
+        const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
+        Check(passes>=1&&passes<=5&&(scale==25||scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
         nr_layers::Migrate(g_config.nr_layers,passes,nr_layers::Primary(g_config));
         for(unsigned i=1;i<passes;++i){auto& layer=g_config.nr_layers[i-1];
             layer.intensity=1.0f+0.1f*i;layer.local_tone=0.8f+0.05f*i;layer.local_structure=0.7f+0.05f*i;}
         g_config.compat_percent=scale;g_config.warmup_after_create=2;NormalizeConfig(g_config);
+        Check(g_config.compat_percent==scale,"normalization preserves selected Present scale");
         Check(present::RequestedPasses(g_config)==passes,"production active independent layer count");
         g_config.transfer_strength=1.0f;g_config_generation.store(1);
         swprintf_s(g_log_path,L"%ls\\present-ngx.log",argv[1]);swprintf_s(g_ini_path,L"%ls\\host.ini",argv[1]);
@@ -130,6 +133,15 @@ int wmain(int argc,wchar_t** argv){
         for(unsigned i=0;i<passes;++i){c->layer_tuning[i]=CurrentNrTuningSignature(i);c->layer_tuning[i].input_filter=0;
             for(unsigned j=0;j<i;++j)Check(!SameNrTuningSignature(c->layer_tuning[i],c->layer_tuning[j]),"distinct independent layer requests");}
         std::printf("scenario passes=%u scale=%u Build\n",passes,scale);Check(present::Build(*c),"production Present Build");present::current=c;present::has_context.store(true);
+        // Test-only comparison with Opti 8802b2b4 Config.h's explicit default 0.
+        // This runs before actual Feature18 Create, never scans unknown values,
+        // and does not add a production config/UI field or change the Core.
+        if(preset_zero)for(unsigned i=0;i<passes;++i){
+            auto* params=c->layers[i].context.params;SetUInt(params,"DLSSNR.Hint.Render.Preset",0);
+            unsigned adopted_preset=99;
+            Check(GetUInt(params,"DLSSNR.Hint.Render.Preset",&adopted_preset)&&adopted_preset==0,"explicit known preset written before Create");
+        }
+        std::printf("MODEL_PRESET=%s; fixed test-only Create contract\n",preset_zero?"explicit-0":"unspecified");
         for(unsigned i=0;i<passes;++i){const auto& model=c->layers[i].context;
             Check(model.width==c->work.width&&model.height==c->work.height,"every model uses the common work raster");
             Check(model.tuning_signature_initialized&&SameNrTuningSignature(model.tuning_signature,c->layer_tuning[i]),"production model receives its independent tuning");}
@@ -184,6 +196,14 @@ int wmain(int argc,wchar_t** argv){
                 std::memcmp(payload.data()+input.offset,previous_neural.data(),previous_neural.size())==0,
                 "next actual NR input equals the entire preceding output at the shared auxiliary raster");
             previous_neural.assign(payload.begin()+neural.offset,payload.begin()+neural.offset+neural.bytes);
+            for(auto role:{nr_replay::Role::Proxy,nr_replay::Role::Neural,nr_replay::Role::Composite}){
+                const auto& plane=header.planes[unsigned(role)];
+                swprintf_s(output,L"%ls\\plane-p%u-s%u-layer%u-role%u.bin",argv[1],passes,scale,layer+1,unsigned(role));
+                HANDLE plane_file=CreateFileW(output,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+                Check(plane_file!=INVALID_HANDLE_VALUE,"create raw observed plane evidence");DWORD written=0;
+                const bool wrote=WriteFile(plane_file,payload.data()+plane.offset,static_cast<DWORD>(plane.bytes),&written,nullptr)&&written==plane.bytes;
+                CloseHandle(plane_file);Check(wrote,"write exact observed FP16 plane without NRF metadata");
+            }
             swprintf_s(output,L"%ls\\capture-p%u-s%u-layer%u.nrf",argv[1],passes,scale,layer+1);Check(CopyFileW(path,output,TRUE)!=FALSE,"copy capture into immutable test evidence");
             swprintf_s(metadata,L"%ls\\DLSS5-Present-Capture\\%lu-%llu-%llu\\metadata.json",documents,GetCurrentProcessId(),request,(request<<8)|layer);
             swprintf_s(output,L"%ls\\capture-p%u-s%u-layer%u.json",argv[1],passes,scale,layer+1);Check(CopyFileW(metadata,output,TRUE)!=FALSE,"copy independent capture role metadata");

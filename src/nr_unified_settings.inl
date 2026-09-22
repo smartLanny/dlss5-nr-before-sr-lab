@@ -25,35 +25,16 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     bool changed = false;
 
     bool apply_discrete_edit=false;
-    const bool collecting=nr_f8::IsActive();
+    const bool collecting=nr_f8::g_config_hold.load();
     const bool rr_guarded=IsRayReconstructionRouteObserved();
     const bool compatibility_post=!rr_guarded&&next.mode==2&&compatibility_snapshot.recent&&compatibility_snapshot.effective_mode==1;
     const bool before_sr=!rr_guarded&&nr_processing_runtime::Effective()==nr_processing::Start::Before;
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,4.f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(ImGui::GetStyle().ItemSpacing.x,6.f));
-    ImGui::BeginDisabled(collecting);
-    char nr_label[96]{};
-    std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key));
-    if(ImGui::Checkbox(nr_label,&next.enabled)){changed=true;apply_discrete_edit=true;}
-    ImGui::EndDisabled();
-    if(SettingsContentWidth()>ImGui::GetFontSize()*24.f)ImGui::SameLine();
+    // A read-only, common header stays outside each page's scrolling child.
+    ImGui::TextWrapped("%s",kAddonVersion);
+    SettingsTooltip(ui("DLSS 5 NR candidate. Full build, author and links are on Feedback.","DLSS 5 NR 测试版；完整构建信息、作者和链接见反馈页。"));
     DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
-    ImGui::BeginDisabled(collecting);
-    unsigned colour_policy=nr_colour_preferences::Policy(next);
-    const char* colour_choices[]={ui("Colour priority","颜色优先"),ui("Conservative colour","保守颜色")};
-    if(NrChoice("colour-policy",colour_policy,colour_choices,2)){
-        nr_colour_preferences::Select(next,colour_policy);changed=true;apply_discrete_edit=true;
-    }
-    if(SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
-        nr_colour_preferences::Remember(next);changed=true;
-    }
-    SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.5, conservative to 1.0.",
-        "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.5，保守颜色默认 1.0。"));
-    ImGui::EndDisabled();
-    if(next.color_strength==0.f)SettingsNote(ui("Game colour retained.","保留游戏原色。"));
-    SettingsNote(colour_policy?ui("Conservative: unverified HDR colour is blocked; other supported inputs still use the strength above.","保守颜色：限制未确认的 HDR 调色；其他可用输入仍采用上方强度。"):
-        ui("Colour priority permits unverified HDR colour. Return to Conservative if unwanted shifts appear.","颜色优先：允许未确认的 HDR 调色；出现异常偏色时可切回保守颜色。"));
-    DrawUnifiedColourState(next,current.generation,has_pending||changed);
     const char* routes[]={ui("Enhance → upscale","增强→放大"),ui("Upscale → enhance","放大→增强"),ui("Compatibility","自动兼容")};
     const auto actual=nr_processing_runtime::Effective();
     unsigned actual_w=current.work_width,actual_h=current.work_height;
@@ -64,24 +45,38 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if(next.identity_use_original||next.colour_neutral_probe)SettingsNote(ui("Diagnostic output is active; this is not the normal NR result.","诊断输出正在运行，当前不是正常 NR 结果。"));
     if(next.colour_restore_mode)SettingsNote(ui("RGB recovery active; reported halo regression. Change it in Experiments.","RGB 恢复正在运行，有亮边回归反馈；可在实验页切换。"));
     if(next.light_preview||next.region_preview||next.face_preview){
-        SettingsNote(ui("A preview is active; this is not the final picture.","预览正在运行，当前不是最终画面。"));
-        ImGui::BeginDisabled(collecting);
-        if(ImGui::Button(ui("Exit previews","退出预览"))){next.light_preview=next.region_preview=next.face_preview=0;changed=true;apply_discrete_edit=true;}
-        ImGui::EndDisabled();
+        SettingsNote(ui("A preview is active; this is not the final picture.","预览正在运行；可在光影页退出，当前不是最终画面。"));
     }
     if(g_config_persistence_failed.load())SettingsNote(ui("Settings could not be saved; current session still uses them.","设置无法保存，当前运行仍采用这些设置。"));
     if (edit_conflict)
         ImGui::TextWrapped("%s", ui(
             "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
             "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
-    DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),migration_notice_dismissed);
     if(ImGui::BeginTabBar("nr-main-tabs",ImGuiTabBarFlags_FittingPolicyScroll)){
         const ImGuiTabItemFlags feedback_tab_flags=nr_f8::TakeSettingsFeedbackPageRequest()?ImGuiTabItemFlags_SetSelected:ImGuiTabItemFlags_None;
         if(ImGui::BeginTabItem(ui("Picture###nr-picture","画面###nr-picture"))){
             ImGui::BeginChild("nr-page-picture",ImVec2(0,0));
             ImGui::BeginDisabled(collecting);
+            char nr_label[96]{};
+            std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key));
+            if(ImGui::Checkbox(nr_label,&next.enabled)){changed=true;apply_discrete_edit=true;}
             SettingsSection(ui("Processing order","处理顺序"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
+            SettingsSection(ui("Colour","颜色"));
+            unsigned colour_policy=nr_colour_preferences::Policy(next);
+            const char* colour_choices[]={ui("Colour priority","颜色优先"),ui("Conservative colour","保守颜色")};
+            if(NrChoice("colour-policy",colour_policy,colour_choices,2)){
+                nr_colour_preferences::Select(next,colour_policy);changed=true;apply_discrete_edit=true;
+            }
+            SettingsTooltip(colour_policy?ui("Conservative: unverified HDR colour is blocked; other supported inputs still use the strength below.","保守颜色：限制未确认的 HDR 调色；其他可用输入仍采用下方强度。"):
+                ui("Colour priority permits unverified HDR colour. Return to Conservative if unwanted shifts appear.","颜色优先：允许未确认的 HDR 调色；出现异常偏色时可切回保守颜色。"));
+            if(SettingsSliderFloat(ui("AI colour strength","AI 色彩强度"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
+                nr_colour_preferences::Remember(next);changed=true;
+            }
+            SettingsTooltip(ui("Adopts NR colour changes when the selected policy permits them. 0 adopts no colour edits; not model strength or whole-image saturation. Each policy remembers its strength: priority defaults to 0.7, conservative to 1.0.",
+                "在所选策略允许时采用 NR 颜色变化；0 不采用颜色修改，不是模型强度或全画面饱和度。两种策略分别记住强度：颜色优先默认 0.7，保守颜色默认 1.0。"));
+            if(next.color_strength==0.f)SettingsNote(ui("Game colour retained.","保留游戏原色。"));
+            DrawUnifiedColourState(next,current.generation,has_pending||changed);
             SettingsSection(ui("Workload","工作量"));
 #if NR_HAS_DETAIL_STABILITY
     const auto scale_target=nr_precision_ui::SelectedTarget(
@@ -97,17 +92,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
     static nr_precision_ui::Edit scale_edit;
     float precision=scale_edit.Observe(scale_target,current.generation,post_revision,
-        next.processing_selection,std::clamp(saved_precision,50.f,100.f));
+        next.processing_selection,std::clamp(saved_precision,nr_precision_ui::MinimumPercent(scale_target),100.f));
     const auto edit_target=scale_edit.target;
     const char* request_name=edit_target==nr_precision_ui::Target::Before
         ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
     const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
-        "##nr-processing-precision", &precision, 50.0f, 100.0f,"%.0f%%");
+        "##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
-        if (edit_target==nr_precision_ui::Target::Present) {
+        if (!nr_precision_ui::SupportedPercent(scale_edit.preview,edit_target)) {
+            scale_edit.conflict=true;
+        } else if (edit_target==nr_precision_ui::Target::Present) {
             next.compat_percent=static_cast<unsigned>(std::lround(scale_edit.preview));
             changed=true;
         } else if (edit_target==nr_precision_ui::Target::Post) {
@@ -130,8 +127,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
     }
     SettingsTooltip(ui(
-        "Sets the selected start from 50% to 100%, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
-        "设置所选起点的比例，所有层共用且仅乘一次；自动降级不切换保存字段。RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变；实际路线和尺寸单独显示。"));
+        "Sets 50-100% before upscaling, or 25-100% after upscaling and in Compatibility, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
+        "前置支持 50–100%，后置与兼容支持 25–100%；所有层共用且仅乘一次。自动降级不切换保存字段；RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变，实际路线和尺寸单独显示。"));
     if (scale_edit.conflict)
         SettingsNote(ui("The scale edit was not applied: its target or settings changed, or the request was unavailable. Release and adjust the current value again.",
             "比例编辑未应用：编辑目标或设置已变化，或请求暂不可用。请松手后按当前值重新调整。"));
@@ -162,8 +159,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             float strength=ActiveTransferStrength(next);
             if(SettingsSliderFloat(ui("Final extra enhancement","最终额外增强"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
             SettingsTooltip(ui("Scales final brightness/detail edits, not model strength. 1 keeps the model result's base amount.","调整最终明暗和细节修改量，不是模型强度；1 保留模型原量。"));
-            if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting detail settings are active; inspect Developer > Legacy lighting.","旧光影细分设置正在影响效果，详见开发者页。"));
-            if(next.layered_enhancement||next.low_grid_edit_field||next.low_grid_color_edit_field||next.independent_chroma_composition||next.colour_scaled_proxy_mode||next.colour_edge_recovery||!next.color_protection||!next.high_strength_protection)
+            if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting scope or component gains are active; inspect Lighting.","旧版光影范围或分项倍率正在生效，详见光影页。"));
+            if(next.low_grid_edit_field||next.low_grid_color_edit_field||next.independent_chroma_composition||next.colour_scaled_proxy_mode||next.colour_edge_recovery||!next.color_protection||!next.high_strength_protection)
                 SettingsNote(ui("Custom composition or safeguard settings are active; inspect Developer.","自定义合成或保护设置正在生效，详见开发者页。"));
             DrawUniformLayerControls(next,changed,apply_discrete_edit);
             ImGui::Separator();
@@ -175,8 +172,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.nr_full_reference=false;next.nr_full_passes=3;
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
-            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, colour 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
-                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、颜色0.5、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
+            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, conservative colour 1.0, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
+                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、保守颜色1.0、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){
@@ -193,6 +190,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         if(ImGui::BeginTabItem(ui("Feedback###nr-feedback-diagnostics","反馈###nr-feedback-diagnostics"),nullptr,feedback_tab_flags)){
             ImGui::BeginChild("nr-page-feedback-diagnostics",ImVec2(0,0));
+            DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),migration_notice_dismissed);
             DrawUnifiedFeedback(runtime,current.config,has_pending);
             if(kChineseUi&&!use_chinese_ui)SettingsNote("Chinese glyphs are unavailable. Select a Chinese font in ReShade to use this language.");
             ImGui::EndChild();ImGui::EndTabItem();

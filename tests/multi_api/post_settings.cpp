@@ -21,14 +21,14 @@ wchar_t g_ini_path[]=L"test.ini";
 int g_chain_cs=0,locks=0,writes=0;
 bool persist=true,hold_on_lock=false,revision_on_lock=false;
 unsigned rr_ini=1,pct_ini=100;
-unsigned missing_ini=0;
+unsigned missing_ini=0;bool missing_present=true;
 ULONGLONG tick=1000;
 void EnterCriticalSection(int*);
 void LeaveCriticalSection(int*){--locks;}
 ULONGLONG GetTickCount64(){return tick;}
 void Log(const char*,...){}
-unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,unsigned,const wchar_t*) {
- if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)return missing_ini;
+unsigned GetPrivateProfileIntW(const wchar_t*,const wchar_t* key,unsigned fallback,const wchar_t*) {
+ if(std::wcscmp(key,L"RRMissingProjectionFallback")==0)return missing_present?missing_ini:fallback;
  return std::wcscmp(key,L"RRPostEnabled")==0?rr_ini:pct_ini;
 }
 bool WriteIniInt(const wchar_t* key,int value){
@@ -76,9 +76,13 @@ int main(){
  Request({true,75});CHECK(g_config_generation==gen&&g_history_generation==hist);
  CHECK(revision.load()>request_revision); // invalidate a stale concurrent read even on no-op
 
- for(unsigned invalid:{1u,49u,101u,1000u,0xffffffffu}) {
+ for(unsigned invalid:{1u,24u,101u,1000u,0xffffffffu}) {
   CHECK(!Request({false,invalid}));
   CHECK(Read().rr&&Read().percent==75&&pct_ini==75&&rr_ini==1&&request_rejected);
+ }
+ for(unsigned accepted:{25u,26u,49u,50u,75u,100u}) {
+  CHECK(Request({false,accepted}));
+  CHECK(Read().rr&&Read().percent==accepted&&pct_ini==accepted&&rr_ini==1&&!request_rejected);
  }
  CHECK(Request({false,50}));CHECK(Read().rr&&Read().percent==50&&pct_ini==50&&rr_ini==1);
  nr_f8::g_config_hold=true;auto previous=bits.load();auto previous_writes=writes;
@@ -99,7 +103,9 @@ int main(){
  g_config.enabled=true;pct_ini=0;tick+=1000;Poll();
  CHECK(!g_config.enabled&&Read().percent==75&&pct_ini==75);
  g_config.enabled=true;tick+=1000;Poll();CHECK(g_config.enabled);
- pct_ini=49;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==75&&request_rejected);
+ pct_ini=25;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==25&&!request_rejected);
+ CHECK(Request({true,75}));
+ pct_ini=24;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==75&&request_rejected);
  nr_f8::g_config_hold=true;CHECK(!Request({true,0}));CHECK(g_config.enabled);
  nr_f8::g_config_hold=false;
  // Capture changes are temporary, require the existing hold, and restore the
@@ -107,9 +113,9 @@ int main(){
  auto saved=Read();auto capture_writes=writes;auto mode=g_config.mode;
  CHECK(!RequestForCapture({false,50}));
  nr_f8::g_config_hold=true;g_config.enabled=false;
- CHECK(RequestForCapture({false,50}));CHECK(Read().rr&&Read().percent==50);
- CHECK(!RequestForCapture({true,0}));CHECK(!RequestForCapture({true,49}));
- CHECK(!RequestForCapture({true,101}));CHECK(Read().percent==50);
+ CHECK(RequestForCapture({false,25}));CHECK(Read().rr&&Read().percent==25);
+ CHECK(!RequestForCapture({true,0}));CHECK(!RequestForCapture({true,24}));
+ CHECK(!RequestForCapture({true,101}));CHECK(Read().percent==25);
  CHECK(RequestForCapture(saved));CHECK(Read().percent==saved.percent);
  CHECK(writes==capture_writes&&g_config.mode==mode&&!g_config.enabled&&locks==0);
  nr_f8::g_config_hold=false;
@@ -117,7 +123,7 @@ int main(){
  FeedbackSession current;EmitPostFeedback(current);
  CHECK(current.text.find("capture.post.request.percent=75\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.requestRejected=1\n")!=std::string::npos);
- CHECK(current.text.find("capture.post.rejectedPercent=49\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.rejectedPercent=24\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.rr.nrRecordings=1\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.evaluateEntries=900\n")!=std::string::npos);
  CHECK(current.text.find("capture.post.rr.srGuarded=12\n")!=std::string::npos);
@@ -128,6 +134,8 @@ int main(){
  last_rr_tick=0;FeedbackSession unavailable;EmitPostFeedback(unavailable);
  CHECK(unavailable.text.find("capture.post.rr.attemptAgeMs=-1\n")!=std::string::npos);
  CHECK(!missing_projection);
+ pct_ini=Read().percent;missing_present=false;tick+=1000;Poll();CHECK(missing_projection);
+ missing_present=true;missing_ini=0;tick+=1000;Poll();CHECK(!missing_projection);
  nr_f8::g_config_hold=true;CHECK(!RequestMissingProjection(true));CHECK(!missing_projection);
  nr_f8::g_config_hold=false;
  gen=g_config_generation;hist=g_history_generation;

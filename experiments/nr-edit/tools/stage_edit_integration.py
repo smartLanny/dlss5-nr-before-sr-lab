@@ -14,9 +14,11 @@ OVERLAY=[
  'src/nr_private_sr_runtime.hpp','src/nr_private_sr_core_adapter.inl','src/nr_private_image_core.inl',
  'src/nr_edit_dx12.hpp','src/nr_edit_dx12.cpp','src/nr_rr_dx12.hpp','src/nr_rr_dx12.cpp',
  'src/nr_deferred_dx12.hpp','src/nr_deferred_dx12.cpp','src/nr_edit_flow.hpp','src/nr_edit_adapters.hpp',
+ 'src/nr_post_residual_dx12.hpp','src/nr_post_residual_dx12.cpp',
  'src/nr_edit_policy.hpp','src/nr_edit_forward.inl','src/nr_edit_core_runtime.inl','src/nr_edit_settings_ui.inl',
  'tools/compile_edit_artifacts.py','tools/compile_edit_shader.cpp',
- 'shaders/nr_normalize_guides.hlsl','shaders/nr_rr_edit.hlsl','shaders/nr_deferred_edit.hlsl','shaders/nr_edit_scalar.hlsli']
+ 'shaders/nr_normalize_guides.hlsl','shaders/nr_rr_edit.hlsl','shaders/nr_deferred_edit.hlsl','shaders/nr_edit_scalar.hlsli',
+ 'shaders/nr_edit_carrier.hlsli','shaders/nr_post_residual.hlsl']
 def change_definition(text,signature,transform):
  a,b,s=definition(text,signature);return text[:a]+transform(s)+text[b:]
 def prepend_body(s,code):

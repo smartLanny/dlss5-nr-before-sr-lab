@@ -23,9 +23,13 @@ unsigned int StageCaptureStatus() {
     return g_stage_capture_status.load(std::memory_order_acquire);
 }
 
-bool RequestStageCapture() {
+bool RequestStageCaptureInternal(bool owned) {
     EnterCriticalSection(&g_chain_cs);
-    if(nr_f8::g_config_hold.load()) {LeaveCriticalSection(&g_chain_cs);return false;}
+    // The internal acceptance owner keeps its lease throughout performance and
+    // deep-capture phases. Never drop that global lease to admit a request.
+    if(nr_f8::g_config_hold.load()!=owned || nr_f8::IsActive()) {
+        LeaveCriticalSection(&g_chain_cs);return false;
+    }
     unsigned int expected = 0;
     // Reserve the request before publishing its identity. State 4 is a brief
     // request publication/cancellation state, never eligible for render-thread arm.
@@ -38,12 +42,16 @@ bool RequestStageCapture() {
     g_stage_capture_status.store(1, std::memory_order_release);
     LeaveCriticalSection(&g_chain_cs);
     Log("Stage capture requested: next eligible warmed-up NR composition; "
-        "one outstanding request, sampled raw stages, no native-SR output read. "
+        "one outstanding request, sampled raw stages; optional native output sidecar. "
         "NR is recreated before capture, waits at least 64 successful "
         "evaluations since Reset, then retires to drain exact-fence resources. "
         "This settling interval does not prove temporal convergence.");
     return true;
 }
+
+bool RequestStageCapture() { return RequestStageCaptureInternal(false); }
+// Internal configuration-lease owner only; status 2/3 still must drain normally.
+bool RequestStageCaptureOwned() { return RequestStageCaptureInternal(true); }
 
 bool CancelPendingStageCapture(unsigned long long request) {
     if (request == 0) return false;
@@ -218,6 +226,9 @@ void DestroyStageCapture(NrSlot &slot) {
     const unsigned long long request = slot.stage_capture.info.request_id;
     ReleaseCom(slot.stage_capture.readback);
     ReleaseCom(slot.stage_capture.buffer);
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+    ReleaseNativeOutputCapture(slot.stage_capture.native_output);
+#endif
     slot.stage_capture = {};
     if (owned_request && request != 0 &&
         request == g_stage_capture_request_id.load(std::memory_order_relaxed) &&
@@ -315,6 +326,9 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
 }
 
 struct StageCaptureExport {
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+    NrNativeOutputCapture native_output{};
+#endif
     ID3D12Resource *readback = nullptr;
     UINT64 bytes = 0;
     NrStageCaptureInfo info = {};
@@ -418,7 +432,11 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         info.has_pre_exposure ? 1 : 0, static_cast<double>(info.exposure_scale),
         info.has_exposure_scale ? 1 : 0,
         info.mode == 1 ? "represented by original stage (post-SR source/snapshot)"
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+                       : "native-output.json declares same-call presence or explicit refusal; native storage domain is unverified",
+#else
                        : "unavailable; arrival state not proven, so no extra output read/transition",
+#endif
         static_cast<double>(info.gpu_raw_exposure), static_cast<double>(info.gpu_resolved_exposure),
         static_cast<double>(info.gpu_source_to_canonical), static_cast<double>(info.gpu_pre_exposure),
         id.since_reset);
@@ -427,6 +445,10 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
     CloseHandle(file);
     return ok;
 }
+
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+#include "nr_native_output_capture_export.inl"
+#endif
 
 DWORD WINAPI ExportStageCapture(void *parameter) {
     auto *job = static_cast<StageCaptureExport *>(parameter);
@@ -440,6 +462,9 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
     if (ok) ok = swprintf_s(directory, L"%ls\\capture-%lu-%llu-%llu", parent,
         GetCurrentProcessId(), job->info.request_id, GetTickCount64()) >= 0;
     if (ok) ok = CreateDirectoryW(directory, nullptr) != FALSE;
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+    const bool directory_created=ok;
+#endif
     const D3D12_RANGE read_range = {0, static_cast<SIZE_T>(job->bytes)};
     void *mapped = nullptr;
     if (ok) ok = SUCCEEDED(ID3D12Resource_Map(
@@ -476,6 +501,16 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
         ok = WriteStageCaptureMetadata(directory, job->info, ok) && ok;
     }
     ReleaseCom(job->readback);
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+    const bool native_export_ok=directory_created&&ExportNativeOutputCapture(directory,job->native_output);
+    if(!native_export_ok) {
+        job->native_output.header.status=nr_native_capture::Status::Missing;
+        job->native_output.header.reason=nr_native_capture::Reason::ExportFailed;
+    }
+    // P/N/E export success and O presence are separate, explicit outcomes.
+    PublishStageCaptureExportReceipt(job->info.request_id,directory,ok,job->native_output);
+    ReleaseNativeOutputCapture(job->native_output);
+#endif
     Log("Stage capture %s: request=%llu instance=%llu frame=%llu "
         "sampled=%ux%u stride=%u directory=%ls.", ok ? "exported" : "failed",
         job->info.request_id, job->info.identity.instance_id,
@@ -496,6 +531,24 @@ void CollectStageCaptureLocked(NrSlot &slot) {
     job->readback = capture.readback;
     job->bytes = capture.bytes;
     job->info = capture.info;
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+    job->native_output=capture.native_output;
+    auto& native=job->native_output.header;
+    // Even a refused/not-pre-SR sidecar retains the parent stage identity.
+    native.request=capture.info.request_id;native.instance=capture.info.identity.instance_id;
+    native.frame=capture.info.identity.frame_id;native.feature=capture.info.feature_generation;
+    native.config=capture.info.identity.config_generation;native.evaluation=capture.info.identity.evaluation;
+    if(capture.info.mode!=2)native.reason=nr_native_capture::Reason::NotPreSr;
+    if(native.status==nr_native_capture::Status::Recorded) {
+        if(slot.last_submission_queue&&slot.last_submission_queue->identity&&slot.completion_fence_value) {
+            native.queue=slot.last_submission_queue->identity;native.fence=slot.completion_fence_value;
+            native.status=nr_native_capture::Status::Complete;
+        } else {
+            native.status=nr_native_capture::Status::Missing;
+            native.reason=nr_native_capture::Reason::CompletionUnknown;
+        }
+    }
+#endif
     // No recorded or in-flight command list can reference this descriptor.
     // Restore its null binding before releasing the UAV. Readback ownership
     // transfers to the worker, so a recycled slot cannot overwrite its pixels.
@@ -506,6 +559,9 @@ void CollectStageCaptureLocked(NrSlot &slot) {
     // The addon is process-pinned by HookWorker before any NR can execute.
     if (!QueueUserWorkItem(&ExportStageCapture, job, WT_EXECUTEDEFAULT)) {
         ReleaseCom(job->readback);
+#ifdef NR_HAS_NATIVE_OUTPUT_CAPTURE
+        ReleaseNativeOutputCapture(job->native_output);
+#endif
         delete job;
         Log("Stage capture export worker could not start; rendering continues.");
         g_stage_capture_last_result.store(-1, std::memory_order_relaxed);

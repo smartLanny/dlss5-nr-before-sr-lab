@@ -1,3 +1,7 @@
+#include "nr_aux_shader_runtime.hpp"
+#if NR_AUX_PRECOMPILED
+#include "nr_aux_present_precompiled.h"
+#endif
 using nr_compat_present::Status;
 using nr_compat_present::Encoding;
 using nr_compat_present::Extent;
@@ -140,9 +144,18 @@ bool NativeNrDrained() {
 
 ID3DBlob* CompileUtility(const char* entry,const char* target) {
     ID3DBlob *blob=nullptr,*errors=nullptr;
-    const HRESULT hr=D3DCompile(kCompatPresentShader,sizeof(kCompatPresentShader)-1,
+    const auto shader=std::strcmp(entry,"ConvertCS")==0?nr_aux_shader::Shader::PresentConvert:
+        std::strcmp(entry,"InitColorCS")==0?nr_aux_shader::Shader::PresentInitColor:
+        std::strcmp(entry,"InitCS")==0?nr_aux_shader::Shader::PresentInitGuides:
+        std::strcmp(entry,"FullscreenVS")==0?nr_aux_shader::Shader::PresentFullscreen:nr_aux_shader::Shader::PresentBlit;
+#if NR_AUX_PRECOMPILED
+    (void)shader;const auto artifact=nr_aux_present_precompiled::Find(entry,target);
+    const HRESULT hr=nr_aux_shader::Load(artifact.data,artifact.size,&blob);
+#else
+    const HRESULT hr=nr_aux_shader::Measure(shader,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(kCompatPresentShader,sizeof(kCompatPresentShader)-1,
         "own-compat-present",nullptr,nullptr,entry,target,
-        D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&errors);
+        D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&errors);});
+#endif
     if(FAILED(hr))Log("[compat-post] utility shader %s failed: 0x%08X %s",entry,
         static_cast<unsigned>(hr),errors?static_cast<const char*>(ID3D10Blob_GetBufferPointer(errors)):"no diagnostic");
     ReleaseCom(errors);return SUCCEEDED(hr)?blob:(ReleaseCom(blob),nullptr);
@@ -169,17 +182,17 @@ bool MakePipelines(Context& c) {
     if(!convert||!vs||!ps){ReleaseCom(convert);ReleaseCom(vs);ReleaseCom(ps);return false;}
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute{};compute.pRootSignature=c.util_root;
     compute.CS={ID3D10Blob_GetBufferPointer(convert),ID3D10Blob_GetBufferSize(convert)};
-    hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.convert));
+    hr=nr_aux_shader::Measure(nr_aux_shader::Shader::PresentConvert,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.convert));});
     ID3DBlob* init_color=CompileUtility("InitColorCS","cs_5_0");
     if(!init_color)hr=E_FAIL;
     if(SUCCEEDED(hr)){compute.CS={ID3D10Blob_GetBufferPointer(init_color),ID3D10Blob_GetBufferSize(init_color)};
-        hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_color));}
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::PresentInitColor,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_color));});}
     ReleaseCom(init_color);
     if(SUCCEEDED(hr)&&!c.uses_native_guides){
         ID3DBlob* init=CompileUtility("InitCS","cs_5_0");
         if(!init)hr=E_FAIL;
         else {compute.CS={ID3D10Blob_GetBufferPointer(init),ID3D10Blob_GetBufferSize(init)};
-            hr=ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_guides));}
+            hr=nr_aux_shader::Measure(nr_aux_shader::Shader::PresentInitGuides,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(c.device,&compute,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.init_guides));});}
         ReleaseCom(init);
     }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC draw{};draw.pRootSignature=c.util_root;
@@ -195,7 +208,7 @@ bool MakePipelines(Context& c) {
     front.StencilFunc=D3D12_COMPARISON_FUNC_ALWAYS;draw.DepthStencilState.BackFace=front;
     draw.PrimitiveTopologyType=D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     draw.NumRenderTargets=1;draw.RTVFormats[0]=c.format;draw.SampleDesc.Count=1;
-    if(SUCCEEDED(hr))hr=ID3D12Device_CreateGraphicsPipelineState(c.device,&draw,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.blit));
+    if(SUCCEEDED(hr))hr=nr_aux_shader::Measure(nr_aux_shader::Shader::PresentBlit,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateGraphicsPipelineState(c.device,&draw,IID_ID3D12PipelineState,reinterpret_cast<void**>(&c.blit));});
     ReleaseCom(convert);ReleaseCom(vs);ReleaseCom(ps);return SUCCEEDED(hr);
 }
 bool Texture(Context& c,Extent e,DXGI_FORMAT format,D3D12_RESOURCE_FLAGS flags,ID3D12Resource** out) {

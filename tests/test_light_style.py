@@ -367,6 +367,22 @@ CAPTURE_MODE_BIND
         if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
         check(readable&&std::strstr(metadata,"lightControlModeRecorded=1\n")&&std::strstr(metadata,"complete=0\n"),"persisted stage metadata distinguishes recorded scope from image completeness");
     }
+    Seed(0);
+    g_config.layered_enhancement=true;g_config.layer_tone=.4f;g_config.layer_structure=1.7f;
+    g_config.light_broad=1.6f;g_config.light_glow=.75f;
+    {
+        const auto original=g_config;const auto snapshot=nr_light_style::Read(original);
+        const float effective=nr_unified_ui::BroadBright(g_config);
+        check(effective==.4f&&nr_light_style::SameSnapshot(snapshot,nr_light_style::Read(g_config)),"effective broad display does not mutate saved factors");
+        auto edit=g_config;nr_unified_ui::SetBroadBright(edit,effective);
+        check(edit.light_broad*(1-edit.light_glow)==original.light_broad*(1-original.light_glow)&&edit.color_strength==original.color_strength,"consolidation preserves production broad product and colour");
+        nr_light_style::UndoState receipt;nr_unified_ui::UseUnifiedLight(edit);
+        check(!edit.layered_enhancement&&edit.layer_tone==original.layer_tone&&edit.light_control_mode==1,"explicit exit keeps legacy amounts and selects whole scope");
+        check(ApplyLightStyleOverlay(edit,1,false,false,receipt)==OverlayApplyResult::Applied&&g_history_generation==1,"legacy exit is one composition transaction without model reset");
+        edit=g_config;check(receipt.Restore(edit,g_config_generation),"legacy exit can be undone");
+        check(ApplyLightStyleOverlay(edit,g_config_generation,false,true,receipt)==OverlayApplyResult::Applied,"legacy undo commits");
+        check(nr_light_style::SameSnapshot(snapshot,nr_light_style::Read(g_config))&&g_config.color_strength==original.color_strength,"undo restores both old factors and component combination, not colour");
+    }
     Seed();
     g_layer_epochs={1,1,1,1,1};
     auto layered=g_config;

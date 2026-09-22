@@ -1,4 +1,57 @@
-## Current temporal milestone (2026-09-21)
+## Current UI successor: unified9 (2026-09-23)
+
+Read `docs/interop/UNIFIED9_DELIVERY_20260922.md` and `UNIFIED9_UI.md`.
+The final built-source identity is recorded there; older milestone headings below
+are historical. Continue #300/#294 to next/0.5. The owner is running game acceptance;
+do not take over games or replace game files during that work.
+
+The common header is read-only; master/route/colour/workload edits live in Picture.
+All light/dark gains live in Lighting. Ordinary broad brightening shows the saved
+Broad*(1-Glow); viewing does not normalize it, an explicit edit writes one factor.
+Legacy component gains remain only when already requested, with explicit exit and
+undo. Do not silently reinterpret legacy math or add a fourth lighting algorithm.
+Presets/reset/undo do not write AI colour. Sampling/MV/protection help must describe
+the actual consumer, not promise final saturation or halo removal.
+
+New/missing RRMissingProjectionFallback is ON; explicit saved OFF is retained.
+Only the existing missing-matrix candidate is enabled: all resource/projection
+checks and native RR survive. This is not #254 game acceptance. Other experimental
+features remain OFF by default; native skin mask stays ON for new/reset layers.
+Guided acceptance consumes complete text-report receipts separately from image
+archive completion, still requiring matching session and configuration.
+No new temporal/private reconstruction route or image algorithm ships in this UI
+milestone. Preserve the existing unified8 experimental scopes below.
+
+## Current successor: unified8 (2026-09-22)
+
+Read `docs/interop/UNIFIED8_DELIVERY_20260922.md`, `UNIFIED8_TEMPORAL.md` and
+the newest `UNIFIED_HANDOFF.md` section. Built production source is `5c10a0b7`.
+The new bounded routes are AMD-only pre-SR SDR whole-chain and successful
+RR-post SDR whole/later; existing proven Feature1 post-SR SDR native/AMD remains.
+Pre native MV, pre later scope, RR native MV, HDR temporal and private SR are
+not connected. No model DLL A/B: use the GPU-appropriate runtime and verify it.
+Guided acceptance is temporary, restores settings and never writes INI or
+switches runtime DLLs. Captures happen after timing. Native O is optional,
+same-call and exact-completion gated; unverified color domains stay unknown.
+Nine auxiliary shader entries are precompiled; PSO/model creation remains.
+The own-buffer audit found no proven new saving; do not invent a VRAM gain.
+Continue draft #300 / #294 to next/0.5. Keep #246/#254 open until game evidence.
+Final controlled GPU scope and known test-fixture corrections are in delivery
+receipts. Do not turn a static host run into game, HDR, FG or motion acceptance.
+
+## Historical successor: unified7 (2026-09-21)
+
+Read the newest section of `docs/interop/UNIFIED_HANDOFF.md`, the unified7 UI
+guide and research record. Post NR accepts 25–100%; pre NR stays 50–100%.
+Temporal scope remains proven native DX12 Feature1 post-SR SDR only.
+Preserve the Core's outer NR replay/unsubmitted Reset quarantine. Earlier
+module/internal-Detach tests did not establish production cancellation/replay
+recovery; do not repeat that claim. Validate legal continuous switching and
+unsafe-operation quarantine separately. Private post-residual transport is an
+experiment, not a connected private SR feature. No default or game acceptance
+change is implied; final built source is fixed by the new delivery receipt.
+
+## Historical temporal milestone (2026-09-21)
 
 The approved unified5 successor now delivers unified6's first package. Read
 `docs/interop/UNIFIED6_DELIVERY_20260921.md` and `UNIFIED_HANDOFF.md` for exact

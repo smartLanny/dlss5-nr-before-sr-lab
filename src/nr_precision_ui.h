@@ -5,6 +5,12 @@
 // Request editing only. Actual execution routes and GPU sizing stay separate.
 namespace nr_precision_ui {
 enum class Target { Before, Post, Present };
+inline constexpr float MinimumPercent(Target target) noexcept {
+    return target == Target::Before ? 50.f : 25.f;
+}
+inline bool SupportedPercent(float percent, Target target) noexcept {
+    return std::isfinite(percent) && percent >= MinimumPercent(target) && percent <= 100.f;
+}
 inline Target SelectedTarget(unsigned selected, bool rr, bool fg_redirect) {
     if (rr || (selected == 2 && fg_redirect)) return Target::Post;
     return selected == 2 ? Target::Present : selected == 1 ? Target::Post : Target::Before;

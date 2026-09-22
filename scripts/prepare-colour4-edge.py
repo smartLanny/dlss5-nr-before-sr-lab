@@ -26,10 +26,12 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     edge_patch=load('edge_patch',core/'scripts/patch-colour-edge.py')
     user_patch=load('user_patch',core/'scripts/patch-user-controls.py')
     temporal_patch=load('temporal_patch',core/'scripts/patch-temporal-runtime.py')
+    native_output_patch=load('native_output_patch',core/'scripts/patch-native-output-capture.py')
+    acceptance_patch=load('acceptance_patch',core/'scripts/patch-acceptance.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -56,6 +58,8 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         edge_patch.apply(stage,inputs,m3)
         user_patch.apply(stage,inputs,m3)
         temporal_patch.apply(stage,inputs,m3)
+        native_output_patch.apply(stage,inputs,m3)
+        acceptance_patch.apply(stage,inputs,m3)
         check('test_colour_edge.py',stage)
         check('test_unified_ui.py',stage)
         check('test_user_controls.py',stage)
@@ -80,9 +84,19 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'overlay_sha256':{p:hashlib.sha256(data).hexdigest() for p,data in inputs.items()}}
         manifest['files']=base.file_hashes(stage)
         manifest['temporal']={'default_enabled':False,'backends':['native-prepared-MV','AMD-FFX-1.1.4'],
-            'scopes':['whole-chain','later-layers-composed-anchor'],'production_route':'DX12 native Feature1 post-SR SDR',
+            'scopes':['whole-chain','later-layers-composed-anchor'],
+            'production_routes':{'DX12 Feature1 post-SR SDR':['native','AMD'],
+                'DX12 Feature1 pre-SR explicit SDR whole-chain':['AMD'],
+                'DX12 proven RR post SDR':['AMD']},
+            'not_connected':['HDR','pre-native-MV','pre-later-layers','NVOF'],
             'cpu_readback_wait':False,'history_half_life_ms':60,'reliability':0.65,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
+        manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,
+            'captures_after_measurement':True,'manual_game_settings':['RR','HDR','FG'],
+            'frame_timing':'ReShade callback intervals, not generated FPS','game_verified':False}
+        manifest['native_output_capture']={'optional':True,'schema':'native-output-v1',
+            'old_nrf_unchanged':True,'same_call_required':True,'known_state_required':True,
+            'missing_is_explicit':True,'game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         if json.loads(mf.read_text(encoding='utf-8'))['files']!=base.file_hashes(stage):
             raise ValueError('Edge stage hash mismatch')
@@ -98,4 +112,4 @@ if __name__=='__main__':
     try: prepare(a.core.resolve(),a.upstream.resolve(),a.output.resolve())
     except (ValueError,OSError,subprocess.SubprocessError) as error:
         raise SystemExit(str(error)) from error
-    print('Generated unified6 source only; Windows/GPU/game verification is separate.')
+    print('Generated unified9 source only; Windows/GPU/game verification is separate.')

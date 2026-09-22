@@ -13,8 +13,18 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
-$LeafVersion = if ($QualitySuccessor) { 'unified3' } else { 'perf12' }
-$CandidateVersion = if ($QualitySuccessor) { 'beta0.5-dline21-unified6' } else { 'beta0.5-dline21-' + $LeafVersion }
+if ($QualitySuccessor) {
+    # The final generator owns identity. A new successor must not compile under
+    # one version while its receipt, file names and test ZIPs retain another.
+    $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
+    $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?))'\r?$")
+    if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
+    $CandidateVersion = $VersionMatch.Groups[1].Value
+    $LeafVersion = $VersionMatch.Groups[2].Value
+} else {
+    $LeafVersion = 'perf12'
+    $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
+}
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'
@@ -71,6 +81,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Auxiliary allocation/history separation gate f
 & python (Join-Path $PSScriptRoot 'validate-aux-parent-retirement.py') --compiler $Cxx --output $MemoryGate
 if ($LASTEXITCODE -ne 0) { throw 'Auxiliary parent retirement/fence/memory gate failed.' }
 if ($QualitySuccessor) {
+    $ResetObservationProbe = $Output + '.reset-observation.exe'
+    & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $Root 'tests/reset_observation_test.cpp') '-o' $ResetObservationProbe
+    if ($LASTEXITCODE) { throw 'Reset observation schema test compilation failed.' }
+    & $ResetObservationProbe
+    if ($LASTEXITCODE) { throw 'Reset observation schema/count/source identity regression failed.' }
     & python (Join-Path $PSScriptRoot 'validate-context-release-admission.py') --compiler $Cxx --output ($Output + '.create-release-checks')
     if ($LASTEXITCODE) { throw 'Model replacement release ordering and route preservation failed.' }
     & python (Join-Path $PSScriptRoot 'validate-submit-batch.py') --compiler $Cxx --output ($Output + '.submit-checks')

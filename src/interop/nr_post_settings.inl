@@ -2,8 +2,9 @@
 // g_config.mode; effective route selection is per evaluated feature.
 #include "../nr_rr_depth_projection.h"
 namespace nr_post_settings {
-// Independent opt-in, deliberately not part of ordinary scale/reset requests.
-std::atomic<bool> missing_projection{false};
+// New/missing preferences attempt the bounded missing-projection candidate.
+// Explicit saved OFF and the independent scale/reset contract are preserved.
+std::atomic<bool> missing_projection{true};
 std::atomic<bool> missing_projection_save_failed{false};
 struct Options { bool rr=true; unsigned percent=100; };
 std::atomic<unsigned> bits{100u | 256u};
@@ -38,7 +39,7 @@ bool Reject(unsigned percent) {
     const bool was_rejected=request_rejected.exchange(true,std::memory_order_acq_rel);
     const unsigned previous=rejected_percent.exchange(percent,std::memory_order_acq_rel);
     if(!was_rejected || previous!=percent)
-        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 50-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
+        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 25-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
     return false;
 }
 bool PrepareRequestLocked(Options& value) {
@@ -84,7 +85,7 @@ void Poll() {
     // enable switch. User F6/master state is never changed by this policy.
     next.rr=RrPostAutomatic();
     next.percent=GetPrivateProfileIntW(L"NRBeforeSR",L"PostWorkPercent",100,g_ini_path);
-    const bool next_missing=GetPrivateProfileIntW(L"NRBeforeSR",L"RRMissingProjectionFallback",0,g_ini_path)!=0;
+    const bool next_missing=GetPrivateProfileIntW(L"NRBeforeSR",L"RRMissingProjectionFallback",1,g_ini_path)!=0;
     const bool zero_request=next.percent==0;
     EnterCriticalSection(&g_chain_cs);
     if(!nr_f8::g_config_hold.load(std::memory_order_acquire) &&

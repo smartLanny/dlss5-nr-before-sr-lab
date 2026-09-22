@@ -135,6 +135,17 @@ foreach ($faceName in @('nr_face_detector', 'nr_face_worker')) {
     activation='Opt-in; assets loaded only by asynchronous worker; no game quality or 5% performance qualification'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Build 'face-backend.json') -Encoding utf8
 
+$AuxCompiler=Join-Path $Build 'compile-aux-artifact.exe'
+& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' (Join-Path $PSScriptRoot 'compile-aux-artifact.cpp') '-ld3dcompiler' '-o' $AuxCompiler
+if($LASTEXITCODE -ne 0){throw 'Auxiliary shader artifact compiler failed.'}
+& python (Join-Path $PSScriptRoot 'prepare-aux-artifacts.py') --source (Join-Path $ProjectRoot 'src') --compiler $AuxCompiler --output $Build
+if($LASTEXITCODE -ne 0){throw 'Auxiliary shader precompilation failed.'}
+$Common += @('-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',"-I$Build")
+$AuxObject=Join-Path $Objects 'nr_aux_shader_runtime.o'
+& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Werror' '-c' (Join-Path $ProjectRoot 'src/nr_aux_shader_runtime.cpp') '-o' $AuxObject
+if($LASTEXITCODE -ne 0){throw 'Auxiliary creation timing module failed.'}
+$ObjectFiles += $AuxObject
+
 $DualSource=Join-Path $ProjectRoot 'src/nr_dual_spatial_d3d12.cpp'
 $DualObject=Join-Path $Objects 'nr_dual_spatial_d3d12.o'
 & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $DualSource '-o' $DualObject

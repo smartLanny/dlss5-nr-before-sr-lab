@@ -49,7 +49,8 @@ class PostMath(unittest.TestCase):
     def test_area_matches_independent_rational_integral(self):
         for w,h in ((3,3),(7,5),(8,6),(11,7)):
             image=[[((x*17+y*13)%31)/16 for x in range(w)] for y in range(h)]
-            for nw,nh in ((w,h),(max(1,w//2),max(1,h//2)),(w-1,h-1)):
+            for nw,nh in ((w,h),(max(1,w//2),max(1,h//2)),
+                          (max(1,(w+2)//4),max(1,(h+2)//4)),(w-1,h-1)):
                 actual,expected=area(image,nw,nh),exact_area(image,nw,nh)
                 for a,e in zip(sum(actual,[]),sum(expected,[])):self.assertAlmostEqual(a,e,places=12)
     def test_constant_preserved_and_no_unweighted_resize(self):

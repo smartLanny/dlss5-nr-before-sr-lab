@@ -1,7 +1,7 @@
 """Final additive temporal seam; never replace cumulative NR/Core files."""
 from pathlib import Path
 
-LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_ui.inl')
+LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_route.h','src/nr_temporal_ui.inl','src/nr_reset_observation.h')
 TEMPORAL=('temporal_controls.hpp','history_contract.hpp','amd_of_producer.hpp','amd_of_producer.cpp',
  'amd_of_shader.hpp','residual_accumulator.hpp','residual_accumulator_shader.hpp','recorded_temporal.hpp','recorded_temporal.cpp')
 INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py')+LOCAL+tuple('experiments/final_residual/'+n for n in TEMPORAL)
@@ -10,6 +10,19 @@ def runtime(s,h):
     once=h.once
     s=once(s,'#include "nr_colour_preferences.h"','#include "nr_colour_preferences.h"\n#define NR_HAS_TEMPORAL_RUNTIME 1\n#include "nr_temporal_status.h"\n#include "nr_process_memory.h"\n#include "temporal/recorded_temporal.hpp"','temporal module includes')
     s=once(s,'struct ChainConfig {','struct ChainConfig {\n    unsigned temporal_backend=0,temporal_scope=0;\n    bool temporal_legacy=false;','temporal default off')
+    s=once(s,'struct NrContext {','#include "nr_reset_observation.h"\nstruct NrContext {\n    bool observed_delayed_exposure_reset=false;',
+        'successful evaluate reset observation')
+    s=once(s,'    context.diagnostic_reset_reasons = diagnostic_reset_reasons;',
+        '    context.diagnostic_reset_reasons = diagnostic_reset_reasons;\n    context.observed_delayed_exposure_reset=delayed_texture_reset;',
+        'separate delayed exposure from diagnostic bit64')
+    s=once(s,'    g_applied_nr_identity = identity;', '''    const auto observed_source=nr_source_runtime::CurrentSource();
+    nr_reset_observation::counters.Observe({context.instance_id,context.feature_generation,
+        context.evaluations,context.layer_index,context.width,context.height,
+        context.diagnostic_reset_reasons,context.successful_evaluations_since_reset,
+        context.last_source_to_canonical,context.observed_delayed_exposure_reset,
+        observed_source.stream,observed_source.epoch,observed_source.sequence,
+        context.config_generation,context.history_generation});
+    g_applied_nr_identity = identity;''','primary successful reset count')
     s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    if(config.temporal_backend>2u)config.temporal_backend=0;\n    if(config.temporal_scope>1u)config.temporal_scope=0;','temporal normalization')
     s=once(s,'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return ',
         'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_legacy==b.temporal_legacy && ','temporal same config')
@@ -30,12 +43,23 @@ def runtime(s,h):
     unsigned temporal_key=0,temporal_width=0,temporal_height=0;
     unsigned long long temporal_queue=0,temporal_token=0,temporal_retry_tick=0;
     unsigned temporal_attempt_generation=0;''','temporal context owner')
+    s=once(s,'void CollectRetiredContextsLocked() {',
+        'namespace nr_temporal { void Maintain(NrContext&); }\nvoid CollectRetiredContextsLocked() {',
+        'temporal maintenance declaration')
+    a,b=h.definition(s,'void CollectRetiredContextsLocked(');part=s[a:b]
+    part=once(part,'    for (auto &context : g_contexts) {',
+        '    for (auto &context : g_contexts) {\n        nr_temporal::Maintain(context);',
+        'temporal active owner maintenance')
+    s=s[:a]+part+s[b:]
     s=once(s,'    for(auto& guide:context.dual_create_guides)ReleaseCom(guide);','''    if(context.temporal){
         nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
         delete context.temporal;context.temporal=nullptr;
     }
     for(auto& guide:context.dual_create_guides)ReleaseCom(guide);''','temporal safe context destruction')
     # These callbacks retain the existing native Reset, Execute and Signal proofs.
+    # Core's outer gates quarantine unsubmitted Reset and opaque NR replay.
+    # The module replay callback is not authority to relax either Core gate;
+    # direct module callers serialize its receipt before ending the lease.
     a,b=h.definition(s,'void DetachLifecycleCommandListTokenLocked(')
     part=s[a:b]
     part=once(part,'        --context->recording_command_lists;','''        if(context->temporal){
@@ -77,6 +101,36 @@ def runtime(s,h):
         }''','temporal actual adoption')
     s=s[:a]+part+s[b:]
     # One compositor implementation, with an explicit primary-output table.
+    s=once(s,'struct PostSrSubstitution {','struct PostSrSubstitution {\n    bool temporal_motion_snapshot=false;',
+        'native temporal motion capture receipt')
+    a,b=h.definition(s,'PostSrSubstitution PrepareAfterSr(');part=s[a:b]
+    # Both same-grid and resampled MV are captured at the native read boundary.
+    # Reuse the slot's immutable descriptor/recording lease, not a second ring.
+    marker='    ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);'
+    part=once(part,marker,'''    const bool temporal_native_motion=g_config.temporal_backend==1 && feature.feature_id==1 &&
+        !(feature.create_flags&(1|4)) && guides.valid_motion_scale_x && guides.valid_motion_scale_y &&
+        guides.capture_params.game_mv_valid && guides.motion &&
+        (post_sr_color_mode==CodecColorMode::Automatic || post_sr_color_mode==CodecColorMode::SrgbEncodedSdr);
+    const bool temporal_motion_ready=temporal_native_motion &&
+        EnsureMotionProxy(device,*slot,guides.motion,work_width,work_height);
+'''+marker,'native temporal motion snapshot allocation')
+    marker='    nr_regions::Dispatch(command_list,*slot,false);'
+    part=once(part,marker,'''    if(temporal_motion_ready){
+        const auto& motion=guides.signature;
+        Transition(command_list,slot->motion_proxy,slot->motion_proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchMotionResample(command_list,*slot,work_width,work_height,
+            motion.motion_source_width,motion.motion_source_height,motion.motion_x,motion.motion_y);
+        UavBarrier(command_list,slot->motion_proxy);
+        Transition(command_list,slot->motion_proxy,slot->motion_proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        substitution.temporal_motion_snapshot=true;
+    }
+'''+marker,'native temporal motion capture before opaque SR')
+    s=s[:a]+part+s[b:]
+    a,b=h.definition(s,'bool FinishAfterSr(');part=s[a:b]
+    part=once(part,'    if (substitution.guides.signature.resample_motion) {',
+        '    if (substitution.guides.signature.resample_motion && !substitution.temporal_motion_snapshot) {',
+        'reuse native input snapshot after SR')
+    s=s[:a]+part+s[b:]
     # Suppress diagnostic captures for P1; its nonlinear colour/light constants
     # still come from exactly the same current consumer as final Z.
     a,b=h.definition(s,'void DispatchCodec(');part=s[a:b]
@@ -98,6 +152,24 @@ def runtime(s,h):
     marker='    if (pipeline == g_codec.encode)\n'
     part=once(part,marker,'    if(primary_heap)return; // P1 never updates final-output diagnostics.\n'+marker,'primary no final side effects')
     s=s[:a]+part+s[b:]
+    # Pre-SR uses its actual full-render-grid result, before the original SR
+    # sees the replacement Color. Never reuse an encoded model proxy as B.
+    s=once(s,'Substitution PrepareBeforeSr(', '#include "nr_temporal_runtime.inl"\n\nSubstitution PrepareBeforeSr(',
+        'temporal definitions before both native consumers')
+    a,b=h.definition(s,'Substitution PrepareBeforeSr(');part=s[a:b]
+    marker='''    UavBarrier(command_list, slot->result);
+    Transition(command_list, slot->result, slot->result_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);'''
+    part=once(part,marker,'''    UavBarrier(command_list, slot->result);
+    auto temporal=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PreSr,
+        command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y,
+        false);
+    if(!nr_temporal::Record(command_list,*context,*slot,temporal)){
+        substitution.fatal_recording=0xBAD00005u;return substitution;
+    }
+    Transition(command_list, slot->result, slot->result_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);''','pre actual final candidate before native SR')
+    s=s[:a]+part+s[b:]
     # Split the existing post fields into a helper, then reuse it for P1 and Z.
     assert s.count('    const bool post_color_field=g_config.low_grid_color_edit_field;')==2
     start=s.index('    const bool post_color_field=g_config.low_grid_color_edit_field;',
@@ -107,13 +179,15 @@ def runtime(s,h):
     fields=fields.replace('context.width,context.height,1.0f,1);','context.width,context.height,1.0f,1,primary_heap);')
     fields=fields.replace('nr_regions::Dispatch(command_list,slot,true);','nr_regions::Dispatch(command_list,slot,true,primary_heap!=nullptr);')
     helper='''
-#include "nr_temporal_runtime.inl"
 void RecordPostNrFields(ID3D12GraphicsCommandList* command_list,NrContext& context,NrSlot& slot,
     const FeatureRecord& feature,const ColorContract& color_contract,unsigned width,unsigned height,
     ID3D12DescriptorHeap* primary_heap=nullptr){
 '''+fields+'}\n'
-    s=s[:start]+'''    auto temporal=nr_temporal::Prepare(command_list,context,slot,substitution.guides,feature,
-        width,height,substitution.output_base_x,substitution.output_base_y);
+    s=s[:start]+'''    // FinishAfterSr is reached for Feature13 only after ProcessRrPost's
+    // successful native result, generation and ownership checks.
+    const auto temporal_entry=feature.feature_id==13?nr_temporal_route::Entry::PostRr:nr_temporal_route::Entry::PostSr;
+    auto temporal=nr_temporal::PrepareForRoute(temporal_entry,command_list,context,slot,substitution.guides,feature,
+        width,height,substitution.output_base_x,substitution.output_base_y,substitution.temporal_motion_snapshot);
     if(temporal && temporal.primary_heap){
         RecordPostNrFields(command_list,context,slot,feature,color_contract,width,height,temporal.primary_heap);
         DispatchCodec(command_list,slot,g_codec.combine,width,height,color_contract,false,
@@ -142,8 +216,26 @@ def apply(stage:Path,inputs,h):
     update('src/nr_before_sr.cpp',lambda s:runtime(s,h))
     update('src/nr_source_frame_forward.inl',lambda s:h.once(s,'unsigned long long CurrentRetryToken();','nr_source_frame::Source CurrentSource();\nunsigned long long CurrentRetryToken();','source accessor'))
     update('src/nr_region_runtime.inl',lambda s:s.replace('NrSlot& slot,bool field){','NrSlot& slot,bool field,bool primary=false){').replace('auto* packet=field&&slot.dual_selected?', 'auto* packet=field&&!primary&&slot.dual_selected?'))
+    update('src/nr_dual_runtime.inl',lambda s:h.once(s,'    aux.reset_retry_pending=false;', '''    aux.reset_retry_pending=false;
+    const auto observed_source=nr_source_runtime::CurrentSource();
+    nr_reset_observation::counters.Observe({aux.instance_id,aux.feature_generation,aux.evaluations,
+        aux.layer_index,aux.width,aux.height,aux.diagnostic_reset_reasons,
+        aux.successful_evaluations_since_reset,aux.last_source_to_canonical,aux.observed_delayed_exposure_reset,
+        observed_source.stream,observed_source.epoch,observed_source.sequence,aux.config_generation,aux.history_generation});''',
+        'auxiliary successful reset count'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',
         '''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    nr_reset_observation::Counters reset_observations;
+    EnterCriticalSection(&g_chain_cs);reset_observations=nr_reset_observation::counters;LeaveCriticalSection(&g_chain_cs);
+    FeedbackAppend(s,"%s.resetObservation.schema=successful-evaluate-v1; diagnostic bits: 1=create,2=game,4=history,8=color-contract,16=guides,32=retry,64=RR-placeholder; delayedExposure is separate; Evaluate success is not GPU completion\\n",prefix);
+    for(unsigned i=0;i<reset_observations.layers.size();++i){const auto& l=reset_observations.layers[i];
+        FeedbackAppend(s,"%s.resetObservation.layer%u=eval:%llu,resets:%llu,delayedExposure:%llu,reasons:%llu/%llu/%llu/%llu/%llu/%llu/%llu,lastInstance:%llu,feature:%llu,evaluation:%llu,sinceReset:%u,work:%ux%u,sourceToCanonical:%.9g\\n",
+            prefix,i+1,l.evaluations,l.resets,l.delayed_exposure,l.reasons[0],l.reasons[1],l.reasons[2],l.reasons[3],l.reasons[4],l.reasons[5],l.reasons[6],
+            l.last.instance,l.last.feature,l.last.evaluation,l.last.since_reset,l.last.width,l.last.height,double(l.last.source_to_canonical));}
+    const auto reset_count=std::min<unsigned long long>(reset_observations.reset_events,reset_observations.recent_resets.size());
+    for(unsigned long long i=reset_observations.reset_events-reset_count;i<reset_observations.reset_events;++i){const auto& r=reset_observations.recent_resets[i%reset_observations.recent_resets.size()];
+        FeedbackAppend(s,"%s.resetObservation.event%llu=source:%llu/%llu/%llu,layer:%u,instance:%llu,feature:%llu,evaluation:%llu,config:%u,history:%u,reasons:%u,delayedExposure:%u,sourceToCanonical:%.9g\\n",
+            prefix,i,r.stream,r.epoch,r.source_frame,r.layer+1,r.instance,r.feature,r.evaluation,r.config_generation,r.history_generation,r.reasons,r.delayed_exposure?1u:0u,double(r.source_to_canonical));}
     const auto temporal_memory=nr_temporal::SnapshotMemory();
     FeedbackAppend(s,"%s.temporal.cancelledUnsubmitted=%llu\\n",prefix,nr_temporal_status::cancelled.load());
     FeedbackAppend(s,"%s.temporal.contexts=live:%u,retired:%u,pending:%u,quarantinedSubset:%u\\n%s.temporal.contextBytes=live:%llu,retired:%llu,pending:%llu,quarantinedSubset:%llu\\n",

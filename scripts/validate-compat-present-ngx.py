@@ -24,7 +24,7 @@ def main():
     p.add_argument('--vcvars',type=Path)
     p.add_argument('--nr-runtime',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--case',choices=['single','multi','all'],default='single')
+    p.add_argument('--case',choices=['single','multi','all','post25'],default='single')
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--cold-bootstrap',action='store_true',help='Require the production bridge to bootstrap without any host NGX Init or bootstrap DLL.')
     p.add_argument('--consumer',action='store_true',help='Exercise the production FG-input NR consumer; native FG is explicitly a placeholder.')
@@ -36,6 +36,8 @@ def main():
     p.add_argument('--failure-controls',action='store_true',help='Inject one NR opaque API failure and one private allocation refusal, explicitly test-only.')
     p.add_argument('--capture',action='store_true',help='Require actual completed per-layer pre-FG NRF and metadata export.')
     a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve()
+    if a.case=='post25' and (a.consumer or a.native_fg):
+        p.error('--case post25 covers the Present host; native SR/RR and FG are separate validations')
     if out.exists() and any(out.iterdir()):p.error('--output must be empty to preserve earlier evidence')
     out.mkdir(parents=True,exist_ok=True)
     source_manifest=(core.parent/'source-manifest.json').resolve(strict=True);source_manifest_sha256=sha(source_manifest)
@@ -95,7 +97,7 @@ def main():
             shutil.copy2(src,out/name)
         if a.native_fg:shutil.copy2(a.fg_runtime.resolve(strict=True),out/'nvngx_dlssg.dll')
         if not a.compile_only:
-            cases=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
+            cases=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(n,25) for n in range(1,6)] if a.case=='post25' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in cases:
                 code=run([binary,out,passes,scale],f'run-{passes}-{scale}',240)
                 if code:break
@@ -131,7 +133,7 @@ def main():
         result['present_nrf_metadata']={f.name:{'sha256':sha(f),'content':json.loads(f.read_text(encoding='utf-8'))} for f in out.glob('capture-p*-layer*.json')}
         result['present_capture_cases_checked']=0
         if not a.compile_only and not code:
-            expected=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
+            expected=cases
             for passes,scale in expected:
                 prefix=f'capture-p{passes}-s{scale}-layer'
                 paths=[out/f'{prefix}{layer}.json' for layer in range(1,passes+1)]

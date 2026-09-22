@@ -17,8 +17,8 @@ class UiRefreshContract(unittest.TestCase):
         cls.notices = (ROOT / "src" / "nr_settings_notices_ui.inl").read_text(encoding="utf-8")
 
     def test_work_scale_is_one_continuous_supported_slider(self):
-        self.assertRegex(self.ui, r'"##nr-processing-precision",\s*&precision,\s*50\.(?:0)?f,\s*100\.(?:0)?f')
-        self.assertIn('ImGui::SliderInt("##post-nr-working-scale",&edit,50,100', self.post)
+        self.assertIn('"##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f', self.ui)
+        self.assertIn('ImGui::SliderInt("##post-nr-working-scale",&edit,25,100', self.post)
         self.assertNotIn("for(int percent", self.post)
         self.assertNotIn("100,75,67,50", self.post)
 

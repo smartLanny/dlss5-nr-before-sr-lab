@@ -30,6 +30,21 @@ template<class C> void ResetLightMethod(C& c) {
     c.light_preview=0;c.region_preview=0;
 }
 template<class C> bool LegacyLightActive(const C& c) {
-    return c.light_broad!=1.f||c.light_dark!=1.f||c.light_control_mode!=1u;
+    return c.layered_enhancement||c.light_control_mode!=1u;
+}
+// The production ordinary-light shader consumes this exact product in both
+// legacy and whole-direction scope. Reading it never rewrites saved settings.
+template<class C> float BroadBright(const C& c) {
+    return c.light_broad*(1.f-c.light_glow);
+}
+template<class C> void SetBroadBright(C& c,float gain) {
+    if(!std::isfinite(gain))return;
+    c.light_broad=std::clamp(gain,0.f,2.f);c.light_glow=0.f;
+    nr_light_style::MarkCustom(c);
+}
+template<class C> void UseUnifiedLight(C& c) {
+    c.layered_enhancement=false;
+    c.light_control_mode=nr_light_style::WholeLightDark;
+    nr_light_style::MarkCustom(c);
 }
 }

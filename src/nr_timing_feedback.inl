@@ -1,6 +1,17 @@
 // Included after FeedbackAppend. Snapshot storage stays off the worker stack.
 #if NR_HAS_TIMING
 void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
+#if NR_AUX_TIMING
+    unsigned long long aux[nr_aux_shader::kSnapshotWords]{};
+    if(nr_aux_shader::Snapshot(aux,nr_aux_shader::kSnapshotWords)==nr_aux_shader::kSnapshotWords){
+        FeedbackAppend(session,"%s.auxCreate.schema=1\n%s.auxCreate.qpcFrequency=%llu\n%s.auxCreate.note=CPU cold-path compilation and PSO creation only; process totals, not GPU time\n",prefix,prefix,nr_aux_shader::Frequency(),prefix);
+        for(unsigned shader=0;shader<unsigned(nr_aux_shader::Shader::Count);++shader)
+            for(unsigned op=0;op<unsigned(nr_aux_shader::Operation::Count);++op){
+                const auto* a=aux+(shader*unsigned(nr_aux_shader::Operation::Count)+op)*nr_aux_shader::kMetrics;
+                FeedbackAppend(session,"%s.auxCreate.%u.%s=calls:%llu,failures:%llu,measured:%llu,totalTicks:%llu,maxTicks:%llu\n",prefix,shader,op?"pso":"compile",a[0],a[1],a[2],a[3],a[4]);
+            }
+    }
+#endif
     const auto snapshot=std::unique_ptr<nr_timing::Snapshot>(new(std::nothrow) nr_timing::Snapshot);
     if(!snapshot){FeedbackAppend(session,"%s.timing.available=0\n",prefix);return;}
     SnapshotNrTiming(*snapshot);

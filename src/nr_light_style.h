@@ -14,6 +14,10 @@ struct Snapshot {
     float preset_color = 1.f;
     unsigned version = kVersion;
     unsigned control_mode = WholeLightDark;
+    // Undo may restore a legacy combined setup. Presets deliberately do not
+    // write these fields: selecting a preset must not silently drop old gains.
+    bool legacy_components = false;
+    float tone = 1.f, detail = 1.f, bright = 1.f, shadow = 1.f;
 };
 inline float Bounded(float value, float fallback, float high) {
     return std::isfinite(value) ? std::clamp(value, 0.f, high) : fallback;
@@ -25,7 +29,9 @@ inline bool SameValues(const Snapshot &a, const Snapshot &b) {
 }
 inline bool SameSnapshot(const Snapshot &a, const Snapshot &b) {
     return SameValues(a,b) && a.preset == b.preset &&
-        a.preset_color == b.preset_color && a.version == b.version;
+        a.preset_color == b.preset_color && a.version == b.version &&
+        a.legacy_components == b.legacy_components && a.tone == b.tone &&
+        a.detail == b.detail && a.bright == b.bright && a.shadow == b.shadow;
 }
 inline Snapshot Select(unsigned preset, float current_color, unsigned control_mode) {
     Snapshot value;
@@ -42,7 +48,8 @@ inline Snapshot Select(unsigned preset, float current_color, unsigned control_mo
 }
 template<class Config> Snapshot Read(const Config &c) {
     return {c.light_broad,c.light_dark,c.light_reflection,c.light_structure,
-        c.light_glow,c.color_strength,c.light_preset,c.light_preset_color,c.light_style_version,c.light_control_mode};
+        c.light_glow,c.color_strength,c.light_preset,c.light_preset_color,c.light_style_version,c.light_control_mode,
+        c.layered_enhancement,c.layer_tone,c.layer_structure,c.layer_bright,c.layer_shadow};
 }
 template<class Config> void Write(Config &c, const Snapshot &v) {
     c.light_broad=v.broad; c.light_dark=v.dark; c.light_reflection=v.reflection;
@@ -98,6 +105,9 @@ struct UndoState {
     template<class Config> bool Restore(Config &c,unsigned current) const {
         if (!Available(current)) return false;
         Write(c,before);
+        c.layered_enhancement=before.legacy_components;
+        c.layer_tone=before.tone;c.layer_structure=before.detail;
+        c.layer_bright=before.bright;c.layer_shadow=before.shadow;
         return true;
     }
 };

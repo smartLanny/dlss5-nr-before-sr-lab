@@ -7,7 +7,7 @@
 namespace nr_timing {
 enum class Stage : unsigned {
     Carrier, ChainLock, QueueLock, FenceWait, Readback,
-    NrEvaluate, NativeEvaluate, Execute, Signal, Count
+    NrEvaluate, NativeEvaluate, Execute, Signal, ModelCreate, Count
 };
 enum class WaitMode : unsigned { Event = 0, Polling = 1 };
 enum Flag : unsigned {
@@ -109,6 +109,7 @@ inline const char* Name(Stage stage) {
     case Stage::NativeEvaluate: return "native-evaluate";
     case Stage::Execute: return "native-execute";
     case Stage::Signal: return "retirement-signal";
+    case Stage::ModelCreate: return "nr-model-create";
     default: return "unknown";
     }
 }

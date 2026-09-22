@@ -39,6 +39,10 @@ $exportType = [regex]::Match($capture, 'struct StageCaptureExport \{[\s\S]*?\r?\
 $arm = Extract $capture 'void ArmStageCaptureLocked('
 $guard = [regex]::Match($arm, '\{(?<guard>[\s\S]*?)NrStageCapture capture').Groups['guard'].Value.Replace('return;', 'return false;')
 $functions = (Extract $capture 'unsigned int StageCaptureStatus(') + "`n"
+if ($capture.Contains('bool RequestStageCaptureInternal(')) {
+    $functions += (Extract $capture 'bool RequestStageCaptureInternal(') + "`n"
+    $functions += (Extract $capture 'bool RequestStageCaptureOwned(') + "`n"
+}
 $functions += (Extract $capture 'bool RequestStageCapture(') + "`n"
 if ($capture.Contains('bool CancelPendingStageCapture(')) {
     $functions += (Extract $capture 'bool CancelPendingStageCapture(') + "`n"
@@ -119,7 +123,7 @@ struct StageCapturePreparedContext {
 };
 StageCapturePreparedContext g_stage_capture_prepared_context{};
 std::recursive_mutex g_chain_cs;
-namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
+namespace nr_f8 { std::atomic<bool> g_config_hold{false}; bool active=false; bool IsActive(){return active;} }
 std::atomic<unsigned int> chain_waiters{0};
 void EnterCriticalSection(std::recursive_mutex *lock) {
     ++chain_waiters; lock->lock(); --chain_waiters;
@@ -392,6 +396,21 @@ int main() {
     return failures ? 1 : 0;
 }
 '@
+if ($capture.Contains('bool RequestStageCaptureOwned(')) {
+    $ownedChecks = @'
+    Check(!RequestStageCaptureOwned(), "owned capture requires an actual configuration lease");
+    nr_f8::g_config_hold=true; nr_f8::active=true;
+    Check(!RequestStageCaptureOwned() && StageCaptureStatus()==0, "owned capture rejects active performance sampling");
+    nr_f8::active=false;
+    Check(RequestStageCaptureOwned() && nr_f8::g_config_hold.load(), "owner requests capture without dropping its configuration lease");
+    Check(!RequestStageCaptureOwned(), "owner cannot overlap an outstanding request");
+    Check(CancelPendingStageCapture(g_stage_capture_request_id.load()), "owned pending capture uses exact-request cancellation");
+    nr_f8::g_config_hold=false; nr_f8::active=true;
+    Check(!RequestStageCapture(), "ordinary capture rejects active performance sampling");
+    nr_f8::active=false; g_stage_capture_request_id=1;
+'@
+    $harness = $harness.Replace('    NgxHandle carrier, runtime;', $ownedChecks + "`n    NgxHandle carrier, runtime;")
+}
 $output = Join-Path $project 'build\stage-capture-lifecycle-tests'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $cpp = Join-Path $output 'stage_capture_lifecycle.cpp'

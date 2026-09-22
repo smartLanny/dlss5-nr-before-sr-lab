@@ -58,15 +58,15 @@ struct Harness{
   Check(device->CreateCommandList(0,q.Type,allocator,nullptr,IID_PPV_ARGS(list.out())),"list");
   Check(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(fence.out())),"fence");
   event=CreateEventW(nullptr,FALSE,FALSE,nullptr);if(!event)throw std::runtime_error("event");
-  const char*names[]={"rr_guides","rr_accumulate","rr_compose","deferred_encode","deferred_compose","normalize"};
-  std::array<std::vector<char>,6> blobs;std::array<nr_edit_dx12::Bytecode,static_cast<unsigned>(nr_edit_dx12::Kernel::Count)> code{};
-  for(unsigned n=0;n<6;n++){
+  const char*names[]={"rr_guides","rr_accumulate","rr_compose","deferred_encode","deferred_compose","normalize","post_extract","post_compose"};
+  std::array<std::vector<char>,8> blobs;std::array<nr_edit_dx12::Bytecode,static_cast<unsigned>(nr_edit_dx12::Kernel::Count)> code{};
+  for(unsigned n=0;n<8;n++){
    blobs[n]=Read(directory/(std::string(names[n])+".cso"));Com<ID3D11ShaderReflection> reflection;
    Check(D3DReflect(blobs[n].data(),blobs[n].size(),IID_ID3D11ShaderReflection,reinterpret_cast<void**>(reflection.out())),"DXBC reflection");
    UINT x=0,y=0,z=0;reflection->GetThreadGroupSize(&x,&y,&z);if(x!=8||y!=8||z!=1)throw std::runtime_error("thread ABI");
    D3D11_SHADER_BUFFER_DESC b{};Check(reflection->GetConstantBufferByIndex(0)->GetDesc(&b),"constant ABI");
    const unsigned expected=n<3?144:n<5?48:64;if(b.Size!=expected)throw std::runtime_error("constant size mismatch");
-   unsigned index=n<5?n:static_cast<unsigned>(nr_edit_dx12::Kernel::NormalizeGuides);code[index]={blobs[n].data(),blobs[n].size()};
+   unsigned index=n<5?n:n+1;code[index]={blobs[n].data(),blobs[n].size()};
   }
   kernels=nr_edit_dx12::Create(device,1,1,code,SameDevice);if(!kernels)throw std::runtime_error("real PSO creation");
   nr_edit_dx12::SetRetirementGuard(kernels,[](void*u,nr_private_sr::Recording){return static_cast<Harness*>(u)->released;},this);
@@ -196,9 +196,11 @@ void InvalidMotion(Harness& h,float invalid){using namespace nr_edit_dx12;Resour
  auto result=h.CopyOut(owner,nm,16);h.Submit();h.Assert(result,8);h.Reset();
 }
 }
+#ifndef NR_EDIT_SHADER_VALIDATION_LIBRARY
 int wmain(int argc,wchar_t**argv){try{if(argc<2||argc>3||(argc==3&&std::wstring(argv[2])!=L"--nvidia"))throw std::runtime_error("usage: windows_shader_validation <compiled-shader-directory> [--nvidia]");
  Harness h{std::filesystem::path(argv[1]),argc==3};Run(h,0);Run(h,1);Run(h,2);TinyCarrier(h,false);TinyCarrier(h,true);TinyCarrier(h,false,2);TinyCarrier(h,true,2);HistoryCase(h,false);HistoryCase(h,true);
  InvalidMotion(h,std::numeric_limits<float>::quiet_NaN());InvalidMotion(h,std::numeric_limits<float>::infinity());
  std::cout<<(argc==3?"NVIDIA GPU shader execution; no NR/SR model\n":"WARP GPU shader execution; no NR/SR model\n");
  std::cout<<"{\"six_shaders\":\"passed\",\"actual_fp16_quantization_tail\":\"passed\",\"reflection\":\"passed\",\"positive_identity_signed\":\"passed\",\"nan_inf_motion\":\"passed\",\"nvidia_nr_sr\":\"not-run\",\"game\":\"not-run\"}\n";return 0;
  }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}}
+#endif
