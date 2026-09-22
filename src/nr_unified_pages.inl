@@ -28,7 +28,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     nr_light_style::UndoState& undo,bool has_pending,bool& pending_undo,bool& changed,bool& discrete) {
     SettingsSection(NrUi("Light adjustment","光影调节"));
     auto method=nr_unified_ui::LightMethod(next);
-    const char* methods[]={NrUi("Light / dark","普通亮暗"),NrUi("Regions · test","精细分区·实验"),NrUi("Edit types · test","修改类型·实验")};
+    const char* methods[]={NrUi("Light / dark","普通亮暗"),NrUi("Regions · test","精细分区·实验"),NrUi("Edits · test","修改类型·实验")};
     if(NrChoice("light-method",method,methods,3)){nr_unified_ui::SetLightMethod(next,method);changed=true;discrete=true;}
     SettingsTooltip(NrUi("These modes adjust NR's edits, not the whole game image. Final enhancement, AI colour and applicable safeguards still affect the result.",
         "三种方式只调节 NR 新增修改；最终增强、AI 色彩及适用的保护仍会影响结果。"));
