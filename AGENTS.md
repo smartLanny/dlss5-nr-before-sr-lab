@@ -1,5 +1,10 @@
 ## Current successor: unified10 (2026-09-23)
 
+Public candidate name: 0.5.1 Beta; built source d36dc771. PR303 1874a22a
+is included with HDR integration preserved. Full bilingual build, Core WARP
+and controlled five-mode GPU checks passed; game/NGX acceptance is separate.
+FP16 in-place remains OFF. Read the exact final delivery receipt before claims.
+
 Read `docs/interop/UNIFIED10_UI.md` and `UNIFIED10_DELIVERY_20260923.md`.
 The user explicitly requested HDR stabilization. New source adds AMDOF for
 same-Evaluate declared linear HDR + valid PreExposure on pre-SR whole-chain,

@@ -262,6 +262,13 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 }
                 $StatusSource = if ($Version -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($Version -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
+                if ($Version -eq 'beta0.5-dline21-unified10') {
+                    Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
+                    $StatusPath = Join-Path $Package 'IMPLEMENTATION-STATUS.md'
+                    $StatusText = Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8
+                    $StatusText = $StatusText.Replace('051_BETA_CHANGELOG.zh-CN.md','更新说明-0.5.1Beta.md').Replace('051_BETA_ACCEPTANCE.zh-CN.md','验收指南-0.5.1Beta.md').Replace('PR303_INTEGRATION_REVIEW_20260923.md','PR303-REVIEW.md')
+                    [IO.File]::WriteAllText($StatusPath, $StatusText, (New-Object Text.UTF8Encoding($false)))
+                }
             }
         }
         if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
