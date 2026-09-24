@@ -100,10 +100,19 @@ int main(){
 
  clear();old=lookup();old->instance_id=102;ID3D12Fence fence{4};LifecycleQueue queue{&fence};
  old->completion_fence_value=5;old->last_submission_queue=&queue;
- replacement=lookup(3776,2120);check(replacement&&old->retired&&released.empty(),"unfinished fence does not destroy or introduce a blocking wait");
+ replacement=lookup(3776,2120);
+ if(replacement){std::puts("REPRODUCED: in-flight retired model still occupies memory when replacement context is admitted");return 3;}
+ check(old->retired&&released.empty(),"unfinished fence retains old ownership without CPU wait");
+ check(nr_processing_runtime::source_blocked&&reason==BypassReason::ContextReleasePending,"deferred in-flight replacement has an explicit native-only reason");
+ check(lookup(640,360,0,0,&carriers[1]),"an unrelated carrier need not wait for an unqueued old model");
+ // Rapid request changes must not reserve several replacement models. Only the
+ // latest call may create after the exact old GPU/recording lifetime completes.
+ for(unsigned request=0;request<32;++request){g_config.intensity=1.2f+.01f*request;check(!lookup(2720+request*2,1528),"in-flight toggles admitted replacement allocations");}
  DrainPendingContextDestructions();check(released.empty(),"unfinished context cannot reach Release");
- fence.completed=UINT64_MAX;collect();DrainPendingContextDestructions();check(released.empty(),"device removed is not completion");
- fence.completed=5;collect();DrainPendingContextDestructions();check(released==std::vector<unsigned long long>{102},"own completed fence permits release");
+ fence.completed=UINT64_MAX;check(!lookup(2720,1528),"removed-device fence cannot admit a replacement");collect();DrainPendingContextDestructions();check(released.empty(),"device removed is not completion");
+ fence.completed=5;check(!lookup(2720,1528),"completed old model must finish outside-lock Release before replacement");
+ DrainPendingContextDestructions();check(released==std::vector<unsigned long long>{102},"own completed fence permits release");
+ replacement=lookup(2720,1528);check(replacement&&replacement->tuning_signature.intensity==g_config.intensity,"only latest request admitted after old model release");
 
  clear();old=lookup();old->instance_id=110;g_config.enabled=false;collect();DrainPendingContextDestructions();
  check(old->sr_handle&&!old->retired&&released.empty(),"F6 OFF alone preserves valid cached model");g_config.enabled=true;check(lookup()==old,"F6 ON reuses matching cache");
@@ -113,11 +122,38 @@ int main(){
   if(layer==4){c->completion_fence_value=9;c->last_submission_queue=&child_queue;}}
  check(!lookup(3776,2120),"root resize defers while ready layers await release");DrainPendingContextDestructions();
  check(released.size()==4&&std::find(released.begin(),released.end(),204)==released.end(),"root and three ready children release, pending child survives");
+ check(!lookup(3776,2120),"retired child still blocks a replacement after parent was removed");
  child_fence.completed=9;collect();DrainPendingContextDestructions();check(released.size()==5&&released.back()==204,"last child releases only at own fence");
+ check(lookup(3776,2120),"replacement becomes possible after last own child lifetime");
 
- for(unsigned gate=0;gate<5;++gate){clear();old=lookup();old->instance_id=300;old->slots[0].key=old;
+ for(unsigned gate=0;gate<10;++gate){clear();old=lookup();old->instance_id=300;old->slots[0].key=old;
+  ID3D12Fence own_fence{1};LifecycleQueue own_queue{&own_fence};
   if(gate==0)old->recording_command_lists=1;if(gate==1)old->pending_recording_token=1;if(gate==2)old->awaiting_fence_signal=true;
   if(gate==3)old->bindings_ok=false;if(gate==4)old->slots[0].recording_command_lists=1;
-  check(lookup(3776,2120)!=nullptr,"unready retirement may coexist with new model");collect();DrainPendingContextDestructions();check(released.empty(),"existing recording/signal/binding gate retained");}
- std::puts("PASS real Find/collector/drain: ready release ordering, detached reentry, matching reuse, own fences, F6 cache, five layers, route retention and latest settings");
+  if(gate==5)old->slots[0].awaiting_fence_signal=true;
+  if(gate==6){old->slots[0].completion_fence_value=2;old->slots[0].last_submission_queue=&own_queue;}
+  if(gate==7)old->slots[0].bindings_ok=false;
+  if(gate==8)old->create_dependencies_quarantined=true;
+  if(gate==9)old->lifecycle_dependencies_quarantined=true;
+  check(!lookup(3776,2120),"blocked or quarantined retirement must not overlap a replacement");collect();DrainPendingContextDestructions();check(released.empty(),"existing recording/signal/binding gate retained");
+  old->recording_command_lists=0;old->pending_recording_token=0;old->awaiting_fence_signal=false;old->bindings_ok=true;
+  old->slots[0].recording_command_lists=0;old->slots[0].awaiting_fence_signal=false;old->slots[0].bindings_ok=true;own_fence.completed=2;
+  if(gate>=8){check(!lookup(3776,2120),"opaque quarantine must never be cleared by admission");continue;}
+  check(!lookup(3776,2120),"ready release is still deferred outside the selector lock");DrainPendingContextDestructions();check(lookup(3776,2120),"completed lifecycle recovers without timed retry");
+ }
+ clear();old=lookup();old->instance_id=400;auto* matching=lookup(640,360,0,0,&carriers[1]);check(matching,"matching independent carrier");
+ old->recording_command_lists=1;check(!lookup(3776,2120),"old source is blocked");check(lookup(640,360,0,0,&carriers[1])==matching,"unrelated matching model remains usable");
+ // Same carrier across feature generation must not bypass the old allocation.
+ clear();old=lookup();old->instance_id=401;old->pending_recording_token=1;
+ EnterCriticalSection(&g_chain_cs);replacement=FindOrCreateContext(&carriers[0],4,1,3840,2160,CodecColorMode::Automatic,guides);LeaveCriticalSection(&g_chain_cs);
+ check(!replacement&&old->retired,"carrier generation change bypassed retirement pressure");
+ // A valid cached route for the SAME carrier may still be reused: this guard
+ // limits new allocations, it is not a policy that destroys inactive routes.
+ clear();old=lookup();old->instance_id=450;
+ auto other_mode=[](){EnterCriticalSection(&g_chain_cs);auto* c=FindOrCreateContext(&carriers[0],3,2,640,360,CodecColorMode::Automatic,guides);LeaveCriticalSection(&g_chain_cs);return c;};
+ auto* cached_route=other_mode();check(cached_route,"second route initially admitted");cached_route->instance_id=451;
+ old->pending_recording_token=1;check(!lookup(3776,2120),"old route replacement deferred");check(other_mode()==cached_route,"already allocated same-carrier route must remain reusable");
+ clear();g_nr_failed_create_process_latched=true;check(!lookup(),"failed Create quarantine is unchanged");
+ clear();g_lifecycle_tracking_uncertain=true;check(!lookup(),"unknown lifecycle still rejects admission");
+ std::puts("PASS real Find/collector/drain: ready and in-flight release ordering, detached reentry, matching reuse, ten own lifetime blockers, F6 cache, five layers, native route retention and latest settings");
 }

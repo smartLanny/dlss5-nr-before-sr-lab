@@ -6355,21 +6355,26 @@ void DrainPendingContextDestructions() {
     }
 }
 
-bool DeferNrCreationForReleaseLocked() {
-    // Selection may just have retired the old model. Collect again now, before
-    // creating its replacement, so ready old/new allocations do not overlap.
-    // The collector still uses each resource's exact recorded/submitted fence.
+bool DeferNrCreationForReleaseLocked(const NgxHandle* requested_handle) {
+    // Selection may just have retired a model or its children. A context stays
+    // in g_contexts until its OWN recording/fence/binding proof permits removal;
+    // an empty destruction queue therefore does not mean the old allocation is
+    // gone. Keep this carrier on native SR/RR until its retired closure drains.
     CollectRetiredContextsLocked();
+    bool retired_in_scope=false;
+    for(const auto& context:g_contexts)
+        retired_in_scope|=context.sr_handle!=nullptr &&
+            context.sr_handle==requested_handle && context.retired;
     bool pending=g_nr_context_releases_in_progress.load(std::memory_order_acquire)!=0;
     for(const auto& context:g_pending_destroy_contexts)pending|=context.sr_handle!=nullptr;
-    if(!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
+    if(!retired_in_scope&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
     // Keep native SR/RR and the saved route. A transient release is not a reason
     // to create yet another model at Present, or to block the CPU on a GPU fence.
     nr_processing_runtime::BlockSource();
     SetBypassReason(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)
         ? BypassReason::LifecycleIsolation:BypassReason::ContextReleasePending);
     const auto count=g_nr_create_release_deferrals.fetch_add(1,std::memory_order_relaxed)+1;
-    if(count<=3||count%120==0)Log("[nr-create-release] deferred=%llu; release ready retired models outside locks before replacement Create; saved scale/route retained.",count);
+    if(count<=3||count%120==0)Log("[nr-create-release] deferred=%llu retiredInScope=%d queuedOrReleasing=%d; wait for each retired dependency's own completion and outside-lock Release before replacement Create; saved scale/route retained. Persistent bypass: save F8 and upload BUG feedback.",count,retired_in_scope?1:0,pending?1:0);
     return true;
 }
 
@@ -7706,7 +7711,7 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         return matching;
     }
-    if(DeferNrCreationForReleaseLocked())return nullptr;
+    if(DeferNrCreationForReleaseLocked(sr_handle))return nullptr;
     // The second collection may have reclaimed a slot from a previously full
     // table; do not retain the old empty-slot observation across that move.
     empty=nullptr;
