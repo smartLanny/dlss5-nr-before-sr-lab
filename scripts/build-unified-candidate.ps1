@@ -8,10 +8,33 @@ param(
     [Parameter(Mandatory=$true)][string]$FaceRuntimeRoot,
     [string]$NrchainReuseRoot,
     [string]$CodecCacheRoot,
+    [string]$FfxSdkRoot = $env:DLSS5_FFX_SDK_ROOT,
+    [string]$FfxCacheRoot = $env:DLSS5_FFX_CACHE_ROOT,
     [switch]$AllowMissingDebugLayer
 )
 $ErrorActionPreference='Stop'
-& (Join-Path $PSScriptRoot 'build-perf12-candidate.ps1') @PSBoundParameters -QualitySuccessor
+# Fail before expensive validation when the mandatory temporal inputs are absent.
+# The production module still verifies the exact SDK commit, clean tree, compiler,
+# alignment receipt and all eight cached object hashes; these are path checks only.
+if ([string]::IsNullOrWhiteSpace($FfxSdkRoot) -or [string]::IsNullOrWhiteSpace($FfxCacheRoot)) {
+    throw 'Temporal backend inputs are required: supply -FfxSdkRoot and -FfxCacheRoot (or DLSS5_FFX_SDK_ROOT / DLSS5_FFX_CACHE_ROOT). Do not disable the backend to bypass validation.'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $FfxSdkRoot 'LICENSE.txt') -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $FfxCacheRoot 'build.json') -PathType Leaf)) {
+    throw 'Temporal SDK/cache paths must contain LICENSE.txt and the verified build.json receipt.'
+}
+$FfxSdkRoot=(Resolve-Path -LiteralPath $FfxSdkRoot).Path
+$FfxCacheRoot=(Resolve-Path -LiteralPath $FfxCacheRoot).Path
+$CandidateParameters=@{}
+foreach($Name in $PSBoundParameters.Keys) {
+    if($Name -notin @('FfxSdkRoot','FfxCacheRoot')) {$CandidateParameters[$Name]=$PSBoundParameters[$Name]}
+}
+$SavedFfxSdk=$env:DLSS5_FFX_SDK_ROOT
+$SavedFfxCache=$env:DLSS5_FFX_CACHE_ROOT
+try {
+    $env:DLSS5_FFX_SDK_ROOT=$FfxSdkRoot
+    $env:DLSS5_FFX_CACHE_ROOT=$FfxCacheRoot
+& (Join-Path $PSScriptRoot 'build-perf12-candidate.ps1') @CandidateParameters -QualitySuccessor
 if ($LASTEXITCODE) { throw 'Cumulative candidate validation failed.' }
 # Complete source, bilingual binaries and inherited gates first. These tests
 # then consume that exact generated Core, rather than private overlay probes.
@@ -33,3 +56,8 @@ if ($LASTEXITCODE) { throw 'Actual native output capture failed.' }
     acceptance=$true;restoration_negative=$true;temporal_entries=$true;auxiliary=$true;native_output=$true;
     game=$false;nvidia_inference=$false;hosted_ci=$false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Tests 'validation.json') -Encoding utf8
+
+} finally {
+    $env:DLSS5_FFX_SDK_ROOT=$SavedFfxSdk
+    $env:DLSS5_FFX_CACHE_ROOT=$SavedFfxCache
+}
