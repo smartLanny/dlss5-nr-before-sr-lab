@@ -1,0 +1,338 @@
+{
+  "date": "2026-09-25",
+  "repository": "smartLanny/dlss5-nr-before-sr-lab",
+  "owned_baseline": "fe245aed083c23cf246c42a0edbb9877f56e53de",
+  "owned_built_source": "4a07bce25fa22fb10f6b9653eb61a56d800307f0",
+  "owned_core_sha256": "ac2eb58e6bf7ac1632cdd3949e49e2438722979a883bc02a6ded9d8fcb6f7cb5",
+  "guest_version": "v7.0.0-rc10",
+  "duplicate_addon_bytes_identical": true,
+  "files": [
+    {
+      "file": "renodx-dlss5.addon64",
+      "bytes": 2033664,
+      "sha256": "836eee9fa9e4d18ba1d5d82fbc14ae221e20f0877664b90037b2088c5dc2c5ca"
+    },
+    {
+      "file": "renodx-mfgunlock1.1.addon64",
+      "bytes": 903680,
+      "sha256": "5d9184d5d690ff5cc1771c07a69331e4a596f8a94fde5867a5afc713650f800c"
+    },
+    {
+      "file": "nvngx_dlssnr.dll",
+      "bytes": 165830144,
+      "sha256": "6eb209e764f39872625debd6abaf45e2bb6322f6f270f781f70c059ae30b3927"
+    },
+    {
+      "file": "from-rtx50opt-nvngx_dlssnr.dll",
+      "bytes": 165840496,
+      "sha256": "24f2d48e83ee636c8efc05056bbed61daf91bc35e490198485929ebd0d824dd2"
+    }
+  ],
+  "verification": {
+    "guest_dll_executed": false,
+    "guest_shaders_executed": false,
+    "own_math_compiled_and_executed": true,
+    "math_matches_generated_owned_shader": true,
+    "game_or_ini_changed": false,
+    "ui_screenshot_observed": false,
+    "matched_fps_data_available": false,
+    "visual_noise_reduction_measured": false,
+    "runtime_patch_delivered": false
+  },
+  "valid_guest_dxbc_containers": 19,
+  "mapped_shader_roles": [
+    {
+      "role": "look compose",
+      "span_va": "0x180124528",
+      "shader_offset": "0x11f370",
+      "bytes": 14260,
+      "shader": "shader-11f370.asm.txt",
+      "evidence": "span address passed beside named pipeline creation label in host; runtime dispatch not measured"
+    },
+    {
+      "role": "look bands",
+      "span_va": "0x180120d60",
+      "shader_offset": "0x11dce0",
+      "bytes": 5760,
+      "shader": "shader-11dce0.asm.txt",
+      "evidence": "span address passed beside named pipeline creation label in host; runtime dispatch not measured"
+    },
+    {
+      "role": "look upsample",
+      "span_va": "0x180128890",
+      "shader_offset": "0x125750",
+      "bytes": 5952,
+      "shader": "shader-125750.asm.txt",
+      "evidence": "span address passed beside named pipeline creation label in host; runtime dispatch not measured"
+    },
+    {
+      "role": "look edit trace",
+      "span_va": "0x180127138",
+      "shader_offset": "0x122b40",
+      "bytes": 11256,
+      "shader": "shader-122b40.asm.txt",
+      "evidence": "span address passed beside named pipeline creation label in host; runtime dispatch not measured"
+    }
+  ],
+  "edge_transfer_evidence": {
+    "file_offset": "0x125750",
+    "workgroup": [
+      16,
+      16,
+      1
+    ],
+    "neighbourhood": [
+      4,
+      4
+    ],
+    "operation": "paired low-grid log RGB edits weighted by spatial distance and full-resolution log-luminance guidance; static instructions only",
+    "not_claimed": "game dispatch rate, GPU cost, FPS, complete decompilation or copied algorithm"
+  },
+  "runtime_resource_comparison": {
+    "identical_resource_count": 1,
+    "identical_resource_bytes": 147695410,
+    "changed_resource_keys": [
+      "16/1/1033"
+    ],
+    "data_section_differs": true,
+    "certificate_validity_verified": false,
+    "model_behaviour_equivalence_verified": false
+  },
+  "near_black_probe": {
+    "scope": "Synthetic CPU math only; not evidence that the model emits these values in any game.",
+    "source_rgb": [
+      0.4,
+      0.3,
+      0.2
+    ],
+    "model_green_perturbation": 5e-05,
+    "protected_relative_luma": -0.5,
+    "max_luma_ratio": 2,
+    "actual_production_shader_sha256": "923a56090d9ec053ed7afa190642ded89178bf76622e0e81e952661d77494911",
+    "existing_adapter_sha256": "b1e827c0b5365c97a8c953fbc843f6c76011ac9933f73bd0e90cbcaa1de5422c",
+    "syntax_adaptation": "Remove HLSL [unroll] only; existing float3 adapter.",
+    "runtime_modified": false,
+    "gpu_executed": false,
+    "game_verified": false,
+    "rows": [
+      {
+        "model_level": 9.99999975e-05,
+        "colour": 0.0,
+        "before": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "after": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "max_rgb_difference": 0.0,
+        "luma_difference": 0.0
+      },
+      {
+        "model_level": 9.99999975e-05,
+        "colour": 0.5,
+        "before": [
+          0.178505868,
+          0.153509721,
+          0.128525272
+        ],
+        "after": [
+          0.157824323,
+          0.161746293,
+          0.107833721
+        ],
+        "max_rgb_difference": 0.0206915513,
+        "luma_difference": -2.99187377e-08
+      },
+      {
+        "model_level": 9.99999975e-05,
+        "colour": 1.0,
+        "before": [
+          0.157018304,
+          0.157018304,
+          0.157041699
+        ],
+        "after": [
+          0.115649998,
+          0.173492238,
+          0.115667231
+        ],
+        "max_rgb_difference": 0.0413744673,
+        "luma_difference": 1.97906047e-08
+      },
+      {
+        "model_level": 0.00100000005,
+        "colour": 0.0,
+        "before": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "after": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "max_rgb_difference": 0.0,
+        "luma_difference": 0.0
+      },
+      {
+        "model_level": 0.00100000005,
+        "colour": 0.5,
+        "before": [
+          0.178509906,
+          0.153509915,
+          0.128511101
+        ],
+        "after": [
+          0.175798848,
+          0.154589519,
+          0.125800058
+        ],
+        "max_rgb_difference": 0.00271105766,
+        "luma_difference": 2.46800482e-08
+      },
+      {
+        "model_level": 0.00100000005,
+        "colour": 1.0,
+        "before": [
+          0.157019824,
+          0.157019824,
+          0.157022163
+        ],
+        "after": [
+          0.151597753,
+          0.159178987,
+          0.151600003
+        ],
+        "max_rgb_difference": 0.00542216003,
+        "luma_difference": 2.15077307e-08
+      },
+      {
+        "model_level": 0.00999999978,
+        "colour": 0.0,
+        "before": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "after": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "max_rgb_difference": 0.0,
+        "luma_difference": 0.0
+      },
+      {
+        "model_level": 0.00999999978,
+        "colour": 0.5,
+        "before": [
+          0.178509995,
+          0.153509989,
+          0.128510103
+        ],
+        "after": [
+          0.178230196,
+          0.15362142,
+          0.128230318
+        ],
+        "max_rgb_difference": 0.000279799104,
+        "luma_difference": 9.66247171e-09
+      },
+      {
+        "model_level": 0.00999999978,
+        "colour": 1.0,
+        "before": [
+          0.157019973,
+          0.157019973,
+          0.157020196
+        ],
+        "after": [
+          0.156460389,
+          0.15724282,
+          0.156460613
+        ],
+        "max_rgb_difference": 0.000559583306,
+        "luma_difference": 1.07611413e-08
+      },
+      {
+        "model_level": 0.100000001,
+        "colour": 0.0,
+        "before": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "after": [
+          0.200000003,
+          0.150000006,
+          0.100000001
+        ],
+        "max_rgb_difference": 0.0,
+        "luma_difference": 0.0
+      },
+      {
+        "model_level": 0.100000001,
+        "colour": 0.5,
+        "before": [
+          0.17851001,
+          0.153510004,
+          0.128510013
+        ],
+        "after": [
+          0.178481936,
+          0.15352118,
+          0.128481939
+        ],
+        "max_rgb_difference": 2.80737877e-05,
+        "luma_difference": -2.43130671e-09
+      },
+      {
+        "model_level": 0.100000001,
+        "colour": 1.0,
+        "before": [
+          0.157019988,
+          0.157019988,
+          0.157020003
+        ],
+        "after": [
+          0.15696387,
+          0.157042354,
+          0.15696387
+        ],
+        "max_rgb_difference": 5.61326742e-05,
+        "luma_difference": 1.32072273e-08
+      }
+    ]
+  },
+  "prior_math_regression": {
+    "checks_passed": 200080,
+    "scope": "actual owned HLSL math using CPU adapter, not GPU or game"
+  },
+  "hypotheses_requiring_game_evidence": [
+    "low-resolution guidance explains greater apparent sharpness",
+    "exposure normalization or near-black colour confidence explains reduced face speckles",
+    "workset reuse explains CPU/GPU frame improvement"
+  ],
+  "implementation_packages": [
+    "guided edit transport plus continuous low-confidence chroma fallback",
+    "source normalization vs final temporal filtering separation",
+    "measured workset rotation and lifetime reuse",
+    "model/result/performance UI organization with nonpersistent default comparison"
+  ],
+  "tracking": [
+    274,
+    277,
+    294,
+    302
+  ],
+  "public_reference": {
+    "name": "RHI-distributed RC8, not supplied RC10",
+    "archive_sha256": "c0821162ebcc24db29dfd1ad6e45214e9f118e40de510f05f0981e0c9ea70639",
+    "exact_guest_source_verified": false
+  }
+}
