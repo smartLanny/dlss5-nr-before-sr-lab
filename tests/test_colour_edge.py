@@ -41,9 +41,11 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
-        # unified8 adds a separate CPU model-create timing scope; the pinned
-        # colour implementation itself is unchanged.
-        for p,sha in [('src/nr_before_sr.cpp','c27f7fe327022d39385cbc3b37136f08f6447920'),
+        # The 0.5.1 inbox candidate adds same-carrier retired-allocation admission.
+        # Reviewed c27f7fe3 -> 32bfacf3: only the release/admission helper and its
+        # call change; colour shader bodies, resources and contracts are unchanged.
+        # Keep this exact source pin AND the generated semantic assertions below.
+        for p,sha in [('src/nr_before_sr.cpp','32bfacf33c88ede6436ecb6aa26003f739aa23c9'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
