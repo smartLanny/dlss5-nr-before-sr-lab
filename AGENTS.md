@@ -1,3 +1,18 @@
+## Inbox1 Windows follow-up (2026-09-24)
+
+PR #306 is the incremental 0.5.1 memory-admission candidate, not a replacement
+for #300's feature integration. Read `docs/interop/051_INBOX_WINDOWS_20260924.md`.
+Exact built source is 4a07bce2; full bilingual Windows, cumulative and extended
+Core/WARP gates passed. Runtime identity is unified10-inbox1, not old Perf12.
+This does not prove all #277/#298/#305 reports fixed: EMT remains quarantined,
+the companion report is missing four exports with inconsistent inventory, and
+the #298 ETL pointers are shared historical captures, not that tester's trace.
+Keep public game/NGX/FPS/VRAM verification separate and report persistent bypass.
+Use explicit -FfxSdkRoot/-FfxCacheRoot (or scoped environment); never disable the
+required backend or use stale SDK objects to bypass a build failure. Packaging
+must retain the full unified10 gates, face resources and AMD license for Inbox1.
+Do not modify games, main/stable or another worktree during owner acceptance.
+
 ## Current successor: unified10 (2026-09-23)
 
 Public candidate name: 0.5.1 Beta; built source d36dc771. PR303 1874a22a
