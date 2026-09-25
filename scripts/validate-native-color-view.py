@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from temporal_test_objects import objects_for
 
 ROOT=Path(__file__).resolve().parents[1]
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -18,12 +19,31 @@ def main():
     p.add_argument('--runtime',type=Path,help='Explicit latest runtime overlay for a focused unfrozen-source check.')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
+    p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
+    p.add_argument('--acceptance',action='store_true',help='Exercise the actual transient configuration controller; no model or game.')
+    p.add_argument('--acceptance-negative',action='store_true',help='Copied-source wrong post-precision restoration negative control.')
+    p.add_argument('--temporal-case',choices=('all','continuous','unsubmitted','replay','submit-reset'),default='all',
+                   help='Separate processes preserve each real Core quarantine latch.')
+    p.add_argument('--temporal-negative',action='store_true',help='Explicit copied-source wrong-P1 binding negative control.')
     a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
+    if a.acceptance and a.temporal:p.error('Choose one production fixture.')
+    if a.acceptance_negative and not a.acceptance:p.error('--acceptance-negative requires --acceptance')
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     original_runtime=sha(snapshot/'nr_native_format_runtime.inl')
     if a.runtime:shutil.copyfile(a.runtime,snapshot/'nr_native_format_runtime.inl')
+    if a.acceptance_negative:
+        target=snapshot/'nr_acceptance_runtime.inl';text=target.read_text(encoding='utf-8')
+        old='nr_post_settings::RequestForCapture(s->post_original);'
+        if text.count(old)!=1:raise ValueError('Acceptance restoration anchor drift')
+        target.write_text(text.replace(old,'nr_post_settings::RequestForCapture({s->post_original.rr,100});'),encoding='utf-8')
+    if a.temporal_negative:
+        if not a.temporal:p.error('--temporal-negative requires --temporal')
+        target=snapshot/'nr_temporal_runtime.inl';text=target.read_text(encoding='utf-8')
+        old='views.Srv(2,slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT);'
+        if text.count(old)!=1:raise ValueError('Wrong-P1 negative-control anchor drift')
+        target.write_text(text.replace(old,'views.Srv(2,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);'),encoding='utf-8')
     hashes={str(f.relative_to(snapshot)):sha(f) for f in sorted(snapshot.rglob('*')) if f.is_file()}
     # Borrow only the unchanged real-WARP fixture helpers, not its queue tests
     # or main. The shared files are never edited and their inputs are hashed.
@@ -34,11 +54,12 @@ def main():
     if post_text.count(post_boundary)!=1:raise SystemExit('Shared post helper boundary changed.')
     s=post_text.split(post_boundary,1)[0]+'\n} // namespace post_output_test\n'
     if 'struct Fixture' not in q or 'ReadTexture(' not in s:raise SystemExit('Shared fixture helper boundary changed.')
-    fixture=ROOT/'tests/native_color_view_harness.inl'
+    fixture=ROOT/('tests/acceptance_core_harness.inl' if a.acceptance else 'tests/temporal_core_harness.inl' if a.temporal else 'tests/native_color_view_harness.inl')
     (out/'fixture.inl').write_text(q+s+fixture.read_text(encoding='utf-8'),encoding='utf-8')
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
-        'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);native_color_test::Run();return 0;}\n',encoding='utf-8')
+        'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'+
+        ('acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
@@ -49,7 +70,16 @@ def main():
         (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
         if r.returncode:print((r.stdout+r.stderr)[-14000:])
         return r
-    objects=[]
+    objects=list(map(str,objects_for(source)))
+    # The Core's dual spatial declarations are public-header only; compile the
+    # captured D3D12 implementation as its real sibling translation unit.
+    spatial_source=snapshot/'nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object=out/'nr_dual_spatial_d3d12.o'
+        r=run([str(compiler),*common,'-std=c++20','-c',str(spatial_source),'-o',str(spatial_object)],
+              'compile-nr-dual-spatial')
+        if r.returncode:raise SystemExit(r.returncode)
+        objects.append(str(spatial_object))
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o')
         r=run([str(c_compiler),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)
@@ -62,9 +92,25 @@ def main():
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
-            'production_translation_unit':True,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None}
+            'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'warp_only':not a.acceptance,'nvidia_nr':False,'game_verified':False,'run_exit':None,
+            'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
-        r=run([str(exe)],'run',120);record['run_exit']=r.returncode;print(r.stdout)
+        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else [None]
+        if a.temporal_negative:cases=['continuous']
+        records=[];logs=[]
+        for case in cases:
+            name='run-'+case if case else 'run'
+            r=run([str(exe)]+([case] if case else []),name,180 if a.temporal else 120)
+            records.append({'case':case,'run_exit':r.returncode});logs.append(r.stdout+r.stderr);print(r.stdout)
+            if r.returncode:break
+        (out/'run.txt').write_text('\n'.join(logs),encoding='utf-8')
+        record['run_exit']=r.returncode;record['cases']=records
+        if a.temporal_negative:
+            record['negative_control_rejected']=r.returncode==41 and 'FAIL P1_IS_EXISTING_SINGLE_LAYER_COMPOSITION_ORACLE' in r.stdout
+            r.returncode=0 if record['negative_control_rejected'] else 1
+        if a.acceptance_negative:
+            record['negative_control_rejected']=r.returncode==41 and 'FAIL actual configuration restored' in r.stdout
+            r.returncode=0 if record['negative_control_rejected'] else 1
     (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
     raise SystemExit(r.returncode)
 if __name__=='__main__':main()

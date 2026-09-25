@@ -85,19 +85,20 @@ void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
 // as TransferStrength. This finalization runs for BOTH verified colour and the
 // explicit unverified-HDR opt-in, not just for the latter.
 void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
-    float amplification = ActiveTransferStrength(g_config), bool protect_color = true) {
+    float amplification = ActiveTransferStrength(g_config), bool protect_color = true,
+    nr_color_amplification::ChromaConsumer consumer = nr_color_amplification::ChromaConsumer::GainCoupled) {
     if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
         policy.color_allowed = true;
         policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
         policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
-    const auto budget = nr_color_amplification::Resolve(
-        policy.effective_color_strength, amplification, protect_color);
+    const auto budget = nr_color_amplification::ResolveForConsumer(
+        policy.effective_color_strength, amplification, protect_color, consumer);
     policy.effective_color_strength = policy.color_allowed ? budget.coefficient : 0.0f;
     policy.amplification = budget.amplification;
     policy.amplification_color_limited = policy.color_allowed && budget.limited;
-    // In Mode 1 this is a conservative reduction of the final colour MIX,
-    // not an exact cap on per-channel ratios (unlike Mode 2's log exponent).
+    // Legacy post composition retains its conservative colour MIX reduction.
+    // Shared independent consumers keep their own confidence/ratio/gamut caps.
 }
 
 const char *NrColorReasonName(NrColorReason reason) {
@@ -218,4 +219,34 @@ NrColorPolicySnapshot SnapshotColorPolicy() {
             static_cast<int>(BypassReason::None), GetTickCount64());
     LeaveCriticalSection(&g_chain_cs);
     return snapshot;
+}
+
+struct CompatibilityFallbackSnapshot {
+    bool recent = false;
+    bool recorded = false;
+    int requested_mode = 2, effective_mode = 2;
+    unsigned cause = 0;
+    BypassReason failure = BypassReason::None;
+    unsigned long long attempts = 0, recordings = 0;
+};
+CompatibilityFallbackSnapshot SnapshotCompatibilityFallback() {
+    // The producer publishes under this same recursive chain lock. Do not
+    // join a previous request's reason with a newer route/configuration.
+    EnterCriticalSection(&g_chain_cs);
+    CompatibilityFallbackSnapshot out;
+    out.requested_mode = g_config.mode;
+    out.effective_mode = EffectivePictureMode(g_config.mode);
+    out.attempts = g_compat_fallback_attempts.load(std::memory_order_relaxed);
+    out.recordings = g_compat_fallback_recorded.load(std::memory_order_relaxed);
+    out.recent = g_config.enabled && g_config.mode == 2 &&
+        !g_config.identity_use_original && ActiveTransferStrength(g_config) > 0.001f &&
+        !IsRayReconstructionRouteObserved() && IsCompatibilityPostObserved();
+    if (out.recent) {
+        out.cause = g_compat_fallback_cause.load(std::memory_order_relaxed);
+        out.failure = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed));
+        const auto colour = SnapshotColorPolicy();
+        out.recorded = colour.status == NrColorPolicyStatus::Current && colour.mode == 1;
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    return out;
 }

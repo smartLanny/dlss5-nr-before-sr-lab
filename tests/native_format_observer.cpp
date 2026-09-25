@@ -243,6 +243,24 @@ void PureLedger() {
     ledger.Commit(c,unorm,7,true); Check(!ledger.Find(a).key&&ledger.Find(c).Resolved()==28,"bounded ledger evicts without aliasing resource");
     Check(!ledger.Find({9,5,3,Role::Output}).key&&!ledger.Find({1,5,3,Role::Color}).key,"device/role identity isolation");
     for(unsigned format:{0u,27u}) {View bad; bad.Observe(format); Check(bad.conflict,"unknown/typeless is not observed typed evidence");}
+    Ledger<4> generations;
+    Key gen1{1,8,10,Role::Output}, gen2{1,8,11,Role::Output};
+    generations.Commit(gen1,unorm,8,true);
+    Check(generations.Find(gen1).Resolved()==28&&!generations.Find(gen2).key,
+          "new Feature generation cannot borrow another live Feature's evidence");
+    generations.Commit(gen2,unorm,8,true);
+    generations.InvalidateFeature(10);
+    Check(!generations.Find(gen1).key&&generations.Find(gen2).Resolved()==28,
+          "retirement clears only the exact Feature; other live generations survive");
+    generations.Commit(gen1,unorm,9,true);
+    generations.InvalidateFeature(10);
+    Check(!generations.Find(gen1).Resolved(),"released Feature generation cannot keep typed Evaluate evidence");
+    LifetimeLedger<2> lifetime;
+    LifetimeKey live{1,8,Role::Output};
+    lifetime.Observe(live,unorm);
+    Check(lifetime.Find(live).Resolved()==28,"resource-lifetime CreateView is independent of Feature generation");
+    View other; other.Observe(29); lifetime.Observe(live,other);
+    Check(!lifetime.Find(live).Resolved()&&lifetime.Find(live).view.conflict,"conflicting lifetime CreateViews stay fail-closed");
 }
 void HookAndScope() {
     ID3D12Device device(&device_vtable), other(&device_vtable);
@@ -364,9 +382,15 @@ void DiagnosticWindows() {
     const auto output_window=SnapshotNrFormatDiagnostics();
     Check(output_window.latest[1].config==12&&output_window.latest[1].srv==28&&
           output_window.latest[1].uav==28,"output diagnostic preserves selected views");
-    Check(!NrResolveColorViewFromList(&list,&color,desc,811,false,0),"new Feature generation must collect new evidence");
-    const auto next=SnapshotNrFormatDiagnostics();
-    Check(next.first_unknown[0].config==12&&next.first_unknown[0].feature==811,
+    Check(!Evidence(device,color,811).key,"new Feature generation does not reuse Evaluate-window observations");
+    const auto next=NrResolveColorViewFromList(&list,&color,desc,811,false,0);
+    Check(static_cast<bool>(next)&&next.lifetime_source&&next.plan.srv==28,
+          "live resource-lifetime CreateView is current native evidence after Feature recreate");
+    ID3D12Resource unknown_color;
+    Check(!NrResolveColorViewFromList(&list,&unknown_color,desc,811,false,0),
+          "unknown typeless resource without CreateView stays bypass");
+    const auto unknown=SnapshotNrFormatDiagnostics();
+    Check(unknown.first_unknown[0].config==12&&unknown.first_unknown[0].feature==811,
           "first unknown resets on config/Feature generation change");
     Check(device.references==1,"diagnostic read balances temporary device references");
 }
@@ -442,8 +466,63 @@ void OptionalFailures() {
     Invoke(&list,params,701,17,[]{});
     Check(!g_nr_native_format_scope&&device.references==1,"GetDevice failure preserves native callback and reference balance");
 }
+void LifetimeAndGeneration() {
+    ID3D12Device device(&device_vtable); ID3D12GraphicsCommandList list{&device};
+    ID3D12Resource color,output; NgxParams params{&color,&output};
+    EnsureNrNativeFormatHooks(&device);
+    D3D12_RESOURCE_DESC desc{};
+    Check(!NrResolveColorView(&device,&output,desc,900,true,0),
+          "typeless Output without CreateView stays unsupported / bypass");
+    Uav(device,&output,28);
+    const auto admitted=NrResolveColorView(&device,&output,desc,900,true,0);
+    Check(static_cast<bool>(admitted)&&admitted.lifetime_source&&admitted.plan.srv==28&&admitted.plan.uav==28,
+          "game-created native UAV is admitted without an Evaluate-window observation");
+    Check(!Evidence(device,output,900,true).key,"lifetime CreateView does not fabricate Evaluate evidence");
+    Invoke(&list,params,901,1,[&]{Srv(device,&color,28); Uav(device,&output,28);});
+    Check(Evidence(device,output,901,true).Resolved()==28,"Evaluate generation keeps its own typed observation");
+    NrInvalidateFormatFeatureObservations(901);
+    Check(!Evidence(device,output,901,true).key,"Feature recreate invalidates stale generation observations");
+    const auto after_recreate=NrResolveColorView(&device,&output,desc,902,true,0);
+    Check(static_cast<bool>(after_recreate)&&after_recreate.lifetime_source&&after_recreate.plan.uav==28,
+          "same Output lifetime still admits the live native UAV after Feature recreate");
+    ID3D12Resource unknown;
+    Check(!NrResolveColorView(&device,&unknown,desc,902,true,0),
+          "unknown typeless Output without native CreateView does not guess UNORM");
+    Invoke(&list,params,904,1,[&]{Srv(device,&color,28); Uav(device,&output,28);});
+    Invoke(&list,params,905,1,[&]{Srv(device,&color,28); Uav(device,&output,28);});
+    NrInvalidateFormatFeatureObservations(904);
+    Check(!Evidence(device,output,904,true).key&&Evidence(device,output,905,true).Resolved()==28,
+          "retiring one feature preserves another live feature generation");
+    Invoke(&list,params,906,17,[&]{Uav(device,&output,28);});
+    Check(!NrResolveColorView(&device,&output,desc,906,true,0),
+          "valid lifetime evidence must not rescue a failed current Evaluate");
+    ID3D12Resource own_color,own_output; NgxParams own_params{&own_color,&own_output};
+    Invoke(&list,own_params,907,1,[&]{
+        NrFormatOwnViewScope outer;
+        {NrFormatOwnViewScope inner;Srv(device,&own_color,28);}
+        Uav(device,&own_output,28);
+    });
+    Check(!Evidence(device,own_color,907).Resolved()&&!Evidence(device,own_output,907,true).Resolved(),
+          "nested Core-owned views cannot teach the active Evaluate scope");
+    Check(!NrResolveColorView(&device,&own_color,desc,908,false,0)&&
+          !NrResolveColorView(&device,&own_output,desc,908,true,0),
+          "nested Core-owned views cannot teach resource lifetime evidence");
+    Check(g_nr_format_own_view_depth==0,"nested own-view scopes restore TLS depth");
+    {
+        NrFormatOwnViewScope own;
+        ID3D12Resource suppressed;
+        Uav(device,&suppressed,28);
+        Check(!NrResolveColorView(&device,&suppressed,desc,903,true,0),
+              "Core-owned CreateView cannot teach a typeless resource");
+    }
+    {std::lock_guard guard(output.data.mutex); output.data.values.clear();}
+    Check(!NrResolveColorView(&device,&output,desc,902,true,0),
+          "new resource lifetime cannot inherit the previous CreateView");
+    Check(device.references==1,"lifetime/generation tests balance temporary device references");
+}
 int main() {
     PureLedger(); HookAndScope(); Resolution(); NestedAndThreads(); OptionalFailures(); DiagnosticWindows();
+    LifetimeAndGeneration();
     std::printf("native format observer HOST: %u checks / %u failures; actual production ledger/runtime/hooks; no D3D12/GPU/game\n",
                 checks.load(),failures.load());
     return failures?1:0;

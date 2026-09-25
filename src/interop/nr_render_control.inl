@@ -204,52 +204,32 @@ void NrRenderControlPoll() { nr_render_control::Poll(); }
 
 void DrawRenderControl() {
     using namespace nr_render_control;
-    const bool zh = UseChineseUi();
-    const auto ui = [zh](const char* en,const char* cn){return zh ? cn : en;};
-    ImGui::SeparatorText(ui("Game render resolution (experimental)","游戏渲染分辨率（实验）"));
-    static int edit = 67;
-    const bool rr_guarded = IsRayReconstructionRouteObserved();
-    if (rr_guarded) ImGui::BeginDisabled();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(ui("Game render scale","游戏渲染比例"));
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::SliderInt("##game-render-scale", &edit, 50, 100, "%d%%");
-    if (ImGui::Button(ui("Request on next engine query","下次引擎查询时请求")))
-        SetRequest(static_cast<unsigned>(edit));
-    if (rr_guarded) ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
-        ImGui::TextUnformatted(ui(
-            "Changes only the answer to a later engine optimal-settings query. It does not resize current resources immediately and is not proof that the game accepted the suggestion.",
-            "仅修改下一次引擎最佳设置查询的建议值，不会立即重建当前资源，也不能证明游戏已接受该建议。"));
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(ui("Game-owned on next query","下次查询恢复游戏控制"))) SetRequest(0);
-    const auto req = request.load(std::memory_order_acquire);
-    Status s{};
-    AcquireSRWLockShared(&status_lock); s=status; ReleaseSRWLockShared(&status_lock);
-    ImGui::Text(ui("Saved request: %u%% (0 = game-owned) | query hooks: %u / %u",
-        "已保存请求：%u%%（0=游戏控制）| 查询钩子：%u / %u"), static_cast<unsigned>(req), getter_count.load(), callback_count.load());
-    ImGui::TextDisabled("%s", rr_guarded ? ui(
-        "Paused while RR protection is active; restore game control remains available.",
-        "光线重建保护期间暂停新请求；仍可恢复为游戏控制。") : ui(
-        "Applies only on a later engine query; live effect is not guaranteed.",
-        "仅影响后续引擎查询，不保证实时生效。"));
-    if (s.queries) {
-        ImGui::Text(ui("Last query: output %ux%u -> suggestion %ux%u | generation %llu | decision %u",
-            "最近查询：输出 %ux%u → 建议 %ux%u | 代次 %llu | 结果 %u"),
-            s.output_w,s.output_h,s.render_w,s.render_h,s.generation,static_cast<unsigned>(s.decision));
-        ImGui::TextDisabled("%s",ui("0 native/paused, 1 invalid/missing bounds, 2 outside runtime bounds, 3 query accepted (not proof of resize)",
-            "0 原生/暂停；1 边界缺失/无效；2 超出运行库范围；3 查询已接受（不等于已改变渲染）"));
-    }
-    ImGui::TextDisabled("%s",ui("Actual dimensions are shown in the observation below.",
-        "实际尺寸见下方只读观察。"));
-    if (!callback_count.load()) ImGui::TextWrapped("%s",ui(
-        "No eligible vendor callback observed yet. This is NOT an active render-scale override. Existing DLSS/TAA mods with a fixed render size need their own engine controller.",
-        "尚未观察到可用厂商回调，当前不是已生效的渲染覆盖。固定渲染尺寸的 DLSS/TAA 模组仍需要自己的引擎分辨率控制器。"));
-    if (save_failed.load()) ImGui::TextWrapped("%s",ui("Save failed; request is session-only.","保存失败，本次请求仅用于当前进程。"));
+    const bool zh=UseChineseUi();
+    const auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
+    ImGui::SeparatorText(ui("Game resolution request","游戏分辨率请求"));
+    const auto packed=request.load(std::memory_order_acquire);
+    const unsigned percent=static_cast<unsigned>(packed);
+    static int edit=100;static unsigned long long shown=~0ull;
+    // The editor is a request draft. External saved requests replace it only
+    // while idle; neither the draft nor a successful query proves a resize.
+    if(shown!=packed&&!ImGui::IsAnyItemActive()){edit=percent?static_cast<int>(percent):100;shown=packed;}
+    ImGui::TextWrapped("%s",percent?ui("Request saved; waiting for an engine query / matching observed size.","已保存请求，等待引擎查询／对应尺寸观察。"):
+        ui("No override; the game controls its resolution.","未覆盖：游戏自行控制分辨率。"));
+    const bool rr=IsRayReconstructionRouteObserved();
+    ImGui::BeginDisabled(rr);
+    ImGui::TextUnformatted(ui("Request draft (not actual scale)","请求草稿（不是实际比例）"));ImGui::SetNextItemWidth(-1.f);
+    ImGui::SliderInt("##game-render-scale",&edit,50,100,"%d%%");
+    if(ImGui::Button(ui("Request on next engine query","下次引擎查询时请求")))SetRequest(static_cast<unsigned>(edit));
+    ImGui::EndDisabled();
+    if(rr)ImGui::TextWrapped("%s",ui("New requests are unavailable while RR protection is active.","RR 保护期间不接受新比例请求。"));
+    if(ImGui::Button(ui("Return resolution control to game","恢复游戏控制分辨率")))SetRequest(0);
+    Status observed{};AcquireSRWLockShared(&status_lock);observed=status;ReleaseSRWLockShared(&status_lock);
+    if(percent)ImGui::Text(ui("Saved request: %u%%","已保存请求：%u%%"),percent);
+    if(observed.queries&&observed.generation==(packed>>32))ImGui::TextWrapped(ui("Query observed: suggested %u x %u; this does not prove the game resized.","已观察查询：建议 %u × %u，尚不证明游戏已改变尺寸。"),observed.render_w,observed.render_h);
+    const auto w=g_last_dlss_input_width.load(),h=g_last_dlss_input_height.load();
+    const auto ow=g_last_dlss_output_width.load(),oh=g_last_dlss_output_height.load();
+    if(w&&h&&ow&&oh)ImGui::TextWrapped(ui("Observed game size: %u x %u -> %u x %u","已观察游戏尺寸：%u × %u → %u × %u"),w,h,ow,oh);
+    else ImGui::TextWrapped("%s",ui("No actual game size observed yet.","尚未观察到实际游戏尺寸。"));
+    if(!callback_count.load())ImGui::TextWrapped("%s",ui("No compatible query callback observed; the draft is not an applied override.","尚未观察到可用查询回调；编辑框数值不代表覆盖已生效。"));
+    if(save_failed.load())ImGui::TextWrapped("%s",ui("Save failed; request is session-only.","保存失败，请求仅用于当前运行。"));
 }

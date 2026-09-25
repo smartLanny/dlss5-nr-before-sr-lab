@@ -100,7 +100,7 @@ ID3D12PipelineState *OraclePipeline(queue_test::Fixture&f) {
     bool known;float3 expected=StoreExpectedValue(value.rgb,known);
     uint i=(coord.y/32u)*((Width+31u)/32u)+coord.x/32u;
     StageCapture.Store4(i*24u,asuint(float4(expected,known?1.0:0.0)));
-    uint2 bounds=uint2(0u,0u);uint kind=(Passthrough>>19u)&7u;
+    uint2 bounds=uint2(0u,0u);uint kind=(Passthrough>>20u)&7u;
     if((kind==2u || kind==3u) && isfinite(value.x))bounds=StoreUnormBounds(value.x,kind==2u?255u:1023u);
     StageCapture.Store2(i*24u+16u,bounds);
     RecordPostStoreExpected(coord,value.rgb);
@@ -173,7 +173,7 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
     ID3D12Resource *capture=MakeBuffer(f,count*sizeof(OraclePixel),false),*capture_readback=MakeBuffer(f,count*sizeof(OraclePixel),true);
     BindStageCaptureDescriptor(slot,capture,count*sizeof(OraclePixel));
     CodecConstants constants{};constants.width=width;constants.height=height;
-    constants.passthrough=131072u|262144u|(NrStoreDiagnosticFormat(format)<<19);
+    constants.passthrough=131072u|8388608u|(NrStoreDiagnosticFormat(format)<<20);
     queue_test::List list(f);ID3D12GraphicsCommandList_SetComputeRootSignature(list.native,g_codec.root);
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list.native,1,&slot.heap);
     auto gpu=ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
@@ -254,10 +254,11 @@ void OracleBatch(queue_test::Fixture&f,ID3D12PipelineState*pipeline,DXGI_FORMAT 
     }
     DestroySlot(slot);ReleaseCom(capture);ReleaseCom(capture_readback);
 }
-void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identity,bool wrong_target,bool high=false,unsigned nonfinite_case=0) {
+void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identity,bool wrong_target,bool high=false,unsigned nonfinite_case=0,bool light=false,bool packet=false) {
     const auto generation=++native_color_test::next_generation;
     const unsigned mw=half?4:8,mh=half?3:6;
     native_color_test::ResetContext(true,generation,mw,mh);
+    if(light){g_config.light_broad=1.25f;g_config.light_dark=.75f;g_config.light_control_mode=1;}
     auto& context=queue_test::context;context.instance_id=generation+9000;context.evaluations=0;
     context.config_generation=static_cast<unsigned>(generation);g_config_generation=context.config_generation;
     Pixel original=high?Pixel{128.75f,511.25f,1024.3333f,.625f}:Pixel{.25f,.375f,.5f,1};
@@ -284,6 +285,14 @@ void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identi
     ArmDeltaStatsCaptureLocked(slot,context,color);++context.evaluations;CompleteNrDiagnosticEvaluation(context,slot);
     const auto identity_at_recording=slot.diagnostic_identity;
     queue_test::List list(f);Check(RecordNrUseLocked(list.native,context,slot),"real post store recording ownership");
+    if(packet) {
+        nr_binding::Plan plan{};plan.primary_owner=&slot;
+        WriteCodecDescriptorSet(f.device,slot,nullptr,&plan.heaps[nr_binding::Consumer]);
+        slot.compose_binding=AcquireBindingPacket(f.device,list.native,context,plan);
+        Check(slot.compose_binding&&slot.compose_binding->valid,"actual immutable packet is materialized for stored-result sampling");
+        Check(plan.heaps[nr_binding::Consumer].views[kCodecStatsUavIndex].elements==nr_store_comparison::BufferWords(slot.store_interval_capacity),
+              "immutable diagnostic UAV covers header and per-coordinate intervals");
+    }
     PostSrSubstitution sub{};sub.slot=&slot;sub.width=8;sub.height=6;sub.work_width=mw;sub.work_height=mh;
     sub.output_base_x=3;sub.output_base_y=2;sub.native_output_snapshot=true;
     Check(DispatchPostSrNativeSnapshot(list.native,sub),"actual typed native Output snapshot");
@@ -337,9 +346,10 @@ void FullCoreCase(queue_test::Fixture&f,DXGI_FORMAT format,bool half,bool identi
         else changed+=!same;
     }
     if(!identity&&!wrong_target&&!invalid)Check(changed!=0,"constructed edited model plane reaches actual typed Output");
-    std::printf("STORE_CORE format=%u half=%d identity=%d wrong=%d high=%d nonfinite_case=%u actual_nonfinite=%d reference_nonfinite=%d known=%d match=%d expected=%.6f actual=%.6f PASS\n",
-        (unsigned)format,half,identity,wrong_target,high,nonfinite_case,evidence.actual_nonfinite,evidence.reference_nonfinite,
+    std::printf("STORE_CORE format=%u half=%d identity=%d wrong=%d high=%d nonfinite_case=%u light=%d packet=%d actual_nonfinite=%d reference_nonfinite=%d known=%d match=%d expected=%.6f actual=%.6f PASS\n",
+        (unsigned)format,half,identity,wrong_target,high,nonfinite_case,light,packet,evidence.actual_nonfinite,evidence.reference_nonfinite,
         evidence.comparison_known,evidence.matches_expected,evidence.expected_mean,evidence.actual_mean);
+    DestroyBindings(context);
     DestroySlot(slot);ReleaseCom(gate);ReleaseCom(unused);
 }
 #include "store_interval_gpu.inl"
@@ -371,6 +381,11 @@ void Run(bool oracle=true) {
     pre_store_test::Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,false);
     pre_store_test::Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,true);
     pre_store_test::Case(f,DXGI_FORMAT_R32G32B32A32_FLOAT,true,true,false);
+    // D14 overlap regression: light controls and storage diagnostics must use
+    // independent bits, including the immutable descriptor path from D13.
+    for(auto format:{DXGI_FORMAT_R16G16B16A16_FLOAT,DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_R11G11B10_FLOAT})
+        for(bool packet:{false,true})FullCoreCase(f,format,true,false,false,false,0,true,packet);
+    pre_store_test::Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,false,true);
     IntervalCases(f);
     std::printf("STORE_QUANTIZATION WARP PASS checks=%u samples=%u unknown=%u; actual typed UAV storage, no NGX/game\n",queue_test::checks,oracle_samples,oracle_unknown);
 }

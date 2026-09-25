@@ -1,0 +1,27 @@
+{
+  "source_pr": 276,
+  "source_commit": "ebb74927d48c440c525d90f446920a3bdb9b9372",
+  "scope": "historical documents and CPU reproductions; no runtime migration claim",
+  "files": [
+    {
+      "original_path": "docs/plans/D21_SUCCESSOR_CONVERGENCE_20260916.md",
+      "git_blob": "b8345941142f73b7ba9a62e2a430b2a8a46ce08b",
+      "sha256": "2856cea90b59f512b09ebdfcb37bc6696abe06a13b4dcb5062cb1be127e8cdc4"
+    },
+    {
+      "original_path": "docs/research/D21_AMDOF_QUALITY_20260915.md",
+      "git_blob": "1e36f7b8a28cf59aa31db267fa20e075ad78478d",
+      "sha256": "55e87955aeb070c5ff298a18894d9918856dd13266aadce404a5cecf2ebd5429"
+    },
+    {
+      "original_path": "tests/d21_colour_budget_probe.cpp",
+      "git_blob": "360509560dbae6de8c68332b42f666a5c83261a6",
+      "sha256": "5a02b771e1b47f854ccb53b55f6db91ee575165e65d6eac2c75fed4d3363b155"
+    },
+    {
+      "original_path": "tests/private_sr_storage_audit.py",
+      "git_blob": "ab4d368d18b285a8a379ff7d3414fd727a5cccb5",
+      "sha256": "08a879d97d290bc4c5020283b3732ace8c0b01bbbd85c611ffc92ccc722eb23c"
+    }
+  ]
+}

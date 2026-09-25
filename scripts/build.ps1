@@ -1,7 +1,13 @@
-param(
+﻿param(
     [switch]$Clean,
+    [switch]$DescriptorProfile,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
-    [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT
+    [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT,
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
+    [string]$CodecCacheRoot,
+    [string]$NgxSdkRoot = $env:DLSS5_NGX_SDK_ROOT,
+    [string]$VcVarsPath = $env:DLSS5_VCVARS_PATH,
+    [Alias('NrchainReuseRoot')][string]$ReuseBridgeRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +27,12 @@ $CCompiler = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-clang.exe'
 $CppCompiler = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-clang++.exe'
 $WindRes = Join-Path $Toolchain 'bin\x86_64-w64-mingw32-windres.exe'
 $MinHook = Join-Path $ProjectRoot 'third_party\minhook'
-$Build = Join-Path $ProjectRoot 'build'
+$DescriptorProfileValue = if ($DescriptorProfile) { 1 } else { 0 }
+$BuildMode = if ($DescriptorProfile) { 'measurement' } else { 'ordinary' }
+$BuildLeaf = if ($DescriptorProfile) { 'build-profile' } else { 'build' }
+# ProjectRoot is the staged source/core directory in the delivery layout.
+# Keep the profile as a sibling so it can never overwrite ordinary outputs.
+$Build = Join-Path $ProjectRoot $BuildLeaf
 $Objects = Join-Path $Build 'obj'
 
 foreach ($Required in @(
@@ -56,6 +67,7 @@ $SourceDirty = if ($TrackedChanges.Count -eq 0) { '0' } else { '1' }
 
 $Common = @(
     '-O2', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
+    "-DNR_DESCRIPTOR_PROFILE=$DescriptorProfileValue",
     '-flto',
     '-finput-charset=UTF-8',
     '-ffunction-sections', '-fdata-sections',
@@ -96,10 +108,64 @@ foreach ($Relative in $CFiles) {
     $ObjectFiles += $Object
 }
 
-$BridgeSource = Join-Path $ProjectRoot 'src\nrchain_nvngx.cpp'
-$BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
-& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject
-if ($LASTEXITCODE -ne 0) { throw "C++ compilation failed: $BridgeSource" }
+$FaceBackend = 0
+$FaceCompile = @('-DNR_FACE_BACKEND=0')
+if (-not [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) {
+    $FaceRuntimeRoot = (Resolve-Path -LiteralPath $FaceRuntimeRoot).Path
+    $faceHeader = Join-Path $FaceRuntimeRoot 'include/onnxruntime_c_api.h'
+    $faceRuntime = Join-Path $FaceRuntimeRoot 'lib/onnxruntime.dll'
+    if ((Get-FileHash -LiteralPath $faceHeader).Hash.ToLowerInvariant() -ne '820cc6c379d259045d96dcce9d30f2505fdb31ba526e294a283083d015914466' -or
+        (Get-FileHash -LiteralPath $faceRuntime).Hash.ToLowerInvariant() -ne 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea') {
+        throw 'Face backend requires the pinned official ONNX Runtime 1.23.2 CPU headers and runtime.'
+    }
+    $FaceBackend = 1
+    $FaceCompile = @('-DNR_FACE_BACKEND=1', '-I'+(Join-Path $FaceRuntimeRoot 'include'))
+}
+$Common += @('-DNR_FACE_BACKEND='+$FaceBackend)
+foreach ($faceName in @('nr_face_detector', 'nr_face_worker')) {
+    $faceSource = Join-Path $ProjectRoot ('src/'+$faceName+'.cpp')
+    $faceObject = Join-Path $Objects ($faceName+'.o')
+    & $CppCompiler @Common @FaceCompile '-std=c++20' '-Wall' '-Wextra' '-Werror' '-c' $faceSource '-o' $faceObject
+    if ($LASTEXITCODE) {throw "Face backend compilation failed: $faceName"}
+    $ObjectFiles += $faceObject
+}
+[ordered]@{schema='nr-face-build-v1';enabled=($FaceBackend -eq 1);runtime_version='1.23.2';
+    runtime_sha256='dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea';
+    model_sha256='b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1';
+    activation='Opt-in; assets loaded only by asynchronous worker; no game quality or 5% performance qualification'
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Build 'face-backend.json') -Encoding utf8
+
+$AuxCompiler=Join-Path $Build 'compile-aux-artifact.exe'
+& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' (Join-Path $PSScriptRoot 'compile-aux-artifact.cpp') '-ld3dcompiler' '-o' $AuxCompiler
+if($LASTEXITCODE -ne 0){throw 'Auxiliary shader artifact compiler failed.'}
+& python (Join-Path $PSScriptRoot 'prepare-aux-artifacts.py') --source (Join-Path $ProjectRoot 'src') --compiler $AuxCompiler --output $Build
+if($LASTEXITCODE -ne 0){throw 'Auxiliary shader precompilation failed.'}
+$Common += @('-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',"-I$Build")
+$AuxObject=Join-Path $Objects 'nr_aux_shader_runtime.o'
+& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Werror' '-c' (Join-Path $ProjectRoot 'src/nr_aux_shader_runtime.cpp') '-o' $AuxObject
+if($LASTEXITCODE -ne 0){throw 'Auxiliary creation timing module failed.'}
+$ObjectFiles += $AuxObject
+
+$DualSource=Join-Path $ProjectRoot 'src/nr_dual_spatial_d3d12.cpp'
+$DualObject=Join-Path $Objects 'nr_dual_spatial_d3d12.o'
+& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $DualSource '-o' $DualObject
+if($LASTEXITCODE){throw 'Second NR spatial module compilation failed.'}
+$ObjectFiles += $DualObject
+
+$CodecCompiler=Join-Path $Build 'compile-codec-artifact.exe'
+& $CppCompiler '-std=c++20' '-O2' '-static' '-municode' `
+    "-DNR_DESCRIPTOR_PROFILE=$DescriptorProfileValue" `
+    (Join-Path $PSScriptRoot 'compile-codec-artifact.cpp') '-ld3dcompiler' '-o' $CodecCompiler
+if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $CodecCompiler -PathType Leaf)){throw 'Codec artifact compiler build failed.'}
+$CodecCacheArgs = @()
+if ($CodecCacheRoot) { $CodecCacheArgs = @('--cache-from', (Resolve-Path -LiteralPath $CodecCacheRoot).Path) }
+& python (Join-Path $PSScriptRoot 'prepare-codec-artifacts.py') --source (Join-Path $ProjectRoot 'src/nr_before_sr.cpp') --compiler $CodecCompiler --output $Build --workers 2 @CodecCacheArgs
+if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $Build 'nr_codec_precompiled.h') -PathType Leaf)){throw 'Frozen shader artifact generation failed.'}
+$Common += '-DNR_CODEC_PRECOMPILED=1'
+$Common += "-I$Build"
+
+& (Join-Path $PSScriptRoot 'build-nrchain.ps1') -ProjectRoot $ProjectRoot -OutputRoot $Build -NgxSdkRoot $NgxSdkRoot -VcVarsPath $VcVarsPath -ReuseBridgeRoot $ReuseBridgeRoot
+if ($LASTEXITCODE -ne 0) { throw 'Production cold NGX bridge build failed.' }
 
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
 
@@ -112,7 +178,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-0.4.7beta-corefix.8-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -121,7 +187,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-0.4.7beta-corefix.8-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -142,12 +208,15 @@ foreach ($AddonBuild in $AddonBuilds) {
     # Keep the native tool's output leaf ASCII; PowerShell performs the final
     # Unicode rename. The UTF-8 BOM on this script is required by Windows PS5.
     $LinkOutput = Join-Path $Build $AddonBuild.LinkLeaf
+    # Retain exact address attribution outside the game payload, without changing
+    # release optimization or adding hot-path instrumentation.
+    $LinkMap = Join-Path $Objects ($AddonBuild.Object + '.map')
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
-        '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
+        '-Wl,--strip-all', '-Wl,--no-insert-timestamp', '-Xlinker', '-Map', '-Xlinker', $LinkMap
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
-        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
+        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }
@@ -156,19 +225,37 @@ foreach ($AddonBuild in $AddonBuilds) {
 }
 
 $BridgeOutput = Join-Path $Build 'nrchain_nvngx.dll'
-$BridgeLinkArgs = @(
-    '-shared', '-static', '-flto', '-Wl,--gc-sections', '-Wl,--strip-all',
-    '-Wl,--no-insert-timestamp',
-    $BridgeObject, '-o', $BridgeOutput, '-lkernel32', '-ld3d12', '-luuid'
-)
-& $CppCompiler @BridgeLinkArgs
-if ($LASTEXITCODE -ne 0) { throw 'Bridge link failed.' }
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'config\nr_before_sr.ini') `
           -Destination (Join-Path $Build 'nr_before_sr.ini') -Force
 
+$ArtifactRows = @()
 foreach ($Output in $AddonOutputs + $BridgeOutput) {
-    $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Output).Hash
+    if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) {
+        throw "Expected build output missing: $Output"
+    }
+    $Item = Get-Item -LiteralPath $Output
+    $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Output).Hash.ToLowerInvariant()
+    $ArtifactRows += [ordered]@{
+        name = $Item.Name
+        bytes = [int64]$Item.Length
+        sha256 = $Hash
+        kind = if ($Item.Name -ieq 'nrchain_nvngx.dll') { 'bridge' } else { 'addon' }
+    }
     Write-Host "Built: $Output"
     Write-Host "SHA256: $Hash"
 }
+
+$AddonVariantRows = @($ArtifactRows | Where-Object { $_.kind -eq 'addon' })
+$BridgeVariantRows = @($ArtifactRows | Where-Object { $_.kind -eq 'bridge' })
+[ordered]@{
+    schema = 'nr-build-variant-v1'
+    mode = $BuildMode
+    NR_DESCRIPTOR_PROFILE = $DescriptorProfileValue
+    sourcecommit = $SourceCommit
+    source_dirty = [int]$SourceDirty
+    build_directory = $BuildLeaf
+    addons = $AddonVariantRows
+    bridge = $BridgeVariantRows
+    artifacts = $ArtifactRows
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Build 'build-variant.json') -Encoding utf8

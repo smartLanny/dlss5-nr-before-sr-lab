@@ -1,6 +1,9 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
-    [Parameter(Mandatory=$true)][string]$OutputRoot
+    [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$FaceRuntimeRoot,
+    [string]$FaceModel,
+    [string]$FaceModelLicense
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -13,9 +16,71 @@ if (Test-Path -LiteralPath $Output) { throw 'OutputRoot already exists; no packa
 $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $Validation = Get-Content -LiteralPath (Join-Path $Build 'validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $Commit = [string]$Manifest.source_commit
-$Version = [string]$Manifest.integration.version
-$DisplayProperty = $Manifest.integration.PSObject.Properties['display_version']
+# Integration remains provenance; the final colour overlay owns product identity.
+$Product = $Manifest.integration
+foreach ($Key in @('colour_lab', 'colour_edge')) {
+    $Property = $Manifest.PSObject.Properties[$Key]
+    if ($null -ne $Property) {
+        if ($Property.Value.source_commit -ne $Commit) { throw 'Final product source identity disagrees with staged source.' }
+        $Product = $Property.Value
+    }
+}
+$Version = [string]$Product.version
+# An explicitly named inbox candidate retains every unified10 dependency/gate.
+# Do not rewrite its public/binary/source identity or accept arbitrary suffixes.
+$IsInboxCandidate = $Version -eq 'beta0.5-dline21-unified10-inbox1'
+$IsReconstructionCandidate = $Version -in @('beta0.5-dline21-unified10-reconstruction1','beta0.5-dline21-unified10-reconstruction1-ui1')
+$ValidationVersion = if ($IsInboxCandidate -or $IsReconstructionCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
+if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+    $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if(-not $Extra.passed -or -not $Extra.acceptance -or -not $Extra.restoration_negative -or
+       -not $Extra.temporal_entries -or -not $Extra.auxiliary -or -not $Extra.native_output -or
+       $Extra.source_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant()) {
+        throw 'Unified8 exact-source runtime checks are incomplete.'
+    }
+}
+if ($IsReconstructionCandidate) {
+    $RPath=Join-Path $Build 'reconstruction-checks/validation.json'
+    if (-not (Test-Path -LiteralPath $RPath)) { throw 'Reconstruction exact-source checks are missing.' }
+    $R=Get-Content -LiteralPath $RPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $CoreHash=(Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant()
+    if (-not $R.passed -or -not $R.runtime_controls -or -not $R.defaults_unchanged -or
+        $R.source_sha256 -ne $CoreHash -or $R.source_commit -ne $Commit -or
+        $Manifest.reconstruction.source_commit -ne $Commit -or $Manifest.reconstruction.version -ne $Version) {
+        throw 'Reconstruction exact-source checks are incomplete.'
+    }
+    $Math=Get-Content -LiteralPath $R.math_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $Warp=Get-Content -LiteralPath $R.warp_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Math.status -ne 'passed' -or $Math.production_shader_sha256 -ne
+        (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_math.hlsli')).Hash.ToLowerInvariant() -or
+        $Warp.status -ne 'passed' -or -not $Warp.manifest_verified -or $Warp.hardware -or
+        $Warp.source_sha256 -ne $CoreHash -or $Warp.source_commit -ne $Commit -or
+        @($Warp.runs|Where-Object {$_.name -eq 'positive' -and $_.exit -eq 0 -and $_.expected -eq 0}).Count -ne 1 -or
+        @($Warp.runs|Where-Object {$_.name -eq 'negative-disabled-protection' -and $_.exit -eq 1 -and $_.expected -eq 1}).Count -ne 1) {
+        throw 'Reconstruction math/WARP positive and inverse evidence is incomplete.'
+    }
+    if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') {
+        $Ui=Get-Content -LiteralPath $R.ui_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($Ui.status -ne 'passed' -or $Ui.ui_sha256 -ne
+            (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_ui.inl')).Hash.ToLowerInvariant() -or
+            @($Ui.runs|Where-Object {$_.name -eq 'actual-controls' -and $_.exit -eq 0}).Count -ne 1) {
+            throw 'Reconstruction UI control evidence is incomplete.'
+        }
+    }
+    foreach($Entry in @('EncodeV2CS','CombineCS','CombineV2CS')) {
+        $Shader=$Warp.exact_bytecode.$Entry
+        if ($Shader.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-FileHash -LiteralPath $Shader.file).Hash -ne $Shader.sha256) {
+            throw 'Reconstruction tested bytecode changed.'
+        }
+    }
+}
+$Unified = $ValidationVersion -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')
+$DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
+if ($IsInboxCandidate) { $DisplayVersion = '0.5.1-Beta-Inbox1' }
+if ($IsReconstructionCandidate) { $DisplayVersion = '0.5.1-Beta-Reconstruction1' }
+if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') { $DisplayVersion = '0.5.1-Beta-Reconstruction1-UI1' }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
 }
@@ -23,6 +88,9 @@ if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Validation.source_commit -ne $Commit
     throw 'Build evidence and exact staged source identity disagree.'
 }
 if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Candidate version is missing.' }
+if ($Unified -and ($Validation.PSObject.Properties['quality_successor'] -eq $null -or $Validation.quality_successor -ne $true)) {
+    throw 'Unified product requires its final quality-successor build evidence.'
+}
 $RepoCommit = (& git -C $Repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE) { throw 'Cannot resolve packaging source identity.' }
 & git -C $Repo merge-base --is-ancestor $Commit $RepoCommit
@@ -30,7 +98,7 @@ if ($LASTEXITCODE) { throw 'Built source must be an ancestor of the packaging so
 $Changes = @(& git -C $Repo diff --name-only $Commit $RepoCommit)
 if ($LASTEXITCODE) { throw 'Cannot verify source changes since build.' }
 foreach ($Changed in $Changes) {
-    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|tests/multi_api/test_candidate_packaging\.py$)') {
+    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|scripts/validate-(beta04-structure|strength-cap)\.py$|tests/descriptor_provenance_warp\.inl$|tests/multi_api/test_candidate_packaging\.py$|tests/test_lockperf2_workflow\.py$)') {
         throw "Binary/build inputs changed since validated source; rebuild required: $Changed"
     }
 }
@@ -76,8 +144,9 @@ foreach ($Binary in $ExpectedBinaries) {
     Assert-Hash $Binary ([string]$Evidence[0].sha256)
 }
 $PostLog = Join-Path $Build 'tests/post-scaled-work/stdout.txt'
-if (-not (Test-Path -LiteralPath $PostLog) -or (Get-Content -LiteralPath $PostLog -Raw -Encoding UTF8) -notmatch 'PASS post-scaled-work WARP: 48 scenarios') {
-    throw 'Successful 48-scenario post WARP log is missing.'
+$PostScenarios = if ($ValidationVersion -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) { 60 } else { 48 }
+if (-not (Test-Path -LiteralPath $PostLog) -or (Get-Content -LiteralPath $PostLog -Raw -Encoding UTF8) -notmatch ("PASS post-scaled-work WARP: " + $PostScenarios + " scenarios")) {
+    throw "Successful $PostScenarios-scenario post WARP log is missing."
 }
 $PostResultPath = Join-Path $Build 'tests/post-scaled-work/post-scaled-work-result.json'
 $PostResult = Get-Content -LiteralPath $PostResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -90,40 +159,172 @@ Assert-Hash (Join-Path $Build 'tests/post-scaled-work/post_scaled_work_gpu.cpp')
 Assert-Hash (Join-Path $Repo 'tests/post_scaled_work_gpu.cpp.in') ([string]$PostResult.template_sha256)
 Assert-Hash $PostLog ([string]$PostResult.stdout_sha256)
 $ChineseAddons = @($Addons | Where-Object { -not $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
-if ($ChineseAddons.Count -ne 1) { throw 'Exactly one verified Chinese core must be selected for delivery.' }
+$EnglishAddons = @($Addons | Where-Object { $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
+if ($ChineseAddons.Count -ne 1 -or $EnglishAddons.Count -ne 1) { throw 'One verified Core per language is required.' }
+$FaceEnabled = $Validation.PSObject.Properties['full_face_backend'] -and $Validation.full_face_backend -eq $true
+if ($Unified -and -not $FaceEnabled) { throw 'Unified package requires the complete face backend.' }
+$NgxLicense = Join-Path $CoreBuild 'NVIDIA-NGX-LICENSE.txt'
+if ($Unified -and -not (Test-Path -LiteralPath $NgxLicense)) { throw 'Unified package requires the nrchain SDK license.' }
+if (Test-Path -LiteralPath $NgxLicense) {
+    $NgxReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'nrchain-build.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-Hash $NgxLicense ([string]$NgxReceipt.input_sha256.'LICENSE.txt')
+    Assert-Hash (Join-Path $CoreBuild 'nrchain_nvngx.dll') ([string]$NgxReceipt.binary_sha256)
+}
+$FaceAssets = [ordered]@{}
+$AmdLicense = $null
+if ($ValidationVersion -in @('beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+    $TemporalReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'obj/temporal/module.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $TemporalReceipt.passed) { throw 'Temporal backend compilation is not verified.' }
+    $AmdLicense = Join-Path $CoreBuild 'obj/temporal/AMD-FidelityFX-LICENSE.txt'
+    Assert-Hash $AmdLicense ([string]$TemporalReceipt.license_sha256)
+}
+$FaceHashes = @{}
+$FaceReceiptHash = $null
+if ($FaceEnabled) {
+    if (-not $FaceRuntimeRoot -or -not $FaceModel -or -not $FaceModelLicense) { throw 'Enabled face backend requires all pinned assets and licenses.' }
+    $ReceiptPath = Join-Path $CoreBuild 'face-backend.json'
+    $Receipt = Get-Content -LiteralPath $ReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Receipt.schema -ne 'nr-face-build-v1' -or $Receipt.enabled -ne $true -or $Receipt.runtime_version -ne '1.23.2' -or
+        $Receipt.runtime_sha256 -ne 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea' -or
+        $Receipt.model_sha256 -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Face build receipt differs from validated full backend.' }
+    $FaceReceiptHash = (Get-FileHash -LiteralPath $ReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $FaceRoot = (Resolve-Path -LiteralPath $FaceRuntimeRoot).Path
+    $Pins = [ordered]@{
+        'lib/onnxruntime.dll'='dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea'
+        'lib/onnxruntime_providers_shared.dll'='a2b3a50956aa75a9879c8472bc7df4f7a8072bcd2db19a1b7d988e7688f293ef'
+        'LICENSE'='c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674'
+        'ThirdPartyNotices.txt'='e00f828e0a33de591a355ae6606d2625f5758da7d2c844db7821c9dd3e3647b6'
+    }
+    foreach ($Entry in $Pins.GetEnumerator()) {
+        $Asset = Safe-Child $FaceRoot $Entry.Key
+        Assert-Hash $Asset $Entry.Value
+        $Name = 'nr_face/' + [IO.Path]::GetFileName($Asset)
+        $FaceAssets[$Name] = $Asset
+        $FaceHashes[$Name] = $Entry.Value
+    }
+    $Model = (Resolve-Path -LiteralPath $FaceModel).Path
+    $ModelLicense = (Resolve-Path -LiteralPath $FaceModelLicense).Path
+    Assert-Hash $Model ([string]$Receipt.model_sha256)
+    Assert-Hash $ModelLicense 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958'
+    $ModelReceiptPath = [IO.Path]::ChangeExtension($Model, '.json')
+    $ModelReceipt = Get-Content -LiteralPath $ModelReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($ModelReceipt.schema -ne 'nr-face-model-shape-v1' -or $ModelReceipt.sha256 -ne $Receipt.model_sha256 -or
+        $ModelReceipt.source_sha256 -ne '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4' -or
+        $ModelReceipt.onnx_version -ne '1.19.1' -or $ModelReceipt.nodes_weights_unchanged -ne $true -or
+        $ModelReceipt.bytes -ne (Get-Item -LiteralPath $Model).Length) { throw 'Prepared face model provenance mismatch.' }
+    $FaceAssets['nr_face/yunet-dynamic.onnx'] = $Model
+    $FaceAssets['nr_face/YUNET-LICENSE'] = $ModelLicense
+    $FaceAssets['nr_face/yunet-dynamic.json'] = $ModelReceiptPath
+    $FaceHashes['nr_face/yunet-dynamic.onnx'] = [string]$Receipt.model_sha256
+    $FaceHashes['nr_face/YUNET-LICENSE'] = 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958'
+    $FaceHashes['nr_face/yunet-dynamic.json'] = (Get-FileHash -LiteralPath $ModelReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 $Parent = Split-Path -Parent $Output
 [IO.Directory]::CreateDirectory($Parent) | Out-Null
 $Temporary = Join-Path $Parent ('.nr-candidate-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($Temporary) | Out-Null
 try {
     $Packages = New-Object 'System.Collections.Generic.List[object]'
-    foreach ($Addon in $ChineseAddons) {
+    foreach ($Addon in $Addons) {
+        $Language = if ($Addon.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase)) { 'en' } else { 'zh-CN' }
         $Package = Join-Path $Temporary $Addon.BaseName
         New-Item -ItemType Directory -Path $Package | Out-Null
         Copy-Item -LiteralPath $Addon.FullName -Destination $Package
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
+        if (Test-Path -LiteralPath $NgxLicense) { Copy-Item -LiteralPath $NgxLicense -Destination $Package }
+        if ($AmdLicense) { Copy-Item -LiteralPath $AmdLicense -Destination $Package }
+        foreach ($Leaf in @($Addon.Name, 'nrchain_nvngx.dll', $CarrierLeaf)) {
+            $Evidence = @($Validation.binaries | Where-Object { $_.file -eq $Leaf })
+            Assert-Hash (Join-Path $Package $Leaf) ([string]$Evidence[0].sha256)
+        }
+        foreach ($Asset in $FaceAssets.GetEnumerator()) {
+            $Destination = Join-Path $Package $Asset.Key
+            [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Destination)) | Out-Null
+            Copy-Item -LiteralPath $Asset.Value -Destination $Destination
+            Assert-Hash $Destination $FaceHashes[$Asset.Key]
+        }
         $Licenses = "Carrier license`r`n==============`r`n" + [IO.File]::ReadAllText((Join-Path $Stage 'carrier/LICENSE')) +
             "`r`nMinHook license`r`n===============`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'third_party/minhook/LICENSE.txt')) +
             "`r`nThird-party notices`r`n===================`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'THIRD_PARTY_NOTICES.txt'))
         [IO.File]::WriteAllText((Join-Path $Package 'LICENSES.txt'), $Licenses, (New-Object Text.UTF8Encoding($false)))
-        $Install = @"
-$DisplayVersion
-
-0.5研究候选：保留高强度保护、单次NR分层和推荐/快照；不是稳定OTA。先关闭高强度保护与分层，与0.4.6-hotfix.1固定同场景对照，再逐项打开。
-
-退出游戏，备份现用组件，保留nr_before_sr.ini及其他无关MOD。建议通过配套Manager按本次游戏API安装或修复。
-D3D12：只安装本包中文核心与nrchain_nvngx.dll；不安装carrier，已有同类carrier应备份移出。
-DX11已有DLSS兼容路线：安装中文核心、nrchain_nvngx.dll及${CarrierLeaf}。关闭桥接后，这条NR路线不可用；不会替你改变游戏启动API。
-Vulkan或API不明确：不要把DX11 carrier当作对应支持，请先确认游戏实际使用的API。
-兼容范围：已有原生/模组DLSS输入的DX11 carrier路线，以及D3D12 SR前/后置和符合条件的RR后置。不是所有无DLSS的DX11游戏都支持；不含Feeder、原生Vulkan/Legacy支持。
-F6对比开关。F8生成单个TXT并自动复制文件路径，上传该文件即可。F7提供512像素采样和前后置分辨率对比矩阵；各组顺序采集，请保持镜头不动。新组合仍需逐游戏测试，Windows/WARP通过不等于所有游戏通过。
-回退：退出游戏，移走本包三个组件，放回备份。包不含替换INI、ReShade、NVIDIA运行库/模型或游戏文件。
-实际组件身份和哈希见build-info.json、SHA256.json；本批验证保留在源码仓库docs/interop/RESEARCH_050_CATCHUP_20260908.md。
+        if ($Language -eq 'zh-CN') {
+            $Install = @"
+$DisplayVersion — 中文研究候选，尚未游戏验收。
+退出游戏并备份旧核心，只保留一份语言核心。保留已有 INI 与模型设置。
+D3D12：使用本包核心和 nrchain_nvngx.dll；不安装 DX11 carrier。
+DX11 已有 DLSS 兼容路线：另需 ${CarrierLeaf}；不宣称支持所有 DX11 游戏或 Vulkan。
+若包含 nr_face，请保持该目录与核心相邻；它包含可选人脸功能的 CPU 运行库、模型和许可证，不会自动开启功能。
+默认 F6 对比、F8 导出文字反馈；可在开发者页改键。Windows/WARP 通过不等于游戏通过；使用同场景同配置验收。
+回退时退出游戏，移出本批核心/桥接/人脸目录，恢复备份。包不含 INI、ReShade 或 NVIDIA 私有运行库/模型。
+身份、依赖和哈希见 build-info.json、SHA256.json。
 "@
-        [IO.File]::WriteAllText((Join-Path $Package '安装说明.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
+        } else {
+            $Install = @"
+$DisplayVersion — English research candidate; NOT game verified.
+Exit the game and back up the prior Core. Keep exactly one language Core and preserve existing INI/model settings.
+D3D12: use the Core and nrchain_nvngx.dll; do not install the DX11 carrier.
+DX11 with an existing compatible DLSS input path additionally needs ${CarrierLeaf}; this is not universal DX11 or Vulkan support.
+If present, keep nr_face beside the Core. It contains the optional face feature's CPU runtime, model and licenses; packaging does not enable it.
+Default keys: F6 compares and F8 exports a text report; remap them on Developer. Windows/WARP validation is not game validation; keep scene and settings identical.
+For rollback, exit the game, remove this candidate's Core/bridge/face directory and restore backups. No INI, ReShade or NVIDIA private runtime/model is included.
+See build-info.json and SHA256.json for exact identity, dependencies and hashes.
+"@
+        }
+        $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
+        [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
+        if ($ValidationVersion -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+            $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified4') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED4_UI_EN_20260921.md' } else { 'UNIFIED4_UI_20260921.md' }
+            }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified5') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED5_UI_EN_20260921.md' } else { 'UNIFIED5_UI_20260921.md' }
+            }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified6') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED6_UI_EN_20260921.md' } else { 'UNIFIED6_UI_20260921.md' }
+            }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified7') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED7_UI_20260921.en.md' } else { 'UNIFIED7_UI_20260921.md' }
+            }
+            if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED8_UI.en.md' } else { 'UNIFIED8_UI.md' }
+            }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified9') {
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED9_UI.en.md' } else { 'UNIFIED9_UI.md' }
+            }
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_CHANGELOG.zh-CN.md') -Destination (Join-Path $Package '更新说明-0.5.1Beta.md')
+                Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_ACCEPTANCE.zh-CN.md') -Destination (Join-Path $Package '验收指南-0.5.1Beta.md')
+                $GuideSource = if ($Language -eq 'en') { 'UNIFIED10_UI.en.md' } else { 'UNIFIED10_UI.md' }
+            }
+            $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
+            Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
+            if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+                if ($ValidationVersion -ne 'beta0.5-dline21-unified10') {
+                    Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
+                }
+                $StatusSource = if ($ValidationVersion -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($ValidationVersion -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
+                if ($IsInboxCandidate) { $StatusSource = '051_INBOX_WINDOWS_20260924.md' }
+                if ($IsReconstructionCandidate) { $StatusSource = '051_RECONSTRUCTION1_20260925.md' }
+                Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
+                if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
+                    Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
+                    $StatusPath = Join-Path $Package 'IMPLEMENTATION-STATUS.md'
+                    $StatusText = Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8
+                    $StatusText = $StatusText.Replace('051_BETA_CHANGELOG.zh-CN.md','更新说明-0.5.1Beta.md').Replace('051_BETA_ACCEPTANCE.zh-CN.md','验收指南-0.5.1Beta.md').Replace('PR303_INTEGRATION_REVIEW_20260923.md','PR303-REVIEW.md')
+                    [IO.File]::WriteAllText($StatusPath, $StatusText, (New-Object Text.UTF8Encoding($false)))
+                }
+            }
+        }
+        if ($ValidationVersion -eq 'beta0.5-dline21-unified3-rr1') {
+            Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RR_CURRENT_PROJECTION_20260920.md') -Destination (Join-Path $Package 'RR-CANDIDATE.md')
+        }
+        if ($ValidationVersion -eq 'beta0.5-dline21-unified4') {
+            Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED4_CONTINUATION_20260921.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
+        }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
-            language='zh-CN'; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
+            language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
             core_file_version=$Addon.VersionInfo.FileVersion; carrier_upstream_file_version=(Get-Item -LiteralPath (Join-Path $Build $CarrierLeaf)).VersionInfo.FileVersion; bridge_upstream_commit=$Manifest.integration.bridge_commit;
             source_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();
             validation_sha256=(Get-FileHash -LiteralPath (Join-Path $Build 'validation.json') -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -133,12 +334,12 @@ F6对比开关。F8生成单个TXT并自动复制文件路径，上传该文件�
             [ordered]@{file=$_.FullName.Substring($Package.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
         })
         [IO.File]::WriteAllText((Join-Path $Package 'SHA256.json'), ($Hashes | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
-        $ZipLeaf = $Addon.BaseName.Replace($Version, $DisplayVersion) + '-OTA.zip'
+        $ZipLeaf = 'DLSS5-' + $DisplayVersion + '-' + $Language + '-OTA.zip'
         $Zip = Join-Path $Temporary $ZipLeaf
         Compress-Archive -Path (Join-Path $Package '*') -DestinationPath $Zip
-        $Packages.Add([ordered]@{file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
+        $Packages.Add([ordered]@{language=$Language; file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
     }
-    $Index = [ordered]@{source_commit=$Commit; packaging_commit=$RepoCommit; version=$Version; display_version=$DisplayVersion; language='zh-CN'; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
+    $Index = [ordered]@{source_commit=$Commit; packaging_commit=$RepoCommit; version=$Version; display_version=$DisplayVersion; languages=@('zh-CN','en'); full_face_backend=[bool]$FaceEnabled; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
     [IO.File]::WriteAllText((Join-Path $Temporary 'packages.json'), ($Index | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
     [IO.Directory]::Move($Temporary, $Output)
     Write-Host "Packaged exact-source language candidates without touching games or existing INI: $Output"

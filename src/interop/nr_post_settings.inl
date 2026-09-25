@@ -1,6 +1,11 @@
 // Included after normal config helpers. Separate requests never overwrite
 // g_config.mode; effective route selection is per evaluated feature.
+#include "../nr_rr_depth_projection.h"
 namespace nr_post_settings {
+// New/missing preferences attempt the bounded missing-projection candidate.
+// Explicit saved OFF and the independent scale/reset contract are preserved.
+std::atomic<bool> missing_projection{true};
+std::atomic<bool> missing_projection_save_failed{false};
 struct Options { bool rr=true; unsigned percent=100; };
 std::atomic<unsigned> bits{100u | 256u};
 std::atomic<unsigned long long> revision{0};
@@ -34,7 +39,7 @@ bool Reject(unsigned percent) {
     const bool was_rejected=request_rejected.exchange(true,std::memory_order_acq_rel);
     const unsigned previous=rejected_percent.exchange(percent,std::memory_order_acq_rel);
     if(!was_rejected || previous!=percent)
-        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 50-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
+        Log("[post-compat] unsupported Npost/O request=%u%%; previous precision retained, NOT clamped. Choose 25-100 or 0/off. F8 TXT and upload BUG if unexpected.",percent);
     return false;
 }
 bool PrepareRequestLocked(Options& value) {
@@ -68,7 +73,8 @@ void ApplyLocked(Options value) {
 }
 void Poll() {
     if(nr_f8::g_config_hold.load(std::memory_order_acquire) || !g_ini_path[0] ||
-       persistence_failed.load(std::memory_order_acquire)) return;
+       persistence_failed.load(std::memory_order_acquire) ||
+       missing_projection_save_failed.load(std::memory_order_acquire)) return;
     const auto now=GetTickCount64();
     auto next_tick=next_poll.load(std::memory_order_relaxed);
     if(now<next_tick || !next_poll.compare_exchange_strong(next_tick,now+500,
@@ -79,11 +85,16 @@ void Poll() {
     // enable switch. User F6/master state is never changed by this policy.
     next.rr=RrPostAutomatic();
     next.percent=GetPrivateProfileIntW(L"NRBeforeSR",L"PostWorkPercent",100,g_ini_path);
+    const bool next_missing=GetPrivateProfileIntW(L"NRBeforeSR",L"RRMissingProjectionFallback",1,g_ini_path)!=0;
     const bool zero_request=next.percent==0;
     EnterCriticalSection(&g_chain_cs);
     if(!nr_f8::g_config_hold.load(std::memory_order_acquire) &&
        observed_revision==revision.load(std::memory_order_acquire) && PrepareRequestLocked(next)) {
         ApplyLocked(next);
+        if(missing_projection.exchange(next_missing,std::memory_order_acq_rel)!=next_missing) {
+            g_config_generation.fetch_add(1,std::memory_order_relaxed);
+            g_history_generation.fetch_add(1,std::memory_order_relaxed);
+        }
         if(!ready.exchange(true,std::memory_order_acq_rel))
             Log("[post-compat] initial RR-post=%d Npost/O=%u%%; requested Mode=%d retained.",
                 next.rr?1:0,next.percent,g_config.mode);
@@ -109,6 +120,20 @@ bool Request(Options next) {
     persistence_failed.store(!rr_saved||!scale_saved,std::memory_order_release);
     LeaveCriticalSection(&g_chain_cs);
     return true;
+}
+bool RequestMissingProjection(bool enabled) {
+    if(nr_f8::g_config_hold.load(std::memory_order_acquire))return false;
+    EnterCriticalSection(&g_chain_cs);
+    if(nr_f8::g_config_hold.load(std::memory_order_acquire)){LeaveCriticalSection(&g_chain_cs);return false;}
+    revision.fetch_add(1,std::memory_order_release); // Invalidate stale INI polls.
+    if(missing_projection.exchange(enabled,std::memory_order_acq_rel)!=enabled){
+        g_config_generation.fetch_add(1,std::memory_order_relaxed);
+        g_history_generation.fetch_add(1,std::memory_order_relaxed);
+    }
+    const bool saved=WriteIniInt(L"RRMissingProjectionFallback",enabled?1:0);
+    missing_projection_save_failed.store(!saved,std::memory_order_release);
+    Log("[RR-depth] explicit missing-projection fallback=%d; placeholder depth, reset each frame, native RR unchanged; request is not NR success.",enabled?1:0);
+    LeaveCriticalSection(&g_chain_cs);return saved;
 }
 // The existing capture session owns the configuration hold for its complete
 // bounded sequence. Temporary work sizes and restoration must never write INI.

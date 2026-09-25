@@ -82,13 +82,17 @@ class Patches(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('MULTIAPI_CORE_SOURCE'), 'requires real full core file; not available in host fixture test')
     def test_actual_core_input(self):
         import hashlib
-        source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
+        # Match the reviewed Git text blob on both LF and CRLF checkouts. Keep
+        # every character (including a BOM if present); only EOL is canonical.
+        source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        self.assertEqual(digest,'06018f0d4aa7d6df035c9aec0ecefe63fb69a1de')
+        # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
+        self.assertEqual(digest,'32bfacf33c88ede6436ecb6aa26003f739aa23c9')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.
         def shader(s):return s.split('const char kCodecShader[] = R"HLSL(',1)[1].split(')HLSL";',1)[0]
         self.assertEqual(shader(result), shader(text))
-        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),2)
+        self.assertEqual(result.count('srv.Format = slot.source_srv_format;'),1)
+        self.assertEqual(result.count('#define NR_NATIVE_FORMAT_STAGED 1'),1)
 if __name__=='__main__':unittest.main()

@@ -41,11 +41,13 @@ void MakeSource(queue_test::Fixture &f,Texture &t,DXGI_FORMAT physical) {
     Transition(list.native,t.resource,t.state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Submit(f,list);ReleaseCom(upload);
 }
-void Case(queue_test::Fixture &f,DXGI_FORMAT physical,bool half,bool identity,bool wrong_target) {
+void Case(queue_test::Fixture &f,DXGI_FORMAT physical,bool half,bool identity,bool wrong_target,bool light=false) {
     constexpr unsigned width=8,height=6,source_x=3,source_y=2;
     const auto generation=++native_color_test::next_generation;
     const unsigned mw=half?4:width,mh=half?3:height;
     native_color_test::ResetContext(false,generation,mw,mh);
+    if(light){g_config.light_broad=1.25f;g_config.light_dark=.75f;g_config.light_control_mode=1;}
+
     auto &context=queue_test::context;
     context.evaluations=0;context.instance_id=generation+7000;
     context.config_generation=static_cast<unsigned>(generation);
@@ -191,6 +193,8 @@ void Run() {
     Case(f,DXGI_FORMAT_R32G32B32A32_FLOAT,true,true,false);
     Case(f,DXGI_FORMAT_R32G32B32A32_FLOAT,true,false,false);
     Case(f,DXGI_FORMAT_R32G32B32A32_FLOAT,true,false,true);
+    Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,false,false,true);
+    Case(f,DXGI_FORMAT_R8G8B8A8_TYPELESS,true,true,false,true);
     // Existing post-storage shader/restore contract remains exercised, without
     // adding the pre reference offset flag to the post dispatch.
     post_output_test::Case(f,DXGI_FORMAT_R10G10B10A2_UNORM,false,true);

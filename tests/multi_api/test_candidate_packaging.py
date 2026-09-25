@@ -29,7 +29,20 @@ class Packaging(unittest.TestCase):
         self.post = self.build/'tests/post-scaled-work'
         self.core.mkdir(parents=True)
         self.post.mkdir(parents=True)
-        self.commit = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
+        # A clean isolated repository exercises real source binding while allowing
+        # this test to run before the implementation is committed.
+        self.repo = self.root/'repo'
+        for relative in ('scripts/package-multi-api-candidate.ps1', 'third_party/minhook/LICENSE.txt',
+                         'THIRD_PARTY_NOTICES.txt', 'tests/post_scaled_work_gpu.cpp.in'):
+            target = self.repo/relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT/relative, target)
+        self.git('init', '-q')
+        self.git('config', 'core.autocrlf', 'false')
+        self.git('add', '.')
+        self.git('-c', 'user.name=Packaging fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture')
+        self.commit = self.git('rev-parse', 'HEAD').strip()
+        self.face_args = []
         for name, value in {
             'core/src/nr_before_sr.cpp': 'synthetic core fixture',
             'core/config/nr_before_sr.ini': '[NRBeforeSR]\nEnabled=1\n',
@@ -61,6 +74,9 @@ class Packaging(unittest.TestCase):
                   'template_sha256': digest(ROOT/'tests/post_scaled_work_gpu.cpp.in')}
         (self.post/'post-scaled-work-result.json').write_text(json.dumps(result))
 
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True)
+
     def run_package(self):
         (self.stage/'source-manifest.json').write_text(json.dumps(self.manifest))
         (self.build/'validation.json').write_text(json.dumps(self.validation))
@@ -68,15 +84,16 @@ class Packaging(unittest.TestCase):
         # A Python child of pwsh otherwise passes PowerShell 7's module roots to PS5.
         environment = {key: value for key, value in environment.items() if key.upper() != 'PSMODULEPATH'}
         return subprocess.run([SHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                               str(ROOT/'scripts/package-multi-api-candidate.ps1'), '-BuildRoot', str(self.build),
-                               '-OutputRoot', str(self.root/'output')], capture_output=True, text=True, encoding="utf-8", errors="replace", env=environment)
+                               str(self.repo/'scripts/package-multi-api-candidate.ps1'), '-BuildRoot', str(self.build),
+                               '-OutputRoot', str(self.root/'output'), *self.face_args], capture_output=True, text=True, encoding="utf-8", errors="replace", env=environment)
 
     def test_separate_languages_and_ini_preserved(self):
         run = self.run_package()
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         index = json.loads((self.root/'output/packages.json').read_text(encoding='utf-8-sig'))
         self.assertEqual(index['version'], 'synthetic-fixture')
-        self.assertEqual(len(index['packages']), 1)
+        self.assertEqual(len(index['packages']), 2)
+        self.assertEqual({e['language'] for e in index['packages']}, {'zh-CN', 'en'})
         for entry in index['packages']:
             package = self.root/'output'/entry['file']
             self.assertEqual(digest(package), entry['sha256'])
@@ -86,10 +103,11 @@ class Packaging(unittest.TestCase):
                 self.assertNotIn('nr_before_sr.ini', names)
                 self.assertEqual(len(names), 7)
                 self.assertIn('LICENSES.txt', names)
-                self.assertIn('安装说明.txt', names)
+                self.assertIn('READ-FIRST.txt' if entry['language'] == 'en' else '安装说明.txt', names)
                 self.assertIn('build-info.json', names)
                 self.assertNotIn('source-manifest.json', names)
-                self.assertFalse(any(n.startswith('validation/') or n.endswith('.en.addon64') for n in names))
+                self.assertFalse(any(n.startswith('validation/') for n in names))
+                self.assertEqual(any(n.endswith('.en.addon64') for n in names), entry['language'] == 'en')
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)
 
     def test_public_chinese_label_is_carried_by_zip_and_manifest(self):
@@ -103,7 +121,7 @@ class Packaging(unittest.TestCase):
             self.assertIn('0.4.5-DX11-兼容增强', entry['file'])
             with zipfile.ZipFile(self.root/'output'/entry['file']) as archive:
                 self.assertIsNone(archive.testzip())
-                self.assertIn('0.4.5-DX11-兼容增强', archive.read('安装说明.txt').decode('utf-8-sig'))
+                self.assertIn('0.4.5-DX11-兼容增强', archive.read('READ-FIRST.txt' if entry['language'] == 'en' else '安装说明.txt').decode('utf-8-sig'))
 
     def test_tampered_evidence_never_publishes_package(self):
         for relative in ('source/core/src/nr_before_sr.cpp', 'source/core/build/core.en.addon64',
@@ -130,6 +148,214 @@ class Packaging(unittest.TestCase):
         self.assertNotEqual(run.returncode, 0)
         self.assertIn('identity disagree', run.stdout + run.stderr)
         self.assertFalse((self.root/'output').exists())
+
+    def unified(self):
+        self.manifest['colour_lab'] = {'source_commit': self.commit, 'version': 'beta0.5-dline21-unified1'}
+        self.validation.update(quality_successor=True, full_face_backend=True)
+        license_path = self.core/'NVIDIA-NGX-LICENSE.txt'
+        license_path.write_text('synthetic SDK license fixture; not a vendor payload')
+        (self.core/'nrchain-build.json').write_text(json.dumps({
+            'input_sha256': {'LICENSE.txt': digest(license_path)},
+            'binary_sha256': digest(self.core/'nrchain_nvngx.dll')}))
+        receipt = {'schema': 'nr-face-build-v1', 'enabled': True, 'runtime_version': '1.23.2',
+                   'runtime_sha256': 'dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea',
+                   'model_sha256': 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1'}
+        (self.core/'face-backend.json').write_text(json.dumps(receipt))
+
+    def test_unified_rejects_missing_quality_face_or_wrong_overlay_identity(self):
+        self.unified()
+        for key, expected in (('quality_successor', 'quality-successor'), ('full_face_backend', 'complete face backend')):
+            with self.subTest(key=key):
+                self.validation[key] = False
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn(expected, run.stdout + run.stderr)
+                self.validation[key] = True
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('requires all pinned assets', run.stdout + run.stderr)
+        self.manifest['colour_lab']['source_commit'] = '0'*40
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Final product source identity', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
+    def inbox_fixture(self):
+        self.unified()
+        self.manifest['colour_edge'] = {'source_commit': self.commit,
+            'version': 'beta0.5-dline21-unified10-inbox1',
+            'display_version': '0.5.1 Beta Inbox1'}
+        folder = self.build/'unified8-checks'
+        folder.mkdir(exist_ok=True)
+        extra = {'passed': True, 'acceptance': True, 'restoration_negative': True,
+            'temporal_entries': True, 'auxiliary': True, 'native_output': True,
+            'source_sha256': digest(self.stage/'core/src/nr_before_sr.cpp')}
+        path = folder/'validation.json'
+        path.write_text(json.dumps(extra))
+        return path, extra
+
+    def test_inbox_cannot_bypass_extended_or_quality_gates(self):
+        path, extra = self.inbox_fixture()
+        for key in ('passed', 'acceptance', 'restoration_negative', 'temporal_entries',
+                    'auxiliary', 'native_output', 'source_sha256'):
+            with self.subTest(key=key):
+                broken = dict(extra)
+                broken[key] = '0'*64 if key == 'source_sha256' else False
+                path.write_text(json.dumps(broken))
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn('exact-source runtime checks are incomplete', run.stdout + run.stderr)
+                self.assertFalse((self.root/'output').exists())
+        path.write_text(json.dumps(extra))
+        self.validation['quality_successor'] = False
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('quality-successor', run.stdout + run.stderr)
+
+    def test_inbox_requires_sixty_post_scenarios_and_amd(self):
+        self.inbox_fixture()
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('60-scenario post WARP log is missing', run.stdout + run.stderr)
+        (self.post/'stdout.txt').write_text('PASS post-scaled-work WARP: 60 scenarios\n')
+        result_path = self.post/'post-scaled-work-result.json'
+        result = json.loads(result_path.read_text())
+        result['stdout_sha256'] = digest(self.post/'stdout.txt')
+        result_path.write_text(json.dumps(result))
+        temporal = self.core/'obj/temporal'
+        temporal.mkdir(parents=True)
+        (temporal/'module.json').write_text(json.dumps({'passed': False}))
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Temporal backend compilation is not verified', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
+    def test_reconstruction_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1')
+
+    def test_reconstruction_ui_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1-ui1')
+
+    def check_reconstruction_suffix(self, version):
+        extra_path, extra = self.inbox_fixture()
+        self.manifest['colour_edge']['version'] = version
+        self.manifest['reconstruction'] = {'version':version,'source_commit':self.commit}
+        for field in ('temporal_entries', 'auxiliary', 'native_output', 'source_sha256'):
+            bad = dict(extra)
+            bad[field] = '0'*64 if field == 'source_sha256' else False
+            extra_path.write_text(json.dumps(bad))
+            run = self.run_package()
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('exact-source runtime checks are incomplete', run.stdout+run.stderr)
+        extra_path.write_text(json.dumps(extra))
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Reconstruction exact-source checks are missing', run.stdout+run.stderr)
+        folder = self.build/'reconstruction-checks'
+        folder.mkdir()
+        r={'passed':True,'runtime_controls':True,'defaults_unchanged':True,
+           'source_commit':self.commit,'source_sha256':digest(self.stage/'core/src/nr_before_sr.cpp')}
+        for field in tuple(r):
+            bad=dict(r)
+            bad[field]='wrong' if field.startswith('source_') else False
+            (folder/'validation.json').write_text(json.dumps(bad))
+            run=self.run_package()
+            self.assertNotEqual(run.returncode,0)
+            self.assertIn('Reconstruction exact-source checks are incomplete',run.stdout+run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
+    def test_dirty_and_changed_build_sources_rejected(self):
+        template = self.repo/'tests/post_scaled_work_gpu.cpp.in'
+        template.write_bytes(template.read_bytes() + b'\n// dirty fixture\n')
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('committed and clean', run.stdout + run.stderr)
+        self.git('add', '.')
+        self.git('-c', 'user.name=Packaging fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'changed build source')
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('rebuild required', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
+    @unittest.skipUnless(os.environ.get('DLSS5_FACE_TEST_ASSETS'), 'Set DLSS5_FACE_TEST_ASSETS to real pinned face resources')
+    def test_full_face_real_assets_bilingual_and_tamper_controls(self):
+        assets = Path(os.environ['DLSS5_FACE_TEST_ASSETS'])
+        self.unified()
+        self.face_args = ['-FaceRuntimeRoot', os.environ.get('DLSS5_FACE_TEST_RUNTIME', str(assets/'onnxruntime-win-x64-1.23.2')),
+                          '-FaceModel', str(assets/'yunet-dynamic.onnx'),
+                          '-FaceModelLicense', str(assets/'YUNET-LICENSE')]
+        # Never alter the actual shared dependencies: negative controls use private copies.
+        bad_model = self.root/'bad.onnx'
+        bad_model.write_bytes((assets/'yunet-dynamic.onnx').read_bytes() + b'tampered')
+        original = self.face_args[3]
+        self.face_args[3] = str(bad_model)
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('SHA256 mismatch', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+        self.face_args[3] = original
+        bad_runtime = self.root/'bad-runtime/lib'
+        bad_runtime.mkdir(parents=True)
+        (bad_runtime/'onnxruntime.dll').write_bytes(b'unapproved runtime')
+        bad_license = self.root/'bad-license'
+        bad_license.write_text('unapproved license')
+        for position, path in ((1, bad_runtime.parent), (5, bad_license)):
+            with self.subTest(tampered=path.name):
+                previous = self.face_args[position]
+                self.face_args[position] = str(path)
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn('SHA256 mismatch', run.stdout + run.stderr)
+                self.assertFalse((self.root/'output').exists())
+                self.face_args[position] = previous
+        private_model = self.root/'private-model.onnx'
+        shutil.copyfile(assets/'yunet-dynamic.onnx', private_model)
+        model_receipt = json.loads((assets/'yunet-dynamic.json').read_text())
+        model_receipt['nodes_weights_unchanged'] = False
+        private_model.with_suffix('.json').write_text(json.dumps(model_receipt))
+        self.face_args[3] = str(private_model)
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Prepared face model provenance mismatch', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+        self.face_args[3] = original
+        receipt_path = self.core/'face-backend.json'
+        receipt = json.loads(receipt_path.read_text())
+        receipt['enabled'] = False
+        receipt_path.write_text(json.dumps(receipt))
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Face build receipt differs', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+        receipt['enabled'] = True
+        receipt_path.write_text(json.dumps(receipt))
+        run = self.run_package()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        index = json.loads((self.root/'output/packages.json').read_text(encoding='utf-8-sig'))
+        self.assertEqual(index['version'], 'beta0.5-dline21-unified1')
+        self.assertTrue(index['full_face_backend'])
+        self.assertEqual({e['language'] for e in index['packages']}, {'zh-CN', 'en'})
+        expected_face = {'onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'LICENSE',
+                         'ThirdPartyNotices.txt', 'yunet-dynamic.onnx', 'YUNET-LICENSE', 'yunet-dynamic.json'}
+        for entry in index['packages']:
+            self.assertIn('beta0.5-dline21-unified1', entry['file'])
+            package = self.root/'output'/entry['file']
+            self.assertEqual(digest(package), entry['sha256'])
+            with zipfile.ZipFile(package) as archive:
+                names = {n.replace('\\', '/') for n in archive.namelist() if not n.endswith('/')}
+                self.assertEqual({n.removeprefix('nr_face/') for n in names if n.startswith('nr_face/')}, expected_face)
+                self.assertEqual(len(names), 15)
+                self.assertEqual(archive.read('NVIDIA-NGX-LICENSE.txt'),
+                                 (self.core/'NVIDIA-NGX-LICENSE.txt').read_bytes())
+                self.assertFalse(any(n.endswith('.ini') or 'nvngx_dlss' in n.lower() for n in names))
+                info = json.loads(archive.read('build-info.json'))
+                self.assertEqual(info['language'], entry['language'])
+                self.assertTrue(info['full_face_backend'])
+                self.assertEqual(info['face_backend_receipt_sha256'], digest(receipt_path))
+                hashes = json.loads(archive.read('SHA256.json'))
+                self.assertEqual(len(hashes), 14)
+                for item in hashes:
+                    self.assertEqual(hashlib.sha256(archive.read(item['file'])).hexdigest(), item['sha256'])
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@
 #include <d3dcompiler.h>
 #include <tlhelp32.h>
 #include <shlobj.h>
+#include <psapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +24,8 @@
 #include <limits>
 #include <new>
 #include <memory>
+#include <type_traits>
+#include "nr_layer_config.h"
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -43,12 +46,36 @@
 #include "nr_guide_contract.h"
 #include "nr_motion_slot_selection.h"
 #include "nr_rr_depth_projection.h"
+#include "nr_rr_projection_source.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
+#include "nr_process_memory.h"
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_face_capture_geometry.h"
+#include "nr_pre_fallback.h"
+#include "nr_face_worker.h"
+#include "nr_dual_spatial_d3d12.hpp"
+#include "nr_full_pass.hpp"
+#include "nr_dual_lifetime.hpp"
+#include "nr_descriptor_plan.h"
+#include "nr_processing_route.h"
+#include "nr_launch_preferences.h"
+#include "nr_fg_presentation.h"
+#include "nr_descriptor_scratch.h"
+#include "nr_source_frame.hpp"
+#include "nr_fg_contract.hpp"
+#include "nr_compat_present_policy.hpp"
+#include "nr_fg_hud_shader.h"
+#include "interop/nr_external_provider_feedback.h"
+#if NR_CODEC_PRECOMPILED
+#include "nr_codec_precompiled.h"
+#endif
+#ifndef NR_FACE_BACKEND
+#define NR_FACE_BACKEND 0
+#endif
 #include "nr_probe_policy.h"
 #include "nr_store_comparison.h"
 #define NR_HAS_PROBE_POLICY 1
@@ -60,6 +87,7 @@
 
 namespace {
 
+#include "nr_source_frame_forward.inl"
 #include "nr_runtime_timing.inl"
 #include "nr_ui_activity_runtime.inl"
 #include "nr_submitted_fence_wait.inl"
@@ -71,11 +99,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta-corefix.8";
+constexpr const char *kAddonVersion = "beta0.5-dline21-uniform3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta-corefix.8";
+constexpr const char *kBuildIdentity = "beta0.5-dline21-uniform3";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -166,7 +194,10 @@ bool GetResource(const NgxParams *params, const char *key, ID3D12Resource **valu
         std::strcmp(key, "Depth") == 0 ||
         std::strcmp(key, "MotionVectors") == 0 ||
         std::strcmp(key, "Output") == 0 ||
-        std::strcmp(key, "ExposureTexture") == 0;
+        std::strcmp(key, "ExposureTexture") == 0 ||
+        std::strcmp(key, "GBuffer.Normals") == 0 ||
+        std::strcmp(key, "DLSS.Input.SpecularAlbedo") == 0 ||
+        std::strcmp(key, "DLSSD.SpecularHitDistance") == 0;
     if (!known_resource) return false;
     void *untyped_resource = nullptr;
     auto untyped_fn = ParamSlot<GetVoidFn>(params, 8);
@@ -386,6 +417,7 @@ enum class BypassReason : int {
     CodecUnavailable,
     QueueRetirementTimeout,
     ExternalNrOwner,
+    ContextReleasePending,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -498,6 +530,7 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::RuntimeUnavailable: return "nr-runtime-unavailable";
     case BypassReason::CodecUnavailable: return "codec-unavailable";
     case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
+    case BypassReason::ContextReleasePending: return "context-release-pending";
     default: return "unknown";
     }
 }
@@ -604,6 +637,7 @@ std::atomic<unsigned long long> g_feature1_successful_creates{0};
 // after switching back to Feature 1; a cached handle does not own every later
 // SR evaluation. Actual calls and the transaction gate determine routing.
 std::atomic<unsigned int> g_live_rr_handles{0};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
 // while RR ownership is being established.
@@ -853,9 +887,19 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 // AI upscaling chain: render-resolution NR, then the game's original SR
 // -------------------------------------------------------------------------
 
+#include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_replay_format.h"
+
+struct ChainConfig;
+void DrawPerformanceRouteNotice(const ChainConfig&);
+
 struct ChainConfig {
     bool enabled = false;
     int mode = 2;
+    nr_processing::Start processing_start=nr_processing::Start::Before;
+    unsigned long long processing_selection=0; // Session-only explicit reselection.
+    unsigned compat_percent=100;
     bool identity_use_original = false;
     // V2 composition treats this as a multiplicative log-ratio exponent.
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
@@ -868,12 +912,29 @@ struct ChainConfig {
     int work_mode = 0;
     float custom_work_scale = 1.0f;
     float lighting_lock = 0.0f;
-    float edge_guard = 0.25f;
+    float edge_guard = 0.0f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
     bool color_protection = true; // Additional enhancement chroma budget; composition only.
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
+    unsigned region_version=1;
+    unsigned nr_passes=1;
+    bool nr_full_reference=false;
+    unsigned nr_full_passes=3;
+    // Legacy auxiliary scale is retained for migration diagnostics only.
+    unsigned nr_second_numerator=1,nr_second_denominator=2;
+    nr_layers::Auxiliary nr_layers{};
+    bool nr_uniform_migrated=false;
+    bool generic_residual=false;
+    float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
+    bool region_enabled=false;
+    float region_gains[11]={1,1,1,1,1,1,1,1,1,1,1};
+    unsigned region_preview=0;
+    unsigned face_protection_version = 1;
+    bool face_protection = false, face_extra_cap = true;
+    float face_original_luma = 0, face_original_color = 0;
+    unsigned face_preview = 0; // Transient; never persisted.
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
     bool catmull_edit_restore = false; // #85: off = existing BilinearSafe.
     bool low_grid_color_edit_field = false; // #86 normalized opponent-colour field; defaults to A.
@@ -882,6 +943,12 @@ struct ChainConfig {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.f, light_dark = 1.f;
+    float light_reflection = 1.f, light_structure = 1.f, light_glow = 0.f;
+    unsigned light_preview = 0; // Transient diagnostic view; never persisted.
+    unsigned light_style_version = 1, light_preset = 0;
+    unsigned light_control_mode = 1; // Missing/new: whole residual light/dark; explicit old values retained.
+    float light_preset_color = 1.f; // Resolved colour snapshot of selected preset.
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
@@ -892,15 +959,15 @@ struct ChainConfig {
     float proxy_scale = 1.0f;
     bool experimental_peak_shoulder = false;
     unsigned int warmup_after_create = 2;
-    bool retry_original_on_sr_failure = true;
+    bool retry_original_on_sr_failure = false; // Legacy key retained; no same-source native SR retry.
     int depth_mode = -1;
-    float intensity = 1.2f;
+    float intensity = 1.5f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
-    float skin_structure = -1.0f;
-    bool auto_mask = false;
+    float skin_structure = 0.4f;
+    bool auto_mask = true;
     unsigned int style = 0;
-    bool ui_correction = false;
+    bool ui_correction = true;
     int perf_epoch = 0;
     // 0 = unknown/fail closed, 1 = verified linear UNORM, 2 = verified
     // sRGB-encoded values stored through an UNORM view. This is a profile
@@ -910,9 +977,23 @@ struct ChainConfig {
     // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
     // converting from the game's SR input grid to the NR work grid.
     NrJitterMode jitter_mode = NrJitterMode::Legacy;
+    // Persistent developer preference. The descriptor mirror implementation
+    // consumes this at process startup; changing it in the overlay requires a
+    // game restart to affect the running process.
+    bool descriptor_low_overhead = true;
+    // 0 keeps the conservative automatic/D18 unit contract; 1 is an explicit
+    // P-to-layer-NR compensation comparison request.
+    unsigned present_mv_compensation = 0;
 };
 
 ChainConfig g_config = {};
+// Serialized by g_chain_cs. Changes invalidate only the edited layer and
+// downstream input histories; they do not reset unrelated primary history.
+std::array<unsigned long long,nr_layers::Count> g_layer_epochs{1,1,1,1,1};
+void AdvanceLayerEpochs(const ChainConfig& next,const ChainConfig& previous) {
+    for(unsigned i=nr_layers::FirstChanged(next,previous);i<nr_layers::Count;++i)
+        ++g_layer_epochs[i];
+}
 ULONGLONG g_config_read_tick = 0;
 CRITICAL_SECTION g_chain_cs;
 nr_probe_policy::Control g_nr_probe_policy;
@@ -968,6 +1049,30 @@ std::atomic<unsigned int> g_config_generation{1};
 // Composition-only edits must not reset temporal Feature 18 history. This
 // generation changes only when the model input/guide/history contract changes.
 std::atomic<unsigned int> g_history_generation{1};
+#include "nr_processing_runtime.inl"
+namespace nr_compat_present_runtime {
+bool RequestCapture();
+unsigned CaptureStatus(bool fg);
+unsigned CaptureWorkers(bool fg);
+bool CaptureUsesFg();
+bool InlineDrainReady();
+bool TrySnapshot(nr_compat_present::Observation&);
+bool TrySnapshotExperimentModes(unsigned&,unsigned&,bool&,bool&);
+void Register(bool);
+}
+struct FeedbackSession;
+namespace nr_fg_runtime {
+void AppendFeedback(FeedbackSession&,const char*);
+void CollectRetired();
+bool CapturePreferred();
+}
+namespace nr_fg_capture {
+bool RequestCapture();
+void Collect();
+void Submit(unsigned long long,void*,unsigned long long);
+void Invalidate(unsigned long long,bool);
+void Composition(const void*,unsigned,unsigned,unsigned);
+}
 std::atomic<bool> g_config_persistence_failed{false};
 std::atomic<unsigned long> g_config_persistence_error{ERROR_SUCCESS};
 std::atomic<unsigned long long> g_nr_successful_evaluations{0};
@@ -1041,11 +1146,12 @@ BypassReason OtherNrOwnerBypassReason() {
 // current Evaluate did not provide a legal finite pair, 2 = values were
 // actually written to the NR parameter block for the current binding.
 
-namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+namespace nr_f8 { extern std::atomic<bool> g_config_hold; bool IsActive(); }
 
 std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
 std::atomic<ULONGLONG> g_compat_fallback_tick{0};
 std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
 std::atomic<unsigned int> g_compat_fallback_config{0};
 bool IsCompatibilityPostAttemptRecent() {
     const auto tick=g_compat_fallback_tick.load(std::memory_order_acquire);
@@ -1280,6 +1386,8 @@ float FiniteOr(float value, float fallback) {
 
 bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.enabled == b.enabled && a.mode == b.mode &&
+           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
+           a.compat_percent==b.compat_percent &&
            a.work_mode == b.work_mode &&
            a.custom_work_scale == b.custom_work_scale &&
            a.proxy_scale == b.proxy_scale &&
@@ -1295,6 +1403,45 @@ int MigrateConfigMode(int config_version, int configured_mode) {
 
 bool WriteIniInt(const wchar_t *key, int value);
 bool WriteIniFloat(const wchar_t *key, float value);
+
+void ReadUniformLayers(ChainConfig& next) {
+    if(GetPrivateProfileIntW(L"NRBeforeSR",L"UniformChainVersion",0,g_ini_path)<1) {
+        const unsigned active=next.nr_passes==2?(next.nr_full_reference?std::clamp(next.nr_full_passes,3u,5u):2u):1u;
+        auto primary=nr_layers::Primary(next);nr_layers::Normalize(primary);
+        nr_layers::Migrate(next.nr_layers,active,primary);
+        next.nr_uniform_migrated=active>1&&next.nr_second_numerator!=next.nr_second_denominator;
+        static bool noted=false;
+        if(next.nr_uniform_migrated&&!noted){noted=true;Log("[uniform-nr] Migrating %u layers to the primary work raster; legacy auxiliary scale %u/%u is archived, not applied. Auxiliary workload changes; configuration is custom, not a qualified performance preset.",active,next.nr_second_numerator,next.nr_second_denominator);}
+        return;
+    }
+    next.nr_uniform_migrated=GetPrivateProfileIntW(L"NRBeforeSR",L"UniformChainMigrated",0,g_ini_path)!=0;
+    for(unsigned i=0;i<next.nr_layers.size();++i) {
+        auto& layer=next.nr_layers[i];wchar_t key[64];
+        const auto integer=[&](const wchar_t* suffix,int fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return GetPrivateProfileIntW(L"NRBeforeSR",key,fallback,g_ini_path);};
+        const auto number=[&](const wchar_t* suffix,float fallback){swprintf_s(key,L"Layer%u%ls",i+2,suffix);return ReadIniFloat(key,fallback);};
+        layer.enabled=integer(L"Enabled",0)!=0;layer.initialized=integer(L"Configured",0)!=0;
+        layer.intensity=number(L"Intensity",1.5f);layer.local_tone=number(L"LocalToneStrength",1.f);
+        layer.local_structure=number(L"LocalStructureStrength",1.f);layer.skin_structure=number(L"SkinStructureStrength",.4f);
+        layer.auto_mask=integer(L"AutoMask",1)!=0;layer.style=integer(L"Style",0);layer.ui_correction=integer(L"UICorrection",1)!=0;
+    }
+}
+bool SaveUniformLayers(const ChainConfig& config) {
+    bool ok=true;
+    // Publish the schema only after all records are persisted. A failed save
+    // remains covered by the ordinary live-config persistence latch.
+    for(unsigned i=0;i<config.nr_layers.size();++i) {
+        const auto& layer=config.nr_layers[i];wchar_t key[64];
+        const auto integer=[&](const wchar_t* suffix,int value){swprintf_s(key,L"Layer%u%ls",i+2,suffix);ok=WriteIniInt(key,value)&&ok;};
+        const auto number=[&](const wchar_t* suffix,float value){swprintf_s(key,L"Layer%u%ls",i+2,suffix);ok=WriteIniFloat(key,value)&&ok;};
+        integer(L"Enabled",layer.enabled);integer(L"Configured",layer.initialized);
+        number(L"Intensity",layer.intensity);number(L"LocalToneStrength",layer.local_tone);
+        number(L"LocalStructureStrength",layer.local_structure);number(L"SkinStructureStrength",layer.skin_structure);
+        integer(L"AutoMask",layer.auto_mask);integer(L"Style",layer.style);integer(L"UICorrection",layer.ui_correction);
+    }
+    ok=WriteIniInt(L"UniformChainMigrated",config.nr_uniform_migrated)&&ok;
+    if(ok)ok=WriteIniInt(L"UniformChainVersion",1);
+    return ok;
+}
 
 bool g_work_config_loaded = false; // protected by g_chain_cs
 std::atomic<bool> g_work_request_rejected{false};
@@ -1400,6 +1547,10 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 #include "nr_config_policy_runtime.inl"
 
 void NormalizeConfig(ChainConfig &config) {
+    config.retry_original_on_sr_failure=false;
+    if(!nr_processing::Valid(config.processing_start))config.processing_start=nr_processing::FromLegacy(config.mode);
+    config.compat_percent=std::clamp(config.compat_percent,25u,100u);
+    config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
     config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
@@ -1413,18 +1564,31 @@ void NormalizeConfig(ChainConfig &config) {
     // Work request validity is checked against the previous effective pair at
     // each locked entry point; never silently normalize a rejected percentage.
     config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.0f), 0.0f, 1.0f);
-    config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.25f), 0.0f, 1.0f);
+    config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.0f), 0.0f, 1.0f);
     config.detail_stability = std::isfinite(config.detail_stability)
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
     if (config.nr_input_filter > 1u) config.nr_input_filter = 0u;
     config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
+    nr_light_style::Normalize(config);
+    nr_generic::Normalize(config);
+    if(config.nr_passes!=2)config.nr_passes=1;
+    auto dual_scale=nr_dual::Reduced({config.nr_second_numerator,config.nr_second_denominator});
+    if(!nr_dual::ValidScale(dual_scale))dual_scale={1,2};
+    config.nr_second_numerator=dual_scale.numerator;config.nr_second_denominator=dual_scale.denominator;
+    if(config.region_version!=1)config.region_enabled=false;
+    for(float& gain:config.region_gains)gain=std::clamp(FiniteOr(gain,1.f),0.f,4.f);
+    config.region_preview=std::min(config.region_preview,7u);
+    if(config.face_protection_version!=1){config.face_protection=false;config.face_preview=0;}
+    config.face_original_luma=std::clamp(FiniteOr(config.face_original_luma,0.f),0.f,1.f);
+    config.face_original_color=std::clamp(FiniteOr(config.face_original_color,0.f),0.f,1.f);
+    config.face_preview=config.face_protection?std::min(config.face_preview,1u):0u;
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
     config.depth_mode = std::clamp(config.depth_mode, -1, 1);
     config.intensity = std::clamp(
-        FiniteOr(config.intensity, 1.2f), 0.0f, 2.0f);
+        FiniteOr(config.intensity, 1.5f), 0.0f, 2.0f);
     config.local_tone = std::clamp(
         FiniteOr(config.local_tone, 1.0f), 0.0f, 2.0f);
     config.local_structure = std::clamp(
@@ -1438,14 +1602,24 @@ void NormalizeConfig(ChainConfig &config) {
         FiniteOr(config.skin_structure, minimum_skin_structure),
         minimum_skin_structure, 2.0f);
     config.style = std::min(config.style, 2u);
+    for(auto& layer:config.nr_layers)nr_layers::Normalize(layer);
+    const unsigned active_layers=nr_layers::Active(config.nr_layers);
+    config.nr_passes=active_layers>1?2u:1u;
+    config.nr_full_reference=active_layers>2;
+    if(active_layers>2)config.nr_full_passes=active_layers;
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
     const int jitter_mode = static_cast<int>(config.jitter_mode);
     config.jitter_mode = jitter_mode == static_cast<int>(NrJitterMode::GameInputPixel)
         ? NrJitterMode::GameInputPixel : NrJitterMode::Legacy;
+    config.present_mv_compensation =
+        config.present_mv_compensation == 1u ? 1u : 0u;
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
-    return a.enabled == b.enabled &&
+    return a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
+           a.enabled == b.enabled &&
+           a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
+           a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
            a.mode == b.mode &&
            a.identity_use_original == b.identity_use_original &&
            a.transfer_strength == b.transfer_strength &&
@@ -1459,12 +1633,25 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.color_protection == b.color_protection &&
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
+           a.nr_passes==b.nr_passes && a.nr_second_numerator==b.nr_second_numerator && a.nr_second_denominator==b.nr_second_denominator &&
+           a.generic_residual==b.generic_residual && std::equal(a.generic_gains,a.generic_gains+5,b.generic_gains) &&
+           a.region_version==b.region_version && a.region_enabled==b.region_enabled &&
+           a.region_preview==b.region_preview && std::equal(a.region_gains,a.region_gains+11,b.region_gains) &&
+           a.face_protection_version==b.face_protection_version && a.face_protection==b.face_protection &&
+           a.face_extra_cap==b.face_extra_cap && a.face_original_luma==b.face_original_luma &&
+           a.face_original_color==b.face_original_color && a.face_preview==b.face_preview &&
            a.low_grid_edit_field == b.low_grid_edit_field &&
            a.catmull_edit_restore == b.catmull_edit_restore &&
            a.low_grid_color_edit_field == b.low_grid_color_edit_field &&
            a.nr_input_filter == b.nr_input_filter &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
+           a.light_broad == b.light_broad && a.light_dark == b.light_dark &&
+           a.light_reflection == b.light_reflection && a.light_structure == b.light_structure &&
+           a.light_glow == b.light_glow && a.light_preview == b.light_preview &&
+           a.light_preset == b.light_preset && a.light_style_version == b.light_style_version &&
+           a.light_preset_color == b.light_preset_color &&
+           a.light_control_mode == b.light_control_mode &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1486,7 +1673,9 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.ui_correction == b.ui_correction &&
            a.perf_epoch == b.perf_epoch &&
            a.r8_output_encoding == b.r8_output_encoding &&
-           a.jitter_mode == b.jitter_mode;
+           a.jitter_mode == b.jitter_mode &&
+           a.descriptor_low_overhead == b.descriptor_low_overhead &&
+           a.present_mv_compensation == b.present_mv_compensation;
 }
 
 void ReloadConfig(bool force = false) {
@@ -1504,7 +1693,7 @@ void ReloadConfig(bool force = false) {
     g_next_config_poll_tick.store(now + 500, std::memory_order_relaxed);
 
     // Snapshot existence before strength/mode migrations can create the file.
-    // Missing work keys in an existing or unreadable file retain legacy 75%.
+    // Missing work keys use 100%; explicit saved requests retain their scale.
     const bool new_work_file = IsNewWorkConfigFile();
     const auto work_request = ReadWorkRequest(new_work_file);
     ChainConfig next = {};
@@ -1515,12 +1704,27 @@ void ReloadConfig(bool force = false) {
     next.transfer_strength = ReadConfiguredTransferStrength(configured_mode);
     next.post_transfer_strength = next.transfer_strength;
     next.mode = MigrateConfigMode(config_version, configured_mode);
+    wchar_t processing_start[32]{};
+    GetPrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",L"",processing_start,32,g_ini_path);
+    next.processing_start = _wcsicmp(processing_start,L"Present")==0 ? nr_processing::Start::Present :
+        _wcsicmp(processing_start,L"After")==0 ? nr_processing::Start::After :
+        _wcsicmp(processing_start,L"Before")==0 ? nr_processing::Start::Before : nr_processing::FromLegacy(next.mode);
+    next.processing_selection=g_config.processing_selection;
+    // ReloadConfig is serialized by the existing Core configuration lock.
+    // A session-owned manual selection survives polling and F6. Before any
+    // such selection, an explicit ProcessingStart (or the existing legacy Mode
+    // fallback above) is the process launch request.
+    next.processing_start=static_cast<nr_processing::Start>(nr_launch_preferences::Select(
+        static_cast<unsigned>(next.processing_start),static_cast<unsigned>(g_config.processing_start),
+        next.processing_selection));
+    next.mode=nr_launch_preferences::LegacyMode(static_cast<unsigned>(next.processing_start),next.mode);
+    next.compat_percent=GetPrivateProfileIntW(L"NRBeforeSR",L"CompatPostPercent",100,g_ini_path);
     if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
         // Upgrade metadata without changing a saved front/post preference.
         // Missing/invalid modes use the NR -> SR installation default.
         SetLastError(ERROR_SUCCESS);
         const bool mode_written = WriteIniInt(L"Mode", next.mode);
-        const bool version_written = WritePrivateProfileStringW(
+        const bool version_written = mode_written && WritePrivateProfileStringW(
             L"NRBeforeSR", L"ConfigVersion", L"4", g_ini_path) != FALSE;
         // Per the Win32 contract, the all-null cache-flush form returns zero
         // both when it flushes the cache and when it fails. It therefore must
@@ -1559,10 +1763,51 @@ void ReloadConfig(bool force = false) {
     }
     g_work_config_loaded = true;
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.0f);
-    next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
+    next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.0f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
+    next.region_version=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionCompositionVersion",1,g_ini_path);
+    next.nr_passes=GetPrivateProfileIntW(L"NRBeforeSR",L"NRPasses",1,g_ini_path);
+    next.nr_full_reference=GetPrivateProfileIntW(L"NRBeforeSR",L"NRFullReference",0,g_ini_path)!=0;
+    const int layer_controls_version=GetPrivateProfileIntW(
+        L"NRBeforeSR",L"NRLayerControlsVersion",0,g_ini_path);
+    const int full_passes_default=layer_controls_version<2?2:3;
+    next.nr_full_passes=GetPrivateProfileIntW(
+        L"NRBeforeSR",L"NRFullPasses",full_passes_default,g_ini_path);
+    if(layer_controls_version<2) {
+        // D13 exposed full-reference as an independent switch and allowed a
+        // two-pass full reference.  D16 makes the second-pass switch the
+        // owner of all auxiliary work: retain that switch when the old full
+        // reference was on, while an old two-pass reference becomes ordinary
+        // second AI instead of silently turning into three layers.
+        const bool legacy_full=next.nr_full_reference;
+        const unsigned legacy_passes=next.nr_full_passes;
+        next.nr_passes=legacy_full?2:next.nr_passes;
+        if(legacy_full && legacy_passes<=2) {
+            next.nr_full_reference=false;
+            next.nr_full_passes=3;
+        } else {
+            next.nr_full_passes=std::clamp(legacy_passes,3u,5u);
+        }
+        Log("Layer-control migration in memory: legacyFull=%d legacyPasses=%u -> "
+            "nrPasses=%u full=%d fullPasses=%u; SaveConfig publishes version 2.",
+            legacy_full?1:0,legacy_passes,next.nr_passes,
+            next.nr_full_reference?1:0,next.nr_full_passes);
+    }
+    next.nr_second_numerator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleNumerator",1,g_ini_path);
+    next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",2,g_ini_path);
+    next.generic_residual=GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualExperiment",0,g_ini_path)!=0;
+    for(unsigned i=0;i<5;i++){wchar_t key[48];swprintf_s(key,L"GenericResidualGain%u",i);next.generic_gains[i]=ReadIniFloat(key,1.f);}
+    next.region_enabled=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionComposition",0,g_ini_path)!=0;
+    for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);next.region_gains[i]=ReadIniFloat(key,1.f);}
+    next.region_preview=g_config.region_preview;
+    next.face_protection_version=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceProtectionVersion",1,g_ini_path);
+    next.face_protection=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceProtection",0,g_ini_path)!=0;
+    next.face_extra_cap=GetPrivateProfileIntW(L"NRBeforeSR",L"FaceExtraCap",1,g_ini_path)!=0;
+    next.face_original_luma=ReadIniFloat(L"FaceOriginalLuma",0.f);
+    next.face_original_color=ReadIniFloat(L"FaceOriginalColor",0.f);
+    next.face_preview=g_config.face_preview;
     next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
     next.catmull_edit_restore = GetPrivateProfileIntW(L"NRBeforeSR", L"CatmullRomEditRestore", 0, g_ini_path) != 0;
     next.low_grid_color_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridColorEditField", 0, g_ini_path) != 0;
@@ -1571,6 +1816,15 @@ void ReloadConfig(bool force = false) {
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
     next.layer_shadow = ReadIniFloat(L"LayerShadow", 1.0f);
+    next.light_broad = ReadIniFloat(L"LightBroad", 1.f);
+    next.light_dark = ReadIniFloat(L"LightDark", 1.f);
+    next.light_reflection = ReadIniFloat(L"LightReflection", 1.f);
+    next.light_structure = ReadIniFloat(L"LightStructure", 1.f);
+    next.light_glow = ReadIniFloat(L"LightGlow", 0.f);
+    next.light_control_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"LightControlMode", 1, g_ini_path);
+    next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 0, g_ini_path);
+    next.light_preset = GetPrivateProfileIntW(L"NRBeforeSR", L"LightPreset", 0, g_ini_path);
+    next.light_preview = g_config.light_preview;
     next.high_strength_protection = GetPrivateProfileIntW(
         L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
     next.color_protection = GetPrivateProfileIntW(
@@ -1583,6 +1837,7 @@ void ReloadConfig(bool force = false) {
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
     next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);
+    next.light_preset_color = ReadIniFloat(L"LightPresetColor", next.color_strength);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
@@ -1595,12 +1850,12 @@ void ReloadConfig(bool force = false) {
     next.retry_original_on_sr_failure = GetPrivateProfileIntW(
         L"NRBeforeSR", L"RetryOriginalOnSRFailure", 1, g_ini_path) != 0;
     next.depth_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"DepthMode", -1, g_ini_path);
-    next.intensity = ReadIniFloat(L"Intensity", 1.2f);
+    next.intensity = ReadIniFloat(L"Intensity", 1.5f);
     next.local_tone = ReadIniFloat(L"LocalToneStrength", 1.0f);
     next.local_structure = ReadIniFloat(L"LocalStructureStrength", 1.0f);
-    next.skin_structure = ReadIniFloat(L"SkinStructureStrength", -1.0f);
+    next.skin_structure = ReadIniFloat(L"SkinStructureStrength", 0.4f);
     next.auto_mask = GetPrivateProfileIntW(
-        L"NRBeforeSR", L"AutoMask", 0, g_ini_path) != 0;
+        L"NRBeforeSR", L"AutoMask", 1, g_ini_path) != 0;
     next.style = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"Style", 0, g_ini_path));
     next.ui_correction = GetPrivateProfileIntW(
@@ -1611,7 +1866,16 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
+    // Full GPU mirroring is diagnostic work, not the native CPU-view
+    // admission contract. D21 defaults to the existing low-overhead path even
+    // for an old implicit DescriptorLowOverhead=0. Explicit full tracing is
+    // still available in the same developer control, on the next process.
+    next.descriptor_low_overhead = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"DescriptorFullGpuDiagnostics", 0, g_ini_path) == 0;
+    next.present_mv_compensation = static_cast<unsigned int>(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"PresentMvCompensation", 0, g_ini_path));
     ApplyConfigPolicyMigrations(next, new_work_file);
+    ReadUniformLayers(next);
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1658,7 +1922,9 @@ void ReloadConfig(bool force = false) {
 
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
+    AdvanceLayerEpochs(next,g_config);
     g_config = next;
+    nr_processing_runtime::Reconcile();
     g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     if (changed || force) {
@@ -1668,6 +1934,13 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
+        Log("DLight request: config=%u mode=%d scope=%u broad=%.9g dark=%.9g reflection=%.9g structure=%.9g glow=%.9g preview=%u preset=%u lightingLock=%.9g; configuration values, not GPU mask or applied-region evidence.",
+            g_config_generation.load(std::memory_order_relaxed), g_config.mode,
+            g_config.light_control_mode, static_cast<double>(g_config.light_broad),
+            static_cast<double>(g_config.light_dark), static_cast<double>(g_config.light_reflection),
+            static_cast<double>(g_config.light_structure), static_cast<double>(g_config.light_glow),
+            g_config.light_preview, static_cast<unsigned>(g_config.light_preset),
+            static_cast<double>(g_config.lighting_lock));
         Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
@@ -1747,6 +2020,26 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
     record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
+    record_write(WriteIniInt(L"RegionCompositionVersion",static_cast<int>(config.region_version)));
+    record_write(WriteIniInt(L"NRPasses",config.nr_passes));
+    record_write(WritePrivateProfileStringW(L"NRBeforeSR",L"ProcessingStart",
+        config.processing_start==nr_processing::Start::Present?L"Present":config.processing_start==nr_processing::Start::After?L"After":L"Before",g_ini_path)!=FALSE);
+    record_write(WriteIniInt(L"CompatPostPercent",config.compat_percent));
+    record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
+    record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
+    record_write(SaveUniformLayers(config));
+    if(ok)record_write(WriteIniInt(L"NRLayerControlsVersion",2));
+    record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
+    record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
+    record_write(WriteIniInt(L"GenericResidualExperiment",config.generic_residual?1:0));
+    for(unsigned i=0;i<5;i++){wchar_t key[48];swprintf_s(key,L"GenericResidualGain%u",i);record_write(WriteIniFloat(key,config.generic_gains[i]));}
+    record_write(WriteIniInt(L"RegionComposition",config.region_enabled?1:0));
+    for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);record_write(WriteIniFloat(key,config.region_gains[i]));}
+    record_write(WriteIniInt(L"FaceProtectionVersion",static_cast<int>(config.face_protection_version)));
+    record_write(WriteIniInt(L"FaceProtection",config.face_protection?1:0));
+    record_write(WriteIniInt(L"FaceExtraCap",config.face_extra_cap?1:0));
+    record_write(WriteIniFloat(L"FaceOriginalLuma",config.face_original_luma));
+    record_write(WriteIniFloat(L"FaceOriginalColor",config.face_original_color));
     record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
     record_write(WriteIniInt(L"CatmullRomEditRestore", config.catmull_edit_restore ? 1 : 0));
     record_write(WriteIniInt(L"LowGridColorEditField", config.low_grid_color_edit_field ? 1 : 0));
@@ -1755,6 +2048,21 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
     record_write(WriteIniFloat(L"LayerShadow", config.layer_shadow));
+    // BEGIN LIGHT STYLE SAVE: publish its version only after the full resolved snapshot.
+    bool light_saved=true;
+    const auto record_light=[&](bool succeeded) { light_saved=succeeded&&light_saved; record_write(succeeded); };
+    record_light(WriteIniInt(L"LightStyleVersion",0));
+    record_light(WriteIniInt(L"LightControlMode", static_cast<int>(config.light_control_mode)));
+    record_light(WriteIniFloat(L"LightBroad", config.light_broad));
+    record_light(WriteIniFloat(L"LightDark", config.light_dark));
+    record_light(WriteIniFloat(L"LightReflection", config.light_reflection));
+    record_light(WriteIniFloat(L"LightStructure", config.light_structure));
+    record_light(WriteIniFloat(L"LightGlow", config.light_glow));
+    record_light(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
+    record_light(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
+    record_light(WriteIniFloat(L"ColorStrength", config.color_strength));
+    if (light_saved) record_write(WriteIniInt(L"LightStyleVersion",static_cast<int>(config.light_style_version)));
+    // END LIGHT STYLE SAVE
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"ColorProtection", config.color_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
@@ -1763,7 +2071,6 @@ bool SaveConfig(const ChainConfig &config) {
                              config.allow_unverified_hdr_color ? 1 : 0));
     record_write(WriteIniInt(L"SuppressResetFrame",
                              config.suppress_reset_frame ? 1 : 0));
-    record_write(WriteIniFloat(L"ColorStrength", config.color_strength));
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
     record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
     record_write(WriteIniFloat(L"ProxyScale", config.proxy_scale));
@@ -1781,7 +2088,15 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
-    // Publish the shared one-time policy only after every concrete value.
+    record_write(WriteIniInt(L"DescriptorLowOverhead",
+                             config.descriptor_low_overhead ? 1 : 0));
+    record_write(WriteIniInt(L"DescriptorFullGpuDiagnostics", config.descriptor_low_overhead ? 0 : 1));
+    record_write(WriteIniInt(L"PresentMvCompensation",
+                             static_cast<int>(config.present_mv_compensation)));
+    // The concrete mode/strength/master values and shared-strength marker
+    // precede the one-time policy markers. Never certify a partial save.
+    if (ok) record_write(WriteIniInt(L"ExtraStrengthPolicyVersion",
+                                    nr_config_policy::kExtraStrengthVersion));
     if (ok) record_write(WriteIniInt(L"JitterPolicyVersion",
                                     nr_config_policy::kJitterVersion));
     // Remove the obsolete option from configs created by older builds.
@@ -1855,9 +2170,16 @@ bool ApplyConfig(ChainConfig next, const char *source,
         LeaveCriticalSection(&g_chain_cs);
         return false;
     }
+    ChainConfig persisted_next=next;
+    persisted_next.region_preview=g_config.region_preview;
+    persisted_next.light_preview=g_config.light_preview;
+    persisted_next.face_preview=g_config.face_preview;
+    const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
+    AdvanceLayerEpochs(next,g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
+    nr_processing_runtime::Reconcile();
     g_config_read_tick = GetTickCount64();
     g_next_config_poll_tick.store(g_config_read_tick + 500,
                                   std::memory_order_relaxed);
@@ -1869,9 +2191,16 @@ bool ApplyConfig(ChainConfig next, const char *source,
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
-    const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
+    const bool persisted = persist_to_ini && !preview_only ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
+    const unsigned applied_generation = g_config_generation.load(std::memory_order_relaxed);
     LeaveCriticalSection(&g_chain_cs);
+    Log("DLight request: config=%u mode=%d scope=%u broad=%.9g dark=%.9g reflection=%.9g structure=%.9g glow=%.9g preview=%u preset=%u lightingLock=%.9g; configuration values, not GPU mask or applied-region evidence.",
+        applied_generation, applied.mode, applied.light_control_mode,
+        static_cast<double>(applied.light_broad), static_cast<double>(applied.light_dark),
+        static_cast<double>(applied.light_reflection), static_cast<double>(applied.light_structure),
+        static_cast<double>(applied.light_glow), applied.light_preview,
+        static_cast<unsigned>(applied.light_preset), static_cast<double>(applied.lighting_lock));
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
@@ -1907,11 +2236,18 @@ bool ApplyConfig(ChainConfig next, const char *source,
 }
 
 // Pending UI edits are transactions against the generation they displayed.
-struct OverlayConfigSnapshot { ChainConfig config; unsigned generation; };
+struct OverlayConfigSnapshot {
+    ChainConfig config; unsigned generation;
+    unsigned base_width=0,base_height=0,work_width=0,work_height=0;
+};
 OverlayConfigSnapshot SnapshotOverlayConfig() {
     EnterCriticalSection(&g_chain_cs);
     ReloadConfig();
     OverlayConfigSnapshot snapshot{g_config, g_config_generation.load(std::memory_order_relaxed)};
+    snapshot.base_width=g_last_nr_render_width.load(std::memory_order_relaxed);
+    snapshot.base_height=g_last_nr_render_height.load(std::memory_order_relaxed);
+    snapshot.work_width=g_last_nr_width.load(std::memory_order_relaxed);
+    snapshot.work_height=g_last_nr_height.load(std::memory_order_relaxed);
     LeaveCriticalSection(&g_chain_cs);
     return snapshot;
 }
@@ -2095,6 +2431,8 @@ struct NrApi {
     BridgeReleaseFn bridge_release = nullptr;
     bool initialized = false;
     bool failed = false;
+    ULONGLONG bootstrap_retry_after = 0;
+    bool bootstrap_required = false;
 };
 
 NrApi g_nr_api = {};
@@ -2122,6 +2460,9 @@ bool EnsureNrApi(ID3D12Device *device) {
     ScopedSrwExclusive api_guard(&g_nr_api_lock);
     if (g_nr_api.initialized) return true;
     if (g_nr_api.failed || device == nullptr) { SetBypassReason(BypassReason::RuntimeUnavailable); return false; }
+    if (g_nr_api.bootstrap_retry_after && GetTickCount64() < g_nr_api.bootstrap_retry_after) {
+        SetBypassReason(BypassReason::RuntimeUnavailable); return false;
+    }
 
     wchar_t directory[MAX_PATH] = {};
     wchar_t bridge_path[MAX_PATH] = {};
@@ -2134,9 +2475,11 @@ bool EnsureNrApi(ID3D12Device *device) {
     evidence.stage = "load-modules";
     evidence.present[0] = RuntimeRegularFile(bridge_path);
     evidence.present[1] = RuntimeRegularFile(signed_path);
-    RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
+    if (!g_nr_api.bridge_module)
+        RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
+    if (!g_nr_api.signed_module)
+        RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
     wchar_t exe_directory[MAX_PATH] = {};
     if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
@@ -2165,6 +2508,33 @@ bool EnsureNrApi(ID3D12Device *device) {
         }
     }
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+    g_nr_api.bootstrap_required = g_nr_api.bootstrap_required || core == nullptr;
+    if (g_nr_api.bootstrap_required && evidence.loaded[0] && evidence.loaded[1]) {
+        using BootstrapFn = NgxResult (*)(ID3D12Device *);
+        const auto bootstrap = reinterpret_cast<BootstrapFn>(GetProcAddress(
+            g_nr_api.bridge_module, "NRChain_Bootstrap"));
+        evidence.stage = "official-core-bootstrap";
+        evidence.bootstrap_attempted = true;
+        evidence.bootstrap_result = bootstrap ? bootstrap(device) : 0xBAD00012u;
+        core = GetModuleHandleW(L"_nvngx.dll");
+        evidence.bootstrap_succeeded = evidence.bootstrap_result == kNgxSuccess && core;
+        Log("NR official SDK cold bootstrap result=0x%08X coreLoaded=%d export=%d",
+            evidence.bootstrap_result, core != nullptr, bootstrap != nullptr);
+        if (!evidence.bootstrap_succeeded) {
+            evidence.loaded[2] = core != nullptr;
+            evidence.present[2] = evidence.loaded[2];
+            evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
+            for (unsigned i = 0; i < 3; ++i)
+                evidence.classes[i] = RuntimeClassifyLoad(evidence.present[i], evidence.loaded[i], evidence.errors[i]);
+            // A missing driver/core must not permanently disable a no-DLSS
+            // process. Also retry Init when its failed attempt loaded the DLL.
+            g_nr_api.bootstrap_retry_after = GetTickCount64() + 5000;
+            RecordRuntimeLoadEvidence(evidence);
+            SetBypassReason(BypassReason::RuntimeUnavailable); return false;
+        }
+        g_nr_api.bootstrap_required = false;
+        g_nr_api.bootstrap_retry_after = 0;
+    }
     evidence.loaded[2] = core != nullptr;
     evidence.present[2] = evidence.loaded[2];
     evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
@@ -2260,6 +2630,7 @@ struct Codec {
     // V2 is isolated so Mode 1 and the legacy reference path remain available.
     ID3D12PipelineState *encode_v2 = nullptr;
     ID3D12PipelineState *combine_v2 = nullptr;
+    ID3D12PipelineState *combine_face = nullptr, *combine_v2_face = nullptr;
     ID3D12PipelineState *post_store_probe = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
@@ -2281,7 +2652,9 @@ struct Codec {
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 8;
+constexpr UINT kCodecSrvCount = 13;
+constexpr UINT kCodecRegionSrvIndex = 9;
+constexpr UINT kCodecFaceSrvIndex = 8;
 constexpr UINT kCodecUavCount = 8;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
@@ -2295,9 +2668,16 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 35;
+constexpr UINT kCodecRootConstantCount = 60;
+static_assert(kCodecRootConstantCount+1<=64,"D3D12 root DWORD budget");
 
 const char kCodecShader[] = R"HLSL(
+#ifndef NR_DUAL_REDUCED
+#define NR_DUAL_REDUCED 0
+#endif
+#ifndef NR_DUAL_DOMAIN
+#define NR_DUAL_DOMAIN 0
+#endif
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
 // shoulder only to highlights. Composition is a conservative source-domain
 // delta graft: the game HDR image remains the base and only the model's change
@@ -2307,11 +2687,16 @@ const char kCodecShader[] = R"HLSL(
 Texture2D<float4> OriginalColor : register(t0);
 Texture2D<float4> ProxyColor    : register(t1);
 Texture2D<float4> NeuralColor   : register(t2);
+Texture2D<float4> DualLowInput : register(t10);
+Texture2D<float4> DualLowOutput : register(t11);
+Texture2D<float4> DualLowValidity : register(t12);
 Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
 Texture2D<float4> EditField : register(t5);
 Texture2D<float2> EditHorizontal : register(t6);
 Texture2D<float4> LanczosIntermediate : register(t7);
+Texture2D<float4> RegionField : register(t9);
+Texture2D<float4> FaceRegion : register(t8);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
@@ -2358,9 +2743,76 @@ cbuffer Constants : register(b0) {
     float LayerStructure;
     float LayerBright;
     float LayerShadow;
+    float LightBroad;
+    float LightDark;
+    float LightReflection;
+    float LightStructure;
+    float LightGlow;
+    uint LightPreview;
+    uint FaceOptions;
+    float FaceOriginalLuma;
+    float FaceOriginalColor;
+    float RegionWideBrightLuma,RegionWideBrightColor;
+    float RegionFineBrightLuma,RegionFineBrightColor;
+    float RegionWideDarkLuma,RegionWideDarkColor;
+    float RegionFineDarkLuma,RegionFineDarkColor;
+    float RegionReflectionLuma,RegionReflectionColor,RegionPureColor;
+    uint RegionFlags;
+    uint2 DualLowSize;
+    uint DualResidualEnabled;
+    uint DualModelDomain;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
+
+#ifndef NR_FACE_SHADER_ENABLE
+#define NR_FACE_SHADER_ENABLE 0
+#endif
+#if !NR_FACE_SHADER_ENABLE
+#define FaceOptions 0u
+#define FaceOriginalLuma 0.0
+#define FaceOriginalColor 0.0
+#endif
+// FACE_COMPOSITION_V1_BEGIN
+
+// The mask derives from pre-NR input and has already been reprojected into
+// this frame. Original-luma guidance only refines its boundary; it never
+// creates a face selection from colour alone.
+float FaceMaskV1(float2 centre,float referenceLuma) {
+    if((FaceOptions&1u)==0u)return 0;
+    uint w,h;FaceRegion.GetDimensions(w,h);
+    if(w==0||h==0)return 0;
+    float2 p=centre*float2(w,h)/float2(Width,Height)-.5;
+    int2 base=int2(floor(p)),upper=int2(w,h)-1;float2 f=frac(p);
+    float4 samples[4];
+    samples[0]=FaceRegion.Load(int3(clamp(base,int2(0,0),upper),0));
+    samples[1]=FaceRegion.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
+    samples[2]=FaceRegion.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
+    samples[3]=FaceRegion.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    float4 weights=float4((1-f.x)*(1-f.y),f.x*(1-f.y),(1-f.x)*f.y,f.x*f.y);
+    float sum=0,weight=0;
+    [unroll]for(uint i=0;i<4;++i) {
+        if(!all(isfinite(samples[i]))||samples[i].w<.5)continue;
+        float edge=1-smoothstep(.06,.30,abs(referenceLuma-samples[i].z));
+        sum+=weights[i]*edge*samples[i].x;weight+=weights[i]*edge;
+    }
+    return weight>1e-5?saturate(sum/weight):0;
+}
+float FaceEditV1(float candidate,float sameNrOne,float mask,float originalProtection) {
+    if((FaceOptions&2u)!=0u) {
+        float bounded=clamp(candidate,min(0.0,sameNrOne),max(0.0,sameNrOne));
+        candidate=mask==1?bounded:lerp(candidate,bounded,mask);
+    }
+    return candidate*(1-mask*saturate(originalProtection));
+}
+float3 FaceChromaV1(float3 candidate,float3 sameNrOne,float mask) {
+    return float3(FaceEditV1(candidate.x,sameNrOne.x,mask,FaceOriginalColor),
+                  FaceEditV1(candidate.y,sameNrOne.y,mask,FaceOriginalColor),
+                  FaceEditV1(candidate.z,sameNrOne.z,mask,FaceOriginalColor));
+}
+
+// FACE_COMPOSITION_V1_END
+
 
 float ResolveExposureScale() {
     if ((Passthrough & 64u) != 0u) {
@@ -2648,10 +3100,120 @@ float3 LoadProxyLinearV2(int2 p) {
     return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
 }
 
+// DUAL_RESOLVE_EMBEDDED_BEGIN
+#define NR_DUAL_MAIN NeuralColor
+#define NR_DUAL_LOW_IN DualLowInput
+#define NR_DUAL_LOW_OUT DualLowOutput
+#define NR_DUAL_DELTA DualLowValidity
+#ifndef NR_DUAL_RESOLVE_CACHED_HLSLI
+#define NR_DUAL_RESOLVE_CACHED_HLSLI
+#ifndef NR_DUAL_MATH_HLSLI
+#define NR_DUAL_MATH_HLSLI
+// Domain 0: existing direct/model-value path. Domain 1: existing sRGB Proxy path.
+// Never call these functions on raw PQ, scRGB scene light or a signed delta.
+bool NRDualFinite(float3 v) {
+    return all(isfinite(v)) && all(abs(v) <= 65504.0.xxx);
+}
+float NRDualDecodeChannel(float x) {
+    return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
+}
+float NRDualEncodeChannel(float x) {
+    // Scalar branch avoids a fractional power of a negative residual-containing value.
+    return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
+}
+float3 NRDualDecode(float3 v, uint domain) {
+    if (domain == 0u) return v;
+    return float3(NRDualDecodeChannel(v.r), NRDualDecodeChannel(v.g), NRDualDecodeChannel(v.b));
+}
+float3 NRDualEncode(float3 v, uint domain) {
+    if (domain == 0u) return v;
+    return float3(NRDualEncodeChannel(v.r), NRDualEncodeChannel(v.g), NRDualEncodeChannel(v.b));
+}
+#endif
+
+// LowDelta stores the exact FP32 matched difference once on N2. The original
+// L1/L2 remain intact for NGX history and capture. This accessor still fuses
+// restoration into the existing final read; it adds no N1 write or new SR.
+float4 NRDualFinalStored(int2 pixel,uint2 mainSize,uint2 lowSize,uint domain) {
+    const bool legal=all(mainSize!=0)&&all(lowSize!=0)&&domain<=1;
+    mainSize=max(mainSize,1u);lowSize=max(lowSize,1u);
+    pixel=clamp(pixel,0,int2(mainSize)-1);
+    float4 primary=NR_DUAL_MAIN.Load(int3(pixel,0));
+    float2 pos=(float2(pixel)+.5)*float2(lowSize)/float2(mainSize)-.5;
+    int2 base=int2(floor(pos));float2 f=frac(pos);
+    // Explicit four taps keep SM5's inliner from expanding an unrolled loop at
+    // every existing neighbourhood read. Invalid values are selected away
+    // before multiplication, so zero-weight invalid taps remain harmless.
+    int2 upper=int2(lowSize)-1;
+    float4 a=NR_DUAL_DELTA.Load(int3(clamp(base,0,upper),0));
+    float4 b=NR_DUAL_DELTA.Load(int3(clamp(base+int2(1,0),0,upper),0));
+    float4 c=NR_DUAL_DELTA.Load(int3(clamp(base+int2(0,1),0,upper),0));
+    float4 d=NR_DUAL_DELTA.Load(int3(clamp(base+int2(1,1),0,upper),0));
+    bool av=a.a==1&&all(isfinite(a.rgb)),bv=b.a==1&&all(isfinite(b.rgb));
+    bool cv=c.a==1&&all(isfinite(c.rgb)),dv=d.a==1&&all(isfinite(d.rgb));
+    float wa=(1-f.x)*(1-f.y),wb=f.x*(1-f.y),wc=(1-f.x)*f.y,wd=f.x*f.y;
+    float3 delta=wa*(av?a.rgb:0)+wb*(bv?b.rgb:0)+wc*(cv?c.rgb:0)+wd*(dv?d.rgb:0);
+    bool valid=legal&&NRDualFinite(primary.rgb)&&(wa<=0||av)&&(wb<=0||bv)&&(wc<=0||cv)&&(wd<=0||dv);
+    float3 result=NRDualEncode(NRDualDecode(primary.rgb,domain)+delta,domain);
+    const bool apply=valid&&any(delta!=0)&&NRDualFinite(result);
+    return float4(apply?result:primary.rgb,primary.a);
+}
+#endif
+
+// DUAL_RESOLVE_EMBEDDED_END
+
+// GENERIC_RESIDUAL_V1_BEGIN
+// Full RGB residual is selected by signed linear luminance after total gain.
+// HSL changes are relative to the original, on normalized stored model RGB.
+// This is a model-domain adaptation, not a material/reflection mask.
+float3 GenericHslV1(float3 c) {
+    float hi=max(c.r,max(c.g,c.b)),lo=min(c.r,min(c.g,c.b));
+    float d=hi-lo,l=(hi+lo)*.5;
+    if(d<=.000001)return float3(0,0,l);
+    float h=hi==c.r?(c.g-c.b)/d:hi==c.g?2+(c.b-c.r)/d:4+(c.r-c.g)/d;
+    return float3(frac(h/6+1),saturate(d/max(1-abs(2*l-1),.000001)),saturate(l));
+}
+float3 GenericRgbV1(float3 hsl) {
+    float3 wave=saturate(abs(frac(hsl.x+float3(0,2.0/3,1.0/3))*6-3)-1);
+    float chroma=(1-abs(2*hsl.z-1))*hsl.y;
+    return saturate((wave-.5)*chroma+hsl.z);
+}
+float4 LoadFinalNeuralStoredV2(int2 p) {
+    p=clamp(p,int2(0,0),int2(max(ModelWidth,1u),max(ModelHeight,1u))-1);
+    float4 answer=NeuralColor.Load(int3(p,0));
+#if NR_DUAL_REDUCED
+    answer=NRDualFinalStored(p,uint2(ModelWidth,ModelHeight),DualLowSize,NR_DUAL_DOMAIN);
+#endif
+    return answer;
+}
+float4 ApplyGenericStoredV1(float3 original,float4 answer) {
+    [branch] if((RegionFlags&32u)==0u)return answer;
+    float total=RegionWideBrightLuma,bright=RegionWideBrightColor,dark=RegionFineBrightLuma;
+    float satGain=RegionFineBrightColor,lightGain=RegionWideDarkLuma;
+    // Avoid changing the legacy image at neutral controls; preserve finite,
+    // signed and out-of-normalized-range samples for the existing guards.
+    if(total==1 && bright==1 && dark==1 && satGain==1 && lightGain==1)return answer;
+    if(!all(isfinite(original))||!all(isfinite(answer.rgb))||any(original<0)||any(original>1)||any(answer.rgb<0)||any(answer.rgb>1))return answer;
+    float3 delta=(answer.rgb-original)*total;
+    if(all(delta==0))return answer;
+    float3 initial=saturate(original+delta);
+    float dy=dot(SRGBToLinear(initial)-SRGBToLinear(original),kLuma);
+    float gain=dy>0?bright:dy<0?dark:1;
+    float3 candidate=saturate(original+delta*gain);
+    [branch] if(satGain!=1||lightGain!=1) {
+        float3 a=GenericHslV1(original),b=GenericHslV1(candidate);
+        b.y=saturate(a.y+(b.y-a.y)*satGain);
+        b.z=saturate(a.z+(b.z-a.z)*lightGain);
+        candidate=GenericRgbV1(b);
+    }
+    return float4(candidate,answer.a);
+}
+// GENERIC_RESIDUAL_V1_END
+
 float3 LoadNeuralLinearV2(int2 p) {
     int2 upper = int2(max(ModelWidth, 1u) - 1u,
                       max(ModelHeight, 1u) - 1u);
-    float3 stored = NeuralColor.Load(int3(clamp(p, int2(0, 0), upper), 0)).rgb;
+    float3 stored = LoadFinalNeuralStoredV2(clamp(p, int2(0, 0), upper)).rgb;
     return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
 }
 
@@ -2674,10 +3236,10 @@ bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter) {
         IsFiniteModelStoredV2(ProxyColor.Load(int3(p10, 0)).rgb) &&
         IsFiniteModelStoredV2(ProxyColor.Load(int3(p01, 0)).rgb) &&
         IsFiniteModelStoredV2(ProxyColor.Load(int3(p11, 0)).rgb) &&
-        IsFiniteModelStoredV2(NeuralColor.Load(int3(p00, 0)).rgb) &&
-        IsFiniteModelStoredV2(NeuralColor.Load(int3(p10, 0)).rgb) &&
-        IsFiniteModelStoredV2(NeuralColor.Load(int3(p01, 0)).rgb) &&
-        IsFiniteModelStoredV2(NeuralColor.Load(int3(p11, 0)).rgb);
+        IsFiniteModelStoredV2(LoadFinalNeuralStoredV2(p00).rgb) &&
+        IsFiniteModelStoredV2(LoadFinalNeuralStoredV2(p10).rgb) &&
+        IsFiniteModelStoredV2(LoadFinalNeuralStoredV2(p01).rgb) &&
+        IsFiniteModelStoredV2(LoadFinalNeuralStoredV2(p11).rgb);
 }
 
 float3 SampleProxyLinearV2(float2 fullPixelCenter) {
@@ -2720,13 +3282,13 @@ float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
 void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= ModelWidth || tid.y >= ModelHeight) return;
     float3 pStored = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 nStored = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    float3 nStored = ApplyGenericStoredV1(pStored,LoadFinalNeuralStoredV2(int2(tid.xy))).rgb;
     if (!IsFiniteModelStoredV2(pStored) || !IsFiniteModelStoredV2(nStored)) {
         EditFieldOut[tid.xy] = float2(0.0, 0.0);
         return;
     }
     float3 p = LoadProxyLinearV2(int2(tid.xy));
-    float3 n = LoadNeuralLinearV2(int2(tid.xy));
+    float3 n = (Passthrough&1u)!=0u?nStored:SRGBToLinear(nStored);
     float pl = max(dot(p, kLuma), 1.0 / 4096.0);
     float nl = max(dot(n, kLuma), 1.0 / 4096.0);
     float edit = clamp(log2(nl / pl), -8.0, 8.0);
@@ -2741,13 +3303,13 @@ void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
 void BuildColorEditFieldCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= ModelWidth || tid.y >= ModelHeight) return;
     float3 pStored = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 nStored = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    float3 nStored = ApplyGenericStoredV1(pStored,LoadFinalNeuralStoredV2(int2(tid.xy))).rgb;
     if (!IsFiniteModelStoredV2(pStored) || !IsFiniteModelStoredV2(nStored)) {
         ColorEditFieldOut[tid.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
     float3 p = LoadProxyLinearV2(int2(tid.xy));
-    float3 n = LoadNeuralLinearV2(int2(tid.xy));
+    float3 n = (Passthrough&1u)!=0u?nStored:SRGBToLinear(nStored);
     float pRawLuma = dot(p, kLuma);
     float nRawLuma = dot(n, kLuma);
     float pl = max(pRawLuma, 1.0 / 4096.0);
@@ -3190,7 +3752,7 @@ bool CapturePixelAddress(uint2 coord, out uint planeBytes, out uint offset) {
     return true;
 }
 
-// Diagnostic-only storage conversion. Passthrough[21:19] describes the actual
+// Diagnostic-only storage conversion. Passthrough[22:20] describes the actual
 // Result UAV view: 0 unknown, 1 FP16, 2 UNORM8, 3 UNORM10, 4 R11G11B10_FLOAT.
 // D3D's narrow-float conversion truncates; convert directly from FP32 bits so
 // the 6/5-bit unsigned mantissas never pass through an intermediate rounding.
@@ -3247,7 +3809,7 @@ uint2 StoreUnormBounds(float value,uint maximum) {
     return uint2(base+(fifths>2u?1u:0u),base+(fifths>=2u?1u:0u));
 }
 bool StoreIntervalEnabled() {
-    uint kind=(Passthrough>>19)&7u;
+    uint kind=(Passthrough>>20)&7u;
     return (Passthrough&131072u)!=0u && (kind==2u || kind==3u);
 }
 bool StoreIntervalAddress(uint2 coord,out uint address) {
@@ -3276,7 +3838,7 @@ void RecordPostStoreInterval(uint2 coord,float3 expected,float3 original) {
     bool valid=all(isfinite(expected)) && all(isfinite(original));
     uint low=0u,high=0u;
     if(valid) {
-        uint maximum=((Passthrough>>19)&7u)==2u?255u:1023u;
+        uint maximum=((Passthrough>>20)&7u)==2u?255u:1023u;
         uint2 r=StoreUnormBounds(expected.x,maximum),g=StoreUnormBounds(expected.y,maximum),b=StoreUnormBounds(expected.z,maximum);
         low=StorePackCodes(uint3(r.x,g.x,b.x));high=StorePackCodes(uint3(r.y,g.y,b.y));
     }
@@ -3292,7 +3854,7 @@ void ComparePostStoreInterval(uint2 coord,float3 actual) {
     uint2 record=DeltaStats.Load2(address);
     if((record.x&0x40000000u)==0u) {DeltaStats.InterlockedAdd(176u,1u,ignored);return;}
     if((record.x&0x80000000u)==0u)return; // Producer counted an explicitly invalid expectation.
-    uint maximum=((Passthrough>>19)&7u)==2u?255u:1023u;
+    uint maximum=((Passthrough>>20)&7u)==2u?255u:1023u;
     uint3 low=StoreUnpackCodes(record.x),high=StoreUnpackCodes(record.y);
     if((record.y&0xc0000000u)!=0u || any(low>high) || any(high>maximum) || any(high-low>1u)) {
         DeltaStats.InterlockedOr(188u,2u,ignored);return;
@@ -3308,7 +3870,7 @@ void ComparePostStoreInterval(uint2 coord,float3 actual) {
     if(any(code<low) || any(code>high))DeltaStats.InterlockedAdd(172u,1u,ignored);
 }
 float3 StoreExpectedValue(float3 value, out bool known) {
-    uint kind = (Passthrough >> 19) & 7u;
+    uint kind = (Passthrough >> 20) & 7u;
     known = all(isfinite(value));
     float3 result = value;
     if (kind == 1u) result = f16tof32(f32tof16(value));
@@ -3328,7 +3890,7 @@ float3 StoreExpectedValue(float3 value, out bool known) {
     return result;
 }
 float3 StoreActualValue(float3 value) {
-    uint kind = (Passthrough >> 19) & 7u;
+    uint kind = (Passthrough >> 20) & 7u;
     if (kind == 2u || kind == 3u) {
         uint maximum = kind == 2u ? 255u : 1023u;
         bool ignored;
@@ -3380,7 +3942,7 @@ void ProbePostStoreCS(uint3 tid : SV_DispatchThreadID) {
     // its real source offset; the diagnostic flag changes no composition math.
     float3 actual = OriginalColor.Load(int3(coord + uint2(DestinationBaseX,DestinationBaseY),0)).rgb;
     ComparePostStoreInterval(coord,actual);
-    uint2 referenceCoord = coord + (((Passthrough & 262144u) != 0u)
+    uint2 referenceCoord = coord + (((Passthrough & 8388608u) != 0u)
         ? uint2(SourceBaseX,SourceBaseY) : uint2(0,0));
     float3 original = EditField.Load(int3(referenceCoord,0)).rgb;
     uint ignored;
@@ -3414,7 +3976,7 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes + offset,
         asuint(ProxyColor.Load(int3(coord, 0))));
     StageCapture.Store4(planeBytes * 2u + offset,
-        asuint(NeuralColor.Load(int3(coord, 0))));
+        asuint(LoadFinalNeuralStoredV2(int2(coord))));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
     if ((Passthrough & 512u) != 0u)
         StageCapture.Store4(planeBytes * 4u + offset,asuint(float4(1.0,512.0,0.0,0.0)));
@@ -3426,6 +3988,119 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     }
 }
 
+// Shared dimensionless gains are defined with the V2 compositor below. Post
+// supplies its own relative-edit domain; no log-composition or colour switch.
+bool LightStyleNeutralV1(float broad, float dark, float reflection,
+                         float structure, float glow);
+float LightStyleStrengthV1(float remaining, float edit, float mean, float master,
+                          float broad, float dark, float reflection,
+                          float structure, float glow);
+float SelectLightStyleStrengthV1(bool wholeDirection, float remaining, float edit,
+                                float mean, float master, float broad, float dark,
+                                float reflection, float structure, float glow);
+float3 LightPartitionPreviewV1(float edit, float mean, float remaining);
+
+// POST_LIGHT_SCALAR_BEGIN
+float PostRelativeEditV1(float proxyLuma, float neuralLuma) {
+    return (neuralLuma - proxyLuma) / max(proxyLuma, 1.0 / 1024.0);
+}
+
+float PostLightTransferRatioV1(float remaining, float edit, float mean,
+                               float master, float maxRatio,
+                               float broad, float dark, float reflection,
+                               float structure, float glow) {
+    float strength = SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, remaining, edit, mean, master,
+        broad, dark, reflection, structure, glow);
+    // The old post path transfers a LINEAR relative edit. Exponentiating this
+    // edit would silently change its 1x anchor and its response to protection.
+    return clamp(1.0 + remaining * strength, 1.0 / maxRatio, maxRatio);
+}
+// POST_LIGHT_SCALAR_END
+
+float3 ReadPostLightEditV1(float2 center) {
+    const bool scaled = ModelWidth != Width || ModelHeight != Height;
+    if (scaled && !ModelNeighborhoodFiniteV2(center)) return float3(0.0, 0.0, 0.0);
+    int2 pixel = clamp(int2(center), int2(0, 0), int2(Width - 1u, Height - 1u));
+    float3 proxy = scaled ? SampleProxyStoredV2(center) : ProxyColor.Load(int3(pixel, 0)).rgb;
+    float3 neural = scaled ? SampleNeuralStoredV2(center) : LoadFinalNeuralStoredV2(pixel).rgb;
+    if (!all(isfinite(proxy)) || !all(isfinite(neural)) ||
+        any(abs(proxy) > 65504.0.xxx) || any(abs(neural) > 65504.0.xxx))
+        return float3(0.0, 0.0, 0.0);
+    // Identical to CombineCS's own model decode, including its bounded value
+    // domain. No low-grid edit field, HDR inference or additional NR is used.
+    if ((Passthrough & 1u) == 0u) {
+        proxy = SRGBToLinear(proxy);
+        neural = SRGBToLinear(neural);
+    }
+    float proxyLuma = dot(proxy, kLuma);
+    float edit = PostRelativeEditV1(proxyLuma, dot(neural, kLuma));
+    return isfinite(edit) && isfinite(proxyLuma)
+        ? float3(edit, proxyLuma, 1.0) : float3(0.0, 0.0, 0.0);
+}
+
+float2 PostLightEditTapV1(float2 center, float centerProxyLuma) {
+    float3 tap = ReadPostLightEditV1(center);
+    if (tap.z != 1.0) return float2(0.0, 0.0);
+    float relativeEdge = abs(tap.y - centerProxyLuma) /
+        max(max(tap.y, centerProxyLuma), 1.0 / 1024.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * tap.x, weight);
+}
+
+float PostLightEditMeanV1(float2 center, float edit, float proxyLuma) {
+    const float radius = 8.0; // Composition pixels, independent of N/O ratio.
+    float2 local = float2(0.40 * edit, 0.40);
+    local += 0.15 * PostLightEditTapV1(center + float2(radius, 0.0), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center - float2(radius, 0.0), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center + float2(0.0, radius), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center - float2(0.0, radius), proxyLuma);
+    return local.x / local.y;
+}
+
+// REGION_COMPOSITION_V1_BEGIN
+// Weights are selected before all user gains and restored from the bounded
+// model grid. Gains never feed the selector, including preview selection.
+struct RegionSelectionV1 {float4 generic;float reflection;float colour;};
+RegionSelectionV1 SelectRegionV1(float2 center,float rawLog,float proxyLuma) {
+ RegionSelectionV1 result;result.generic=0;result.reflection=0;result.colour=0;
+ if((RegionFlags&1u)==0u)return result;
+ uint w,h;RegionField.GetDimensions(w,h);if(!w||!h)return result;
+ float2 pos=center*float2(w,h)/float2(Width,Height)-.5;int2 p=int2(floor(pos));float2 f=frac(pos);
+ float4 reference=RegionField.Load(int3(clamp(int2(floor(pos+.5)),0,int2(w-1,h-1)),0));
+ float broad=0,reflection=0,den=0;
+ [unroll]for(uint i=0;i<4;i++){
+  int2 o=int2(i&1u,i>>1);float4 tap=RegionField.Load(int3(clamp(p+o,0,int2(w-1,h-1)),0));
+  if(tap.w<0||!all(isfinite(tap)))continue;
+  if(abs(rawLog)>.0001 && sign(tap.x)!=sign(rawLog))continue;
+  float weight=(o.x?f.x:1-f.x)*(o.y?f.y:1-f.y);
+  weight*=1-smoothstep(.1,.5,abs(proxyLuma-tap.w)/max(max(proxyLuma,tap.w),1.0/1024));
+  if(reference.z>=0){if(tap.z<0)continue;float tolerance=(RegionFlags&16u)?max(abs(reference.z)*.015,.001):.0002;
+   weight*=1-smoothstep(tolerance,tolerance*4,abs(reference.z-tap.z));}
+  broad+=saturate(abs(tap.x)-1)*weight;reflection+=saturate(tap.y)*weight;den+=weight;
+ }
+ if(den<=.000001)return result;
+ broad/=den;reflection/=den;result.reflection=reflection;
+ if(abs(rawLog)<=.0001)result.colour=1-reflection;
+ else if(rawLog>0)result.generic.xy=float2(broad,1-broad)*(1-reflection);
+ else result.generic.zw=float2(broad,1-broad)*(1-reflection);
+ return result;
+}
+float2 RegionGainV1(RegionSelectionV1 s){
+ float2 gain=1.0.xx;
+ gain+=s.generic.x*(float2(RegionWideBrightLuma,RegionWideBrightColor)-1);
+ gain+=s.generic.y*(float2(RegionFineBrightLuma,RegionFineBrightColor)-1);
+ gain+=s.generic.z*(float2(RegionWideDarkLuma,RegionWideDarkColor)-1);
+ gain+=s.generic.w*(float2(RegionFineDarkLuma,RegionFineDarkColor)-1);
+ gain+=s.reflection*(float2(RegionReflectionLuma,RegionReflectionColor)-1);
+ gain.y+=s.colour*(RegionPureColor-1);return gain;
+}
+float3 RegionPreviewV1(RegionSelectionV1 s){
+ uint mode=(RegionFlags>>1)&7u;
+ if(mode==1)return s.generic.x*float3(1,.65,.12)+s.generic.y*float3(1,.2,.05)+s.generic.z*float3(.15,.7,1)+s.generic.w*float3(.15,.15,1)+s.reflection*float3(.2,1,.4)+s.colour*float3(.85,.2,1);
+ float m=mode>=2&&mode<=5?s.generic[mode-2]:mode==6?s.reflection:s.colour;return m.xxx;
+}
+// REGION_COMPOSITION_V1_END
+
 [numthreads(8, 8, 1)]
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -3434,7 +4109,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         uint2(DestinationBaseX, DestinationBaseY);
     float4 storedOriginal = OriginalColor.Load(int3(sourceCoord, 0));
     float3 storedProxy = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 storedNeural = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    float3 storedNeural = LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;
+    storedNeural=ApplyGenericStoredV1(storedProxy,float4(storedNeural,1)).rgb;
     bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(storedProxy == storedProxy) && all(storedNeural == storedNeural) &&
         all(abs(storedOriginal.rgb) <= 65504.0.xxx) &&
@@ -3450,11 +4126,22 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 
     float3 diagnosticOriginal =
         SourceToDiagnosticLinear(storedOriginal.rgb);
+    const bool lightStyleActive = (Passthrough & 262144u) != 0u;
+    const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
+    const float faceMask=FaceMaskV1(float2(tid.xy)+.5,dot(storedProxy,kLuma));
     float3 diagnosticProxy = ModelToDiagnosticLinear(storedProxy);
     float3 diagnosticNeural = ModelToDiagnosticLinear(storedNeural);
     float diagnosticDelta = max(abs(diagnosticNeural.r - diagnosticProxy.r),
         max(abs(diagnosticNeural.g - diagnosticProxy.g),
             abs(diagnosticNeural.b - diagnosticProxy.b)));
+    if ((FaceOptions&4u)!=0u) {
+        float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
+        WriteCombined(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a));
+        return;
+    }
+    if (faceMask==1 && FaceOriginalLuma==1 && FaceOriginalColor==1) {
+        WriteCombined(tid.xy,destinationCoord,storedOriginal);return;
+    }
     if (TransferStrength <= 0.000001) {
         WriteCombined(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -3486,7 +4173,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // A no-op neural result must be a strict per-pixel identity. Avoiding
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
-        WriteCombined(tid.xy, destinationCoord, storedOriginal);
+        float4 unchanged = storedOriginal;
+        if (lightStylePreview || (RegionFlags&14u)!=0u) unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
+        WriteCombined(tid.xy, destinationCoord, unchanged);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
                           diagnosticDelta, 0.0, false);
@@ -3500,6 +4189,23 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    float regionReferenceLuma=proxyLuma;
+    if((RegionFlags&1u)!=0u){
+        // Match this route's original EncodeCS contract at the full-resolution
+        // source pixel. No extra source texture load and no NR-dependent edge.
+        float3 reference=(modelEncodedInput||linearSdrStorage||srgbSdrStorage)?original:
+            pqEncodedHdr?PqSourceToModelLinear(max(storedOriginal.rgb,0.0.xxx)):
+            HdrSourceToModelLinear(max(storedOriginal.rgb,0.0.xxx));
+        regionReferenceLuma=max(dot(reference,kLuma),0);
+    }
+    RegionSelectionV1 regions=SelectRegionV1(float2(tid.xy)+.5,
+        log2(max(neuralLuma,1.0/4096)/max(proxyLuma,1.0/4096)),regionReferenceLuma);
+    float2 regionGain=RegionGainV1(regions);
+    if((RegionFlags&14u)!=0u){WriteCombined(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
+    const float lightOriginalEdit = lightStyleActive
+        ? PostRelativeEditV1(proxyLuma, neuralLuma) : 0.0;
+    const float lightOriginalMean = lightStyleActive
+        ? PostLightEditMeanV1(float2(tid.xy) + 0.5, lightOriginalEdit, proxyLuma) : 0.0;
     // Post-SR/RR receives the same paired proxy/neural model contract as the
     // pre-SR path. Attenuate only its broad luminance residual with the shared
     // model-grid estimator; retain the legacy colour transfer below. The
@@ -3544,6 +4250,16 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float transferredLumaRatio = clamp(
         1.0 + relativeLumaDelta * TransferStrength,
         1.0 / maxRatio, maxRatio);
+    // Neutral (including diagnostic-only requests) retains the original
+    // arithmetic above byte-for-byte. Only nonneutral controls add a gain.
+    if (lightStyleActive && !LightStyleNeutralV1(LightBroad, LightDark,
+            LightReflection, LightStructure, LightGlow))
+        transferredLumaRatio = PostLightTransferRatioV1(relativeLumaDelta,
+            lightOriginalEdit, lightOriginalMean, TransferStrength, maxRatio,
+            LightBroad, LightDark, LightReflection, LightStructure, LightGlow);
+    if(regionGain.x!=1)transferredLumaRatio=clamp(1+(transferredLumaRatio-1)*regionGain.x,1/maxRatio,maxRatio);
+    if(faceMask>0)transferredLumaRatio=1+FaceEditV1(transferredLumaRatio-1,
+        clamp(1+relativeLumaDelta,1/maxRatio,maxRatio)-1,faceMask,FaceOriginalLuma);
     float lumaRatio = lerp(1.0, transferredLumaRatio, transferConfidence);
     float3 lumaOnly = source * lumaRatio;
 
@@ -3558,6 +4274,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         float3 channelRatio = clamp(
             1.0.xxx + relativeChannelDelta * TransferStrength,
             (1.0 / maxRatio).xxx, maxRatio.xxx);
+        if(regionGain.y!=1)channelRatio=clamp(1+(channelRatio-1)*regionGain.y,(1/maxRatio).xxx,maxRatio.xxx);
+        if(faceMask>0)channelRatio=1+FaceChromaV1(channelRatio-1,
+            clamp(1+relativeChannelDelta,(1/maxRatio).xxx,maxRatio.xxx)-1,faceMask);
         float3 channelConfidence = smoothstep(
             (1.0 / 65536.0).xxx, (1.0 / 1024.0).xxx,
             max(proxy, 0.0.xxx));
@@ -3591,6 +4310,16 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         storedResult = LinearToSRGB(sourceDomainResult);
     else if (linearSdrStorage)
         storedResult = saturate(sourceDomainResult);
+    if (lightStylePreview) {
+        // Same preview contract as pre-SR, using this route's relative-edit
+        // magnitudes: partition colours, or actual final NR/source delta x4.
+        float3 preview = LightPreview == 1u
+            ? LightPartitionPreviewV1(lightOriginalEdit, lightOriginalMean, relativeLumaDelta)
+            : saturate(abs(SourceToDiagnosticLinear(storedResult) - diagnosticOriginal) * 4.0);
+        float3 storedPreview = EncodeCompositionToStoredV2(preview);
+        if (all(isfinite(storedPreview)) && all(abs(storedPreview) <= 65504.0.xxx))
+            storedResult = storedPreview;
+    }
     WriteCombined(tid.xy, destinationCoord,
                   float4(storedResult, storedOriginal.a));
     float originalMagnitude = max(
@@ -3673,6 +4402,131 @@ float LayeredLumaStrengthV3(float edit, float mean, float master,
 }
 // LAYERED_SCALAR_END
 
+// FOUR_REGION_SCALAR_BEGIN
+bool LightStyleNeutralV1(float broad, float dark, float reflection,
+                         float structure, float glow) {
+    return broad == 1.0 && dark == 1.0 && reflection == 1.0 &&
+        structure == 1.0 && glow == 0.0;
+}
+
+// Classify once, before either the requested gains or existing protection.
+// The same-sign partition is a bounded residual heuristic, not a material mask.
+float LightBroadFractionV1(float edit, float mean) {
+    if (!isfinite(edit) || !isfinite(mean) || edit == 0.0) return 0.0;
+    float broad = clamp(mean, min(edit, 0.0), max(edit, 0.0));
+    return saturate(abs(broad) / abs(edit));
+}
+
+// Existing detail/lighting guards may have removed part of the original edit.
+// Map its original partition proportionally into the remaining edit; never
+// clamp an unprotected mean against the remainder and relabel fine as broad.
+float LightRemainingBroadV1(float edit, float mean, float remaining) {
+    if (!isfinite(remaining) || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    return remaining * LightBroadFractionV1(edit, mean);
+}
+
+float LightStyleStrengthV1(float remaining, float edit, float mean, float master,
+                          float broad, float dark, float reflection,
+                          float structure, float glow) {
+    if (!isfinite(master)) return 0.0;
+    master = clamp(master, 0.0, 4.0);
+    if (LightStyleNeutralV1(broad, dark, reflection, structure, glow)) return master;
+    if (master == 0.0 || remaining == 0.0 || !isfinite(remaining) ||
+        !isfinite(edit) || !isfinite(mean) || !isfinite(broad) ||
+        !isfinite(dark) || !isfinite(reflection) || !isfinite(structure) ||
+        !isfinite(glow) || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    float fraction = LightBroadFractionV1(edit, mean);
+    float broadGain = edit > 0.0
+        ? clamp(broad, 0.0, 2.0) * (1.0 - saturate(glow))
+        : clamp(dark, 0.0, 2.0);
+    float fineGain = edit > 0.0
+        ? clamp(reflection, 0.0, 2.0) : clamp(structure, 0.0, 2.0);
+    return clamp(master * (fraction * broadGain + (1.0 - fraction) * fineGain),
+                 0.0, 4.0);
+}
+// DIRECTIONAL_LIGHT_SCALAR_BEGIN
+// Whole signed-luminance control, not material/face recognition. Classify from
+// the original edit and apply only to its protected remainder. Full glow still
+// removes broad brightening, including any broad real reflection in that class.
+float WholeDirectionalLightStyleStrengthV1(float remaining, float edit, float mean,
+                                          float master, float broad, float dark,
+                                          float reflection, float structure, float glow) {
+    if (!isfinite(master) || !isfinite(remaining) || !isfinite(edit) ||
+        !isfinite(mean) || !isfinite(broad) || !isfinite(dark) ||
+        !isfinite(reflection) || !isfinite(structure) || !isfinite(glow)) return 0.0;
+    master = clamp(master, 0.0, 4.0);
+    if (LightStyleNeutralV1(broad, dark, reflection, structure, glow)) return master;
+    if (master == 0.0 || remaining == 0.0 || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    float fraction = LightBroadFractionV1(edit, mean);
+    float direction = edit > 0.0
+        ? clamp(reflection, 0.0, 2.0) : clamp(structure, 0.0, 2.0);
+    float broadGain = edit > 0.0
+        ? clamp(broad, 0.0, 2.0) * (1.0 - saturate(glow))
+        : clamp(dark, 0.0, 2.0);
+    return clamp(master * direction * (fraction * broadGain + (1.0 - fraction)),
+                 0.0, 4.0);
+}
+
+float SelectLightStyleStrengthV1(bool wholeDirection, float remaining, float edit,
+                                float mean, float master, float broad, float dark,
+                                float reflection, float structure, float glow) {
+    if (wholeDirection)
+        return WholeDirectionalLightStyleStrengthV1(remaining, edit, mean, master,
+            broad, dark, reflection, structure, glow);
+    return LightStyleStrengthV1(remaining, edit, mean, master,
+        broad, dark, reflection, structure, glow);
+}
+// DIRECTIONAL_LIGHT_SCALAR_END
+// FOUR_REGION_SCALAR_END
+
+// Read the exact log-edit representation used at the centre. The optional
+// field path includes its strict Catmull/BilinearSafe validity contract.
+float3 ReadLightEditV1(float2 center) {
+    if (!ModelNeighborhoodFiniteV2(center)) return float3(0.0, 0.0, 0.0);
+    float proxyLuma = max(dot(SampleProxyLinearV2(center), kLuma), 1.0 / 4096.0);
+    float neuralLuma = max(dot(SampleNeuralLinearV2(center), kLuma), 1.0 / 4096.0);
+    float2 edit = (Passthrough & 8192u) != 0u ? SampleRestoredEdit(center)
+        : float2(clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0), 1.0);
+    return edit.y == 1.0 && isfinite(edit.x) && isfinite(proxyLuma)
+        ? float3(edit.x, proxyLuma, 1.0) : float3(0.0, 0.0, 0.0);
+}
+
+float2 LightEditTapV1(float2 center, float centerProxyLuma) {
+    float3 tap = ReadLightEditV1(center);
+    if (tap.z != 1.0) return float2(0.0, 0.0);
+    float relativeEdge = abs(tap.y - centerProxyLuma) /
+        max(max(tap.y, centerProxyLuma), 1.0 / 4096.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * tap.x, weight);
+}
+
+float LightEditMeanV1(float2 center, float edit, float proxyLuma) {
+    // Radius stays in composition pixels as N changes. Both centre and taps
+    // are recovered on this same grid, then averaged directly in log space.
+    const float radius = 8.0;
+    float2 local = float2(0.40 * edit, 0.40);
+    local += 0.15 * LightEditTapV1(center + float2(radius, 0.0), proxyLuma);
+    local += 0.15 * LightEditTapV1(center - float2(radius, 0.0), proxyLuma);
+    local += 0.15 * LightEditTapV1(center + float2(0.0, radius), proxyLuma);
+    local += 0.15 * LightEditTapV1(center - float2(0.0, radius), proxyLuma);
+    return local.x / local.y; // The known-valid centre bounds denominator >= .40.
+}
+
+float3 LightPartitionPreviewV1(float edit, float mean, float remaining) {
+    float broad = LightRemainingBroadV1(edit, mean, remaining);
+    float fine = remaining - broad;
+    // Orange=wide positive, blue=wide negative, yellow=fine positive,
+    // magenta=fine negative. Brightness represents remaining log-edit magnitude.
+    float3 colour = max(broad, 0.0) * float3(1.0, 0.28, 0.0)
+        + max(-broad, 0.0) * float3(0.0, 0.35, 1.0)
+        + max(fine, 0.0) * float3(1.0, 1.0, 0.15)
+        + max(-fine, 0.0) * float3(0.75, 0.05, 1.0);
+    return saturate(colour * 2.0);
+}
+
 // INDEPENDENT_CHROMA_SCALAR_BEGIN
 // One scalar budget for the entire log-chroma vector. Attenuation cannot
 // rotate an edit by clipping its channels separately or invent a zero edit.
@@ -3714,9 +4568,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float2 center = float2(tid.xy) + 0.5;
     float3 proxy = SampleProxyLinearV2(center);
     float3 neural = SampleNeuralLinearV2(center);
+    [branch] if((RegionFlags&32u)!=0u && (RegionWideBrightLuma!=1 || RegionWideBrightColor!=1 || RegionFineBrightLuma!=1 || RegionFineBrightColor!=1 || RegionWideDarkLuma!=1)) {
+        float3 pStored=(Passthrough&1u)!=0u?proxy:LinearToSRGB(proxy);
+        float3 nStored=(Passthrough&1u)!=0u?neural:LinearToSRGB(neural);
+        nStored=ApplyGenericStoredV1(pStored,float4(nStored,1)).rgb;
+        neural=(Passthrough&1u)!=0u?nStored:SRGBToLinear(nStored);
+    }
     float3 fullProxy = EncodeProxyLinearV2(source);
     const bool independentChroma = (Passthrough & 4096u) != 0u;
     const bool lowGridColor = (Passthrough & 32768u) != 0u;
+    const bool lightStyleActive = (Passthrough & 262144u) != 0u;
+    const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
@@ -3725,6 +4587,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         all(abs(neural) <= 65504.0.xxx);
     // The candidate's logarithmic chromaticity has no signed-colour contract.
     // Retain the exact source for such samples; do not silently rectify them.
+    float3 faceReference=(Passthrough&1u)!=0u?fullProxy:LinearToSRGB(fullProxy);
+    const float faceMask=FaceMaskV1(center,dot(faceReference,kLuma));
     const bool unsupportedSignedSource = (independentChroma || lowGridColor) &&
         any(storedOriginal.rgb < 0.0.xxx);
     if ((independentChroma || lowGridColor) &&
@@ -3734,9 +4598,21 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
+    if ((FaceOptions&4u)!=0u && finiteInputs && !unsupportedSignedSource) {
+        float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
+        WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a));
+        return;
+    }
+    if (faceMask==1 && FaceOriginalLuma==1 && FaceOriginalColor==1) {
+        WriteCombinedV2(tid.xy,destinationCoord,storedOriginal);return;
+    }
     if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
-        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        float4 unchanged = storedOriginal;
+        if ((lightStylePreview || (RegionFlags&14u)!=0u) && finiteInputs && !unsupportedSignedSource &&
+            TransferStrength > 0.000001 && FrameConfidence > 0.000001)
+            unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
+        WriteCombinedV2(tid.xy, destinationCoord, unchanged);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
             diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0,
             !finiteInputs);
@@ -3749,6 +4625,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
+    RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,fullProxyLuma);
+    float2 regionGain=RegionGainV1(regions);
+    if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
     if ((Passthrough & 8192u) != 0u) {
         float2 edit = SampleRestoredEdit(center);
         if (edit.y != 1.0) {
@@ -3759,6 +4638,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         }
         logRatio = edit.x;
     }
+    const float lightOriginalEdit = logRatio;
+    const float lightOriginalMean = lightStyleActive
+        ? LightEditMeanV1(center, lightOriginalEdit, proxyLuma) : 0.0;
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
     const bool layeredActive = (Passthrough & 2048u) != 0u;
     float layerMean = 0.0;
@@ -3811,11 +4693,15 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (layeredActive)
         lumaStrength = LayeredLumaStrengthV3(logRatio, layerMean, TransferStrength,
             LayerTone, LayerStructure, LayerBright, LayerShadow);
+    if (lightStyleActive)
+        lumaStrength = SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, logRatio, lightOriginalEdit,
+            lightOriginalMean, lumaStrength, LightBroad, LightDark,
+            LightReflection, LightStructure, LightGlow);
     float maxRatio = max(MaxLumaRatio, 1.0);
     float logLimit = log2(maxRatio);
     float poweredLog = clamp(logRatio * TransferStrength * confidence,
                              -logLimit, logLimit);
-    if (layeredActive)
+    if (layeredActive || lightStyleActive)
         poweredLog = clamp(logRatio * lumaStrength * confidence, -logLimit, logLimit);
     // With layers off/neutral, preserve dev1 arithmetic inside the public 0..4 range.
     // This is a spatial composite guard, not a model/history or exposure fix.
@@ -3835,6 +4721,23 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
             abs(baseLog), lumaStrength - 1.0, budget);
     }
+    if(regionGain.x!=1){
+        float requestedLog=log2(clamp(1+(exp2(poweredLog)-1)*regionGain.x,1/maxRatio,maxRatio));
+        if(boostProtectionEnabled && regionGain.x>1 && abs(poweredLog)>.000001){
+            float budget=logLimit;
+            if(poweredLog>0 && (Passthrough&(1u|16u|32u))!=0u){
+                float peak=max(source.r,max(source.g,source.b));
+                budget=max(poweredLog,min(logLimit,max(log2(rcp(max(peak,.000001))),0)));
+            }
+            // Preserve the existing neutral region result. Only the extra
+            // regional amplification spends remaining SDR/ratio headroom.
+            float extra=abs(requestedLog)/abs(poweredLog)-1;
+            requestedLog=sign(poweredLog)*SoftExtraMagnitudeV3(abs(poweredLog),extra,budget);
+        }
+        poweredLog=requestedLog;
+    }
+    if(faceMask>0)poweredLog=FaceEditV1(poweredLog,
+        clamp(logRatio*confidence,-logLimit,logLimit),faceMask,FaceOriginalLuma);
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
 
     // Preserve HDR energy above the bounded model proxy instead of multiplying
@@ -3873,6 +4776,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
                 float3 sourceNorm = source / sourceLuma;
                 float3 opponentRgbDelta = OpponentDeltaToRgbV6(field.yz);
                 float requested = clamp(ColorStrength, 0.0, 2.0) * confidence;
+                requested*=regionGain.y;
+                if(faceMask>0)requested*=1-faceMask*saturate(FaceOriginalColor);
                 float scale = min(requested,
                     OpponentRatioLimitV6(sourceNorm, opponentRgbDelta, maxRatio));
                 float3 colouredNorm = sourceNorm + opponentRgbDelta * scale;
@@ -3906,6 +4811,13 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             poweredChromaLog = baseChroma * scale;
         }
         if (!lowGridColor) {
+            float3 beforeRegionChroma=poweredChromaLog;
+            if(regionGain.y!=1)poweredChromaLog=clamp(poweredChromaLog*regionGain.y,-logLimit.xxx,logLimit.xxx);
+            if(faceMask>0) {
+                float3 sameNrOne=independentChroma?beforeRegionChroma:
+                    clamp(chromaLog*(ColorStrength*confidence),-logLimit.xxx,logLimit.xxx);
+                poweredChromaLog=FaceChromaV1(poweredChromaLog,sameNrOne,faceMask);
+            }
             float3 chromaGain = exp2(poweredChromaLog);
             float3 coloured = max(source, 0.0.xxx) * chromaGain;
             float colouredLuma = dot(coloured, kLuma);
@@ -3916,7 +4828,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             result = coloured;
         }
     }
-    if ((independentChroma || lowGridColor) && poweredLog == 0.0 &&
+    if (!lightStylePreview && (independentChroma || lowGridColor) && poweredLog == 0.0 &&
         !candidateChromaApplied) {
         WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -3934,6 +4846,16 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         any(abs(storedResult) > 65504.0.xxx)) {
         storedResult = storedOriginal.rgb;
         result = source;
+    }
+    if (lightStylePreview) {
+        // Preview 2 is the actual protected NR result minus the source, not
+        // an isolated D-on/D-off comparison. Display absolute linear delta x4.
+        float3 preview = LightPreview == 1u
+            ? LightPartitionPreviewV1(lightOriginalEdit, lightOriginalMean, logRatio)
+            : saturate(abs(SourceToDiagnosticLinear(storedResult) - diagnosticOriginal) * 4.0);
+        float3 storedPreview = EncodeCompositionToStoredV2(preview);
+        if (all(isfinite(storedPreview)) && all(abs(storedPreview) <= 65504.0.xxx))
+            storedResult = storedPreview;
     }
     WriteCombinedV2(tid.xy, destinationCoord,
                     float4(storedResult, storedOriginal.a));
@@ -3976,11 +4898,19 @@ void ResampleMotionCS(uint3 tid : SV_DispatchThreadID) {
 }
 )HLSL";
 
-ID3DBlob *CompileCodecShader(const char *entry) {
+ID3DBlob *CompileCodecShader(const char *entry, bool face = false, int dual_domain = -1) {
     ID3DBlob *shader = nullptr;
     ID3DBlob *errors = nullptr;
+#if NR_CODEC_PRECOMPILED
+    const auto artifact=nr_codec_precompiled::Find(entry,face,dual_domain);
+    if(!artifact.data||!artifact.size){Log("Missing embedded codec shader: %s face=%d dual=%d",entry,face?1:0,dual_domain);return nullptr;}
+    if(FAILED(D3DCreateBlob(artifact.size,&shader))||!shader)return nullptr;
+    std::memcpy(ID3D10Blob_GetBufferPointer(shader),artifact.data,artifact.size);return shader;
+#else
+    const D3D_SHADER_MACRO macros[]={{"NR_FACE_SHADER_ENABLE",face?"1":"0"},
+        {"NR_DUAL_REDUCED",dual_domain>=0?"1":"0"},{"NR_DUAL_DOMAIN",dual_domain==1?"1":"0"},{nullptr,nullptr}};
     const HRESULT hr = D3DCompile(
-        kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", nullptr,
+        kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", macros,
         nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
         &shader, &errors);
     if (FAILED(hr)) {
@@ -3992,6 +4922,29 @@ ID3DBlob *CompileCodecShader(const char *entry) {
     }
     ReleaseCom(errors);
     return SUCCEEDED(hr) ? shader : nullptr;
+#endif
+}
+
+// Only an explicit experimental face request initializes these variants.
+// The normal compositor compiles the face branches out completely.
+bool EnsureFaceCodec() {
+    if(g_codec.combine_face&&g_codec.combine_v2_face)return true;
+    if(!g_codec.device||!g_codec.root)return false;
+    ID3DBlob* legacy=CompileCodecShader("CombineCS",true);
+    ID3DBlob* v2=CompileCodecShader("CombineV2CS",true);
+    HRESULT hr=E_FAIL;
+    if(legacy&&v2) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};pso.pRootSignature=g_codec.root;
+        pso.CS={ID3D10Blob_GetBufferPointer(legacy),ID3D10Blob_GetBufferSize(legacy)};
+        hr=ID3D12Device_CreateComputePipelineState(g_codec.device,&pso,IID_ID3D12PipelineState,reinterpret_cast<void**>(&g_codec.combine_face));
+        if(SUCCEEDED(hr)) {
+            pso.CS={ID3D10Blob_GetBufferPointer(v2),ID3D10Blob_GetBufferSize(v2)};
+            hr=ID3D12Device_CreateComputePipelineState(g_codec.device,&pso,IID_ID3D12PipelineState,reinterpret_cast<void**>(&g_codec.combine_v2_face));
+        }
+    }
+    ReleaseCom(legacy);ReleaseCom(v2);
+    if(FAILED(hr)){ReleaseCom(g_codec.combine_face);ReleaseCom(g_codec.combine_v2_face);return false;}
+    return true;
 }
 
 bool EnsureCodec(ID3D12Device *device) {
@@ -4172,7 +5125,7 @@ bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) 
 }
 
 struct NrTuningSignature {
-    float intensity = 1.2f;
+    float intensity = 1.5f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
     float skin_structure = -1.0f;
@@ -4199,6 +5152,9 @@ struct NrDiagnosticIdentity {
 unsigned long long g_next_nr_instance_id = 0;
 unsigned long long g_next_nr_frame_id = 0;
 NrDiagnosticIdentity g_applied_nr_identity = {};
+// Protected by the same chain lock as g_applied_nr_identity. This publishes
+// dimensions only; readiness of captured pixels still requires the exact fence.
+nr_face_capture_geometry::Sample g_face_capture_geometry = {};
 int g_applied_nr_mode = 0;
 NrDiagnosticIdentity g_last_sample_identity = {}; // diagnostic snapshot lock
 
@@ -4243,6 +5199,11 @@ struct NrStageCaptureInfo {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.f, light_dark = 1.f, light_reflection = 1.f;
+    float light_structure = 1.f, light_glow = 0.f;
+    unsigned light_preview = 0;
+    unsigned light_control_mode = 0; // Dispatch-recorded selector, valid only with active D flags.
+    bool light_supported = false;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
@@ -4292,7 +5253,38 @@ struct NrStoredResultMetadata {
     int mode=0;
     bool recorded=false;
 };
+struct NrContext;
+struct NrBindingPacket;
+struct NrBindingPool;
 struct NrSlot {
+    NrBindingPacket* region_binding=nullptr;
+    NrBindingPacket* compose_binding=nullptr;
+    NrBindingPacket* dual_binding=nullptr;
+    ID3D12QueryHeap* dual_time_heap=nullptr;
+    ID3D12Resource* dual_time_readback=nullptr;
+    LifecycleQueue* dual_time_queue=nullptr;
+    unsigned long long dual_time_token=0,dual_time_fence=0;
+    unsigned dual_time_mask=0,dual_time_generation=0;
+    unsigned dual_full_timing_layer=0;
+    bool dual_time_active=false,dual_time_pending=false,dual_time_stable=false,dual_time_reduced=false;
+    NrContext* dual_owner=nullptr;
+    ID3D12Resource* dual_guides[2]={};
+    unsigned dual_capture_index=16;
+    nr_dual::dx12::SpatialSlot* dual_spatial=nullptr;
+    ID3D12DescriptorHeap* dual_consumer_heap=nullptr;
+    ID3D12DescriptorHeap* dual_region_heap=nullptr;
+    unsigned long long dual_bytes=0;
+    // Main slot selects only a successfully recorded current second answer.
+    NrSlot* dual_selected=nullptr;
+    unsigned dual_low_width=0,dual_low_height=0,dual_model_domain=0;
+    bool dual_reduced=false;
+    ID3D12Resource *region_guide=nullptr,*region_field=nullptr,*region_inputs[4]={};
+    ID3D12DescriptorHeap *region_heap=nullptr;
+    D3D12_RESOURCE_STATES region_guide_state=D3D12_RESOURCE_STATE_COMMON,region_field_state=D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long region_bytes=0;
+    UINT region_constants[20]={};
+    bool region_ready=false,region_recorded=false;
+    unsigned replay_capture_index=nr_replay::kFrames;
     struct DescriptorReceipt {
         ID3D12DescriptorHeap* heap = nullptr;
         ID3D12Resource* source = nullptr;
@@ -4300,13 +5292,14 @@ struct NrSlot {
         DXGI_FORMAT source_srv = DXGI_FORMAT_UNKNOWN;
         DXGI_FORMAT result_uav = DXGI_FORMAT_UNKNOWN;
     };
-    mutable DescriptorReceipt descriptor_receipt{};
+    mutable DescriptorReceipt descriptor_receipt{}, face_descriptor_receipt{}, capture_descriptor_receipt{};
     nr_resource_recovery::Token recovery_token{};
     nr_resource_recovery::Target recovery_target{};
     unsigned recovery_probe_count = 0;
     unsigned output_transition_probe_count = 0;
     std::uint64_t output_transition_phase = 0;
     NrCaptureParams capture_params = {};
+    nr_face_capture_geometry::OutputMapping face_output = {};
     NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
     ID3D12Resource *source = nullptr;
@@ -4339,6 +5332,9 @@ struct NrSlot {
     ID3D12Resource *delta_stats_readback = nullptr;
     unsigned store_interval_capacity=0;
     ID3D12DescriptorHeap *heap = nullptr;
+    ID3D12DescriptorHeap *face_codec_heap = nullptr;
+    ID3D12Resource *face_mask = nullptr;
+    unsigned face_tracker_index = 24;
     // ClearUnorderedAccessViewUint requires its CPU descriptor to come from a
     // non-shader-visible heap, while the GPU descriptor remains in heap.
     ID3D12DescriptorHeap *stats_clear_heap = nullptr;
@@ -4452,17 +5448,18 @@ NrPostStoreEvidence SnapshotPreStoreEvidence() {
 // (the public evaluate parameter block is not a reliable live-tuning API).
 // Keep an explicit signature so a committed UI edit retires the old temporal
 // feature after its exact fence and creates a fresh one with the new values.
-NrTuningSignature CurrentNrTuningSignature() {
+NrTuningSignature CurrentNrTuningSignature(unsigned layer_index=0) {
+    const auto model=nr_layers::Read(g_config,layer_index);
     NrTuningSignature signature = {};
-    signature.intensity = g_config.intensity;
-    signature.local_tone = g_config.local_tone;
-    signature.local_structure = g_config.local_structure;
+    signature.intensity = model.intensity;
+    signature.local_tone = model.local_tone;
+    signature.local_structure = model.local_structure;
     // Feature 18 must follow local structure without an automatic face mask.
     // The independent INI preference remains available for the next enable.
-    signature.skin_structure = g_config.auto_mask ? g_config.skin_structure : -1.0f;
-    signature.auto_mask = g_config.auto_mask;
-    signature.style = g_config.style;
-    signature.ui_correction = g_config.ui_correction;
+    signature.skin_structure = model.auto_mask ? model.skin_structure : -1.0f;
+    signature.auto_mask = model.auto_mask;
+    signature.style = model.style;
+    signature.ui_correction = model.ui_correction;
     signature.jitter_mode = g_config.jitter_mode;
     signature.input_filter = g_config.nr_input_filter;
     return signature;
@@ -4481,11 +5478,20 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 }
 
 struct NrContext {
+    NrBindingPool* binding_pool=nullptr;
+    bool dual_last_visible=false;
+    unsigned layer_index=0;
+    unsigned long long parent_instance_id=0,parent_input_epoch=0;
+    bool dual_create_completed=false;
+    nr_dual::AuxHistory dual_history{};
+    ID3D12Resource* dual_create_guides[2]={};
     unsigned long long stage_capture_request_id = 0;
     unsigned long long instance_id = 0;
     unsigned int successful_evaluations_since_reset = 0;
     bool diagnostic_first_sample_logged = false;
     bool diagnostic_reset_requested = false;
+    bool diagnostic_warmup_reset = false; // Excludes deliberate per-frame unknown-depth reset.
+    unsigned diagnostic_reset_reasons = 0;
     bool reset_retry_pending = false;
     int last_input_filter = -1;
     unsigned int input_filter_source_width = 0, input_filter_source_height = 0;
@@ -4564,13 +5570,14 @@ struct NrContext {
     NrSlot slots[8] = {};
 };
 
+#include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
 
 #include "nr_jitter_status.inl"
 
 void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     context.reset_retry_pending = false;
-    if (context.diagnostic_reset_requested)
+    if (context.diagnostic_warmup_reset)
         context.successful_evaluations_since_reset = 0;
     ++context.successful_evaluations_since_reset;
     NrDiagnosticIdentity identity = {};
@@ -4594,6 +5601,11 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
 NrContext g_pending_destroy_contexts[16] = {};
+// Covers the interval after detaching from the pending table until all owned
+// model/COM releases finish outside g_chain_cs. Existing models may still run;
+// only a new allocation waits for this small, asynchronous retirement window.
+std::atomic<unsigned> g_nr_context_releases_in_progress{0};
+std::atomic<unsigned long long> g_nr_create_release_deferrals{0};
 
 // GPU lifetime tracking is deliberately fixed-size and fail-closed.  The
 // command-list marker survives the ReShade proxy and can therefore be read
@@ -4605,7 +5617,8 @@ constexpr GUID kLastSubmissionQueueGuid = {
     0x2f90ef4a, 0x3aa3, 0x4de5,
     {0xb5, 0x27, 0x91, 0x52, 0x31, 0xe2, 0x8c, 0x6a}};
 constexpr std::size_t kLifecycleCommandListCount = 128;
-constexpr std::size_t kLifecycleUsesPerCommandList = 16;
+// Retain the previous 16 texture uses plus their immutable descriptor leases.
+constexpr std::size_t kLifecycleUsesPerCommandList = 32;
 constexpr std::size_t kLifecycleQueueCount = 8;
 
 struct CommandListQueueMarker {
@@ -4668,7 +5681,7 @@ struct LifecycleQueue {
 
 constexpr std::size_t kLifecycleBatchRecords =
     kLifecycleCommandListCount;
-constexpr std::size_t kLifecycleBatchSlots = 16 * 8;
+constexpr std::size_t kLifecycleBatchSlots = 16 * (8 + nr_binding::kPackets);
 
 struct SubmissionBatch {
     nr_resource_recovery::Token recovery_tokens[128]{};
@@ -4678,7 +5691,7 @@ struct SubmissionBatch {
     unsigned int record_count = 0;
     NrSlot *slots[kLifecycleBatchSlots] = {};
     unsigned int slot_count = 0;
-    NrContext *contexts[kLifecycleBatchSlots] = {};
+    NrContext *contexts[16] = {};
     unsigned int context_count = 0;
     unsigned long long fence_value = 0;
     unsigned int bound_transfer_count = 0;
@@ -4713,8 +5726,22 @@ std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 
 #include "nr_f8_gpu.inl"
 nr_f8_gpu::CaptureRing g_f8_gpu;
+#include "nr_replay_gpu.inl"
+namespace nr_replay { Recorder recorder; void Collect(); }
+namespace nr_dual_capture {nr_replay::Recorder recorder;void Collect();void Invalidate(std::uint64_t,bool);void Submit(std::uint64_t,void*,std::uint64_t);void Composition(unsigned,const void*,unsigned,unsigned,unsigned);}
+#include "nr_face_tracker_gpu.inl"
+namespace nr_face_runtime {
+    nr_face_gpu::Tracker* tracker=nullptr;
+    void Collect();
+    void Submit(std::uint64_t,void*,std::uint64_t);
+    void Invalidate(std::uint64_t,bool);
+}
+bool IsSameRrDepthDevice(ID3D12Device *first,ID3D12Device *second);
 
 void CollectF8GpuLocked() {
+    nr_replay::Collect();
+    nr_dual_capture::Collect();
+    nr_face_runtime::Collect();
     if(g_lifecycle_tracking_uncertain.load()) return; // preserve unproven GPU resources
     g_f8_gpu.Collect([](void *key,unsigned long long fence) {
         auto *q=static_cast<LifecycleQueue *>(key);
@@ -4744,7 +5771,7 @@ constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
 constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
 
 unsigned long long ExtraSlotBytes(const NrSlot &slot) {
-    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes;
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes;
 }
 
 bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
@@ -4756,15 +5783,36 @@ bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
 }
 
 bool IsSlotFenceCompleteLocked(const NrSlot &slot);
+bool CanMutateSlotLocked (const NrSlot& slot);
+bool CanDestroyBindingsLocked(const NrContext& context);
+void DestroyBindings(NrContext& context);
+bool InvalidateSlotBindingsLocked(const NrSlot& slot);
+bool CanDestroyContextLocked (const NrContext& context);
+bool CanRetireDualSlot(void* user) {
+    const auto* slot=static_cast<const NrSlot*>(user);
+    return slot && slot->dual_owner && !slot->dual_owner->nr_handle && !slot->dual_owner->params &&
+        CanDestroyContextLocked(*slot->dual_owner) && CanMutateSlotLocked(*slot);
+}
+std::atomic<unsigned long long> g_dual_allocated_bytes{0};
+constexpr unsigned long long kDualSlotBudget=256ull*1024*1024,kDualTotalBudget=1024ull*1024*1024;
 void DestroySlot(NrSlot &slot) {
+    if(slot.dual_spatial && !nr_dual::dx12::DestroySpatialSlotAfterRetirement(slot.dual_spatial,CanRetireDualSlot,&slot))return;
     NrRecoveryRetireSlot(slot, IsSlotFenceCompleteLocked(slot));
     ForgetPostBoundary(reinterpret_cast<std::uint64_t>(slot.result));
+    g_dual_allocated_bytes.fetch_sub(slot.dual_bytes);
+    ReleaseCom(slot.dual_time_heap);ReleaseCom(slot.dual_time_readback);
+    ReleaseCom(slot.dual_consumer_heap);ReleaseCom(slot.dual_region_heap);
+    for(auto& guide:slot.dual_guides)ReleaseCom(guide);
     DestroyStageCapture(slot);
     ReleaseCom(slot.delta_stats_readback);
     ReleaseCom(slot.delta_stats);
     ReleaseCom(slot.stats_clear_heap);
     ReleaseCom(slot.capture_cpu_heap);
     ReleaseCom(slot.snapshot_heap);
+    ReleaseCom(slot.face_codec_heap);
+    ReleaseCom(slot.face_mask);
+    ReleaseCom(slot.region_heap);ReleaseCom(slot.region_field);ReleaseCom(slot.region_guide);
+    for(auto& input:slot.region_inputs)ReleaseCom(input);
     ReleaseCom(slot.pre_store_probe_heap);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
@@ -4840,6 +5888,8 @@ void DestroyContext(NrContext &context) {
             context.params = nullptr;
         }
     }
+    for(auto& guide:context.dual_create_guides)ReleaseCom(guide);
+    DestroyBindings(context);
     for (auto &slot : context.slots) DestroySlot(slot);
     context = {};
 }
@@ -4888,10 +5938,12 @@ bool CanDestroyContextLocked(const NrContext &context) {
     for (const auto &slot : context.slots) {
         if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
     }
-    return true;
+    return CanDestroyBindingsLocked(context);
 }
 
+namespace nr_dual_runtime {void CollectTiming(NrSlot&);}
 void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
+    nr_dual_runtime::CollectTiming(slot);
     CollectStageCaptureLocked(slot);
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
@@ -5221,13 +6273,41 @@ void DrainNgxFeatureRetirementsLocked() {
     }
 }
 
+// An auxiliary owns immutable inputs from this exact root instance. Once that
+// root is retired, waiting for another PrepareOne to notice the changed parent
+// can retain an unreachable NGX feature and its textures indefinitely (e.g. a
+// resize followed by disabling layers). Mark dependencies before moving roots
+// out of g_contexts; actual destruction still requires each child's own proof.
+std::atomic<unsigned long long> g_aux_parent_retirements{0};
+void RetireAuxiliaryDependenciesLocked() {
+    unsigned changed=0;
+    for (const auto &parent : g_contexts) {
+        if (!parent.sr_handle || parent.layer_index != 0 ||
+            !parent.instance_id || !parent.retired) continue;
+        for (auto &child : g_contexts) {
+            if (child.sr_handle == parent.sr_handle && !child.retired &&
+                child.layer_index != 0 && child.parent_instance_id == parent.instance_id &&
+                child.feature_generation == parent.feature_generation && child.mode == parent.mode) {
+                child.retired = true;
+                ++changed;
+            }
+        }
+    }
+    if (changed) g_aux_parent_retirements.fetch_add(changed,std::memory_order_relaxed);
+}
+
 void CollectRetiredContextsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     DrainNgxFeatureRetirementsLocked();
+    RetireAuxiliaryDependenciesLocked();
     CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
         if (context.sr_handle != nullptr && context.retired &&
             CanDestroyContextLocked(context)) {
+            bool bindings_retired=true;
+            for(const auto& slot:context.slots)
+                if(!InvalidateSlotBindingsLocked(slot)){bindings_retired=false;break;}
+            if(!bindings_retired)continue;
             NrContext *pending = nullptr;
             for (auto &candidate : g_pending_destroy_contexts) {
                 if (candidate.sr_handle == nullptr) {
@@ -5245,6 +6325,7 @@ void CollectRetiredContextsLocked() {
                 static_cast<const void *>(context.sr_handle), context.mode,
                 context.width, context.height);
             *pending = context;
+            nr_dual::RebindSlotOwners(*pending);
             context = {};
         }
     }
@@ -5262,13 +6343,78 @@ void DrainPendingContextDestructions() {
             }
         }
         if (source != nullptr) {
+            g_nr_context_releases_in_progress.fetch_add(1,std::memory_order_acq_rel);
             pending = *source;
+            nr_dual::RebindSlotOwners(pending);
             *source = {};
         }
         LeaveCriticalSection(&g_chain_cs);
         if (source == nullptr) break;
         DestroyContext(pending);
+        g_nr_context_releases_in_progress.fetch_sub(1,std::memory_order_release);
     }
+}
+
+bool DeferNrCreationForReleaseLocked(const NgxHandle* requested_handle) {
+    // Selection may just have retired a model or its children. A context stays
+    // in g_contexts until its OWN recording/fence/binding proof permits removal;
+    // an empty destruction queue therefore does not mean the old allocation is
+    // gone. Keep this carrier on native SR/RR until its retired closure drains.
+    CollectRetiredContextsLocked();
+    bool retired_in_scope=false;
+    for(const auto& context:g_contexts)
+        retired_in_scope|=context.sr_handle!=nullptr &&
+            context.sr_handle==requested_handle && context.retired;
+    bool pending=g_nr_context_releases_in_progress.load(std::memory_order_acquire)!=0;
+    for(const auto& context:g_pending_destroy_contexts)pending|=context.sr_handle!=nullptr;
+    if(!retired_in_scope&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
+    // Keep native SR/RR and the saved route. A transient release is not a reason
+    // to create yet another model at Present, or to block the CPU on a GPU fence.
+    nr_processing_runtime::BlockSource();
+    SetBypassReason(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)
+        ? BypassReason::LifecycleIsolation:BypassReason::ContextReleasePending);
+    const auto count=g_nr_create_release_deferrals.fetch_add(1,std::memory_order_relaxed)+1;
+    if(count<=3||count%120==0)Log("[nr-create-release] deferred=%llu retiredInScope=%d queuedOrReleasing=%d; wait for each retired dependency's own completion and outside-lock Release before replacement Create; saved scale/route retained. Persistent bypass: save F8 and upload BUG feedback.",count,retired_in_scope?1:0,pending?1:0);
+    return true;
+}
+
+// Read-only metadata for F8. These bytes are the existing auxiliary texture
+// ledger, NOT primary textures, opaque NGX allocations, process residency or a
+// hardware VRAM reading. Destruction runs outside g_chain_cs and may be between
+// tables, so the global and enumerated ledgers are deliberately not equated.
+struct NrContextMemorySnapshot {
+    unsigned live_primary=0,live_auxiliary=0,retired_primary=0,retired_auxiliary=0;
+    unsigned pending_primary=0,pending_auxiliary=0,quarantined=0;
+    unsigned live_slots=0,retired_slots=0,pending_slots=0;
+    unsigned long long live_aux_bytes=0,retired_aux_bytes=0,pending_aux_bytes=0;
+    unsigned long long tracked_aux_bytes=0,parent_retirements=0;
+};
+NrContextMemorySnapshot SnapshotNrContextMemory() {
+    NrContextMemorySnapshot out{};
+    EnterCriticalSection(&g_chain_cs);
+    for (const auto &context : g_contexts) {
+        if (!context.sr_handle) continue;
+        if (context.retired) {
+            if(context.layer_index)++out.retired_auxiliary;else ++out.retired_primary;
+        } else {
+            if(context.layer_index)++out.live_auxiliary;else ++out.live_primary;
+        }
+        if(context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined)++out.quarantined;
+        for(const auto& slot:context.slots)if(slot.dual_bytes) {
+            if(context.retired){++out.retired_slots;out.retired_aux_bytes+=slot.dual_bytes;}
+            else {++out.live_slots;out.live_aux_bytes+=slot.dual_bytes;}
+        }
+    }
+    for(const auto& context:g_pending_destroy_contexts) {
+        if(!context.sr_handle)continue;
+        if(context.layer_index)++out.pending_auxiliary;else ++out.pending_primary;
+        if(context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined)++out.quarantined;
+        for(const auto& slot:context.slots)if(slot.dual_bytes){++out.pending_slots;out.pending_aux_bytes+=slot.dual_bytes;}
+    }
+    out.tracked_aux_bytes=g_dual_allocated_bytes.load(std::memory_order_relaxed);
+    out.parent_retirements=g_aux_parent_retirements.load(std::memory_order_relaxed);
+    LeaveCriticalSection(&g_chain_cs);
+    return out;
 }
 
 void RetireContextForHandle(const NgxHandle *sr_handle) {
@@ -5340,12 +6486,15 @@ bool ReadLastSubmissionQueueMarker(
         size == sizeof(marker) && marker.identity != 0;
 }
 
-bool RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
+template <typename CommandList>
+bool RememberLastSubmissionQueue(CommandList *command_list,
                                  unsigned long long queue_identity) {
     if (command_list == nullptr || queue_identity == 0) return false;
     CommandListQueueMarker marker = {};
-    const bool had_marker =
-        ReadLastSubmissionQueueMarker(command_list, marker);
+    UINT marker_size = sizeof(marker);
+    const bool had_marker = SUCCEEDED(command_list->lpVtbl->GetPrivateData(
+        command_list, kLastSubmissionQueueGuid, &marker_size, &marker)) &&
+        marker_size == sizeof(marker) && marker.identity != 0;
     if (!had_marker) {
         marker.identity = queue_identity;
         marker.stable_submissions = 1;
@@ -5357,11 +6506,11 @@ bool RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
         marker.stable_submissions = 1;
         marker.flags |= kQueueMarkerMigrated;
     }
-    const HRESULT result = ID3D12GraphicsCommandList_SetPrivateData(
+    const HRESULT result = command_list->lpVtbl->SetPrivateData(
         command_list, kLastSubmissionQueueGuid, sizeof(marker), &marker);
     if (SUCCEEDED(result)) return true;
     // Never leave a stale affinity marker behind after a failed update.
-    ID3D12GraphicsCommandList_SetPrivateData(
+    command_list->lpVtbl->SetPrivateData(
         command_list, kLastSubmissionQueueGuid, 0, nullptr);
     const unsigned long long failures =
         g_queue_affinity_marker_failures.fetch_add(
@@ -5702,7 +6851,7 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
     // bypass for this frame. Revalidate here under the same chain lock without
     // double-counting the queue-affinity diagnostic.
     if (!CanBeginContextUseLocked(command_list, context, false)) return false;
-    if (slot.awaiting_fence_signal || !IsSlotFenceCompleteLocked(slot)) {
+    if (slot.awaiting_fence_signal) {
         SetBypassReason(BypassReason::LifecycleIsolation);
         g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
         return false;
@@ -5735,6 +6884,19 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::QueueAffinityUnverified);
         return false;
     }
+    const bool slot_completed = IsSlotFenceCompleteLocked(slot);
+    // Recording a read-only use of an immutable table is distinct from CPU
+    // descriptor mutation. A submitted use can be appended only on its same
+    // stable ordered queue; one-shot/unknown queues still require retirement.
+    if (!slot_completed && (!has_stable_queue_marker || !slot.last_submission_queue ||
+        !slot.last_submission_queue->fence ||
+        slot.last_submission_queue->identity != queue_marker.identity ||
+        ID3D12Fence_GetCompletedValue(slot.last_submission_queue->fence) == UINT64_MAX)) {
+        RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
     RecordingQueueProof proof = record->queue_proof;
     if (proof == RecordingQueueProof::None) {
         if (record->context_count != 0 || record->slot_count != 0 ||
@@ -5746,7 +6908,7 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
                                          RecordingQueueProof::CompletedDependencies;
     }
     if (proof == RecordingQueueProof::CompletedDependencies &&
-        !IsContextFenceCompleteLocked(context)) {
+        (!slot_completed || !IsContextFenceCompleteLocked(context))) {
         RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
         SetBypassReason(BypassReason::LifecycleIsolation);
         g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
@@ -5834,6 +6996,8 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         record->slots[record->slot_count++] = &slot;
         ++slot.recording_command_lists;
     }
+    nr_source_runtime::MarkPrivateRecorded();
+    nr_processing_runtime::MarkRecorded();
     return true;
 }
 
@@ -5940,6 +7104,10 @@ void DetachLifecycleCommandListTokenLocked(
         --context->recording_command_lists;
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_replay::recorder.Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_dual_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_fg_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
@@ -6031,6 +7199,7 @@ bool CaptureSubmissionBatchLocked(
 
     for (UINT i = 0; i < count; ++i) {
         if (command_lists[i] == nullptr) continue;
+        NrSubmitScan(true);
         ID3D12GraphicsCommandList *graphics = nullptr;
         if (FAILED(ID3D12CommandList_QueryInterface(
                 command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -6299,6 +7468,10 @@ bool CaptureSubmissionBatchLocked(
         // never-submitted work in the narrow post-Execute return window.
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
+        nr_replay::recorder.Submit(record->token,queue_state,batch.fence_value);
+        nr_dual_capture::Submit(record->token,queue_state,batch.fence_value);
+        nr_fg_capture::Submit(record->token,queue_state,batch.fence_value);
+        nr_face_runtime::Submit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
     }
@@ -6352,6 +7525,7 @@ void QuarantineUnprovenSubmissionLocked(
     if (command_lists == nullptr) return;
     for (UINT i = 0; i < count; ++i) {
         if (command_lists[i] == nullptr) continue;
+        NrSubmitScan(true);
         ID3D12GraphicsCommandList *graphics = nullptr;
         if (FAILED(ID3D12CommandList_QueryInterface(
                 command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -6402,6 +7576,12 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         slot->awaiting_fence_signal = false;
+        if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
+            const auto* record=batch.records[r];
+            if(record&&record->token==slot->dual_time_token) {
+                slot->dual_time_queue=queue_state;slot->dual_time_fence=batch.fence_value;break;
+            }
+        }
     }
     for (unsigned int i = 0; i < batch.record_count; ++i) {
         LifecycleCommandList *record = batch.records[i];
@@ -6421,14 +7601,16 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                unsigned int height,
                                CodecColorMode requested_color_mode,
                                const NrGuideSignature &requested_guides,
-                               bool requested_peak_shoulder = false) {
+                               bool requested_peak_shoulder = false,
+                               unsigned layer_index = 0, unsigned long long parent_instance = 0,
+                               unsigned long long parent_epoch = 0) {
     CollectRetiredContextsLocked();
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
-    NrTuningSignature requested_tuning = CurrentNrTuningSignature();
+    NrTuningSignature requested_tuning = CurrentNrTuningSignature(layer_index);
     if (mode != 2) requested_tuning.input_filter = 0;
-    PrepareStageCaptureContextLocked(sr_handle, feature_generation, mode);
+    if(layer_index==0)PrepareStageCaptureContextLocked(sr_handle, feature_generation, mode);
     NrContext *empty = nullptr;
     NrContext *matching = nullptr;
     for (auto &context : g_contexts) {
@@ -6444,7 +7626,11 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation == feature_generation &&
-            context.mode == mode) {
+            context.mode == mode && context.layer_index == layer_index) {
+            // Parent object identity owns this layer's immutable Create inputs.
+            // A history-only epoch change is handled by Reset below after every
+            // storage/tuning check, not by destroying the unchanged NGX model.
+            if(layer_index!=0 && context.parent_instance_id!=parent_instance){context.retired=true;continue;}
             // One temporal history per carrier/generation/mode. Keeping an
             // active context for every DRS extent resurrected stale history
             // on A->B->A and eventually occupied all 16 context entries.
@@ -6507,13 +7693,36 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         if (empty == nullptr && context.sr_handle == nullptr) empty = &context;
     }
-    if (matching != nullptr) return matching;
+    if (matching != nullptr) {
+        if (layer_index != 0 && matching->parent_input_epoch != parent_epoch) {
+            const auto previous_epoch = matching->parent_input_epoch;
+            matching->parent_input_epoch = parent_epoch;
+            // Never retain the old temporal answer. Keep Reset pending across
+            // queue/slot refusals; RunOne consumes it only on successful Evaluate.
+            // Existing Create-completion fences, sealed inputs, current guide
+            // checks and primary/secondary warmup gates remain authoritative.
+            matching->dual_history.Invalidate();
+            matching->reset_retry_pending = true;
+            Log("[dual-nr] reuse instance=%llu parent=%llu layer=%u history=%llu->%llu "
+                "extent=%ux%u; same Create contract, temporal Reset pending; "
+                "not an Evaluate or GPU-completion receipt.",
+                matching->instance_id, parent_instance, layer_index,
+                previous_epoch, parent_epoch, width, height);
+        }
+        return matching;
+    }
+    if(DeferNrCreationForReleaseLocked(sr_handle))return nullptr;
+    // The second collection may have reclaimed a slot from a previously full
+    // table; do not retain the old empty-slot observation across that move.
+    empty=nullptr;
+    for(auto& context:g_contexts)if(context.sr_handle==nullptr){empty=&context;break;}
     if (empty != nullptr) {
+        empty->layer_index=layer_index;empty->parent_instance_id=parent_instance;empty->parent_input_epoch=parent_epoch;
         empty->sr_handle = sr_handle;
         empty->feature_generation = feature_generation;
         empty->mode = mode;
-        empty->stage_capture_request_id = PreparedStageCaptureRequestId(
-            sr_handle, feature_generation, mode);
+        empty->stage_capture_request_id = layer_index==0?PreparedStageCaptureRequestId(
+            sr_handle, feature_generation, mode):0;
         empty->width = width;
         empty->height = height;
         empty->codec_color_mode = requested_color_mode;
@@ -6795,6 +8004,7 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+#include "nr_binding_runtime.inl"
 #include "nr_native_format_runtime.inl"
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
 #include "nr_route_compatibility_runtime.inl"
@@ -6831,6 +8041,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     const auto external_view = NrResolveColorView(device, external, external_desc,
         feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
+    const NrFormatOwnViewScope own_views;
     slot.native_format_key = external_view.key;
     slot.key = external;
     if (exposure != nullptr) {
@@ -6951,70 +8162,14 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         return false;
     }
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = slot.source_srv_format;
-    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srv.Texture2D.MipLevels = 1;
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-    uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE cpu =
-        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
-    ID3D12Device_CreateShaderResourceView(device, slot.source, &srv, cpu);
-    srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    cpu.ptr += g_codec.descriptor_size;
-    ID3D12Device_CreateShaderResourceView(device, slot.proxy, &srv, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    ID3D12Device_CreateShaderResourceView(device, slot.neural, &srv, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    D3D12_SHADER_RESOURCE_VIEW_DESC motion_srv = {};
-    motion_srv.Format = DXGI_FORMAT_R16G16_FLOAT;
-    motion_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    motion_srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    motion_srv.Texture2D.MipLevels = 1;
-    ID3D12Device_CreateShaderResourceView(device, nullptr, &motion_srv, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    D3D12_SHADER_RESOURCE_VIEW_DESC exposure_srv = {};
-    exposure_srv.Format = exposure != nullptr
-        ? ID3D12Resource_GetDesc(exposure).Format
-        : DXGI_FORMAT_R32_FLOAT;
-    exposure_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    exposure_srv.Shader4ComponentMapping =
-        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    exposure_srv.Texture2D.MipLevels = 1;
-    ID3D12Device_CreateShaderResourceView(
-        device, exposure, &exposure_srv, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    ID3D12Device_CreateUnorderedAccessView(device, slot.proxy, nullptr, &uav, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    uav.Format = slot.result_uav_format;
-    ID3D12Device_CreateUnorderedAccessView(device, slot.result, nullptr, &uav, cpu);
-    cpu.ptr += g_codec.descriptor_size;
-    D3D12_UNORDERED_ACCESS_VIEW_DESC motion_uav = {};
-    motion_uav.Format = DXGI_FORMAT_R16G16_FLOAT;
-    motion_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-    ID3D12Device_CreateUnorderedAccessView(device, nullptr, nullptr,
-                                           &motion_uav, cpu);
-    cpu.ptr += g_codec.descriptor_size;
     D3D12_UNORDERED_ACCESS_VIEW_DESC stats_uav = {};
-    stats_uav.Format = DXGI_FORMAT_R32_TYPELESS;
-    stats_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    stats_uav.Buffer.FirstElement = 0;
-    stats_uav.Buffer.NumElements = nr_store_comparison::BufferWords(slot.store_interval_capacity);
-    stats_uav.Buffer.StructureByteStride = 0;
-    stats_uav.Buffer.CounterOffsetInBytes = 0;
-    stats_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-    ID3D12Device_CreateUnorderedAccessView(
-        device, slot.delta_stats, nullptr, &stats_uav, cpu);
-    const D3D12_CPU_DESCRIPTOR_HANDLE stats_clear_cpu =
-        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-            slot.stats_clear_heap);
-    ID3D12Device_CreateUnorderedAccessView(
-        device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
-    // Populate the expanded table through the shared writer, including typed
-    // null EditField descriptors when the optional experiment is unavailable.
+    stats_uav.Format=DXGI_FORMAT_R32_TYPELESS;
+    stats_uav.ViewDimension=D3D12_UAV_DIMENSION_BUFFER;
+    stats_uav.Buffer.NumElements=nr_store_comparison::BufferWords(slot.store_interval_capacity);
+    stats_uav.Buffer.Flags=D3D12_BUFFER_UAV_FLAG_RAW;
+    ID3D12Device_CreateUnorderedAccessView(device,slot.delta_stats,nullptr,&stats_uav,
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.stats_clear_heap));
+    // CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1
     WriteCodecDescriptorSet(device, slot, slot.heap);
     BindStageCaptureDescriptor(slot, nullptr, 0);
     if (slot.snapshots_native_output &&
@@ -7062,8 +8217,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
 
 bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
                        ID3D12Resource *motion, unsigned int width,
-                       unsigned int height) {
-    if (device == nullptr || slot.heap == nullptr || motion == nullptr ||
+                       unsigned int height, bool immutable=false) {
+    if (device == nullptr || (!immutable && slot.heap == nullptr) || motion == nullptr ||
         width == 0 || height == 0) return false;
     const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
     if ((motion_desc.Format != DXGI_FORMAT_R16G16_FLOAT &&
@@ -7085,15 +8240,17 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
     }
     const bool mutates_descriptors =
         slot.motion_proxy == nullptr || slot.motion_source != motion;
-    if (mutates_descriptors && !CanMutateSlotLocked(slot)) {
+    if (mutates_descriptors && (!immutable || !slot.motion_proxy) && !CanMutateSlotLocked(slot)) {
         Log("Motion descriptor change deferred because its previous GPU use "
             "has not completed; original SR retained.");
         return false;
     }
     if (slot.motion_proxy == nullptr) {
+        if (!InvalidateSlotBindingsLocked(slot))return false;
         if (!CreateTexture(device, width, height, L"NRChain.MotionProxy",
                            &slot.motion_proxy, DXGI_FORMAT_R16G16_FLOAT))
             return false;
+        if(!immutable) {
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
@@ -7103,11 +8260,13 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(
             device, slot.motion_proxy, nullptr, &uav, cpu);
+        }
     }
     if (slot.motion_source != motion) {
         ID3D12Resource_AddRef(motion);
         ReleaseCom(slot.motion_source);
         slot.motion_source = motion;
+        if(!immutable) {
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 3;
@@ -7117,6 +8276,7 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srv.Texture2D.MipLevels = 1;
         ID3D12Device_CreateShaderResourceView(device, motion, &srv, cpu);
+        }
     }
     return true;
 }
@@ -7135,7 +8295,7 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
 bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
                      unsigned int width, unsigned int height,
                      bool color_variant) {
-    if (!device || !slot.heap || !width || !height || slot.snapshots_native_output)
+    if (!device || !slot.heap || !width || !height)
         return false;
     const DXGI_FORMAT field_format = color_variant
         ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R32G32_FLOAT;
@@ -7146,7 +8306,7 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
     }
     // No descriptor mutation on a recorded/in-flight slot. Wait for the
     // existing retirement contract; absence of this optional plane keeps A.
-    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) ||
+    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) || !InvalidateSlotBindingsLocked(slot) ||
         (color_variant ? g_codec.color_edit_field_pipeline_failed
                        : g_codec.edit_field_pipeline_failed)) return false;
     ID3D12PipelineState *&field_pipeline = color_variant
@@ -7217,7 +8377,7 @@ bool EnsureEditRestore(ID3D12Device *device, NrSlot &slot, UINT width, UINT heig
         const auto d=ID3D12Resource_GetDesc(slot.edit_horizontal);
         return d.Width==width && d.Height==height && g_codec.restore_edit_horizontal;
     }
-    if (slot.edit_horizontal_allocation_failed || !CanMutateSlotLocked(slot) ||
+    if (slot.edit_horizontal_allocation_failed || !CanMutateSlotLocked(slot) || !InvalidateSlotBindingsLocked(slot) ||
         g_codec.edit_restore_pipeline_failed) return false;
     if (!g_codec.restore_edit_horizontal) {
         ID3DBlob *code=CompileCodecShader("RestoreEditHorizontalCS"); HRESULT hr=E_FAIL;
@@ -7263,7 +8423,7 @@ bool EnsureLanczosInput(ID3D12Device *device,NrSlot &slot,unsigned int nw,unsign
         if (d.Width==nw && d.Height==rh) return true;
     }
     if (slot.lanczos_allocation_failed || g_codec.lanczos_pipeline_failed ||
-        !CanMutateSlotLocked(slot)) return false;
+        (!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))) return false;
     if (!g_codec.lanczos_horizontal || !g_codec.lanczos_vertical) {
         ID3DBlob *horizontal=CompileCodecShader("LanczosHorizontalCS");
         ID3DBlob *vertical=CompileCodecShader("LanczosVerticalCS");
@@ -7330,12 +8490,14 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
     if (!CanMutateSlotLocked(slot)) return false;
+    if (!InvalidateSlotBindingsLocked(slot)) return false;
 
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
     const auto external_view = NrResolveColorView(device, external, external_desc,
         feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
+    const NrFormatOwnViewScope own_views;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
 
@@ -7691,9 +8853,24 @@ struct CodecConstants {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.0f;
+    float light_dark = 1.0f;
+    float light_reflection = 1.0f;
+    float light_structure = 1.0f;
+    float light_glow = 0.0f;
+    unsigned int light_preview = 0;
+    unsigned int face_options = 0;
+    float face_original_luma = 0;
+    float face_original_color = 0;
+    float region_gains[11]={1,1,1,1,1,1,1,1,1,1,1};
+    unsigned region_flags=0;
+    unsigned dual_low_width=0,dual_low_height=0,dual_residual=0,dual_model_domain=0;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
+static_assert(offsetof(CodecConstants, light_broad) == 35 * sizeof(UINT));
+static_assert(offsetof(CodecConstants, light_preview) == 40 * sizeof(UINT));
 
+namespace nr_dual_runtime {ID3D12PipelineState* CodecPipeline(ID3D12PipelineState*,bool,unsigned);}
 void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    ID3D12PipelineState *pipeline, unsigned int width,
                    unsigned int height, const ColorContract &color_contract,
@@ -7707,15 +8884,26 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
+    // Support each compositor in its own edit domain. Existing shared-V2 post
+    // remains a user's independent-colour choice; D never selects that route.
+    const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;
+    const bool light_style_post_supported = pipeline == g_codec.combine;
+    const bool light_style_supported = light_style_pre_supported || light_style_post_supported;
+    const bool light_style_requested = g_config.light_broad != 1.0f ||
+        g_config.light_dark != 1.0f || g_config.light_reflection != 1.0f ||
+        g_config.light_structure != 1.0f || g_config.light_glow != 0.0f ||
+        g_config.light_preview != 0u;
+    const bool light_style_active = !g_config.generic_residual && !g_config.region_enabled && light_style_supported && light_style_requested;
     // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
     // the same candidate with its own source rectangle, colour policy/exposure
     // and work grid; it does not change the model input or guide semantics.
     const bool independent_chroma = g_config.independent_chroma_composition &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
     const bool low_grid_color = g_config.low_grid_color_edit_field &&
-        g_config.mode == 2 && slot.edit_field_recorded &&
+        slot.edit_field_recorded &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
-    if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;
+    const bool low_grid_luma = g_config.low_grid_edit_field && g_config.color_strength<=0.000001f && slot.edit_field_recorded;
+    if (independent_chroma || low_grid_color || (low_grid_luma && pipeline==g_codec.combine)) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const auto probe_policy = NrProbePolicySnapshot();
@@ -7751,13 +8939,18 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     if (any_combine)
         ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
-        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection);
+        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection,
+        v2_combine && (independent_chroma || low_grid_color)
+            ? nr_color_amplification::ChromaConsumer::GainIndependent
+            : nr_color_amplification::ChromaConsumer::GainCoupled);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
+        (light_style_active ? 262144u : 0u) |
+        ((light_style_active && g_config.light_control_mode == 1u) ? 524288u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
-          g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
-        ((v2_combine && g_config.mode == 2 && slot.edit_field_recorded &&
+          g_config.color_strength<=0.000001f) ? 16384u : 0u) |
+        ((v2_combine && slot.edit_field_recorded &&
           ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
            low_grid_color)) ? 8192u : 0u) |
         (low_grid_color ? 32768u : 0u) |
@@ -7794,6 +8987,14 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.layer_structure=v2_combine?g_config.layer_structure:1.f;
         f8_info.layer_bright=v2_combine?g_config.layer_bright:1.f;
         f8_info.layer_shadow=v2_combine?g_config.layer_shadow:1.f;
+        f8_info.light_broad=light_style_active?g_config.light_broad:1.f;
+        f8_info.light_dark=light_style_active?g_config.light_dark:1.f;
+        f8_info.light_reflection=light_style_active?g_config.light_reflection:1.f;
+        f8_info.light_structure=light_style_active?g_config.light_structure:1.f;
+        f8_info.light_glow=light_style_active?g_config.light_glow:0.f;
+        f8_info.light_preview=light_style_active?g_config.light_preview:0u;
+        f8_info.light_control_mode=(base_codec_flags&524288u)!=0u?1u:0u;
+        f8_info.light_supported=light_style_supported;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
         nr_f8::FrameTicket ticket={};
@@ -7815,7 +9016,26 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_f8_gpu.DiscardUnrecorded(f8_capture.slot);
         nr_f8::RawReady(f8_capture.ticket,f8_info,nullptr,0,false);f8_armed=false;
     }
-    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:slot.heap;
+    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:(slot.dual_selected&&slot.dual_binding?slot.dual_binding->heaps[nr_binding::Consumer]:(any_combine && slot.face_mask && slot.face_codec_heap?slot.face_codec_heap:(slot.compose_binding?slot.compose_binding->heaps[nr_binding::Consumer]:slot.heap)));
+    if (any_combine) {
+        // Recovery follows the exact table selected for this dispatch. Packet
+        // plans count only after all views have been materialized and sealed.
+        auto receipt = f8_armed ? slot.capture_descriptor_receipt :
+            selected_heap == slot.face_codec_heap ? slot.face_descriptor_receipt : slot.descriptor_receipt;
+        if (f8_armed && receipt.heap == slot.capture_cpu_heap) receipt.heap = selected_heap;
+        const auto* packet = slot.dual_selected && slot.dual_binding ? slot.dual_binding : slot.compose_binding;
+        if (!f8_armed && packet && packet->valid &&
+            selected_heap == packet->heaps[nr_binding::Consumer]) {
+            const auto& table = packet->plan.heaps[nr_binding::Consumer];
+            const auto& read = table.views[0];
+            const auto& write = table.views[kCodecResultUavIndex];
+            receipt = {};
+            if (table.count > kCodecResultUavIndex && read.kind == nr_binding::ViewKind::Srv2D &&
+                write.kind == nr_binding::ViewKind::Uav2D)
+                receipt = {selected_heap, read.resource, write.resource, read.format, write.format};
+        }
+        if (receipt.heap == selected_heap) NrRecoveryDescriptorConsumed(slot, receipt);
+    }
     ID3D12DescriptorHeap *heaps[] = {selected_heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
@@ -7845,10 +9065,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         UavBarrier(command_list, slot.delta_stats);
     }
     const unsigned int store_format_flags = (probe_post_store || probe_pre_store)
-        ? NrStoreDiagnosticFormat(slot.result_uav_format) << 19 : 0u;
+        ? NrStoreDiagnosticFormat(slot.result_uav_format) << 20 : 0u;
     const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u) |
         ((probe_post_store || probe_pre_store) ? 131072u : 0u) |
-        (probe_pre_store ? 262144u : 0u) | store_format_flags;
+        (probe_pre_store ? 8388608u : 0u) | store_format_flags;
     if (capture_delta) {
         slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
@@ -7896,6 +9116,14 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.layer_structure = v2_combine ? g_config.layer_structure : 1.0f;
         info.layer_bright = v2_combine ? g_config.layer_bright : 1.0f;
         info.layer_shadow = v2_combine ? g_config.layer_shadow : 1.0f;
+        info.light_broad = light_style_active ? g_config.light_broad : 1.0f;
+        info.light_dark = light_style_active ? g_config.light_dark : 1.0f;
+        info.light_reflection = light_style_active ? g_config.light_reflection : 1.0f;
+        info.light_structure = light_style_active ? g_config.light_structure : 1.0f;
+        info.light_glow = light_style_active ? g_config.light_glow : 0.0f;
+        info.light_preview = light_style_active ? g_config.light_preview : 0u;
+        info.light_control_mode = (codec_flags & 524288u) != 0u ? 1u : 0u;
+        info.light_supported = light_style_supported;
         info.proxy_curve = g_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
@@ -7911,7 +9139,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ? model_width : width;
     const unsigned int resolved_model_height = model_height != 0
         ? model_height : height;
-    const CodecConstants constants = {
+    CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, effective_color_strength,
         g_config.max_luma_ratio, codec_flags,
@@ -7930,13 +9158,47 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         v2_combine ? g_config.layer_tone : 1.0f,
         v2_combine ? g_config.layer_structure : 1.0f,
         v2_combine ? g_config.layer_bright : 1.0f,
-        v2_combine ? g_config.layer_shadow : 1.0f};
+        v2_combine ? g_config.layer_shadow : 1.0f,
+        light_style_active ? g_config.light_broad : 1.0f,
+        light_style_active ? g_config.light_dark : 1.0f,
+        light_style_active ? g_config.light_reflection : 1.0f,
+        light_style_active ? g_config.light_structure : 1.0f,
+        light_style_active ? g_config.light_glow : 0.0f,
+        light_style_active ? g_config.light_preview : 0u,
+        any_combine && slot.face_mask && g_config.face_protection
+            ? 1u | (g_config.face_protection && g_config.face_extra_cap?2u:0u) | (g_config.face_preview?4u:0u) : 0u,
+        g_config.face_protection?g_config.face_original_luma:0.f,
+        g_config.face_protection?g_config.face_original_color:0.f};
+    if(!g_config.generic_residual && any_combine && g_config.region_enabled && slot.region_recorded){
+        std::copy(g_config.region_gains,g_config.region_gains+11,constants.region_gains);
+        constants.region_flags=1u|(g_config.region_preview<<1)|((slot.region_constants[6]&16u)?16u:0u);
+    }
+    if(slot.dual_selected){constants.dual_low_width=slot.dual_low_width;constants.dual_low_height=slot.dual_low_height;constants.dual_residual=slot.dual_reduced?1u:0u;constants.dual_model_domain=slot.dual_model_domain;}
+    if(g_config.generic_residual){
+        // Exclusive parameter bank: generic uses 5 floats, region uses 11.
+        std::copy(g_config.generic_gains,g_config.generic_gains+5,constants.region_gains);
+        constants.region_flags=32u;
+    }
+    if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
+        kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
+    if(any_combine)nr_dual_capture::Composition(slot.dual_capture_index,&constants,
+        kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
+    if(any_combine)nr_fg_capture::Composition(&constants,kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
-    ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
+    ID3D12PipelineState* selected_pipeline=pipeline;
+    if(constants.face_options&1u)selected_pipeline=v2_combine?g_codec.combine_v2_face:g_codec.combine_face;
+    if(slot.dual_selected&&slot.dual_reduced)selected_pipeline=nr_dual_runtime::CodecPipeline(selected_pipeline,(constants.face_options&1u)!=0u,slot.dual_model_domain);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, selected_pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8,
         ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
+    if (any_combine) {
+        g_face_capture_geometry = {width, height, source_base_x, source_base_y,
+            destination_base_x, destination_base_y,
+            g_applied_nr_identity.config_generation,
+            g_applied_nr_identity.instance_id, GetTickCount64(), slot.face_output};
+    }
     if(f8_armed)g_f8_gpu.FinishDispatch(command_list,f8_capture.slot,f8_token);
     if (capture_stages) {
         UavBarrier(command_list, slot.stage_capture.buffer);
@@ -8041,11 +9303,12 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
                             unsigned int source_height,
                             unsigned int source_base_x,
                             unsigned int source_base_y) {
-    ID3D12DescriptorHeap *heaps[] = {slot.heap};
+    auto* heap=slot.compose_binding&&slot.compose_binding->heaps[nr_binding::Codec]?slot.compose_binding->heaps[nr_binding::Codec]:slot.heap;
+    ID3D12DescriptorHeap *heaps[] = {heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
     const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
     const CodecConstants constants = {
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
@@ -8914,8 +10177,17 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     slot.capture_params.depth_height = guide_height;
     slot.capture_params.mv_width = motion_width;
     slot.capture_params.mv_height = motion_height;
-    const bool reset_requested = reset || game_reset != 0 || history_changed ||
+    const unsigned diagnostic_reset_reasons =
+        (reset ? 1u : 0u) |
+        (game_reset != 0 ? 2u : 0u) |
+        (history_changed ? 4u : 0u) |
+        (color_contract_reset ? 8u : 0u) |
+        (guide_reset ? 16u : 0u) |
+        (context.reset_retry_pending ? 32u : 0u) |
+        (s.rr_depth_placeholder ? 64u : 0u);
+    const bool warmup_reset = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
+    const bool reset_requested = warmup_reset || s.rr_depth_placeholder;
 #if defined(NR_HAS_TIMING)
     const unsigned timing_reset_reasons = (reset ? nr_timing::FirstCreate : 0u) |
         (game_reset != 0 ? nr_timing::GameReset : 0u) |
@@ -8923,11 +10195,14 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
         (color_contract_reset ? nr_timing::ColorContract : 0u) |
         (guide_reset ? nr_timing::GuideChanged : 0u) |
         (context.reset_retry_pending ? nr_timing::RetryPending : 0u) |
-        (delayed_texture_reset ? nr_timing::ExposureReadback : 0u);
+        (delayed_texture_reset ? nr_timing::ExposureReadback : 0u) |
+        (s.rr_depth_placeholder ? nr_timing::UnknownDepth : 0u);
 #endif
     slot.suppress_transfer_this_frame =
-        g_config.suppress_reset_frame && reset_requested;
+        g_config.suppress_reset_frame && warmup_reset;
     context.diagnostic_reset_requested = reset_requested;
+    context.diagnostic_warmup_reset = warmup_reset;
+    context.diagnostic_reset_reasons = diagnostic_reset_reasons;
     slot.capture_params.reset = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.
     // Only a successful Evaluate is allowed to consume a requested Reset.
@@ -8954,11 +10229,40 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     return true;
 }
 
+#include "nr_replay_runtime.inl"
+#include "nr_face_runtime.inl"
+
+// Sample only at opaque model creation, never per-frame Evaluate. A missing
+// reading is explicit: zero from an unavailable API is not evidence of OOM.
+// These are CPU process/system counters, not NGX or video-memory accounting.
+void LogNrCreateMemory(const char* phase,const NrContext& context,NgxResult result) {
+    MEMORYSTATUSEX system{};system.dwLength=sizeof(system);
+    const bool system_valid=GlobalMemoryStatusEx(&system)!=FALSE;
+    PROCESS_MEMORY_COUNTERS_EX process{};process.cb=sizeof(process);
+    const bool process_valid=K32GetProcessMemoryInfo(GetCurrentProcess(),
+        reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&process),sizeof(process))!=FALSE;
+    PERFORMANCE_INFORMATION perf{};perf.cb=sizeof(perf);
+    const bool perf_valid=K32GetPerformanceInfo(&perf,sizeof(perf))!=FALSE;
+    Log("[nr-create-memory] phase=%s mode=%d extent=%ux%u result=0x%08X "
+        "systemValid=%d processAvailableCommitBytes=%llu processCommitLimitBytes=%llu "
+        "availablePhysicalBytes=%llu processValid=%d privateCommitBytes=%llu workingSetBytes=%llu "
+        "perfValid=%d systemCommitBytes=%llu systemLimitBytes=%llu systemPeakCommitBytes=%llu.",
+        phase,context.mode,context.width,context.height,result,system_valid?1:0,
+        system.ullAvailPageFile,system.ullTotalPageFile,system.ullAvailPhys,process_valid?1:0,
+        static_cast<unsigned long long>(process.PrivateUsage),
+        static_cast<unsigned long long>(process.WorkingSetSize),perf_valid?1:0,
+        static_cast<unsigned long long>(perf.CommitTotal)*perf.PageSize,
+        static_cast<unsigned long long>(perf.CommitLimit)*perf.PageSize,
+        static_cast<unsigned long long>(perf.CommitPeak)*perf.PageSize);
+}
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
                                 void **out_handle) {
     (void)feature;
+    nr_source_runtime::MarkPrivateRecorded();
+    nr_processing_runtime::MarkRecorded();
     *out_handle = nullptr;
     SetInt(context.params, "DLSS.Feature.Create.Flags",
            context.bound_create_flags);
@@ -8981,9 +10285,15 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
+        LogNrCreateMemory("begin",context,0);
+        NrTimingScope model_create_timing(nr_timing::Stage::ModelCreate);
         result = g_nr_api.bridge_create(
             g_nr_api.signed_create, command_list, 18,
             context.params, &handle);
+        model_create_timing.record.detail.flags |= nr_timing::ApiReturned | nr_timing::ApiResultKnown;
+        model_create_timing.record.detail.api_result = static_cast<std::int32_t>(result);
+        model_create_timing.Stop();
+        LogNrCreateMemory("end",context,result);
         observed.Finish(result, static_cast<const NgxHandle *>(handle), context.params);
     }
     if (result == kNgxSuccess && handle != nullptr) {
@@ -9020,8 +10330,12 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
 
 struct Substitution {
     bool active = false;
+    NgxResult fatal_recording=0;
+    NrSlot* timing_slot=nullptr;
+    bool reset_substituted=false;int original_reset=0;
     // Set only at pre-SR input admission, before any NR call or GPU command.
     bool compatibility_fallback = false;
+    nr_pre_fallback::Cause fallback_cause = nr_pre_fallback::Cause::None;
     NgxParams *params = nullptr;
     ID3D12Resource *original_color = nullptr;
     unsigned int base_x = 0;
@@ -9029,7 +10343,30 @@ struct Substitution {
 };
 
 #include "nr_rr_depth_adapter.inl"
+#include "nr_region_runtime.inl"
+#include "nr_dual_capture.inl"
+#include "nr_dual_runtime.inl"
 
+// Snapshot the current game's output mapping before native Evaluate can mutate
+// its parameter block. This is optional CPU metadata, never an NR admission gate.
+nr_face_capture_geometry::OutputMapping ResolveFaceCaptureOutput(
+    const NgxParams *params, const FeatureRecord &feature,
+    unsigned input_width, unsigned input_height) {
+    ID3D12Resource *output = nullptr;
+    if (!GetResource(params, "Output", &output) || !output) return {};
+    const auto desc = ID3D12Resource_GetDesc(output);
+    if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1 ||
+        desc.Width > 16384 || desc.Height > 16384) return {};
+    unsigned x = 0, y = 0, width = 0, height = 0;
+    GetUInt(params, "DLSS.Output.Subrect.Base.X", &x);
+    GetUInt(params, "DLSS.Output.Subrect.Base.Y", &y);
+    if (!ResolveOutputExtentFromEvaluate(params, feature, output, x, y,
+        input_width, input_height, width, height)) return {};
+    if (x || y || width != desc.Width || height != desc.Height)
+        return {};
+    return {width, height, true};
+}
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
@@ -9039,6 +10376,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     // calls still receive the untouched handle supplied by their caller.
     if (feature.context_handle) sr_handle = feature.context_handle;
     Substitution substitution = {};
+    if(nr_processing_runtime::Effective()!=nr_processing::Start::Before || !nr_compat_present_runtime::InlineDrainReady())return substitution;
+    if (!nr_source_runtime::InlineAllowed(2)){nr_processing_runtime::BlockSource();return substitution;}
     if (!g_config.enabled || g_config.mode != 2 || feature.feature_id != 1 ||
         command_list == nullptr || sr_params == nullptr) return substitution;
 
@@ -9084,6 +10423,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         const bool unknown_color =
             storage_contract == PreSrStorageContract::R8EncodingUnknown ||
             storage_contract == PreSrStorageContract::R10EncodingUnknown;
+        if (substitution.compatibility_fallback)
+            substitution.fallback_cause = unknown_color
+                ? nr_pre_fallback::Cause::InputEncoding
+                : nr_pre_fallback::Cause::InputStorage;
         SetBypassReason(unknown_color
             ? BypassReason::InputColorContractUnverified
             : BypassReason::UnsupportedInputFormat);
@@ -9143,6 +10486,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             color_contract, create_declares_sdr, live_bounded_output);
         if (!live_r8_admitted) {
             substitution.compatibility_fallback = true;
+            substitution.fallback_cause = nr_pre_fallback::Cause::R8Exposure;
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
             NrRoutePreRejected(feature.create_flags_known && live_bounded_output &&
                 color_contract.has_pre_exposure && color_contract.has_exposure_scale &&
@@ -9176,6 +10520,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (storage_contract == PreSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
         substitution.compatibility_fallback = true;
+        substitution.fallback_cause = nr_pre_fallback::Cause::PqExposure;
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
         NrRoutePreRejected(feature.create_flags_known && color_contract.has_pre_exposure &&
             color_contract.has_exposure_scale && !color_contract.exposure_texture,
@@ -9208,6 +10553,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                               &color_format_support,
                               &color_format_query)) {
         substitution.compatibility_fallback = true;
+        substitution.fallback_cause = nr_pre_fallback::Cause::ShaderLoad;
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
         NrRoutePreRejected(SUCCEEDED(color_format_query), SUCCEEDED(color_format_query) ?
             "pre-shader-read-unsupported" : "pre-format-query-unverified");
@@ -9338,6 +10684,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
+        pre_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
     slot->lanczos_recorded = false;
@@ -9385,6 +10733,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    if(guides.signature.resample_motion && !EnsureMotionProxy(device,*slot,guides.motion,width,height)) {
+        ReleaseCom(device);return substitution;
+    }
+    nr_regions::Seal(device,command_list,*context,*slot);
+    auto dual_prepared=nr_dual_runtime::Prepare(device,command_list,*context,*slot,sr_params,feature,
+        render_width,render_height,color,color_x,color_y,pre_sr_color_mode);
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
@@ -9424,6 +10778,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_dual_runtime::Stamp(command_list,*slot,10);
+    nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
     Transition(command_list, slot->proxy, slot->proxy_state,
@@ -9502,6 +10858,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->next_create_retry_frame = 0;
     }
 
+    nr_face_runtime::Begin(command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y);
+    nr_dual_runtime::Seal(command_list,*slot,dual_prepared);
+    nr_replay::Attempt replay;
+    replay.index=nr_replay::Begin(command_list,*context,*slot,guides,color_contract,
+        render_width,render_height,color_x,color_y,0,0);
+    nr_dual_runtime::Stamp(command_list,*slot,0);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -9517,6 +10879,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             context->params, nullptr);
 #endif
     }
+    nr_dual_runtime::Stamp(command_list,*slot,1);
     NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
@@ -9525,6 +10888,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::RuntimeRejected);
         return substitution;
     }
+    nr_face_runtime::Commit(*slot,guides);
     context->guide_history.CommitOnEvaluate(guides.signature, true);
     ++context->evaluations;
     CompleteNrDiagnosticEvaluation(*context, *slot);
@@ -9551,9 +10915,13 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->successful_evaluations_since_reset <= g_config.warmup_after_create) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
+        replay.Finish(command_list,*context,*slot,true);
         return substitution;
     }
 
+    substitution.fatal_recording=nr_dual_runtime::Run(command_list,*context,*slot,dual_prepared,feature,color_contract);
+    if(substitution.fatal_recording)return substitution;
+    nr_dual_runtime::Stamp(command_list,*slot,6);
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (edit_field_ready) {
@@ -9580,6 +10948,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             slot->edit_horizontal_recorded=true;
         }
     }
+    nr_regions::Dispatch(command_list,*slot,true);
+    slot->face_output = ResolveFaceCaptureOutput(sr_params, feature, render_width, render_height);
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,
                   (feature.create_flags & 1) != 0, color_x, color_y, 0, 0,
@@ -9589,9 +10959,23 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
+    nr_dual_runtime::Stamp(command_list,*slot,7);
+    nr_dual_capture::Finish(command_list,*slot);
+    replay.Finish(command_list,*context,*slot,false);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
     substitution.original_color = color;
+    substitution.timing_slot=slot;
+    const bool dual_visible=slot->dual_selected!=nullptr;
+    if(context->dual_last_visible!=dual_visible) {
+        int original_reset=0;
+        if(GetInt(sr_params,"Reset",&original_reset)) {
+            substitution.original_reset=original_reset;substitution.reset_substituted=true;
+            SetInt(substitution.params,"Reset",1);
+        }
+        Log("[dual-nr] visible chain switch %u->%u; native SR one-shot Reset=%s; original parameter restored after the call.",context->dual_last_visible?2:1,dual_visible?2:1,substitution.reset_substituted?"forwarded":"unavailable");
+        context->dual_last_visible=dual_visible;
+    }
     substitution.base_x = color_x;
     substitution.base_y = color_y;
     SetResource(substitution.params, "Color", slot->result);
@@ -9607,6 +10991,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
 void RestoreSubstitution(Substitution &substitution) {
     if (!substitution.active || substitution.params == nullptr) return;
+    if(substitution.reset_substituted){SetInt(substitution.params,"Reset",substitution.original_reset);substitution.reset_substituted=false;}
     SetResource(substitution.params, "Color", substitution.original_color);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.X", substitution.base_x);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.Y", substitution.base_y);
@@ -9614,9 +10999,12 @@ void RestoreSubstitution(Substitution &substitution) {
 }
 
 struct PostSrSubstitution {
+    bool opaque_failure_is_fatal=false;
     nr_native_clear::Receipt prepared_clear_request;
     nr_native_clear::Invocation current_clear_request;
     bool active = false;
+    NgxResult fatal_recording=0;
+    nr_dual_runtime::Prepared dual_prepared{};
     bool redirected_output = false;
     bool native_output_snapshot = false;
     NgxParams *params = nullptr;
@@ -9694,6 +11082,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     // calls still receive the untouched handle supplied by their caller.
     if (feature.context_handle) sr_handle = feature.context_handle;
     PostSrSubstitution substitution = {};
+    if(nr_processing_runtime::PresentSelected() || !nr_compat_present_runtime::InlineDrainReady())return substitution;
+    if (!nr_source_runtime::InlineAllowed(1)){nr_processing_runtime::BlockSource();return substitution;}
     if (!g_config.enabled ||
         !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
         command_list == nullptr || sr_params == nullptr) return substitution;
@@ -9937,11 +11327,23 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    slot->edit_field_recorded=false;slot->edit_horizontal_recorded=false;
+    const bool post_color_field=g_config.low_grid_color_edit_field;
+    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
+    if(post_field_requested && !g_config.identity_use_original && ActiveTransferStrength(g_config)>0.000001f) {
+        if(EnsureEditField(device,*slot,context->width,context->height,post_color_field) &&
+            !post_color_field && g_config.catmull_edit_restore && (width!=context->width || height!=context->height))
+            EnsureEditRestore(device,*slot,width,context->height);
+    }
+    nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
+        post_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
     if (!EnsureRrDepthSlot(device,*slot,guides)) {
         g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         ReleaseCom(device);return substitution;
     }
+    substitution.dual_prepared=nr_dual_runtime::Prepare(device,command_list,*context,*slot,sr_params,feature,
+        guide_width,guide_height,output,output_x,output_y,post_sr_color_mode);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (!NrRecoveryMayRecord(*slot)) {
         ReleaseCom(device);
@@ -9951,10 +11353,12 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Seal(device,command_list,*context,*slot);
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
     }
+    nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
     substitution.active = true;
@@ -9970,6 +11374,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.guide_height = guide_height;
     substitution.color_contract = color_contract;
     substitution.guides = guides;
+    slot->face_output = ResolveFaceCaptureOutput(sr_params, feature, guide_width, guide_height);
     substitution.native_output_snapshot = slot->snapshots_native_output;
     if(output_view.clear_source)substitution.prepared_clear_request=output_view.clear_request;
     ArmPostBoundaryObservationLocked(substitution,NrProbePolicySnapshot());
@@ -10084,6 +11489,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     NrContext &context = *substitution.context;
     NrSlot &slot = *substitution.slot;
+    struct TimingEnd {
+        ID3D12GraphicsCommandList* list;NrSlot& slot;bool visible=false,safe=true;
+        ~TimingEnd(){if(safe)nr_dual_runtime::ResolveTiming(list,slot,visible);}
+    } timing{command_list,slot};
     const unsigned int width = substitution.width;
     const unsigned int height = substitution.height;
     // Use the exact scalar exposure snapshot captured before the game's SR
@@ -10152,6 +11561,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             width, height, substitution.guide_width, substitution.guide_height,
             created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            if(substitution.opaque_failure_is_fatal){
+                substitution.fatal_recording=created?created:0xBAD00005u;
+                context.create_dependencies_quarantined=true;timing.safe=false;return false;
+            }
             NrRecoveryRecord(g_nr_recovery_carrier ? g_nr_recovery_carrier->tokens[g_nr_recovery_carrier->selected_role] : nr_recovery::Token{},
                 nr_recovery::Stage::NrCreate, false, created);
             SetBypassReason(context.create_dependencies_quarantined
@@ -10172,6 +11585,12 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         context.next_create_retry_frame = 0;
     }
 
+    nr_face_runtime::Begin(command_list,context,slot,substitution.guides,feature,width,height,0,0);
+    nr_dual_runtime::Seal(command_list,slot,substitution.dual_prepared);
+    nr_replay::Attempt replay;
+    replay.index=nr_replay::Begin(command_list,context,slot,substitution.guides,color_contract,
+        width,height,0,0,substitution.output_base_x,substitution.output_base_y);
+    nr_dual_runtime::Stamp(command_list,slot,0);
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
@@ -10187,8 +11606,14 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             context.params, nullptr);
 #endif
     }
+    if(evaluated==kNgxSuccess||!substitution.opaque_failure_is_fatal)
+        nr_dual_runtime::Stamp(command_list,slot,1);
     NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
+        if(substitution.opaque_failure_is_fatal){
+            substitution.fatal_recording=evaluated;context.lifecycle_dependencies_quarantined=true;
+            timing.safe=false;return false;
+        }
         if (evaluated == 0xBAD00001u) {
             g_post_sr_runtime_rejected.store(true, std::memory_order_relaxed);
         }
@@ -10200,6 +11625,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    nr_face_runtime::Commit(slot,substitution.guides);
     context.guide_history.CommitOnEvaluate(substitution.guides.signature, true);
     ++context.evaluations;
     CompleteNrDiagnosticEvaluation(context, slot);
@@ -10226,9 +11652,38 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             context.successful_evaluations_since_reset, g_config.warmup_after_create)) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
+        replay.Finish(command_list,context,slot,true);
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
+    substitution.fatal_recording=nr_dual_runtime::Run(command_list,context,slot,substitution.dual_prepared,feature,color_contract);
+    if(substitution.fatal_recording){timing.safe=false;return false;}
+    nr_dual_runtime::Stamp(command_list,slot,6);
+    const bool post_color_field=g_config.low_grid_color_edit_field;
+    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
+    const DXGI_FORMAT post_field_format=post_color_field?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+    if(post_field_requested && slot.edit_field && ID3D12Resource_GetDesc(slot.edit_field).Format==post_field_format &&
+       ID3D12Resource_GetDesc(slot.edit_field).Width==context.width && ID3D12Resource_GetDesc(slot.edit_field).Height==context.height &&
+       (post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field)) {
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,slot,post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field,
+            context.width,context.height,color_contract,(feature.create_flags&1)!=0,0,0,0,0,
+            slot.codec_color_mode,width,height,context.width,context.height);
+        UavBarrier(command_list,slot.edit_field);
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        slot.edit_field_recorded=true;
+        if(!post_color_field && g_config.catmull_edit_restore && slot.edit_horizontal &&
+           ID3D12Resource_GetDesc(slot.edit_horizontal).Width==width && ID3D12Resource_GetDesc(slot.edit_horizontal).Height==context.height &&
+           g_codec.restore_edit_horizontal) {
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            DispatchCodec(command_list,slot,g_codec.restore_edit_horizontal,width,height,color_contract,
+                (feature.create_flags&1)!=0,0,0,0,0,slot.codec_color_mode,width,height,context.width,context.height);
+            UavBarrier(command_list,slot.edit_horizontal);
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            slot.edit_horizontal_recorded=true;
+        }
+    }
+    nr_regions::Dispatch(command_list,slot,true);
     DispatchCodec(command_list, slot, g_codec.combine, width, height,
                    color_contract, (feature.create_flags & 1) != 0,
                    0, 0, substitution.output_base_x,
@@ -10236,7 +11691,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     UavBarrier(command_list, slot.result);
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
+    replay.Finish(command_list,context,slot,false);
     SetBypassReason(BypassReason::None);
+    nr_dual_runtime::Stamp(command_list,slot,7);
+    nr_dual_capture::Finish(command_list,slot);timing.visible=true;
     PublishPostBoundaryRecording(substitution,boundary_identity,feature.generation,
         reinterpret_cast<std::uint64_t>(g_codec.device));
     return true;
@@ -10247,6 +11705,16 @@ using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int,
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *,
                                         const NgxHandle *, const NgxParams *, void *);
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+// These are the exact x64 PE export ABIs used by nvngx.dll/_nvngx.dll. The
+// four-argument Init and five-argument Init_Ext are the snippet boundary;
+// Init_ProjectID is the seven-argument exported form behind the SDK wrapper.
+using NgxInitFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                               ID3D12Device *, unsigned int);
+using NgxInitExtFn = NgxResult (*)(unsigned long long, const wchar_t *,
+                                  ID3D12Device *, unsigned int, const void *);
+using NgxInitProjectFn = NgxResult (*)(const char *, unsigned int, const char *,
+                                      const wchar_t *, ID3D12Device *,
+                                      const void *, unsigned int);
 using ExecuteCommandListsFn = void (STDMETHODCALLTYPE *)(
     ID3D12CommandQueue *, UINT, ID3D12CommandList *const *);
 using ResetCommandListFn = HRESULT (STDMETHODCALLTYPE *)(
@@ -10263,6 +11731,9 @@ EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
 ReleaseFeatureFn g_original_dlssd_release = nullptr;
+NgxInitFn g_original_loader_init = nullptr;
+NgxInitExtFn g_original_loader_init_ext = nullptr;
+NgxInitProjectFn g_original_loader_init_project = nullptr;
 
 NgxResult CallNativeCreatePassThrough(CreateFeatureFn original,
                                       ID3D12GraphicsCommandList *command_list,
@@ -10301,6 +11772,14 @@ bool AllowExperimentalNullPsoCarrier() {
 #include "nr_command_state.inl"
 #include "nr_native_format_hooks.inl"
 #include "nr_post_boundary_native.inl"
+// ReShade is built with MSVC. Its small C++ resource return wrappers do not
+// share MinGW's return ABI; native COM exposes an unambiguous out parameter.
+bool NrAcquireSwapchainBuffer(reshade::api::swapchain* chain,unsigned index,ID3D12Resource** output){
+    if(!output)return false;*output=nullptr;if(!chain)return false;
+    auto* native=reinterpret_cast<IDXGISwapChain*>(chain->get_native());
+    return native&&SUCCEEDED(IDXGISwapChain_GetBuffer(native,index,IID_ID3D12Resource,reinterpret_cast<void**>(output)))&&*output;
+}
+#include "nr_source_frame_runtime.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -10319,8 +11798,12 @@ std::size_t g_command_list_reset_hook_count = 0;
 SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_present_observer_lock = SRWLOCK_INIT;
+SRWLOCK g_initial_ngx_hook_lock = SRWLOCK_INIT;
 HMODULE g_hooked_core_module = nullptr;
 HMODULE g_hooked_dlssd_module = nullptr;
+HMODULE g_hooked_loader_module = nullptr;
+std::atomic<bool> g_loader_init_hooks_ready{false};
+std::atomic<unsigned long long> g_loader_init_completions{0};
 std::atomic<bool> g_core_lifecycle_hooks_ready{false};
 std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
@@ -10430,6 +11913,36 @@ void FinishFeature1CreateObservation(bool creating_feature1,
     }
 }
 
+// A declined external Submit declares exactly one live list/queue to learn.
+// Do not restore the old global Feeder flag that scanned every native batch.
+SRWLOCK g_external_training_lock=SRWLOCK_INIT;
+std::atomic<bool> g_external_training_pending{false};
+ID3D12GraphicsCommandList* g_external_training_list=nullptr;
+ID3D12CommandQueue* g_external_training_queue=nullptr;
+void NrExternalSetTraining(ID3D12GraphicsCommandList* list,ID3D12CommandQueue* queue){
+    AcquireSRWLockExclusive(&g_external_training_lock);
+    if(list!=g_external_training_list||queue!=g_external_training_queue){
+        if(list)ID3D12GraphicsCommandList_AddRef(list);if(queue)ID3D12CommandQueue_AddRef(queue);
+        ReleaseCom(g_external_training_list);ReleaseCom(g_external_training_queue);
+        g_external_training_list=list;g_external_training_queue=queue;
+    }
+    g_external_training_pending.store(list&&queue,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_external_training_lock);
+}
+void NrExternalTrainSubmission(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList*const* lists){
+    if(!g_external_training_pending.load(std::memory_order_acquire)||!lists||!count)return;
+    if(!TryAcquireSRWLockShared(&g_external_training_lock))return;
+    if(queue==g_external_training_queue&&g_external_training_list){
+        for(UINT i=0;i<count;++i)if(lists[i]==reinterpret_cast<ID3D12CommandList*>(g_external_training_list)){
+            EnterCriticalSection(&g_chain_cs);
+            if(auto* tracked=TrackGraphicsQueueLocked(queue))
+                if(tracked->identity)RememberLastSubmissionQueue(lists[i],tracked->identity);
+            LeaveCriticalSection(&g_chain_cs);break;
+        }
+    }
+    ReleaseSRWLockShared(&g_external_training_lock);
+}
+
 void ProcessSubmittedCommandLists(std::size_t hook_index,
                                   ID3D12CommandQueue *queue,
                                   UINT count,
@@ -10441,6 +11954,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         return;
     }
     NrPostBoundarySubmitScope boundary_submission(queue,count,command_lists);
+    NrExternalTrainSubmission(queue,count,command_lists);
 
     // The detour stays installed after the first real NR submission, but an
     // ordinary game submission must not pay queue queries, locks, COM calls or
@@ -10449,27 +11963,27 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     // bootstrap lists before creating DLSS Feature 1.
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
     if (queue == nullptr) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
     const D3D12_COMMAND_QUEUE_DESC queue_desc =
         ID3D12CommandQueue_GetDesc(queue);
     if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
         original(queue, count, command_lists);
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
+    NrSubmitTiming submission_timing(count);
     unsigned long long queue_identity = 0;
     bool batch_has_lifecycle_token = false;
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     if (GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(queue))
         queue_identity = tracked->identity;
     // Persist actual affinity on every observed direct-queue submission,
@@ -10480,6 +11994,27 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         for (UINT i = 0; i < count; ++i) {
             if (command_lists == nullptr || command_lists[i] == nullptr)
                 continue;
+            NrSubmitScan(false);
+            // ID3D12CommandList owns GetPrivateData/GetType itself. A normal
+            // Direct list with an exact NOT_FOUND result cannot own an NR
+            // token. No pointer cache, source-policy hint or global count is
+            // used as per-list proof. Keep affinity read/modify/write under
+            // the same admission lock, including native-bypass lists.
+            unsigned long long direct_token = 0;
+            UINT direct_size = sizeof(direct_token);
+            const HRESULT direct_result = ID3D12CommandList_GetPrivateData(
+                command_lists[i], kLifecycleCommandListGuid, &direct_size, &direct_token);
+            if (direct_result == DXGI_ERROR_NOT_FOUND &&
+                ID3D12CommandList_GetType(command_lists[i]) == D3D12_COMMAND_LIST_TYPE_DIRECT) {
+                ++submission_timing.batch.direct_absent;
+                RememberLastSubmissionQueue(command_lists[i], queue_identity);
+                continue;
+            }
+            // Present/malformed/error/other-type evidence takes the original
+            // QI + token path. Capture still re-reads under its original lock.
+            if (FAILED(direct_result) || direct_size != sizeof(direct_token) || !direct_token)
+                submission_timing.batch.reasons |= nr_timing::UnknownList;
+            ++submission_timing.batch.qi;
             ID3D12GraphicsCommandList *graphics = nullptr;
             if (SUCCEEDED(ID3D12CommandList_QueryInterface(
                     command_lists[i], IID_ID3D12GraphicsCommandList,
@@ -10487,33 +12022,44 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
                 graphics != nullptr) {
                 RememberLastSubmissionQueue(graphics, queue_identity);
                 unsigned long long token = 0;
-                if (ReadLifecycleToken(graphics, token))
+                if (ReadLifecycleToken(graphics, token)) {
                     batch_has_lifecycle_token = true;
+                    ++submission_timing.batch.token_lists;
+                    if (!submission_timing.batch.first_token) submission_timing.batch.first_token = token;
+                }
                 ReleaseCom(graphics);
-            }
+            } else submission_timing.batch.reasons |= nr_timing::UnknownList;
         }
     }
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
+
+    submission_timing.batch.queue = queue_identity;
+    if (!queue_identity || !command_lists) submission_timing.batch.reasons |= nr_timing::UnknownList;
+    submission_timing.batch.reasons |= batch_has_lifecycle_token
+        ? nr_timing::LifecyclePresent : nr_timing::LifecycleAbsent;
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
 
     const bool may_have_lifecycle_work =
         g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         !may_have_lifecycle_work || !batch_has_lifecycle_token) {
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
     LifecycleQueue *queue_state = nullptr;
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     queue_state = FindOrCreateLifecycleQueueLocked(queue);
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
     if (queue_state == nullptr ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
         return;
     }
 
@@ -10530,15 +12076,14 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         AcquireSRWLockExclusive(&queue_state->submission_lock);
     }
     SubmissionBatch batch = {};
-#if defined(NR_HAS_TIMING)
-    NrTimingEnterChainLock(&g_chain_cs);
-#else
-    EnterCriticalSection(&g_chain_cs);
-#endif
+    submission_timing.EnterChain(&g_chain_cs);
     const bool captured = CaptureSubmissionBatchLocked(
         queue_state, count, command_lists, batch);
-    if (!captured)
+    if (!captured) {
+        submission_timing.batch.reasons |= nr_timing::CaptureFailed;
         QuarantineUnprovenSubmissionLocked(count, command_lists);
+    }
+    if (batch.quarantine) submission_timing.batch.reasons |= nr_timing::Quarantined;
     if (captured && batch.active && !batch.quarantine) {
         for (unsigned i = 0; i < batch.record_count; ++i) {
             const auto* record = batch.records[i];
@@ -10549,7 +12094,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
             }
         }
     }
-    LeaveCriticalSection(&g_chain_cs);
+    submission_timing.LeaveChain(&g_chain_cs);
 
     // Even a failed capture is submitted unchanged: fail-closed means no more
     // plugin mutation, never suppressing the game's own command list.
@@ -10566,6 +12111,8 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         execute_timing.record.detail.fence_target = batch.fence_value;
 #endif
         original(queue, count, command_lists);
+        submission_timing.batch.reasons |= nr_timing::SubmitNativeReturned;
+        nr_source_runtime::OnExecute(queue,count,command_lists,true);
 #if defined(NR_HAS_TIMING)
         execute_timing.record.detail.flags |= nr_timing::ApiReturned;
 #endif
@@ -10576,11 +12123,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
             NrRecoveryRecord(batch.recovery_tokens[i], nr_recovery::Stage::Submitted, true);
         g_nr_transfer_submitted_frames.fetch_add(
             batch.bound_transfer_count, std::memory_order_relaxed);
-#if defined(NR_HAS_TIMING)
-        NrTimingEnterChainLock(&g_chain_cs);
-#else
-        EnterCriticalSection(&g_chain_cs);
-#endif
+        submission_timing.EnterChain(&g_chain_cs);
         if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) ==
                 batch.pipeline_scope_epoch &&
             g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
@@ -10592,7 +12135,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
                 batch.scoped_bound_transfer_count,
                 std::memory_order_relaxed);
         }
-        LeaveCriticalSection(&g_chain_cs);
+        submission_timing.LeaveChain(&g_chain_cs);
     }
     bool signaled = false;
     if (captured && batch.active) {
@@ -10615,23 +12158,22 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         signal_timing.Stop();
 #endif
         signaled = SUCCEEDED(signal_result);
+        if (signaled) submission_timing.batch.reasons |= nr_timing::RetirementSignaled;
         if (!signaled)
             MarkLifecycleUncertain("D3D12 retirement fence signal failed");
     }
     if (captured && signaled && batch.active && !batch.quarantine &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
-#if defined(NR_HAS_TIMING)
-        NrTimingEnterChainLock(&g_chain_cs);
-#else
-        EnterCriticalSection(&g_chain_cs);
-#endif
+        submission_timing.EnterChain(&g_chain_cs);
         CompleteSubmissionBatchLocked(batch);
-        LeaveCriticalSection(&g_chain_cs);
+        submission_timing.LeaveChain(&g_chain_cs);
     } else if (captured && batch.quarantine) {
         Log("Quarantined Execute batch was submitted and %s with an exact "
             "current-queue fence; dependencies remain pinned until process exit.",
             signaled ? "signaled" : "could not be signaled");
     }
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        submission_timing.batch.reasons |= nr_timing::TrackingUncertain;
     ReleaseSRWLockExclusive(&queue_state->submission_lock);
 }
 
@@ -10680,6 +12222,7 @@ HRESULT ProcessCommandListReset(
     unsigned long long token = 0;
     ReadLifecycleToken(command_list, token);
     const HRESULT result = original(command_list, allocator, initial_state);
+    nr_source_runtime::OnReset(command_list,SUCCEEDED(result));
     OnCommandStateResetResult(command_list, result, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
@@ -11019,11 +12562,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                           ID3D12GraphicsCommandList *command_list,
                           const NgxHandle *handle, const NgxParams *params,
                           void *callback) {
+    if(nr_dual_runtime::fatal_carrier.load(std::memory_order_acquire)==handle){
+        const auto fatal=nr_dual_runtime::fatal_result.load(std::memory_order_acquire);if(fatal)return fatal;
+    }
     // A disabled add-on must be indistinguishable from an unloaded add-on on
     // the hot NGX path. Configuration polling happens from Present, so this
     // branch avoids parameter lookups, rendering locks, instrumentation and
     // GPU work; only a rate-limited bypass-state transition may be published.
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 ||
         OtherNrOwnerActive() ||
         g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
@@ -11031,6 +12578,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
         if (!g_enabled_fast.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::MasterDisabled);
+        else if (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0)
+            SetBypassReason(BypassReason::ExternalNrOwner);
         else if (OtherNrOwnerActive())
             SetBypassReason(OtherNrOwnerBypassReason());
         else if (g_module_rescan_in_progress.load(std::memory_order_relaxed))
@@ -11225,12 +12774,14 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         !g_config.identity_use_original &&
         ActiveTransferStrength(g_config) <= 0.000001f;
     if (!g_config.enabled || zero_transfer_native ||
+        nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 ||
         OtherNrOwnerActive()) {
         SetBypassReason(!g_config.enabled
             ? BypassReason::MasterDisabled
-            : (OtherNrOwnerActive()
+            : (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0
+                ? BypassReason::ExternalNrOwner : (OtherNrOwnerActive()
                 ? OtherNrOwnerBypassReason()
-                : BypassReason::None));
+                : BypassReason::None)));
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
                                                         std::memory_order_relaxed);
@@ -11247,8 +12798,18 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // to Mode2 on every Evaluate.
     g_compat_fallback_tick.store(0,std::memory_order_release);
     RetirePostBoundaryBeforeEvaluate();
+    nr_processing_runtime::CarrierScope processing_carrier;
+    if(nr_processing_runtime::PresentSelected()) {
+        LeaveCriticalSection(&g_chain_cs);rr_transaction.Release();
+        return NrCallNativeWithFormatObservation(original,command_list,handle,params,callback,feature.generation);
+    }
     NativeCommandStateScope before_state(command_list);
     if (!before_state.active) {
+        // Neither inline boundary can restore this list. Present must independently
+        // prove its own source, queue and completion before doing any work.
+        if(nr_processing_runtime::Effective()==nr_processing::Start::Before)
+            nr_processing_runtime::Reject(nr_processing::Start::Before,"command-state-unverified");
+        nr_processing_runtime::Reject(nr_processing::Start::After,"command-state-unverified");
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
@@ -11257,13 +12818,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     Substitution before_sr{};
     PostSrSubstitution after_sr{};
     const auto prepare_before = [&] { return PrepareBeforeSr(before_state.command_list, handle, params, feature); };
-    const auto can_fallback = [&](const Substitution& candidate) {
-        return candidate.compatibility_fallback && !candidate.active &&
-            (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
-    };
     const auto observe_fallback = [&] {
-        if (before_sr.compatibility_fallback)
+        if (before_sr.compatibility_fallback) {
             g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
+            g_compat_fallback_cause.store(static_cast<unsigned>(before_sr.fallback_cause),std::memory_order_relaxed);
+        }
         g_compat_fallback_config.store(g_config_generation.load(std::memory_order_relaxed),std::memory_order_relaxed);
         g_compat_fallback_tick.store(GetTickCount64(),std::memory_order_release);
         const auto count=++g_compat_fallback_attempts;
@@ -11271,23 +12830,36 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             Log("[compat-route] pre input rejected; requestedMode=2 fallbackAttempt=post-NR reason=%d count=%llu; post admission and native SR success remain required. Saved preference retained; F8 feedback requested.",
                 g_compat_fallback_reason.load(),count);
     };
+    bool compatibility_fallback=false;
+    if(nr_processing_runtime::Effective()==nr_processing::Start::Before) {
+        before_sr=prepare_before();
+        if(!before_sr.active && !before_sr.fatal_recording && !nr_processing_runtime::Recorded()) {
+            nr_processing_runtime::Reject(nr_processing::Start::Before,
+                BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed))));
+            compatibility_fallback=nr_processing_runtime::Effective()==nr_processing::Start::After;
+            if(compatibility_fallback)observe_fallback();
+        }
+    }
+    if(!before_sr.fatal_recording && !nr_processing_runtime::Recorded() &&
+       nr_processing_runtime::Effective()==nr_processing::Start::After) {
+        compatibility_fallback=g_config.mode==2;
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
-    const bool compatibility_fallback = nr_route::Prepare(before_sr, after_sr,
-        [] { return NrRoutePostLocked(); }, prepare_before, can_fallback, observe_fallback,
-        [&](bool fallback) {
-            const bool attempt = fallback || g_config.mode == 1;
-            if (attempt) NrRouteAttemptPost();
-            auto prepared = PrepareAfterSr(before_state.command_list, handle, params, feature, fallback);
-            if (attempt) NrRoutePostPrepared(prepared.active,
-                prepared.slot ? prepared.slot->recovery_token : nr_recovery::Token{});
-            return prepared;
-        });
-#else
-    before_sr = prepare_before();
-    const bool compatibility_fallback = can_fallback(before_sr);
-    if (compatibility_fallback) observe_fallback();
-    after_sr = PrepareAfterSr(before_state.command_list, handle, params, feature, compatibility_fallback);
+        NrRouteAttemptPost();
 #endif
+        after_sr=PrepareAfterSr(before_state.command_list,handle,params,feature,compatibility_fallback);
+#if defined(NR_HAS_ROUTE_COMPATIBILITY)
+        NrRoutePostPrepared(after_sr.active,after_sr.slot?after_sr.slot->recovery_token:nr_recovery::Token{});
+#endif
+        if(!after_sr.active && !after_sr.fatal_recording && !nr_processing_runtime::Recorded())
+            nr_processing_runtime::Reject(nr_processing::Start::After,
+                BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed))));
+    }
+
+    if (before_sr.fatal_recording) {
+        before_state.AbandonAfterOpaqueFailure();
+        LeaveCriticalSection(&g_chain_cs); rr_transaction.Release();
+        return before_sr.fatal_recording;
+    }
     if(before_sr.active || after_sr.active)
         g_pipeline_eligible_carriers.fetch_add(1,std::memory_order_relaxed);
     // Feature 18 warm-up, Create or Evaluate failure may still have changed
@@ -11310,6 +12882,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
+    NrSlot* timed=before_sr.active?before_sr.timing_slot:after_sr.active?after_sr.slot:nullptr;
+    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);nr_dual_runtime::Stamp(before_state.command_list,*timed,8);}
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     const bool trace_post_boundary=static_cast<bool>(after_sr.boundary_ticket);
     const unsigned boundary_coverage=trace_post_boundary?EnsurePostBoundaryNativeHooks(before_state.command_list):0;
@@ -11321,6 +12895,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     after_sr.native_boundary=native_output_trace.Finish();
 #endif
+    if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);if(before_sr.active)nr_dual_runtime::ResolveTiming(before_state.command_list,*timed,result==kNgxSuccess);}
     const bool used_before_sr = before_sr.active;
     const bool used_after_sr = after_sr.active;
     bool retried_original_color = false;
@@ -11336,29 +12911,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return result;
     }
-    if (used_before_sr && result != kNgxSuccess &&
-        g_config.retry_original_on_sr_failure) {
-        Log("%s failed with NR-derived Color: 0x%08X (%s); retrying original Color.",
-            FeatureName(feature.feature_id), result, ResultName(result));
-        result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
-        retried_original_color = true;
-        Log("Original-Color %s retry result=0x%08X (%s).",
-            FeatureName(feature.feature_id), result, ResultName(result));
-        if (rr_transaction.transaction_aborted() ||
-            g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
-            Log("Feature 1 retry observed an RR ownership transition; "
-                "remaining plugin work is suppressed and dependencies are "
-                "quarantined.");
-            QuarantineAbortedRrTransactionLocked(command_list);
-            LeaveCriticalSection(&g_chain_cs);
-            rr_transaction.Release();
-            return result;
-        }
-    }
+    if(used_before_sr&&result!=kNgxSuccess)
+        Log("Native SR returned 0x%08X after NR; original parameters restored, no second native Evaluate for this source.",result);
     if (used_before_sr && result == kNgxSuccess &&
         !retried_original_color) {
         if (!RecordVisibleTransferLocked(command_list, feature.generation, 2))
             SetBypassReason(BypassReason::LifecycleIsolation);
+        // The game's successful SR call consumed the substituted NR input.
+        // Clear this entry's prior retry backoff only at that adoption point.
+        nr_processing_runtime::Adopted(nr_processing::Start::Before);
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
@@ -11371,13 +12932,21 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
                 NrRoutePostFinished(post_recorded);
 #endif
-                if (post_recorded && compatibility_fallback)
-                    ++g_compat_fallback_recorded;
+                if (post_recorded) {
+                    nr_processing_runtime::Adopted(nr_processing::Start::After);
+                    if (compatibility_fallback) ++g_compat_fallback_recorded;
+                }
+                if(after_sr.fatal_recording){
+                    after_state.AbandonAfterOpaqueFailure();
+                    before_state.AbandonAfterOpaqueFailure();
+                    LeaveCriticalSection(&g_chain_cs);rr_transaction.Release();return after_sr.fatal_recording;
+                }
                 after_state.Restore();
             } else if (after_sr.redirected_output) {
-                Log("[command-state] post-SR state unavailable; native SR is "
-                    "re-evaluated to its original Output without NR work.");
-                result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
+                // A second opaque SR call is not a restoration operation.
+                // Retain the original return and quarantine this unproven output.
+                QuarantineAbortedRrTransactionLocked(command_list);
+                Log("Post-SR state unavailable after redirected output; no duplicate native SR. Save F8 and restart.");
             } else {
                 static unsigned int post_state_failures = 0;
                 const unsigned int count = ++post_state_failures;
@@ -11388,25 +12957,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                         "no Feature18 call was made.", state.reason, count);
                 }
             }
-        } else if (after_sr.redirected_output &&
-                   g_config.retry_original_on_sr_failure) {
-            Log("%s failed while targeting the post-upscaling intermediate: "
-                "0x%08X (%s); retrying the original Output.",
-                FeatureName(feature.feature_id), result, ResultName(result));
-            result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
-            Log("Original-Output %s retry result=0x%08X (%s).",
-                FeatureName(feature.feature_id), result, ResultName(result));
-            if (rr_transaction.transaction_aborted() ||
-                g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
-                Log("Feature 1 output retry observed an RR ownership "
-                    "transition; dependencies are quarantined.");
-                QuarantineAbortedRrTransactionLocked(command_list);
-                LeaveCriticalSection(&g_chain_cs);
-                rr_transaction.Release();
-                return result;
-            }
+        } else if(after_sr.redirected_output) {
+            Log("Native SR returned 0x%08X with a redirected output; original parameters restored, no duplicate native Evaluate.",result);
         }
     }
+
     if (rr_transaction.transaction_aborted() ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
         Log("RR ownership changed while finalizing the modified Feature 1 "
@@ -11433,8 +12988,21 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     g_inside_ngx_evaluate = true;
-    const NgxResult result = ProcessEvaluate(
+    if(!g_enabled_fast.load(std::memory_order_acquire)) {
+        const auto result=ProcessEvaluate(original,command_list,handle,params,callback);
+        g_inside_ngx_evaluate=false;return result;
+    }
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    // Keep the cold, fully validated proxy-to-native list identity alive for
+    // source capture and Finish as well as for the enclosed native call.
+    NrPostBoundaryAliasScope source_list_alias(command_list);
+#endif
+    const auto source_feature=FindFeature(handle);
+    nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);
+    const NgxResult source_fatal=source_scope.FatalResult();
+    const NgxResult result = source_fatal?source_fatal:ProcessEvaluate(
         original, command_list, handle, params, callback);
+    source_scope.Finish(result);
     g_inside_ngx_evaluate = false;
     return result;
 }
@@ -11855,12 +13423,16 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
     return status == MH_OK;
 }
 
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue);
 bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     if (queue == nullptr || queue->get_device() == nullptr ||
         queue->get_device()->get_api() != reshade::api::device_api::d3d12)
         return true;
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
+    return EnsureNativeQueueExecuteHookForNative(native_queue);
+}
+bool EnsureNativeQueueExecuteHookForNative(ID3D12CommandQueue *native_queue) {
     if (native_queue == nullptr) return false;
     const D3D12_COMMAND_QUEUE_DESC queue_desc =
         ID3D12CommandQueue_GetDesc(native_queue);
@@ -11941,6 +13513,9 @@ bool IsD3D12GraphicsQueue(reshade::api::command_queue *queue) {
 }
 
 void OnDestroyCommandQueue(reshade::api::command_queue *queue) {
+    EnterCriticalSection(&g_chain_cs);
+    nr_face_runtime::StopWorker();
+    LeaveCriticalSection(&g_chain_cs);
     // No queue has been retained before the first admitted DLSS frame. Avoid
     // touching a queue proxy during engine bootstrap/destruction in that case.
     if (g_live_graphics_queue_count.load(std::memory_order_acquire) == 0)
@@ -12042,10 +13617,11 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     const bool may_learn_affinity =
         g_carrier_evaluations.load(std::memory_order_acquire) != 0 &&
         g_enabled_fast.load(std::memory_order_acquire);
-    // This event fires for virtually every game submission. Before Feature 1,
-    // while F6 is off, and whenever no NR work exists it must be a true atomic
-    // no-op that never unwraps a ReShade proxy or calls into D3D12.
-    if (!has_lifecycle_work && !may_learn_affinity) return;
+    const bool may_observe_source=nr_source_runtime::MayObserveSubmission();
+    // A verified application write can bootstrap color-only Present without
+    // any reconstruction feature. With NR off and no in-flight work, keep the
+    // atomic fast path and never unwrap a ReShade proxy.
+    if (!has_lifecycle_work && !may_learn_affinity && !may_observe_source) return;
     if (!IsD3D12GraphicsQueue(queue) || command_list == nullptr)
         return;
 
@@ -12054,6 +13630,13 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
     if (native_command_list == nullptr || native_queue == nullptr) return;
+    bool source_queue_observed=false;
+    if(may_observe_source&&nr_source_runtime::HasPendingSubmission(command_list)){
+        source_queue_observed=EnsureNativeQueueExecuteHook(queue);
+        if(!source_queue_observed){static std::atomic<unsigned> reports{0};
+            if(reports.fetch_add(1,std::memory_order_relaxed)<3)
+                Log("[source-observer] actual queue hook unavailable; pre-submit event is not a completion receipt. Current output remains unverified.");}
+    }
 
     // Do not patch ExecuteCommandLists during device/queue bootstrap. After the
     // first real Feature 1 evaluation, this pre-submit ReShade event already
@@ -12082,7 +13665,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     // Install the exact-fence native hook only when this concrete submission
     // contains plugin GPU work. The event runs before ReShade invokes native
     // ExecuteCommandLists, so the current submission is still captured.
-    if (!EnsureNativeQueueExecuteHook(queue))
+    if (!source_queue_observed && !EnsureNativeQueueExecuteHook(queue))
         MarkLifecycleUncertain("could not install post-submit queue hook");
 }
 
@@ -12221,6 +13804,44 @@ struct LoadedNgxModule {
     LoadedNgxModule &operator=(const LoadedNgxModule &) = delete;
 };
 
+void CoverNgxLifecycleAfterInit(const char *entry);
+
+NgxResult HookLoaderInit(unsigned long long application_id,
+                         const wchar_t *application_data_path,
+                         ID3D12Device *device, unsigned int sdk_version) {
+    const NgxResult result = g_original_loader_init(
+        application_id, application_data_path, device, sdk_version);
+    // The native call may load _nvngx.dll and nvngx_dlss.dll. Install their
+    // lifecycle hooks only after it returns, outside the loader lock, and
+    // before the game can issue its first CreateFeature.
+    CoverNgxLifecycleAfterInit("D3D12_Init");
+    return result;
+}
+
+NgxResult HookLoaderInitExt(unsigned long long application_id,
+                            const wchar_t *application_data_path,
+                            ID3D12Device *device, unsigned int sdk_version,
+                            const void *parameters) {
+    const NgxResult result = g_original_loader_init_ext(
+        application_id, application_data_path, device, sdk_version, parameters);
+    CoverNgxLifecycleAfterInit("D3D12_Init_Ext");
+    return result;
+}
+
+NgxResult HookLoaderInitProject(const char *project_id,
+                                unsigned int engine_type,
+                                const char *engine_version,
+                                const wchar_t *application_data_path,
+                                ID3D12Device *device,
+                                const void *feature_info,
+                                unsigned int sdk_version) {
+    const NgxResult result = g_original_loader_init_project(
+        project_id, engine_type, engine_version, application_data_path,
+        device, feature_info, sdk_version);
+    CoverNgxLifecycleAfterInit("D3D12_Init_ProjectID");
+    return result;
+}
+
 bool PinHookAddress(const void *address, const char *name,
                     HMODULE expected_module = nullptr) {
     if (address == nullptr) return false;
@@ -12244,7 +13865,7 @@ bool PinHookAddress(const void *address, const char *name,
 // All entries are private to the startup worker, then the module-rescan lock.
 // Operation-specific lookup handles both orders of core/DLSSD forwarding and
 // prevents an Evaluate_C alias from being hooked twice.
-enum class NgxHookOperation { Release, Create, Evaluate };
+enum class NgxHookOperation { Release, Create, Evaluate, Init };
 struct NgxHookTarget {
     NgxHookOperation operation = NgxHookOperation::Release;
     void *target = nullptr;
@@ -12252,7 +13873,7 @@ struct NgxHookTarget {
     bool published = false;
     bool queued = false;
 };
-NgxHookTarget g_ngx_hook_targets[10] = {};
+NgxHookTarget g_ngx_hook_targets[16] = {};
 std::size_t g_ngx_hook_target_count = 0;
 
 NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
@@ -12321,6 +13942,72 @@ void MarkNgxHooksPublished(bool initial_install) {
         if (entry.operation == NgxHookOperation::Evaluate)
             RememberEvaluateHookTarget(entry.target);
     }
+}
+
+bool InstallLoaderInitHooks(HMODULE loader) {
+    if (loader == nullptr) return false;
+    if (g_loader_init_hooks_ready.load(std::memory_order_acquire) &&
+        g_hooked_loader_module == loader)
+        return true;
+    if (!PinHookAddress(loader, "nvngx.dll", loader)) return false;
+    const MH_STATUS initialized = MH_Initialize();
+    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED)
+        return false;
+
+    void *init = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init"));
+    void *init_ext = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init_Ext"));
+    void *init_project = reinterpret_cast<void *>(
+        GetProcAddress(loader, "NVSDK_NGX_D3D12_Init_ProjectID"));
+    const bool has_entry = init != nullptr || init_ext != nullptr ||
+                           init_project != nullptr;
+
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);
+    bool queued_any = false;
+    const bool init_ok = init == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init,
+        reinterpret_cast<void *>(&HookLoaderInit),
+        reinterpret_cast<void **>(&g_original_loader_init),
+        "loader D3D12_Init", queued_any);
+    const bool ext_ok = init_ext == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init_ext,
+        reinterpret_cast<void *>(&HookLoaderInitExt),
+        reinterpret_cast<void **>(&g_original_loader_init_ext),
+        "loader D3D12_Init_Ext", queued_any);
+    const bool project_ok = init_project == nullptr || QueueLateHook(
+        NgxHookOperation::Init, init_project,
+        reinterpret_cast<void *>(&HookLoaderInitProject),
+        reinterpret_cast<void **>(&g_original_loader_init_project),
+        "loader D3D12_Init_ProjectID", queued_any);
+    bool applied = true;
+    if (queued_any) {
+        const MH_STATUS status = MH_ApplyQueued();
+        applied = status == MH_OK;
+        Log("[module] MH_ApplyQueued loader Init coverage status=%d",
+            static_cast<int>(status));
+        if (applied) MarkNgxHooksPublished(false);
+    }
+    const bool init_published = init == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init);
+    const bool ext_published = init_ext == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init_ext);
+    const bool project_published = init_project == nullptr ||
+        IsNgxHookPublished(NgxHookOperation::Init, init_project);
+    const bool covered = has_entry && init_ok && ext_ok && project_ok &&
+        applied && init_published && ext_published && project_published;
+    if (covered) {
+        g_hooked_loader_module = loader;
+        g_loader_init_hooks_ready.store(true, std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+    Log("[module] loader Init completion coverage: init=%d ext=%d "
+        "project=%d; post-Init lifecycle=%s.",
+        init != nullptr && init_published ? 1 : 0,
+        init_ext != nullptr && ext_published ? 1 : 0,
+        init_project != nullptr && project_published ? 1 : 0,
+        covered ? "covered" : "unavailable");
+    return covered;
 }
 
 struct LateNgxModulePlan {
@@ -12424,7 +14111,12 @@ static_assert(LateLifecycleDiscoveryRequiresIsolation(false, true, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(true, false, false));
 
 void PollNgxLifecycleModules(bool force) {
-    if (!g_evaluate_hooks_ready.load(std::memory_order_acquire)) return;
+    // Loader Init completion can publish core lifecycle coverage before the
+    // optional model wrapper exists. This is still the existing cold/one-second
+    // observer path; no scan is added to the Evaluate hot path.
+    if (!g_evaluate_hooks_ready.load(std::memory_order_acquire) &&
+        !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+        return;
     const ULONGLONG now = GetTickCount64();
     ULONGLONG next = g_next_module_rescan_tick.load(std::memory_order_relaxed);
     if (!force) {
@@ -12437,6 +14129,12 @@ void PollNgxLifecycleModules(bool force) {
                                         std::memory_order_relaxed);
     }
 
+    // The hook table, hooked-module identities and late-discovery decision are
+    // one publication. Initial model installation uses the same outer lock;
+    // this prevents a post-Init scan from reading a half-built target table or
+    // misclassifying it as late activity. Lock order is initial -> rescan ->
+    // evaluate throughout this observer.
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
     AcquireSRWLockExclusive(&g_module_rescan_lock);
     const unsigned long long scan =
         g_module_rescan_count.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -12558,6 +14256,7 @@ void PollNgxLifecycleModules(bool force) {
     }
     g_module_rescan_in_progress.store(false, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_module_rescan_lock);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
 }
 
 bool InstallHooks(HMODULE ngx) {
@@ -12567,6 +14266,10 @@ bool InstallHooks(HMODULE ngx) {
         Log("MH_Initialize failed: %d", static_cast<int>(init));
         return false;
     }
+    LoadedNgxModule loader_ref(L"nvngx.dll");
+    if (loader_ref.handle != nullptr &&
+        !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+        (void)InstallLoaderInitHooks(loader_ref.handle);
     LoadedNgxModule core_ref(L"_nvngx.dll");
     LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
     HMODULE core = core_ref.handle;
@@ -12592,6 +14295,10 @@ bool InstallHooks(HMODULE ngx) {
     g_core_unknown_handle_guard.store(core_plan.evaluate != nullptr,
                                       std::memory_order_release);
 
+    // Loader-Init completion and the worker can converge here from different
+    // threads. Serialize the shared hook table and MinHook publication with
+    // the same lock used by late module scans.
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);
     bool okay = PrepareNgxHook(
         NgxHookOperation::Create, create, reinterpret_cast<void *>(&HookCreate),
         reinterpret_cast<void **>(&g_original_create), "D3D12_CreateFeature");
@@ -12638,7 +14345,10 @@ bool InstallHooks(HMODULE ngx) {
             is_core ? "core ReleaseFeature" : "DLSSD ReleaseFeature");
         plan->prepared = create_ok && evaluate_ok && release_ok;
     }
-    if (!okay) return false;
+    if (!okay) {
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+        return false;
+    }
     if ((core_plan.module != nullptr && !core_plan.prepared) ||
         (dlssd_plan.module != nullptr && !dlssd_plan.prepared)) {
         // Publish isolation before enabling any detour: another thread can
@@ -12661,6 +14371,7 @@ bool InstallHooks(HMODULE ngx) {
                 entry.name, entry.target, static_cast<unsigned long long>(queried),
                 memory.State, memory.Protect, memory.AllocationProtect);
         }
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
         return false;
     }
     MarkNgxHooksPublished(true);
@@ -12674,11 +14385,58 @@ bool InstallHooks(HMODULE ngx) {
             "initial NGX Create/Evaluate/Release lifecycle hooks are incomplete");
     }
     g_evaluate_hooks_ready.store(true, std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     Log("[module] initial scan complete: sr=%p core=%p dlssd=%p.",
         static_cast<void *>(ngx), static_cast<void *>(core),
         static_cast<void *>(dlssd));
     UpdateEvaluateHookActivation();
     return true;
+}
+
+bool EnsureLoaderInitHooks(HMODULE loader) {
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool covered =
+        (g_loader_init_hooks_ready.load(std::memory_order_acquire) &&
+         g_hooked_loader_module == loader) ||
+        InstallLoaderInitHooks(loader);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    return covered;
+}
+
+bool EnsureInitialNgxHooks(HMODULE ngx) {
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool covered =
+        g_evaluate_hooks_ready.load(std::memory_order_acquire) ||
+        InstallHooks(ngx);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    return covered;
+}
+
+void CoverNgxLifecycleAfterInit(const char *entry) {
+    // This callback runs after the real Init export returned. It owns no loader
+    // lock and may safely pin modules and publish MinHook targets. The shared
+    // initial-install lock also closes the small race where Init is entered as
+    // its own hook transaction becomes active.
+    g_loader_init_completions.fetch_add(1, std::memory_order_relaxed);
+    LoadedNgxModule ngx_ref(L"nvngx_dlss.dll");
+    AcquireSRWLockExclusive(&g_initial_ngx_hook_lock);
+    const bool primary_covered = ngx_ref.handle != nullptr &&
+        (g_evaluate_hooks_ready.load(std::memory_order_acquire) ||
+         InstallHooks(ngx_ref.handle));
+    const bool loader_published =
+        g_loader_init_hooks_ready.load(std::memory_order_acquire);
+    ReleaseSRWLockExclusive(&g_initial_ngx_hook_lock);
+    // Even when Init did not load the model wrapper, its loader transaction is
+    // now fully published and the core can be covered before CreateFeature.
+    if (loader_published || primary_covered)
+        PollNgxLifecycleModules(true);
+    Log("[module] %s returned; primary=%d coreLoaded=%d coreLifecycle=%d "
+        "observerFault=%s.", entry != nullptr ? entry : "D3D12 Init",
+        primary_covered ? 1 : 0,
+        GetModuleHandleW(L"_nvngx.dll") != nullptr ? 1 : 0,
+        g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+        ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+            g_module_observer_fault.load(std::memory_order_relaxed))));
 }
 
 DWORD WINAPI HookWorker(void *) {
@@ -12688,13 +14446,18 @@ DWORD WINAPI HookWorker(void *) {
                        reinterpret_cast<LPCWSTR>(&HookWorker), &pinned);
 
     for (unsigned int attempt = 0; attempt < 24000; ++attempt) {
+        if (g_evaluate_hooks_ready.load(std::memory_order_acquire)) return 0;
+        LoadedNgxModule loader_ref(L"nvngx.dll");
+        if (loader_ref.handle != nullptr &&
+            !g_loader_init_hooks_ready.load(std::memory_order_acquire))
+            (void)EnsureLoaderInitHooks(loader_ref.handle);
         LoadedNgxModule ngx_ref(L"nvngx_dlss.dll");
         HMODULE ngx = ngx_ref.handle;
         if (ngx != nullptr) {
             wchar_t path[MAX_PATH] = {};
             GetModuleFileNameW(ngx, path, MAX_PATH);
             Log("Found SR NGX module: %ls", path);
-            if (InstallHooks(ngx)) {
+            if (EnsureInitialNgxHooks(ngx)) {
                 Log("NGX observer/AI-upscaling hooks active.");
             } else {
                 Log("Hook installation failed; observer is inactive.");
@@ -12712,6 +14475,18 @@ DWORD WINAPI HookWorker(void *) {
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_feedback_core.inl"
+namespace nr_f8 {
+nr_face_capture_geometry::View SnapshotFaceDiagnosticGeometry(
+    unsigned display_width, unsigned display_height) {
+    EnterCriticalSection(&g_chain_cs);
+    const auto sample = g_face_capture_geometry;
+    const auto generation = g_config_generation.load(std::memory_order_relaxed);
+    const auto instance = g_applied_nr_identity.instance_id;
+    LeaveCriticalSection(&g_chain_cs);
+    return nr_face_capture_geometry::Resolve(sample, generation, instance,
+        GetTickCount64(), display_width, display_height);
+}
+}
 #include "nr_f8_sequence.inl"
 
 void ToggleMasterFromHotkey() {
@@ -12743,7 +14518,7 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
     const int written = std::snprintf(postfix, capacity,
         "DLSS5_%.16s_%s_%s_REQ-G%u_I%.2f_S%u_B%.2f_C%.2f_HP%d",
         kBuildIdentity, mode, state, requested_generation,
-        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.2f),
+        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.5f),
                                       0.0f, 2.0f)),
         std::min(config.style, 2u),
         static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f)),
@@ -12800,8 +14575,12 @@ void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
     }
 }
 
+void ServiceFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
+void CleanupFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
+    ServiceFaceDiagnosticSelection(runtime);
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
     static bool screenshot_key_was_down = false;
@@ -12845,7 +14624,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
             nr_f8::OpenWindow();
             runtime->open_overlay(true, reshade::api::input_source::keyboard);
         }
-        Log("[feedback] F7 image supplement request=%s; paired report plus original-resolution display screenshot; no raw ROI planes.",
+        Log("[feedback] F7 image supplement request=%s; current-path capture with paired report; source domain and export status remain explicit in feedback.",
             accepted ? "accepted" : "busy");
     }
     stage_key_was_down = stage_key_is_down;
@@ -12942,6 +14721,9 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // SR wrapper. A one-second in-memory rescan records that transition and
     // installs any newly available lifecycle observers. It never scans disk.
     PollNgxLifecycleModules(false);
+    nr_source_runtime::PollStreamline();
+    nr_fg_runtime::CollectRetired();
+    nr_fg_capture::Collect();
     nr_post_settings::Poll();
     // No Feature 1 means there cannot be an NR context or fence to retire. Keep
     // early engine Presents away from lifecycle tables entirely.
@@ -12955,6 +14737,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
         DrainPendingContextDestructions();
     }
     PollConfigFromPresent();
+    nr_processing_runtime::EnsureEnergyGateLoaded(); // Load saved choices even before an FG signal/UI visit.
     // Measure presented frames instead of NGX evaluations. This keeps the
     // reference sampler alive while F6 is off and avoids counting engines that
     // submit more than one NGX evaluation per displayed frame.
@@ -12976,6 +14759,31 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     f6_was_down = f6_is_down;
     UpdateEvaluateHookActivation();
     ReleaseSRWLockExclusive(&g_present_observer_lock);
+}
+
+// D21: UI-only notice. No retry, migration, resource lifetime or rendering
+// decision is performed from the overlay. Counters do not prove final pixels.
+void DrawPerformanceRouteNotice(const ChainConfig& config) {
+    const bool zh=UseChineseUi();
+#if defined(NR_DESCRIPTOR_PROFILE) && NR_DESCRIPTOR_PROFILE
+    ImGui::TextWrapped("%s",zh?
+        "当前为性能测量版：最终帧率请用常规版验收；本版会额外记录 CPU 耗时。":
+        "Measurement build: use the ordinary build for final FPS acceptance; this build records extra CPU timings.");
+#endif
+    if(!config.enabled)return;
+    if(static_cast<unsigned>(g_module_observer_fault.load(std::memory_order_relaxed))!=0u ||
+       g_feature_tracking_uncertain.load(std::memory_order_relaxed)) {
+        ImGui::TextWrapped("%s",zh?
+            "入口或生命周期观察不完整，当前保留游戏原输出。请按 F8 保存报告并上报；F6 只能对照开关，不能清除此类进程保护。":
+            "Entry/lifetime observation is incomplete; game output is retained. Save and report F8. F6 is an on/off comparison, not a way to clear this process protection.");
+        return;
+    }
+    nr_processing::Snapshot route{};
+    if(nr_processing_runtime::TrySnapshot(route)&&route.current!=config.processing_start) {
+        ImGui::TextWrapped("%s",zh?
+            "当前并非所选起点：已自动尝试后续路径。F6 可对照开关；异常时按 F8 保存报告并上报。点击所选路线可重新尝试，不会改写默认启动顺序。":
+            "The actual route differs from your selection. A later route is being tried. Compare with F6; save/report F8 for unexpected behavior. Click the selected route to retry; automatic fallback does not change the launch default.");
+    }
 }
 
 void DrawNrActivityStatus(reshade::api::effect_runtime *,const ChainConfig &,unsigned,nr_ui_activity::Site);
@@ -13263,7 +15071,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
                "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
             live_rr_handles);
     }
-    if (ImGui::CollapsingHeader(ui("Per-evaluation details", "单次评估细节"))) {
+    ImGui::SeparatorText(ui("Per-evaluation details", "单次评估细节"));
+    {
     ImGui::BeginChild("nr-evaluation-detail",ImVec2(0,ImGui::GetTextLineHeightWithSpacing()*4.25f),true);
     if (generic_renodx_conflict) {
         ImGui::TextWrapped("%s", ui(
@@ -13594,19 +15403,28 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
     // Diagnostics only presents observations, avoiding duplicate actions.
 }
 
+#include "nr_compat_present_runtime.inl"
+namespace nr_fg_capture {
+void Start(ID3D12GraphicsCommandList*,const nr_source_frame::Source&,NrContext&);
+void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
+    nr_compat_present_runtime::Context&,NrContext&,NrSlot&,const NrGuideBinding&,const nr_dual_runtime::Prepared&,bool);
+}
+#include "nr_fg_consumer.inl"
+#include "nr_fg_capture.inl"
+#include "interop/nr_external_provider_consumer.inl"
 #include "nr_settings_ui.inl"
 
 } // namespace
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta-corefix.8 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline21-uniform3 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-corefix.8 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-uniform3 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -13663,6 +15481,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             kChineseUi ? "zh-CN" : "en",
             addon_leaf_utf8, kBuildIdentity, kSourceCommit, kSourceDirty ? 1 : 0);
         ReloadConfig(true);
+        const bool descriptor_startup_applied=NrDescriptorConfigureStartup(g_config.descriptor_low_overhead);
+        Log("[descriptor] startup lowOverheadRequested=%d lowOverheadActive=%d applied=%d; later preference changes require a new process.",
+            g_config.descriptor_low_overhead?1:0,NrDescriptorLowOverheadActive()?1:0,descriptor_startup_applied?1:0);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");
             return FALSE;
@@ -13682,9 +15503,12 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnDestroyCommandList);
         RegisterPostBoundaryEvents(true);
         reshade::register_event<reshade::addon_event::present>(OnPresent);
+        nr_compat_present_runtime::Register(true);
+        nr_fg_runtime::Register();
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
+        reshade::register_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
         reshade::register_overlay(kSettingsOverlayName, DrawSettings);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
@@ -13698,11 +15522,14 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnCommandStateInitDevice);
             reshade::unregister_event<reshade::addon_event::init_device>(OnNrFormatInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
+            CleanupFaceDiagnosticSelection(nullptr);
+            reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
             RegisterPostBoundaryEvents(false);
-            reshade::unregister_event<reshade::addon_event::present>(OnPresent);
+            nr_compat_present_runtime::Register(false);
+        reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
                 OnDestroyCommandList);
             reshade::unregister_event<reshade::addon_event::reset_command_list>(
@@ -13716,6 +15543,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
+        CleanupFaceDiagnosticSelection(nullptr);
+        reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
         reshade::unregister_event<reshade::addon_event::init_command_list>(
             OnCommandStateInitList);
         reshade::unregister_event<reshade::addon_event::init_device>(
@@ -13726,6 +15555,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         RegisterPostBoundaryEvents(false);
+        nr_compat_present_runtime::Register(false);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);

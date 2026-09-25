@@ -1,7 +1,9 @@
+#include "src/nr_rr_projection_source.h"
 // Executes the actual ProcessRrPost implementation using a CPU API seam.
 // No Windows/NGX or game-runtime claim. Checks ordering, exact native result,
 // no retry, retained feature identity, and requested Mode2 never overwritten.
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +22,8 @@
 #define LeaveCriticalSection RrTestLeaveCriticalSection
 #endif
 #include "src/interop/nr_post_compat.h"
+#include "src/nr_processing_route.h"
+#include "src/nr_fg_presentation.h"
 using NgxResult=std::int32_t;
 struct ID3D12GraphicsCommandList{};struct NgxHandle{};struct NgxParams{};
 #if defined(NR_RR_TIMING_TEST)
@@ -40,7 +44,13 @@ struct FeatureRecord{const NgxHandle* handle=nullptr;int feature_id=-1;unsigned 
 void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
 using EvaluateFeatureFn=NgxResult(*)(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*);
 constexpr NgxResult kNgxSuccess=1;
-struct Config{bool enabled=true,identity_use_original=false;int mode=2;float post_transfer_strength=1;} g_config;
+struct Config{
+ bool enabled=true,identity_use_original=false;int mode=2;float post_transfer_strength=1,transfer_strength=1;
+ nr_processing::Start processing_start=nr_processing::Start::Before;
+ unsigned long long processing_selection=1;
+} g_config;
+std::atomic<unsigned long long> g_history_generation{0};
+nr_fg_presentation::Policy g_fg_presentation_policy;
 std::atomic<int> g_last_carrier_feature{-1};std::atomic<bool> g_rr_guard_was_active{false};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{0},g_pipeline_eligible_carriers{0};
 std::atomic<bool> g_feature_tracking_uncertain{false},g_lifecycle_tracking_uncertain{false};
@@ -66,7 +76,9 @@ std::atomic<int> g_rr_ownership_gate_owner{0};
 unsigned concurrent_aborts=0;
 void LatchConcurrentRrOwnershipChange(const char*) { ++concurrent_aborts;g_feature_tracking_uncertain=true; }
 int g_chain_cs=0,chain_depth=0,gate_depth=0,native_calls=0,finishes=0,prepares=0,quarantines=0,scopes=0,restores=0,stage=0;
-bool change_generation=false,change_identity=false,change_uncertain=false,finish_uncertain=false;
+int abandons=0;
+bool change_generation=false,change_identity=false,change_uncertain=false,finish_uncertain=false,opaque_failure=false;
+NgxResult opaque_result=-77;
 NgxResult result=1;FeatureRecord current;
 #if defined(NR_RR_TIMING_TEST)
 NgxResult nr_result=1;
@@ -93,14 +105,21 @@ void BeginPipelineStatsScopeLocked(unsigned long long generation,int mode){
  NrTimingSetRoute(static_cast<unsigned>(mode),g_config_generation.load());
 #endif
 }
+struct NrSlot {} timing_slot;
+namespace nr_dual_runtime {
+unsigned stamp_calls=0;
+void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned){++stamp_calls;}
+}
 struct NativeCommandStateScope{
  bool active=false;ID3D12GraphicsCommandList* command_list;
  NativeCommandStateScope(ID3D12GraphicsCommandList* c):command_list(c){active=(scopes++==0)?before_ok:after_ok;}
  void Restore(){++restores;}
+ void AbandonAfterOpaqueFailure(){++abandons;active=false;}
 };
-struct PostSrSubstitution{bool active=false;};
+struct PostSrSubstitution{bool active=false;NgxResult fatal_recording=0;NrSlot* slot=nullptr;};
 PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,const FeatureRecord& f){
- ++prepares;CHECK(stage==0&&f.feature_id==13&&g_config.mode==2);return {prepare_ok};
+ ++prepares;CHECK(stage==0&&f.feature_id==13&&g_config.mode==2);
+ PostSrSubstitution prepared{};prepared.active=prepare_ok;prepared.slot=&timing_slot;return prepared;
 }
 bool FinishAfterSr(ID3D12GraphicsCommandList*,const NgxParams*,const FeatureRecord& f,PostSrSubstitution& p){
  ++finishes;CHECK(stage==1&&result==1&&p.active&&f.feature_id==13&&g_config.mode==2);
@@ -109,13 +128,24 @@ bool FinishAfterSr(ID3D12GraphicsCommandList*,const NgxParams*,const FeatureReco
  // The opaque NR callback is the only scripted model boundary. The production
  // timing wrapper must inherit the real RR carrier without a recovery scope.
  const auto actual_result=NrTimingCallNr([]{++nr_calls;return nr_result;});
- if(actual_result!=1)return false;
+ if(actual_result!=1){p.fatal_recording=actual_result;return false;}
 #endif
+ if(opaque_failure){p.fatal_recording=opaque_result;return false;}
  return finish_ok;
 }
 FeatureRecord FindFeature(const NgxHandle*){return current;}
 void QuarantineAbortedRrTransactionLocked(ID3D12GraphicsCommandList*){++quarantines;}
 void Log(const char*,...){}
+// Use the actual sticky route implementation. Only the source identity input
+// is a fixture value; this test does not observe native frame ownership.
+namespace nr_source_runtime {unsigned long long CurrentRetryToken(){return 1;}}
+// CPU route fixture has no Present worker, native NR flight, fence, or GPU.
+// These only state that its deliberately empty retirement seams are drained.
+namespace nr_compat_present_runtime {
+bool InlineDrainReady(){return true;}
+bool NativeNrDrained(){return true;}
+}
+#include "src/nr_processing_runtime.inl"
 #include "src/interop/nr_rr_post_runtime.inl"
 NgxResult Native(ID3D12GraphicsCommandList* c,const NgxHandle* h,const NgxParams* p,void* cb){
  ++native_calls;CHECK(c==&command&&h==&handle&&p==&params&&cb==&callback);
@@ -133,9 +163,13 @@ void Reset(){
  nr_result=1;nr_calls=0;
 #endif
  owner=false;gate=chain=prepare_ok=finish_ok=before_ok=after_ok=true;nested=false;
- change_generation=change_identity=change_uncertain=finish_uncertain=false;
+ change_generation=change_identity=change_uncertain=finish_uncertain=opaque_failure=false;
+ opaque_result=-77;abandons=0;
+ nr_dual_runtime::stamp_calls=0;
  native_calls=finishes=prepares=quarantines=scopes=restores=stage=chain_depth=gate_depth=0;
  current={&handle,13,7};result=1;g_config={};g_config.mode=2;
+ // Reset separates independent cases through the public selection contract.
+ g_config.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
  g_feature_tracking_uncertain=false;g_lifecycle_tracking_uncertain=false;
  g_rr_ownership_gate_owner=0;concurrent_aborts=0;
  nr_post_settings::options={};nr_post_settings::rr_recorded=0;
@@ -151,13 +185,14 @@ void Run(){
  const bool chain_expected=timing_expected&&gate&&!nested;
 #endif
  auto returned=ProcessRrPost(&Native,&command,&handle,&params,&callback,feature);
- CHECK(returned==result&&native_calls==1&&g_config.mode==2);
+ CHECK(returned==(opaque_failure?opaque_result:result)&&native_calls==1&&g_config.mode==2);
  CHECK(chain_depth==0&&gate_depth==0);
 #if defined(NR_RR_TIMING_TEST)
  nr_timing::Snapshot timing;SnapshotNrTiming(timing);
  CHECK(timing.stages[static_cast<unsigned>(nr_timing::Stage::Carrier)].count==(timing_expected?1u:0u));
  CHECK(timing.stages[static_cast<unsigned>(nr_timing::Stage::NativeEvaluate)].count==(timing_expected?1u:0u));
  CHECK(timing.stages[static_cast<unsigned>(nr_timing::Stage::ChainLock)].count==(chain_expected?1u:0u));
+ CHECK(nr_dual_runtime::stamp_calls==((prepares&&prepare_ok)?3u:0u));
  CHECK(timing_device_queries==(timing_expected?1u:0u)&&timing_device.references==1);
  if(timing_expected){
   const auto& carrier=timing.recent[timing.recent_count-1];
@@ -200,7 +235,9 @@ int main(){
  Reset();change_uncertain=true;Run();CHECK(finishes==0&&quarantines==1);
  Reset();finish_uncertain=true;Run();CHECK(finishes==1&&quarantines==1);
 #if defined(NR_RR_TIMING_TEST)
- Reset();nr_result=-77;Run();CHECK(finishes==1&&nr_calls==1&&nr_post_settings::rr_recorded==0&&native_calls==1);
+ Reset();nr_result=-77;opaque_failure=true;Run();
+ CHECK(finishes==1&&nr_calls==1&&nr_post_settings::rr_recorded==0&&native_calls==1&&
+       restores==1&&abandons==2&&nr_dual_runtime::stamp_calls==3);
  Reset();timing_device_available=false;Run();
  // The production RR dispatch and actual timing module are both included.
  // There is deliberately no Feature1 recovery type/global in this fixture.

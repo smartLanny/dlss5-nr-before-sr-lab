@@ -64,6 +64,14 @@ int main(){}
         sdk = args.sdk_header.resolve(strict=True)
         run([str(compiler), '-std=c++20', '-fms-extensions', '-fsyntax-only', '-I'+str(sdk.parent), str(abi)], 'compile-independent-sdk-abi')
     objects=[]
+    # The staged Core keeps the dual spatial backend in a separate production
+    # translation unit.  Link the exact sibling source used by this wrapper.
+    spatial_source=source.parent/'nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object=out/'nr_dual_spatial_d3d12.o'
+        run([str(compiler),*common,'-std=c++20','-c',str(spatial_source),'-o',str(spatial_object)],
+            'compile-nr-dual-spatial')
+        objects.append(str(spatial_object))
     for rel in ('buffer.c', 'hook.c', 'trampoline.c', 'hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o')
         run([str(c_compiler), *common, '-std=c17', '-c', str(ROOT/'third_party/minhook/src'/rel), '-o', str(obj)], 'compile-'+obj.stem)

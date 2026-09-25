@@ -211,6 +211,10 @@ def patch_core(text: str) -> str:
         s=once(s,'substitution.output_base_y, slot.codec_color_mode);',
             'substitution.output_base_y, slot.codec_color_mode, width, height,\n'
             '                   work_width, work_height, 1.0f, 1);')
+        # Optional edit-field construction uses the effective post colour
+        # policy even when the requested mode was pre-SR with RR fallback.
+        s=s.replace('slot.codec_color_mode,width,height,context.width,context.height);',
+                    'slot.codec_color_mode,width,height,context.width,context.height,1.0f,1);')
         return s
     text=edit(text,'bool FinishAfterSr(',finish)
 
@@ -226,9 +230,9 @@ def patch_core(text: str) -> str:
             '    const bool scaled = ModelWidth != Width || ModelHeight != Height;\n'
             '    float3 storedProxy = scaled ? SampleProxyStoredV2(float2(tid.xy)+0.5)\n'
             '        : ProxyColor.Load(int3(tid.xy, 0)).rgb;')
-        s=once(s,'    float3 storedNeural = NeuralColor.Load(int3(tid.xy, 0)).rgb;',
+        s=once(s,'    float3 storedNeural = LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;',
             '    float3 storedNeural = scaled ? SampleNeuralStoredV2(float2(tid.xy)+0.5)\n'
-            '        : NeuralColor.Load(int3(tid.xy, 0)).rgb;')
+            '        : LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;')
         return once(s,'    bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&',
             '    bool finiteInputs = (!scaled || ModelNeighborhoodFiniteV2(float2(tid.xy)+0.5)) &&\n'
             '        all(storedOriginal.rgb == storedOriginal.rgb) &&')
@@ -238,9 +242,9 @@ def patch_core(text: str) -> str:
             'asuint((ModelWidth == Width && ModelHeight == Height)\n'
             '            ? ProxyColor.Load(int3(coord, 0))\n'
             '            : float4(SampleProxyStoredV2(float2(coord)+0.5),1.0)));')
-        return once(s,'asuint(NeuralColor.Load(int3(coord, 0))));',
+        return once(s,'asuint(LoadFinalNeuralStoredV2(int2(coord))));',
             'asuint((ModelWidth == Width && ModelHeight == Height)\n'
-            '            ? NeuralColor.Load(int3(coord, 0))\n'
+            '            ? LoadFinalNeuralStoredV2(int2(coord))\n'
             '            : float4(SampleNeuralStoredV2(float2(coord)+0.5),1.0)));')
     text=edit(text,'void WriteCombined(',capture)
 
@@ -268,7 +272,7 @@ def patch_diagnostics(text: str) -> str:
     text=once(text,'    } else if (rr_protected) {',
         '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     start=text.index('        ImGui::Text(ui("Perfect chain:')
-    end=text.index('\n    if (ImGui::CollapsingHeader(ui("Per-evaluation details"',start)
+    end=text.index('\n    ImGui::SeparatorText(ui("Per-evaluation details"',start)
     text=text[:start]+'''        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
                        "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
                     width, height, nr_render_width, nr_render_height,
@@ -314,7 +318,7 @@ def patch_ui(text: str) -> str:
     refreshed = '    const bool rr_guarded = IsRayReconstructionRouteObserved();'
     if refreshed in text:
         for required in (
-                '"##nr-processing-precision", &precision, 50.0f, 100.0f',
+                '"##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f',
                 'DrawSimpleFeedbackControls();',
                 'nr_f8::TakeSettingsFeedbackPageRequest()',
                 '"Feedback and diagnostics###nr-feedback-diagnostics"',

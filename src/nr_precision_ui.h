@@ -2,9 +2,52 @@
 #include <algorithm>
 #include <cmath>
 
-// UI adapter over the EXISTING 0.4 pre-SR work resolver. No new low-resolution
-// post-SR execution, alignment policy or renderer resizing is invented here.
+// Request editing only. Actual execution routes and GPU sizing stay separate.
 namespace nr_precision_ui {
+enum class Target { Before, Post, Present };
+inline constexpr float MinimumPercent(Target target) noexcept {
+    return target == Target::Before ? 50.f : 25.f;
+}
+inline bool SupportedPercent(float percent, Target target) noexcept {
+    return std::isfinite(percent) && percent >= MinimumPercent(target) && percent <= 100.f;
+}
+inline Target SelectedTarget(unsigned selected, bool rr, bool fg_redirect) {
+    if (rr || (selected == 2 && fg_redirect)) return Target::Post;
+    return selected == 2 ? Target::Present : selected == 1 ? Target::Post : Target::Before;
+}
+// One gesture owns one request field. Runtime fallback is deliberately absent
+// from the identity. External config/INI revisions cancel rather than retarget.
+struct Edit {
+    Target target=Target::Before;
+    unsigned generation=0;
+    unsigned long long post_revision=0, selection=0;
+    float preview=100.f;
+    bool editing=false, dirty=false, conflict=false;
+    float Observe(Target selected, unsigned config_generation,
+        unsigned long long revision, unsigned long long selected_revision, float saved) {
+        if (editing) {
+            if (target!=selected || generation!=config_generation ||
+                selection!=selected_revision ||
+                (target==Target::Post && post_revision!=revision)) conflict=true;
+        } else {
+            target=selected;generation=config_generation;post_revision=revision;
+            selection=selected_revision;preview=saved;
+        }
+        return preview;
+    }
+    bool Finish(float value, bool activated, bool changed, bool active, bool released) {
+        if (!editing && (activated || changed)) {
+            editing=true;dirty=false;conflict=false;
+        }
+        if (changed && !conflict) {preview=value;dirty=true;}
+        if (editing && (released || !active)) {
+            const bool publish=released && dirty && !conflict;
+            editing=false;dirty=false;
+            return publish;
+        }
+        return false;
+    }
+};
 struct Request { bool accepted=false, disable=false; int mode=0; float scale=1.0f; };
 inline Request Resolve(float percent, bool before_sr) {
     if (!before_sr || !std::isfinite(percent) || percent < 0 || percent > 100)

@@ -18,9 +18,17 @@ def definition(source, marker, semicolon=False):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--compiler", required=True)
+parser.add_argument("--negative-control", action="store_true",
+                    help="Prove the route tests reject the old counter-gain on independent consumers")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
+present_source = (root / "src/nr_compat_present_models.inl").read_text(encoding="utf-8-sig")
+present_policy = present_source.split("void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {", 1)[1].split("    CodecConstants k{};", 1)[0]
+assert 'auto* shader=combine?g_codec.combine_v2:g_codec.encode_v2;' in present_source
+assert 'if(independent_chroma)k.passthrough|=4096u;' in present_source
+route = source[source.index("    const bool independent_chroma = g_config.independent_chroma_composition"):]
+route = route[:route.index("    const auto probe_policy =")]
 dispatch = source[source.index("    NrColorPolicy color_policy = ResolveNrColorPolicy("):]
 if "    nr_f8_gpu::ArmResult" in dispatch:
     # Extract both actual policy/publication ranges around the separately tested GPU path.
@@ -30,6 +38,12 @@ else:
     dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
 if "g_config.color_protection" not in dispatch:
     raise AssertionError("production dispatch does not pass ColorProtection to the colour budget")
+if args.negative_control:
+    consumer = "nr_color_amplification::ChromaConsumer::GainIndependent"
+    assert dispatch.count(consumer) == 1, "Actual consumer selection marker changed"
+    dispatch = dispatch.replace(consumer, "nr_color_amplification::ChromaConsumer::GainCoupled")
+    assert present_policy.count(consumer) == 1, "Present consumer marker changed"
+    present_policy = present_policy.replace(consumer, "nr_color_amplification::ChromaConsumer::GainCoupled")
 ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
 ui_function = definition(ui_source, "void DrawColorControls(")
 ui_block = ui_function[ui_function.index("{") + 1:ui_function.rindex("}")]
@@ -39,7 +53,11 @@ harness = r'''
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
+#include "nr_light_style.h"
+#include "nr_generic_residual.h"
+#include "nr_dual_pass.hpp"
 enum DXGI_FORMAT { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R16G16B16A16_FLOAT,
                    DXGI_FORMAT_R11G11B10_FLOAT };
 struct ID3D12Resource {};
@@ -51,15 +69,20 @@ struct Config {
     bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
     bool high_strength_protection=true, color_protection=true, layered_enhancement=false;
     bool low_grid_edit_field=false, catmull_edit_restore=false;
+    bool independent_chroma_composition=false, low_grid_color_edit_field=false;
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
+    unsigned light_preset=0,light_style_version=1,light_control_mode=0;
+    float light_preset_color=1.f;
 } g_config;
 float ActiveTransferStrength(const Config& c) { return c.transfer_strength; }
 enum class BypassReason { None, Guard };
 std::atomic<unsigned> g_config_generation{7};
 std::atomic<unsigned long long> g_pipeline_stats_generation{12};
 std::atomic<int> g_last_bypass_reason{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
+std::atomic<unsigned long long> g_compat_fallback_attempts{0},g_compat_fallback_recorded{0};
 bool rr_observed=false;
 bool IsRayReconstructionRouteObserved() { return rr_observed; }
 bool compatibility_post_observed=false;
@@ -70,6 +93,13 @@ void EnterCriticalSection(int*) { ++held; }
 void LeaveCriticalSection(int*) { --held; }
 unsigned long long GetTickCount64() { return clock_ms; }
 #include "nr_color_policy.inl"
+enum class Encoding { Srgb, Pq };
+NrColorPolicy PresentPolicy(bool combine, bool hdr_input) {
+    struct { int image=0; Encoding encoding=Encoding::Srgb; } c;
+    c.encoding=hdr_input?Encoding::Pq:Encoding::Srgb;
+    PRESENT_POLICY
+    return policy;
+}
 PEAK_SHOULDER
 struct Slot {
     DXGI_FORMAT result_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -82,8 +112,7 @@ struct { void* combine=reinterpret_cast<void*>(1); void* combine_v2=reinterpret_
 struct { unsigned long long frame_id=99; } g_applied_nr_identity;
 unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_contract,
                         bool hdr_input,CodecColorMode color_mode,bool capture_delta) {
-    const bool v2_combine = pipeline == g_codec.combine_v2;
-    const bool any_combine = pipeline == g_codec.combine || v2_combine;
+    ROUTE
     const unsigned source_flags=0;
     const bool f8_armed=false;
     // This CPU seam tests colour policy; actual post-store sampling and its
@@ -91,7 +120,9 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const bool probe_post_store=false;
     const bool probe_pre_store=false;
     const unsigned store_format_flags=0;
-    const bool low_grid_color=false, independent_chroma=false;
+    // This fixture isolates colour admission; light wiring is exercised by
+    // its production scalar/dispatch GPU tests with the full ChainConfig.
+    const bool light_style_active=false;
     DISPATCH
     return codec_flags;
 }
@@ -122,6 +153,7 @@ namespace ImGui {
     }
 }
 void SettingsTooltip(const char*) {}
+void SettingsNote(const char* text) { ImGui::TextWrapped("%s",text); }
 void SettingsField(const char*) {} // Layout label; production policy/UI logic is extracted below.
 bool SettingsSliderFloat(const char*,const char* id,float* value,float minimum,
                          float maximum,const char* format) {
@@ -130,6 +162,7 @@ bool SettingsSliderFloat(const char*,const char* id,float* value,float minimum,
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }
+REGION_UI
 unsigned checks=0,failures=0;
 void check(bool ok,const char* label) {
     ++checks; if(!ok) { ++failures; if(failures<30) std::printf("FAIL: %s\n",label); }
@@ -206,6 +239,63 @@ int main() {
               unknown_slot.diagnostic_color_policy.color_reason==NrColorReason::UnverifiedHdr,
               "unknown HDR remains denied with either colour protection setting");
     }
+    // Execute the production route negotiation and policy publication together.
+    // A requested colour field without recorded resources must retain the old
+    // compositor budget. A low-grid luma route alone is not independent colour.
+    for(int mode:{1,2}) for(void* pipeline:{g_codec.combine,g_codec.combine_v2})
+    for(bool independent:{false,true}) for(bool field:{false,true})
+    for(bool recorded:{false,true}) for(bool protect:{false,true})
+    for(float gain:{0.f,.5f,1.f,2.f,4.f}) for(float colour:{0.f,.25f,1.f,2.f}) {
+        g_config={}; g_config.mode=mode; g_config.transfer_strength=gain;
+        g_config.color_strength=colour; g_config.color_protection=protect;
+        g_config.independent_chroma_composition=independent;
+        g_config.low_grid_color_edit_field=field;
+        g_config.low_grid_edit_field=true;
+        Slot routed{}; routed.edit_field_recorded=recorded;
+        const auto flags=DispatchPolicy(routed,pipeline,supported,false,CodecColorMode::LinearSdr,true);
+        const bool consumes_independently=independent || (field && recorded);
+        const auto legacy=nr_color_amplification::Resolve(colour,gain,protect);
+        const float expected=consumes_independently ? colour : legacy.coefficient;
+        check(routed.diagnostic_color_strength==expected,
+              "actual negotiated consumer selects colour budget including resource fallback");
+        check(routed.diagnostic_color_policy.amplification_color_limited==
+              (!consumes_independently && legacy.limited),"effective limitation flag follows consumer");
+        check(((flags&(4096u|32768u))!=0)==consumes_independently,
+              "published shader flags match the budget consumer");
+        check(SnapshotColorPolicy().policy.effective_color_strength==expected,
+              "UI snapshot and shader coefficient agree after negotiation");
+        DispatchPolicy(routed,pipeline,supported,true,CodecColorMode::PqEncodedHdr,true);
+        check(routed.diagnostic_color_strength==0 && !routed.diagnostic_color_policy.color_allowed,
+              "independent consumer cannot bypass HDR admission");
+        g_config.allow_unverified_hdr_color=true;
+        DispatchPolicy(routed,pipeline,supported,true,CodecColorMode::PqEncodedHdr,true);
+        check(routed.diagnostic_color_strength==expected && routed.diagnostic_color_policy.color_allowed,
+              "explicit HDR permission uses the same consumer budget");
+    }
+    for(auto consumer:{nr_color_amplification::ChromaConsumer::GainCoupled,
+                      nr_color_amplification::ChromaConsumer::GainIndependent}) {
+        for(float invalid:{-1.f,std::numeric_limits<float>::infinity(),
+                           std::numeric_limits<float>::quiet_NaN()}) {
+            const auto colour=nr_color_amplification::ResolveForConsumer(invalid,2.f,true,consumer);
+            const auto gain=nr_color_amplification::ResolveForConsumer(1.f,invalid,true,consumer);
+            check(colour.coefficient==0 && gain.coefficient==0,"invalid consumer input fails closed");
+        }
+    }
+    check(nr_color_amplification::ResolveForConsumer(1.f,2.f,true,
+        static_cast<nr_color_amplification::ChromaConsumer>(99)).coefficient==0,
+        "unknown consumer fails closed");
+    for(bool independent:{false,true}) for(bool combine:{false,true})
+    for(float gain:{0.f,.5f,1.f,2.f,4.f}) for(float colour:{0.f,.25f,1.f,2.f}) {
+        g_config={};g_config.independent_chroma_composition=independent;
+        g_config.transfer_strength=gain;g_config.color_strength=colour;
+        const auto p=PresentPolicy(combine,false);
+        const auto legacy=nr_color_amplification::Resolve(colour,gain,true);
+        check(p.effective_color_strength==(independent&&combine?colour:legacy.coefficient),
+              "Present actual combine consumer receives the independent colour budget");
+        check(p.amplification_color_limited==(!independent||!combine?legacy.limited:false),
+              "Present limitation flag matches actual consumer");
+    }
+    g_config={};
     auto post_lighting=ResolveNrColorPolicy(1,true,CodecColorMode::Automatic,false,false,1,true);
     const auto blocked_color_reason=post_lighting.color_reason;
     const auto blocked_color_strength=post_lighting.effective_color_strength;
@@ -333,17 +423,49 @@ int main() {
                      NrColorReason::SrgbSdr,NrColorReason::ModelValueDomain,
                      NrColorReason::PostSrFp16UnitExposure,NrColorReason::UnverifiedHdr})
         check(std::strlen(NrColorReasonName(reason))>0,"stable export colour reason");
+    // Owner's post-SR FP16 + non-unit exposure contract. Test the actual UI
+    // function and dispatch; neither a checkbox nor stale history grants colour.
+    g_config={}; g_config.mode=1; c={}; c.has_pre_exposure=true; c.pre_exposure=1.548f;
+    slot.result_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
+    next=g_config; changed=false; ImGui::try_edits=false; ImGui::text.clear();
+    check(DrawRegionColourStatus(next,false,changed) && !changed && !next.allow_unverified_hdr_color &&
+          ImGui::text.find("region colour gains have no effect")!=std::string::npos &&
+          slot.diagnostic_color_strength==0,"real non-unit-exposure HDR denies and explains region colour");
+    ImGui::try_edits=true;
+    check(DrawRegionColourStatus(next,false,changed) && !changed && !next.allow_unverified_hdr_color &&
+          slot.diagnostic_color_strength==0,"region status does not implicitly grant HDR permission");
+    // The explicit permission now lives in Developer options; execute that
+    // actual production checkbox, then verify pending and committed policy.
+    HDR_PERMISSION_UI
+    check(changed && next.allow_unverified_hdr_color &&
+          !DrawRegionColourStatus(next,true,changed) && slot.diagnostic_color_strength==0,
+          "explicit developer opt-in is pending until committed composition");
+    ImGui::try_edits=false; g_config=next; ++g_config_generation;
+    DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
+    changed=false; ImGui::text.clear();
+    check(!DrawRegionColourStatus(next,false,changed) && slot.diagnostic_color_strength==1 &&
+          ImGui::text.find("experimental HDR permission")!=std::string::npos,"committed opt-in enables actual colour coefficient");
+    next.color_strength=0;
+    check(DrawRegionColourStatus(next,false,changed),"zero global colour disables region colours even with HDR opt-in");
+    next=g_config; g_recorded_color_policy.policy.color_allowed=false; clock_ms+=3000; ImGui::text.clear();
+    check(!DrawRegionColourStatus(next,false,changed) &&
+          ImGui::text.find("region colour gains have no effect")==std::string::npos,"stale colour denial cannot claim a current restriction");
     std::printf("Color policy: %u contracts, %u checks, %u failures.\n",cases,checks,failures);
     return failures?1:0;
 }
 '''
 for marker, replacement in {
+    "ROUTE": route,
+    "PRESENT_POLICY": present_policy,
+    "HDR_PERMISSION_UI": next(line.strip() for line in ui_source.splitlines() if 'changed |= ImGui::Checkbox(ui("Allow experimental HDR colour"' in line),
     "COLOR_CONTRACT": definition(source, "struct ColorContract {", True),
     "UNITY_EXPOSURE": definition(source, "bool IsUnityExposureContract("),
     "CODEC_ENUM": definition(source, "enum class CodecColorMode", True),
     "PEAK_SHOULDER": definition(source, "bool UsePeakShoulder("),
     "DISPATCH": dispatch,
     "UI_BLOCK": ui_block,
+    "REGION_UI": definition(ui_source, "bool DrawRegionColourStatus(").replace("ChainConfig", "Config"),
 }.items():
     harness = harness.replace(marker, replacement)
 with tempfile.TemporaryDirectory(prefix="nr-color-policy-") as directory:
@@ -355,4 +477,9 @@ with tempfile.TemporaryDirectory(prefix="nr-color-policy-") as directory:
     link_flags = [] if sys.platform == "darwin" else ["-static"]
     subprocess.run([args.compiler, "-std=c++17", "-O2", *link_flags, "-Wall", "-Wextra",
                     "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
+    result = subprocess.run([str(exe)], capture_output=args.negative_control, text=True)
+    if args.negative_control:
+        assert result.returncode != 0 and "actual negotiated consumer selects colour budget" in result.stdout, result.stdout
+        print("PASS negative control: actual route tests reject the old independent-colour counter-gain")
+    else:
+        result.check_returncode()

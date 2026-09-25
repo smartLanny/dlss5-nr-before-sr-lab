@@ -65,6 +65,25 @@ const char *FeedbackStageBlockReason(const ChainConfig &config) {
     return nullptr;
 }
 
+#if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
+void FeedbackAppendCommandShadingRate(FeedbackSession &s, const char *prefix,
+                                     const CommandStateEvidence &e) {
+    // Pure formatting of the existing bounded snapshot. Never query a device,
+    // poll runtime state or present unobserved defaults as application writes.
+    if (!e.available || !e.shading_rate_observed) {
+        FeedbackAppend(s, "%s.shadingRate.observation=%s\n", prefix,
+            e.available ? "unobserved" : "unavailable");
+        return;
+    }
+    FeedbackAppend(s, "%s.shadingRate.observation=observed-native-setter\n"
+        "%s.shadingRate.rate=%u\n%s.shadingRate.combiners=%u,%u\n"
+        "%s.shadingRate.combinerSource=%s\n%s.shadingRate.deviceSupport=not-queried\n",
+        prefix, prefix, e.shading_rate, prefix, e.shading_combiners[0], e.shading_combiners[1],
+        prefix, e.shading_combiners_explicit ? "explicit-array" : "null-means-passthrough",
+        prefix);
+}
+#endif
+
 #if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
 void FeedbackAppendCommandHistory(FeedbackSession &s) {
     FeedbackAppend(s, "commandHistory.schema=1\ncommandHistory.scope=historical distinct carrier samples; not a fresh snapshot or frame identity\n"
@@ -107,11 +126,127 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
             FeedbackAppend(s, "commandHistory.%u.blend=%.9g,%.9g,%.9g,%.9g\n",
                 i, e.blend[0], e.blend[1], e.blend[2], e.blend[3]);
         else FeedbackAppend(s, "commandHistory.%u.blend=unobserved\n", i);
+        char shading_prefix[48]{};
+        std::snprintf(shading_prefix, sizeof(shading_prefix), "commandHistory.%u", i);
+        FeedbackAppendCommandShadingRate(s, shading_prefix, e);
     }
     FeedbackAppend(s, "commandHistory.methodLegend=0:unknown,1:CreateCommandList-initially-open,2:CreateCommandList1-initially-closed\n"
         "commandHistory.warning=ReShade-reset-notification-is-not-proof-of-native-Reset; next-steps-are-hypotheses-not-proven-fixes\ncommandLifetime.coverage=optional observers attempt each implementation once; missing receipts and earlier unobserved calls remain unknown\n");
 }
 #endif
+
+// Serialize the paired NR2 observation in one locked read.  Current callers
+// invoke this helper without g_chain_cs; the AlreadyLocked variants remain
+// available for any future serializer that already owns that lock.
+void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
+    const auto dual_snapshot = nr_dual_status_runtime::SnapshotUiAndSecondary();
+    const auto &observation = dual_snapshot.ui;
+    const auto &secondary_identity = dual_snapshot.secondary;
+    FeedbackAppend(s,
+        "%s.dual.snapshot.state=%s\n%s.dual.snapshot.stateCode=%u\n"
+        "%s.dual.snapshot.eligiblePrimary=%llu\n"
+        "%s.dual.snapshot.secondaryEvaluate=%llu\n"
+        "%s.dual.snapshot.warmupDiscarded=%llu\n"
+        "%s.dual.snapshot.finalAdopted=%llu\n"
+        "%s.dual.snapshot.processingAgeMs=%llu\n"
+        "%s.dual.snapshot.noAdoptionAgeMs=%llu\n"
+        "%s.dual.snapshot.windowStartMs=%llu\n"
+        "%s.dual.snapshot.config=%u\n"
+        "%s.dual.snapshot.routeId=%llu\n"
+        "%s.dual.snapshot.routeValid=%d\n"
+        "%s.dual.snapshot.fatal=0x%08X\n",
+        prefix, nr_dual_observation::UiStateName(observation.state),
+        prefix, static_cast<unsigned>(observation.state),
+        prefix, static_cast<unsigned long long>(observation.counts.eligible_primary),
+        prefix, static_cast<unsigned long long>(observation.counts.secondary_evaluate_success),
+        prefix, static_cast<unsigned long long>(observation.counts.warmup_discarded),
+        prefix, static_cast<unsigned long long>(observation.counts.final_adopted),
+        prefix, static_cast<unsigned long long>(observation.processing_age_ms),
+        prefix, static_cast<unsigned long long>(observation.no_adoption_age_ms),
+        prefix, static_cast<unsigned long long>(observation.window_start_ms),
+        prefix, observation.config_generation,
+        prefix, static_cast<unsigned long long>(observation.route.id),
+        prefix, observation.route.valid ? 1 : 0,
+        prefix, observation.fatal_code);
+    FeedbackAppend(s,
+        "%s.dual.secondaryIdentity.valid=%d\n"
+        "%s.dual.secondaryIdentity.routeId=%llu\n"
+        "%s.dual.secondaryIdentity.routeValid=%d\n"
+        "%s.dual.secondaryIdentity.instance=%llu\n"
+        "%s.dual.secondaryIdentity.featureGeneration=%llu\n"
+        "%s.dual.secondaryIdentity.config=%u\n"
+        "%s.dual.secondaryIdentity.evaluation=%u\n"
+        "%s.dual.secondaryIdentity.sinceReset=%u\n"
+        "%s.dual.secondaryIdentity.resetRequested=%d\n"
+        "%s.dual.secondaryIdentity.resetReasons=0x%X\n"
+        "%s.dual.secondaryIdentity.resetReasonLegend=1:caller,2:game,4:history,8:color-contract,16:guide,32:pending\n"
+        "%s.dual.secondaryIdentity.extent=%ux%u\n"
+        "%s.dual.secondaryIdentity.warmedUp=%d\n"
+        "%s.dual.secondaryIdentity.tuning.intensity=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.localTone=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.localStructure=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.skinStructure=%.9g\n"
+        "%s.dual.secondaryIdentity.tuning.autoMask=%d\n"
+        "%s.dual.secondaryIdentity.tuning.style=%u\n"
+        "%s.dual.secondaryIdentity.tuning.uiCorrection=%d\n"
+        "%s.dual.secondaryIdentity.tuning.jitterMode=%u\n"
+        "%s.dual.secondaryIdentity.tuning.inputFilter=%u\n",
+        prefix, secondary_identity.valid ? 1 : 0,
+        prefix, static_cast<unsigned long long>(secondary_identity.route.id),
+        prefix, secondary_identity.route.valid ? 1 : 0,
+        prefix, static_cast<unsigned long long>(secondary_identity.instance_id),
+        prefix, static_cast<unsigned long long>(secondary_identity.feature_generation),
+        prefix, secondary_identity.config_generation,
+        prefix, secondary_identity.evaluation,
+        prefix, secondary_identity.since_reset,
+        prefix, secondary_identity.reset_requested ? 1 : 0,
+        prefix, secondary_identity.reset_reasons,
+        prefix,
+        prefix, secondary_identity.width, secondary_identity.height,
+        prefix, secondary_identity.warmed_up ? 1 : 0,
+        prefix, static_cast<double>(secondary_identity.tuning.intensity),
+        prefix, static_cast<double>(secondary_identity.tuning.local_tone),
+        prefix, static_cast<double>(secondary_identity.tuning.local_structure),
+        prefix, static_cast<double>(secondary_identity.tuning.skin_structure),
+        prefix, secondary_identity.tuning.auto_mask ? 1 : 0,
+        prefix, secondary_identity.tuning.style,
+        prefix, secondary_identity.tuning.ui_correction ? 1 : 0,
+        prefix, static_cast<unsigned>(secondary_identity.tuning.jitter_mode),
+        prefix, secondary_identity.tuning.input_filter);
+    const auto &binding = dual_snapshot.binding;
+    FeedbackAppend(s,
+        "%s.dual.binding.reason=%s\n"
+        "%s.dual.binding.reasonCode=%u\n"
+        "%s.dual.binding.generation=%u\n"
+        "%s.dual.binding.context=%llu\n"
+        "%s.dual.binding.config=%u\n"
+        "%s.dual.binding.generationMatchesConfig=%d\n"
+        "%s.dual.binding.status=%u\n"
+        "%s.dual.regionBinding.reason=%s\n"
+        "%s.dual.regionBinding.reasonCode=%u\n"
+        "%s.dual.regionBinding.generation=%u\n"
+        "%s.dual.regionBinding.config=%u\n"
+        "%s.dual.regionBinding.generationMatchesConfig=%d\n"
+        "%s.dual.regionBinding.guideFlags=0x%X\n"
+        "%s.dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth\n"
+        "%s.dual.regionBinding.status=%u\n",
+        prefix, nr_binding::RefusalName(binding.dual.reason),
+        prefix, static_cast<unsigned>(binding.dual.reason),
+        prefix, binding.dual.generation,
+        prefix, static_cast<unsigned long long>(binding.dual.context),
+        prefix, binding.dual.config_generation,
+        prefix, binding.dual.generation_matches_config ? 1 : 0,
+        prefix, binding.dual.status,
+        prefix, nr_binding::RefusalName(binding.region.reason),
+        prefix, static_cast<unsigned>(binding.region.reason),
+        prefix, binding.region.generation,
+        prefix, binding.region.config_generation,
+        prefix, binding.region.generation_matches_config ? 1 : 0,
+        prefix, binding.region.guide_flags,
+        prefix,
+        prefix, binding.region.status);
+}
+
 
 void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
 #if defined(NR_HAS_NGX_LIFECYCLE_EVIDENCE)
@@ -155,7 +290,73 @@ void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
         prefix,gate.prepared_call,prefix,gate.current_call,prefix,gate.request_call);
 }
 #endif
+// BEGIN ENERGY GATE FEEDBACK
+#if defined(NR_HAS_ENERGY_GATE)
+void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
+    nr_processing_runtime::EnergyGateSnapshot snapshot{};
+    if(!nr_processing_runtime::TrySnapshotEnergyGateStatus(snapshot)) {
+        FeedbackAppend(s,"%s.energyGate.available=0\n%s.energyGate.omitted=lock-busy; state unknown\n",prefix,prefix);
+        return;
+    }
+    FeedbackAppend(s,"%s.energyGate.available=1\n%s.energyGate.loaded=%d\n",prefix,prefix,snapshot.loaded);
+    if(!snapshot.loaded) {
+        FeedbackAppend(s,"%s.energyGate.state=not-loaded; saved choices unknown; observation did not load settings\n",prefix);
+        return;
+    }
+    const auto& status=snapshot.status;
+    FeedbackAppend(s,"%s.energyGate.observations=total:%llu,pauseTrue:%llu,pauseFalse:%llu,unknown:%llu,unbound:%llu,lastSignal:%u\n",
+        prefix,status.observations,status.pause_true,status.pause_false,status.pause_unknown,status.unbound,status.last_signal);
+    const char* state=status.active?(snapshot.stale_streams?"paused-recorded-expiry-pending":"paused-recorded"):
+        snapshot.stale_streams?"confirmation-expiry-pending":snapshot.confirming_streams?"confirming":
+        status.recently_resumed?"recently-resumed":(!status.conservative&&!status.heuristic)?"off":"waiting-for-evidence";
+    FeedbackAppend(s,"%s.energyGate.state=%s\n%s.energyGate.config=conservative:%d,heuristic:%d\n"
+        "%s.energyGate.recorded=active:%d,streams:%u,explicit:%u,heuristic:%u,confirming:%u\n"
+        "%s.energyGate.evidence=explicitSamplesMax:%u,guessSamplesMax:%u,staleStreams:%u,maxObservationAgeMs:%llu,clockReversed:%d\n"
+        "%s.energyGate.historyResets=%llu\n%s.energyGate.blockedChecks=%llu\n%s.energyGate.persistenceFailed=%d\n"
+        "%s.energyGate.scope=recorded source-stream state; configured ON is not a pause; stale state awaits scheduler polling; blockedChecks counts rejected scheduling checks, not frames, saved milliseconds, power or GPU work; snapshot does not advance history\n",
+        prefix,state,prefix,status.conservative,status.heuristic,
+        prefix,status.active,status.active_streams,snapshot.explicit_streams,snapshot.heuristic_streams,snapshot.confirming_streams,
+        prefix,status.explicit_samples,status.guess_samples,snapshot.stale_streams,snapshot.max_observation_age_ms,snapshot.clock_reversed,
+        prefix,status.resets,prefix,status.blocked_checks,prefix,status.persistence_failed,prefix);
+}
+#endif
+// END ENERGY GATE FEEDBACK
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_ENERGY_GATE)
+    FeedbackAppendEnergyGate(s,prefix);
+#endif
+#include "nr_compat_present_feedback.inl"
+#include "nr_full_feedback.inl"
+    FeedbackAppend(s,"%s.processing.actual=%s\n%s.processing.policy=selected-suffix; unstarted-fallback-is-provisional; private-work-or-adoption-retains-route\n",
+        prefix,nr_processing::Name(nr_processing_runtime::Effective()),prefix);
+
+    FeedbackAppend(s,"%s.dual.statusLegend=0:off,1:primary-warmup,2:secondary-warmup,3:create-pending,4:recorded,5:guides,6:resources-budget,7:queue,8:slot,9:fatal,10:device-identity,11:pipeline,12:resource-contract\n",prefix);
+    FeedbackAppend(s,"%s.dual.status=%u\n%s.dual.primary=%ux%u\n%s.dual.secondary=%ux%u\n"
+        "%s.dual.createCalls=%llu\n%s.dual.evaluateSuccess=%llu\n%s.dual.completedStableSamples=%llu\n"
+        "%s.dual.parentInstance=%llu\n%s.dual.secondaryInstance=%llu\n%s.dual.parentEvaluation=%llu\n"
+        "%s.dual.textureBytes=%llu\n%s.dual.textureBudget=%llu\n%s.dual.fatal=0x%08X\n"
+        "%s.dual.scope=independent observed counters; no game/FG frame inference; texture bytes exclude opaque NGX allocations\n",
+        prefix,static_cast<unsigned>(nr_dual_runtime::status.load()),prefix,nr_dual_runtime::primary_width.load(),nr_dual_runtime::primary_height.load(),prefix,nr_dual_runtime::second_width.load(),nr_dual_runtime::second_height.load(),
+        prefix,nr_dual_runtime::second_creates.load(),prefix,nr_dual_runtime::second_evaluations.load(),prefix,nr_dual_runtime::second_completed.load(),
+        prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
+        prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
+    const auto memory=SnapshotNrContextMemory();
+    FeedbackAppend(s,"%s.contextMemory.contexts=livePrimary:%u,liveAux:%u,retiredPrimary:%u,retiredAux:%u,pendingPrimary:%u,pendingAux:%u,quarantined:%u\n"
+        "%s.contextMemory.auxSlots=live:%u,retired:%u,pending:%u\n"
+        "%s.contextMemory.auxTrackedBytes=live:%llu,retired:%llu,pending:%llu,global:%llu\n"
+        "%s.contextMemory.parentRetirements=%llu\n"
+        "%s.contextMemory.scope=registered and pending metadata; quarantined is a subset; global may include outside-lock destruction or unlisted quarantine; excludes primary textures and opaque NGX allocations; not process or hardware VRAM\n",
+        prefix,memory.live_primary,memory.live_auxiliary,memory.retired_primary,memory.retired_auxiliary,memory.pending_primary,memory.pending_auxiliary,memory.quarantined,
+        prefix,memory.live_slots,memory.retired_slots,memory.pending_slots,
+        prefix,memory.live_aux_bytes,memory.retired_aux_bytes,memory.pending_aux_bytes,memory.tracked_aux_bytes,
+        prefix,memory.parent_retirements,prefix);
+    FeedbackAppendDualSnapshot(s, prefix);
+    FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
+        prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
+    FeedbackAppend(s,"%s.dual.timingConfig=%u\n%s.dual.currentConfig=%u\n",prefix,nr_dual_runtime::time_config.load(),prefix,g_config_generation.load());
+    const char* timing_names[]={"NR1","Down","NR2","Combine","NativeSR","Chain","LowResidual"};
+    for(unsigned i=0;i<7;++i)FeedbackAppend(s,"%s.dual.gpuMs.%s=last:%.9g,median:%.9g,p95:%.9g\n",prefix,timing_names[i],nr_dual_runtime::time_last[i].load(),nr_dual_runtime::time_median[i].load(),nr_dual_runtime::time_p95[i].load());
+
     const auto decision = SnapshotNrCompatibilityVerdict();
     FeedbackAppendCompatibilityVerdict(s, prefix, decision);
 #if defined(NR_HAS_RESOURCE_RECOVERY)
@@ -248,11 +449,12 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             const auto& d = first ? formats.first_unknown[role] : formats.latest[role];
             FeedbackAppend(s, "%s.format.%s.%s=available:%d,physical:%u,srv:%u,uav:%u,"
                 "config:%u,feature:%llu,deviceId:%llu,resourceId:%llu,observedCall:%llu,"
-                "viewStatus:%s,provenance:%u,hookCoverage:%d,conflict:%d,nativeFailed:%d,cpuClearSource:%d\n",
+                "viewStatus:%s,provenance:%u,hookCoverage:%d,conflict:%d,nativeFailed:%d,cpuClearSource:%d,lifetimeCreateView:%d\n",
                 prefix, role ? "output" : "color", first ? "firstUnknown" : "latest",
                 d.available, d.physical, d.srv, d.uav, d.config, d.feature, d.device,
                 d.resource, d.observed_call, nr_format_access::StatusName(d.status),
-                static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed, d.clear_source);
+                static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed, d.clear_source,
+                d.lifetime_source);
             if (!first && d.available) {
                 const auto& semantic = d.semantic;
                 FeedbackAppend(s, "%s.semantic.%s=storage:%u,flags:0x%X,shape:%ux%u,array:%u,mips:%u,samples:%u,"
@@ -284,7 +486,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         }
     }
     FeedbackAppend(s, "%s.format.coverage=cpuClearSource is a preparation candidate; freshGate is the exact-call result, currentScope marks current native/config match; "
-        "admission: synchronous CreateView or current-call-gated NativeClearCpuRequest; "
+        "admission: current-generation Evaluate CreateView, live resource-lifetime CreateView, or current-call-gated NativeClearCpuRequest; "
         "CPU request is not GPU descriptor proof; worker-thread requests unobserved; "
         "viewReady is not color/NR/game admission; provenance=0:none,1:typed,2:native-view,3:float-contract\n", prefix);
 #endif
@@ -310,6 +512,12 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,descriptor_counts.writes,descriptor_counts.copies,descriptor_counts.unknown_writes,descriptor_counts.overlaps,
         descriptor_counts.evictions,descriptor_counts.invalidations,descriptor_counts.resources_retired,descriptor_counts.heaps_retired,
         g_nr_descriptor_lifetime_failures.load(std::memory_order_relaxed),descriptor_counts.scoped_copies,descriptor_counts.global_copies);
+    FeedbackAppend(s,"%s.descriptor.rangeQueries=orderedScopes:%llu,orderedRanges:%llu,rawScopes:%llu,indexedInvalidations:%llu,orderedFallbacks:%llu,linearFallbacks:%llu; cumulative-batch-counters-not-GPU-time\n",
+        prefix,descriptor_counts.ordered_copy_scopes,descriptor_counts.ordered_copy_ranges,descriptor_counts.raw_copy_scopes,
+        descriptor_counts.indexed_invalidations,descriptor_counts.ordered_fallbacks,descriptor_counts.linear_fallbacks);
+    FeedbackAppend(s,"%s.descriptor.slotQueries=cpuHits:%llu,cpuMisses:%llu,cpuChainSteps:%llu,gpuHits:%llu,gpuMisses:%llu,gpuChainSteps:%llu; cumulative-Find-only-not-GPU-time-not-validity\n",
+        prefix,descriptor_counts.cpu_lookup_hits,descriptor_counts.cpu_lookup_misses,descriptor_counts.cpu_lookup_steps,
+        descriptor_counts.gpu_lookup_hits,descriptor_counts.gpu_lookup_misses,descriptor_counts.gpu_lookup_steps);
     const auto descriptor_pool=[&](const char *name,const nr_descriptor::PoolCounters &pool) {
         FeedbackAppend(s,"%s.descriptor.registry.%s=active:%u,capacity:%u,drops:%llu,evictions:%llu,ambiguities:%llu,coverageLost:%d\n",
             prefix,name,pool.active,pool.capacity,pool.drops,pool.evictions,pool.ambiguities,pool.coverage_lost);
@@ -351,6 +559,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, load.present[0] ? 1 : 0, prefix, load.present[1] ? 1 : 0, prefix, load.present[2] ? 1 : 0,
         prefix, RuntimeLoadClassName(load.classes[0]), prefix, RuntimeLoadClassName(load.classes[1]),
         prefix, RuntimeLoadClassName(load.classes[2]), prefix, load.search);
+    FeedbackAppend(s, "%s.runtime.coldBootstrapAttempted=%d\n%s.runtime.coldBootstrapSucceeded=%d\n%s.runtime.coldBootstrapResult=0x%X\n",
+        prefix, load.bootstrap_attempted, prefix, load.bootstrap_succeeded, prefix, load.bootstrap_result);
     FeedbackAppend(s, "%s.scope.config=%u\n%s.scope.epoch=%llu\n%s.scope.featureGeneration=%llu\n%s.scope.mode=%d\n"
         "%s.scope.nrSuccess=%llu\n%s.scope.transferSubmitted=%llu\n%s.queue.admitted=%llu\n%s.queue.unknownBypasses=%llu\n"
         "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n%s.queue.retiredAdmitted=%llu\n"
@@ -577,6 +787,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
+    char shading_prefix[80]{};
+    std::snprintf(shading_prefix, sizeof(shading_prefix), "%s.commandState", prefix);
+    FeedbackAppendCommandShadingRate(s, shading_prefix, evidence);
     FeedbackAppend(s, "%s.commandState.available=%d\n%s.commandState.snapshotReason=%s\n",
         prefix, evidence.available ? 1 : 0, prefix, evidence.available ? "available" : evidence.reason);
     FeedbackAppend(s, "%s.commandState.blendObserved=%d\n", prefix,
@@ -630,7 +843,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.rrCreatesInProgress=%u\n%s.rrEvaluations=%llu\n%s.otherNrOwner=%d\n"
         "%s.genericRenoDxConflict=%d\n%s.moduleObserverFault=%s\n"
         "%s.feature1Preflight=%llu/%llu\n%s.preflightCoreLoaded=%d\n"
-        "%s.preflightDlssdLoaded=%d\n%s.commandSignatureHook=%d\n"
+        "%s.preflightDlssdLoaded=%d\n%s.loaderInitHooksReady=%d\n"
+        "%s.loaderInitCompletions=%llu\n%s.coreLifecycleReady=%d\n"
+        "%s.commandSignatureHook=%d\n"
         "%s.commandSignatureDeferredStart=%d\n%s.commandSignatureObserved=%llu\n"
         "%s.commandSignatureUnknownUses=%llu\n",
         prefix, g_nr_successful_evaluations.load(), prefix, g_nr_transfer_submitted_frames.load(),
@@ -646,6 +861,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         g_feature1_preflight_attempts.load(),
         prefix, g_preflight_core_loaded.load() ? 1 : 0,
         prefix, g_preflight_dlssd_loaded.load() ? 1 : 0,
+        prefix, g_loader_init_hooks_ready.load() ? 1 : 0,
+        prefix, g_loader_init_completions.load(),
+        prefix, g_core_lifecycle_hooks_ready.load() ? 1 : 0,
         prefix, g_command_signature_hook_published.load() ? 1 : 0,
         prefix, g_command_signature_start_deferred.load() ? 1 : 0,
         prefix, g_command_signature_create_calls.load(),
@@ -709,6 +927,84 @@ void OnFeedbackScreenshot(reshade::api::effect_runtime *runtime, const char *pat
     nr_f8::Screenshot(runtime, path);
 }
 
+#include "nr_optional_layer_probe.h"
+
+// OPTIONAL_LAYER_OBSERVER_BEGIN
+void FeedbackAppendLayerScalar(FeedbackSession &s, const NgxParams *params,
+                               const char *label, const char *key) {
+    unsigned value = 0;
+    const auto query = nr_optional_layer_probe::ReadUnsigned(
+        ParamSlot<GetUIntFn>(params, 12), params, key, kNgxSuccess, value);
+    if (query.Present()) FeedbackAppend(s, ",%s:%u", label, value);
+    else if (query.state == nr_optional_layer_probe::QueryState::MissingGetter)
+        FeedbackAppend(s, ",%s:missing-getter", label);
+    else FeedbackAppend(s, ",%s:getter-error(0x%08X)", label, query.result);
+}
+
+void FeedbackAppendOptionalLayers(FeedbackSession &s, const NgxParams *params,
+                                  const FeatureRecord &feature,
+                                  unsigned long long carrier) {
+    // The first sparse observation only. Preserve the existing tail reserve;
+    // this complete bounded record is optional, not a reason to grow the TXT.
+    constexpr std::size_t tail_reserve = 8192;
+    if (s.report_used > sizeof(s.report) - tail_reserve -
+            nr_optional_layer_probe::kReportBudget) {
+        FeedbackAppend(s, "layerProbe.status=skipped-metadata-budget\n");
+        return;
+    }
+    FeedbackAppend(s, "layerProbe.schema=1\nlayerProbe.contract=%s\n"
+        "layerProbe.sample=%u featureId=%d generation=%llu carrier=%llu\n"
+        "layerProbe.scope=incoming-NGX-before-native-Evaluate; CPU-metadata-only; engine-and-Streamline-not-enumerated\n"
+        "layerProbe.meaning=names-do-not-prove-layers; not-supplied-requires-both-success-null; errors-or-missing-getters-are-unknown; no-pointer-addresses-or-GPU-use\n",
+        nr_optional_layer_probe::kContract, s.observations, feature.feature_id,
+        feature.generation, carrier);
+    const auto typed_getter = ParamSlot<GetD3D12Fn>(params, 9);
+    const auto untyped_getter = ParamSlot<GetVoidFn>(params, 8);
+    for (const auto &layer : nr_optional_layer_probe::kLayers) {
+        ID3D12Resource *typed_value = nullptr;
+        void *untyped_value = nullptr;
+        const auto typed = nr_optional_layer_probe::ReadPointer(
+            typed_getter, params, layer.key, kNgxSuccess, typed_value);
+        const auto untyped = nr_optional_layer_probe::ReadPointer(
+            untyped_getter, params, layer.key, kNgxSuccess, untyped_value);
+        const bool known_empty = typed.state == nr_optional_layer_probe::QueryState::Null &&
+            untyped.state == nr_optional_layer_probe::QueryState::Null;
+        const char *status = typed.Present() ? "typed-present" :
+            untyped.Present() ? "untyped-present-not-inspected" :
+            known_empty ? "not-supplied" : "unknown-access";
+        FeedbackAppend(s, "layerProbe.%s=status:%s,typed:%s", layer.key, status,
+            nr_optional_layer_probe::QueryName(typed.state));
+        if (typed.state != nr_optional_layer_probe::QueryState::MissingGetter)
+            FeedbackAppend(s, "(0x%08X)", typed.result);
+        FeedbackAppend(s, ",untyped:%s", nr_optional_layer_probe::QueryName(untyped.state));
+        if (untyped.state != nr_optional_layer_probe::QueryState::MissingGetter)
+            FeedbackAppend(s, "(0x%08X)", untyped.result);
+        // A successful typed getter is the only descriptor-inspection gate.
+        // Never cast, dereference, retain, bind or sample an untyped pointer.
+        if (typed.Present()) {
+            const auto d = ID3D12Resource_GetDesc(typed_value);
+            FeedbackAppend(s, ",dim:%u,size:%llux%u,format:%u,array:%u,mips:%u,samples:%u,flags:%u",
+                static_cast<unsigned>(d.Dimension), d.Width, d.Height,
+                static_cast<unsigned>(d.Format), d.DepthOrArraySize,
+                d.MipLevels, d.SampleDesc.Count, static_cast<unsigned>(d.Flags));
+        }
+        if (typed.Present() || untyped.Present()) {
+            const char *labels[] = {"x", "y", "w", "h"};
+            bool has_rect = false;
+            for (unsigned i = 0; i < 4; ++i) if (layer.rect[i] != nullptr) {
+                FeedbackAppendLayerScalar(s, params, labels[i], layer.rect[i]);
+                has_rect = true;
+            }
+            if (!has_rect) FeedbackAppend(s, ",rect:not-in-key-contract");
+        }
+        FeedbackAppend(s, "\n");
+    }
+    FeedbackAppend(s, "layerProbe.roughnessMode=0:separate,1:normals-w");
+    FeedbackAppendLayerScalar(s, params, "observed", nr_optional_layer_probe::kRoughnessMode);
+    FeedbackAppend(s, "\nlayerProbe.complete=1\n");
+}
+// OPTIONAL_LAYER_OBSERVER_END
+
 void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &feature,
                              unsigned long long carrier) {
     if (g_feedback_status.load(std::memory_order_relaxed) != 1) return;
@@ -764,6 +1060,7 @@ void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &featu
                         d.SampleDesc.Count, static_cast<unsigned int>(d.Flags));
                 } else FeedbackAppend(*s, "resource.%s=absent\n", key);
             }
+            if (s->observations == 1) FeedbackAppendOptionalLayers(*s, params, feature, carrier);
         }
     }
     ReleaseSRWLockExclusive(&g_feedback_lock);
@@ -1040,6 +1337,21 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
             config.color_strength, config.preserve_lighting ? 1 : 0,
             applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
             applied.tuning.style);
+        FeedbackAppend(*s,"lightStyle.requestVersion=%u\nlightStyle.requestPreset=%u\nlightStyle.requestControlMode=%u\n"
+            "lightStyle.requestBroad=%.9g\nlightStyle.requestDark=%.9g\nlightStyle.requestReflection=%.9g\n"
+            "lightStyle.requestStructure=%.9g\nlightStyle.requestGlow=%.9g\nlightStyle.requestPreview=%u\n"
+            "lightStyle.actual=recorded per dispatch in stage metadata; request is not output completion\n",
+            config.light_style_version,config.light_preset,config.light_control_mode,static_cast<double>(config.light_broad),
+            static_cast<double>(config.light_dark),static_cast<double>(config.light_reflection),
+            static_cast<double>(config.light_structure),static_cast<double>(config.light_glow),config.light_preview);
+        FeedbackAppend(*s,"dualNR.request=%u\ndualNR.scale=%u/%u\ndualNR.status=%u\ndualNR.primary=%ux%u\ndualNR.secondary=%ux%u\n"
+            "dualNR.createCalls=%llu\ndualNR.evaluateSuccess=%llu\ndualNR.parentInstance=%llu\ndualNR.secondaryInstance=%llu\ndualNR.parentEvaluation=%llu\n"
+            "dualNR.fatal=0x%08X\ndualNR.phase=unknown; no fabricated zero jitter\ndualNR.scope=NR2 counts are additional model evaluations, not game/FG frames\n"
+            "genericResidual.request=%u\ngenericResidual.gains=%.6g,%.6g,%.6g,%.6g,%.6g\ngenericResidual.domain=D normalized model storage; final D protection retained\n",
+            config.nr_passes,config.nr_second_numerator,config.nr_second_denominator,static_cast<unsigned>(nr_dual_runtime::status.load()),
+            nr_dual_runtime::primary_width.load(),nr_dual_runtime::primary_height.load(),nr_dual_runtime::second_width.load(),nr_dual_runtime::second_height.load(),
+            nr_dual_runtime::second_creates.load(),nr_dual_runtime::second_evaluations.load(),nr_dual_runtime::last_primary_instance.load(),nr_dual_runtime::last_second_instance.load(),nr_dual_runtime::last_parent_evaluation.load(),
+            nr_dual_runtime::fatal_result.load(),config.generic_residual?1:0,static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]));
         FeedbackAppendActivity(*s, "start");
         const char *stage_block = FeedbackStageBlockReason(config);
         // RequestStageCapture uses atomics and Log only, never g_chain_cs.

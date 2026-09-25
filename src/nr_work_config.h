@@ -21,8 +21,9 @@ struct Request {
     Status status = Status::Accepted;
 };
 
-inline Work Initial(bool file_proven_absent) {
-    return file_proven_absent ? Work{0, 1.0f} : Work{1, 0.75f};
+inline Work Initial(bool /*file_proven_absent*/) {
+    // Missing fields use the successor default; explicit legacy requests are parsed below.
+    return Work{0, 1.0f};
 }
 
 inline bool Valid(Work value) {

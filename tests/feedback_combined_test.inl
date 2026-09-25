@@ -98,6 +98,10 @@ void PopulateCombinedEvidence() {
     state.creation_method = word;
     state.initial_pso = state.genuine_init_event = state.first_recording_observed = state.blend_observed = true;
     for (auto &value : state.blend) value = -std::numeric_limits<float>::max();
+    // Serialization capacity fixture, not a claim that these enum values are
+    // admissible: real rejected setters also need lossless bounded diagnostics.
+    state.shading_rate_observed = state.shading_combiners_explicit = true;
+    state.shading_rate = state.shading_combiners[0] = state.shading_combiners[1] = word;
     g_command_history.count = kCommandHistoryLimit;
     for (auto &entry : g_command_history.entries) entry = state;
 
@@ -301,7 +305,7 @@ void RunCombined(reshade::api::effect_runtime &runtime, bool archive) {
         FeedbackAppend(session, "fixture.optionalCapacity.%u=%s\n", row++, value.c_str());
     }
     const auto before_end = session.report_used;
-    check(!session.report_truncated, "start snapshot and labelled optional capacity rows remain whole");
+    check(!session.report_truncated, "COMBINED_CAPACITY_TOO_SMALL: start snapshot and labelled optional capacity rows remain whole");
     // A configuration change during collection keeps the historical proof's
     // original scope. The main decision must come from the actual end snapshot.
     fixture_decision.current.config = 8;

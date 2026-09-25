@@ -4,11 +4,14 @@ Texture2D<float> ViewDepth : register(t0);
 RWTexture2D<float> HardwareDepth : register(u0);
 cbuffer DepthConstants : register(b0) {
     uint Width, Height, BaseX, BaseY;
-    float ProjectionA, ProjectionB, FarDepth, Padding;
+    float ProjectionA, ProjectionB, FarDepth, UnknownDepth;
 };
 [numthreads(8,8,1)]
 void ConvertRrDepthCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x>=Width || tid.y>=Height) return;
+    // Explicit missing-projection candidate: no camera-depth interpretation or
+    // source sample. This initialized plane is marked unknown by the CPU owner.
+    if (UnknownDepth>0.5) { HardwareDepth[tid.xy]=FarDepth; return; }
     float z=ViewDepth.Load(int3(tid.xy+uint2(BaseX,BaseY),0));
     // RR view-space background/invalid samples have no finite surface. Map
     // them to the explicit far plane, never feed NaN/Inf to Feature18.

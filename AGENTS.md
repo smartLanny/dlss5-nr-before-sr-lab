@@ -1,62 +1,63 @@
-# Shared local and cloud handoff
+# DLSS5 Core — shared development rules
 
-The owner renamed the current tested dev16 Core candidate to `0.4.7beta` on
-2026-09-09. This changes the current product label, not its historical source
-line or the integration/release permissions below. Preserve earlier version
-names in historical evidence. Continue this handoff from the latest isolated
-candidate branch; do not infer a merge into `main` or stable 0.4 from the rename.
+## Current branch and ownership
 
-## Shared-mechanism compatibility fixes
+- `main` is the sole continuing Core integration branch (0.5.x). 0.4 is frozen.
+  During the authorized #300 promotion, its isolated maintenance candidate is
+  the pending main tree; do not open a parallel integration or reset another tree.
+- Read `docs/interop/CURRENT_STATUS.md` first. #294 is the task/experiment index.
+- Fetch and inspect current main, relevant Issues/PRs and existing branches before
+  coding. Use one short-lived task branch and one PR, normally targeting main.
+  At most one explicit dependency layer; never maintain competing "latest" stacks.
+- Manager is maintained in `smartLanny/DLSS5-Manager-ZJZ`; this repository owns
+  Core rendering, runtime/guide contracts and the Core artifact/ABI handoff.
+- Shared rendering/resource/lifetime mechanisms are the architecture boundary;
+  game names are reproduction entry points, not speculative hard-coded fixes.
 
-Treat game names as reproduction and regression-test entry points, not as the
-architecture boundary. Fix shared rendering, command-list, queue, resource,
-format or lifetime contracts once so all titles with that contract benefit.
-Do not accumulate per-game branches, allowlists or guessed engine exceptions
-when the evidence identifies a common mechanism. Use mechanism names for new
-modules, tests and integration PRs; preserve the exact historical identity of
-an already-running owner test artifact. Keep independent installer packaging
-moving while a separate compatibility mechanism is under investigation.
+## Implementation and validation
 
-For this 0.5 research successor (#168), the sole research target is `next/0.5`. Temporary research PRs target it and must not feed algorithms into `main` or stable 0.4. Maintenance-only instructions below describe that separate line. Read the current 0.5 section first.
+- Fix a coherent supported batch and validate it; do not stop at advice when the
+  owner requests implementation. Do not invent an optimization without evidence.
+- Preserve native SR/RR and safe bypass. Report persistent bypass with a clear
+  request for F8/log feedback. A bypass-induced FPS increase is not a performance fix.
+- Preserve per-layer model/history identity, exact command-list/queue/fence and
+  resource lifetimes, extent/subrect, formats, jitter, MV, depth, exposure/HDR,
+  feature identity and FG ownership. Never replace completion proof with frame age.
+- Preserve saved settings. New experiments remain opt-in until separately accepted.
+- Use `scripts/build-unified-candidate.ps1` with exact dependency/source pins,
+  full face backend and explicit FFX SDK/cache inputs. Do not bypass failed gates.
+- Windows verification is primary. Hosted checks remain opt-in through the one
+  PR entry and `ENABLE_HOSTED_CI=true`; the owner has not enabled paid CI.
+  Do not add automatic push checks or retry a billing-blocked job.
 
-Read `docs/interop/CURRENT_STATUS.md` first for the current candidate, supported routes, validation boundaries, and owner handoff state. The sole continuing development branch is `main`. The former compatibility integration branch (PR #133) and maintenance branches are historical integration inputs; start temporary work branches from current `origin/main` and merge them back. Preserve separate unfinished 0.5, Feeder and Manager experiments until explicitly integrated.
+## Evidence and delivery
 
-Verify the remote HEAD and the candidate's `source-manifest.json` / `validation.json` before citing a commit or test result. Chat history and old roadmap checkboxes are historical context, not proof of current source or a successful build. Do not repeat migration work already present in the ancestry.
+- Distinguish source review, compilation, CPU, WARP, hardware shader, NGX inference,
+  hosted CI and game acceptance. A skipped/failed/unstarted check is not a pass.
+- UI1 has only the owner's initial "seems effective" observation, NOT complete
+  game acceptance. Preserve prior contrary records as historical, with correction.
+- Record build SHA, packaging SHA, binary/ZIP hashes, actual commands, receipts,
+  failures and remaining tests. A merge tree match does not rename a binary's source.
+- Current UI1 and rollback OTA retain exact historical names. Future behavior
+  changes use `0.5.2-beta.1` / "0.5.2 Beta 1", then increment normally.
+- Public Core attachments require reviewed payloads, licenses and explicit release
+  authorization. An experimental prerelease must not silently replace stable/latest
+  or change Manager default component pins. Keep the previous package available.
+- Do not change signing keys, invent signatures or bypass existing verification.
 
-Preserve existing worktrees and all uncommitted work. Use an isolated worktree for changes. Record actual commits, commands, logs, artifact hashes, unresolved defects, and the next action in the shared handoff and relevant Issues. A source commit, local validation, hosted CI, and game/NVIDIA validation are separate facts.
+## Preservation and privacy
 
-After handing the candidate to the owner for testing, follow the latest owner instruction before starting another development batch. No automatic stable release, tag replacement, or merge into main/release is implied by a compatibility test handoff.
+- Preserve other worktrees and all uncommitted/untracked work. Before authorized
+  cleanup, save refs, index/diffs and unique files; independently verify archives.
+  Git bundles do not back up ignored builds, captures, local edits or release assets.
+- Branch retirement is not feature completion. Record original ref/SHA, retained
+  source/tests/evidence and successor Issue before closing an old implementation PR.
+- Raw feedback, ETL, paths, dumps, vendor payloads and private keys stay private.
+  Never transfer a private feedback Issue wholesale into the public Manager repo.
+- Public-source export uses a reviewed tracked-file allowlist, not a working-tree
+  copy. Follow `docs/REPOSITORY_AUDIT.md`; historical private inbox files are not
+  permission to add new binaries or publish them.
+- No force push to main, history rewrite, tag replacement, game installation or
+  unrelated deletion. Execute only the owner's scoped cleanup/release authorization.
 
-## Protect private evidence
-
-- Keep `bug-inbox/`, feedback archives, raw logs, captures, dumps, local paths,
-  vendor payloads, binaries, credentials, and signing private keys out of any
-  public-source export.
-- Before publishing or pushing a new file category, run the checks in
-  `docs/REPOSITORY_AUDIT.md` and inspect the staged diff.
-- Do not copy the working directory to create a public repository. Export an
-  explicit tracked-file allowlist from a reviewed commit.
-
-## Use CI deliberately
-
-- Run the smallest relevant local gate before pushing. Batch related commits
-  into one push when practical; do not push progress-only commits to refresh a
-  pull request.
-- Pull requests use `.github/workflows/pull-request-validation.yml` as their
-  single automatic entry point. Specialist workflows are reusable or manual;
-  do not add another direct `pull_request` trigger to them.
-- Avoid validating the same development commit through both `push` and
-  `pull_request`. Reserve automatic `push` validation for protected integration
-  or release branches where a post-merge check is intentional.
-- Every new automatic workflow needs narrow branch/path scope, read-only default
-  permissions, and branch-normalized concurrency with stale runs cancelled.
-- If a GitHub-hosted job has no steps and reports a billing or spending-limit
-  error, record it as "CI not started", rely on logged local gates temporarily,
-  and do not rerun it until billing is fixed.
-
-## Report evidence accurately
-
-- Distinguish local, GitHub-hosted, WARP, hardware, and in-game results.
-- A skipped, cancelled, billing-blocked, or unstarted job is not a passing test.
-- Do not publish releases, change repository visibility, rewrite history, or
-  remove evidence without an explicit maintainer request.
+Historical instructions: `docs/history/pre-mainline-20260926/AGENTS.pre-mainline.md`.

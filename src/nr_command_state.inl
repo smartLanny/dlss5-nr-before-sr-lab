@@ -93,7 +93,15 @@ void ReleaseNativeCommandState(NativeCommandState &state) {
     }
     // Do not assign a whole aggregate here: Clang can materialize a ~36 KiB
     // temporary even at -O2, exceeding the available game worker stack.
-    memset(state.arguments, 0, sizeof(state.arguments));
+    // Allocation initializes all payloads. Every reader gates constants by
+    // kind and constant_mask, so Reset/Release invalidate these headers rather
+    // than overwrite 32 KiB of inactive data. No stale word can be replayed.
+    for (auto &stage : state.arguments)
+        for (auto &argument : stage) {
+            argument.kind = CommandRootKind::Empty;
+            argument.value = 0;
+            argument.constant_mask = 0;
+        }
     state.known = false;
     state.first_recording_observed = false;
     state.unknown_reason = "awaiting-native-reset";
@@ -211,12 +219,21 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
         destination.dynamic.depth_target=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(destination.dsv_cache);
     return true;
 }
+// Payload bytes are valid only through kind, and constants additionally through
+// constant_mask. RestoreNativeCommandState and evidence readers obey those gates;
+// snapshots may copy inactive bytes but must never replay them. Allocation
+// initializes all bytes; Reset/Release invalidate every payload's kind and mask.
+void InvalidateCommandRootArgument(CommandRootArgument &argument) {
+    argument.kind = CommandRootKind::Empty;
+    argument.value = 0;
+    argument.constant_mask = 0;
+}
 void CommandStateSetRoot(NativeCommandState &state, unsigned int stage, ID3D12RootSignature *root) {
     const UINT domain = stage == 0 ? D3D12_GRAPHICS_STATE_COMPUTE_ROOT_SIGNATURE : D3D12_GRAPHICS_STATE_GRAPHICS_ROOT_SIGNATURE;
     if (state.roots[stage] == root && (state.unknown_domains & domain) == 0) return;
     state.unknown_domains &= ~domain;
     CommandStateAssign(state.roots[stage], root);
-    for (auto &argument : state.arguments[stage]) argument = {};
+    for (auto &argument : state.arguments[stage]) InvalidateCommandRootArgument(argument);
 }
 void CommandStateSetHeaps(NativeCommandState &state, UINT count, ID3D12DescriptorHeap *const *heaps) {
     ID3D12DescriptorHeap *next[2] = {};
@@ -234,22 +251,25 @@ void CommandStateSetHeaps(NativeCommandState &state, UINT count, ID3D12Descripto
     for (unsigned int i = 0; i < 2; ++i) CommandStateAssign(state.heaps[i], next[i]);
     for (auto &stage : state.arguments)
         for (auto &argument : stage)
-            if (argument.kind == CommandRootKind::Table) argument = {};
+            if (argument.kind == CommandRootKind::Table) InvalidateCommandRootArgument(argument);
 }
 void CommandStateSetValue(NativeCommandState &state, unsigned int stage,
                           UINT index, CommandRootKind kind, UINT64 value) {
     if (index >= 64) { state.known = false; state.unknown_reason = "invalid-recorded-state"; return; }
     auto &argument = state.arguments[stage][index];
-    argument = {};
+    // Address/table setters do not consume the 256-byte constants payload.
+    // Invalidate its mask on every type change so a later partial constant write
+    // cannot resurrect constants belonging to an earlier binding/signature.
     argument.kind = kind;
     argument.value = value;
+    argument.constant_mask = 0;
 }
 void CommandStateSetConstants(NativeCommandState &state, unsigned int stage,
                               UINT index, UINT count, const void *values, UINT offset) {
     if (index >= 64 || offset > 64 || count > 64 - offset ||
         (count != 0 && values == nullptr)) { state.known = false; state.unknown_reason = "invalid-recorded-state"; return; }
     auto &argument = state.arguments[stage][index];
-    if (argument.kind != CommandRootKind::Constants) argument = {};
+    if (argument.kind != CommandRootKind::Constants) InvalidateCommandRootArgument(argument);
     argument.kind = CommandRootKind::Constants;
     const auto *source = static_cast<const UINT *>(values);
     for (UINT i = 0; i < count; ++i) {
@@ -272,7 +292,25 @@ void CommandStateScissors(NativeCommandState &state, UINT count, const D3D12_REC
 }
 void CommandStateVertices(NativeCommandState &state, UINT first, UINT count, const D3D12_VERTEX_BUFFER_VIEW *values) {
     if (first > 32 || count > 32-first) { CommandStateInvalidDynamic(state); return; }
-    for (UINT i=0; i<count; ++i) { state.dynamic.vertices[first+i] = values ? values[i] : D3D12_VERTEX_BUFFER_VIEW{}; state.dynamic.vertex_mask |= UINT{1}<<(first+i); }
+    // Preserve the original short-batch loop: broad memcpy was slower for the
+    // common one/four-binding cases. Only bulk bindings use the combined mask.
+    if (count <= 4) {
+        for (UINT i=0; i<count; ++i) { state.dynamic.vertices[first+i] = values ? values[i] : D3D12_VERTEX_BUFFER_VIEW{}; state.dynamic.vertex_mask |= UINT{1}<<(first+i); }
+        return;
+    }
+    auto *destination = state.dynamic.vertices + first;
+    if (values) {
+        // Ordinary native input is external. Keep forward-copy semantics even
+        // for a diagnostic caller pointing into our own metadata array.
+        const auto src = reinterpret_cast<std::uintptr_t>(values);
+        const auto dst = reinterpret_cast<std::uintptr_t>(destination);
+        const auto bytes = count * sizeof(*values);
+        if (src < dst && dst - src < bytes)
+            for (UINT i=0; i<count; ++i) destination[i] = values[i];
+        else memmove(destination, values, bytes);
+    } else memset(destination, 0, count * sizeof(*destination));
+    const UINT mask = count == 32 ? ~UINT{0} : ((UINT{1} << count) - 1) << first;
+    state.dynamic.vertex_mask |= mask;
 }
 void CommandStateStreamOutput(NativeCommandState &state, UINT first, UINT count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *values) {
     if (first > 4 || count > 4-first) { CommandStateInvalidDynamic(state); return; }
@@ -326,7 +364,8 @@ bool CanAutoRestorePristineNull(const NativeCommandState &state) {
 }
 
 // A separate, bounded subset after a fully observed successful Reset:
-// viewport/scissor arrays, blend factors and privately copied RTV/DSV slots.
+// viewport/scissor arrays, blend factors, privately copied RTV/DSV slots and
+// explicitly observed default-only scalar shading rate.
 // No predication, vertex/stream-output buffers, queries, opaque commands or
 // unknown domains are admitted. Full dynamic replay stays experimental.
 const FLOAT *CommandStateBlendFactorValues(const FLOAT values[4]) {
@@ -349,8 +388,19 @@ const char *RasterNullRejectionReason(const NativeCommandState &state) {
         state.raytracing_pipeline || !state.null_guard_covered ||
         !state.null_guard_reset_observed || state.null_guard_tainted ||
         state.unknown_domains != 0 || d.vertex_mask != 0 || d.stream_mask != 0 ||
-        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets)) != 0 ||
+        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets | kDynamicShadingRate)) != 0 ||
         d.viewport_count > 16 || d.scissor_count > 16) return "null-guard-graphics-state-used";
+    // Only the explicitly observed scalar VRS API default is automatic. NULL combiners
+    // mean two PASSTHROUGH values. Existing CL5 same-interface hook coverage,
+    // fresh Reset and slot77 replay preserve this scalar state exactly; no
+    // optional coarse shading, per-primitive combiner or image is inferred.
+    // Even an observed NULL shading-rate image remains outside this subset.
+    if ((d.recorded & kDynamicShadingRate) &&
+        (d.shading_rate != D3D12_SHADING_RATE_1X1 ||
+         (d.has_combiners &&
+          (d.combiners[0] != D3D12_SHADING_RATE_COMBINER_PASSTHROUGH ||
+           d.combiners[1] != D3D12_SHADING_RATE_COMBINER_PASSTHROUGH))))
+        return "null-guard-shading-rate-not-default";
     // Raw application CPU handles may be recycled; only privately copied
     // contiguous RTV and independently owned DSV descriptors may be restored.
     if ((d.recorded & kDynamicTargets) &&
@@ -478,6 +528,9 @@ void RestoreNativeCommandState(ID3D12GraphicsCommandList *command_list,
         }
     }
     if (restore_dummy) RestoreCommandDynamicState(command_list, state);
+    else if (state.dynamic.recorded & kDynamicPredicate)
+        ID3D12GraphicsCommandList_SetPredication(command_list, state.predicate,
+            state.dynamic.predicate_offset, state.dynamic.predicate_operation);
     if (state.pipeline != nullptr) ID3D12GraphicsCommandList_SetPipelineState(command_list, state.pipeline);
     else if (state.raytracing_pipeline != nullptr) {
         ID3D12GraphicsCommandList4 *extended = nullptr;
@@ -536,6 +589,70 @@ bool RegisterCreatedCommandStateList(ID3D12GraphicsCommandList *,
 void ObserveCommandFirstRecording(ID3D12GraphicsCommandList *, const CommandCreationInfo &);
 CommandStateRecord g_command_states[2048] = {};
 SRWLOCK g_command_state_lock = SRWLOCK_INIT;
+
+// BEGIN COMMAND_STATE_MUTATION_SYNCHRONIZATION
+// The existing registry lock remains the lifetime boundary. All state writers
+// outside MutateNativeCommandState retain registry-exclusive ownership. Setter
+// callbacks hold registry-shared ownership plus their stable record-slot lock;
+// unrelated command lists therefore no longer need a global write lock.
+// Shared readers of NativeCommandState must also take CommandStateSlotScope.
+// Lock order is registry -> slot. Neither guard may upgrade the registry lock.
+struct alignas(64) CommandStateSlotSynchronization {
+    SRWLOCK mutation = SRWLOCK_INIT;
+};
+CommandStateSlotSynchronization g_command_state_slot_locks[
+    sizeof(g_command_states) / sizeof(g_command_states[0])] = {};
+struct CommandStateRegistryReadScope {
+    CommandStateRegistryReadScope() { AcquireSRWLockShared(&g_command_state_lock); }
+    ~CommandStateRegistryReadScope() { ReleaseSRWLockShared(&g_command_state_lock); }
+    CommandStateRegistryReadScope(const CommandStateRegistryReadScope &) = delete;
+    CommandStateRegistryReadScope &operator=(const CommandStateRegistryReadScope &) = delete;
+};
+struct CommandStateSlotScope {
+    SRWLOCK *lock;
+    // record belongs to the static registry array; its lifetime and slot are
+    // pinned by the caller's registry-shared (or exclusive) ownership.
+    explicit CommandStateSlotScope(const CommandStateRecord &record)
+        : lock(&g_command_state_slot_locks[&record - g_command_states].mutation) {
+        AcquireSRWLockExclusive(lock);
+    }
+    ~CommandStateSlotScope() { ReleaseSRWLockExclusive(lock); }
+    CommandStateSlotScope(const CommandStateSlotScope &) = delete;
+    CommandStateSlotScope &operator=(const CommandStateSlotScope &) = delete;
+};
+// One bounded cache per thread, shared across ALL Mutation instantiations.
+// Template-local TLS duplicated this lookup for each setter/hook family and
+// a one-entry cache walked all 2048 slots whenever lists alternated.
+struct CommandStateLookupCache {
+    struct Entry {
+        ID3D12GraphicsCommandList *native = nullptr;
+        unsigned long long epoch = 0;
+        CommandStateRecord *record = nullptr; // nullptr is a cached negative.
+    };
+    Entry entries[4] = {};
+    unsigned recent = 0, replacement = 0;
+    Entry *Find(ID3D12GraphicsCommandList *native, unsigned long long epoch) {
+        if (entries[recent].native == native && entries[recent].epoch == epoch)
+            return &entries[recent];
+        for (unsigned i = 0; i < 4; ++i)
+            if (entries[i].native == native && entries[i].epoch == epoch) {
+                recent = i;
+                return &entries[i];
+            }
+        return nullptr;
+    }
+    void Remember(ID3D12GraphicsCommandList *native, unsigned long long epoch,
+                  CommandStateRecord *record) {
+        unsigned index = replacement;
+        for (unsigned i = 0; i < 4; ++i)
+            if (entries[i].epoch != epoch) { index = i; break; }
+        entries[index] = {native, epoch, record};
+        recent = index;
+        replacement = (index + 1) % 4;
+    }
+};
+thread_local CommandStateLookupCache g_command_state_lookup_cache;
+// END COMMAND_STATE_MUTATION_SYNCHRONIZATION
 std::atomic<unsigned long long> g_command_state_epoch{1};
 unsigned long long g_next_command_state_token = 1;
 std::atomic<unsigned long long> g_command_state_bypasses{0};
@@ -548,6 +665,8 @@ struct CommandStateEvidence {
     bool roots[2] = {}, heaps[2] = {};
     bool blend_observed = false;
     float blend[4] = {}; // Valid only when blend_observed; never inferred from defaults.
+    bool shading_rate_observed = false, shading_combiners_explicit = false;
+    UINT shading_rate = 0, shading_combiners[2] = {}; // Payload valid only with observed=true.
     const char *reason = "no-carrier-sample";
     const char *baseline = "unobserved";
     const char *route = "native-bypass";
@@ -611,29 +730,46 @@ unsigned long long ReadCommandStateToken(ID3D12GraphicsCommandList *command_list
 }
 CommandStateRecord *FindCommandStateTokenLocked(unsigned long long token) {
     if (token == 0) return nullptr;
-    for (auto &record : g_command_states) if (record.token == token) return &record;
+    // Caller already owns registry shared/exclusive lifetime protection. Cache
+    // only a relative slot, never state, readiness, native identity or a miss.
+    // Re-read the live token even when unrelated records changed their epoch.
+    thread_local unsigned slots[64]{};
+    auto &number = slots[static_cast<unsigned>(token ^ (token >> 32)) & 63u];
+    if (number && number <= sizeof(g_command_states) / sizeof(g_command_states[0])) {
+        auto &record = g_command_states[number - 1];
+        if (record.token == token) return &record;
+    }
+    for (auto &record : g_command_states) if (record.token == token) {
+        number = static_cast<unsigned>(&record - g_command_states) + 1;
+        return &record;
+    }
     return nullptr;
 }
 template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommandList *native, Mutation mutation) {
-    // No COM/private-data access on every setter. Unrelated lists cache a no-op.
-    thread_local ID3D12GraphicsCommandList *last_native = nullptr;
-    thread_local unsigned long long last_epoch = 0;
-    thread_local CommandStateRecord *last_record = nullptr;
+    if (native == nullptr) return;
+    // Pin the record/state lifetime before resolving or using a cached slot.
+    // Register, Reset metadata, capture and retirement still use the existing
+    // registry-exclusive paths; no evidence is discarded when NR is disabled.
+    auto &cache = g_command_state_lookup_cache;
+    const auto observed_epoch = g_command_state_epoch.load(std::memory_order_acquire);
+    // Keep the existing negative fast path. Comparing a cached record pointer
+    // is not permission to dereference it: shared lifetime ownership is required.
+    const auto *cached = cache.Find(native, observed_epoch);
+    if (cached != nullptr && cached->record == nullptr) return;
+    CommandStateRegistryReadScope registry_scope;
+    // A registry writer may have published/retired a record while we waited.
     const auto epoch = g_command_state_epoch.load(std::memory_order_acquire);
-    if (last_native != native || last_epoch != epoch) {
-        AcquireSRWLockShared(&g_command_state_lock);
-        last_record = nullptr;
+    cached = cache.Find(native, epoch);
+    CommandStateRecord *matched = cached != nullptr ? cached->record : nullptr;
+    if (cached == nullptr) {
         for (auto &record : g_command_states)
-            if (record.native == native && record.state != nullptr) { last_record = &record; break; }
-        last_native = native;
-        last_epoch = epoch;
-        ReleaseSRWLockShared(&g_command_state_lock);
+            if (record.native == native && record.state != nullptr) { matched = &record; break; }
+        cache.Remember(native, epoch, matched);
     }
-    if (last_record == nullptr) return;
-    AcquireSRWLockExclusive(&g_command_state_lock);
-    if (last_record->native == native && last_record->state != nullptr && last_record->hooks_ready)
-        mutation(*last_record->state);
-    ReleaseSRWLockExclusive(&g_command_state_lock);
+    if (matched == nullptr) return;
+    CommandStateSlotScope state_scope(*matched);
+    if (matched->native == native && matched->state != nullptr && matched->hooks_ready)
+        mutation(*matched->state);
 }
 
 struct CommandStateHookFamily {
@@ -1039,42 +1175,114 @@ void *const g_state_detours_CreateCommandSignature[4] = {
     reinterpret_cast<void *>(&StateHookCreateCommandSignature<0>), reinterpret_cast<void *>(&StateHookCreateCommandSignature<1>),
     reinterpret_cast<void *>(&StateHookCreateCommandSignature<2>), reinterpret_cast<void *>(&StateHookCreateCommandSignature<3>) };
 
-struct CommandStateHookRequest { CommandStateHookFamily *family; void *target; void *const *detours; };
+struct CommandStateHookRequest {
+    CommandStateHookFamily *family;
+    void *target;
+    void *const *detours;
+    const char *name = "unknown";
+};
 bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int count,
         const char *failure_effect="this carrier remains native") {
     // MinHook's queued list is global; serialize with NGX observer publication.
     AcquireSRWLockExclusive(&g_evaluate_hook_lock);
     bool ok = true;
+    const char *failure_stage = "none";
+    const char *failure_family = "unknown";
+    unsigned int failure_index = 0;
+    unsigned int failure_family_count = 0;
+    int failure_status = MH_OK;
+    unsigned int failure_queue_count = 0;
     const auto initialized = MH_Initialize();
-    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) ok = false;
+    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) {
+        ok = false;
+        failure_stage = "init";
+        failure_status = static_cast<int>(initialized);
+        if (count != 0 && requests != nullptr && requests[0].name != nullptr)
+            failure_family = requests[0].name;
+    }
     void *queued[64] = {};
     bool *enabled_flags[64] = {};
     if (count > 64) ok = false;
+    if (!ok && std::strcmp(failure_stage, "none") == 0) {
+        failure_stage = "request-capacity";
+        failure_status = -1;
+    }
     unsigned int queued_count = 0;
     for (unsigned int r = 0; ok && r < count; ++r) {
         auto &request = requests[r];
         auto &family = *request.family;
+        failure_family = request.name != nullptr ? request.name : "unknown";
         unsigned int i = 0;
         for (; i < family.count; ++i) if (family.targets[i] == request.target) break;
         if (i == family.count) {
-            if (i == 4 || request.target == nullptr || !PinHookAddress(request.target, "D3D12 command state", nullptr)) { ok = false; break; }
-            if (MH_CreateHook(request.target, request.detours[i], &family.originals[i]) != MH_OK) { ok = false; break; }
+            failure_index = i;
+            failure_family_count = family.count;
+            if (i == 4) {
+                ok = false;
+                failure_stage = "family-capacity";
+                failure_status = -1;
+                break;
+            }
+            if (request.target == nullptr) {
+                ok = false;
+                failure_stage = "target";
+                failure_status = -1;
+                break;
+            }
+            if (!PinHookAddress(request.target, "D3D12 command state", nullptr)) {
+                ok = false;
+                failure_stage = "pin";
+                failure_status = -1;
+                break;
+            }
+            const MH_STATUS created = MH_CreateHook(request.target, request.detours[i], &family.originals[i]);
+            if (created != MH_OK) {
+                ok = false;
+                failure_stage = "create";
+                failure_status = static_cast<int>(created);
+                break;
+            }
             family.targets[i] = request.target;
             ++family.count;
         }
         if (family.enabled[i]) continue;
         const auto status = MH_QueueEnableHook(request.target);
-        if (status != MH_OK && status != MH_ERROR_ENABLED) { ok = false; break; }
+        if (status != MH_OK && status != MH_ERROR_ENABLED) {
+            ok = false;
+            failure_stage = "queue";
+            failure_index = i;
+            failure_family_count = family.count;
+            failure_status = static_cast<int>(status);
+            failure_queue_count = queued_count;
+            break;
+        }
         enabled_flags[queued_count] = &family.enabled[i];
         queued[queued_count++] = request.target;
     }
-    if (ok) ok = MH_ApplyQueued() == MH_OK;
+    if (ok) {
+        const MH_STATUS applied = MH_ApplyQueued();
+        if (applied != MH_OK) {
+            ok = false;
+            failure_stage = "apply";
+            failure_status = static_cast<int>(applied);
+            failure_queue_count = queued_count;
+            failure_family = "batch-unknown";
+            failure_index = 0;
+            failure_family_count = 0;
+        }
+    }
     if (ok) for (unsigned int i = 0; i < queued_count; ++i) *enabled_flags[i] = true;
     if (!ok) {
+        if (std::strcmp(failure_stage, "apply") != 0)
+            failure_queue_count = queued_count;
         // Do not leave queued enables for an unrelated future NGX transaction.
         for (unsigned int i = 0; i < queued_count; ++i) MH_QueueDisableHook(queued[i]);
         MH_ApplyQueued();
-        Log("[command-state] hook publication failed; %s.",failure_effect);
+        Log("[command-state] hook publication failed: stage=%s family=%s index=%u "
+            "familyCount=%u familyCapacity=4 status=%d queueCount=%u; %s.",
+            failure_stage, failure_family != nullptr ? failure_family : "unknown",
+            failure_index, failure_family_count, failure_status, failure_queue_count,
+            failure_effect);
     }
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     return ok;
@@ -1123,7 +1331,8 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
     g_command_signature_start_deferred.store(false,
                                              std::memory_order_release);
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
-        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
+        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature,
+        "CreateCommandSignature"};
     if (PublishCommandStateHooks(&request, 1))
         g_command_signature_hook_published.store(true,
                                                  std::memory_order_release);
@@ -1131,7 +1340,8 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
 bool EnsureNativeCommandSignatureHook(ID3D12Device *native) {
     if(!native)return false;
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
-        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
+        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature,
+        "CreateCommandSignature"};
     const bool published=PublishCommandStateHooks(&request,1);
     if(published)g_command_signature_hook_published.store(true,std::memory_order_release);
     return published;
@@ -1145,21 +1355,41 @@ bool EnsureCommandSignatureHook(reshade::api::device *device) {
     OnCommandStateInitDevice(device);
     return EnsureNativeCommandSignatureHook(reinterpret_cast<ID3D12Device *>(device->get_native()));
 }
-struct CommandStateExtendedHookRequest { CommandStateHookFamily *family; UINT slot; void *const *detours; };
+struct CommandStateExtendedHookRequest {
+    CommandStateHookFamily *family;
+    UINT slot;
+    void *const *detours;
+    const char *name = "unknown";
+};
 bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID iid,
     CommandStateHookRequest *requests, unsigned int &count,
-    const CommandStateExtendedHookRequest *extra, unsigned int extra_count) {
+    const CommandStateExtendedHookRequest *extra, unsigned int extra_count,
+    const char *interface_name) {
     IUnknown *queried=nullptr;
     const HRESULT hr=ID3D12GraphicsCommandList_QueryInterface(native, iid, reinterpret_cast<void **>(&queried));
     if (hr == E_NOINTERFACE) return true;
-    if (FAILED(hr) || queried == nullptr) return false;
-    if (count > 48 || extra_count > 48-count) { IUnknown_Release(queried); return false; }
+    if (FAILED(hr) || queried == nullptr) {
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=%s hr=0x%08X object=%d; carrier remains native.",
+            interface_name != nullptr ? interface_name : "unknown",
+            static_cast<unsigned int>(hr), queried != nullptr ? 1 : 0);
+        if (queried != nullptr) IUnknown_Release(queried);
+        return false;
+    }
+    if (count > 48 || extra_count > 48-count) {
+        Log("[command-state] interface observation failed: stage=request-capacity "
+            "interface=%s count=%u extra=%u capacity=48; carrier remains native.",
+            interface_name != nullptr ? interface_name : "unknown", count, extra_count);
+        IUnknown_Release(queried); return false;
+    }
     const bool same=reinterpret_cast<void *>(native)==reinterpret_cast<void *>(queried);
     if (same) {
         auto **vtable=*reinterpret_cast<void ***>(queried);
         for (unsigned int i=0; i<extra_count; ++i)
-            requests[count++]={extra[i].family, vtable[extra[i].slot], extra[i].detours};
-    } else Log("[command-state] extended interface tear-off refused; state cannot be reconstructed.");
+            requests[count++]={extra[i].family, vtable[extra[i].slot], extra[i].detours, extra[i].name};
+    } else Log("[command-state] interface observation failed: stage=identity "
+        "interface=%s sameIdentity=0; extended tear-off refused; carrier remains native.",
+        interface_name != nullptr ? interface_name : "unknown");
     IUnknown_Release(queried);
     return same;
 }
@@ -1167,7 +1397,7 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     CommandStateHookRequest requests[48] = {};
     unsigned int count = 0;
     const bool allow_null_pso = AllowExperimentalNullPsoCarrier() || observe_pristine_null;
-#define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME }
+#define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME, #NAME }
     NR_ADD_STATE_HOOK(SetPipelineState); NR_ADD_STATE_HOOK(ClearState);
     NR_ADD_STATE_HOOK(SetDescriptorHeaps); NR_ADD_STATE_HOOK(ExecuteBundle); NR_ADD_STATE_HOOK(ExecuteIndirect);
 #define NR_ADD_STATE_STAGE(NAME) \
@@ -1176,17 +1406,18 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     NR_ADD_STATE_HOOK(Set##NAME##RootConstantBufferView); NR_ADD_STATE_HOOK(Set##NAME##RootShaderResourceView); \
     NR_ADD_STATE_HOOK(Set##NAME##RootUnorderedAccessView)
     NR_ADD_STATE_STAGE(Compute); NR_ADD_STATE_STAGE(Graphics);
+    // Private guide dispatch clears predication even with a normal PSO.
+    NR_ADD_STATE_HOOK(SetPredication);
     if (allow_null_pso) {
         NR_ADD_STATE_HOOK(IASetPrimitiveTopology); NR_ADD_STATE_HOOK(RSSetViewports); NR_ADD_STATE_HOOK(RSSetScissorRects);
         NR_ADD_STATE_HOOK(OMSetBlendFactor); NR_ADD_STATE_HOOK(OMSetStencilRef); NR_ADD_STATE_HOOK(IASetIndexBuffer);
         NR_ADD_STATE_HOOK(IASetVertexBuffers); NR_ADD_STATE_HOOK(SOSetTargets); NR_ADD_STATE_HOOK(OMSetRenderTargets);
-        NR_ADD_STATE_HOOK(SetPredication);
     }
 #undef NR_ADD_STATE_STAGE
 #undef NR_ADD_STATE_HOOK
     constexpr GUID list8={0xee936ef9,0x599d,0x4d28,{0x93,0x8e,0x23,0xc4,0xad,0x05,0xce,0x51}};
     constexpr GUID list9={0x34ed2808,0xffe6,0x4c2b,{0xb1,0x1a,0xca,0xbd,0x2b,0x0c,0x59,0xe1}};
-#define NR_EXTRA(NAME, SLOT) {&g_state_##NAME, SLOT, g_state_detours_##NAME}
+#define NR_EXTRA(NAME, SLOT) {&g_state_##NAME, SLOT, g_state_detours_##NAME, #NAME}
     const CommandStateExtendedHookRequest extra1[]={NR_EXTRA(OMSetDepthBounds,62), NR_EXTRA(SetSamplePositions,63), NR_EXTRA(SetViewInstanceMask,65)};
     const CommandStateExtendedHookRequest extra3[]={NR_EXTRA(SetProtectedResourceSession,67)};
     const CommandStateExtendedHookRequest extra5[]={NR_EXTRA(RSSetShadingRate,77), NR_EXTRA(RSSetShadingRateImage,78)};
@@ -1194,44 +1425,56 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     const CommandStateExtendedHookRequest extra9[]={NR_EXTRA(RSSetDepthBias,82), NR_EXTRA(IASetIndexBufferStripCutValue,83)};
 #undef NR_EXTRA
     if (allow_null_pso &&
-        (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3) ||
-         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1) ||
-         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2) ||
-         !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1) ||
-         !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2))) return false;
+        (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3,"GraphicsCommandList1") ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1,"GraphicsCommandList3") ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2,"GraphicsCommandList5") ||
+         !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1,"GraphicsCommandList8") ||
+         !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2,"GraphicsCommandList9"))) return false;
     ID3D12GraphicsCommandList4 *extended = nullptr;
     const HRESULT queried4=ID3D12GraphicsCommandList_QueryInterface(native, IID_ID3D12GraphicsCommandList4, reinterpret_cast<void **>(&extended));
-    if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) return false;
+    if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) {
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=GraphicsCommandList4 hr=0x%08X object=%d; carrier remains native.",
+            static_cast<unsigned int>(queried4), extended != nullptr ? 1 : 0);
+        if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
+        return false;
+    }
     if (SUCCEEDED(queried4)) {
         if (reinterpret_cast<void *>(extended) != reinterpret_cast<void *>(native)) {
             // Distinct tear-off interfaces need their own full setter family.
             // Do not silently miss base setters or the active DXR PSO.
             ID3D12GraphicsCommandList4_Release(extended);
-            Log("[command-state] distinct command-list4 tear-off interface is unsupported; carrier remains native.");
+            Log("[command-state] interface observation failed: stage=identity "
+                "interface=GraphicsCommandList4 sameIdentity=0; extended tear-off refused; carrier remains native.");
             return false;
         }
-        requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1 };
-        requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand };
-        requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand };
+        requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1, "SetPipelineState1" };
+        requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand, "InitializeMetaCommand" };
+        requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand, "ExecuteMetaCommand" };
         if (allow_null_pso)
-            requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass };
+            requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass, "BeginRenderPass" };
     }
     IUnknown *latest = nullptr;
     const HRESULT queried10 = allow_null_pso ? ID3D12GraphicsCommandList_QueryInterface(
         native, kCommandList10Interface, reinterpret_cast<void **>(&latest)) : E_NOINTERFACE;
     if (queried10 != E_NOINTERFACE && (FAILED(queried10) || latest == nullptr)) {
         if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
+        Log("[command-state] interface observation failed: stage=QueryInterface "
+            "interface=GraphicsCommandList10 hr=0x%08X object=%d; carrier remains native.",
+            static_cast<unsigned int>(queried10), latest != nullptr ? 1 : 0);
+        if (latest != nullptr) IUnknown_Release(latest);
         return false;
     }
     if (SUCCEEDED(queried10)) {
         if (reinterpret_cast<void *>(latest) != reinterpret_cast<void *>(native)) {
             IUnknown_Release(latest);
             if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
-            Log("[command-state] distinct command-list10 tear-off interface is unsupported; carrier remains native.");
+            Log("[command-state] interface observation failed: stage=identity "
+                "interface=GraphicsCommandList10 sameIdentity=0; extended tear-off refused; carrier remains native.");
             return false;
         }
         auto **vtable = *reinterpret_cast<void ***>(latest);
-        requests[count++] = { &g_state_SetProgram, vtable[kCommandListSetProgramSlot], g_state_detours_SetProgram };
+        requests[count++] = { &g_state_SetProgram, vtable[kCommandListSetProgramSlot], g_state_detours_SetProgram, "SetProgram" };
     }
     const bool result = PublishCommandStateHooks(requests, count);
     if (latest != nullptr) IUnknown_Release(latest);
@@ -1522,6 +1765,15 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             evidence.blend_observed = (state.dynamic.recorded & kDynamicBlend) != 0;
             if (evidence.blend_observed)
                 std::memcpy(evidence.blend, state.dynamic.blend, sizeof(evidence.blend));
+            evidence.shading_rate_observed = (state.dynamic.recorded & kDynamicShadingRate) != 0;
+            if (evidence.shading_rate_observed) {
+                evidence.shading_rate = static_cast<UINT>(state.dynamic.shading_rate);
+                evidence.shading_combiners_explicit = state.dynamic.has_combiners;
+                for (unsigned i = 0; i < 2; ++i)
+                    evidence.shading_combiners[i] = state.dynamic.has_combiners ?
+                        static_cast<UINT>(state.dynamic.combiners[i]) :
+                        static_cast<UINT>(D3D12_SHADING_RATE_COMBINER_PASSTHROUGH);
+            }
             evidence.vertex_mask = state.dynamic.vertex_mask; evidence.stream_mask = state.dynamic.stream_mask;
             evidence.has_pipeline = state.pipeline != nullptr; evidence.has_ray_pipeline = state.raytracing_pipeline != nullptr;
             for (unsigned stage = 0; stage < 2; ++stage) {
@@ -1588,6 +1840,11 @@ struct NativeCommandStateScope {
     ~NativeCommandStateScope() {
         Restore();
         if (saved != nullptr) { ReleaseNativeCommandState(*saved); delete saved; }
+    }
+    void AbandonAfterOpaqueFailure() {
+        // Keep every saved COM reference in the quarantined recording closure.
+        // No restore command or GPU-dependent release follows an opaque error.
+        active=false;saved=nullptr;
     }
     void Restore() {
         if (!active) return;

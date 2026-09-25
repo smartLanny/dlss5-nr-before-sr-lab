@@ -3,7 +3,11 @@
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
     [Parameter(Mandatory=$true)][string]$DirectXMathRoot,
-    [Parameter(Mandatory=$true)][string]$OutputRoot
+    [Parameter(Mandatory=$true)][string]$OutputRoot,
+    [string]$NrchainReuseRoot,
+    [string]$CodecCacheRoot,
+    [string]$FaceRuntimeRoot = $env:DLSS5_FACE_RUNTIME_ROOT,
+    [switch]$QualitySuccessor
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -13,6 +17,7 @@ $Toolchain = (Resolve-Path -LiteralPath $ToolchainRoot).Path
 $ReShade = (Resolve-Path -LiteralPath $ReShadeSourceRoot).Path
 $Math = (Resolve-Path -LiteralPath $DirectXMathRoot).Path
 $Output = [IO.Path]::GetFullPath($OutputRoot)
+$CodecCache = if ($CodecCacheRoot) { (Resolve-Path -LiteralPath $CodecCacheRoot).Path } else { '' }
 if (Test-Path -LiteralPath $Output) { throw 'OutputRoot must not exist; previous candidates are never overwritten.' }
 function Assert-Commit([string]$Path, [string]$Expected) {
     $Actual = (& git -C $Path rev-parse HEAD).Trim()
@@ -29,7 +34,8 @@ foreach ($File in @($Cxx, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'
     if (-not (Test-Path -LiteralPath $File)) { throw "Missing build input: $File" }
 }
 $Stage = Join-Path $Output 'source'
-& python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $Upstream --output $Stage
+$Generator = if ($QualitySuccessor) { 'prepare-colour4-edge.py' } else { 'prepare-multi-api-beta.py' }
+& python (Join-Path $PSScriptRoot $Generator) --core $Root --upstream $Upstream --output $Stage
 if ($LASTEXITCODE) { throw 'Full source staging failed.' }
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCarrier = $env:PINNED_CARRIER_ROOT
@@ -92,7 +98,7 @@ try {
     if ($LASTEXITCODE) { throw 'Production shader compiler harness failed.' }
     & python (Join-Path $PSScriptRoot 'validate-post-shaders.py') --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --compiler $ShaderCompiler
     if ($LASTEXITCODE) { throw 'Actual generated production HLSL failed.' }
-    $Checks.Add('all six actual staged production HLSL compute entries')
+    $Checks.Add('all actual staged production HLSL compute entries')
     foreach ($Test in @('multi_api/format_view_warp', 'native_bridge/baseline_warp')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-O2' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe '-ld3d12' '-ldxgi' '-ld3dcompiler' '-ldxguid' '-lole32'
@@ -102,10 +108,10 @@ try {
         $Checks.Add($Test)
     }
     & (Join-Path $PSScriptRoot 'validate-post-scaled-work-gpu.ps1') -SourceRoot (Join-Path $Stage 'core') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $TestBuild 'post-scaled-work')
-    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
+    $Checks.Add('post scaled-work WARP: 60 actual EncodeCS/CombineCS scenarios including 25 percent plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
     & python (Join-Path $PSScriptRoot 'validate-colour-defaults.py') --compiler $Cxx --root (Join-Path $Stage 'core')
     if ($LASTEXITCODE) { throw 'Actual staged colour defaults/model reset failed.' }
-    $Checks.Add('actual staged colour defaults and model-only reset: 165 checks')
+    $Checks.Add('actual staged colour defaults and independent model-only reset: 2805 checks')
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
     if ($LASTEXITCODE) { throw 'Actual staged RR release retirement failed.' }
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
@@ -135,11 +141,26 @@ try {
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -NegativeControl
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -LayerNegativeControl
-    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 35-root ABI and independent negative controls')
-    & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
-    $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
-    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
-    $Checks.Add('staged bilingual core + nrchain compilation and link')
+    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 60-root ABI and independent negative controls')
+    $StaticArgs = @{}
+    if ($NrchainReuseRoot) { $StaticArgs['CoreOnly'] = $true }
+    & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core') @StaticArgs
+    if ($NrchainReuseRoot) {
+        $Checks.Add('actual staged bilingual core LLVM static analysis: zero diagnostics; exact-source nrchain verified from signed SDK build receipt')
+    } else {
+        $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
+    }
+    $CodecArgs = @{}
+    if ($FaceRuntimeRoot) { $CodecArgs.FaceRuntimeRoot = $FaceRuntimeRoot }
+    if ($CodecCache) { $CodecArgs['CodecCacheRoot'] = $CodecCache }
+    # Existing codec builder verifies exact source/options, compiler bytes and
+    # every cached DXBC hash. This does not skip any runtime/WARP/static gate.
+    & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -NrchainReuseRoot $NrchainReuseRoot @CodecArgs
+    if ($NrchainReuseRoot) {
+        $Checks.Add('staged bilingual core compilation/link + exact-source verified nrchain reuse')
+    } else {
+        $Checks.Add('staged bilingual core + nrchain compilation and link')
+    }
     $CarrierRoot = Join-Path $Stage 'carrier/src'
     $CarrierResource = Join-Path $Output 'carrier-version.o'
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -169,6 +190,7 @@ try {
         directxmath_commit='28929ac6f3c1649a7641741b689ebecccb17aa8d'
         compiler=$CompilerVersion; powershell=$PSVersionTable.PSVersion.ToString()
         source_verified=$true; compile_verified=$true; warp_verified=$true
+        nrchain_reused=[bool]$NrchainReuseRoot; full_face_backend=[bool]$FaceRuntimeRoot; quality_successor=[bool]$QualitySuccessor
         game_runtime_verified=$false; nvidia_feature18_verified=$false
         completed_utc=[DateTime]::UtcNow.ToString('o'); checks=@($Checks.ToArray()); binaries=$Hashes
     }

@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+import tempfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,8 +23,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_three_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd'))
+    def test_all_dline14_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64', 'ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b', '2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc', '7182b3fd195c8cfb633eec5fa758f3826001a69f', '13e4ac958587cb2b4542db9cf749315261ec17c6', '10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -54,26 +55,82 @@ class PictureIntegration(unittest.TestCase):
                     m.configure(ROOT)
                 load.assert_not_called()
 
+    def test_generated_tree_contains_auxiliary_compiler_inputs(self):
+        library = self.library()
+        identity = SimpleNamespace(patch_core=lambda text: text, patch_ui=lambda text: text)
+        with patch.object(m, 'is_ancestor', return_value=True), patch.object(m, 'git', side_effect=self.fake_git), patch.object(m, 'load', side_effect=[library, identity, identity]):
+            configured = m.configure(ROOT)
+        overlay = SimpleNamespace(apply=lambda stage: None)
+        def source(root, *args):
+            self.assertEqual(args[0], 'show')
+            return (ROOT / args[1].removeprefix('HEAD:')).read_bytes()
+        with tempfile.TemporaryDirectory() as temp, patch.object(m, 'git', side_effect=source), patch.object(m, 'load', return_value=overlay):
+            stage = Path(temp)
+            configured.prepare(ROOT, ROOT, stage)
+            for leaf in ('compile-codec-artifact.cpp', 'prepare-codec-artifacts.py', 'compile-aux-artifact.cpp', 'prepare-aux-artifacts.py', 'build-nrchain.ps1'):
+                relative = 'scripts/' + leaf
+                self.assertEqual((stage / 'core' / relative).read_bytes(), (ROOT / relative).read_bytes())
+
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
-        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_native_clear_request.h', 'src/nr_native_clear_request_runtime.inl', 'src/nr_store_comparison.h', 'src/nr_ui_activity_feedback.inl', 'src/nr_ui_activity_runtime.inl', 'src/nr_descriptor_provenance_commands.inl', 'src/nr_descriptor_provenance_hooks.inl', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_route_compatibility_runtime.inl', 'src/nr_route_compatibility.h', 'src/nr_post_boundary.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_ui_activity.h', 'src/nr_imgui_abi.h', 'src/nr_f8_stream.inl', 'src/nr_native_command_record.inl', 'src/nr_command_creation_observer.inl', 'src/nr_rr_depth_projection.h', 'src/nr_rr_depth_shader.h', 'src/nr_rr_depth_adapter.inl', 'src/nr_guide_contract.h', 'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
-            'src/nr_motion_slot_selection.h',
-            'src/interop/nr_post_settings.inl', 'src/interop/nr_post_ui.inl',
-            'src/interop/nr_post_feedback.inl', 'src/interop/nr_rr_post_runtime.inl',
-            'src/interop/nr_rr_depth_evidence.inl',
-            'src/nr_codec_descriptors.inl', 'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
-            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
-            'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc',
-            'src/nr_config_policy.h', 'src/nr_config_policy_runtime.inl', 'src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl', 'src/nr_submitted_fence_wait.inl', 'src/nr_timing_feedback.inl', 'src/nr_probe_policy.h', 'src/nr_recommended_picture.inl', 'src/nr_work_config.h', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
-            'src/interop/nr_exposure_access_d3d12.inl', 'src/nr_exposure_semantic_evidence.inl',
-            'scripts/patch-exposure-access.py', 'scripts/patch-format-access.py',
-            'src/nr_feedback_limits.h', 'src/nr_diagnostic_bundle.inl', 'src/nr_feedback_report.inl',
-            'src/nr_native_format.h', 'src/nr_native_format_hooks.inl', 'src/nr_native_format_runtime.inl',
-            'src/nr_ngx_lifecycle.inl', 'src/nr_post_boundary_native.inl', 'src/nr_resource_semantics.h',
-            'src/nr_resource_recovery.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_resource_recovery_semantics.inl',
-            'src/nr_compatibility_runtime.inl', 'src/nr_compatibility_verdict.h', 'src/nr_compatibility_verdict_feedback.inl',
-            'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'dc1b2cb76b88babcba41d8fd05cd4be6b209dc42')
+        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_codec_descriptors.inl', 'src/nr_recommended_picture.inl', 'src/nr_native_clear_request_runtime.inl', 'src/nr_dual_capture.inl', 'src/nr_native_format.h', 'src/nr_descriptor_provenance_hooks.inl', 'scripts/embed-dual-shaders.py', 'src/nr_face_runtime.inl', 'src/nr_resource_semantics.h', 'src/nr_dual_ui.inl', 'src/nr_dual_spatial_d3d12.hpp', 'src/nr_command_state.inl', 'src/nr_dual_timing.inl', 'src/nr_probe_policy.h', 'src/nr_descriptor_provenance_commands.inl', 'src/nr_ui_activity.h', 'src/interop/nr_exposure_access_d3d12.inl', 'scripts/compile-codec-artifact.cpp', 'src/nr_dual_math.hlsli', 'src/nr_feedback_core.inl', 'src/nr_face_region_selection.inl', 'src/nr_dual_lifetime.hpp', 'src/nr_post_boundary_native.inl', 'src/nr_feedback_text.h', 'src/nr_config_policy_runtime.inl', 'src/nr_replay_format.h', 'src/nr_compatibility_verdict.h', 'src/nr_post_boundary_runtime.inl', 'src/nr_route_compatibility_runtime.inl', 'src/nr_region_inputs.h', 'src/nr_runtime_timing.inl', 'src/nr_feedback_capture.inl', 'src/nr_precision_ui.h', 'src/nr_native_command_record.inl', 'src/nr_post_boundary.h', 'src/nr_diagnostic_bundle.inl', 'src/nr_native_format_runtime.inl', 'src/nr_guide_contract.h', 'src/nr_region_shader.h', 'src/nr_dual_downsample.hlsl', 'src/nr_dual_spatial_d3d12.cpp', 'src/nr_dual_status_runtime.inl', 'src/nr_replay_shader.h', 'src/nr_face_diagnostic_ui.inl', 'src/nr_face_diagnostic.h', 'src/nr_binding_runtime.inl', 'src/nr_rr_depth_shader.h', 'src/nr_region_runtime.inl', 'src/nr_descriptor_provenance.h', 'src/nr_f8_sequence.inl', 'src/nr_compatibility_runtime.inl', 'src/nr_before_sr.rc', 'src/interop/nr_rr_depth_evidence.inl', 'src/nr_settings_ui.inl', 'scripts/build.ps1', 'src/nr_resource_recovery_semantics.inl', 'scripts/patch-post-compat.py', 'src/nr_dual_resolve_cached.hlsli', 'src/nr_dual_codec.inl', 'src/nr_face_worker.cpp', 'src/nr_descriptor_provenance_runtime.inl', 'src/nr_dual_observation.hpp', 'src/nr_feedback_picture.inl', 'src/nr_ngx_lifecycle.inl', 'src/nr_descriptor_plan.h', 'src/nr_model_controls.h', 'src/nr_imgui_abi.h', 'src/nr_optional_layer_probe.h', 'src/nr_route_compatibility.h', 'src/nr_f8_stream.inl', 'src/nr_replay_gpu.inl', 'src/nr_native_clear_request.h', 'src/nr_config_policy.h', 'src/nr_resource_recovery.h', 'src/interop/nr_post_ui.inl', 'src/nr_color_policy.inl', 'src/nr_exposure_semantic_evidence.inl', 'src/nr_submitted_fence_wait.inl', 'src/nr_f8_gpu.inl', 'src/nr_store_comparison.h', 'src/nr_before_sr.cpp', 'src/nr_generic_residual.h', 'src/nr_native_format_hooks.inl', 'src/nr_face_detector.h', 'src/nr_light_style_ui.inl', 'src/nr_dual_embedded.hpp', 'src/nr_work_config.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_dual_pass.hpp', 'scripts/patch-format-access.py', 'src/nr_stage_capture.inl', 'src/nr_ui_activity_runtime.inl', 'src/nr_feedback_report.inl', 'src/nr_light_style.h', 'src/interop/nr_post_settings.inl', 'src/interop/nr_post_feedback.inl', 'src/nr_skin_protection.h', 'src/nr_command_creation_observer.inl', 'src/nr_dual_residual.hlsl', 'src/interop/nr_rr_post_runtime.inl', 'src/nr_feedback_limits.h', 'src/nr_timing_feedback.inl', 'src/nr_face_tracker_shader.h', 'src/interop/nr_post_area.hlsl', 'src/nr_dual_runtime.inl', 'src/nr_rr_depth_adapter.inl', 'src/nr_settings_notices_ui.inl', 'src/nr_face_detector.cpp', 'src/nr_pre_fallback.h', 'src/nr_face_capture_geometry.h', 'src/nr_dual_resolve.hlsli', 'scripts/prepare-codec-artifacts.py', 'src/nr_replay_runtime.inl', 'src/nr_feedback_single_text.h', 'src/nr_face_worker.h', 'config/nr_before_sr.ini', 'src/nr_binding_types.inl', 'src/nr_color_amplification.h', 'src/interop/nr_ngx_parameter_abi.h', 'src/nr_motion_slot_selection.h', 'src/nr_ui_activity_feedback.inl', 'src/nr_runtime_load_evidence.inl', 'src/nr_rr_depth_projection.h', 'src/nr_compatibility_verdict_feedback.inl', 'scripts/patch-exposure-access.py', 'src/nr_face_tracker_gpu.inl', 'src/nr_runtime_timing.h'} | {
+            'scripts/build-nrchain.ps1',
+            'scripts/compile-aux-artifact.cpp', 'scripts/prepare-aux-artifacts.py',
+            'src/nr_aux_shader_runtime.hpp', 'src/nr_aux_shader_runtime.cpp',
+            'src/interop/nr_external_provider_consumer.inl',
+            'src/interop/nr_external_observer_startup.inl',
+            'src/interop/nr_external_provider_feedback.h',
+            'src/interop/nr_external_provider.h',
+            'src/interop/nr_external_provider_abi.h',
+            'src/nr_energy_gate.h',
+            'src/nr_layer_config.h', 'src/nr_unified_ui_policy.h',
+            'src/nr_layers_ui.inl',
+            'src/nr_launch_preferences.h',
+            'src/nr_source_present_feedback.inl',
+            'src/nr_late_present_receipt.hpp',
+            'src/nr_native_guide_snapshot.inl',
+            'src/nr_source_guide_diagnostics.inl',
+            'src/nr_descriptor_scratch.h',
+            'src/nr_present_mapping.h',
+            'src/nr_fg_presentation.h',
+
+            'src/nr_compat_present_events.inl',
+            'src/nr_compat_present_feedback.inl',
+            'src/nr_compat_present_models.inl',
+            'src/nr_compat_present_policy.hpp',
+            'src/nr_compat_present_resources.inl',
+            'src/nr_compat_present_runtime.inl',
+            'src/nr_compat_present_shader.h',
+            'src/nr_fg_capture.inl',
+            'src/nr_fg_consumer.inl',
+            'src/nr_fg_contract.hpp',
+            'src/nr_fg_hud_runtime.inl',
+            'src/nr_fg_hud_shader.h',
+            'src/nr_fg_streamline.inl',
+            'src/nr_rr_projection_source.h', 'src/nr_process_memory.h',
+            'src/nr_full_capture.inl',
+            'src/nr_full_feedback.inl',
+            'src/nr_full_pass.hpp',
+            'src/nr_full_runtime.inl',
+            'src/nr_present_capture.inl',
+            'src/nr_processing_route.h',
+            'src/nr_processing_runtime.inl',
+            'src/nr_source_frame.hpp',
+            'src/nr_source_frame_forward.inl',
+            'src/nr_source_frame_runtime.inl',
+            'src/nr_source_state_table.inl',
+            'src/nr_source_observer.inl',
+            'src/nr_source_transport.inl',
+            'src/nr_source_views.inl',
+            'src/nrchain_nvngx.cpp',
+            'src/nr_native_guide_snapshot.inl',
+            'src/nr_source_present_feedback.inl',
+            'src/nr_source_guide_diagnostics.inl',
+            'src/nr_fg_presentation.h',
+            'src/nr_descriptor_scratch.h',
+            'src/nr_launch_preferences.h',
+            'src/nr_late_present_receipt.hpp',
+            'src/nr_present_mapping.h',
+        })
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '64034bcb783ae556b58c1006315d7d3cec804b51')
 
 if __name__ == '__main__': unittest.main()

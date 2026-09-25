@@ -1,5 +1,14 @@
 # Known limitations
 
+## D14 cumulative Core integration (2026-09-11)
+
+The owner confirmed successful post-route operation on the 0.4.7 Corefix.8 source
+line, but one persistent skip after a route switch remains unexplained and open.
+D14 carries that limitation forward. Its 110 local CPU/WARP gates and bilingual
+build passed at `1cabf797a24256f1b40f5653a0dcdda9f3f97c14`; NVIDIA inference,
+in-game compatibility and whole-frame performance remain unverified for D14.
+See the [integration record](interop/DLINE14_COREFIX8_INTEGRATION_20260911.md).
+
 ## NTE face control: known defect, investigation paused (2026-09-08)
 
 [Issue #162](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/162)

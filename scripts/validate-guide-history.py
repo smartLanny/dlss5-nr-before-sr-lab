@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 import subprocess
 import tempfile
+import os
 
 
 def definition(source, marker, trailing_semicolon=False):
@@ -46,12 +47,14 @@ harness = r'''
 #include <cmath>
 #include <climits>
 #include <cstring>
+#include "nr_dual_pass.hpp"
+#include "nr_layer_config.h"
 GUIDE_INCLUDE
 constexpr bool kPostWorkRaster = POST_WORK_RASTER;
 struct NgxHandle { unsigned id; };
 enum class CodecColorMode : unsigned { Automatic, LinearSdr, ModelEncodedValueDomain };
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
-struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; } g_config;
+struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; nr_layers::Auxiliary nr_layers{}; } g_config;
 TUNING
 CURRENT_TUNING
 SAME_TUNING
@@ -61,6 +64,10 @@ struct NrContext {
     unsigned long long stage_capture_request_id=0;
     unsigned width=0, height=0;
     int mode=0;
+    unsigned layer_index=0;
+    unsigned long long parent_instance_id=0, parent_input_epoch=0;
+    nr_dual::AuxHistory dual_history{};
+    bool reset_retry_pending=false;
     bool retired=false, codec_color_mode_initialized=false, tuning_signature_initialized=false, codec_peak_shoulder=false;
     CodecColorMode codec_color_mode=CodecColorMode::Automatic;
     NrTuningSignature tuning_signature{};
@@ -70,6 +77,7 @@ NrContext g_contexts[16]{};
 std::atomic<bool> g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_process_latched{false};
 std::atomic<unsigned long long> g_nr_instance_serial{0}, g_next_nr_instance_id{0};
 void CollectRetiredContextsLocked() {} // No fence has completed in this trace.
+bool DeferNrCreationForReleaseLocked(const NgxHandle* = nullptr) { return false; } // No retirement in this history-only fixture; actual scoped admission/collector/drain is covered separately.
 void Log(const char*, ...) {}
 // Stage capture stays off in the guide/context regression. Its request and
 // retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
@@ -271,5 +279,5 @@ with tempfile.TemporaryDirectory(prefix="dlss5-guide-regression-") as tmp:
     cpp = Path(tmp) / "test.cpp"
     exe = Path(tmp) / "test.exe"
     cpp.write_text(harness, encoding="utf-8")
-    subprocess.run([args.compiler, "-std=c++20", "-O0", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
+    subprocess.run([args.compiler, "-std=c++20", "-O0", *(["-static"] if os.name == "nt" else []), "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
     raise SystemExit(subprocess.run([str(exe)]).returncode)

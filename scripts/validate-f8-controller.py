@@ -14,6 +14,7 @@ import struct
 import zlib
 import zipfile
 import json
+import importlib.util
 
 
 def definition(source: str, marker: str, trailing_semicolon: bool = False) -> str:
@@ -35,6 +36,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--compiler", required=True)
 parser.add_argument("--source", type=Path)
 parser.add_argument("--gpu", action="store_true")
+parser.add_argument("--negative-control", action="store_true")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (args.source or root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
@@ -55,10 +57,13 @@ parts = {
     "NORMALIZE_CONFIG": definition(source, "void NormalizeConfig("),
     "SAME_CONFIG": definition(source, "bool SameConfig("),
     "ACTIVE_TRANSFER": definition(source, "float ActiveTransferStrength("),
+    "PROCESSING_RUNTIME": (root / "src/nr_processing_runtime.inl").read_text(encoding="utf-8-sig"),
     "CAPTURE_GRID": definition((root / "src/nr_stage_capture.inl").read_text(encoding="utf-8-sig"), "bool ComputeStageCaptureGrid("),
     "PRODUCTION_SEQUENCE": sequence[:sequence.index("void F8Tooltip(")] + "\n} // namespace nr_f8\n",
 }
 harness = (root / "tests/f8_controller_harness.cpp.in").read_text(encoding="utf-8")
+face_tests = (root / "tests/f8_face_diagnostic.inl").read_text(encoding="utf-8")
+harness = harness.replace("int main(", face_tests + "\nint main(", 1)
 # The legacy template models the archive service only. F7 must explicitly ask
 # for that archive; F8's real single-TXT path is exercised by validate-core-feedback.
 legacy_request = "bool Request(){return true;}"
@@ -67,6 +72,7 @@ harness = harness.replace(legacy_request, "bool Request(bool archive = false){re
 for marker, value in parts.items():
     harness = harness.replace(marker, value)
 if args.gpu:
+    harness = harness.replace(face_tests, "").replace("    TestFaceDiagnostic();", "")
     gpu = (root / "tests/codec_gpu_harness.cpp.in").read_text(encoding="utf-8")
     gpu = gpu[:gpu.index("struct RunResult")]
     start = source.index("constexpr UINT kCodecSrvCount")
@@ -112,4 +118,48 @@ for groups in (1,7):
                 assert settings['requested']['skin']==skin and settings['actual']['skin']==skin
                 assert settings['actual']['autoMask']==1
 print('Full-screen archives: 16 complete 3840 x 2160 PNGs byte-identical; face 0/2 recorded; no raw ROI planes PASS')
+if not args.gpu:
+    with zipfile.ZipFile(latest/'face-diagnostic.zip') as archive:
+        for i in range(9):
+            assert archive.read(f'groups/{i}/display.png') == native_png
+            settings=json.loads(archive.read(f'groups/{i}/settings.json'))
+            assert settings['faceDiagnostic']['roiTarget']==1 and settings['faceDiagnostic']['roiX']==1549 and settings['faceDiagnostic']['roiY']==83
+            assert settings['requested']==settings['actual'] and settings['complete']==1
+        assert archive.read('core/feedback.txt') == b'fixture-only=true\n'
+        capture_info = archive.read('capture-info.txt').decode('utf-8')
+        assert 'faceDiagnostic.selectionSourceWidth=2228\n' in capture_info
+        assert 'faceDiagnostic.selectionSourceHeight=1256\n' in capture_info
+        manifest=json.loads(archive.read('manifest.json'))
+        assert manifest['input_rejections']==0 and len(manifest['entries'])<=64
+        assert any(e['name']=='core/paired-archive' and e['status']=='hashed' and len(e['sha256'])==64 for e in manifest['entries'])
+    spec=importlib.util.spec_from_file_location('f8_independent',root/'scripts/parse-f8-bundle.py')
+    reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
+    analysis=reader.inspect_bundle(latest/'face-diagnostic.zip')
+    assert analysis['face_diagnostic']['complete'] and analysis['manifest_verified']
+    (latest/'face-diagnostic-analysis.json').write_text(json.dumps(analysis,indent=2)+'\n',encoding='utf-8')
+    print('Face diagnostic: nine full 3840 x 2160 PNGs byte-identical, nine off-center 512 ROIs, actual tuning, paired core hashes and independent parser PASS')
+if args.negative_control:
+    assert not args.gpu, 'Controller mutations must not run the GPU fixture'
+    mutations={
+        'omit-processing-session-restore': ('nr_processing_runtime::session=s->processing_original;', '(void)s->processing_original;'),
+        'omit-transient-route-selection': ('requested.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);', '(void)requested.processing_selection;'),
+        'legacy-mode-only-matrix': ('c.processing_start=nr_processing::FromLegacy(c.mode);\n        NormalizeConfig(c);', 'NormalizeConfig(c);'),
+        'screenshot-before-gpu': ('(!face || g.frames[0].valid)', 'true'),
+        'ignore-applied-tuning': ('!nr_face_diagnostic::MatchesApplied(g.requested,info.identity.tuning)', 'false'),
+        'ignore-geometry-change': ('s->face_geometry_set && !SameFaceGeometry(s->face_geometry,info)', 'false'),
+        'ignore-selected-source-extent': ('!s->face_geometry_set && s->options.expected_source_width != 0', 'false'),
+        'omit-face-restore': ('if(s->options.comparison!=Comparison::Current)ApplyConfig(s->original', 'if(s->options.comparison!=Comparison::Current && s->options.comparison!=Comparison::FaceDiagnostic)ApplyConfig(s->original'),
+        'skip-display-budget': ('!nr_face_diagnostic::AdmitDisplay(s->display_width,s->display_height)?', 'false?'),
+    }
+    results=[]
+    for name,(old,new) in mutations.items():
+        assert harness.count(old)==1,(name,harness.count(old))
+        bad_cpp,bad_exe=out/f'negative-{name}.cpp',out/f'negative-{name}.exe'
+        bad_cpp.write_text(harness.replace(old,new),encoding='utf-8')
+        subprocess.run([args.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(bad_cpp),'-o',str(bad_exe)],check=True)
+        run=subprocess.run([str(bad_exe),str(out)],capture_output=True,text=True)
+        assert run.returncode==1 and 'FAIL:' in run.stderr,(name,run.returncode,run.stderr)
+        results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip()})
+    (latest/'face-negative-controls.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
+    print(f'F8 controller: {len(mutations)} compiled face/matrix behavioral negative controls rejected PASS')
 print("F8 controller: production Present/callback/readback/stream/restore/ZIP PASS; " + ("real WARP shader/ring/fence, synthetic NR input" if args.gpu else "GPU/NGX are seams"))

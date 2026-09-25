@@ -32,12 +32,14 @@ struct State {
     bool descriptor_interface_unavailable=false;
 };
 std::map<void *,State *> objects;
+std::recursive_mutex private_storage_mutex;
 State &Object(void *self){return *objects.at(self);}
 State &Storage(void *self){auto *s=&Object(self);while(s->private_owner)s=s->private_owner;return *s;}
 ULONG STDMETHODCALLTYPE AddRef(void *self){return ++Object(self).references;}
 ULONG STDMETHODCALLTYPE Release(void *self){return --Object(self).references;}
 HRESULT STDMETHODCALLTYPE Query(void *self,REFIID,void **out){if(!out)return E_POINTER;*out=self;AddRef(self);return S_OK;}
 HRESULT STDMETHODCALLTYPE GetPrivate(void *self,REFGUID guid,UINT *size,void *data) {
+    std::lock_guard guard(private_storage_mutex);
     ++private_reads;
     if(Storage(self).descriptor_interface_unavailable && IsEqualGUID(guid,kNrDescriptorLifetime))return E_FAIL;
     if(!size)return E_POINTER;
@@ -52,6 +54,7 @@ HRESULT STDMETHODCALLTYPE GetPrivate(void *self,REFGUID guid,UINT *size,void *da
     return S_OK;
 }
 HRESULT STDMETHODCALLTYPE SetPrivate(void *self,REFGUID guid,UINT size,const void *data) {
+    std::lock_guard guard(private_storage_mutex);
     auto &values=Storage(self).values;const auto key=GuidKey(guid);
     IUnknown *old=nullptr;
     if(auto found=values.find(key);found!=values.end()){old=found->second.object;values.erase(found);}
@@ -59,6 +62,7 @@ HRESULT STDMETHODCALLTYPE SetPrivate(void *self,REFGUID guid,UINT size,const voi
     if(old)IUnknown_Release(old);return S_OK;
 }
 HRESULT STDMETHODCALLTYPE SetInterface(void *self,REFGUID guid,const IUnknown *data) {
+    std::lock_guard guard(private_storage_mutex);
     if(Storage(self).descriptor_interface_unavailable && IsEqualGUID(guid,kNrDescriptorLifetime))return E_FAIL;
     auto &values=Storage(self).values;const auto key=GuidKey(guid);
     IUnknown *old=nullptr;
@@ -770,7 +774,75 @@ void CopyScopeUnrelatedOracle() {
         after.cpu_slots.evictions==before.cpu_slots.evictions,
         "COPY_SCOPE_UNRELATED_ORACLE");
 }
+void CachedCopyFailurePreflight() {
+    const auto type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    const nr_descriptor::Heap isolated{0xa020,device_identity,0xa0200,0xa20000,0,2,32,static_cast<unsigned>(type),false};
+    Check(g_nr_descriptors.ObserveHeap(isolated),"failed-copy oracle has an isolated destination heap");
+    const D3D12_CPU_DESCRIPTOR_HANDLE destination{static_cast<SIZE_T>(isolated.cpu)};
+    const auto source=CpuBase(&native_cpu);
+    { NrDescriptorCopy warm; NrDescriptorBeginCopy(warm,&native_device,1,&destination,nullptr,1,&source,nullptr,type);
+      Check(warm.count==1,"scratch cache primed by a real descriptor begin"); }
+    const auto before=g_nr_descriptors.SnapshotCounters();
+    // Invalid second address is rejected before any native copy is called.
+    const D3D12_CPU_DESCRIPTOR_HANDLE invalid_source{std::numeric_limits<SIZE_T>::max()-15};
+    const UINT two=2;
+    { NrDescriptorCopy failed;
+      NrDescriptorBeginCopy(failed,&native_device,1,&destination,&two,1,&invalid_source,&two,type);
+      Check(failed.unknown.active&&failed.count==0,
+          "partial address preflight never owns reused write tickets"); }
+    const auto after=g_nr_descriptors.SnapshotCounters();
+    Check(after.copy_finish_batches==before.copy_finish_batches,
+        "failed cached preflight cannot finish a previous copy batch");
+    g_nr_descriptors.RetireHeap(isolated.id);
+}
+void CachedIdentityDoesNotWaitForPublication() {
+    const auto expected=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&native_device),NrDescriptorObject::Device,device_identity);
+    struct Work { HANDLE done; nr_descriptor::Id result=0; } work{CreateEventW(nullptr,TRUE,FALSE,nullptr)};
+    Check(work.done&&expected,"cached identity lock oracle initialized");
+    g_nr_descriptor_identity_mutex.lock();
+    HANDLE worker=CreateThread(nullptr,0,[](void *argument)->DWORD {
+        auto &w=*static_cast<Work *>(argument);
+        w.result=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&proxy_device),NrDescriptorObject::Device,device_identity);
+        SetEvent(w.done);return 0;
+    },&work,0,nullptr);
+    const auto ready=worker?WaitForSingleObject(work.done,1000):WAIT_FAILED;
+    g_nr_descriptor_identity_mutex.unlock();
+    const auto joined=worker?WaitForSingleObject(worker,5000):WAIT_FAILED;
+    if(worker)CloseHandle(worker);CloseHandle(work.done);
+    Check(joined==WAIT_OBJECT_0&&ready==WAIT_OBJECT_0&&work.result==expected,
+        "published proxy identity completes while another thread owns publication mutex");
+}
+void ConcurrentIdentityPublication() {
+    ID3D12Device local{&device_table};State state;objects.emplace(&local,&state);
+    const auto before=g_nr_descriptor_ids.load();
+    std::atomic<bool> start{false};std::array<nr_descriptor::Id,8> results{};
+    std::vector<std::thread> workers;
+    for(unsigned i=0;i<results.size();++i)workers.emplace_back([&,i] {
+        while(!start.load(std::memory_order_acquire))std::this_thread::yield();
+        results[i]=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    });
+    start.store(true,std::memory_order_release);for(auto& worker:workers)worker.join();
+    const auto published=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    Check(published&&g_nr_descriptor_ids.load()==before+1,
+        "concurrent first observers publish exactly one object identity");
+    for(auto value:results)Check(!value||value==published,"racing lookup is unknown or the one published identity");
+    SetInterface(&local,kNrDescriptorLifetime,nullptr);
+    auto* incomplete=new NrDescriptorLifetime;incomplete->iface.lpVtbl=&kNrDescriptorLifetimeVtable;
+    incomplete->kind=NrDescriptorObject::Device;incomplete->device=device_identity;incomplete->id=g_nr_descriptor_ids.fetch_add(1);
+    SetInterface(&local,kNrDescriptorLifetime,&incomplete->iface);
+    Check(!NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity),
+        "attached unarmed identity is neither accepted nor replaced");
+    incomplete->armed.store(true,std::memory_order_release);
+    Check(NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity)==incomplete->id,
+        "same attached identity becomes visible only after publication");
+    NrDescriptorLifetimeRelease(&incomplete->iface);SetInterface(&local,kNrDescriptorLifetime,nullptr);
+    const auto replacement=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&local),NrDescriptorObject::Device,device_identity);
+    Check(replacement&&replacement!=published,"reused object address receives a new lifetime identity");
+    SetInterface(&local,kNrDescriptorLifetime,nullptr);objects.erase(&local);
+}
 void Run() {
+    Check(NrDescriptorConfigureStartup(false),"full diagnostic alias fixture explicitly requests GPU mirror");
+    Check(!NrDescriptorLowOverheadActive(),"full GPU descriptor mirror is the startup default");
     Initialize();
     const auto failures=g_nr_descriptor_lifetime_failures.load();
     const auto device_token=NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&native_device),NrDescriptorObject::Device,device_identity);
@@ -788,6 +860,9 @@ void Run() {
     const auto cpu_heap=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_cpu));
     const auto gpu_heap=g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_gpu));
     Check(cpu_heap.id&&gpu_heap.id,"native CPU and GPU heap controls are tracked");
+    Check(g_nr_descriptors.StartupSealed()&&!NrDescriptorConfigureStartup(true)&&
+          !NrDescriptorLowOverheadActive(),
+        "first heap observation seals full mirroring and rejects a live low-overhead switch");
     Check(NrDescriptorObjectIdentity(reinterpret_cast<ID3D12Object *>(&proxy_cpu),NrDescriptorObject::Heap,device_identity)==cpu_heap.id,
         "heap proxy shares the native lifetime without certifying its virtual CPU handle domain");
     NrDescriptorTrackHeap(&proxy_device,&proxy_cpu);NrDescriptorTrackHeap(&proxy_device,&proxy_gpu);
@@ -877,7 +952,93 @@ void Run() {
     Check(!NrFormatEvidence(NrFormatKey(&native_device,&resource,701,true)).Resolved()&&
           !NrFormatEvidence(NrFormatKey(&native_device,&resource,702,true)).Resolved(),
         "neither cached-use control nor successful proxy clear promotes diagnostics into the admission ledger");
+    CachedIdentityDoesNotWaitForPublication();CachedCopyFailurePreflight();
     NativeClearRequests();LedgerEvents();CopyScopeUnrelatedOracle();DescriptorWindowRetirement();IdentityNegatives();
+    ConcurrentIdentityPublication();
     std::printf("PASS %u assertions; full production TU; synthetic COM CPU only; D3D devices=0 GPU submits=0 NGX=0\n",checks);
+}
+void RunLowOverhead() {
+    Check(NrDescriptorConfigureStartup(true)&&NrDescriptorLowOverheadActive()&&
+          !g_nr_descriptors.StartupSealed(),
+        "low-overhead startup selection applies before observer hooks");
+    Initialize();
+    ID3D12DescriptorHeap *created=nullptr;
+    Check(SUCCEEDED(ID3D12Device_CreateDescriptorHeap(&native_device,&cpu_state.heap,IID_ID3D12DescriptorHeap,
+            reinterpret_cast<void **>(&created)))&&created==&native_cpu,
+        "low-overhead path still observes the native CPU heap");
+    ID3D12DescriptorHeap_Release(created);
+    Check(SUCCEEDED(ID3D12Device_CreateDescriptorHeap(&native_device,&gpu_state.heap,IID_ID3D12DescriptorHeap,
+            reinterpret_cast<void **>(&created)))&&created==&native_gpu,
+        "low-overhead path still observes the native GPU heap lifetime");
+    ID3D12DescriptorHeap_Release(created);
+    Check(g_nr_descriptors.StartupSealed()&&!NrDescriptorConfigureStartup(false)&&
+          NrDescriptorLowOverheadActive()&&NrDescriptorConfigureStartup(true),
+        "sealed low-overhead registry rejects restoration but accepts the same effective selection");
+    CommandStateMetaContract meta;meta.known=true;meta.device_identity=command_device_identity;
+    CommandCreationInfo creation;creation.serial=2;creation.method=1;creation.initial_pso=true;creation.device_identity=command_device_identity;
+    Check(RegisterCreatedCommandStateList(&native_list,meta,creation),
+        "low-overhead path registers the actual command recording");
+    const auto token=ReadCommandStateToken(&native_list);
+    auto *record=FindCommandStateTokenLocked(token);
+    Check(record!=nullptr,"low-overhead path finds the registered command recording");
+    record->state=new NativeCommandState;record->state->known=true;record->hooks_ready=true;
+    CommandStateAssign(record->state->pipeline,reinterpret_cast<ID3D12PipelineState *>(&pso));
+    CommandStateAssign(record->state->heaps[0],&native_gpu);
+    Check(NrDescriptorBoundHeap(&native_list)==g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(&native_gpu)).id,
+        "low-overhead path binds the actual shader-visible heap for the current command");
+    D3D12_UNORDERED_ACCESS_VIEW_DESC desc{};desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+    NrFormatCreateUav<0>(&native_device,&resource,nullptr,&desc,CpuBase(&native_cpu));
+    const auto cpu=g_nr_descriptors.Cpu(cpu_state.cpu,0,nr_descriptor::Kind::Uav);
+    Check(cpu&&g_nr_descriptors.Current(cpu),"low-overhead mode preserves current CPU descriptor evidence");
+    const auto copies=driver_copies;const auto before=g_nr_descriptors.SnapshotCounters();
+    NrDescriptorCopyDescriptorsSimple<0>(&native_device,1,CpuBase(&native_gpu),CpuBase(&native_cpu),
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    const auto after=g_nr_descriptors.SnapshotCounters();
+    Check(driver_copies==copies+1&&driver_descriptors.at(gpu_state.cpu).resource==&resource,
+        "low-overhead observation still forwards the original native descriptor copy once");
+    Check(!g_nr_descriptors.Gpu(gpu_state.gpu,0)&&after.gpu_shadow_skipped_calls==before.gpu_shadow_skipped_calls+1&&
+          after.gpu_shadow_skipped_descriptors==before.gpu_shadow_skipped_descriptors+1,
+        "low-overhead mode leaves GPU provenance unknown and records the skipped shadow");
+    Check(g_nr_descriptors.Current(cpu)&&NrDescriptorLowOverheadActive(),
+        "rejected live restoration cannot erase CPU evidence or revive omitted GPU evidence");
+    Params params;NgxHandle handle{995};const FLOAT values[]={0,0,1,1};
+    const auto clear=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
+        return kNgxSuccess;
+    };
+    const auto clear_before=driver_clears;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,905);
+    Check(driver_clears==clear_before+1&&last_clear.list==&native_list&&last_clear.cpu.ptr==cpu_state.cpu&&
+          last_clear.resource==&resource,"low-overhead typeless Output uses the actual native ClearUAV once");
+    const auto key=NrFormatKey(&native_device,&resource,905,true);
+    const auto prepared=NrNativeClearCandidate(key,g_config_generation.load(std::memory_order_acquire));
+    Check(prepared&&prepared.format==28&&prepared.resource==g_nr_descriptors.ResourceAt(reinterpret_cast<std::uint64_t>(&resource)).id&&
+          prepared.resource_address==reinterpret_cast<std::uint64_t>(&resource),
+        "typeless Output plus the current CPU typed Clear forms a fresh low-overhead request");
+    nr_native_clear::Invocation fresh;
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,905,&fresh,&prepared);
+    // This is the production validator used by FinishAfterSr. The missing GPU
+    // shadow is intentionally legal when the exact CPU request and bound heap
+    // are still current.
+    Check(NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,fresh),
+        "low-overhead GPU-unknown CPU Clear passes the real fresh-request validator");
+    const auto unknown_use=SnapshotNrDescriptorUse();
+    Check(unknown_use.unknown==1&&!unknown_use.after_native_valid&&!unknown_use.at_submit_valid,
+        "low-overhead fresh validation keeps the GPU shadow unknown");
+    auto wrong_device=fresh;wrong_device.request.key.device=NrFormatDeviceIdentity(&other_device);
+    Check(wrong_device.request.key.device!=fresh.request.key.device&&
+          !NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,wrong_device),
+        "low-overhead same-resource Clear with the wrong device is rejected");
+    const auto conflict_clear=[&](ID3D12GraphicsCommandList* list,const NgxHandle*,const NgxParams*,void*) {
+        PostHookClearUnorderedAccessViewFloat<0>(list,GpuBase(&native_gpu),CpuBase(&native_cpu),&resource,values,0,nullptr);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC conflicting=desc;conflicting.Format=DXGI_FORMAT_R8G8B8A8_UINT;
+        auto spare=CpuBase(&native_cpu);spare.ptr+=32;
+        NrFormatCreateUav<0>(&native_device,&resource,nullptr,&conflicting,spare);return kNgxSuccess;
+    };
+    nr_native_clear::Invocation conflicting;
+    NrCallNativeWithFormatObservation(conflict_clear,&native_list,&handle,&params.base,nullptr,905,&conflicting,&prepared);
+    Check(conflicting.request&&!NrNativeClearMayFinish(&native_list,&resource,905,28,prepared,conflicting),
+        "low-overhead same-resource conflicting format is rejected by the real validator");
+    std::printf("PASS %u assertions; startup low-overhead production hooks; original native calls preserved; synthetic COM CPU only\n",checks);
 }
 }

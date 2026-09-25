@@ -1,0 +1,35 @@
+#include <windows.h>
+#include <atomic>
+#include <cassert>
+#include <cstdio>
+struct ID3D12CommandList {int refs=1;};
+struct ID3D12GraphicsCommandList {int refs=1;};
+struct ID3D12CommandQueue {int refs=1;};
+void ID3D12GraphicsCommandList_AddRef(ID3D12GraphicsCommandList* p){++p->refs;}
+void ID3D12CommandQueue_AddRef(ID3D12CommandQueue* p){++p->refs;}
+template<class T>void ReleaseCom(T*& p){if(p)--p->refs;p=nullptr;}
+CRITICAL_SECTION g_chain_cs;
+struct GraphicsQueueRecord {unsigned long long identity=7;} record;
+unsigned tracked=0,remembered=0;
+GraphicsQueueRecord* TrackGraphicsQueueLocked(ID3D12CommandQueue*){++tracked;return &record;}
+void RememberLastSubmissionQueue(ID3D12CommandList*,unsigned long long identity){assert(identity==7);++remembered;}
+// @EXACT_TRAINING@
+int main(){
+    InitializeCriticalSection(&g_chain_cs);
+    ID3D12GraphicsCommandList list,other;ID3D12CommandQueue queue,other_queue;
+    ID3D12CommandList* lists[]={reinterpret_cast<ID3D12CommandList*>(&list)};
+    ID3D12CommandList* unrelated[]={reinterpret_cast<ID3D12CommandList*>(&other)};
+    NrExternalTrainSubmission(&queue,1,lists);assert(!tracked);
+    NrExternalSetTraining(&list,&queue);assert(list.refs==2&&queue.refs==2);
+    NrExternalSetTraining(&list,&queue);assert(list.refs==2&&queue.refs==2);
+    NrExternalTrainSubmission(&other_queue,1,lists);
+    NrExternalTrainSubmission(&queue,1,unrelated);assert(!tracked&&!remembered);
+    NrExternalTrainSubmission(&queue,1,lists);assert(tracked==1&&remembered==1);
+    AcquireSRWLockExclusive(&g_external_training_lock);
+    NrExternalTrainSubmission(&queue,1,lists);assert(tracked==1);
+    ReleaseSRWLockExclusive(&g_external_training_lock);
+    NrExternalSetTraining(nullptr,nullptr);assert(list.refs==1&&queue.refs==1);
+    NrExternalTrainSubmission(&queue,1,lists);assert(tracked==1);
+    DeleteCriticalSection(&g_chain_cs);
+    puts("PASS actual external training: exact queue/list only, bounded references, busy no-block, released target no work; CPU mocks, no GPU/performance claim");
+}

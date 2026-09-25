@@ -1,0 +1,226 @@
+#include <atomic>
+#include <array>
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include "nr_source_frame.hpp"
+#include "nr_late_present_receipt.hpp"
+#include "nr_fg_presentation.h"
+#include "interop/nr_external_provider_feedback.h"
+using namespace nr_source_frame;
+struct ID3D12CommandQueue {Id identity=7;};
+struct ID3D12Fence {Id value=1;};
+struct Desc {Id Width=1280;unsigned Height=720;};
+struct ID3D12Resource {Resource identity{10,1,1};Desc desc;};
+Desc ID3D12Resource_GetDesc(ID3D12Resource* p){return p->desc;}
+Id ID3D12Fence_GetCompletedValue(ID3D12Fence* p){return p->value;}
+int waits=0;
+unsigned fence_refs=0;
+void ID3D12Fence_AddRef(ID3D12Fence*){++fence_refs;}
+template<class T> void ReleaseCom(T*& p){if(p){++fence_refs;p=nullptr;}}
+int ID3D12CommandQueue_Wait(ID3D12CommandQueue*,ID3D12Fence*,Id){++waits;return 0;}
+#define FAILED(x) ((x)<0)
+struct NativeInputs {};
+struct NrGuideSignature {
+    unsigned depth_x=0,depth_y=0,depth_width=0,depth_height=0;
+    unsigned motion_x=0,motion_y=0,motion_source_width=0,motion_source_height=0;
+    float motion_scale_x=0,motion_scale_y=0;
+};
+struct NrGuideBinding {NrGuideSignature signature;int game_reset=0;};
+namespace reshade::api {
+enum class device_api {d3d12};
+struct device {device_api get_api(){return device_api::d3d12;}};
+struct command_queue {ID3D12CommandQueue native;device owner;
+    device* get_device(){return &owner;} Id get_native(){return reinterpret_cast<Id>(&native);}};
+struct swapchain {device owner;device* get_device(){return &owner;}};
+}
+std::atomic<unsigned> g_config_generation{1};
+nr_fg_presentation::Policy g_fg_presentation_policy;
+namespace nr_processing_runtime {
+struct EnergyKey {Id device,stream,epoch;};
+bool paused=false;
+bool EnergyGateBlocks(EnergyKey){return paused;}
+void RetireEnergyObserver(Id,Id){}
+void RetireEnergyStream(Id,Id){}
+}
+struct Lock {~Lock(){}};
+Claims claims;Lineage lineage;
+struct NgxHandle {};
+std::atomic<Id> source_objects{1};
+void ForgetPresentDemand(Id){}
+// @PRODUCER_REGISTRY@
+Id QueueOf(ID3D12CommandQueue* q){return q?q->identity:0;}
+Resource ResourceOf(ID3D12Resource* r){return r?r->identity:Resource{};}
+// @PRESENT_LEASE@
+PresentLease present_lease;
+Ticket present_ticket;bool present_recorded=false;Resource present_resource;
+struct GuideCopy {
+    Source source;bool recorded=false,native_result_known=false,native_succeeded=false;
+    bool consumed=false,inline_processed=false,fg_consumed=false,retired=false,poisoned=false,acquired=false;
+    Id queue=7,producer_value=1,consumer_value=0;ID3D12Fence* producer_fence=nullptr,*consumer_fence=nullptr;
+};
+GuideCopy guide_copies[8];GuideCopy* present_guides=nullptr;
+bool present_blocked_by_fg=false;
+struct {unsigned native_success=0,native_failure=0;} guide_receipt_diagnostics;
+// @RECEIPT_STATE@
+// @RECEIPT_FUNCTIONS@
+void CollectGuideInputs(){}
+void ObserveSurface(reshade::api::swapchain*){}
+// @RELEASE_GUIDES@
+PresentObservation observation;
+void PublishPresentObservation(PresentObservation d){observation=d;}
+void PublishPresentObservationLocked(PresentObservation d){observation=d;}
+struct {void Publish(Id,Id,unsigned,nr_present_mapping::Extent){};} present_demands;
+// Native guide selection is unavailable in this CPU host. Matching rejected
+// guide records still exercise the real color-only exclusion below.
+nr_late_present::Selection AcquirePresentGuides(Id,unsigned,unsigned,bool,bool,bool,Id,unsigned){return {};}
+// @COLOR_FUNCTIONS@
+// @PRESENT_DECISION@
+// @CAN_PRESENT@
+// @COMPLETE_PRESENT@
+// @CANCEL_PRESENT@
+unsigned checks=0;
+void Check(bool ok,const char* label){++checks;if(!ok){std::fprintf(stderr,"FAIL %s\n",label);std::exit(1);}}
+reshade::api::command_queue queue;reshade::api::swapchain chain;ID3D12Resource color;
+Source source{1,1,1};Recording recording{1,1,1,1};
+void Seed(bool submitted=true,bool native_success=true){
+    claims={};lineage={};present_ticket={};present_lease={};present_guides=nullptr;present_recorded=false;
+    for(auto& c:guide_copies)c={};for(auto& s:receipt_streams)s={};for(auto& d:receipt_devices)d={};
+    next_receipt_opportunity=1;queue.native.identity=7;color={};g_config_generation=1;
+    for(auto& p:producers)p={};for(auto& s:application_surfaces)s={};for(auto& r:retry_identities)r={};source_objects=1;
+    ObserveNativeProducer(99,1,1);source=ProducerSource(99,1,1);
+    nr_processing_runtime::paused=false;g_fg_presentation_policy.Inventory(0,0);g_fg_presentation_policy.Options(0,0,true);
+    BeginNativeReceiptOpportunityLocked(source,1);CompleteNativeReceiptLocked(source,native_success);
+    lineage.Set(recording,color.identity,{source,Role::Application});
+    if(submitted)lineage.Submit(recording,7,true);
+}
+bool Admit(){return CanPresent(&queue,&chain,&color);}
+void Stamp(Label label){lineage.Reset(recording);lineage.Set(recording,color.identity,label);lineage.Submit(recording,7,true);}
+void ApplicationSeed(){
+    Seed();RetireProducer(99);lineage={};
+    std::array<Resource,16> buffers{};buffers[0]=color.identity;buffers[1]={12,1,1};
+    RegisterApplicationSurface(reinterpret_cast<Id>(&chain),reinterpret_cast<Id>(&chain.owner),buffers,2);
+    lineage.Clear(recording,color.identity);lineage.Submit(recording,7,true);
+}
+int main(){
+    Seed();Check(Admit(),"exact submitted application color with no guides is admitted");
+    Check(present_lease.color_only&&!present_lease.guides_current&&!present_lease.guides_owned&&
+        present_lease.source==source&&present_lease.output_width==1280&&present_lease.output_height==720&&
+        !present_lease.producer_fence&&!present_lease.cross_queue_wait,"lease truthfully separates color source from guide ownership");
+    Check(BeginPresentReceiptWork(&queue.native)&&present_recorded&&waits==0,"actual consumer records same-queue color once without waits");
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"recorded source cannot restart or be presented twice");
+    Seed();Check(Admit(),"prepare prework cancellation");CancelPresentBeforeWork();
+    Check(!present_ticket&&claims.Available(source)&&Admit(),"prework cancellation releases exact claim for retry");
+    Check(BeginPresentReceiptWork(&queue.native),"retry records once");ID3D12Fence done;
+    CompletePresent(&done,1);
+    Check(!present_ticket&&claims.WasRecorded(source)&&!claims.Available(source)&&
+        lineage.Lookup(color.identity).processed&&fence_refs==0,
+        "completed color source retains consumed claim and processed lineage without guide references");
+    Seed();Check(Admit()&&BeginPresentReceiptWork(&queue.native),"prepare pending GPU completion");
+    done.value=0;CompletePresent(&done,1);
+    Check(!present_ticket&&claims.WasRecorded(source)&&!claims.Available(source)&&fence_refs==0,
+        "pending Present fence retains source consumption without guide ownership");
+    Seed(false);Check(!Admit(),"unsubmitted color is rejected");
+    Seed();queue.native.identity=8;Check(!Admit(),"unproven cross-queue source is rejected");
+    Seed();color.identity.lifetime=2;Check(!Admit(),"reused resource address cannot borrow old lifetime");
+    Seed();color.identity.device=2;Check(!Admit(),"wrong-device color is rejected");
+    Seed(false);lineage.Submit(recording,7,false);Check(!Admit(),"failed actual submission remains rejected");
+    Seed(true,false);CompleteNativeReceiptLocked(source,true);Check(!Admit(),"failed native result cannot be rehabilitated");
+    Seed();receipt_streams[0].native_result_known=false;Check(!Admit(),"pending native result remains rejected");
+    Seed();g_config_generation=2;Check(!Admit(),"old-config source remains rejected");
+    Seed();RetireProducer(99);Check(!Admit(),"retired producer remains rejected");
+    Seed();BeginNativeReceiptOpportunityLocked({1,1,2},1);Check(!Admit(),"older source cannot replace current native opportunity");
+    Seed();BeginNativeReceiptOpportunityLocked({2,1,1},1);Check(!Admit(),"old device opportunity remains rejected");
+    for(auto role:{Role::Generated,Role::Unknown,Role::Retired}){Seed();Stamp({source,role});Check(!Admit(),"non-application source is never promoted");}
+    for(unsigned flag=0;flag<3;++flag){Seed();Label label{source,Role::Application};
+        label.tainted=flag==0;label.processed=flag==1;label.fg_consumed=flag==2;Stamp(label);
+        Check(!Admit(),"tainted, processed or FG-consumed label remains rejected");}
+    Seed();guide_copies[0].source=source;guide_copies[0].poisoned=true;
+    Check(!Admit(),"matching rejected guide snapshot cannot be rescued by color-only path");
+    Seed();Check(Admit(),"prepare stale-source check");Stamp({{1,1,2},Role::Application});
+    Check(!BeginPresentReceiptWork(&queue.native),"source changed after admission cannot record");
+    Seed();Check(Admit(),"prepare changed-submission check");Stamp({source,Role::Application});
+    Check(!BeginPresentReceiptWork(&queue.native),"rewritten same source cannot borrow captured submission");
+    Seed();Check(Admit(),"prepare native-failure race");CompleteNativeReceiptLocked(source,false);
+    Check(!BeginPresentReceiptWork(&queue.native),"late native failure is rechecked before work");
+    Seed();Check(Admit(),"prepare FG-consumer race");MarkReceiptFgConsumedLocked(source);claims.ConsumeFg(source);
+    Check(!BeginPresentReceiptWork(&queue.native),"FG consuming source after admission blocks private work");
+    Seed();MarkReceiptInlineProcessedLocked(source);Check(!Admit(),"recorded inline work blocks fallback even when color label lags");
+    Seed();Check(Admit(),"prepare FG-owner race");g_fg_presentation_policy.Options(0,1,true);
+    Check(!BeginPresentReceiptWork(&queue.native)&&present_blocked_by_fg,"late FG presentation owner blocks color-only work");
+    Seed();nr_processing_runtime::paused=true;Check(!Admit(),"energy gate still stops color-only admission");
+    Seed();Check(Admit(),"prepare retired-stream race");RetireReceiptStreamLocked(1,1);
+    Check(!BeginPresentReceiptWork(&queue.native),"stream retired after admission cannot record");
+    ApplicationSeed();Check(Admit(),"actual full clear creates independent application source");
+    Check(present_lease.application_source&&present_lease.color_only&&!present_lease.guides_owned&&
+        !present_lease.guides_current&&!receipt_streams[0].stream&&!NativeProducerOnDevice(1),
+        "independent source never fabricates native success or guide receipt");
+    RetireApplicationSurface(0);RetireApplicationDevice(0);
+    Check(ApplicationSurfaceFor(reinterpret_cast<Id>(&chain),color.identity)!=nullptr&&lineage.Lookup(color.identity).role==Role::Unknown,
+        "unknown retirement identity cannot retire unrelated application state");
+    const auto application=present_lease.source;
+    Check(BeginPresentReceiptWork(&queue.native)&&!BeginPresentReceiptWork(&queue.native),"application source records at most once");
+    Check(!Admit()&&claims.WasRecorded(application),"duplicate Present cannot repeat recorded content");
+    lineage.Reset(recording);lineage.Clear(recording,color.identity);lineage.Submit(recording,7,true);
+    Check(Admit()&&present_lease.source.sequence>application.sequence,"new full clear creates a new content sequence");
+    ApplicationSeed();Check(Admit(),"prepare application completed source");Check(BeginPresentReceiptWork(&queue.native),"application record");
+    done.value=1;CompletePresent(&done,1);Check(!Admit(),"completed application source remains consumed");
+    ApplicationSeed();Check(Admit(),"prepare prework app cancellation");const auto retry=present_lease.source;
+    CancelPresentBeforeWork();Check(Admit()&&present_lease.source==retry,"prework retry retains exact application identity");
+    ApplicationSeed();lineage.Reset(recording);lineage.Invalidate(recording,color.identity);lineage.Submit(recording,7,true);
+    Check(lineage.Lookup(color.identity).exact_write&&!lineage.Lookup(color.identity).whole_write&&!Admit(),
+        "target invalidation never counts as a full write despite historical exact flag");
+    ApplicationSeed();lineage.Reset(recording);lineage.Copy(recording,color.identity,{11,1,1},false);lineage.Submit(recording,7,true);
+    Check(!Admit(),"partial copy cannot promote a complete image");
+    ApplicationSeed();lineage.Reset(recording);lineage.InvalidateDevice(recording);lineage.Submit(recording,7,true);
+    Check(!Admit(),"unknown shader or aliased device write cancels whole-image proof");
+    ApplicationSeed();lineage.Reset(recording);lineage.Copy(recording,color.identity,{11,1,1},true);lineage.Submit(recording,7,true);
+    Check(!Admit(),"full copy from an unknown image cannot manufacture content");
+    ApplicationSeed();lineage={};const Resource intermediate{11,1,1};
+    lineage.Clear(recording,intermediate);lineage.Copy(recording,color.identity,intermediate,true);lineage.Submit(recording,7,true);
+    Check(Admit()&&present_lease.color_content==lineage.Lookup(intermediate).content,"exact whole copy propagates actual clear content");
+    ApplicationSeed();lineage={};lineage.Clear(recording,intermediate);lineage.Submit(recording,8,true);
+    lineage.Reset(recording);lineage.Copy(recording,color.identity,intermediate,true);lineage.Submit(recording,7,true);
+    Check(!Admit(),"unproven cross-queue full copy is rejected");
+    ApplicationSeed();queue.native.identity=8;Check(!Admit(),"application source requires the actual submission queue");
+    ApplicationSeed();lineage={};lineage.Clear(recording,color.identity);Check(!Admit(),"unsubmitted whole clear is rejected");
+    ApplicationSeed();lineage.Reset(recording);lineage.Clear(recording,color.identity);lineage.Submit(recording,7,false);
+    Check(!Admit(),"failed whole-clear submission cannot activate");
+    ApplicationSeed();ObserveNativeProducer(101,1,1);Check(!Admit(),"any live same-device native producer blocks independent activation");
+    ApplicationSeed();g_fg_presentation_policy.Options(0,1,true);Check(!Admit(),"late FG ownership blocks independent admission");
+    ApplicationSeed();Check(Admit(),"prepare native producer race");ObserveNativeProducer(101,1,1);
+    Check(!BeginPresentReceiptWork(&queue.native),"new native owner before recording blocks application work");
+    ApplicationSeed();Check(Admit(),"prepare application FG owner race");g_fg_presentation_policy.Options(0,1,true);
+    Check(!BeginPresentReceiptWork(&queue.native),"new FG owner before recording blocks application work");
+    ApplicationSeed();Check(Admit(),"prepare application config race");++g_config_generation;
+    Check(!BeginPresentReceiptWork(&queue.native),"application generation rechecked immediately before recording");
+    ApplicationSeed();Check(Admit(),"prepare application content race");lineage.Reset(recording);lineage.Clear(recording,color.identity);lineage.Submit(recording,7,true);
+    Check(!BeginPresentReceiptWork(&queue.native),"new submitted content invalidates prepared application lease");
+    ApplicationSeed();Check(Admit(),"prepare reused resource identity");lineage.Forget(color.identity);++color.identity.lifetime;
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"reused resource address cannot borrow application lifetime");
+    ApplicationSeed();Check(Admit(),"prepare actual resource retirement");RetireApplicationResource(color.identity.address);
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"backbuffer retirement invalidates producer and prepared claim");
+    ApplicationSeed();Check(Admit(),"prepare device retirement");RetireApplicationDevice(reinterpret_cast<Id>(&chain.owner));
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"device teardown retires independent producer");
+    ApplicationSeed();Check(Admit(),"prepare swapchain retirement");RetireSwapchain(&chain);
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"swapchain destroy/resize retires source");
+    ApplicationSeed();Check(Admit()&&BeginPresentReceiptWork(&queue.native),"prepare recorded copied content");
+    lineage.Reset(recording);lineage.Copy(recording,{12,1,1},color.identity,true);lineage.Submit(recording,7,true);color.identity={12,1,1};
+    Check(!Admit(),"same complete content copied to another backbuffer cannot repeat NR");
+    ApplicationSeed();Check(Admit(),"prepare older backbuffer content");const auto old=color.identity;
+    lineage.Reset(recording);lineage.Clear(recording,{12,1,1});lineage.Submit(recording,7,true);color.identity={12,1,1};
+    Check(Admit(),"newer application content replaces prework lease");CancelPresentBeforeWork();color.identity=old;
+    Check(!Admit(),"older backbuffer content cannot regain a newer stream opportunity");
+    ApplicationSeed();Check(Admit(),"prepare replacement surface epoch");const auto old_epoch=present_lease.application_epoch;
+    std::array<Resource,16> replacement{};replacement[0]=color.identity;
+    RegisterApplicationSurface(reinterpret_cast<Id>(&chain),reinterpret_cast<Id>(&chain.owner),replacement,1);
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"new surface epoch cannot reuse pre-init content or old prepared lease");
+    lineage.Reset(recording);lineage.Clear(recording,color.identity);lineage.Submit(recording,7,true);
+    Check(Admit()&&present_lease.application_epoch!=old_epoch,"fresh full write after reinitialization uses new surface generation");
+    ApplicationSeed();Check(Admit(),"application source prepared before external claim");
+    nr_external_provider_feedback::owner_provider_id.store(42);
+    Check(!BeginPresentReceiptWork(&queue.native)&&!Admit(),"external ownership blocks existing prepared work and new native Present admission");
+    nr_external_provider_feedback::owner_provider_id.store(0);
+    ApplicationSeed();Check(Admit(),"external release permits a new valid application frame");
+    std::printf("Present color source HOST: %u checks / 0 failures; actual admission and consumer; no GPU/NGX/game\n",checks);
+}

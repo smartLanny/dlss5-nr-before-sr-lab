@@ -291,7 +291,7 @@ void RetirementCallbacks() {
 }
 int main() {
     HappyAndRejects();ScopeControls();SemanticVerdict();RetirementCallbacks();
-    std::printf("ROUTE_CPU %s checks=%u failures=%u; production route gate/runtime/recovery producers/F8, real Win32 value locks; API/NR facts scripted; no GPU/game\n",
+    std::printf("ROUTE_CPU %s checks=%u failures=%u; retained route proof/runtime/recovery/F8; Prepare is a historical comparison; real Win32 value locks; API/NR facts scripted; no GPU/game\n",
         failures?"FAIL":"PASS",checks,failures);
     return failures?41:0;
 }

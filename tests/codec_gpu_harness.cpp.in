@@ -21,6 +21,7 @@
 // @PRODUCTION_DESCRIPTOR_CONSTANTS@
 // @PRODUCTION_SHADER@
 // @MAINTENANCE_SHADER@
+// @DIRECTIONAL_BASELINE_SHADER@
 // @PRODUCTION_CONSTANTS@
 
 void Require(bool value, const char *message) {
@@ -410,12 +411,20 @@ struct ExposureCase {
 };
 
 struct CaptureRoi { UINT x=0, y=0, width=0, height=0; };
+struct LightCase {
+    float broad=1.f, dark=1.f, reflection=1.f, structure=1.f, glow=0.f;
+    UINT preview=0;
+    float lighting=0.f;
+};
+
+struct RegionCase {UINT flags=0; Float4 field={2,0,.4f,.2f}; float gains[11]={1,1,1,1,1,1,1,1,1,1,1};};
+struct FaceCase {unsigned options=0; float luma=0,color=0; float mask=1; bool valid=true;};
 
 RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false, float requested_color = -1.f) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false, float requested_color = -1.f, LightCase light = {}, FaceCase face = {}, RegionCase region = {}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -495,6 +504,30 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         std::fill(proxy.begin(),proxy.end(),Float4{1000.f,20.f,2.f,.75f});
         std::fill(neural.begin(),neural.end(),Float4{2.f,20.f,1000.f,.875f});
     }
+    if (variant >= 30 && variant <= 35) {
+        for (UINT y=0;y<model_height;++y) for (UINT x=0;x<model_width;++x) {
+            const bool center=x==model_width/2 && y==model_height/2;
+            float edit=variant==31 ? -.5f : .5f;
+            if(variant==32) edit=center ? .5f : -1.f;
+            if(variant==33) edit=center ? -.5f : 1.f;
+            proxy[y*model_width+x]={.2f,.2f,.2f,.75f};
+            const float n=.2f*std::exp2(edit);
+            neural[y*model_width+x]={n,n,n,.875f};
+            if(variant==34) neural[y*model_width+x]={.25f,.2f-.05f*.2126f/.7152f,.2f,.875f};
+        }
+        if(variant==35) std::fill(original.begin(),original.end(),Float4{1e-8f,1e-8f,1e-8f,.625f});
+    }
+    if(variant==40 || variant==41 || variant==42) {
+        std::fill(original.begin(),original.end(),Float4{.2f,.2f,.2f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{.2f,.2f,.2f,.75f});
+        std::fill(neural.begin(),neural.end(),variant!=41?Float4{.3f,.25f,.2f,.875f}:Float4{.13f,.16f,.2f,.875f});
+    }
+    if(variant==42) original[5*source_width+6]={.8f,.8f,.8f,.625f};
+    if(variant==43) {
+        std::fill(original.begin(),original.end(),Float4{.8f,.8f,.8f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{.8f,.8f,.8f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{.9f,.9f,.9f,.875f});
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -546,6 +579,20 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(kCodecEditRestoreSrvIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
     gpu.UavTexture(kCodecEditRestoreUavIndex,horizontal.resource.p,DXGI_FORMAT_R16G16_FLOAT);
     gpu.Srv(kCodecLanczosSrvIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    Texture face_texture;
+    if(face.options) {
+        std::vector<Float4> field(width*height);
+        for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x)
+            field[y*width+x]={x<width/2?face.mask:0.f,.4f,.2f,face.valid?1.f:0.f};
+        face_texture=gpu.MakeTexture(width,height,field);
+        gpu.TextureState(face_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+    gpu.Srv(kCodecFaceSrvIndex,face_texture.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
+    Texture region_texture;
+    if(region.flags){std::vector<Float4> field(width*height,region.field);
+        for(UINT y=0;y<height;y++)for(UINT x=width/2;x<width;x++)field[y*width+x].w=-1;
+        region_texture=gpu.MakeTexture(width,height,field);gpu.TextureState(region_texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
+    gpu.Srv(kCodecRegionSrvIndex,region_texture.resource.p,DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecLanczosUavIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
@@ -565,6 +612,12 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
     constants.layer_tone = layers.x; constants.layer_structure = layers.y;
     constants.layer_bright = layers.z; constants.layer_shadow = layers.w;
+    constants.light_broad=light.broad; constants.light_dark=light.dark;
+    constants.light_reflection=light.reflection; constants.light_structure=light.structure;
+    constants.light_glow=light.glow; constants.light_preview=light.preview;
+    constants.lighting_lock=light.lighting;
+    constants.region_flags=region.flags;std::copy(region.gains,region.gains+11,constants.region_gains);
+    constants.face_options=face.options;constants.face_original_luma=face.luma;constants.face_original_color=face.color;
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);

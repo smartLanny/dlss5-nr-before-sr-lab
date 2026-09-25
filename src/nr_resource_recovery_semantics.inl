@@ -77,18 +77,21 @@ void NrRecoveryAdoptSlot(NrSlot& slot, const nr_recovery::Token& token, bool pos
 #if defined(NR_HAS_TIMING)
     NrTimingSetTarget(target, target, 0);
 #endif
-    const bool programmed = slot.heap && slot.source && slot.result &&
-        slot.descriptor_receipt.heap == slot.heap && slot.descriptor_receipt.source == slot.source &&
-        slot.descriptor_receipt.result == slot.result &&
-        slot.descriptor_receipt.source_srv == slot.source_srv_format &&
-        slot.descriptor_receipt.result_uav == slot.result_uav_format &&
-        (post_sr ? slot.result_srv_format : slot.source_srv_format) == token.signature.srv &&
-        (post_sr ? slot.result_uav_format == token.signature.uav : slot.result_uav_format == DXGI_FORMAT_R16G16B16A16_FLOAT);
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     if (target) g_nr_recovery.BindWritebackTarget(token, slot.recovery_target);
-    // D3D12 CreateSRV/CreateUAV return void. This records the owned writer's
-    // programmed formats plus the successful capability decision; the stored
-    // read is a separate, mandatory check before recovery can succeed.
-    if (programmed) g_nr_recovery.Record(token, nr_recovery::Stage::Descriptor, true);
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
+}
+// Called at the actual composition dispatch, after choosing the immutable
+// packet, legacy table, or successfully copied F8 table that the GPU consumes.
+void NrRecoveryDescriptorConsumed(const NrSlot& slot, const NrSlot::DescriptorReceipt& receipt) {
+    const auto& token = slot.recovery_token;
+    const bool post_sr = slot.snapshots_native_output;
+    const bool programmed = receipt.heap && slot.source && slot.result &&
+        receipt.source == slot.source && receipt.result == slot.result &&
+        receipt.source_srv == slot.source_srv_format && receipt.result_uav == slot.result_uav_format &&
+        (post_sr ? slot.result_srv_format : slot.source_srv_format) == token.signature.srv &&
+        (post_sr ? slot.result_uav_format == token.signature.uav : slot.result_uav_format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+    // CreateSRV/CreateUAV return void. Programmed-view proof and the mandatory
+    // stored-result read remain separate facts in the same recovery ledger.
+    if (programmed) NrRecoveryRecord(token, nr_recovery::Stage::Descriptor, true);
 }

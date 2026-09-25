@@ -142,11 +142,13 @@ struct ProjectionCase {
     float b;
     float near_z;
     float far_z;
+    bool placeholder=false;
 };
 
 // Independent oracle. This intentionally does not call nr_rr_depth::Convert.
 float OracleDepth(const ProjectionCase &projection, float view_z) {
     const float far_depth = projection.inverted ? 0.0f : 1.0f;
+    if(projection.placeholder)return far_depth;
     if (!std::isfinite(view_z) || view_z <= 0.0f) return far_depth;
     const float projected = projection.a + projection.b / view_z;
     if (!std::isfinite(projected)) return far_depth;
@@ -621,6 +623,8 @@ void RunCase(Gpu &gpu, const ProjectionCase &projection, DXGI_FORMAT format,
     std::memcpy(constants + 5, &projection.b, sizeof(float));
     const float far_depth = projection.inverted ? 0.0f : 1.0f;
     std::memcpy(constants + 6, &far_depth, sizeof(float));
+    const float unknown_depth=projection.placeholder?1.f:0.f;
+    std::memcpy(constants + 7, &unknown_depth, sizeof(float));
     gpu.list->SetComputeRoot32BitConstants(1, 8, constants, 0);
     gpu.list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
     gpu.Barrier(source.resource.p,
@@ -653,12 +657,15 @@ int main() {
             {"reverse-finite", true, -near_z / (far_z - near_z),
              near_z * far_z / (far_z - near_z), near_z, far_z},
             {"reverse-infinite", true, 0.0f, near_z, near_z, far_z},
+            // Nonzero A/B catches accidental execution of the conversion
+            // branch. Includes NaN/negative input, subrects and real FP16.
+            {"explicit-unknown-depth", true, .25f, .75f, near_z, far_z, true},
         };
         for (const ProjectionCase &projection : cases) {
             RunCase(gpu, projection, DXGI_FORMAT_R32_FLOAT, 13, 7, 3, 2);
             RunCase(gpu, projection, DXGI_FORMAT_R16_FLOAT, 11, 5, 2, 3);
         }
-        std::puts("RR depth GPU contract: PASS (8 WARP cases, cs_5_0, 20s fence)");
+        std::puts("RR depth GPU contract: PASS (10 WARP cases, cs_5_0, 20s fence)");
         return 0;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "RR depth GPU contract: FAIL %s\n", error.what());

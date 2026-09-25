@@ -33,7 +33,7 @@ struct FrameTicket {
 
 namespace nr_f8_gpu {
 
-constexpr unsigned int kGroupCount = 7;
+constexpr unsigned int kGroupCount = 9;
 // Sixteen consecutive ROI frames plus one independent full-frame overview.
 constexpr unsigned int kFramesPerGroup = 17;
 constexpr unsigned int kCapacity = kGroupCount * kFramesPerGroup;

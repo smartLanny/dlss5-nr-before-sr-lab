@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped, [string]$OutputRoot)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource, [switch]$FaceProtection, [switch]$FaceNegativeControl, [switch]$Regions, [switch]$DualGeneric, [string]$OutputRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -16,6 +16,22 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
     throw 'Production codec extraction markers changed; update the GPU harness.'
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
+if ($LightStyle -or $PostLightStyle) {
+    if ([string]::IsNullOrWhiteSpace($DirectionalBaselineSource)) { throw 'Light controls require the frozen generated D4 reference as well as D1.' }
+    $d4Source = (Resolve-Path -LiteralPath $DirectionalBaselineSource).Path
+    $d4Core = Split-Path -Parent (Split-Path -Parent $d4Source)
+    $d4ManifestPath = Join-Path (Split-Path -Parent $d4Core) 'source-manifest.json'
+    if ((Get-FileHash -LiteralPath $d4ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'Unexpected D4 reference manifest bytes.' }
+    $d4Manifest = Get-Content -LiteralPath $d4ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $d4Hash = (Get-FileHash -LiteralPath $d4Source -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($d4Manifest.source_commit -ne 'ec338d7d9d69230f208b25e4fd457cc79d03c465' -or $d4Manifest.files.'core/src/nr_before_sr.cpp' -ne $d4Hash) { throw 'D4 reference must match its frozen generated source.' }
+    $d4Text = Get-Content -LiteralPath $d4Source -Raw -Encoding UTF8
+    $d4Shader = [regex]::Matches($d4Text, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
+    if ($d4Shader.Count -ne 1) { throw 'D4 shader extraction is not unique.' }
+    $harness = $harness.Replace('// @DIRECTIONAL_BASELINE_SHADER@', $d4Shader[0].Value.Replace('kCodecShader', 'kD4BaselineShader'))
+} elseif (![string]::IsNullOrWhiteSpace($DirectionalBaselineSource)) {
+    throw 'DirectionalBaselineSource applies only to the light-control fixtures.'
+}
 if($CatmullOutput) {
     if($EditFieldOutput -or $InputFilterOutput -or $ColorEditField -or $ComparisonOutput -or $BaselineSource -or $NegativeControl -or $LayerNegativeControl) {throw 'Run Catmull contract independently.'}
     # Test-only non-fused oracle materializes one R-sized field. No production
@@ -35,7 +51,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
     $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
-    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid) { '' } else { @'
+    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid -or $LightStyle -or $PostLightStyle) { '' } else { @'
         Gpu baseline(kMaintenanceShader);
         unsigned comparison_count = 0;
         for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
@@ -55,9 +71,41 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if($ExposureTyped) {
+if($PostLightStyle) {
+    if (!$BaselineSource -or $LightStyle -or $CombinedLowGrid -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) { throw 'PostLightStyle requires only its frozen generated BaselineSource.' }
+    $candidateManifestPath = Join-Path (Split-Path -Parent $SourceRoot) 'source-manifest.json'
+    $baselineCore = Split-Path -Parent (Split-Path -Parent $BaselineSource)
+    $baselineManifestPath = Join-Path (Split-Path -Parent $baselineCore) 'source-manifest.json'
+    $candidateManifest = Get-Content -LiteralPath $candidateManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $baselineManifest = Get-Content -LiteralPath $baselineManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($baselineManifest.source_commit -ne '59ab029614df6fad6ea1e95df18a0a986be58962') { throw 'PostLightStyle baseline must be frozen dline1 source 59ab029, not a raw historical shader.' }
+    # Preserve the exact D1 reference. The sole differing adapter pair changes
+    # PrepareAfterSr admission, while its shader transform and area helper must
+    # remain byte-identical and belong to the recorded source commits.
+    & python (Join-Path $PSScriptRoot 'validate-post-transform.py') `
+        --baseline-commit $baselineManifest.source_commit --candidate-commit $candidateManifest.source_commit `
+        --baseline-pin $baselineManifest.integration.picture_source_pins.'scripts/patch-post-compat.py' `
+        --candidate-pin $candidateManifest.integration.picture_source_pins.'scripts/patch-post-compat.py'
+    if ($LASTEXITCODE) { throw 'PostLightStyle transformation provenance failed.' }
+    $candidateHash = (Get-FileHash -LiteralPath (Join-Path $SourceRoot 'src/nr_before_sr.cpp') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($candidateManifest.files.'core/src/nr_before_sr.cpp' -ne $candidateHash -or $baselineManifest.files.'core/src/nr_before_sr.cpp' -ne $baselineHash) { throw 'Generated post source does not match its actual source manifest.' }
+    foreach ($text in @($source,$baseline)) {
+        if (!$text.Contains('float3 storedProxy = scaled ? SampleProxyStoredV2') -or !$text.Contains('LoadPostArea(tid.xy)')) { throw 'Expected actual generated post sampling, not raw source.' }
+    }
+    $postLightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/post_light_style_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $postLightTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--post-light-style") == 0) { ValidatePostLightStyle(gpu); return 0; }')
+} elseif($LightStyle) {
+    if (!$BaselineSource -or $CombinedLowGrid -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) { throw 'LightStyle requires only its frozen BaselineSource.' }
+    $lightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/light_style_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $lightTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--light-style") == 0) { ValidateLightStyle(gpu); return 0; }')
+} elseif($ExposureTyped) {
     if ($BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
-        $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl -or $CombinedLowGrid) {
+        $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl -or
+        $CombinedLowGrid -or $LightStyle -or $PostLightStyle -or $DirectionalBaselineSource -or
+        $FaceProtection -or $FaceNegativeControl -or $Regions -or $DualGeneric) {
         throw 'Run the typed exposure fixture independently.'
     }
     $exposureTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/exposure_typed_gpu.inl') -Raw -Encoding UTF8
@@ -119,12 +167,39 @@ if($ExposureTyped) {
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--composition-contract") == 0) { ExportCompositionContract(gpu, argv[2]); return 0; }')
 }
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
+if($Regions){
+    $regionTests=Get-Content -LiteralPath (Join-Path $projectRoot 'tests/region_composition_gpu.inl') -Raw -Encoding UTF8
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$regionTests)
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--regions")==0){ValidateRegionComposition(gpu);return 0;}')
+}
+
+if($FaceProtection) {
+    $harness=$harness.Replace('const char kCodecShader[] = R"HLSL(','const char kCodecShader[] = R"HLSL('+"`n#define NR_FACE_SHADER_ENABLE 1`n")
+    if($BaselineSource -or $LightStyle -or $PostLightStyle -or $CombinedLowGrid -or $ColorEditField -or $NegativeControl -or $LayerNegativeControl) {throw 'Run face composition independently.'}
+    $faceTests=Get-Content -LiteralPath (Join-Path $projectRoot 'tests/face_composition_gpu.inl') -Raw -Encoding UTF8
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$faceTests)
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--face-protection")==0){ValidateFaceComposition(gpu);return 0;}')
+    if($FaceNegativeControl) {$harness=$harness.Replace('if((FaceOptions&2u)!=0u) {','if(false) {')}
+} elseif($FaceNegativeControl) {throw 'Face negative control requires FaceProtection.'}
+if($DualGeneric) {
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',(Get-Content -LiteralPath (Join-Path $projectRoot 'tests/dual_generic_gpu.inl') -Raw -Encoding UTF8))
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if(argc==2 && std::strcmp(argv[1],"--dual-generic")==0){ValidateGenericComposition(gpu);ValidateDualSpatial(gpu);return 0;}')
+}
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
 $writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
 $writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw -Encoding UTF8
 $statsCount = [regex]::Match($source, 'constexpr unsigned int kDiagnosticStatsUintCount = \d+;')
-if (!$statsCount.Success -or !$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
-    throw 'Production descriptor writer is not wired into CreateSlot or stats count changed.'
+if (!$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
+    throw 'Production descriptor writer is not wired into CreateSlot.'
+}
+$statsDeclaration = ''
+if ($writer.Contains('kDiagnosticStatsUintCount')) {
+    if (!$statsCount.Success) { throw 'Legacy descriptor writer requires the production stats count declaration.' }
+    $statsDeclaration = $statsCount.Value + "`n"
+}
+if ($writer.Contains('nr_store_comparison::BufferWords') -and
+    !$writerTests.Contains('#include "nr_store_comparison.h"')) {
+    throw 'Store-interval descriptor writer requires the production nr_store_comparison header.'
 }
 # The standalone core needs neither helper. The transformed compatibility core
 # uses both. Pull the actual pure format mapping into the C++ COM pixel harness;
@@ -144,7 +219,7 @@ foreach ($entry in @(
         $helperDefinitions += $definitions[0].Value + "`n"
     }
 }
-$writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $helperDefinitions + $statsCount.Value + "`n" + $writer)
+$writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $helperDefinitions + $statsDeclaration + $writer)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_TESTS@', $writerTests)
 $build = Join-Path $projectRoot 'build\codec-gpu-validation'
 if ($OutputRoot) {
@@ -156,14 +231,48 @@ $generated = Join-Path $build 'codec_gpu_validation.cpp'
 $binary = Join-Path $build 'codec_gpu_validation.exe'
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
-& $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
+& $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-I' (Join-Path $SourceRoot 'src') $generated (Join-Path $SourceRoot 'src/nr_dual_spatial_d3d12.cpp') `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
 if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if($ExposureTyped) {
+function Invoke-CodecOracle([string[]]$Arguments, [string]$Stem) {
+    # PS5 turns redirected native stderr into terminating NativeCommandError
+    # under Stop. Capture the process streams as files before checking the
+    # expected exit status and precise oracle failure instead.
+    $Stdout = Join-Path $build ($Stem + '.stdout.txt')
+    $Stderr = Join-Path $build ($Stem + '.stderr.txt')
+    $Options = @{FilePath=$binary; Wait=$true; PassThru=$true; WindowStyle='Hidden';
+        RedirectStandardOutput=$Stdout; RedirectStandardError=$Stderr}
+    if ($Arguments.Count) { $Options.ArgumentList = $Arguments }
+    $Process = Start-Process @Options
+    return @{Code=$Process.ExitCode; Text=([IO.File]::ReadAllText($Stdout) + [IO.File]::ReadAllText($Stderr))}
+}
+if($DualGeneric){& $binary '--dual-generic';if($LASTEXITCODE){throw 'Dual NR/generic GPU contract failed.'};return}
+if($Regions){& $binary '--regions';if($LASTEXITCODE){throw 'Region compositor GPU contract failed.'};return}
+if($FaceProtection) {
+    $result = Invoke-CodecOracle @('--face-protection') 'codec_gpu_face'
+    $faceOutput = $result.Text
+    $faceExit = $result.Code
+    Write-Host $faceOutput
+    if($FaceNegativeControl) {
+        if($faceExit -ne 1 -or ($faceOutput -join "`n") -notmatch 'FACE_C1_ANCHOR') {throw 'Face negative control must fail the exact 1x image anchor.'}
+        $global:LASTEXITCODE=0
+        Write-Host 'PASS face negative control: removed production C1 guard rejected.'
+    } elseif($faceExit) {throw 'Production face composition GPU contract failed.'}
+    return
+}
+if($PostLightStyle) {
+    & $binary '--post-light-style'
+    if($LASTEXITCODE -ne 0){throw 'Post light style production GPU contract failed.'}
+    return
+} elseif($LightStyle) {
+    & $binary '--light-style'
+    if($LASTEXITCODE -ne 0){throw 'Light style production GPU contract failed.'}
+    return
+} elseif($ExposureTyped) {
     & $binary '--exposure-typed'
     if($LASTEXITCODE -ne 0){throw 'Production typed exposure GPU contract failed.'}
     return
@@ -197,15 +306,19 @@ if ($ColorEditField) {
     & python (Join-Path $projectRoot 'scripts/validate-composition-contract.py') --capture $ComparisonOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
     if ($LASTEXITCODE -ne 0) { throw 'Independent raw-plane/contract validation failed.' }
 } elseif ($LayerNegativeControl) {
-    $negative = & $binary --layer-negative-control 2>&1
-    if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
+    $result = Invoke-CodecOracle @('--layer-negative-control') 'codec_gpu_layer_negative'
+    $negative = $result.Text
+    Write-Host $negative
+    if ($result.Code -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
         throw 'Layer negative control must reject the precise unattenuated bright edit.'
     }
     $global:LASTEXITCODE = 0
     Write-Host 'Layer negative control rejected the expected unchanged bright edit.'
 } elseif ($NegativeControl) {
-    $negative = & $binary --negative-control 2>&1
-    if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'V3_SDR_EXTRA_BOOST_COLOUR') {
+    $result = Invoke-CodecOracle @('--negative-control') 'codec_gpu_negative'
+    $negative = $result.Text
+    Write-Host $negative
+    if ($result.Code -ne 1 -or ($negative -join "`n") -notmatch 'V3_SDR_EXTRA_BOOST_COLOUR') {
         throw 'Negative control must reject the exact unprotected SDR colour result, not a crash.'
     }
     $global:LASTEXITCODE = 0

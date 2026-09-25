@@ -317,7 +317,7 @@ void OnPostBoundaryRenderTargets(reshade::api::command_list *commands,std::uint3
     const auto target=g_post_boundary_resource.load(std::memory_order_acquire);
     if(!target)return;
     for(std::uint32_t i=0;i<std::min(count,8u);++i) {
-        if(!views[i].handle||commands->get_device()->get_resource_from_view(views[i]).handle!=target)continue;
+        if(!views[i].handle||nr_source_runtime::ObservedRtvResource(commands,views[i].handle)!=target)continue;
         AcquireSRWLockExclusive(&g_post_boundary_lock);
         if(PostBoundaryWindowCurrentLocked() && g_post_boundary_resource.load(std::memory_order_relaxed)==target)
             nr_post_boundary::Increment(g_post_boundary_current.render_target_binds);
@@ -329,7 +329,7 @@ bool OnPostBoundaryClearRenderTarget(reshade::api::command_list *commands,reshad
         const float[4],std::uint32_t,const reshade::api::rect *) {
     if(!g_inside_ngx_evaluate && commands && view.handle && g_post_boundary_resource.load(std::memory_order_acquire))
         ObservePostBoundaryApiOperation(commands,nr_post_boundary::Kind::ClearRtv,
-            commands->get_device()->get_resource_from_view(view).handle,false,true);
+            nr_source_runtime::ObservedRtvResource(commands,view.handle),false,true);
     return false;
 }
 void OnPostBoundaryDestroyResource(reshade::api::device *,reshade::api::resource resource) {

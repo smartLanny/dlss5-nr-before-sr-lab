@@ -229,7 +229,9 @@ int RunDefaultEnabledStartupGate() {
 // @PRISTINE_NULL_TEST@
 // @NATIVE_RECORD_TEST@
 // @FIRST_RECORDING_TEST@
+// @VRS_NULL_TEST@
 int main(int argc, char **argv) {
+    if(argc>1 && std::strcmp(argv[1],"--vrs-null")==0) return RunVrsNullGate();
     if(argc>1 && std::strcmp(argv[1],"--first-recording")==0) return RunFirstRecordingGate();
     if(argc>1 && std::strcmp(argv[1],"--native-record")==0) return RunNativeCommandRecordGate();
     if (argc>1 && std::strcmp(argv[1],"--pristine-null")==0) return RunPristineNullGate(false);

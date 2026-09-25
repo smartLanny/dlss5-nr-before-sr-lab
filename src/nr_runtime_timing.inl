@@ -206,6 +206,64 @@ void NrTimingEnterChainLock(CRITICAL_SECTION* lock) {
     EnterCriticalSection(lock);
     timing.Stop();
 }
+struct NrSubmitTiming;
+thread_local NrSubmitTiming* g_nr_submit_timing = nullptr;
+struct NrSubmitTiming {
+    nr_timing::SubmitBatch batch{};
+    NrSubmitTiming* parent = nullptr;
+    std::uint64_t held_since = 0;
+    explicit NrSubmitTiming(unsigned count) : parent(g_nr_submit_timing) {
+        batch.epoch = NrTimingNewIdentity().epoch;
+        batch.input_lists = count;
+        g_nr_submit_timing = this;
+    }
+    void EnterChain(CRITICAL_SECTION* lock) {
+        NrTimingEnterChainLock(lock); // preserve the existing acquisition metric
+        held_since = NrTimingCounter();
+        ++batch.chain_sections;
+    }
+    void LeaveChain(CRITICAL_SECTION* lock) {
+        const auto finished = NrTimingCounter();
+        LeaveCriticalSection(lock);
+        if (held_since && finished >= held_since) {
+            const auto elapsed = finished - held_since;
+            batch.chain_hold_ticks += elapsed;
+            batch.chain_hold_max_ticks = std::max(batch.chain_hold_max_ticks, elapsed);
+        } else batch.clock_known = false;
+        held_since = 0;
+    }
+    ~NrSubmitTiming() {
+        g_nr_submit_timing = parent;
+        AcquireSRWLockExclusive(&g_nr_timing_lock);
+        if (batch.epoch != g_nr_timing.epoch) {
+            NrTimingIncrement(g_nr_timing.excluded_old_epoch);
+            ReleaseSRWLockExclusive(&g_nr_timing_lock);
+            return;
+        }
+        auto& s = g_nr_timing.submissions;
+        NrTimingIncrement(s.count); batch.sequence = s.count;
+        NrTimingIncrement(s.scanned, batch.scanned);
+        NrTimingIncrement(s.qi, batch.qi);
+        NrTimingIncrement(s.direct_absent, batch.direct_absent);
+        NrTimingIncrement(s.chain_sections, batch.chain_sections);
+        if (batch.reasons & nr_timing::LifecycleAbsent) NrTimingIncrement(s.lifecycle_absent);
+        if (batch.reasons & nr_timing::UnknownList) NrTimingIncrement(s.unknown);
+        if (batch.clock_known) {
+            NrTimingIncrement(s.chain_hold_ticks, batch.chain_hold_ticks);
+            s.chain_hold_max_ticks = std::max(s.chain_hold_max_ticks, batch.chain_hold_max_ticks);
+        } else NrTimingIncrement(s.clock_unknown);
+        // Fixed-size independent ring. Snapshot exports this ring in order.
+        s.recent[(s.count - 1) % nr_timing::kSubmitRecentCount] = batch;
+        if (s.recent_count < nr_timing::kSubmitRecentCount) ++s.recent_count;
+        ReleaseSRWLockExclusive(&g_nr_timing_lock);
+    }
+};
+inline void NrSubmitScan(bool qi) {
+    if (g_nr_submit_timing) {
+        ++g_nr_submit_timing->batch.scanned;
+        if (qi) ++g_nr_submit_timing->batch.qi;
+    }
+}
 void NrTimingSetRoute(unsigned mode, std::uint64_t config) {
     if (auto* frame = g_nr_timing_carrier) {
         frame->identity.mode = mode;

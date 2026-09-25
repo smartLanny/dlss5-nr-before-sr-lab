@@ -49,6 +49,10 @@ def main():
         r=run([str(c_compiler),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)
         if r.returncode:raise SystemExit(r.returncode)
         objects.append(str(obj))
+    # D13+ full Core references its out-of-line spatial implementation even
+    # when this fixture does not enable NR2. Compile the same frozen source.
+    dual_source = snapshot / 'nr_dual_spatial_d3d12.cpp'
+    if dual_source.is_file(): objects.append(str(dual_source))
     exe=out/'pre-store-probe.exe'
     r=run([str(compiler),*common,'-std=c++20','-static','-Wl,--gc-sections',str(wrapper),*objects,'-o',str(exe),
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')

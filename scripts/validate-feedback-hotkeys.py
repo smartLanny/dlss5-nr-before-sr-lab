@@ -54,8 +54,8 @@ std::atomic<bool> g_settings_feedback_page_requested{false};
 bool active = false;
 unsigned core_requests = 0, current_requests = 0;
 bool RequestCore() { ++core_requests; return true; }
-bool RequestWithOptions(const Options &o) {
-    if (o.comparison == Comparison::Current) ++current_requests;
+bool RequestFullscreen(Comparison comparison=Comparison::Current) {
+    if (comparison == Comparison::Current) ++current_requests;
     return true;
 }
 bool IsActive() { return active; }
@@ -130,13 +130,14 @@ def main() -> None:
     f7 = statement_range(present, "const SHORT f7_state", "stage_key_was_down = stage_key_is_down;")
     assert "#if" not in present and "#ifdef" not in present, "hotkeys are preprocessor-gated"
     assert f8.index("nr_f8::RequestCore();") < f8.index("runtime->open_overlay("), "F8 request must precede UI"
-    assert "nr_f8::Comparison::Current" in f7, "F7 hotkey must request Current capture"
+    assert "nr_f8::RequestFullscreen()" in f7, "F7 hotkey must request the default Current capture"
     assert present.index("nr_core_feedback::Present(runtime);") < present.index("PollReportPathClipboard("), "clipboard must follow collector progress"
     assert "nr_f8::Present(runtime);" in present, "F7 must progress from Present even without visible UI"
     settings = (ROOT / "src/nr_settings_ui.inl").read_text(encoding="utf-8-sig")
-    assert "nr_f8::Comparison::Current" in settings and "nr_f8::Comparison::ShareMatrix" in settings, "both F7 actions must remain in settings"
+    assert "RequestFullscreen()" in settings and "Comparison::ShareMatrix" in settings, "both F7 actions must remain in settings"
     assert "NR_HAS_F8_SEQUENCE" not in settings, "undefined feature macro hides F8/F7 from production settings"
     sequence = (ROOT / "src/nr_f8_sequence.inl").read_text(encoding="utf-8-sig")
+    assert "bool RequestFullscreen(Comparison kind = Comparison::Current)" in sequence, "default F7 action must remain Current"
     assert "bool TakeSettingsFeedbackPageRequest()" in sequence, "main settings page request seam missing"
     assert "DLSS5 feedback capture###dlss5-feedback-window" not in sequence, "independent feedback window returned"
     dllmain = function(source, "BOOL APIENTRY DllMain(")

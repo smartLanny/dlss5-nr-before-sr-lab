@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -42,6 +43,23 @@
     (d)->CreateShaderResourceView(r, s, h)
 #define ID3D12Device_CreateUnorderedAccessView(d, r, c, s, h) \
     (d)->CreateUnorderedAccessView(r, c, s, h)
+namespace nr_binding {
+struct DescriptorSet {
+    void Srv(UINT, ID3D12Resource*, DXGI_FORMAT) {}
+    void Uav(UINT, ID3D12Resource*, DXGI_FORMAT) {}
+    void Raw(UINT, ID3D12Resource*, unsigned) {}
+};
+}
+namespace nr_dual { namespace dx12 {
+struct Surfaces {
+    ID3D12Resource *input=nullptr,*output=nullptr,*low_delta=nullptr;
+};
+inline Surfaces GetSurfaces(void*) { return {}; }
+}}
+namespace nr_store_comparison {
+inline unsigned BufferWords(unsigned capacity) { return capacity; }
+}
+struct NrTestDualSelection { void *dual_spatial=nullptr; };
 struct NrSlot {
     unsigned store_interval_capacity=0;
     ID3D12Resource *source = nullptr, *proxy = nullptr, *neural = nullptr,
@@ -50,6 +68,14 @@ struct NrSlot {
                    *motion_proxy = nullptr, *delta_stats = nullptr;
     ID3D12Resource *edit_field = nullptr, *edit_horizontal = nullptr,
                    *lanczos_intermediate = nullptr;
+    ID3D12Resource *face_mask = nullptr, *region_field = nullptr;
+    NrTestDualSelection *dual_selected = nullptr;
+    bool dual_reduced = false;
+    struct {
+        bool armed=false;
+        ID3D12Resource *buffer=nullptr;
+        std::size_t bytes=0;
+    } stage_capture;
     ID3D12DescriptorHeap *heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
     ID3D12DescriptorHeap *pre_store_probe_heap = nullptr;
@@ -63,6 +89,7 @@ struct {
     UINT descriptor_size = 0;
 } g_codec;
 // @PRODUCTION_DESCRIPTOR_WRITER@
+static_assert(kDiagnosticStatsUintCount > 0);
 #undef ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart
 #undef ID3D12Resource_GetDesc
 #undef ID3D12Device_CreateShaderResourceView
@@ -122,21 +149,38 @@ std::uint16_t FloatToHalf(float value) {
         return u;
     }();
     const std::uint32_t sign = (bits >> 16) & 0x8000u;
-    const int exp = int((bits >> 23) & 0xffu) - 127 + 15;
+    const unsigned ieee_exp = (bits >> 23) & 0xffu;
+    int exp = int(ieee_exp) - 127 + 15;
     const std::uint32_t mant = bits & 0x7fffffu;
+    if (ieee_exp == 255u)
+        return static_cast<std::uint16_t>(sign | 0x7c00u | (mant ? 0x0200u : 0u));
     if ((bits & 0x7fffffffu) == 0) return static_cast<std::uint16_t>(sign);
     if (exp <= 0) {
         if (exp < -10) return static_cast<std::uint16_t>(sign);
-        const std::uint32_t m = (mant | 0x800000u) >> (1 - exp);
-        return static_cast<std::uint16_t>(sign | ((m + 0x1000u) >> 13));
+        const unsigned shift = static_cast<unsigned>(14 - exp);
+        const std::uint32_t m = mant | 0x800000u;
+        std::uint32_t rounded = m >> shift;
+        const std::uint32_t remainder = m & ((1u << shift) - 1u);
+        const std::uint32_t halfway = 1u << (shift - 1u);
+        if (remainder > halfway || (remainder == halfway && (rounded & 1u))) ++rounded;
+        return static_cast<std::uint16_t>(sign | rounded);
     }
     if (exp >= 31) return static_cast<std::uint16_t>(sign | 0x7c00u);
-    return static_cast<std::uint16_t>(
-        sign | (static_cast<std::uint32_t>(exp) << 10) | ((mant + 0x1000u) >> 13));
+    std::uint32_t rounded = mant >> 13;
+    const std::uint32_t remainder = mant & 0x1fffu;
+    if (remainder > 0x1000u || (remainder == 0x1000u && (rounded & 1u))) ++rounded;
+    // A mantissa carry increments the exponent; OR would lose that carry
+    // whenever the old exponent is odd (e.g. 1.9998 would become 1.0).
+    if (rounded == 0x400u) { rounded = 0; ++exp; }
+    return static_cast<std::uint16_t>(sign | (static_cast<unsigned>(exp) << 10) | rounded);
 }
 
 float HalfToFloat(std::uint16_t value) {
     const unsigned e = (value >> 10) & 31u, m = value & 1023u;
+    if (e == 31u)
+        return m ? std::numeric_limits<float>::quiet_NaN()
+                 : ((value & 0x8000u) ? -std::numeric_limits<float>::infinity()
+                                      : std::numeric_limits<float>::infinity());
     const float mag = e ? std::ldexp(1.f + m / 1024.f, static_cast<int>(e) - 15)
                         : std::ldexp(m / 1024.f, -14);
     return (value & 0x8000u) ? -mag : mag;
@@ -179,23 +223,56 @@ struct Gpu {
     Com<ID3D12PipelineState> encode;
     Com<ID3D12PipelineState> combine;
     Com<ID3D12PipelineState> combine_v2;
+    Com<ID3D12PipelineState> copy;
     Com<ID3D12DescriptorHeap> heap;
     UINT increment = 0;
     UINT64 submitted = 0;
     HANDLE completion = nullptr;
 
-    Gpu() {
+    explicit Gpu(bool hardware = false, const char *encode_entry = "EncodeCS",
+                 bool include_post = true, const char *verified_artifacts = nullptr,
+                 bool include_copy = false) {
         Com<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
             debug->EnableDebugLayer();
         Com<IDXGIFactory4> factory;
         Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "DXGI factory");
-        Com<IDXGIAdapter1> warp;
-        Check(factory->EnumWarpAdapter(IID_IDXGIAdapter1, warp.address()),
-              "WARP adapter required (no hardware fallback)");
-        Check(D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
-              IID_ID3D12Device, device.address()), "Create WARP device");
-        std::puts("post-scaled-work GPU adapter: D3D12 WARP (required)");
+        Com<IDXGIAdapter1> adapter;
+        if (hardware) {
+            for (UINT index = 0; ; ++index) {
+                Com<IDXGIAdapter1> candidate;
+                const HRESULT enumerated = factory->EnumAdapters1(index, &candidate.p);
+                if (enumerated == DXGI_ERROR_NOT_FOUND) break;
+                Check(enumerated, "Enumerate hardware adapter");
+                DXGI_ADAPTER_DESC1 description{};
+                Check(candidate->GetDesc1(&description), "Hardware adapter description");
+                if (!(description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
+                    description.VendorId == 0x10de) {
+                    adapter = std::move(candidate);
+                    std::printf("colour GPU adapter: NVIDIA vendor=%04x device=%04x\n",
+                                description.VendorId, description.DeviceId);
+                    break;
+                }
+            }
+            Require(adapter.p != nullptr, "NVIDIA hardware required (no WARP fallback)");
+        } else {
+            Check(factory->EnumWarpAdapter(IID_IDXGIAdapter1, adapter.address()),
+                  "WARP adapter required (no hardware fallback)");
+            std::puts("post-scaled-work GPU adapter: D3D12 WARP (required)");
+        }
+        DXGI_ADAPTER_DESC1 actual_adapter{};
+        Check(adapter->GetDesc1(&actual_adapter), "Selected adapter description");
+        char adapter_name[512]{};
+        Require(WideCharToMultiByte(CP_UTF8, 0, actual_adapter.Description, -1,
+                adapter_name, sizeof(adapter_name), nullptr, nullptr) > 0,
+                "Adapter UTF-8 name");
+        std::printf("ADAPTER,name=%s,vendor=%04x,device=%04x,luid=%08x:%08x,software=%u\n",
+                    adapter_name, actual_adapter.VendorId, actual_adapter.DeviceId,
+                    static_cast<unsigned>(actual_adapter.AdapterLuid.HighPart),
+                    static_cast<unsigned>(actual_adapter.AdapterLuid.LowPart),
+                    unsigned((actual_adapter.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0));
+        Check(D3D12CreateDevice(adapter.p, D3D_FEATURE_LEVEL_11_0,
+              IID_ID3D12Device, device.address()), "Create requested D3D12 device");
         device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
         D3D12_COMMAND_QUEUE_DESC queue_desc{};
         queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -242,23 +319,35 @@ struct Gpu {
 
         auto compile = [&](const char *entry, Com<ID3D12PipelineState> &out) {
             Com<ID3DBlob> shader, errors;
-            const HRESULT result = D3DCompile(
-                kCodecShader, sizeof(kCodecShader) - 1, "production-codec",
-                nullptr, nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3,
-                0, &shader.p, &errors.p);
-            if (FAILED(result) && errors.p != nullptr)
-                std::fprintf(stderr, "%s\n",
-                    static_cast<const char *>(errors->GetBufferPointer()));
-            Check(result, entry);
+            std::vector<char> bytecode;
             D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_desc{};
             pipeline_desc.pRootSignature = root.p;
-            pipeline_desc.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+            if (verified_artifacts != nullptr) {
+                // The colour runner verifies exact HLSL bytes and per-CSO
+                // receipt hashes before supplying this optional directory.
+                const std::string path=std::string(verified_artifacts)+"/"+entry+"-face0-domain-1.cso";
+                std::ifstream file(path,std::ios::binary);
+                Require(bool(file),"verified production CSO missing");
+                bytecode.assign(std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>());
+                Require(!bytecode.empty(),"verified production CSO empty");
+                pipeline_desc.CS = {bytecode.data(), bytecode.size()};
+            } else {
+                const HRESULT result = D3DCompile(
+                    kCodecShader, sizeof(kCodecShader) - 1, "production-codec",
+                    nullptr, nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                    0, &shader.p, &errors.p);
+                if (FAILED(result) && errors.p != nullptr)
+                    std::fprintf(stderr, "%s\n",static_cast<const char *>(errors->GetBufferPointer()));
+                Check(result, entry);
+                pipeline_desc.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+            }
             Check(device->CreateComputePipelineState(&pipeline_desc,
                   IID_ID3D12PipelineState, out.address()), entry);
         };
-        compile("EncodeCS", encode);
-        compile("CombineCS", combine);
+        compile(encode_entry, encode);
+        if (include_post) compile("CombineCS", combine);
         compile("CombineV2CS", combine_v2);
+        if (include_copy) compile("CopyCS", copy);
     }
 
     ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
@@ -737,7 +826,10 @@ float RebuildEps(bool result_fp16) {
 
 void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
              NeuralMode neural_mode) {
-    constexpr unsigned ow = 64, oh = 48;
+    // At 25%, 128x96 -> 32x24 is exactly aligned. The old 64x48 fixture
+    // rounded the requested 16-wide model back to 32 and missed 4:1 filtering.
+    const unsigned ow = percent == 25 ? 128u : 64u;
+    const unsigned oh = percent == 25 ? 96u : 48u;
     constexpr unsigned dx = 3, dy = 2;
     Require(dx != 0 && dy != 0, "test must use nonzero destination offsets");
 
@@ -749,6 +841,8 @@ void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
     Require(nw > 0 && nh > 0 && nw <= ow && nh <= oh, "Npost extent invalid");
     if (percent == 100)
         Require(nw == ow && nh == oh, "100% must be exact O reference");
+    if (percent == 25)
+        Require(nw * 4 == ow && nh * 4 == oh, "25% must exercise actual 4:1 filtering after alignment");
 
     const bool result_fp16 = profile.format == DXGI_FORMAT_R16G16B16A16_FLOAT;
     const bool simple_sdr = (profile.passthrough & 16u) != 0u ||
@@ -1249,7 +1343,10 @@ int main(int argc, char **argv) {
         Require(kCodecExposureSrvIndex == 4u &&
                     kCodecResultUavIndex == kCodecSrvCount + 1u,
                 "production descriptor index contract");
-        Gpu gpu;
+        const char *artifacts = nullptr;
+        for (int i = 1; i < argc; ++i)
+            if (std::strncmp(argv[i], "--artifacts=", 12) == 0) artifacts = argv[i] + 12;
+        Gpu gpu(false, "EncodeCS", true, artifacts);
         Require(NrMotionReadFormat(DXGI_FORMAT_R16G16_TYPELESS) ==
                     DXGI_FORMAT_R16G16_FLOAT,
                 "NrMotionReadFormat RG16 typeless mapping");
@@ -1280,7 +1377,7 @@ int main(int argc, char **argv) {
         unsigned scenarios = 0;
         for (const auto &profile : profiles) {
             if (only != nullptr && std::strcmp(profile.name, only) != 0) continue;
-            for (unsigned percent : {50u, 67u, 75u, 100u}) {
+            for (unsigned percent : {25u, 50u, 67u, 75u, 100u}) {
                 RunCase(gpu, profile, percent, NeuralMode::Identity);
                 RunCase(gpu, profile, percent, NeuralMode::Perturb);
                 scenarios += 2;

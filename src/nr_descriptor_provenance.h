@@ -1,14 +1,26 @@
 #pragma once
 #include <array>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include "nr_descriptor_scratch.h"
 
 // Value-only, bounded descriptor provenance. This module never owns a graphics
 // object and never grants rendering permission. The adapter brackets real API
 // writes with Begin/Finish; overlapping writes and changed copy sources lose
 // evidence instead of choosing whichever observer happened to finish last.
+// Optional measurement build: one clock pair per metadata API batch, never
+// per descriptor. No lock covers the native D3D12 call. The duration includes
+// time acquiring the metadata mutex; it is CPU wall time, not GPU work/FPS.
+#ifndef NR_DESCRIPTOR_PROFILE
+#define NR_DESCRIPTOR_PROFILE 0
+#endif
+#if NR_DESCRIPTOR_PROFILE
+#include <chrono>
+#endif
+
 namespace nr_descriptor {
 using Id = std::uint64_t;
 enum class Kind : unsigned { Unknown, Srv, Uav, Rtv, Other };
@@ -74,10 +86,66 @@ struct UnknownRange {
     Id first=0,last=0;
     unsigned type=0;
 };
+// The adapter owns this metadata array, never the application's D3D12 arrays.
+// Preserve the exact inclusive byte-address union: merge only same-type ranges
+// that overlap or are adjacent in ADDRESS space, not descriptor-stride gaps.
+inline bool NormalizeUnknownRanges(UnknownRange* ranges,unsigned& count) noexcept {
+    if(!count)return true;
+    if(!ranges)return false;
+    const auto less=[](const UnknownRange& a,const UnknownRange& b) {
+        if(a.type!=b.type)return a.type<b.type;
+        return a.first!=b.first?a.first<b.first:a.last<b.last;
+    };
+    bool ordered=true;
+    for(unsigned i=0;i<count;++i) {
+        if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
+        if(ordered && i && less(ranges[i],ranges[i-1]))ordered=false;
+    }
+    // Keep the already-ordered/small-input path unchanged. Large one-type
+    // batches may benefit from address radix; wide random addresses do not.
+    // Equal starts need no last-address ordering: the union below takes max(last).
+    if(!ordered) {
+        bool one_type=count>=256,reverse_order=one_type,comparison_sort=false;
+        Id changed_address_bits=0;
+        if(one_type)for(unsigned i=0;i<count;++i) {
+            if(ranges[i].type!=ranges[0].type){one_type=false;break;}
+            changed_address_bits|=ranges[i].first^ranges[0].first;
+            if(i&&ranges[i-1].first<ranges[i].first)reverse_order=false;
+            // Stop classifying plainly scattered addresses once reversal is
+            // ruled out; do not scan the entire array just to choose std::sort.
+            if(!reverse_order&&(changed_address_bits>>24)!=0){comparison_sort=true;break;}
+        }
+        unsigned radix_passes=0;
+        for(unsigned shift=0;shift<64;shift+=8)radix_passes+=((changed_address_bits>>shift)&255u)!=0;
+        ScratchBuffer<UnknownRange,2048> scratch;
+        if(one_type&&!comparison_sort&&reverse_order)std::reverse(ranges,ranges+count);
+        else if(one_type&&!comparison_sort&&radix_passes<=3&&scratch.Acquire(count)) {
+            auto* input=ranges;auto* output=scratch.get();
+            for(unsigned shift=0;shift<64;shift+=8) {
+                if(((changed_address_bits>>shift)&255u)==0)continue;
+                std::array<unsigned,256> offsets{};
+                for(unsigned i=0;i<count;++i)++offsets[(input[i].first>>shift)&255u];
+                unsigned sum=0;
+                for(auto& offset:offsets){const auto size=offset;offset=sum;sum+=size;}
+                for(unsigned i=0;i<count;++i)output[offsets[(input[i].first>>shift)&255u]++]=input[i];
+                std::swap(input,output);
+            }
+            if(input!=ranges)std::copy(input,input+count,ranges);
+        } else std::sort(ranges,ranges+count,less);
+    }
+    unsigned retained=0;
+    for(unsigned i=0;i<count;++i) {
+        const auto next=ranges[i];
+        if(retained && ranges[retained-1].type==next.type && ranges[retained-1].last>=next.first-1)
+            ranges[retained-1].last=std::max(ranges[retained-1].last,next.last);
+        else ranges[retained++]=next;
+    }
+    count=retained;return true;
+}
 struct UnknownCopy {
     const UnknownRange *ranges=nullptr;
     unsigned count=0;
-    bool all=false;
+    bool all=false,ordered=false;
     UnknownCopy *next=nullptr;
     bool active=false;
     UnknownCopy()=default;
@@ -165,6 +233,18 @@ struct Counters {
     Id writes=0, copies=0, unknown_writes=0, overlaps=0, evictions=0, invalidations=0,
        resources_retired=0, heaps_retired=0, scoped_copies=0, global_copies=0;
     PoolCounters heaps,resources,cpu_slots,gpu_slots;
+    Id gpu_shadow_skipped_calls=0,gpu_shadow_skipped_descriptors=0;
+    bool gpu_mirror=true;
+    bool profile_enabled=NR_DESCRIPTOR_PROFILE!=0;
+    Id heap_retire_slot_visits=0,unknown_slot_visits=0,copy_begin_batches=0,copy_finish_batches=0;
+    // Once per metadata batch, under the existing mutex; no per-slot timers.
+    Id ordered_copy_scopes=0,ordered_copy_ranges=0,raw_copy_scopes=0;
+    Id indexed_invalidations=0,ordered_fallbacks=0,linear_fallbacks=0;
+    // Cumulative Find statistics; plain updates under the existing registry
+    // mutex, no timers/logging/atomic operations inside the traversal loop.
+    Id cpu_lookup_hits=0,cpu_lookup_misses=0,cpu_lookup_steps=0;
+    Id gpu_lookup_hits=0,gpu_lookup_misses=0,gpu_lookup_steps=0;
+    Id copy_begin_cpu_ns=0,copy_finish_cpu_ns=0,heap_retire_cpu_ns=0,unknown_cpu_ns=0;
 };
 struct Inventory {
     struct Format { unsigned format=0,count=0;Kind kind=Kind::Unknown; };
@@ -174,6 +254,10 @@ struct Inventory {
     Format formats[6];
 };
 inline void Increment(Id &value) { if(value!=std::numeric_limits<Id>::max())++value; }
+
+inline void AddCount(Id& value,Id amount) noexcept {
+    value=amount>std::numeric_limits<Id>::max()-value?std::numeric_limits<Id>::max():value+amount;
+}
 
 // Full-key tables keep live objects until an actual retirement. Empty buckets
 // end a probe; deletion repairs the cluster instead of accumulating tombstones.
@@ -223,6 +307,7 @@ class Registry {
         View value;
         Id incarnation=0;
         unsigned pending=0,chain=0,older=0,newer=0;
+        unsigned heap_older=0,heap_newer=0;
         bool overlap=false;
     };
     // Chained full-key index and a free list use fixed storage. Only completed
@@ -231,16 +316,46 @@ class Registry {
         static_assert(Capacity>0);
         std::array<Slot,Capacity> values{};
         std::array<unsigned,Capacity> buckets{};
+        // Independent intrusive heap-membership index. LRU, exact slot hash,
+        // and pending/incarnation semantics are unchanged.
+        static constexpr unsigned HeapBuckets=HeapCapacity*2;
+        std::array<unsigned,HeapBuckets> heap_buckets{};
+        // Includes hash collisions, just like ForHeap's actual traversal cost.
+        // Maintained with the existing intrusive membership, under the same lock.
+        std::array<unsigned,HeapBuckets> heap_sizes{};
+        static unsigned HeapHash(Id id){return LiveTable<Resource,HeapCapacity>::Hash(id);}
+        // An accelerator for exact slot discovery, NEVER a cached receipt.
+        // Relative slot numbers remain local to this pool. Keys and all pending,
+        // epoch/revision, resource and incarnation checks are still performed.
+        static constexpr unsigned LookupCapacity=Capacity<2048?Capacity:2048;
+        std::array<unsigned,LookupCapacity> lookup_cache{};
+        Id lookup_hits=0,lookup_misses=0,lookup_steps=0;
+        static unsigned LookupBucket(Id heap,unsigned index) {
+            return static_cast<unsigned>((heap^(heap>>32)^index)%LookupCapacity);
+        }
         unsigned free=1,oldest=0,newest=0,active=0;
         Slots(){for(unsigned i=0;i<Capacity;++i)values[i].chain=i+1<Capacity?i+2:0;}
         static unsigned Hash(Id heap,unsigned index) {
             return LiveTable<Resource,Capacity>::Hash(heap^(static_cast<Id>(index)*0x9E3779B185EBCA87ull))%Capacity;
         }
         Slot *Find(Id heap,unsigned index) {
-            for(auto n=buckets[Hash(heap,index)];n;n=values[n-1].chain) {
-                auto &s=values[n-1];if(s.stamp.heap==heap && s.stamp.index==index)return &s;
+            if(!heap)return nullptr; // zero is never a published descriptor key
+            auto& cached=lookup_cache[LookupBucket(heap,index)];
+            if(cached) {
+                auto& s=values[cached-1];
+                if(s.stamp.heap==heap && s.stamp.index==index) {
+                    Increment(lookup_hits);return &s;
+                }
             }
-            return nullptr;
+            Increment(lookup_misses);
+            Id steps=0;
+            for(auto n=buckets[Hash(heap,index)];n;n=values[n-1].chain) {
+                ++steps;
+                auto &s=values[n-1];if(s.stamp.heap==heap && s.stamp.index==index) {
+                    cached=n;AddCount(lookup_steps,steps);return &s;
+                }
+            }
+            AddCount(lookup_steps,steps);return nullptr;
         }
         const Slot *Find(Id heap,unsigned index) const {return const_cast<Slots *>(this)->Find(heap,index);}
         unsigned Number(const Slot &s) const {return static_cast<unsigned>(&s-values.data())+1;}
@@ -256,9 +371,16 @@ class Registry {
             newest=n;
         }
         void Erase(Slot &s) {
-            const auto n=Number(s);auto *link=&buckets[Hash(s.stamp.heap,s.stamp.index)];
+            const auto n=Number(s);
+            auto& cached=lookup_cache[LookupBucket(s.stamp.heap,s.stamp.index)];
+            if(cached==n)cached=0; // remove before slot number can be reused
+            auto *link=&buckets[Hash(s.stamp.heap,s.stamp.index)];
             while(*link && *link!=n)link=&values[*link-1].chain;
             if(*link)*link=s.chain;
+            if(s.heap_older)values[s.heap_older-1].heap_newer=s.heap_newer;
+            else heap_buckets[HeapHash(s.stamp.heap)]=s.heap_newer;
+            if(s.heap_newer)values[s.heap_newer-1].heap_older=s.heap_older;
+            --heap_sizes[HeapHash(s.stamp.heap)];
             RemoveLru(s);s={};s.chain=free;free=n;--active;
         }
         Slot *Allocate(Id heap,unsigned index,Id incarnation,PoolCounters &counter) {
@@ -268,10 +390,35 @@ class Registry {
             }
             const auto n=free;auto &s=values[n-1];free=s.chain;s={};++active;
             s.stamp.heap=heap;s.stamp.index=index;s.incarnation=incarnation;
-            const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;return &s;
+            const auto hash=Hash(heap,index);s.chain=buckets[hash];buckets[hash]=n;
+            const auto hh=HeapHash(heap);s.heap_newer=heap_buckets[hh];
+            if(s.heap_newer)values[s.heap_newer-1].heap_older=n;
+            heap_buckets[hh]=n;++heap_sizes[hh];
+            lookup_cache[LookupBucket(heap,index)]=n;return &s;
         }
-        void RetireHeap(Id id) {
-            for(auto &s:values)if(s.stamp.heap==id)Erase(s);
+        unsigned HeapBucketSize(Id id) const {return heap_sizes[HeapHash(id)];}
+        template<class Fn> Id ForIndices(Id id,unsigned first,unsigned last,Fn&& fn) {
+            Id visited=0;
+            for(unsigned index=first;;++index) {
+                for(auto n=buckets[Hash(id,index)];n;n=values[n-1].chain) {
+                    auto& slot=values[n-1];++visited;
+                    if(slot.stamp.heap==id && slot.stamp.index==index){fn(slot);break;}
+                }
+                if(index==last)break; // includes UINT_MAX without wrapping
+            }
+            return visited;
+        }
+        template<class Fn> Id ForHeap(Id id,Fn&& fn) {
+            Id visited=0;
+            for(auto n=heap_buckets[HeapHash(id)];n;) {
+                auto& s=values[n-1];const auto next=s.heap_newer;++visited;
+                if(s.stamp.heap==id)fn(s);
+                n=next; // callback may erase THIS slot; never borrow afterward
+            }
+            return visited;
+        }
+        Id RetireHeap(Id id) {
+            return ForHeap(id,[&](Slot& s){Erase(s);});
         }
     };
     struct Range {Id base=0,end=0,prefix_end=0;unsigned heap=0;};
@@ -285,7 +432,34 @@ class Registry {
     UnknownCopy *unknown_copies=nullptr;
     Id epoch=1,revision=0;
     Counters counters;
+    // Bit 0 selects low-overhead mode; bit 1 seals startup configuration.
+    std::atomic<unsigned> startup_state;
+    struct AddressLink {Id id=0,object=0;}; // key is COM address; value is lifetime ID
+    LiveTable<AddressLink,ResourceCapacity> resource_addresses;
+    LiveTable<AddressLink,HeapCapacity> heap_addresses;
+    static Id ProfileNow() noexcept {
+#if NR_DESCRIPTOR_PROFILE
+        return static_cast<Id>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+#else
+        return 0;
+#endif
+    }
+    struct ProfileScope {
+        Id started;Id& total;
+        ~ProfileScope() {
+#if NR_DESCRIPTOR_PROFILE
+            const auto end=ProfileNow();
+            if(end>=started)AddCount(total,end-started);
+#endif
+        }
+    };
     struct Location {const Heap *heap=nullptr;unsigned index=0;};
+    void SealStartup(){
+        if((startup_state.load(std::memory_order_acquire)&2u)==0)
+            startup_state.fetch_or(2u,std::memory_order_acq_rel);
+    }
+    bool MirrorGpu() const {return (startup_state.load(std::memory_order_acquire)&1u)==0;}
     const Heap *HeapId(Id id) const {return heaps.Find(id);}
     bool UnknownAllLocked() const {
         for(const auto *scope=unknown_copies;scope;scope=scope->next)
@@ -299,10 +473,44 @@ class Registry {
             if(!ranges[i].first || ranges[i].first>ranges[i].last)return false;
         return true;
     }
+    static bool UnknownRangesOrdered(const UnknownRange* ranges,unsigned count) {
+        for(unsigned i=1;i<count;++i) {
+            const auto& a=ranges[i-1];const auto& b=ranges[i];
+            if(a.type>b.type || (a.type==b.type && a.last>=b.first))return false;
+        }
+        return true;
+    }
+    // Sorted, disjoint ranges have increasing endpoints inside each type.
+    // Return the first interval that could contain/intersect this address.
+    static unsigned FirstUnknownRange(const UnknownCopy& scope,Id handle,unsigned type) {
+        unsigned lo=0,hi=scope.count;
+        while(lo<hi) {
+            const auto mid=lo+(hi-lo)/2;
+            const auto& requested=scope.ranges[mid];
+            if(requested.type<type || (requested.type==type && requested.last<handle))lo=mid+1;
+            else hi=mid;
+        }
+        return lo;
+    }
+    static unsigned EndUnknownRange(const UnknownCopy& scope,Id handle,unsigned type) {
+        unsigned lo=0,hi=scope.count;
+        while(lo<hi) {
+            const auto mid=lo+(hi-lo)/2;
+            const auto& requested=scope.ranges[mid];
+            if(requested.type<type || (requested.type==type && requested.first<=handle))lo=mid+1;
+            else hi=mid;
+        }
+        return lo;
+    }
+    static bool OrderedUnknownIntersects(const UnknownCopy& scope,Id first,Id last,unsigned type) {
+        const auto index=FirstUnknownRange(scope,first,type);
+        return index<scope.count && scope.ranges[index].type==type && scope.ranges[index].first<=last;
+    }
     static bool UnknownScopeMasksLocked(const UnknownCopy &scope,Id handle,unsigned type) {
         if(!scope.active)return false;
         if(scope.all)return true;
         if(!scope.ranges)return false;
+        if(scope.ordered)return OrderedUnknownIntersects(scope,handle,handle,type);
         for(unsigned i=0;i<scope.count;++i) {
             const auto &range=scope.ranges[i];
             if(range.type==type && range.first<=handle && handle<=range.last)return true;
@@ -326,29 +534,131 @@ class Registry {
             if(UnknownScopeMasksLocked(*scope,handle,heap.type))return true;
         return false;
     }
+    // Convert inclusive CPU-handle ranges without rounding outward or wrapping
+    // near UINT64_MAX. Heap extent/stride were validated by ObserveHeap.
+    static bool UnknownIndices(const Heap& heap,const UnknownRange& range,
+                               unsigned& first,unsigned& last) {
+        const Id end=heap.cpu+static_cast<Id>(heap.count-1)*heap.stride;
+        if(range.type!=heap.type || range.last<heap.cpu || range.first>end)return false;
+        const Id lo=std::max(range.first,heap.cpu)-heap.cpu;
+        const Id hi=std::min(range.last,end)-heap.cpu;
+        const Id begin=lo/heap.stride+(lo%heap.stride!=0);
+        const Id finish=hi/heap.stride;
+        if(begin>finish)return false;
+        first=static_cast<unsigned>(begin);last=static_cast<unsigned>(finish);return true;
+    }
+    template<unsigned Capacity> Id InvalidateUnknownForHeapLocked(Slots<Capacity>& pool,
+            const Heap& heap,const UnknownCopy* scope) {
+        const auto invalidate=[&](Slot& slot) {
+            slot.value={};
+            slot.stamp.epoch=epoch?epoch-1:0;
+            slot.stamp.revision=revision;
+            if(slot.pending)slot.overlap=true;
+        };
+        // Probe exact keys only when substantially fewer than a heap traversal.
+        // Sparse heaps/large scopes keep the old bounded membership walk. No
+        // extra index allocation or native descriptor access occurs here.
+        const unsigned budget=std::min(4096u,pool.HeapBucketSize(heap.id)/4);
+        unsigned probes=0,range_begin=0,range_end=scope?scope->count:0;
+        bool narrow=scope && scope->active && !scope->all && scope->ranges;
+        if(narrow && scope->ordered) {
+            range_begin=FirstUnknownRange(*scope,heap.cpu,heap.type);
+            const Id last=heap.cpu+static_cast<Id>(heap.count-1)*heap.stride;
+            range_end=EndUnknownRange(*scope,last,heap.type);
+            if(range_begin==range_end)return 0;
+            // Bound the preflight too: many stride-misaligned singleton ranges
+            // should not cause another heap x range scan before the exact slot
+            // membership walk, which uses logarithmic masks on ordered scopes.
+            if(range_end-range_begin>64)narrow=false;
+        }
+        if(narrow)for(unsigned i=range_begin;i<range_end;++i) {
+            unsigned first=0,last=0;
+            if(!UnknownIndices(heap,scope->ranges[i],first,last))continue;
+            const Id count=static_cast<Id>(last)-first+1;
+            if(count>budget-probes){narrow=false;break;}
+            probes+=static_cast<unsigned>(count);
+        }
+        if(narrow) {
+            Id visited=0;
+            for(unsigned i=range_begin;i<range_end;++i) {
+                unsigned first=0,last=0;
+                if(UnknownIndices(heap,scope->ranges[i],first,last))
+                    AddCount(visited,pool.ForIndices(heap.id,first,last,invalidate));
+            }
+            return visited;
+        }
+        // A single broad range still uses the membership walk, but its exact
+        // inclusive index bounds need decoding only once, not for every slot.
+        if(scope && scope->active && !scope->all && range_end-range_begin==1 && scope->ranges) {
+            unsigned first=0,last=0;
+            if(!UnknownIndices(heap,scope->ranges[range_begin],first,last))return 0;
+            return pool.ForHeap(heap.id,[&](Slot& slot) {
+                if(first<=slot.stamp.index && slot.stamp.index<=last)invalidate(slot);
+            });
+        }
+        return pool.ForHeap(heap.id,[&](Slot& slot) {
+            const auto handle=heap.cpu+static_cast<Id>(slot.stamp.index)*heap.stride;
+            if(scope?UnknownScopeMasksLocked(*scope,handle,heap.type):UnknownMaskedLocked(heap,slot.stamp.index))
+                invalidate(slot);
+        });
+    }
     void InvalidateUnknownSlotsLocked(const UnknownCopy *scope=nullptr) {
         if(revision==std::numeric_limits<Id>::max()) {InvalidateLocked();return;}
         ++revision;
-        const auto invalidate=[&](auto &pool) {
-            for(auto &slot:pool.values) {
-                if(!slot.stamp.heap)continue;
-                const auto *heap=HeapId(slot.stamp.heap);
-                if(!heap)continue;
-                const bool masked=scope?UnknownScopeMasksLocked(*scope,
-                    heap->cpu+static_cast<Id>(slot.stamp.index)*heap->stride,heap->type):
-                    UnknownMaskedLocked(*heap,slot.stamp.index);
-                if(!masked)continue;
-                slot.value={};
-                // Keep the invalidation local to this heap slot.  A stale
-                // epoch makes readers report SlotUnknown, which preserves the
-                // distinction from a known empty descriptor while leaving
-                // unrelated slots in the current registry epoch.
-                slot.stamp.epoch=epoch?epoch-1:0;
-                slot.stamp.revision=revision;
-                if(slot.pending)slot.overlap=true;
+        // Find candidate heaps FROM the affected ranges using the existing
+        // base-sorted index and prefix maximum. Preserve every overlapping live
+        // heap, type check and the old per-slot mask; never mutate caller ranges.
+        // The bitset deduplicates repeated/overlapping ranges and preserves the
+        // original heap traversal order. Default registry scratch is 512 bytes.
+        std::array<Id,(HeapCapacity+63)/64> candidates{};
+        bool indexed=scope && scope->active && !scope->all && scope->ranges;
+        // A scope starting with an address-wide range is already cheap to test
+        // per heap; avoid paying a dense index pass before the old fallback.
+        if(indexed && scope->count && cpu_range_count) {
+            const auto& first=scope->ranges[0];
+            if(first.first<=cpu_ranges[0].base && first.last>=cpu_ranges[cpu_range_count-1].prefix_end)
+                indexed=false;
+        }
+        Id remaining=static_cast<Id>(cpu_range_count)*2+64;
+        if(indexed)for(unsigned j=0;j<scope->count && indexed;++j) {
+            const auto& requested=scope->ranges[j];
+            unsigned lower=0,upper=cpu_range_count;
+            while(lower<upper) {
+                const auto mid=lower+(upper-lower)/2;
+                if(cpu_ranges[mid].base<=requested.last)lower=mid+1;else upper=mid;
             }
-        };
-        invalidate(cpu_slots);invalidate(gpu_slots);
+            upper=lower;
+            while(upper) {
+                // Dense or adversarial live overlaps keep the bounded old path;
+                // do not add an unbounded range-by-heap enumeration ahead of it.
+                if(!remaining){indexed=false;break;}
+                --remaining;
+                const auto& candidate=cpu_ranges[--upper];
+                if(candidate.prefix_end<requested.first)break;
+                if(candidate.end<requested.first)continue;
+                const auto& h=heaps.values[candidate.heap];
+                if(h.type==requested.type)candidates[upper/64]|=Id{1}<<(upper%64);
+            }
+        }
+        if(indexed)Increment(counters.indexed_invalidations);
+        else if(scope && scope->ordered)Increment(counters.ordered_fallbacks);
+        else Increment(counters.linear_fallbacks);
+        for(unsigned i=0;i<cpu_range_count;++i) {
+            const auto& range=cpu_ranges[i];const auto& heap=heaps.values[range.heap];
+            bool possible=indexed?(candidates[i/64]&(Id{1}<<(i%64)))!=0:
+                !scope || (scope->active&&scope->all);
+            if(!indexed&&scope&&scope->active&&!scope->all&&scope->ranges) {
+                if(scope->ordered)possible=OrderedUnknownIntersects(*scope,range.base,range.end,heap.type);
+                else for(unsigned j=0;j<scope->count;++j) {
+                    const auto& r=scope->ranges[j];
+                    if(r.type==heap.type&&r.first<=range.end&&range.base<=r.last){possible=true;break;}
+                }
+            }
+            if(!possible)continue;
+            const auto visited=heap.shader_visible?InvalidateUnknownForHeapLocked(gpu_slots,heap,scope):
+                InvalidateUnknownForHeapLocked(cpu_slots,heap,scope);
+            AddCount(counters.unknown_slot_visits,visited);
+        }
     }
     bool ResourceCurrent(const Resource &r) const {
         if(!r || counters.resources.coverage_lost)return false;
@@ -403,12 +713,15 @@ class Registry {
         const auto &h=*where.heap;result.shader_visible=h.shader_visible;
         result.stamp.heap=h.id;result.stamp.index=where.index;
         if(UnknownMaskedLocked(h,where.index)){result.reason=Reason::WritePending;return result;}
+        if(h.shader_visible && !MirrorGpu()){result.reason=Reason::SlotUnknown;return result;}
         const auto *s=FindSlot(h,where.index);
         if(!s || s->stamp.epoch!=epoch){result.reason=Reason::SlotUnknown;return result;}
         result.stamp=s->stamp;
         if(s->pending){result.reason=Reason::WritePending;return result;}
-        result.view=s->value;
+        // Pending/unknown payload bytes are never observable. BeginIn only
+        // invalidates the tag; return the same empty View as the cleared model.
         if(!s->value.known){result.reason=Reason::ViewUnknown;return result;}
+        result.view=s->value;
         if(counters.resources.coverage_lost){result.reason=Reason::CoverageLost;return result;}
         if(!ResourceCurrent(s->value.resource)){result.reason=Reason::ResourceRetired;return result;}
         if(s->value.resource.device!=h.device){result.reason=Reason::WrongDevice;return result;}
@@ -441,13 +754,16 @@ class Registry {
         pool.RemoveLru(*s);
         if(s->pending){s->overlap=true;Increment(counters.overlaps);}else s->overlap=false;
         if(s->pending==std::numeric_limits<unsigned>::max()){InvalidateLocked();return write;}
-        ++s->pending;s->stamp={h.id,revision,epoch,where.index};s->value={};
+        ++s->pending;s->stamp={h.id,revision,epoch,where.index};s->value.known=false;
         write.destination=s->stamp;write.incarnation=s->incarnation;
         if(value.resource.device==h.device)write.value=value;
         Increment(counters.writes);return write;
     }
     Write BeginLocked(const Location &where,const View &value) {
         if(!where.heap){Increment(counters.unknown_writes);return {};}
+        if(where.heap->shader_visible && !MirrorGpu()) {
+            Increment(counters.gpu_shadow_skipped_descriptors);return {};
+        }
         return where.heap->shader_visible?BeginIn(gpu_slots,counters.gpu_slots,where,value):
             BeginIn(cpu_slots,counters.cpu_slots,where,value);
     }
@@ -461,9 +777,61 @@ class Registry {
            (!write.copy || (!write.source.shader_visible && CurrentLocked(write.source))))s->value=write.value;
     }
     void InvalidateLocked(){Increment(epoch);Increment(counters.invalidations);}
+private:
+    Write BeginCopyLocked(Id destination,Id source,unsigned type) {
+        SealStartup();
+        if(UnknownCpuHandleLocked(destination,type)) {
+            Increment(counters.unknown_writes);Increment(counters.copies);
+            Write write;write.copy=true;return write;
+        }
+        const auto from=Read(Locate(source,type,false),Kind::Unknown);
+        if(from && !from.shader_visible)TouchUseLocked(from);
+        auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
+        write.source=from;write.copy=true;Increment(counters.copies);return write;
+    }
 public:
+    // Startup configuration is mutable only before the first valid observation.
+    // Once sealed, omitted GPU descriptors never become known later. CPU view
+    // provenance, lifetimes, and native CPU-clear revalidation are still collected.
+    // Native API calls are NOT skipped.
+    explicit Registry(bool mirror_gpu=true):startup_state(mirror_gpu?0u:1u) {}
+    bool ConfigureStartup(bool mirror_gpu) {
+        const unsigned desired=mirror_gpu?0u:1u;
+        unsigned observed=startup_state.load(std::memory_order_acquire);
+        while((observed&2u)==0) {
+            if(startup_state.compare_exchange_weak(observed,desired,std::memory_order_acq_rel,
+                    std::memory_order_acquire))return true;
+        }
+        return (observed&1u)==desired;
+    }
+    bool GpuMirrorEnabled() const {return MirrorGpu();}
+    bool StartupSealed() const {return (startup_state.load(std::memory_order_acquire)&2u)!=0;}
+    template<class Handle> bool SkipGpuDestinations(unsigned count,const Handle* first,
+            const unsigned* sizes,unsigned type) {
+        if(!count || count>64 || !first)return false;
+        SealStartup();
+        if(MirrorGpu())return false;
+        std::lock_guard guard(mutex);
+        Id descriptors=0;
+        for(unsigned i=0;i<count;++i) {
+            const unsigned size=sizes?sizes[i]:1;
+            if(!size)continue;
+            const auto where=Locate(static_cast<Id>(first[i].ptr),type,false);
+            if(!where.heap || !where.heap->shader_visible ||
+                size>where.heap->count-where.index)return false;
+            if(descriptors>std::numeric_limits<Id>::max()-size)return false;
+            descriptors+=size;
+        }
+        if(!descriptors)return false;
+        Increment(counters.gpu_shadow_skipped_calls);
+        counters.gpu_shadow_skipped_descriptors=descriptors>
+            std::numeric_limits<Id>::max()-counters.gpu_shadow_skipped_descriptors?
+            std::numeric_limits<Id>::max():counters.gpu_shadow_skipped_descriptors+descriptors;
+        return true;
+    }
     void ObserveResource(Resource resource) {
         if(!resource)return;std::lock_guard guard(mutex);
+        SealStartup();
         const auto *old=resources.Find(resource.id);
         if(old) {
             if(old->device!=resource.device || old->address!=resource.address) {
@@ -473,10 +841,13 @@ public:
         }
         // Cold identity publication checks address uniqueness once. Copies and
         // receipt validation consult the flag and full-key index, never scan it.
-        for(const auto &r:resources.values)if(r.id && r.address==resource.address) {
-            Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();break;
+        const auto *address=resource_addresses.Find(resource.address);
+        if(address && address->object!=resource.id) {
+            Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();
         }
         if(!resources.Insert(resource)) {
+            Increment(counters.resources.drops);counters.resources.coverage_lost=true;InvalidateLocked();
+        } else if(!address && !resource_addresses.Insert({resource.address,resource.id})) {
             Increment(counters.resources.drops);counters.resources.coverage_lost=true;InvalidateLocked();
         }
     }
@@ -485,12 +856,17 @@ public:
            (heap.count-1)>((std::numeric_limits<Id>::max()-heap.cpu)/heap.stride) ||
            (heap.gpu && (heap.count-1)>((std::numeric_limits<Id>::max()-heap.gpu)/heap.stride)))return false;
         std::lock_guard guard(mutex);
+        SealStartup();
         if(const auto *old=heaps.Find(heap.id)) {
             if(old->device==heap.device && old->address==heap.address && old->cpu==heap.cpu && old->gpu==heap.gpu &&
                old->count==heap.count && old->stride==heap.stride && old->type==heap.type && old->shader_visible==heap.shader_visible)return true;
             Increment(counters.heaps.ambiguities);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
         }
         if(!heaps.Insert(heap)) {
+            Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
+        }
+        const auto *address=heap_addresses.Find(heap.address);
+        if(!address && !heap_addresses.Insert({heap.address,heap.id})) {
             Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
         }
         // Losing uniqueness must also retire earlier slot revisions; otherwise
@@ -510,23 +886,44 @@ public:
         RebuildRanges();return true;
     }
     void RetireResource(Id id) {
-        std::lock_guard guard(mutex);if(resources.Erase(id))Increment(counters.resources_retired);
+        std::lock_guard guard(mutex);
+        if(const auto *r=resources.Find(id)) {
+            const auto *link=resource_addresses.Find(r->address);
+            if(link && link->object==id)resource_addresses.Erase(r->address);
+        }
+        if(resources.Erase(id))Increment(counters.resources_retired);
     }
     void RetireHeap(Id id) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.heap_retire_cpu_ns};
+        if(const auto *h=heaps.Find(id)) {
+            const auto *link=heap_addresses.Find(h->address);
+            if(link && link->object==id)heap_addresses.Erase(h->address);
+        }
         if(heaps.Erase(id)) {
-            cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);RebuildRanges();Increment(counters.heaps_retired);
+            AddCount(counters.heap_retire_slot_visits,cpu_slots.RetireHeap(id));
+            AddCount(counters.heap_retire_slot_visits,gpu_slots.RetireHeap(id));
+            RebuildRanges();Increment(counters.heaps_retired);
         }
     }
     void RetireDevice(Id device) {
         std::lock_guard guard(mutex);
         // Erasure may move the next entry into this slot; revisit it.
         for(unsigned i=0;i<resources.values.size();) {
-            const auto &r=resources.values[i];if(r.id && r.device==device){resources.Erase(r.id);Increment(counters.resources_retired);}else ++i;
+            const auto &r=resources.values[i];if(r.id && r.device==device){
+                const auto *link=resource_addresses.Find(r.address);
+                if(link && link->object==r.id)resource_addresses.Erase(r.address);
+                resources.Erase(r.id);Increment(counters.resources_retired);
+            }else ++i;
         }
         for(unsigned i=0;i<heaps.values.size();) {
             const auto &h=heaps.values[i];if(h.id && h.device==device) {
-                const auto id=h.id;cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);heaps.Erase(id);Increment(counters.heaps_retired);
+                const auto id=h.id;const auto *link=heap_addresses.Find(h.address);
+                if(link && link->object==id)heap_addresses.Erase(h.address);
+                AddCount(counters.heap_retire_slot_visits,cpu_slots.RetireHeap(id));
+                AddCount(counters.heap_retire_slot_visits,gpu_slots.RetireHeap(id));
+                heaps.Erase(id);Increment(counters.heaps_retired);
             }else ++i;
         }
         RebuildRanges();
@@ -534,15 +931,18 @@ public:
         // certify that every omitted alias has gone away, even on another device.
     }
     Resource ResourceAt(Id address) const {
-        std::lock_guard guard(mutex);Resource result;
-        if(counters.resources.coverage_lost)return result;
-        for(const auto &r:resources.values)if(r && r.address==address){if(result)return {};result=r;}
-        return result;
+        std::lock_guard guard(mutex);
+        if(!address || counters.resources.coverage_lost)return {};
+        const auto *link=resource_addresses.Find(address);
+        const auto *r=link?resources.Find(link->object):nullptr;
+        return r && r->address==address?*r:Resource{};
     }
     Heap HeapAt(Id address) const {
-        std::lock_guard guard(mutex);Heap result;if(counters.heaps.coverage_lost)return result;
-        for(const auto &h:heaps.values)if(h && h.address==address){if(result)return {};result=h;}
-        return result;
+        std::lock_guard guard(mutex);
+        if(!address || counters.heaps.coverage_lost)return {};
+        const auto *link=heap_addresses.Find(address);
+        const auto *h=link?heaps.Find(link->object):nullptr;
+        return h && h->address==address?*h:Heap{};
     }
     Receipt Cpu(Id handle,unsigned type,Kind expected=Kind::Unknown) const {
         std::lock_guard guard(mutex);
@@ -564,17 +964,27 @@ public:
     // A malformed range is treated as a global unknown window so a bad
     // observer cannot publish a guessed descriptor value.
     void BeginUnknownCopy(UnknownCopy &scope,const UnknownRange *ranges,unsigned count,bool all=false) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.unknown_cpu_ns};
         if(scope.active)return;
+        SealStartup();
         const bool global=all || !UnknownRangesValid(ranges,count);
         scope.ranges=global?nullptr:ranges;scope.count=global?0:count;
+        scope.ordered=!global && UnknownRangesOrdered(ranges,count);
+        if(!global && count) {
+            if(scope.ordered){Increment(counters.ordered_copy_scopes);AddCount(counters.ordered_copy_ranges,count);}
+            else Increment(counters.raw_copy_scopes);
+        }
         scope.all=global;scope.next=nullptr;scope.active=true;
         scope.next=unknown_copies;unknown_copies=&scope;
         if(global){Increment(counters.global_copies);InvalidateLocked();}
         else if(count){Increment(counters.scoped_copies);InvalidateUnknownSlotsLocked(&scope);}
     }
     void EndUnknownCopy(UnknownCopy &scope) {
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.unknown_cpu_ns};
         if(!scope.active)return;
         const bool global=scope.all;
         if(global)InvalidateLocked();
@@ -582,26 +992,41 @@ public:
         UnknownCopy **link=&unknown_copies;
         while(*link && *link!=&scope)link=&(*link)->next;
         if(*link==&scope)*link=scope.next;
-        scope.ranges=nullptr;scope.count=0;scope.all=false;scope.next=nullptr;scope.active=false;
+        scope.ranges=nullptr;scope.count=0;scope.all=false;scope.ordered=false;scope.next=nullptr;scope.active=false;
     }
     Write BeginWrite(Id cpu,unsigned type,const View &value) {
         std::lock_guard guard(mutex);
+        SealStartup();
         if(UnknownCpuHandleLocked(cpu,type)){Increment(counters.unknown_writes);return {};}
         return BeginLocked(Locate(cpu,type,false),value);
     }
     Write BeginCopy(Id destination,Id source,unsigned type) {
+        std::lock_guard guard(mutex);return BeginCopyLocked(destination,source,type);
+    }
+    void BeginCopies(unsigned count,const Id* destinations,const Id* sources,
+                     unsigned type,Write* writes) {
+        if(!count || !destinations || !sources || !writes)return;
+        const auto profile_started=ProfileNow();
         std::lock_guard guard(mutex);
-        if(UnknownCpuHandleLocked(destination,type)) {
-            Increment(counters.unknown_writes);Increment(counters.copies);
-            Write write;write.copy=true;return write;
+        ProfileScope profile{profile_started,counters.copy_begin_cpu_ns};
+        Increment(counters.copy_begin_batches);
+        for(unsigned i=0;i<count;++i)writes[i]=BeginCopyLocked(destinations[i],sources[i],type);
+    }
+    void FinishCopies(unsigned count,const Write* writes) {
+        if(!count || !writes)return;
+        const auto profile_started=ProfileNow();
+        std::lock_guard guard(mutex);
+        ProfileScope profile{profile_started,counters.copy_finish_cpu_ns};
+        Increment(counters.copy_finish_batches);
+        for(unsigned i=0;i<count;++i) {
+            const auto& write=writes[i];if(!write.destination.heap)continue;
+            const auto* h=HeapId(write.destination.heap);if(!h)continue;
+            if(h->shader_visible)FinishIn(gpu_slots,write);else FinishIn(cpu_slots,write);
         }
-        const auto from=Read(Locate(source,type,false),Kind::Unknown);
-        if(from && !from.shader_visible)TouchUseLocked(from);
-        auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
-        write.source=from;write.copy=true;Increment(counters.copies);return write;
     }
     void Finish(const Write &write) {
-        std::lock_guard guard(mutex);if(!write.destination.heap)return;
+        if(!write.destination.heap)return;
+        std::lock_guard guard(mutex);
         const auto *h=HeapId(write.destination.heap);if(!h)return;
         if(h->shader_visible)FinishIn(gpu_slots,write);else FinishIn(cpu_slots,write);
     }
@@ -629,9 +1054,14 @@ public:
         }
         pair.reason=Reason::None;TouchUseLocked(pair.cpu);TouchUseLocked(pair.gpu);return pair;
     }
-    void Invalidate(){std::lock_guard guard(mutex);InvalidateLocked();}
+    void Invalidate(){SealStartup();std::lock_guard guard(mutex);InvalidateLocked();}
     Counters SnapshotCounters() const {
         std::lock_guard guard(mutex);auto result=counters;
+        result.gpu_mirror=MirrorGpu();
+        result.cpu_lookup_hits=cpu_slots.lookup_hits;result.cpu_lookup_misses=cpu_slots.lookup_misses;
+        result.cpu_lookup_steps=cpu_slots.lookup_steps;
+        result.gpu_lookup_hits=gpu_slots.lookup_hits;result.gpu_lookup_misses=gpu_slots.lookup_misses;
+        result.gpu_lookup_steps=gpu_slots.lookup_steps;
         result.heaps.active=heaps.active;result.heaps.capacity=HeapCapacity;
         result.resources.active=resources.active;result.resources.capacity=ResourceCapacity;
         result.cpu_slots.active=cpu_slots.active;result.cpu_slots.capacity=CpuSlotCapacity;
@@ -684,3 +1114,4 @@ inline const char *ReasonName(Reason reason) {
     }
 }
 } // namespace nr_descriptor
+

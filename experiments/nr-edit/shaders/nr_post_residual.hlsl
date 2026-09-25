@@ -1,0 +1,73 @@
+#include "nr_edit_scalar.hlsli"
+#include "nr_edit_carrier.hlsli"
+cbuffer PostConstants:register(b0){
+    uint2 FullSize;uint2 WorkSize;
+    uint2 BaseOrigin;uint2 CandidateOrigin;
+    uint2 TargetOrigin;uint2 ReservedOrigin;
+    float CarrierRange;uint PairValid;uint ReconstructionSucceeded;uint Reserved;
+};
+Texture2D<float4> Candidate:register(t0);
+Texture2D<float4> Base:register(t1);
+Texture2D<float4> Reconstructed:register(t2);
+Texture2D<float4> Tail:register(t3);
+RWTexture2D<float4> CarrierOut:register(u0);
+RWTexture2D<float4> TailOut:register(u1);
+RWTexture2D<float4> Target:register(u2);
+bool Valid(){return PairValid&&all(FullSize>0)&&all(WorkSize>0)&&all(WorkSize<=FullSize)&&
+    all(WorkSize*4>=FullSize)&&isfinite(CarrierRange)&&CarrierRange>1e-6&&CarrierRange<=1e6;}
+[numthreads(8,8,1)]
+void ExtractCS(uint3 id:SV_DispatchThreadID){
+    if(any(id.xy>=WorkSize))return;
+    float3 sum=0;float weight=0;bool valid=Valid();
+    if(valid){
+        // Exact rational area boundaries: avoid a spurious extra edge tap from
+        // floating point ceil/floor on odd sizes. Numerators fit in uint.
+        uint2 lo=id.xy*FullSize,hi=(id.xy+1)*FullSize;
+        uint2 first=lo/WorkSize,last=(hi+WorkSize-1)/WorkSize;
+        [loop]for(uint y=first.y;y<last.y;++y){
+            uint wy=min(hi.y,(y+1)*WorkSize.y)-max(lo.y,y*WorkSize.y);
+            [loop]for(uint x=first.x;x<last.x;++x){
+                uint wx=min(hi.x,(x+1)*WorkSize.x)-max(lo.x,x*WorkSize.x);
+                float w=float(wx)*float(wy);
+                float3 b=Base.Load(int3(uint2(x,y)+BaseOrigin,0)).rgb;
+                float3 z=Candidate.Load(int3(uint2(x,y)+CandidateOrigin,0)).rgb;
+                bool finite=all(isfinite(b))&&all(isfinite(z));
+                valid=valid&&finite;
+                sum+=(finite?z-b:float3(0,0,0))*w;weight+=w;
+            }
+        }
+    }
+    float3 delta=sum/max(weight,1);
+    valid=valid&&weight>0&&all(isfinite(delta));
+    float4 carrier,tail;EncodeResidualCarrier(delta,valid,CarrierRange,carrier,tail);
+    CarrierOut[id.xy]=carrier;TailOut[id.xy]=tail;
+}
+[numthreads(8,8,1)]
+void ComposeCS(uint3 id:SV_DispatchThreadID){
+    if(any(id.xy>=FullSize)||!Valid()||!ReconstructionSucceeded)return;
+    float4 b=Base.Load(int3(id.xy+BaseOrigin,0));
+    float3 carrier=Reconstructed.Load(int3(id.xy,0)).rgb;
+    if(!all(isfinite(b))||!all(isfinite(carrier)))return;
+    // Exact half-pixel phase. Float multiply/divide can turn a mathematical
+    // zero-weight neighbour into a positive tap on NVIDIA (notably at 99%).
+    // Such a tap must not import an invalid tail or a carrier-support tag.
+    // Add one whole denominator before dividing to keep the arithmetic unsigned.
+    uint2 numerator=(2*id.xy+1)*WorkSize+FullSize;
+    uint2 denominator=2*FullSize;
+    int2 origin=int2(numerator/denominator)-1;
+    float2 f=float2(numerator%denominator)/float2(denominator);
+    float3 tail=0;float total=0;bool hasCarrierEdit=false;
+    [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
+        int2 q=clamp(origin+int2(x,y),int2(0,0),int2(WorkSize)-1);
+        float4 value=Tail.Load(int3(q,0));float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
+        if(w>0&&(!all(isfinite(value))||value.a<.5))return;
+        hasCarrierEdit=hasCarrierEdit||(w>0&&value.a>=1.5);
+        tail+=value.rgb*w;total+=w;
+    }
+    if(total<=0)return;
+    float3 delta=(hasCarrierEdit?(2*saturate(carrier)-1)*CarrierRange:float3(0,0,0))+tail/total;
+    // The target already contains Z. Invalid pixels keep that safe candidate.
+    // Only B is the addition base; alpha is always B's alpha.
+    float3 rgb=all(delta==0)?b.rgb:b.rgb+delta;
+    if(all(isfinite(rgb))&&all(abs(rgb)<=65504))Target[id.xy+TargetOrigin]=float4(rgb,b.a);
+}

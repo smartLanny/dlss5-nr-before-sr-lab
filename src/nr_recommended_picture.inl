@@ -11,12 +11,21 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.work_mode = 0;
     next.custom_work_scale = 1.0f;
     next.lighting_lock = 0.0f;
-    next.edge_guard = 0.25f;
+    next.edge_guard = 0.0f;
     next.detail_stability = 0.0f;
     next.high_strength_protection = true;
     next.color_protection = true;
     next.layered_enhancement = false;
     next.independent_chroma_composition = false;
+    // Legacy auxiliary ratios are archived only; active layers share one scale.
+    // A reset disables auxiliary layers without introducing per-layer scaling.
+    next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=2;
+    next.nr_layers={};next.nr_uniform_migrated=false;
+    next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
+    next.region_version=1;next.region_enabled=false;next.region_preview=0;
+    std::fill(next.region_gains,next.region_gains+11,1.f);
+    next.face_protection_version=1;next.face_protection=false;next.face_extra_cap=true;
+    next.face_original_luma=0;next.face_original_color=0;next.face_preview=0;
     next.low_grid_edit_field = false;
     next.catmull_edit_restore = false;
     next.low_grid_color_edit_field = false;
@@ -30,17 +39,19 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.allow_unverified_hdr_color = false;
     next.suppress_reset_frame = true;
     next.color_strength = 1.0f;
+    nr_light_style::Reset(next);
+    next.light_control_mode = 1;
     next.max_luma_ratio = 4.0f;
     next.preserve_lighting = false;
     next.proxy_scale = 1.0f;
     next.experimental_peak_shoulder = false;
     next.warmup_after_create = 2;
     next.retry_original_on_sr_failure = true;
-    next.intensity = 1.2f;
+    next.intensity = 1.5f;
     next.local_tone = 1.0f;
     next.local_structure = 1.0f;
-    next.skin_structure = -1.0f;
-    next.auto_mask = false;
+    next.skin_structure = 0.4f;
+    next.auto_mask = true;
     next.style = 0;
     next.ui_correction = true;
     next.jitter_mode = NrJitterMode::Legacy;

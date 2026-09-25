@@ -30,7 +30,7 @@ def completion_path(function_marker, completion_call):
 
 
 binding = definition(source, "bool BindNrParameters(")
-reset_start = binding.index("    const bool reset_requested =")
+reset_start = binding.index("    const unsigned diagnostic_reset_reasons =")
 reset_end = binding.index('    SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);', reset_start)
 reset_end += len('    SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);')
 harness = r'''
@@ -54,6 +54,9 @@ struct NrContext {
     bool jitter_binding_written=true,jitter_last_known=true;
     unsigned successful_evaluations_since_reset=0, evaluations=0, config_generation=7;
     bool diagnostic_reset_requested=false, reset_retry_pending=false;
+    bool diagnostic_warmup_reset=false;
+    unsigned diagnostic_reset_reasons=0;
+    bool lifecycle_dependencies_quarantined=false;
     NrTuningSignature tuning_signature{};
     NrGuideHistory guide_history{};
     int mode=2;
@@ -75,27 +78,35 @@ void Log(const char*,...) {}
 void SetBypassReason(BypassReason) {}
 const char* ResultName(unsigned) { return "stub"; }
 struct NrGuideBinding { NrGuideSignature signature{}; };
-struct PostSrSubstitution { NrGuideBinding guides{}; };
+struct PostSrSubstitution { NrGuideBinding guides{}; bool opaque_failure_is_fatal=false; unsigned fatal_recording=0; };
+namespace nr_face_runtime {
+void Commit(NrSlot&, const NrGuideBinding&) {}
+}
 unsigned preserve_calls=0;
 void PreservePostSrOnFailure(void*,PostSrSubstitution&) { ++preserve_calls; }
 std::atomic<bool> g_post_sr_runtime_rejected{false};
 bool PreComplete(NrContext* context,NrSlot* slot,unsigned evaluated) {
     const bool substitution=false;
     NrGuideBinding guides{};
+    struct { bool safe=true; } timing;
+    (void)timing;
     PRE_PATH
     return true;
 }
 bool PostComplete(NrContext& context,NrSlot& slot,unsigned evaluated) {
     void* command_list=nullptr;
     PostSrSubstitution substitution{};
+    struct { bool safe=true; } timing;
+    (void)timing;
     POST_PATH
     return true;
 }
 struct NgxParams { int reset_value=-1; };
 void SetInt(NgxParams* params,const char*,int value) { params->reset_value=value; }
 int BindReset(NrContext& context,bool config_changed,bool color_contract_reset=false,
-              bool guide_reset=false,bool* suppressed=nullptr) {
+              bool guide_reset=false,bool* suppressed=nullptr,bool placeholder=false) {
     bool reset=false; int game_reset=0;
+    NrGuideSignature s{};s.rr_depth_placeholder=placeholder;
     const bool history_changed=config_changed;
     NrSlot slot{};
     NgxParams block{}; NgxParams* params=&block;

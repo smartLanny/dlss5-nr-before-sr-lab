@@ -63,6 +63,9 @@ def patch_exposure_core(text: str) -> str:
             '    if (exposure && !NrResolveExposureAccess(device, ID3D12Resource_GetDesc(exposure)).allowed())\n'
             '        return false;\n'
             '    slot.key = external;')
+        if 'CODEC_SHARED_DESCRIPTOR_INITIALIZATION_V1' in s:
+            return once(s,'    WriteCodecDescriptorSet(device, slot, slot.heap);',
+                          '    WriteCodecDescriptorSet(device, slot, slot.heap);')
         return writer(s)
     text=edit(text,'bool CreateSlot(',create)
     return edit(text,'bool RebindSlotExternal(',lambda s:once(s,

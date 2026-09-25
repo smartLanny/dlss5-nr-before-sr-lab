@@ -11,17 +11,35 @@ nr_post_boundary::List SnapshotPostBoundaryList(ID3D12GraphicsCommandList *nativ
     nr_post_boundary::List result;result.address=reinterpret_cast<std::uint64_t>(native);
     if(!native)return result;
     // Preserve the native fast path: recording hooks read only value records.
-    thread_local ID3D12GraphicsCommandList *last_native=nullptr;
-    thread_local std::uint64_t last_epoch=0;
-    thread_local CommandStateRecord *last_record=nullptr;
+    struct Hint {ID3D12GraphicsCommandList* native=nullptr;std::uint64_t epoch=0;CommandStateRecord* record=nullptr;};
+    // Several native lists can share the same address-hash bucket. A single
+    // direct-mapped hint repeatedly rescans 2048 records when they alternate.
+    // Four ways retain colliding lists; epoch/lock and first-match semantics are
+    // deliberately unchanged, including negative hints and live alias scopes.
+    struct Set {Hint ways[4]{};unsigned recent=0,next=0;};
+    thread_local Set sets[16]{};
     AcquireSRWLockShared(&g_command_state_lock);
     const auto epoch=g_command_state_epoch.load(std::memory_order_relaxed);
-    if(last_native!=native || last_epoch!=epoch) {
-        last_record=nullptr;
-        for(auto &entry:g_command_states)if(entry.native==native && entry.token) {last_record=&entry;break;}
-        last_native=native;last_epoch=epoch;
+    const auto address=reinterpret_cast<std::uint64_t>(native);
+    auto& set=sets[static_cast<unsigned>((address>>4)^(address>>12)^(address>>20))&15u];
+    unsigned selected=set.recent;
+    const auto matches=[&](unsigned i){return set.ways[i].native==native&&set.ways[i].epoch==epoch;};
+    if(!matches(selected)) {
+        selected=4;
+        for(unsigned i=0;i<4;++i)if(matches(i)){selected=i;break;}
+        if(selected==4) {
+            selected=set.next;set.next=(set.next+1)&3u;
+            auto& replacement=set.ways[selected];replacement.record=nullptr;
+            for(auto &entry:g_command_states)if(entry.native==native && entry.token) {replacement.record=&entry;break;}
+            replacement.native=native;replacement.epoch=epoch;
+        }
     }
-    const auto *record=last_record;
+    set.recent=selected;
+    const auto& hint=set.ways[selected];
+    // The registry shared lock is held before using a hint. Metadata is read
+    // fresh below, including native reset and lifetime_ready. Negative hints
+    // still traverse the current alias scope: aliases never persist in TLS.
+    const auto *record=hint.record;
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     // Proxy mappings are cold-verified, bounded by an actual original call,
     // and invalidated by record retirement/replacement. Never read COM here.
@@ -227,13 +245,13 @@ void ObservePostBoundaryStateCommand(ID3D12GraphicsCommandList *list,const char 
         reinterpret_cast<void *>(&PostHook##NAME<1>),reinterpret_cast<void *>(&PostHook##NAME<2>),reinterpret_cast<void *>(&PostHook##NAME<3>)};
 
 NR_POST_NATIVE_HOOK(ResourceBarrier,(ID3D12GraphicsCommandList *list,UINT count,const D3D12_RESOURCE_BARRIER *barriers),
-    (list,count,barriers),ObservePostBoundaryLegacy(list,count,barriers))
+    (list,count,barriers),ObservePostBoundaryLegacy(list,count,barriers);nr_source_runtime::OnBarrier(list,count,barriers))
 NR_POST_NATIVE_HOOK(CopyResource,(ID3D12GraphicsCommandList *list,ID3D12Resource *destination,ID3D12Resource *source),
-    (list,destination,source),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Copy,source,destination))
+    (list,destination,source),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Copy,source,destination);nr_source_runtime::OnCopy(list,destination,source,true))
 NR_POST_NATIVE_HOOK(CopyTextureRegion,(ID3D12GraphicsCommandList *list,const D3D12_TEXTURE_COPY_LOCATION *destination,UINT x,UINT y,UINT z,const D3D12_TEXTURE_COPY_LOCATION *source,const D3D12_BOX *box),
     (list,destination,x,y,z,source,box),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::CopyRegion,source?source->pResource:nullptr,destination?destination->pResource:nullptr,
         source&&source->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX?source->SubresourceIndex:UINT_MAX,
-        destination&&destination->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX?destination->SubresourceIndex:UINT_MAX))
+        destination&&destination->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX?destination->SubresourceIndex:UINT_MAX);nr_source_runtime::OnCopy(list,destination?destination->pResource:nullptr,source?source->pResource:nullptr,source&&destination&&!box&&!x&&!y&&!z&&source->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX&&destination->Type==D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX&&!source->SubresourceIndex&&!destination->SubresourceIndex))
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
 #define NR_DESCRIPTOR_CLEAR_UAV(NAME,VALUE) \
     CommandStateHookFamily g_post_hook_##NAME; \
@@ -244,6 +262,7 @@ NR_POST_NATIVE_HOOK(CopyTextureRegion,(ID3D12GraphicsCommandList *list,const D3D
         const auto descriptors=observe?NrDescriptorCaptureUav(list,gpu,cpu,resource):nr_descriptor::Pair{}; \
         using Fn=decltype(ID3D12GraphicsCommandListVtbl::NAME); \
         reinterpret_cast<Fn>(g_post_hook_##NAME.originals[I])(list,gpu,cpu,resource,values,count,rects); \
+        nr_source_runtime::OnClear(list,resource,count==0); \
         if(observe)ObservePostBoundaryUavDescriptor(list,resource,descriptors, \
             NrDescriptorCaptureUav(list,gpu,cpu,resource),count,rects); \
     } \
@@ -260,6 +279,9 @@ template<unsigned I> void STDMETHODCALLTYPE PostHookClearRenderTargetView(ID3D12
     using Fn=decltype(ID3D12GraphicsCommandListVtbl::ClearRenderTargetView);
     reinterpret_cast<Fn>(g_post_hook_ClearRenderTargetView.originals[I])(list,cpu,values,count,rects);
     if(observe)ObservePostBoundaryRtvDescriptor(list,nr_post_boundary::Kind::ClearRtv,descriptor,count,rects);
+    if(descriptor&&descriptor.view.resource.address)
+        nr_source_runtime::OnClear(list,reinterpret_cast<ID3D12Resource*>(descriptor.view.resource.address),count==0&&descriptor.view.mip==0&&descriptor.view.plane==0);
+    else nr_source_runtime::OnClearRtv(list,cpu,count==0);
 }
 void *const g_post_detours_ClearRenderTargetView[4]={reinterpret_cast<void *>(&PostHookClearRenderTargetView<0>),
     reinterpret_cast<void *>(&PostHookClearRenderTargetView<1>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<2>),reinterpret_cast<void *>(&PostHookClearRenderTargetView<3>)};
@@ -272,15 +294,15 @@ NR_POST_NATIVE_HOOK(ClearRenderTargetView,(ID3D12GraphicsCommandList *list,D3D12
     (list,cpu,values,count,rects),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::ClearRtv))
 #endif
 NR_POST_NATIVE_HOOK(DrawInstanced,(ID3D12GraphicsCommandList *list,UINT vertices,UINT instances,UINT start,UINT first_instance),
-    (list,vertices,instances,start,first_instance),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Draw))
+    (list,vertices,instances,start,first_instance),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Draw);nr_source_runtime::OnDraw(list))
 NR_POST_NATIVE_HOOK(DrawIndexedInstanced,(ID3D12GraphicsCommandList *list,UINT indices,UINT instances,UINT start,INT base,UINT first_instance),
-    (list,indices,instances,start,base,first_instance),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::DrawIndexed))
+    (list,indices,instances,start,base,first_instance),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::DrawIndexed);nr_source_runtime::OnDraw(list))
 NR_POST_NATIVE_HOOK(Dispatch,(ID3D12GraphicsCommandList *list,UINT x,UINT y,UINT z),
-    (list,x,y,z),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Dispatch))
+    (list,x,y,z),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Dispatch);nr_source_runtime::OnWrite(list,nullptr))
 NR_POST_NATIVE_HOOK(ResolveSubresource,(ID3D12GraphicsCommandList *list,ID3D12Resource *destination,UINT destination_subresource,ID3D12Resource *source,UINT source_subresource,DXGI_FORMAT format),
     (list,destination,destination_subresource,source,source_subresource,format),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Resolve,source,destination,source_subresource,destination_subresource))
 NR_POST_NATIVE_HOOK(DiscardResource,(ID3D12GraphicsCommandList *list,ID3D12Resource *resource,const D3D12_DISCARD_REGION *region),
-    (list,resource,region),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Discard,nullptr,resource))
+    (list,resource,region),ObservePostBoundaryOperation(list,nr_post_boundary::Kind::Discard,nullptr,resource);nr_source_runtime::OnWrite(list,resource))
 #undef NR_POST_NATIVE_HOOK
 
 CommandStateHookFamily g_post_hook_Barrier;
@@ -288,6 +310,7 @@ template<unsigned I> void STDMETHODCALLTYPE PostHookBarrier(ID3D12GraphicsComman
     using Fn=decltype(ID3D12GraphicsCommandList7Vtbl::Barrier);
     reinterpret_cast<Fn>(g_post_hook_Barrier.originals[I])(list,count,groups);
     ObservePostBoundaryEnhanced(reinterpret_cast<ID3D12GraphicsCommandList *>(list),count,groups);
+    nr_source_runtime::OnEnhancedBarrier(reinterpret_cast<ID3D12GraphicsCommandList *>(list));
 }
 void *const g_post_detours_Barrier[4]={reinterpret_cast<void *>(&PostHookBarrier<0>),
     reinterpret_cast<void *>(&PostHookBarrier<1>),reinterpret_cast<void *>(&PostHookBarrier<2>),reinterpret_cast<void *>(&PostHookBarrier<3>)};

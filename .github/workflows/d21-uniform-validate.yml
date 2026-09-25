@@ -1,0 +1,66 @@
+name: D21 uniform chain - CPU, configuration and WARP
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d21-uniform-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pinned Windows compiler
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'llvm-mingw.zip'
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile $zip
+          if ((Get-FileHash -Algorithm SHA256 $zip).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'Compiler digest mismatch' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $env:RUNNER_TEMP
+          $bin = Join-Path $env:RUNNER_TEMP 'llvm-mingw-20260826-ucrt-x86_64/bin'
+          $bin >> $env:GITHUB_PATH
+          "NR_LLVM_BIN=$bin" >> $env:GITHUB_ENV
+          "CXX=$bin/x86_64-w64-mingw32-clang++.exe" >> $env:GITHUB_ENV
+      - name: Actual configuration, menu and scheduling consumers
+        shell: pwsh
+        run: |
+          python scripts/validate-uniform-layers.py --compiler $env:CXX
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-present-color-source.py --compiler $env:CXX --output build/present-color-source
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-source-frame.py --compiler $env:CXX --output build/source-frame
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tests/run_d21_energy_gate.py --compiler $env:CXX --output build/energy-gate
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-color-policy.py --compiler $env:CXX
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/validate-color-policy.py --compiler $env:CXX --negative-control
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests -p test_d13_ui_compile.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest discover -s tests/multi_api -p test_picture_integration.py -v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Full-chain CPU and actual D3D12 spatial dispatch
+        shell: pwsh
+        run: |
+          foreach ($name in @('nr_uniform_layers_test','nr_full_policy_test','nr_full_runtime_test')) {
+            & $env:CXX -std=c++20 -Wall -Wextra -Werror "tests/$name.cpp" -o "build/$name.exe"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            & "build/$name.exe"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          & $env:CXX -std=c++20 tests/nr_full_spatial_warp.cpp src/nr_dual_spatial_d3d12.cpp -o build/nr_full_spatial_warp.exe -ld3d12 -ldxgi -ld3dcompiler -ldxguid
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build/nr_full_spatial_warp.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+# WARP uses an explicit shader model substitute. This job is not a full Core
+# build, NVIDIA Feature18 validation, game test, performance claim or release.

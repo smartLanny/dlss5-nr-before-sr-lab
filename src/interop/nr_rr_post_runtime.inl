@@ -73,6 +73,12 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         LeaveCriticalSection(&g_chain_cs); ownership.Release();
         return call_native();
     }
+    nr_processing_runtime::CarrierScope processing_carrier;
+    if(nr_processing_runtime::Effective()==nr_processing::Start::Before)
+        nr_processing_runtime::Reject(nr_processing::Start::Before,"RR-requires-post-reconstruction");
+    if(nr_processing_runtime::PresentSelected()) {
+        LeaveCriticalSection(&g_chain_cs);ownership.Release();return call_native();
+    }
     BeginPipelineStatsScopeLocked(feature.generation,1);
     ObserveRrDepthProjection(params, feature);
     nr_post_settings::last_rr_depth_type.store(feature.rr_depth_type,std::memory_order_relaxed);
@@ -80,6 +86,7 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     ++nr_post_settings::rr_attempts;
     nr_post_settings::last_rr_tick.store(GetTickCount64(),std::memory_order_relaxed);
     nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+    nr_rr_projection::NativeScope projection_scope(command_list,params,feature.generation);
     NativeCommandStateScope before(command_list);
     PostSrSubstitution prepared{};
     if(before.active) {
@@ -90,10 +97,15 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         if(!prepared.active)
             nr_post_settings::rr_prepare_declined.fetch_add(1,std::memory_order_relaxed);
     } else nr_post_settings::rr_before_state_rejected.fetch_add(1,std::memory_order_relaxed);
+    if(!prepared.active&&!nr_processing_runtime::Recorded())
+        nr_processing_runtime::Reject(nr_processing::Start::After,"RR-post-input-or-command-state-unavailable");
     if(prepared.active) nr_post_settings::last_rr_stage.store(1,std::memory_order_relaxed);
     // Exactly one original RR invocation on EVERY branch. Its HRESULT/status
-    // is returned unchanged; NR failure never retries an already run denoiser.
+    // is retained on ordinary declines. An opaque NR2 failure returns its fatal
+    // status after quarantine; it never retries an already run denoiser.
+    if(prepared.active){nr_dual_runtime::Stamp(before.command_list,*prepared.slot,10);nr_dual_runtime::Stamp(before.command_list,*prepared.slot,8);}
     const NgxResult native_result=call_native();
+    if(prepared.active)nr_dual_runtime::Stamp(before.command_list,*prepared.slot,9);
     const auto after_feature=FindFeature(handle);
     const bool uncertain=g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
@@ -108,6 +120,10 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
             } else {
                 nr_post_settings::rr_finish_declined.fetch_add(1,std::memory_order_relaxed);
                 nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+            }
+            if(prepared.fatal_recording){
+                after.AbandonAfterOpaqueFailure();before.AbandonAfterOpaqueFailure();
+                LeaveCriticalSection(&g_chain_cs);ownership.Release();return prepared.fatal_recording;
             }
             after.Restore();
         } else {

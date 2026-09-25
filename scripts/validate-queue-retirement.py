@@ -19,6 +19,8 @@ def main() -> None:
     parser.add_argument('--source', type=Path, required=True,
                         help='Canonical staged Core source, including the integration adapters.')
     parser.add_argument('--old-policy-negative', action='store_true')
+    parser.add_argument('--compile-only', action='store_true',
+                        help='Compile the production queue host without running WARP cases.')
     args = parser.parse_args()
     out = args.build_dir.resolve()
     if out.exists():
@@ -55,6 +57,15 @@ def main() -> None:
             raise RuntimeError(f'{name} failed: {result.returncode}')
         return result
     objects = []
+    # nr_before_sr.cpp exposes the dual spatial API through its public header;
+    # the D3D12 implementation remains a separate production translation unit.
+    # Compile the same sibling source as the staged Core when it is present.
+    spatial_source = source.parent / 'nr_dual_spatial_d3d12.cpp'
+    if spatial_source.is_file():
+        spatial_object = out / 'nr_dual_spatial_d3d12.o'
+        run([str(compiler), *common, '-std=c++20', '-c', str(spatial_source), '-o', str(spatial_object)],
+            'compile-nr-dual-spatial')
+        objects.append(str(spatial_object))
     for rel in ('buffer.c', 'hook.c', 'trampoline.c', 'hde/hde64.c'):
         obj = out/(Path(rel).stem+'.o')
         run([str(c_compiler), *common, '-std=c17', '-c',
@@ -64,6 +75,16 @@ def main() -> None:
     run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32',
          '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
+    if args.compile_only:
+        evidence = {'source': str(source), 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+                    'fixture_sha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
+                    'fixture_inputs_sha256': {str(path.relative_to(ROOT)): digest for path, digest in fixture_inputs.items()},
+                    'old_policy_negative': args.old_policy_negative, 'cases': [],
+                    'production_translation_unit': True, 'compile_only': True,
+                    'warp': False, 'nvidia_nr': False}
+        (out/'result.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')
+        print('PASS production queue retirement compile-only; WARP cases not run')
+        return
     cases = ['one-shot'] if args.old_policy_negative else [
         'one-shot', 'guards', 'pending-context', 'pending-slot',
         'migration', 'one-observation-migration', 'replay', 'discard',

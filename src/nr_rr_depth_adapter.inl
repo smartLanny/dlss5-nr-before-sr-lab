@@ -1,4 +1,8 @@
 #include "nr_rr_depth_shader.h"
+#include "nr_aux_shader_runtime.hpp"
+#if NR_AUX_PRECOMPILED
+#include "nr_aux_rr_depth_precompiled.h"
+#endif
 std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0};
 std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
 enum class RrDepthReject : unsigned {
@@ -64,26 +68,35 @@ bool IsSameRrDepthDevice(ID3D12Device *first, ID3D12Device *second) {
 
 bool ResolveRrLinearDepth(const NgxParams *params, const FeatureRecord &feature,
                           NrGuideBinding &guides) {
+    nr_rr_projection::last_origin.store(0,std::memory_order_relaxed);
     if (feature.feature_id!=13 || feature.rr_depth_type==1) return true;
     if (feature.rr_depth_type!=0) return false;
     // Read this Evaluate's matrix, not the one-second diagnostic cache.
-    float m[16]{}; void *pointer=nullptr; SIZE_T copied=0;
     const auto getter=ParamSlot<GetVoidFn>(params,8);
-    nr_rr_depth::Projection projection;
-    if (!getter || getter(params,"ViewToClipMatrix",&pointer)!=kNgxSuccess || !pointer ||
-        !ReadProcessMemory(GetCurrentProcess(),pointer,m,sizeof(m),&copied) || copied!=sizeof(m) ||
-        !nr_rr_depth::Resolve(m,projection)) return RejectRrDepth(RrDepthReject::Projection);
+    auto input=nr_rr_depth::ReadCurrent(
+        [&](void*& pointer){return getter&&getter(params,"ViewToClipMatrix",&pointer)==kNgxSuccess;},
+        [](void* pointer,void* target,size_t size){SIZE_T copied=0;
+            return ReadProcessMemory(GetCurrentProcess(),pointer,target,size,&copied)&&copied==size;});
+    input=nr_rr_projection::Choose(input,params,feature.generation);
+    nr_rr_depth::observations.input.store(input.state,std::memory_order_relaxed);
+    const bool placeholder=nr_rr_depth::UsePlaceholder(input.state,nr_post_settings::missing_projection.load(std::memory_order_acquire));
+    if(input.state!=nr_rr_depth::InputState::Supported&&!placeholder)
+        return RejectRrDepth(RrDepthReject::Projection);
+    const auto projection=placeholder?nr_rr_depth::Projection{0,0,true}:input.projection;
     const auto desc=ID3D12Resource_GetDesc(guides.depth);
     if (desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.DepthOrArraySize!=1 ||
         desc.MipLevels!=1 || desc.SampleDesc.Count!=1 ||
         (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)!=0 ||
         (desc.Format!=DXGI_FORMAT_R32_FLOAT && desc.Format!=DXGI_FORMAT_R16_FLOAT)) return RejectRrDepth(RrDepthReject::Storage);
     guides.signature.linear_depth=true;
+    guides.signature.rr_depth_placeholder=placeholder;
     guides.signature.depth_inverted=projection.inverted?1:0;
     guides.signature.normalized_create_flags =
         (guides.signature.normalized_create_flags & ~8) | (projection.inverted?8:0);
     guides.signature.depth_projection_a=projection.a;
     guides.signature.depth_projection_b=projection.b;
+    (placeholder?nr_rr_depth::observations.placeholder_admitted:nr_rr_depth::observations.admitted)
+        .fetch_add(1,std::memory_order_relaxed);
     return true;
 }
 
@@ -108,14 +121,21 @@ bool EnsureRrDepthPipeline(ID3D12Device *device) {
         root_blob->lpVtbl->GetBufferPointer(root_blob),root_blob->lpVtbl->GetBufferSize(root_blob),
         IID_ID3D12RootSignature,reinterpret_cast<void **>(&root));
     ReleaseCom(root_blob);
-    if (SUCCEEDED(hr)) hr=D3DCompile(kRrDepthShader,sizeof(kRrDepthShader)-1,"NR.RRDepth",
-        nullptr,nullptr,"ConvertRrDepthCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+    if(SUCCEEDED(hr)){
+#if NR_AUX_PRECOMPILED
+        const auto artifact=nr_aux_rr_depth_precompiled::Find("ConvertRrDepthCS","cs_5_0");
+        hr=nr_aux_shader::Load(artifact.data,artifact.size,&code);
+#else
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::RrDepth,nr_aux_shader::Operation::Compile,[&]{return D3DCompile(kRrDepthShader,sizeof(kRrDepthShader)-1,"NR.RRDepth",
+            nullptr,nullptr,"ConvertRrDepthCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);});
+#endif
+    }
     ReleaseCom(errors);
     if (SUCCEEDED(hr)) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=root;
         desc.CS={code->lpVtbl->GetBufferPointer(code),code->lpVtbl->GetBufferSize(code)};
-        hr=ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&pipeline));
+        hr=nr_aux_shader::Measure(nr_aux_shader::Shader::RrDepth,nr_aux_shader::Operation::Pipeline,[&]{return ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+            reinterpret_cast<void **>(&pipeline));});
     }
     ReleaseCom(code);
     if (FAILED(hr)) {
@@ -126,10 +146,10 @@ bool EnsureRrDepthPipeline(ID3D12Device *device) {
     g_codec.rr_depth_root=root;g_codec.rr_depth_pipeline=pipeline;return true;
 }
 
-bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding &guides) {
+bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding &guides, bool immutable=false) {
     if (!guides.signature.linear_depth) return true;
     const auto &s=guides.signature;
-    if (!CanMutateSlotLocked(slot)) return RejectRrDepth(RrDepthReject::SlotBusy);
+    if (!immutable && !CanMutateSlotLocked(slot)) return RejectRrDepth(RrDepthReject::SlotBusy);
     if (!EnsureRrDepthPipeline(device)) return RejectRrDepth(RrDepthReject::Pipeline);
     ID3D12Device *source_device=nullptr;
     const HRESULT source_hr=ID3D12Resource_GetDevice(guides.depth,IID_ID3D12Device,
@@ -145,6 +165,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
         !(support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)) return RejectRrDepth(RrDepthReject::InputSupport);
     const auto previous=slot.rr_depth?ID3D12Resource_GetDesc(slot.rr_depth):D3D12_RESOURCE_DESC{};
     if (!slot.rr_depth || previous.Width!=s.depth_width || previous.Height!=s.depth_height) {
+        if(!CanMutateSlotLocked(slot)||!InvalidateSlotBindingsLocked(slot))return RejectRrDepth(RrDepthReject::SlotBusy);
         D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         desc.Width=s.depth_width;desc.Height=s.depth_height;
         desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
@@ -168,6 +189,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
     }
     const auto out=ID3D12Resource_GetDesc(slot.rr_depth);
     if (out.Width!=s.depth_width || out.Height!=s.depth_height || !slot.rr_depth_heap) return RejectRrDepth(RrDepthReject::SlotShape);
+    if(!immutable) {
     auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.rr_depth_heap);
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=static_cast<DXGI_FORMAT>(s.depth_format);
     srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -175,6 +197,7 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
     cpu.ptr+=g_codec.descriptor_size;
     D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R32_FLOAT;uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
     ID3D12Device_CreateUnorderedAccessView(device,slot.rr_depth,nullptr,&uav,cpu);
+    }
     if (slot.rr_depth_source!=guides.depth) {
         ID3D12Resource_AddRef(guides.depth);ReleaseCom(slot.rr_depth_source);slot.rr_depth_source=guides.depth;
     }
@@ -185,22 +208,24 @@ bool EnsureRrDepthSlot(ID3D12Device *device, NrSlot &slot, const NrGuideBinding 
 bool DispatchRrDepth(ID3D12GraphicsCommandList *list, NrSlot &slot,const NrGuideBinding &guides) {
     const auto &s=guides.signature;
     if (!s.linear_depth) return true;
-    if (!slot.rr_depth || !slot.rr_depth_heap || slot.rr_depth_source!=guides.depth ||
+    auto* heap=slot.compose_binding&&slot.compose_binding->heaps[nr_binding::Depth]?slot.compose_binding->heaps[nr_binding::Depth]:slot.rr_depth_heap;
+    if (!slot.rr_depth || !heap || slot.rr_depth_source!=guides.depth ||
         !g_codec.rr_depth_pipeline || !g_codec.rr_depth_root) return RejectRrDepth(RrDepthReject::DispatchBinding);
     struct Constants { UINT width,height,x,y;float a,b,far_depth,pad; };
     const Constants constants{s.depth_width,s.depth_height,s.depth_x,s.depth_y,
-        s.depth_projection_a,s.depth_projection_b,s.depth_inverted?0.f:1.f,0};
+        s.depth_projection_a,s.depth_projection_b,s.depth_inverted?0.f:1.f,s.rr_depth_placeholder?1.f:0.f};
     Transition(list,slot.rr_depth,slot.rr_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    ID3D12DescriptorHeap *heaps[]={slot.rr_depth_heap};
+    ID3D12DescriptorHeap *heaps[]={heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(list,g_codec.rr_depth_root);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.rr_depth_heap));
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,8,&constants,0);
     ID3D12GraphicsCommandList_SetPipelineState(list,g_codec.rr_depth_pipeline);
     ID3D12GraphicsCommandList_Dispatch(list,(s.depth_width+7)/8,(s.depth_height+7)/8,1);
     UavBarrier(list,slot.rr_depth);
     Transition(list,slot.rr_depth,slot.rr_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    g_rr_depth_conversions.fetch_add(1,std::memory_order_relaxed);
+    if(s.rr_depth_placeholder)nr_rr_depth::observations.placeholder_recorded.fetch_add(1,std::memory_order_relaxed);
+    else g_rr_depth_conversions.fetch_add(1,std::memory_order_relaxed);
     return true;
 }

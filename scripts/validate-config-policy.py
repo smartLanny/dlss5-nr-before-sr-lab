@@ -1,21 +1,18 @@
-"""Exercise actual jitter config functions with Win32 INI files and fresh processes.
+"""Run production config transactions with real Win32 INI IO and fresh processes.
 
-Adapted from D8 cb33e482's policy fixture; only jitter policy is included. The
-module-observation suffix is excluded from ReloadConfig; actual configuration
-publication, normalization, apply, save, polling and reset code is executed.
-Write faults are injected only at the OS write entrance. No GPU/NR/game runs.
+Read-only fixtures use the Windows attribute. Partial-write faults are injected
+only at WritePrivateProfileStringW; all successful writes and all reads use the
+real OS APIs. No game, NR model, shader, or GPU is constructed.
 """
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-HIDDEN = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 
 def definition(source, marker, semicolon=False):
@@ -30,11 +27,9 @@ def definition(source, marker, semicolon=False):
 
 def assemble(source):
     reload = definition(source, 'void ReloadConfig(')
-    publication = reload.index('    const bool changed = !SameConfig(next, g_config);')
-    publication_end = reload.index('    if (changed || force) {\n        Log(', publication)
-    reload = reload[:reload.index('    const bool shortfuse_loaded =')] + \
-        reload[publication:publication_end] + '}\n'
-    helpers = [definition(source, marker) for marker in (
+    publish_start = reload.index('    const bool changed = !SameConfig(next, g_config);')
+    publish_end = reload.index('    if (changed || force) {\n        Log(', publish_start)
+    helpers = [definition(source, signature) for signature in (
         'float ReadIniFloat(', 'float FiniteOr(', 'int MigrateConfigMode(',
         'bool WriteIniInt(const wchar_t *key, int value) {',
         'bool WriteIniFloat(const wchar_t *key, float value) {',
@@ -44,21 +39,20 @@ def assemble(source):
     parts = {
         'JITTER_ENUM': definition(source, 'enum class NrJitterMode', True),
         'CHAIN_CONFIG': definition(source, 'struct ChainConfig', True),
+        'PROCESSING_RUNTIME': (ROOT / 'src/nr_processing_runtime.inl').read_text(encoding='utf-8-sig'),
         'HELPERS': '\n\n'.join(helpers),
         'POLICY_RUNTIME': (ROOT / 'src/nr_config_policy_runtime.inl').read_text(encoding='utf-8-sig'),
         'NORMALIZE': definition(source, 'void NormalizeConfig('),
         'SAME_CONFIG': definition(source, 'bool SameConfig('),
         'SAME_HISTORY': definition(source, 'bool SameHistoryConfig('),
         'ACTIVE_TRANSFER': definition(source, 'float ActiveTransferStrength('),
-        'RELOAD_CONFIG': reload,
+        'RELOAD_PREFIX': reload[:reload.index('    const bool shortfuse_loaded =')],
+        'RELOAD_PUBLISH': reload[publish_start:publish_end],
         'SAVE_CONFIG': definition(source, 'bool SaveConfig('),
         'APPLY_CONFIG': definition(source, 'bool ApplyConfig('),
         'SNAPSHOT_CONFIG': definition(source, 'ChainConfig SnapshotConfig('),
         'POLL_CONFIG': definition(source, 'void PollConfigFromPresent('),
-        'RESTORE_DEFAULTS': (ROOT / 'src/nr_recommended_picture.inl').read_text(encoding='utf-8-sig'),
-        'TUNING_SIGNATURE': definition(source, 'struct NrTuningSignature', True),
-        'CURRENT_TUNING': definition(source, 'NrTuningSignature CurrentNrTuningSignature('),
-        'SAME_TUNING': definition(source, 'bool SameNrTuningSignature('),
+        'TOGGLE_MASTER': definition(source, 'void ToggleMasterFromHotkey('),
     }
     code = (ROOT / 'tests/config_policy_win32.cpp.in').read_text(encoding='utf-8-sig')
     for name, value in parts.items():
@@ -68,21 +62,17 @@ def assemble(source):
     return code
 
 
-def execute(args, **kwargs):
-    return subprocess.run(args, creationflags=HIDDEN, **kwargs)
-
-
-def run(compiler, code, directory, expected=None):
+def run(compiler, code, directory, negative=False):
     directory.mkdir()
     cpp, exe = directory / 'config-policy.cpp', directory / 'config-policy.exe'
     cpp.write_text(code, encoding='utf-8')
-    execute([compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
-             '-Wno-unused-function', '-static', '-municode', '-I', str(ROOT / 'src'),
-             str(cpp), '-o', str(exe)], check=True)
-    result = execute([str(exe), str(directory), str(ROOT / 'config/nr_before_sr.ini')], text=True, capture_output=True)
+    subprocess.run([compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
+                    '-Wno-unused-function', '-static', '-municode', '-I', str(ROOT / 'src'),
+                    str(cpp), '-o', str(exe)], check=True)
+    result = subprocess.run([str(exe), str(directory)], text=True, capture_output=True)
     (directory / 'run.txt').write_text(result.stdout + result.stderr, encoding='utf-8')
-    if expected:
-        assert result.returncode == 23 and ('FAIL ' + expected) in result.stdout, result.stdout + result.stderr
+    if negative:
+        assert result.returncode == 23 and 'FAIL ' in result.stdout, result.stdout + result.stderr
     else:
         assert result.returncode == 0, result.stdout + result.stderr
         print(result.stdout, end='')
@@ -96,64 +86,91 @@ def main():
     parser.add_argument('--negative-control', action='store_true')
     parser.add_argument('--output-dir', type=Path)
     args = parser.parse_args()
-    directory = args.output_dir or Path(tempfile.mkdtemp(prefix='nr-jitter-policy-'))
+    directory = args.output_dir or Path(tempfile.mkdtemp(prefix='nr-config-policy-'))
     if args.output_dir:
         directory.mkdir(parents=True, exist_ok=False)
     source = args.source.read_text(encoding='utf-8-sig')
     code = assemble(source)
     exe, output = run(args.compiler, code, directory / 'positive')
     restarts = []
-    for name, jitter, intensity in (
-        ('restart-off.ini', '0', '1.73'),
-        ('restart-user-on.ini', '1', '1.73'),
-        ('restart-retried-on.ini', '1', '1.21'),
-        ('restart-value-failed.ini', '0', '1.73'),
-        ('restart-marker-failed.ini', '0', '1.73'),
-        ('restart-reset-off.ini', '0', '1.2'),
+    for name, strength, enabled, jitter in (
+        ('restart-off.ini', '1', '0', '0'),
+        ('restart-user-on.ini', '2.3', '1', '1'),
+        ('restart-partial.ini', '1', '1', '0'),
+        ('restart-partial-off.ini', '1', '0', '0'),
+        ('restart-diagnostic-zero.ini', '0', '1', '1'),
     ):
-        result = execute([str(exe), str(exe.parent), str(exe.parent / name), jitter, intensity],
-                         text=True, capture_output=True)
+        result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
+                                 strength, enabled, jitter, '1.73'], text=True, capture_output=True)
         assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
         restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
+    for name, route, passes, percent in (
+        ('restart-route-before.ini', '0', '3', '50'),
+        ('restart-route-after.ini', '1', '4', '75'),
+        ('restart-route-present.ini', '2', '5', '100'),
+    ):
+        result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
+                                 route, passes, percent, '1', 'processing'], text=True, capture_output=True)
+        assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
+        restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
+    for name, route, mode in (
+        ('launch-empty.ini', '0', '2'),
+        ('launch-legacy-before.ini', '0', '2'),
+        ('launch-legacy-after.ini', '1', '1'),
+        ('launch-invalid-after.ini', '1', '1'),
+        ('launch-saved-before-r0.ini', '0', '2'),
+        ('launch-saved-after-r0.ini', '1', '1'),
+        ('launch-saved-present-r0.ini', '2', '2'),
+        ('launch-saved-before-r1.ini', '0', '2'),
+        ('launch-saved-after-r1.ini', '1', '1'),
+        ('launch-saved-present-r1.ini', '2', '1'),
+    ):
+        result = subprocess.run([str(exe), str(directory), str(exe.parent / name),
+                                 route, mode, 'launch'], text=True, capture_output=True)
+        assert result.returncode == 0, name + ': ' + result.stdout + result.stderr
+        restarts.append({'fixture': name, 'passed': True, 'output': result.stdout.strip()})
+    negatives = []
     mutations = (
-        ('retain-old-on', 'if (pending) {\n        status.jitter_changed',
-         'if (false) {\n        status.jitter_changed', 'old request is forced off once'),
         ('repeat-jitter', 'if (g_config_policy_attempted) return;',
          'if (g_config_policy_attempted) { next.jitter_mode = NrJitterMode::Legacy; return; }',
-         'later polling retains explicit re-enable without rewriting'),
-        ('marker-before-value', 'write(WriteIniInt(L"JitterMode", 0));',
-         'write(WriteIniInt(L"JitterPolicyVersion", 1));\n        write(WriteIniInt(L"JitterMode", 0));',
-         'jitter value is persisted before its marker'),
+         'later polling retains'),
+        ('marker-before-value', 'if (ok) write(WriteIniFloat(L"PostTransferStrength", next.post_transfer_strength));',
+         'if (ok) write(WriteIniInt(L"ExtraStrengthPolicyVersion", 1));\n'
+         '        if (ok) write(WriteIniFloat(L"PostTransferStrength", next.post_transfer_strength));',
+         'shared selection completes'),
+        ('discard-zero-bypass', 'next.enabled = plan.enabled;', 'next.enabled = true;',
+         'legacy active zero'),
         ('no-failure-latch', 'if (!force &&\n        g_config_persistence_failed.load(std::memory_order_acquire)) return;',
-         'if (!force && false) return;', 'failed save polling never overwrites live manual settings'),
-        ('f8-writes-ini', 'persist_to_ini ? SaveConfig(g_config) : true',
-         'SaveConfig(g_config)', 'F8 restoration performs no policy or INI writes'),
-        ('reset-retains-on', 'next.ui_correction = true;\n    next.jitter_mode = NrJitterMode::Legacy;',
-         'next.ui_correction = true;', 'default reset disables jitter while preserving other provider contracts'),
-        ('no-explicit-retry', 'if (persist_to_ini &&\n            g_config_persistence_failed.load(std::memory_order_acquire))',
-         'if (false)', 'explicit unchanged choice retries save without history change'),
+         'if (!force && false) return;', 'polling never overwrites'),
+        ('f8-writes-ini', 'persist_to_ini && !preview_only ? SaveConfig(g_config) : true',
+         '!preview_only ? SaveConfig(g_config) : true', 'performs no policy or INI writes'),
+        ('reselect-on-config-poll', 'if(session.Select(g_config.processing_start,g_config.processing_selection)) {',
+         'if(session.Select(g_config.processing_start,++g_config.processing_selection)) {',
+         'ordinary edits preserve fallback'),
+        ('unbounded-full-pass-count', 'config.nr_full_passes=std::clamp(config.nr_full_passes,3u,5u);',
+         '(void)config.nr_full_passes;', 'more-layer count stays'),
+        ('allow-legacy-native-sr-retry', 'config.retry_original_on_sr_failure=false;',
+         '(void)config.retry_original_on_sr_failure;', 'normalization disables legacy same-source'),
     )
-    negatives = []
     if args.negative_control:
         for name, original, mutation, expected in mutations:
             assert code.count(original) == 1, name
-            run(args.compiler, code.replace(original, mutation), directory / name, expected)
-            negatives.append({'name': name, 'compiled': True, 'behavioral_rejection': True, 'expected_assertion': expected})
+            _, text = run(args.compiler, code.replace(original, mutation), directory / name, True)
+            assert expected in text, name + ': intended assertion not reached\n' + text
+            negatives.append({'name': name, 'compiled': True, 'behavioral_rejection': True,
+                              'expected_assertion': expected})
             print('PASS compiled negative control:', name)
-    paths = [args.source, ROOT / 'config/nr_before_sr.ini', ROOT / 'src/nr_config_policy.h', ROOT / 'src/nr_config_policy_runtime.inl',
-             ROOT / 'src/nr_recommended_picture.inl', ROOT / 'src/nr_work_config.h',
-             ROOT / 'tests/config_policy_win32.cpp.in', Path(__file__)]
     receipt = {
-        'passed': True,
-        'scope': 'actual config functions and reset; real Win32 INI; six fresh processes; no GPU/NR/game',
-        'source_commit': execute(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True, capture_output=True, check=True).stdout.strip(),
-        'source_dirty': bool(execute(['git', '-C', str(ROOT), 'status', '--porcelain'], text=True, capture_output=True, check=True).stdout),
-        'sources': [{'path': str(path.resolve()), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths],
+        'passed': True, 'scope': 'production config prefix/normalization/apply/save; real Win32 INI; no GPU/NR/game',
+        'source_sha256': hashlib.sha256(args.source.read_bytes()).hexdigest(),
+        'launch_preferences_sha256': hashlib.sha256(
+            (ROOT / 'src/nr_launch_preferences.h').read_bytes()).hexdigest(),
         'harness_sha256': hashlib.sha256(code.encode()).hexdigest(),
-        'suite': output.strip(), 'fresh_process_restarts': restarts, 'negative_controls': negatives,
+        'suite': output.strip(), 'fresh_process_restarts': restarts,
+        'negative_controls': negatives,
     }
     (directory / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
-    print('PASS six fresh-process restarts; receipt:', directory / 'validation.json')
+    print(f'PASS {len(restarts)} fresh-process restarts; receipt:', directory / 'validation.json')
 
 
 if __name__ == '__main__':

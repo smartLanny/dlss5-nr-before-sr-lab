@@ -30,11 +30,15 @@ void FeedbackAppendUiActivity(FeedbackSession& session,const char* prefix) {
             u(d.carriers),u(d.nr),u(d.submitted),u(d.queue_waits),static_cast<unsigned>(o.live_reason),
             static_cast<unsigned>(o.sample.bypass_reason),value.transition,value.previous_known,value.previous_valid,
             static_cast<unsigned>(value.previous),static_cast<unsigned>(value.display));
+        const char* origin=read.source==nr_ui_activity::ObservationSource::NativeWindow?"native-counter-window":
+            read.source==nr_ui_activity::ObservationSource::PresentSnapshot?"Present-snapshot":
+            read.source==nr_ui_activity::ObservationSource::FgRecentRecord?"FG-recent-record":"unknown";
+        FeedbackAppend(session,"%s.uiActivity.%s.origin=%s\n",prefix,label,origin);
     };
     append("latest.top",s.latest[0]);append("latest.feedback",s.latest[1]);
     for(unsigned i=0;i<s.recent_count;++i){char label[24]{};std::snprintf(label,sizeof(label),"recent.%u",i);append(label,s.recent[i]);}
     FeedbackAppend(session,"%s.uiActivity.resetKey=1:first-window,2:clock-backwards,4:window-gap,8:config-scope,16:pipeline-epoch,32:counter-regressed,64:config-read-incoherent,128:epoch-read-incoherent; regression bits carrier/NR/submitted/queue=1/2/4/8\n"
-        "%s.uiActivity.stateKey=0:unavailable,1:wrong-api,2:native,3:checking,4:intermittent,5:observed,6:queue-timeout,7:runtime,8:codec,9:RR,10:other-owner,11:conflict,12:waiting-SR,13:observer,14:command-state,15:bypassed,16:no-submission\n"
-        "%s.uiActivity.meaning=last real UI decisions, not a current screen or GPU proof; site 0=top 1=feedback; anonymous per-thread identity; gap tuple known/ms; readScope=configArgument/epochEntry/configCheck/epochCheck/epochCheckKnown; counterBefore=window baseline; valid=priorWindow/returnedSample; kind 1=reset 2=held 3=updated 4=incoherent; display=previousKnown/previousValid/previous/current; F8 never samples the Window; missing latest means that site was not observed; recent history is bounded to 4 transitions\n",
+        "%s.uiActivity.stateKey=0:unavailable,1:wrong-api,2:native,3:checking,4:intermittent,5:observed,6:queue-timeout,7:runtime,8:codec,9:RR,10:other-owner,11:conflict,12:waiting-SR,13:observer,14:command-state,15:bypassed,16:no-submission,17:compat-checking,18:FG-recorded,19:Present-submitted,20:compat-preparing,21:compat-bypassed\n"
+        "%s.uiActivity.meaning=last real UI decisions, not a current screen or GPU proof; site 0=top 1=feedback; anonymous per-thread identity; gap tuple known/ms; readScope=configArgument/epochEntry/configCheck/epochCheck/epochCheckKnown; counterBefore=window baseline; valid=priorWindow/returnedSample; kind 1=reset 2=held 3=updated 4=incoherent 5=snapshot; origin names the actual observation; non-native origin has unavailable counter tuples and no Window Observe; display=previousKnown/previousValid/previous/current; F8 never samples the Window; missing latest means that site was not observed; recent history is bounded to 4 transitions\n",
         prefix,prefix,prefix);
 }

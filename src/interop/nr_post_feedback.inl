@@ -8,6 +8,14 @@
     const bool compatibility_attempt_recent=IsCompatibilityPostObserved();
 #endif
     FeedbackAppend(s,"%s.settings.colorProtection=%d\n",prefix,g_config.color_protection?1:0);
+    FeedbackAppend(s,"%s.post.rr.missingProjection.saveFailed=%d\n",prefix,
+        nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire)?1:0);
+    FeedbackAppend(s,"%s.post.rr.depthAdapter.currentInput=%s\n%s.post.rr.depthAdapter.projectionAdmitted=%llu\n%s.post.rr.missingProjection.requested=%d\n%s.post.rr.missingProjection.admitted=%llu\n%s.post.rr.missingProjection.recorded=%llu\n%s.post.rr.missingProjection.note=explicit unknown-depth post candidate; Reset every Evaluate; normal creation/transition warmup retained; counts are layer dispatches, not converted depth, completed GPU work or NR adoption\n",
+        prefix,nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
+        prefix,nr_rr_depth::observations.admitted.load(std::memory_order_relaxed),
+        prefix,nr_post_settings::missing_projection.load(std::memory_order_acquire)?1:0,
+        prefix,nr_rr_depth::observations.placeholder_admitted.load(std::memory_order_relaxed),
+        prefix,nr_rr_depth::observations.placeholder_recorded.load(std::memory_order_relaxed),prefix);
     FeedbackAppend(s,"%s.post.rr.depthAdapter.lastReject=%s\n%s.post.rr.depthAdapter.proxyDeviceMatches=%llu\n",
         prefix,RrDepthRejectName(g_rr_depth_last_reject.load(std::memory_order_relaxed)),
         prefix,g_rr_depth_proxy_matches.load(std::memory_order_relaxed));
@@ -15,6 +23,8 @@
         prefix,g_config.mode,prefix,EffectivePictureMode(g_config.mode),
         prefix,compatibility_attempt_recent?1:0,prefix,g_compat_fallback_reason.load(),
         prefix,g_compat_fallback_attempts.load(),prefix,g_compat_fallback_recorded.load(),prefix);
+    FeedbackAppend(s,"%s.compat.preInputFallback.cause=%u\n%s.compat.preInputFallback.causeLegend=0:none,1:input-storage,2:input-encoding,3:r8-exposure,4:pq-exposure,5:shader-load\n",
+        prefix,g_compat_fallback_cause.load(std::memory_order_relaxed),prefix);
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
     const auto route=SnapshotNrRoute();
     const auto u=[](std::uint64_t value){return static_cast<unsigned long long>(value);};
@@ -100,3 +110,7 @@
         prefix, nr_post_settings::rr_finish_gate_rejected.load(std::memory_order_acquire),
         prefix);
 }
+
+    FeedbackAppend(s,"%s.post.rr.depthAdapter.projectionSource=%s\n%s.post.rr.depthAdapter.slScopeMatches=%llu\n%s.post.rr.depthAdapter.slCommandMismatches=%llu\n%s.post.rr.depthAdapter.slProjectionSelected=%llu\n",
+        prefix,nr_rr_projection::last_origin.load()==1?"same-frame-streamline":"current-ngx-or-unavailable",
+        prefix,nr_rr_projection::scope_matches.load(),prefix,nr_rr_projection::scope_mismatches.load(),prefix,nr_rr_projection::used.load());

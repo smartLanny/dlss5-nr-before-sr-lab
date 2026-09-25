@@ -56,7 +56,7 @@ def main() -> None:
     # Snapshot all transitive local headers/inline modules, not only the direct
     # extractor inputs. Compilation never reads a concurrently edited src file.
     required += [p.relative_to(ROOT).as_posix() for p in (ROOT / 'src').rglob('*')
-                 if p.is_file() and p.suffix in ('.h', '.inl')]
+                 if p.is_file() and p.suffix in ('.h', '.hpp', '.inl')]
     captured = {name: (ROOT / name).read_bytes() for name in sorted(set(required))}
     snapshot = output / 'source'
     for name, data in captured.items():
@@ -156,7 +156,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
         records += '\n'.join(line for line in source.splitlines()
                              if line.startswith('std::atomic<') and prefix in line) + '\n'
     values['COMBINED_EVIDENCE'] = records
-    values['ACTIVITY'] = function(feedback, 'void FeedbackAppendCommandHistory(') + '\n' + values['ACTIVITY']
+    values['ACTIVITY'] += '\n' + function(feedback, 'void FeedbackAppendCommandHistory(')
     if args.omit_end_verdict_negative:
         before = '    FeedbackAppendCompatibilityVerdict(s, prefix, decision);'
         if values['ACTIVITY'].count(before) != 1: raise SystemExit('End-verdict control anchor changed')
@@ -169,6 +169,15 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     harness = core.HARNESS[:core.HARNESS.index('int main(int argc,char **argv) {')]
     for key, value in values.items():
         harness = harness.replace('\n' + key + '\n', '\n' + value + '\n')
+    # validate-core-feedback.py exposes only the small command-state seam as a
+    # named placeholder.  The combined F8 activity also reads the production
+    # creation counters, command history, and pipeline-stat atomics assembled
+    # above.  Inject that captured production declaration block at the same
+    # global-declaration boundary instead of manufacturing test-only stubs.
+    combined_anchor = '\nstd::atomic<unsigned long long> g_nr_successful_evaluations'
+    if harness.count(combined_anchor) != 1:
+        raise SystemExit('Combined evidence declaration anchor changed')
+    harness = harness.replace(combined_anchor, '\n' + records + combined_anchor)
     before = '"TEST GPU (no NGX)"'
     if harness.count(before) != 1: raise SystemExit('GPU description privacy fixture anchor changed')
     harness = harness.replace(before, r'"TEST GPU C:\\Users\\Private Tester\\Game\\gpu.dll | adapter=fixture"')
@@ -202,7 +211,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     if args.omit_end_verdict_negative: flags += ['-DNR_COMBINED_OMIT_END_VERDICT']
     command_line = [args.compiler, '-std=c++20', '-O1', '-Wall', '-Wextra', '-Werror',
                     '-Wno-unused-function', '-static', *flags,
-                    '-I', str(snapshot / 'src'), str(generated), '-o', str(exe)]
+                    '-I', str(snapshot / 'src'), str(generated), '-o', str(exe), '-ldxguid']
     build = subprocess.run(command_line, capture_output=True, text=True, creationflags=HIDDEN)
     (output / 'build.log').write_text(build.stdout + build.stderr, encoding='utf-8')
     if build.returncode:
@@ -236,6 +245,9 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
             'start.semantic.Exposure=', 'end.semantic.Exposure=',
             'end.semantic.ColorInput.candidate.5=', 'end.semantic.Output.candidate.5=',
             'commandHistory.11.blend=', 'end.post.boundary.native.5=',
+            'commandHistory.11.shadingRate.observation=observed-native-setter\n',
+            'commandHistory.11.shadingRate.combiners=4294967295,4294967295\n',
+            'commandHistory.11.shadingRate.deviceSupport=not-queried\n',
             'end.post.boundary.following.11=', 'ngxLifecycle.firstFault.15=',
             'ngxLifecycle.recent.15=', 'artifact.identityStatus=', 'color.contract=',
             'end.recovery.receipt=scopeAvailable:1,scopeMatchesDecision:0,config:9,',

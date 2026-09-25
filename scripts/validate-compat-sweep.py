@@ -34,6 +34,8 @@ AUTO
 RESTORE
 struct ChainConfig {bool enabled=true;float strength=1.2f;};
 ChainConfig g_config;std::atomic<unsigned> g_config_generation{7};
+std::atomic<unsigned> g_last_nr_render_width{1920},g_last_nr_render_height{1080};
+std::atomic<unsigned> g_last_nr_width{1440},g_last_nr_height{810};
 int g_chain_cs=0,locks=0,applied=0,reloads=0;
 namespace nr_f8 {std::atomic<bool> g_config_hold{false};}
 unsigned checks=0;
@@ -73,6 +75,7 @@ int main() {
  s=valid;s.known=false;check(!CanAutoRestorePristineNull(s),"failed reset remains unknown");
  const auto snapshot=SnapshotOverlayConfig();
  check(snapshot.generation==7 && snapshot.config.enabled && locks==0 && reloads==1,"atomic UI snapshot");
+ check(snapshot.base_width==1920 && snapshot.base_height==1080 && snapshot.work_width==1440 && snapshot.work_height==810,"snapshot reports actual unified base and work grid");
  ChainConfig pending=snapshot.config;pending.strength=2.f;
  g_config.enabled=false;++g_config_generation;
  check(ApplyOverlayConfig(pending,snapshot.generation)==OverlayApplyResult::Conflict,"stale UI cannot undo F6 or a newer config");
@@ -137,11 +140,11 @@ def main():
     version=re.search(r'kAddonVersion = "([^"]+)"',source).group(1)
     names=re.findall(r'const char \*NAME =\s*"([^"]+)"',source)
     assert len(names)==2 and all(version in n for n in names)
-    assert 'if (result != OverlayApplyResult::Busy) has_pending = false;' in ui
+    assert 'if (result != OverlayApplyResult::Busy) {\n            has_pending = false; pending_picture_reset = false; pending_light_undo = false;' in ui
     assert 'pending_generation != current.generation' in ui
     assert source.count('OnCommandStateObserveSubmission(command_list);')==1
     assert 'g_command_state_registration_repair_needed.load' in state
-    assert 'ExperimentalNullPsoCarrier=0' in (ROOT/'config/nr_before_sr.ini').read_text()
+    assert 'ExperimentalNullPsoCarrier=0' in (ROOT/'config/nr_before_sr.ini').read_text(encoding='utf-8')
     assert 'TryAcquireSRWLockShared(&g_command_state_lock)' in state
     print('PASS integration: version / pending edits / real submission / frozen full replay / nonblocking snapshot')
 if __name__=='__main__':main()

@@ -1,10 +1,8 @@
-name: Validate beta0.5-dev4
+name: Validate beta0.5 research candidate
 
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [next/0.5]
 
 permissions:
   contents: read
@@ -19,9 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Extracted production bug regressions
         run: |
+          set -euo pipefail
           python3 scripts/validate-050-stability.py --compiler g++
           python3 scripts/validate-050-stability.py --compiler g++ --negative-control
           python3 scripts/validate-045-color.py --compiler g++
@@ -48,7 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Structural invariants
         run: |
           python scripts/validate-beta04-structure.py
@@ -63,154 +66,9 @@ jobs:
 
   full-contract-build-and-package:
     needs: [host-bug-regressions, shader-structure-and-math]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Fetch public build inputs
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $llvmUrl = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip'
-          $reshadeCommit = '4a50d1eddace85734871d91792ff214f13f66c01'
-          Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip
-          if ((Get-FileHash -Algorithm SHA256 llvm-mingw.zip).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'llvm-mingw digest mismatch' }
-          Expand-Archive llvm-mingw.zip -DestinationPath toolchain
-          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
-          git clone --depth 1 --no-checkout https://github.com/crosire/reshade.git reshade-source
-          if ($LASTEXITCODE -ne 0) { throw 'ReShade clone failed' }
-          git -C reshade-source fetch --depth 1 origin $reshadeCommit
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned ReShade fetch failed' }
-          git -C reshade-source checkout --detach $reshadeCommit
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned ReShade checkout failed' }
-          git -C reshade-source submodule update --init --recursive --depth 1
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned submodule fetch failed' }
-          "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: CPU temporal and diagnostic harnesses
-        shell: pwsh
-        run: |
-          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
-          python scripts/validate-050-stability.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw '0.5 snapshot/reset regression failed.' }
-          python scripts/validate-044-compat.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw '0.4.5 forwarding/guard regression failed.' }
-          python scripts/validate-retirement-return.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Retirement return regression failed.' }
-          python scripts/validate-recommended-picture.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw '0.5 recommendation regression failed.' }
-          python scripts/validate-bug-sweep.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Bug sweep regression harness failed.' }
-          python scripts/validate-compat-sweep.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Compatibility policy/UI regression failed.' }
-          python scripts/validate-core-feedback.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Core feedback production harness failed.' }
-          $env:DLSS5_LLVM_MINGW_ROOT = $env:TOOLCHAIN_ROOT
-          python scripts/validate-null-pso-policy.py
-          if ($LASTEXITCODE -ne 0) { throw 'Null-PSO default policy harness failed.' }
-          python scripts/validate-diagnostic-identity.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic identity harness failed.' }
-          python scripts/validate-guide-history.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'Guide/context history harness failed.' }
-          python scripts/validate-f8-controller.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'F8 controller harness failed.' }
-      - name: Resource observer and capture contracts
-        shell: pwsh
-        run: |
-          ./scripts/validate-resource-contracts.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          ./scripts/validate-observer.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          ./scripts/validate-stage-capture.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-      - name: Competing add-on and low-address hook regressions
-        shell: pwsh
-        run: |
-          python scripts/validate-generic-renodx-conflict.py --toolchain-root $env:TOOLCHAIN_ROOT
-          if ($LASTEXITCODE -ne 0) { throw 'Generic RenoDX conflict harness failed.' }
-          ./scripts/validate-minhook-extended-relay.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-      - name: Native command-state CPU and stack envelope
-        shell: pwsh
-        run: |
-          ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          ./scripts/validate-present-api-status.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
-          python scripts/validate-ui-font-fallback.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'UI font fallback harness failed.' }
-      - name: Native command-state D3D12 WARP oracle
-        shell: pwsh
-        run: |
-          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
-          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -DynamicStateNegativeControl
-          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
-      - name: Execute the D3D12 codec harness
-        shell: pwsh
-        run: |
-          ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
-          ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
-          ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -LayerNegativeControl
-      - name: R2 native post-SR snapshot and integration regressions
-        shell: pwsh
-        run: |
-          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
-          python scripts/validate-043r2.py --compiler $compiler
-          if ($LASTEXITCODE -ne 0) { throw 'R2 integration regression failed' }
-          & $compiler -std=c++20 -O0 -Wall -Wextra -Werror -static -Isrc tests/post_sr_snapshot_gpu.cpp -o post-snapshot.exe -ld3d12 -ldxgi -ldxguid
-          if ($LASTEXITCODE -ne 0) { throw 'Post-SR WARP harness compilation failed' }
-          ./post-snapshot.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Post-SR WARP oracle failed' }
-          $negative = & ./post-snapshot.exe --negative-control 2>&1
-          if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'native/snapshot FP16 bytes') { throw 'Post-SR negative control did not reject the exact wrong pixel' }
-          $global:LASTEXITCODE = 0
-          Write-Host 'Expected wrong-byte control rejected'
-      - name: LLVM static analysis
-        shell: pwsh
-        run: ./scripts/validate-static-analysis.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
-      - name: Build English and Chinese add-ons
-        shell: pwsh
-        run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
-      - name: Assemble and verify clean test package
-        shell: pwsh
-        env:
-          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
-          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item build/*.addon64 dist/
-          Copy-Item build/nrchain_nvngx.dll dist/
-          Copy-Item build/nr_before_sr.ini dist/
-          Copy-Item docs/BETA_0_5_LAYERS.md dist/README-TESTING.md
-          Copy-Item docs/testing/CP2077_DEV3.zh-CN.md dist/2077-TESTING.zh-CN.md
-          Copy-Item docs/testing/CP2077_DEV3_RESULTS.txt dist/2077-RESULTS.txt
-          Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
-          Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
-          @(
-            "branch=$env:GITHUB_REF_NAME"
-            "commit=$env:GITHUB_SHA"
-            "sourceBranch=$env:SOURCE_BRANCH"
-            "sourceCommit=$env:SOURCE_COMMIT"
-            "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.5-dev4"
-            "channel=experimental-not-release"
-          ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
-          Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
-            Get-FileHash -Algorithm SHA256 | ForEach-Object {
-              "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))"
-            } | Set-Content -Encoding utf8NoBOM dist/SHA256SUMS.txt
-          $manifest = Get-Content -Encoding utf8 dist/SHA256SUMS.txt
-          foreach ($line in $manifest) {
-            if ($line -notmatch '^([0-9A-F]{64})  (.+)$') { throw "Malformed checksum line: $line" }
-            $expected = $Matches[1]
-            $name = $Matches[2]
-            $path = Join-Path dist $name
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Checksum manifest names a missing file: $name" }
-            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
-            if ($actual -ne $expected) { throw "Checksum mismatch for $name" }
-          }
-          Write-Host "Verified $($manifest.Count) UTF-8 checksum entries."
-          Get-Content -Encoding utf8 dist/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: beta050-dev3-experimental-candidate
-          path: dist/
-          if-no-files-found: error
+    # D21 uses the exact pinned/generated integration, not the old dev4 raw
+    # checkout build with two languages and an INI in the same test payload.
+    # This is also the next/0.5 PR route through pull-request-validation.yml.
+    uses: ./.github/workflows/multi-api-foundation.yml
+    permissions:
+      contents: read

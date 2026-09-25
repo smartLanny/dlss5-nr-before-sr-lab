@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -167,14 +168,13 @@ int main() {{
             source_path = temp_path / "route_recovery.cpp"
             exe_path = temp_path / ("route_recovery.exe" if os.name == "nt" else "route_recovery")
             source_path.write_text(harness, encoding="utf-8")
+            link_flags = [] if sys.platform == "darwin" else ["-static", "-static-libgcc", "-static-libstdc++"]
             built = subprocess.run(
                 [
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     str(source_path),
                     "-o",
                     str(exe_path),
@@ -233,7 +233,12 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*,
 constexpr NgxResult kProbeSuccess = 0x1234;
 constexpr NgxResult kNativeResult = 0x5678;
 constexpr NgxResult kNgxSuccess = 1;
+namespace nr_dual_runtime {{
+std::atomic<NgxResult> fatal_result{{0}};
+std::atomic<const NgxHandle*> fatal_carrier{{nullptr}};
+}}
 #include "nr_native_clear_request.h"
+#include "interop/nr_external_provider_feedback.h"
 // Keep the actual one-call native wrapper; observer storage is a dependency seam.
 struct NrNativeFormatScope {{
     NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
@@ -247,7 +252,8 @@ struct NrRecoveryCarrierScope {{
 
 enum class BypassReason {{
     FailedCreateQuarantine, LifecycleIsolation, MasterDisabled,
-    ModuleObserverInstalling, ModuleObserverUncertain, RayReconstructionGuard
+    ModuleObserverInstalling, ModuleObserverUncertain, RayReconstructionGuard,
+    ExternalNrOwner
 }};
 
 std::atomic<bool> g_enabled_fast{{true}};
@@ -310,6 +316,21 @@ int main() {{
     void* callback = nullptr;
     g_live_rr_handles.store(3);
 
+    // The real external-owner atomic participates in this same admission prefix.
+    // While held, both recognized native handles forward exactly once and do
+    // not reach NR tracking; releasing it restores the existing probe route.
+    nr_external_provider_feedback::owner_provider_id.store(123);
+    auto external = ProcessEvaluate(&Native, &command, &g_sr_first, &params, callback);
+    check(external == kNativeResult && g_native_calls == 1 &&
+              g_reason == BypassReason::ExternalNrOwner &&
+              g_last_carrier_feature.load() == -1, "external-owner-first-native");
+    external = ProcessEvaluate(&Native, &command, &g_sr_second, &params, callback);
+    check(external == kNativeResult && g_native_calls == 2 &&
+              g_reason == BypassReason::ExternalNrOwner &&
+              g_last_carrier_feature.load() == -1, "external-owner-second-native");
+    nr_external_provider_feedback::owner_provider_id.store(0);
+    g_native_calls = 0;
+
     // Two independently recognized Feature 1 handles both reach the same
     // probe boundary even while an inactive RR inventory entry remains.
     auto result = ProcessEvaluate(&Native, &command, &g_sr_first, &params, callback);
@@ -350,14 +371,13 @@ int main() {{
                 "route_prefix.exe" if os.name == "nt" else "route_prefix"
             )
             source_path.write_text(harness, encoding="utf-8")
+            link_flags = [] if sys.platform == "darwin" else ["-static", "-static-libgcc", "-static-libstdc++"]
             built = subprocess.run(
                 [
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
@@ -424,9 +444,7 @@ int main() {{
                     compiler,
                     "-std=c++17",
                     "-O0",
-                    "-static",
-                    "-static-libgcc",
-                    "-static-libstdc++",
+                    *link_flags,
                     "-I", str(CORE.parent),
                     str(source_path),
                     "-o",
@@ -520,12 +538,21 @@ bool g_inside_ngx_evaluate = false;
 std::atomic<int> g_nested_latches{{0}};
 std::atomic<int> g_process_calls{{0}};
 std::atomic<int> g_native_calls{{0}};
+std::atomic<bool> g_enabled_fast{{true}};
 
 struct FeatureRecord {{ int feature_id = -1; }};
 FeatureRecord FindFeature(const NgxHandle* handle) {{
     return {{handle != nullptr && handle->id == 13 ? 13 : 1}};
 }}
 void LatchNestedRrOwnershipChange(const char*) {{ ++g_nested_latches; }}
+namespace nr_source_runtime {{
+struct EvaluateScope {{
+    EvaluateScope(ID3D12GraphicsCommandList*, const NgxHandle*,
+                  const NgxParams*, const FeatureRecord&) {{}}
+    NgxResult FatalResult() const {{ return 0; }}
+    void Finish(NgxResult) {{}}
+}};
+}}
 NgxResult ProcessEvaluate(EvaluateFeatureFn, ID3D12GraphicsCommandList*,
                           const NgxHandle*, const NgxParams*, void*) {{
     ++g_process_calls;
@@ -654,7 +681,9 @@ int main() {{
             dispatch.index("LatchNestedRrOwnershipChange"),
             dispatch.index("return original(command_list, handle, params, callback);"),
         )
-        self.assertEqual(dispatch.count("ProcessEvaluate("), 1)
+        # Disabled and enabled routes each contain one call, and the branches
+        # are mutually exclusive for a single outer Evaluate.
+        self.assertEqual(dispatch.count("ProcessEvaluate("), 2)
         self.assertIn("g_inside_ngx_evaluate = true", dispatch_c)
 
         gate = _function_block(self.core, "class ScopedRrOwnershipGate")
@@ -688,7 +717,7 @@ int main() {{
         checkpoint = after_native.index(
             "if (rr_transaction.transaction_aborted() ||", restore_post
         )
-        retry = after_native.index("if (used_before_sr && result != kNgxSuccess", checkpoint)
+        retry = after_native.index("if(used_before_sr&&result!=kNgxSuccess)", checkpoint)
         finish = after_native.index("FinishAfterSr(", checkpoint)
 
         self.assertLess(native_pos, native_pos + restore_color)

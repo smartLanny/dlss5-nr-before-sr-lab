@@ -71,8 +71,8 @@ int wmain(int argc, wchar_t **argv) {
     WriteIniInt(L"Enabled", 1);
     Check(!IsNewWorkConfigFile(), "missing keys do not imply fresh install");
     request = ReadWorkRequest(false);
-    Check(request.work.mode == 1 && request.work.scale == .75f,
-          "legacy file without keys retains Quality");
+    Check(request.work.mode == 0 && request.work.scale == 1.f,
+          "missing keys use the successor 100-percent default");
     for (int mode = 0; mode <= 5; ++mode) {
         for (float scale : {.5f, .67f, .75f, 1.f}) {
             WriteIniInt(L"WorkMode", mode);
@@ -88,9 +88,9 @@ int wmain(int argc, wchar_t **argv) {
     WriteIniFloat(L"CustomWorkScale", .25f);
     g_work_config_loaded = false;
     request = ReadWorkRequest(false);
-    Check(request.status == Status::Rejected && request.work.mode == 1 &&
-              request.work.scale == .75f,
-          "invalid initial custom uses declared legacy fallback");
+    Check(request.status == Status::Rejected && request.work.mode == 0 &&
+              request.work.scale == 1.f,
+          "invalid initial custom uses declared 100-percent fallback");
 
     Previous(5, .67f);
     for (const wchar_t *invalid : {L"0.49", L"-1", L"1.01", L"nan", L"inf",

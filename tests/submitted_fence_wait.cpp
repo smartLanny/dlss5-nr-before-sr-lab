@@ -163,6 +163,28 @@ void TimeoutLateAndOtherTarget() {
           "retired notification permits safe reuse of the same bounded handle");
     Release(fence, event);
 }
+void EarlierEventThenExactTarget() {
+    Fence fence;NrSubmittedFenceEvent event;NrSubmittedFenceWaitResult armed;
+    Check(ArmNrSubmittedFenceEvent(&fence.api,4,event,armed),"prepare one real earlier registration");
+    ResetEvent(fence.registration_observed);
+    struct Job {
+        Fence* fence;DWORD result=99;
+        static DWORD WINAPI Run(void* opaque) {
+            auto& job=*static_cast<Job*>(opaque);Sleep(1);job.fence->Complete(4);
+            if(WaitForSingleObject(job.fence->registration_observed,2000)!=WAIT_OBJECT_0)return job.result=2;
+            Sleep(1);job.fence->Complete(8);return job.result=0;
+        }
+    } job{&fence};
+    const auto thread=CreateThread(nullptr,0,Job::Run,&job,0,nullptr);
+    Check(thread!=nullptr,"real earlier/exact notification worker created");
+    const auto result=WaitForNrSubmittedFence(&fence.api,8,event,nr_timing::WaitMode::Event,1000);
+    Check(WaitForSingleObject(thread,3000)==WAIT_OBJECT_0&&job.result==0,"real exact-target re-registration observed");
+    CloseHandle(thread);
+    Check(result.completed&&result.after==8&&result.earlier_event_waits==1&&
+        result.method==NrFenceWaitMethod::Event&&result.fallback==NrFenceWaitFallback::None&&
+        fence.registrations.load()==2,"EARLIER_EVENT_ORACLE: earlier event is followed by exact target without polling fallback");
+    Release(fence,event);
+}
 void Removed() {
     Fence fence; NrSubmittedFenceEvent event;
     Completion job{&fence, &event, UINT64_MAX}; job.Start();
@@ -283,7 +305,7 @@ void Timing() {
 int main() {
     Immediate(); Delayed(false, false, nr_timing::WaitMode::Event); Delayed(false, true, nr_timing::WaitMode::Event);
     Delayed(true, false, nr_timing::WaitMode::Event); Delayed(false, false, nr_timing::WaitMode::Polling);
-    RegistrationRace(); TimeoutLateAndOtherTarget(); Removed(); Timing();
+    RegistrationRace(); TimeoutLateAndOtherTarget(); EarlierEventThenExactTarget(); Removed(); Timing();
     NrTimingSetProbePolicy(2,20);
     {
         NrTimingCarrierScope frame;frame.Begin(2200,2,5,1,3);

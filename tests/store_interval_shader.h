@@ -9,7 +9,7 @@ inline std::string Shader(unsigned mode) {
     uint2 coord=tid.xy;if(coord.x>=Width || coord.y>=Height)return;
     float3 expected=OriginalColor.Load(int3(coord+uint2(SourceBaseX,SourceBaseY),0)).rgb;
     float3 actual=expected;
-    uint maximum=((Passthrough>>19u)&7u)==2u?255u:1023u;
+    uint maximum=((Passthrough>>20u)&7u)==2u?255u:1023u;
 #if NR_INTERVAL_FIXTURE_MODE >= 1 && NR_INTERVAL_FIXTURE_MODE <= 3
     uint2 r=StoreUnormBounds(expected.r,maximum),g=StoreUnormBounds(expected.g,maximum),b=StoreUnormBounds(expected.b,maximum);
 #if NR_INTERVAL_FIXTURE_MODE == 1

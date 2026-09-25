@@ -117,8 +117,9 @@ def main():
     record['device_adapter_sha256'] = sha(helper)
     wrapper = out/'descriptor-alias.cpp'
     wrapper.write_text('#include "core/src/nr_before_sr.cpp"\n#include "fixture.inl"\n'
-                       'int main(){SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);'
-                       'std::setvbuf(stdout,nullptr,_IONBF,0);descriptor_alias_test::Run();return 0;}\n', encoding='utf-8')
+                       'int main(int argc,char**){SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);'
+                       'std::setvbuf(stdout,nullptr,_IONBF,0);if(argc>1)descriptor_alias_test::RunLowOverhead();'
+                       'else descriptor_alias_test::Run();return 0;}\n', encoding='utf-8')
     record['runner_sha256'] = sha(Path(__file__))
     record['commands'] = []
 
@@ -150,6 +151,10 @@ def main():
         run([c_compiler, *common, '-std=c17', '-c', minhook_snapshot/'src'/name, '-o', target],
             'compile-'+target.stem)
         objects.append(target)
+    # D13+ full Core references its out-of-line spatial implementation even
+    # when this fixture does not enable NR2. Compile the same frozen source.
+    dual_source = snapshot / 'nr_dual_spatial_d3d12.cpp'
+    if dual_source.is_file(): objects.append(str(dual_source))
     binary = out/'descriptor-alias.exe'
     run([compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper, *objects, '-o', binary,
          '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid',
@@ -157,6 +162,7 @@ def main():
     record['binary_sha256'] = sha(binary)
     record['full_production_translation_unit'] = True
     run([binary], 'cpu', 30)
+    run([binary, 'low-overhead'], 'cpu-low-overhead', 30)
     if args.negative_controls:
         record['negative_controls'] = []
         mutations = (

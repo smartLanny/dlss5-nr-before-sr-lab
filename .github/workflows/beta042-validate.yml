@@ -3,11 +3,6 @@ name: Validate main and 0.4 maintenance
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches:
-      - main
-      - release/0.4
-      - codex/beta0.4.2
 
 permissions:
   contents: read

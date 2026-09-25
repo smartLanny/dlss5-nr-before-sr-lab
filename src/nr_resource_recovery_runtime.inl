@@ -207,8 +207,11 @@ void NrRecoveryRecord(const nr_recovery::Token& token, nr_recovery::Stage stage,
 #endif
 }
 void NrRecoveryDescriptorProgrammed(const NrSlot& slot, ID3D12DescriptorHeap* heap) {
-    if (heap != slot.heap) return;
-    slot.descriptor_receipt = {heap, slot.source, slot.result, slot.source_srv_format, slot.result_uav_format};
+    if (!heap) return;
+    const NrSlot::DescriptorReceipt receipt{heap, slot.source, slot.result, slot.source_srv_format, slot.result_uav_format};
+    if (heap == slot.heap) slot.descriptor_receipt = receipt;
+    else if (heap == slot.face_codec_heap) slot.face_descriptor_receipt = receipt;
+    else if (heap == slot.capture_cpu_heap) slot.capture_descriptor_receipt = receipt;
 }
 void NrRecoveryNativeResult(NgxResult result) {
     if (auto* frame = g_nr_recovery_carrier)

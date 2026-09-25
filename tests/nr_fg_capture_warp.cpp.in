@@ -1,0 +1,115 @@
+// @ACTUAL_REPLAY_FIXTURE@
+#include <algorithm>
+#include <array>
+#include "nr_source_frame.hpp"
+#include "nr_guide_contract.h"
+CRITICAL_SECTION g_chain_cs;
+std::atomic<bool> g_lifecycle_tracking_uncertain{false};
+std::atomic<unsigned> g_config_generation{9};
+struct Config{unsigned warmup_after_create=0,nr_full_passes=5,nr_passes=1;bool nr_full_reference=true;float proxy_scale=1;} g_config;
+constexpr bool kSourceDirty=true;constexpr const char* kSourceCommit="capture-fixture",*kBuildIdentity="capture-WARP-fixture";
+struct Params{ID3D12Resource* depth=nullptr;ID3D12Resource* motion=nullptr;unsigned scalar=0;bool legacy_keys_only=false;};
+bool GetResource(const Params* p,const char* name,ID3D12Resource** out){
+    const auto* depth_key=p->legacy_keys_only?"Depth":"DLSSNR.Depth";
+    const auto* motion_key=p->legacy_keys_only?"MotionVectors":"DLSSNR.MVec";
+    *out=std::strcmp(name,depth_key)==0?p->depth:std::strcmp(name,motion_key)==0?p->motion:nullptr;return *out!=nullptr;
+}
+struct NrContext{Params* params=nullptr;void* nr_handle=nullptr;bool retired=false,failed=false,lifecycle_dependencies_quarantined=false,create_dependencies_quarantined=false;
+    unsigned successful_evaluations_since_reset=3,width=8,height=8,mode=1,codec_color_mode=0,evaluations=4;
+    unsigned long long pending_recording_token=1,instance_id=0;};
+struct NrSlot{ID3D12Resource* proxy=nullptr;ID3D12Resource* neural=nullptr;ID3D12Resource* rr_depth=nullptr;ID3D12Resource* motion_proxy=nullptr;
+    D3D12_RESOURCE_STATES proxy_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,neural_state=proxy_state,result_state=proxy_state,rr_depth_state=proxy_state,motion_proxy_state=proxy_state;
+    bool dual_time_stable=true;NrSlot* dual_selected=nullptr;};
+struct NrGuideBinding{ID3D12Resource* depth=nullptr;ID3D12Resource* motion=nullptr;NrGuideSignature signature{};};
+struct LifecycleQueue{ID3D12Fence* fence=nullptr;};
+unsigned long long native_token=1;
+bool ReadLifecycleToken(ID3D12GraphicsCommandList* list,unsigned long long& token){token=native_token;return list!=nullptr;}
+bool IsSameRrDepthDevice(ID3D12Device* a,ID3D12Device* b){return a&&a==b;}
+void Transition(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES& state,D3D12_RESOURCE_STATES next){
+    if(state==next)return;D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,state,next};ID3D12GraphicsCommandList_ResourceBarrier(list,1,&barrier);state=next;
+}
+namespace nr_source_runtime{struct NativeInputs{nr_source_frame::Source source{};ID3D12Resource* color=nullptr;ID3D12Resource* hudless=nullptr;unsigned encoding=2;};}
+namespace nr_compat_present_runtime{struct Context{ID3D12Device* device=nullptr;struct Extent{unsigned width=8,height=8;}source;
+    struct Image{ID3D12Resource* source=nullptr;ID3D12Resource* result=nullptr;D3D12_RESOURCE_STATES source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,result_state=source_state;}image;};}
+namespace nr_dual_runtime{struct LayerPrepared{NrContext* context=nullptr;NrSlot* slot=nullptr;NrGuideBinding guides{};bool evaluated=true,adoptable=true,full=true;};
+    struct Prepared:LayerPrepared{std::array<LayerPrepared,4> layers{};unsigned requested=5,prepared=4;};}
+namespace nr_replay{
+// @ACTUAL_TEXTURE_HELPER@
+void SnapshotScalars(Header& h,const Params* p){h.parameter_count=1;std::snprintf(h.parameters[0].name,64,"fixture_bound_parameter");
+    h.parameters[0].type=static_cast<unsigned>(ScalarType::UInt32);h.parameters[0].present=1;h.parameters[0].value=p->scalar;}
+}
+#define NR_FG_CAPTURE_TEST_HANDOFF 1
+#include "nr_fg_capture.inl"
+struct Seen{nr_replay::ExportJob* job;nr_fg_capture::Identity identity;};
+std::vector<Seen> exports;
+namespace nr_fg_capture{void Handoff(nr_replay::ExportJob* frame,const Identity& identity){exports.push_back({frame,identity});
+    if(frame->header.completion!=static_cast<unsigned>(nr_replay::Completion::Complete))status.store(3);
+    if(remaining.fetch_sub(1)==1&&status.load()!=3)status.store(2);}}
+ID3D12Resource* HalfTexture(Gpu& gpu,unsigned edge,unsigned short value){std::vector<unsigned char> bytes(edge*edge*8);
+    for(unsigned i=0;i<edge*edge*4;++i)std::memcpy(bytes.data()+i*2,&value,2);
+    return gpu.Texture(DXGI_FORMAT_R16G16B16A16_FLOAT,edge,edge,8,bytes);}
+ID3D12Resource* FloatTexture(Gpu& gpu,unsigned channels){std::vector<float> values(8*8*channels,0.75f);std::vector<unsigned char> bytes(values.size()*4);
+    std::memcpy(bytes.data(),values.data(),bytes.size());return gpu.Texture(channels==1?DXGI_FORMAT_R32_FLOAT:DXGI_FORMAT_R32G32_FLOAT,8,8,channels*4,bytes);}
+void VerifyPlane(const Seen& seen,nr_replay::Role role,unsigned short expected){const auto& p=seen.job->header.planes[static_cast<unsigned>(role)];
+    Check(p.encoding==static_cast<unsigned>(nr_replay::Encoding::Float16),"half model pixels retain file encoding");
+    unsigned char* mapped=nullptr;D3D12_RANGE range{0,static_cast<SIZE_T>(seen.job->bytes)};
+    CheckHr(ID3D12Resource_Map(seen.job->readback,0,&range,reinterpret_cast<void**>(&mapped)),"captured plane map");
+    for(unsigned i=0;i<p.width*p.height*p.channels;++i){unsigned short value=0;std::memcpy(&value,mapped+p.offset+i*2,2);if(value!=expected)Check(false,"actual capture pixels match requested layer");}
+    Check(true,"all captured plane pixels match");D3D12_RANGE none{};ID3D12Resource_Unmap(seen.job->readback,0,&none);
+}
+int main(){InitializeCriticalSection(&g_chain_cs);Gpu gpu;using namespace nr_fg_capture;
+    nr_compat_present_runtime::Context image;image.device=gpu.device;image.image.source=HalfTexture(gpu,8,0x3800);image.image.result=HalfTexture(gpu,8,0x3c00);
+    auto* depth=FloatTexture(gpu,1);auto* motion=FloatTexture(gpu,2);NrGuideBinding guides;guides.depth=depth;guides.motion=motion;
+    NrContext contexts[5];NrSlot slots[5];Params parameters[5];
+    for(unsigned i=0;i<5;++i){contexts[i].params=&parameters[i];contexts[i].nr_handle=&contexts[i];contexts[i].instance_id=101+i;
+        parameters[i]={depth,motion,500+i};slots[i].proxy=HalfTexture(gpu,8,static_cast<unsigned short>(0x3000+i*0x100));
+        slots[i].neural=HalfTexture(gpu,8,static_cast<unsigned short>(0x3400+i*0x100));}
+    nr_source_runtime::NativeInputs input;input.source={70,8,100};input.color=image.image.source;input.hudless=image.image.source;
+    nr_dual_runtime::Prepared prepared;prepared.context=&contexts[1];prepared.slot=&slots[1];prepared.guides=guides;
+    for(unsigned i=0;i<4;++i){prepared.layers[i].context=&contexts[i+1];prepared.layers[i].slot=&slots[i+1];prepared.layers[i].guides=guides;}
+    unsigned constants[]={10,20,30,40};
+    Check(RequestCapture(),"capture request queued");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
+    Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,false);
+    Check(status.load()==1&&Empty(),"ordinary warming keeps request pending without GPU tail capture");
+    Start(gpu.list,input.source,contexts[0]);contexts[0].lifecycle_dependencies_quarantined=true;
+    Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,false);
+    Check(status.load()==3&&Empty(),"opaque failure abandons capture with no GPU tail work");contexts[0].lifecycle_dependencies_quarantined=false;
+    for(unsigned count=1;count<=5;++count){g_config.nr_passes=count>1?2u:1u;g_config.nr_full_reference=count>2;g_config.nr_full_passes=count;prepared.full=count>2;prepared.requested=count;prepared.prepared=count-1;
+        slots[0].dual_selected=count>1?&slots[count-1]:nullptr;input.source.sequence=100+count;native_token=1000+count;
+        for(auto& context:contexts)context.pending_recording_token=native_token;
+        Check(RequestCapture(),"next independent capture request");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
+        Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,true);Check(!Empty()&&status.load()==1,"all requested actual layers recorded");
+        Collect();Check(exports.empty(),"recording without native submission cannot export");
+        CheckHr(ID3D12GraphicsCommandList_Close(gpu.list),"capture close");auto* list=reinterpret_cast<ID3D12CommandList*>(gpu.list);
+        ID3D12CommandQueue_ExecuteCommandLists(gpu.queue,1,&list);const auto value=gpu.next++;
+        CheckHr(ID3D12CommandQueue_Signal(gpu.queue,gpu.fence,value),"capture queue signal");LifecycleQueue queue{gpu.fence};Submit(native_token,&queue,value);
+        CheckHr(ID3D12Fence_SetEventOnCompletion(gpu.fence,value,gpu.event),"capture completion event");Check(WaitForSingleObject(gpu.event,10000)==WAIT_OBJECT_0,"capture actual fence completion");
+        Collect();Check(exports.empty(),"completed GPU fence does not pretend native recording retired");
+        CheckHr(ID3D12CommandAllocator_Reset(gpu.allocator),"native allocator reset");CheckHr(ID3D12GraphicsCommandList_Reset(gpu.list,gpu.allocator,nullptr),"native list reset");Invalidate(native_token,false);
+        Collect();Check(exports.size()==count&&status.load()==2,"all actual layers export after submission fence and real reset");
+        for(unsigned i=0;i<count;++i){const auto& seen=exports[i];Check(seen.identity.layer==i+1&&seen.identity.count==count&&seen.identity.source_sequence==input.source.sequence,"layer and source identity retained");
+            Check(seen.identity.hudless&&seen.job->header.instance==contexts[i].instance_id&&seen.job->header.work_width==contexts[i].width,"actual HUDless layer instance and extent retained");
+            Check(seen.job->header.parameters[0].value==500+i&&seen.job->header.codec_constant_count==4&&seen.job->header.codec_constants[3]==40,"each bound layer parameter and final actual constants retained");
+            VerifyPlane(seen,nr_replay::Role::Source,0x3800);VerifyPlane(seen,nr_replay::Role::Proxy,static_cast<unsigned short>(0x3000+i*0x100));
+            VerifyPlane(seen,nr_replay::Role::Neural,static_cast<unsigned short>(0x3400+i*0x100));VerifyPlane(seen,nr_replay::Role::Composite,0x3c00);
+            ReleaseCom(seen.job->readback);nr_replay::resident_bytes.fetch_sub(seen.job->bytes);delete seen.job;
+        }exports.clear();Check(nr_replay::resident_bytes.load()==0&&Empty(),"completed captures release bounded buffers");
+    }
+    g_config.nr_full_reference=false;g_config.nr_passes=1;prepared.full=false;native_token=3000;contexts[0].pending_recording_token=native_token;
+    ID3D12Resource* probe=nullptr;Check(!GetResource(&parameters[0],"Depth",&probe),"private Feature18 fixture rejects the old SR-only guide key");
+    parameters[0].legacy_keys_only=true;
+    Check(RequestCapture(),"incorrect legacy-key negative request");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
+    Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,true);
+    Check(status.load()==3&&Empty()&&nr_replay::resident_bytes.load()==0,"legacy guide keys cannot masquerade as bound Feature18 inputs");parameters[0].legacy_keys_only=false;
+    Check(RequestCapture(),"unsubmitted negative request");Start(gpu.list,input.source,contexts[0]);Composition(constants,4,11,1);
+    Finish(gpu.list,input,image,contexts[0],slots[0],guides,prepared,true);
+    CheckHr(ID3D12GraphicsCommandList_Close(gpu.list),"unsubmitted recording close");
+    CheckHr(ID3D12CommandAllocator_Reset(gpu.allocator),"unsubmitted allocator reset");CheckHr(ID3D12GraphicsCommandList_Reset(gpu.list,gpu.allocator,nullptr),"unsubmitted list reset");
+    Invalidate(native_token,true);Collect();
+    Check(exports.size()==1&&status.load()==3&&!exports[0].job->readback&&exports[0].job->header.completion==static_cast<unsigned>(nr_replay::Completion::Invalidated),"unsubmitted reset produces invalidation, never fictitious completed pixels");
+    delete exports[0].job;exports.clear();Check(Empty()&&nr_replay::resident_bytes.load()==0,"unsubmitted captures release resources without GPU waits");
+    for(auto& layer:layers)Check(layer.recorder.ResetDevice(),"empty capture recorder retires device");
+    for(auto& slot:slots){ReleaseCom(slot.proxy);ReleaseCom(slot.neural);}ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(image.image.source);ReleaseCom(image.image.result);
+    DeleteCriticalSection(&g_chain_cs);std::printf("pre-FG capture WARP: %u checks passed; 1-5 actual layers, no NGX inference\n",checks);return 0;
+}
