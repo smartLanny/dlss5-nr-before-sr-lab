@@ -94,7 +94,12 @@ class ReconstructionTests(unittest.TestCase):
     def test_real_ui_does_not_overwrite_other_settings(self):
         s=(ROOT/'src/nr_reconstruction_ui.inl').read_text()
         import re
-        self.assertEqual(set(re.findall(r'next\.(\w+)\s*=(?!=)',s)),{'reconstruction_mode','near_black_chroma_guard'})
+        edits=set(re.findall(r'next\.(\w+)\s*=(?!=)',s)) | set(re.findall(r'&next\.(\w+)',s))
+        self.assertEqual(edits,{'reconstruction_mode','near_black_chroma_guard'})
+        self.assertIn('去除暗噪',s)
+        self.assertIn('ReconstructionUiModeName(choice)',s)
+        self.assertIn('if(choice==2)ImGui::SameLine();',s)
+        for label in ('A##reconstruction', 'B##reconstruction', 'A+B', 'NrCombo('):self.assertNotIn(label,s)
         self.assertIn('sample.config_generation==generation',s)
         for bad in ('ApplyConfig(', 'WritePrivateProfile','CreateFeature(','EvaluateFeature('):self.assertNotIn(bad,s)
         self.assertIn('F8',s)

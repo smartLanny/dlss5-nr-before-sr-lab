@@ -231,8 +231,13 @@ class Packaging(unittest.TestCase):
         self.assertFalse((self.root/'output').exists())
 
     def test_reconstruction_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1')
+
+    def test_reconstruction_ui_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1-ui1')
+
+    def check_reconstruction_suffix(self, version):
         extra_path, extra = self.inbox_fixture()
-        version = 'beta0.5-dline21-unified10-reconstruction1'
         self.manifest['colour_edge']['version'] = version
         self.manifest['reconstruction'] = {'version':version,'source_commit':self.commit}
         for field in ('temporal_entries', 'auxiliary', 'native_output', 'source_sha256'):

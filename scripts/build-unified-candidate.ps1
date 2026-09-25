@@ -40,6 +40,8 @@ $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
 & python (Join-Path $PSScriptRoot 'validate-reconstruction-math.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'math')
 if ($LASTEXITCODE) { throw 'Reconstruction production math/policy failed.' }
+& python (Join-Path $PSScriptRoot 'validate-reconstruction-ui.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'ui')
+if ($LASTEXITCODE) { throw 'Reconstruction bilingual UI controls failed.' }
 & python (Join-Path $PSScriptRoot '../tests/test_reconstruction_runtime.py') -v
 if ($LASTEXITCODE) { throw 'Reconstruction source orchestration failed.' }
 & (Join-Path $PSScriptRoot 'build-perf12-candidate.ps1') @CandidateParameters -QualitySuccessor
@@ -71,8 +73,9 @@ if ($LASTEXITCODE) { throw 'Exact reconstruction codec WARP or inverse control f
 [ordered]@{passed=$true;source_sha256=(Get-FileHash -LiteralPath $Source).Hash.ToLowerInvariant();
     source_commit=(Get-Content (Join-Path $OutputRoot 'source/source-manifest.json') -Raw|ConvertFrom-Json).source_commit;
     math_receipt=(Join-Path $ReconstructionPre 'math/validation.json');
+    ui_receipt=(Join-Path $ReconstructionPre 'ui/validation.json');
     warp_receipt=(Join-Path $ReconstructionTests 'warp/validation.json');
-    runtime_controls=$true;defaults_unchanged=$true;game=$false;nvidia_inference=$false
+    runtime_controls=$true;defaults_unchanged=$true;user_facing_controls=$true;game=$false;nvidia_inference=$false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ReconstructionTests 'validation.json') -Encoding utf8
 
 

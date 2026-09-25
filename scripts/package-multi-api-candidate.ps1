@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$FaceRuntimeRoot,
@@ -29,7 +29,7 @@ $Version = [string]$Product.version
 # An explicitly named inbox candidate retains every unified10 dependency/gate.
 # Do not rewrite its public/binary/source identity or accept arbitrary suffixes.
 $IsInboxCandidate = $Version -eq 'beta0.5-dline21-unified10-inbox1'
-$IsReconstructionCandidate = $Version -eq 'beta0.5-dline21-unified10-reconstruction1'
+$IsReconstructionCandidate = $Version -in @('beta0.5-dline21-unified10-reconstruction1','beta0.5-dline21-unified10-reconstruction1-ui1')
 $ValidationVersion = if ($IsInboxCandidate -or $IsReconstructionCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
 if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
     $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -59,6 +59,14 @@ if ($IsReconstructionCandidate) {
         @($Warp.runs|Where-Object {$_.name -eq 'negative-disabled-protection' -and $_.exit -eq 1 -and $_.expected -eq 1}).Count -ne 1) {
         throw 'Reconstruction math/WARP positive and inverse evidence is incomplete.'
     }
+    if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') {
+        $Ui=Get-Content -LiteralPath $R.ui_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($Ui.status -ne 'passed' -or $Ui.ui_sha256 -ne
+            (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_ui.inl')).Hash.ToLowerInvariant() -or
+            @($Ui.runs|Where-Object {$_.name -eq 'actual-controls' -and $_.exit -eq 0}).Count -ne 1) {
+            throw 'Reconstruction UI control evidence is incomplete.'
+        }
+    }
     foreach($Entry in @('EncodeV2CS','CombineCS','CombineV2CS')) {
         $Shader=$Warp.exact_bytecode.$Entry
         if ($Shader.sha256 -notmatch '^[0-9a-f]{64}$' -or
@@ -72,6 +80,7 @@ $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ($IsInboxCandidate) { $DisplayVersion = '0.5.1-Beta-Inbox1' }
 if ($IsReconstructionCandidate) { $DisplayVersion = '0.5.1-Beta-Reconstruction1' }
+if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') { $DisplayVersion = '0.5.1-Beta-Reconstruction1-UI1' }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
 }
