@@ -15,6 +15,11 @@ patch=load('recon_final',ROOT/'scripts/patch-reconstruction.py')
 inputs={p:(ROOT/p).read_bytes() for p in patch.INPUTS}
 GENERATED=None
 
+def text_eol(data):
+    # Git's Windows checkout may use CRLF; generated text uses canonical LF.
+    # Normalize line endings only, never whitespace, tokens or source-pin hashes.
+    return data.replace(b'\r\n', b'\n')
+
 def body(s,k):return s[slice(*m3.definition(s,k))]
 def before():
     raw=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
@@ -107,8 +112,8 @@ class ReconstructionTests(unittest.TestCase):
         if GENERATED is None:
             self.skipTest('complete source generation not supplied; source transformations still tested')
         s=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
-        self.assertIn(inputs['src/nr_reconstruction_math.hlsli'].decode(),s)
-        self.assertIn(inputs['src/nr_reconstruction_sampling.hlsli'].decode(),s)
+        self.assertIn(text_eol(inputs['src/nr_reconstruction_math.hlsli']).decode(),s)
+        self.assertIn(text_eol(inputs['src/nr_reconstruction_sampling.hlsli']).decode(),s)
         self.assertIn('frame_config.reconstruction_mode',body(s,'void DispatchCodec('))
         self.assertIn('constants.region_flags |= reconstruction.flags;',s)
         pages=(GENERATED/'src/nr_unified_pages.inl').read_text()
@@ -118,7 +123,11 @@ class ReconstructionTests(unittest.TestCase):
         a=(GENERATED/'src/nr_feedback_capture.inl').read_text()
         self.assertIn('reconstruction.recorded',a)
         self.assertIn('not GPU/pixel proof',f)
-        for p in patch.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),inputs[p])
+        for p in patch.INPUTS[1:]:self.assertEqual(text_eol((GENERATED/p).read_bytes()),text_eol(inputs[p]))
+    def test_line_endings_do_not_hide_changed_source(self):
+        self.assertEqual(text_eol(b'float a;\r\n'),text_eol(b'float a;\n'))
+        self.assertNotEqual(text_eol(b'float a;\r\n'),text_eol(b'float b;\n'))
+        self.assertNotEqual(text_eol(b'float a; \r\n'),text_eol(b'float a;\n'))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--generated',type=Path);p.add_argument('--repo',type=Path)
