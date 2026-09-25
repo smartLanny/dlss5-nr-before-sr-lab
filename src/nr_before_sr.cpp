@@ -418,6 +418,7 @@ enum class BypassReason : int {
     QueueRetirementTimeout,
     ExternalNrOwner,
     ContextReleasePending,
+    GuideContractInvalid,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -531,6 +532,7 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::CodecUnavailable: return "codec-unavailable";
     case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
     case BypassReason::ContextReleasePending: return "context-release-pending";
+    case BypassReason::GuideContractInvalid: return "guide-contract-invalid";
     default: return "unknown";
     }
 }
@@ -9774,6 +9776,17 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
                             ID3D12Resource *color, unsigned int color_x,
                             unsigned int color_y, CodecColorMode color_mode,
                             NrGuideBinding &binding) {
+    // Reject incomplete grids before selecting a context or recording commands.
+    // A zero NR axis must not become a zero motion scale accepted by NGX.
+    if (!width || !height || !guide_width || !guide_height) {
+        SetBypassReason(BypassReason::GuideContractInvalid);
+        static unsigned int rejected_empty_grids = 0;
+        if (++rejected_empty_grids <= 3 || (rejected_empty_grids % 600) == 0)
+            Log("NR guide grid rejected: render=%ux%u work=%ux%u; "
+                "native output retained. Press F8 and submit BUG feedback.",
+                guide_width, guide_height, width, height);
+        return false;
+    }
     if (!GetResource(sr_params, "MotionVectors", &binding.motion) ||
         binding.motion == nullptr ||
         !GetResource(sr_params, "Depth", &binding.depth) ||
@@ -9875,16 +9888,45 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     if (!binding.valid_motion_scale_x) s.motion_scale_x = 1.0f;
     if (!binding.valid_motion_scale_y) s.motion_scale_y = 1.0f;
 
-    // The game's MV.Scale converts stored vectors into the game's DLSS source
-    // texel space. Mode 2 may use a smaller Feature 18 source, so convert those
-    // displacements into NR working-raster texels after spatially resampling
-    // the vector field. Reference mode remains exactly 1:1.
+    // NGX MV.Scale converts stored vectors to render-input pixels. NVIDIA's
+    // Streamline sl.dlss sets MV.Scale from mvecScale * renderWidth/Height,
+    // independently of the MV texture's storage resolution. A high-resolution
+    // motion atlas is therefore NOT permission to substitute Output width.
+    // Spatial resampling preserves values; this is the single value-unit
+    // conversion to NR working pixels. The post generator applies it to mode 1
+    // too; the historical base mode 1 remains unchanged. See the guide audit.
     const float source_to_work_x = mode == 2 && guide_width != 0
         ? static_cast<float>(width) / guide_width : 1.0f;
     const float source_to_work_y = mode == 2 && guide_height != 0
         ? static_cast<float>(height) / guide_height : 1.0f;
     s.motion_scale_x *= source_to_work_x;
     s.motion_scale_y *= source_to_work_y;
+    // Checking only the raw inputs above is insufficient: finite game scales
+    // can overflow when post-NR N exceeds render R. Never submit an Inf/zero
+    // displacement scale to the opaque runtime or commit it as guide history.
+    if (!std::isfinite(s.motion_scale_x) || !std::isfinite(s.motion_scale_y) ||
+        s.motion_scale_x == 0.0f || s.motion_scale_y == 0.0f) {
+        SetBypassReason(BypassReason::GuideContractInvalid);
+        static unsigned int rejected_scaled_motion = 0;
+        if (++rejected_scaled_motion <= 3 || (rejected_scaled_motion % 600) == 0)
+            Log("NR converted MV scale rejected: render=%ux%u work=%ux%u "
+                "raw=%.9g,%.9g converted=%.9g,%.9g; native output retained. "
+                "Press F8 and submit BUG feedback.", guide_width, guide_height,
+                width, height, static_cast<double>(capture.game_mv_x),
+                static_cast<double>(capture.game_mv_y),
+                static_cast<double>(s.motion_scale_x), static_cast<double>(s.motion_scale_y));
+        return false;
+    }
+    capture.guide_domain_known = true;
+    capture.game_mv_low_resolution = (feature.create_flags & 2) != 0;
+    capture.mv_fallback_x = !binding.valid_motion_scale_x;
+    capture.mv_fallback_y = !binding.valid_motion_scale_y;
+    capture.render_width = guide_width; capture.render_height = guide_height;
+    capture.work_width = width; capture.work_height = height;
+    capture.mv_source_width = s.motion_source_width;
+    capture.mv_source_height = s.motion_source_height;
+    capture.mv_source_x = s.motion_x; capture.mv_source_y = s.motion_y;
+    capture.mv_to_work_x = source_to_work_x; capture.mv_to_work_y = source_to_work_y;
 
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)

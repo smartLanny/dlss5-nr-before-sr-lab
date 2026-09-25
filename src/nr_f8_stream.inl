@@ -15,6 +15,20 @@ struct JsonBuffer {
         if(std::isfinite(value))Append("%.9g",static_cast<double>(value));else Append("null");
     }
 };
+// Optional additive schema: old captures remain valid but have unknown domains.
+// The NGX seam alone cannot distinguish Native/Extracted from a Synthetic feeder.
+void GuideDomainJson(JsonBuffer &b,const NrCaptureParams &p) {
+    b.Append(",\"guideDomain\":{\"schema\":1,\"known\":%d,\"boundary\":\"ngx-evaluate\",\"nativeProvenanceVerified\":false",
+        p.guide_domain_known);
+    if (p.guide_domain_known) {
+        b.Append(",\"renderWidth\":%u,\"renderHeight\":%u,\"workWidth\":%u,\"workHeight\":%u,\"mvSourceWidth\":%u,\"mvSourceHeight\":%u,\"mvSourceX\":%u,\"mvSourceY\":%u,\"gameMvLowResolution\":%d,\"mvFallbackX\":%d,\"mvFallbackY\":%d",
+            p.render_width,p.render_height,p.work_width,p.work_height,
+            p.mv_source_width,p.mv_source_height,p.mv_source_x,p.mv_source_y,
+            p.game_mv_low_resolution,p.mv_fallback_x,p.mv_fallback_y);
+        b.Float("mvToWorkX",p.mv_to_work_x);b.Float("mvToWorkY",p.mv_to_work_y);
+    }
+    b.Append("}");
+}
 void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
     b.Append(",\"%s\":{\"enabled\":%d,\"mode\":%d,\"style\":%u,\"autoMask\":%d,\"uiCorrection\":%d,\"workMode\":%d,\"jitterMode\":%d,\"motionRequested\":%d,\"identityUseOriginal\":%d,\"proxyCurve\":%u,\"unverifiedHdrColourRequested\":%d",
         key,c.enabled,c.mode,c.style,c.auto_mask,c.ui_correction,c.work_mode,static_cast<int>(c.jitter_mode),c.motion_stability,c.identity_use_original,c.proxy_curve,c.allow_unverified_hdr_color);
@@ -47,6 +61,7 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Float("nrJitterX",p.nr_jitter_x);b.Float("nrJitterY",p.nr_jitter_y);
     b.Float("gameMvX",p.game_mv_x);b.Float("gameMvY",p.game_mv_y);
     b.Float("nrMvX",p.nr_mv_x);b.Float("nrMvY",p.nr_mv_y);
+    GuideDomainJson(b,p);
     b.Float("preExposure",n.pre_exposure);b.Float("exposureScale",n.exposure_scale);
     b.Float("gpuRawExposure",n.gpu_raw_exposure);b.Float("gpuResolvedExposure",n.gpu_resolved_exposure);
     b.Float("gpuSourceToCanonical",n.gpu_source_to_canonical);b.Float("gpuPreExposure",n.gpu_pre_exposure);

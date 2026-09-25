@@ -31,6 +31,7 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
+    'src/nr_f8_types.h': '4f435ff7a95c1516ee8ee54700dedae123cd2129',
     'src/nr_aux_shader_runtime.cpp': '97422517284ff8c147a4c2ac2232338acf887d70',
     'src/nr_aux_shader_runtime.hpp': '43816a8c011f41b4267989ed0b2d2a6cf1a22d30',
     'scripts/prepare-aux-artifacts.py': '744f7a012a5f389ac287c900ee4c1f0029a9944e',
@@ -57,7 +58,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': 'a033e85dc150c1f73a008bc141d051e4d695eeba',
     'src/interop/nr_rr_depth_evidence.inl': '0746e827d6b72b35e26e778b865a9cfdd1587f9e',
     'src/interop/nr_rr_post_runtime.inl': '868feb221d58dba63fb5ceebecd8c28e23cfbcd7',
-    'src/nr_before_sr.cpp': '32bfacf33c88ede6436ecb6aa26003f739aa23c9',
+    'src/nr_before_sr.cpp': '7ff822ec772c718b8b92c2d358ed927ccbbe8524',
     'src/nr_before_sr.rc': '37a8370cbd6cdabb81a7ab7dc17b38e71edc623a',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',
@@ -97,7 +98,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_exposure_semantic_evidence.inl': '405c6e41036bfcc9ac088541cbc9e61831ad7a13',
     'src/nr_f8_gpu.inl': '4f71892f4d3586949e85f9ca80b75535e4854f6f',
     'src/nr_f8_sequence.inl': '5944fb98c2f81a71846a216246e23ad07d24ab2b',
-    'src/nr_f8_stream.inl': 'd5c8144c4ee0b0a519df694a0e82823f4b0fdc1a',
+    'src/nr_f8_stream.inl': 'f9791f8c298f87fa7aefc0de1a42454d2300e616',
     'src/nr_face_capture_geometry.h': '52204086ba8064ca655c075763af7d6cfe0ba4f1',
     'src/nr_face_detector.cpp': '3f03311705df5400d9a893732eaf4c3beea27130',
     'src/nr_face_detector.h': 'e1bfc1c4e82fba6865cf33047761eddfbbb42356',
@@ -158,7 +159,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_runtime_timing.h': '4bad9428aaaf4d2fcae4471b65b7745cdaba50f1',
     'src/nr_runtime_timing.inl': '4837ef46b019a255971687b9a13516ca8b65c04a',
     'src/nr_settings_notices_ui.inl': 'fcc5a1bd96c339a0b34b7f59146477ba9bf7bca5',
-    'src/nr_settings_ui.inl': '7e01bcd1a7ea25f165a112bf9b8845166c82b983',
+    'src/nr_settings_ui.inl': '88756e3bd8fa42f014d0f991025bba547080b5fc',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': '7737bba75d6c0cdf3a5421e02e5e26ade4bab355',
     'src/nr_store_comparison.h': 'e10d1e29846aee709700e25490323aad6b74bfcc',
