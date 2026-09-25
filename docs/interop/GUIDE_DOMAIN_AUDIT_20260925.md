@@ -56,7 +56,7 @@ Commit reviewed source/pins before the canonical exporter: it intentionally refu
 
 `validate-guide-domain.py` compiles and runs the actual extracted `ResolveNrGuideBinding` via the existing guide/history test, then compiles three isolated inverse mutations. A negative test passes only when the binary compiled and failed at the expected assertion—not when compilation failed:
 
-1. Remove empty-grid rejection → the zero-width/height checks must fail.
+1. Remove empty-grid rejection → the zero-width call must touch no resource getter. This catches a late rejection even when the second numeric guard also rejects the zero scale.
 2. Remove post-conversion finite/zero rejection → the float-overflow checks must fail.
 3. Replace measurement R with MV storage width → the high-resolution-MV coordinate check must fail.
 

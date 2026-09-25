@@ -148,7 +148,9 @@ struct NgxParams {
     int reset=0;
 };
 D3D12_RESOURCE_DESC ID3D12Resource_GetDesc(ID3D12Resource* r) { return r->desc; }
+unsigned guide_resource_reads=0;
 bool GetResource(const NgxParams* p,const char* k,ID3D12Resource** out) {
+    ++guide_resource_reads;
     *out = !std::strcmp(k,"Depth") ? p->depth : !std::strcmp(k,"MotionVectors") ? p->motion : !std::strcmp(k,"Output") ? p->output : nullptr;
     return *out!=nullptr;
 }
@@ -292,8 +294,9 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     params.motion_x=params.motion_y=0; feature.create_flags=2; motion.desc={1920,1080,34};
     params.scale_x=-2; params.scale_y=4;
     for (int mode : {1,2}) {
-        resolved={};
+        resolved={}; guide_resource_reads=0;
         check(!ResolveNrGuideBinding(&params,feature,mode,0,1080,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"zero NR width rejects before context or recording");
+        check(guide_resource_reads==0,"empty grid rejects before any resource lookup");
         resolved={};
         check(!ResolveNrGuideBinding(&params,feature,mode,1920,0,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"zero NR height rejects before context or recording");
     }

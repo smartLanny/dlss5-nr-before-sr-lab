@@ -62,7 +62,7 @@ def main() -> None:
     mutations = {
         'missing-empty-grid-guard': (
             'if (!width || !height || !guide_width || !guide_height)', 'if (false)',
-            'zero NR width rejects before context or recording'),
+            'empty grid rejects before any resource lookup'),
         'missing-converted-scale-guard': (
             'if (!std::isfinite(s.motion_scale_x) || !std::isfinite(s.motion_scale_y) ||\n'
             '        s.motion_scale_x == 0.0f || s.motion_scale_y == 0.0f)', 'if (false)',
