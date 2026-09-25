@@ -12,7 +12,9 @@ m3=load('recon_m3',ROOT/'scripts/patch-colour-restore.py')
 stage=load('recon_stage',ROOT/'scripts/patch-colour-stage.py')
 edge=load('recon_edge',ROOT/'scripts/patch-colour-edge.py')
 patch=load('recon_final',ROOT/'scripts/patch-reconstruction.py')
-inputs={p:(ROOT/p).read_bytes() for p in patch.INPUTS}
+# Canonical text comparison: Git worktrees may check out CRLF while the
+# exporter reads LF git blobs. Do not mistake that for a shader-code change.
+inputs={p:(ROOT/p).read_text(encoding='utf-8-sig').encode('utf-8') for p in patch.INPUTS}
 GENERATED=None
 
 def body(s,k):return s[slice(*m3.definition(s,k))]
@@ -113,7 +115,8 @@ class ReconstructionTests(unittest.TestCase):
         a=(GENERATED/'src/nr_feedback_capture.inl').read_text()
         self.assertIn('reconstruction.recorded',a)
         self.assertIn('not GPU/pixel proof',f)
-        for p in patch.INPUTS[1:]:self.assertEqual((GENERATED/p).read_bytes(),inputs[p])
+        for p in patch.INPUTS[1:]:
+            self.assertEqual((GENERATED/p).read_text(encoding='utf-8-sig').encode('utf-8'),inputs[p])
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--generated',type=Path);p.add_argument('--repo',type=Path)

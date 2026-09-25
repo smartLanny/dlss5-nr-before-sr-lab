@@ -39,7 +39,7 @@ def main() -> None:
     stream_path = source_path.parent/'nr_f8_stream.inl'
     stream = stream_path.read_text(encoding='utf-8-sig')
     for header in ('nr_f8_types.h', 'nr_guide_contract.h'):
-        if (source_path.parent/header).read_bytes() != (root/'src'/header).read_bytes():
+        if (source_path.parent/header).read_text(encoding='utf-8-sig') != (root/'src'/header).read_text(encoding='utf-8-sig'):
             raise ValueError('Generated guide test header does not match this source revision: '+header)
     binding = definition(text, 'bool ResolveNrGuideBinding(')
     generated = '#include "interop/nr_rr_post_runtime.inl"' in text
