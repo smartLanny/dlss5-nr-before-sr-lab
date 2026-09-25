@@ -9780,8 +9780,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     // A zero NR axis must not become a zero motion scale accepted by NGX.
     if (!width || !height || !guide_width || !guide_height) {
         SetBypassReason(BypassReason::GuideContractInvalid);
-        static unsigned int rejected_empty_grids = 0;
-        if (++rejected_empty_grids <= 3 || (rejected_empty_grids % 600) == 0)
+        static std::atomic<unsigned int> rejected_empty_grids{0};
+        const auto rejected = rejected_empty_grids.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (rejected <= 3 || (rejected % 600) == 0)
             Log("NR guide grid rejected: render=%ux%u work=%ux%u; "
                 "native output retained. Press F8 and submit BUG feedback.",
                 guide_width, guide_height, width, height);
@@ -9907,8 +9908,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     if (!std::isfinite(s.motion_scale_x) || !std::isfinite(s.motion_scale_y) ||
         s.motion_scale_x == 0.0f || s.motion_scale_y == 0.0f) {
         SetBypassReason(BypassReason::GuideContractInvalid);
-        static unsigned int rejected_scaled_motion = 0;
-        if (++rejected_scaled_motion <= 3 || (rejected_scaled_motion % 600) == 0)
+        static std::atomic<unsigned int> rejected_scaled_motion{0};
+        const auto rejected = rejected_scaled_motion.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (rejected <= 3 || (rejected % 600) == 0)
             Log("NR converted MV scale rejected: render=%ux%u work=%ux%u "
                 "raw=%.9g,%.9g converted=%.9g,%.9g; native output retained. "
                 "Press F8 and submit BUG feedback.", guide_width, guide_height,
