@@ -278,7 +278,7 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
             params.scale_x=-1920; params.scale_y=1080;
             params.motion_x=13; params.motion_y=7;
             motion.desc={low?1940u:3860u,low?1090u:2170u,34};
-            for (unsigned n : {1920u,1901u,1728u,1344u,960u}) {
+            for (unsigned n : {3840u,2688u,1920u,1901u,1728u,1344u,960u,480u}) {
                 const unsigned nh=n*9/16;
                 resolved={};
                 check(ResolveNrGuideBinding(&params,feature,mode,n,nh,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"all active work sizes accept legal atlas guides");
