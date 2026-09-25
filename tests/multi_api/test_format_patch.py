@@ -86,8 +86,8 @@ class Patches(unittest.TestCase):
         # every character (including a BOM if present); only EOL is canonical.
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        # Reviewed unified7 Present-percent floor; format/colour code unchanged.
-        self.assertEqual(digest,'c27f7fe327022d39385cbc3b37136f08f6447920')
+        # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
+        self.assertEqual(digest,'32bfacf33c88ede6436ecb6aa26003f739aa23c9')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

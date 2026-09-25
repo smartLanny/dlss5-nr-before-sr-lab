@@ -26,7 +26,12 @@ foreach ($Key in @('colour_lab', 'colour_edge')) {
     }
 }
 $Version = [string]$Product.version
-if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+# An explicitly named inbox candidate retains every unified10 dependency/gate.
+# Do not rewrite its public/binary/source identity or accept arbitrary suffixes.
+$IsInboxCandidate = $Version -eq 'beta0.5-dline21-unified10-inbox1'
+$IsReconstructionCandidate = $Version -in @('beta0.5-dline21-unified10-reconstruction1','beta0.5-dline21-unified10-reconstruction1-ui1')
+$ValidationVersion = if ($IsInboxCandidate -or $IsReconstructionCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
+if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
     $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if(-not $Extra.passed -or -not $Extra.acceptance -or -not $Extra.restoration_negative -or
        -not $Extra.temporal_entries -or -not $Extra.auxiliary -or -not $Extra.native_output -or
@@ -34,9 +39,48 @@ if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.
         throw 'Unified8 exact-source runtime checks are incomplete.'
     }
 }
-$Unified = $Version -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')
+if ($IsReconstructionCandidate) {
+    $RPath=Join-Path $Build 'reconstruction-checks/validation.json'
+    if (-not (Test-Path -LiteralPath $RPath)) { throw 'Reconstruction exact-source checks are missing.' }
+    $R=Get-Content -LiteralPath $RPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $CoreHash=(Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant()
+    if (-not $R.passed -or -not $R.runtime_controls -or -not $R.defaults_unchanged -or
+        $R.source_sha256 -ne $CoreHash -or $R.source_commit -ne $Commit -or
+        $Manifest.reconstruction.source_commit -ne $Commit -or $Manifest.reconstruction.version -ne $Version) {
+        throw 'Reconstruction exact-source checks are incomplete.'
+    }
+    $Math=Get-Content -LiteralPath $R.math_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $Warp=Get-Content -LiteralPath $R.warp_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Math.status -ne 'passed' -or $Math.production_shader_sha256 -ne
+        (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_math.hlsli')).Hash.ToLowerInvariant() -or
+        $Warp.status -ne 'passed' -or -not $Warp.manifest_verified -or $Warp.hardware -or
+        $Warp.source_sha256 -ne $CoreHash -or $Warp.source_commit -ne $Commit -or
+        @($Warp.runs|Where-Object {$_.name -eq 'positive' -and $_.exit -eq 0 -and $_.expected -eq 0}).Count -ne 1 -or
+        @($Warp.runs|Where-Object {$_.name -eq 'negative-disabled-protection' -and $_.exit -eq 1 -and $_.expected -eq 1}).Count -ne 1) {
+        throw 'Reconstruction math/WARP positive and inverse evidence is incomplete.'
+    }
+    if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') {
+        $Ui=Get-Content -LiteralPath $R.ui_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($Ui.status -ne 'passed' -or $Ui.ui_sha256 -ne
+            (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_ui.inl')).Hash.ToLowerInvariant() -or
+            @($Ui.runs|Where-Object {$_.name -eq 'actual-controls' -and $_.exit -eq 0}).Count -ne 1) {
+            throw 'Reconstruction UI control evidence is incomplete.'
+        }
+    }
+    foreach($Entry in @('EncodeV2CS','CombineCS','CombineV2CS')) {
+        $Shader=$Warp.exact_bytecode.$Entry
+        if ($Shader.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-FileHash -LiteralPath $Shader.file).Hash -ne $Shader.sha256) {
+            throw 'Reconstruction tested bytecode changed.'
+        }
+    }
+}
+$Unified = $ValidationVersion -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
+if ($IsInboxCandidate) { $DisplayVersion = '0.5.1-Beta-Inbox1' }
+if ($IsReconstructionCandidate) { $DisplayVersion = '0.5.1-Beta-Reconstruction1' }
+if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') { $DisplayVersion = '0.5.1-Beta-Reconstruction1-UI1' }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
 }
@@ -100,7 +144,7 @@ foreach ($Binary in $ExpectedBinaries) {
     Assert-Hash $Binary ([string]$Evidence[0].sha256)
 }
 $PostLog = Join-Path $Build 'tests/post-scaled-work/stdout.txt'
-$PostScenarios = if ($Version -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) { 60 } else { 48 }
+$PostScenarios = if ($ValidationVersion -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) { 60 } else { 48 }
 if (-not (Test-Path -LiteralPath $PostLog) -or (Get-Content -LiteralPath $PostLog -Raw -Encoding UTF8) -notmatch ("PASS post-scaled-work WARP: " + $PostScenarios + " scenarios")) {
     throw "Successful $PostScenarios-scenario post WARP log is missing."
 }
@@ -128,7 +172,7 @@ if (Test-Path -LiteralPath $NgxLicense) {
 }
 $FaceAssets = [ordered]@{}
 $AmdLicense = $null
-if ($Version -in @('beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+if ($ValidationVersion -in @('beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
     $TemporalReceipt = Get-Content -LiteralPath (Join-Path $CoreBuild 'obj/temporal/module.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if (-not $TemporalReceipt.passed) { throw 'Temporal backend compilation is not verified.' }
     $AmdLicense = Join-Path $CoreBuild 'obj/temporal/AMD-FidelityFX-LICENSE.txt'
@@ -229,40 +273,42 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
         }
         $Readme = if ($Language -eq 'en') { 'READ-FIRST.txt' } else { '安装说明.txt' }
         [IO.File]::WriteAllText((Join-Path $Package $Readme), $Install, (New-Object Text.UTF8Encoding($false)))
-        if ($Version -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+        if ($ValidationVersion -in @('beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
             $GuideSource = if ($Language -eq 'en') { 'UNIFIED3_UI_EN_20260920.md' } else { 'UNIFIED3_UI_20260920.md' }
-            if ($Version -eq 'beta0.5-dline21-unified4') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified4') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED4_UI_EN_20260921.md' } else { 'UNIFIED4_UI_20260921.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified5') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified5') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED5_UI_EN_20260921.md' } else { 'UNIFIED5_UI_20260921.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified6') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified6') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED6_UI_EN_20260921.md' } else { 'UNIFIED6_UI_20260921.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified7') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified7') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED7_UI_20260921.en.md' } else { 'UNIFIED7_UI_20260921.md' }
             }
-            if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+            if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED8_UI.en.md' } else { 'UNIFIED8_UI.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified9') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified9') {
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED9_UI.en.md' } else { 'UNIFIED9_UI.md' }
             }
-            if ($Version -eq 'beta0.5-dline21-unified10') {
+            if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
                 Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_CHANGELOG.zh-CN.md') -Destination (Join-Path $Package '更新说明-0.5.1Beta.md')
                 Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/051_BETA_ACCEPTANCE.zh-CN.md') -Destination (Join-Path $Package '验收指南-0.5.1Beta.md')
                 $GuideSource = if ($Language -eq 'en') { 'UNIFIED10_UI.en.md' } else { 'UNIFIED10_UI.md' }
             }
             $GuideName = if ($Language -eq 'en') { 'MENU-GUIDE.md' } else { '菜单与测试.md' }
             Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $GuideSource)) -Destination (Join-Path $Package $GuideName)
-            if ($Version -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
-                if ($Version -ne 'beta0.5-dline21-unified10') {
+            if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
+                if ($ValidationVersion -ne 'beta0.5-dline21-unified10') {
                     Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED8_TEMPORAL.md') -Destination (Join-Path $Package 'UNIFIED8_TEMPORAL.md')
                 }
-                $StatusSource = if ($Version -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($Version -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
+                $StatusSource = if ($ValidationVersion -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($ValidationVersion -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
+                if ($IsInboxCandidate) { $StatusSource = '051_INBOX_WINDOWS_20260924.md' }
+                if ($IsReconstructionCandidate) { $StatusSource = '051_RECONSTRUCTION1_20260925.md' }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
-                if ($Version -eq 'beta0.5-dline21-unified10') {
+                if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
                     Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
                     $StatusPath = Join-Path $Package 'IMPLEMENTATION-STATUS.md'
                     $StatusText = Get-Content -LiteralPath $StatusPath -Raw -Encoding UTF8
@@ -271,10 +317,10 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 }
             }
         }
-        if ($Version -eq 'beta0.5-dline21-unified3-rr1') {
+        if ($ValidationVersion -eq 'beta0.5-dline21-unified3-rr1') {
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RR_CURRENT_PROJECTION_20260920.md') -Destination (Join-Path $Package 'RR-CANDIDATE.md')
         }
-        if ($Version -eq 'beta0.5-dline21-unified4') {
+        if ($ValidationVersion -eq 'beta0.5-dline21-unified4') {
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED4_CONTINUATION_20260921.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
         }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;

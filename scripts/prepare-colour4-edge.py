@@ -28,10 +28,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     temporal_patch=load('temporal_patch',core/'scripts/patch-temporal-runtime.py')
     native_output_patch=load('native_output_patch',core/'scripts/patch-native-output-capture.py')
     acceptance_patch=load('acceptance_patch',core/'scripts/patch-acceptance.py')
+    reconstruction_patch=load('reconstruction_patch',core/'scripts/patch-reconstruction.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -63,10 +64,12 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         check('test_colour_edge.py',stage)
         check('test_unified_ui.py',stage)
         check('test_user_controls.py',stage)
+        reconstruction_patch.apply(stage,inputs,m3)
+        check('test_reconstruction_runtime.py',stage)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
-            'version':edge_patch.VERSION,'display_version':'0.5.1-Beta','source_commit':source,'base_commit':BASE,
+            'version':edge_patch.VERSION,'display_version':'0.5.1-Beta-Reconstruction1-UI1','source_commit':source,'base_commit':BASE,
             'default_mode':1,'default_colour_strength':0.5,'default_colour_range':0.5,'priority_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
@@ -82,6 +85,15 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'n2_legacy_combination_game_verified':False,
             'runtime_verified':False,
             'overlay_sha256':{p:hashlib.sha256(data).hexdigest() for p,data in inputs.items()}}
+        manifest['reconstruction']={
+            'version':edge_patch.VERSION,'source_commit':source,
+            'default_mode':0,'default_chroma_guard':False,
+            'sampling':'paired decoded source-guided positive weights, modes 4/16; 1:1 retains original',
+            'preserves_new_luminance':True,'extra_textures':0,'extra_passes':0,
+            'extra_nr_calls':0,'history_changed':False,'whole_dark_edit_shrink_added':False,
+            'capture':'same actual pre-generic P/N; original source/final stored; legacy detail plane unchanged',
+            'unsupported':'unknown encoding/raw diagnostics/legacy edit field; controls do not imply adoption',
+            'gpu_verified':False,'game_verified':False}
         manifest['files']=base.file_hashes(stage)
         manifest['temporal']={'default_enabled':False,'backends':['native-prepared-MV','AMD-FFX-1.1.4'],
             'scopes':['whole-chain','later-layers-composed-anchor'],

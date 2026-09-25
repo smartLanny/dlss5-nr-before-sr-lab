@@ -541,8 +541,8 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
     }
     else if (reason == BypassReason::ContextReleasePending) {
         displayed=Display::Checking;
-        ImGui::TextWrapped("%s", ui("Releasing the previous model before applying the new settings. Native output continues; your selected scale and route are retained.",
-            "正在释放旧模型，随后应用新设置。期间继续显示游戏原图；所选比例和处理顺序不变。"));
+        ImGui::TextWrapped("%s", ui("Waiting for the previous model's GPU work and safe release before applying new settings. Native output continues; your selected scale and route are retained. If this persists, press F8 and submit the report.",
+            "正在等待旧模型的 GPU 工作完成并安全释放，随后应用新设置。期间继续显示游戏原图，所选比例和顺序不变。若持续停在此状态，请按 F8 提交反馈。"));
     }
     else if (!activity.valid) {
         displayed=Display::Checking;

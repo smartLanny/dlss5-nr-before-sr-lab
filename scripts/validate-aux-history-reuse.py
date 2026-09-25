@@ -3,7 +3,7 @@
 Only service/COM execution is stubbed; use existing GPU/lifetime gates as well.
 """
 from __future__ import annotations
-import argparse,hashlib,json,subprocess
+import argparse,hashlib,json,subprocess,os
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 BASE='0b01a8e5f6d32cdbc57d7c0c4a7d106a9bdc442a'
@@ -33,7 +33,7 @@ def main():
    (folder/'tuning.inl').write_text(defs,encoding='utf-8')
    (folder/'lookup.inl').write_text(definition(s,'NrContext *FindOrCreateContext('),encoding='utf-8')
    exe=folder/'reuse.exe'
-   run([a.compiler,'-std=c++20','-O2','-Wall','-Wextra','-Werror','-static','-DUNIFORM_LAYERS='+str(int('nr_layers::Read(g_config,layer_index)' in s)),'-I'+str(ROOT/'src'),'-I'+str(folder),ROOT/'tests/aux_history_reuse.cpp','-o',exe],label+'-build')
+   run([a.compiler,'-std=c++20','-O2','-Wall','-Wextra','-Werror',*(['-static'] if os.name=='nt' else []),'-DUNIFORM_LAYERS='+str(int('nr_layers::Read(g_config,layer_index)' in s)),'-I'+str(ROOT/'src'),'-I'+str(folder),ROOT/'tests/aux_history_reuse.cpp','-o',exe],label+'-build')
    run([exe,'--reproduction'],label+'-history-only-reproduction',3 if label=='baseline' else 0)
    run([exe],label+'-storage-lifetime-contracts')
   if not a.baseline_only:

@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 import subprocess
 import tempfile
+import os
 
 
 def definition(source, marker, trailing_semicolon=False):
@@ -76,7 +77,7 @@ NrContext g_contexts[16]{};
 std::atomic<bool> g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_process_latched{false};
 std::atomic<unsigned long long> g_nr_instance_serial{0}, g_next_nr_instance_id{0};
 void CollectRetiredContextsLocked() {} // No fence has completed in this trace.
-bool DeferNrCreationForReleaseLocked() { return false; } // No completed release; actual admission/collector/drain is covered separately.
+bool DeferNrCreationForReleaseLocked(const NgxHandle* = nullptr) { return false; } // No retirement in this history-only fixture; actual scoped admission/collector/drain is covered separately.
 void Log(const char*, ...) {}
 // Stage capture stays off in the guide/context regression. Its request and
 // retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
@@ -278,5 +279,5 @@ with tempfile.TemporaryDirectory(prefix="dlss5-guide-regression-") as tmp:
     cpp = Path(tmp) / "test.cpp"
     exe = Path(tmp) / "test.exe"
     cpp.write_text(harness, encoding="utf-8")
-    subprocess.run([args.compiler, "-std=c++20", "-O0", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
+    subprocess.run([args.compiler, "-std=c++20", "-O0", *(["-static"] if os.name == "nt" else []), "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
     raise SystemExit(subprocess.run([str(exe)]).returncode)
