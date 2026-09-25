@@ -1,0 +1,165 @@
+DLSS 5 AI 超分管理器 · 问题反馈日志
+请把这个 TXT 文件完整发给开发者；管理器不会自动上传。
+生成时间：2026-09-13T13:17:40.949Z
+管理器版本：0.4.6
+系统：win32 x64 10.0.26200
+
+[游戏]
+名称：ZenlessZoneZero Game
+来源：手动添加
+游戏目录：F:\miHoYo Launcher\games\ZenlessZoneZero Game
+运行程序：F:\miHoYo Launcher\games\ZenlessZoneZero Game\ZenlessZoneZero.exe
+图形 API：DirectX 11/12
+API 选择：dx12
+API 证据：{"api":"dx12","source":"override","evidence":["用户显式选择 DirectX 12"]}
+已部署 API：dx12
+位数：64
+
+[硬件与组件]
+显卡匹配：{"family":"RTX40","families":["RTX40"],"series":["RTX40"],"names":["NVIDIA GeForce RTX 4050 Laptop GPU"],"source":"Win32_VideoController","supported":true}
+组件版本：{"selectedVersion":"0.4.6","ready":true,"missing":[],"invalid":[]}
+游戏设置：{"Enabled":1,"Intensity":1,"WorkMode":1,"CustomWorkScale":0.75,"Style":0,"AutoMask":1,"ColorStrength":1,"SkinStructureStrength":-1,"capabilities":{"WorkMode":true,"CustomWorkScale":true,"ColorStrength":true,"SkinStructureStrength":true}}
+
+[当前诊断]
+完整：是
+ReShade Add-on 运行环境：完整
+冲突 Addon：已移出并保留 6 个备份
+Addon 版本：当前为 0.4.6（最新）
+NR→SR 插件：完整
+NR Bridge：完整
+DX11 Native Carrier：完整
+AI Runtime：完整
+配置文件：完整
+
+[最近管理器操作]
+2026-09-13T08:24:49.396Z | sr-model-read | 成功
+2026-09-13T08:33:08.752Z | sr-model-read | 成功
+2026-09-13T08:33:10.919Z | sr-model-read | 成功
+2026-09-13T13:12:02.539Z | sr-model-read | 成功
+2026-09-13T13:12:31.528Z | nr-read | 成功
+2026-09-13T13:12:31.528Z | game-hotkeys-read | 成功
+2026-09-13T13:12:31.528Z | game-diagnose | 成功
+2026-09-13T13:12:31.528Z | sr-model-read | 成功
+2026-09-13T13:13:27.917Z | sr-model-read | 成功
+2026-09-13T13:13:30.523Z | nr-read | 成功
+2026-09-13T13:13:30.523Z | game-hotkeys-read | 成功
+2026-09-13T13:13:30.523Z | sr-model-read | 成功
+2026-09-13T13:13:30.523Z | game-diagnose | 成功
+2026-09-13T13:13:32.163Z | game-launch | 成功
+2026-09-13T13:13:32.165Z | sr-model-read | 成功
+2026-09-13T13:14:00.832Z | game-repair | 成功
+2026-09-13T13:14:04.512Z | game-diagnose | 成功
+2026-09-13T13:14:04.512Z | game-hotkeys-read | 成功
+2026-09-13T13:14:04.512Z | nr-read | 成功
+2026-09-13T13:14:04.512Z | sr-model-read | 成功
+2026-09-13T13:14:14.835Z | game-diagnose | 成功
+2026-09-13T13:14:19.547Z | game-toggle-d3d12 | 成功
+2026-09-13T13:14:23.126Z | nr-read | 成功
+2026-09-13T13:14:23.126Z | game-diagnose | 成功
+2026-09-13T13:14:23.126Z | game-hotkeys-read | 成功
+2026-09-13T13:14:23.126Z | sr-model-read | 成功
+2026-09-13T13:14:30.328Z | game-launch | 成功
+2026-09-13T13:14:30.328Z | sr-model-read | 成功
+2026-09-13T13:16:40.009Z | game-diagnose | 成功
+2026-09-13T13:17:36.581Z | feedback-export | 成功
+
+[相关运行日志]
+--- nr-before-sr.log ---
+21:13:34.181  DLSS 5 AI Rendering Perfect Chain beta0.4.6 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.6 | sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1
+21:13:34.184  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+21:13:34.184  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+21:13:34.184  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=0.000 autoMask=1 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=0 jitterMode=1 feature18Evals=0
+21:13:34.184  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+21:13:41.953  [post-compat] initial RR-post=1 Npost/O=100%; requested Mode=2 retained.
+21:13:41.955  [dx11-deployment] module snapshot complete=1 carriers=0 matching045=0; filename evidence only, not NR readiness or GPU completion.
+21:13:41.959  [perf] reset stage=C-NR-transfer epoch=0 transfer=1.200; warming 180 frames
+21:13:42.001  [artifact-identity] sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1 status=verified addonPath=F:\miHoYo Launcher\games\ZenlessZoneZero Game\nr-before-sr.zh-CN.addon64 addonSha256=b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090 measurement=loaded-path-file-once-worker.
+
+--- nr-before-sr.previous.log ---
+04:00:34.561  DLSS 5 AI Rendering Perfect Chain beta0.4.6 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.6 | sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1
+04:00:34.564  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+04:00:34.565  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+04:00:34.565  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=0.000 autoMask=1 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=0 jitterMode=1 feature18Evals=0
+04:00:34.566  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+04:00:41.715  [post-compat] initial RR-post=1 Npost/O=100%; requested Mode=2 retained.
+04:00:41.719  [dx11-deployment] module snapshot complete=1 carriers=1 matching045=1; filename evidence only, not NR readiness or GPU completion.
+04:00:41.723  [perf] reset stage=C-NR-transfer epoch=0 transfer=1.200; warming 180 frames
+04:00:41.768  [artifact-identity] sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1 status=verified addonPath=F:\miHoYo Launcher\games\ZenlessZoneZero Game\nr-before-sr.zh-CN.addon64 addonSha256=b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090 measurement=loaded-path-file-once-worker.
+
+--- ReShade.log ---
+21:13:34:051 [ 4724] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from 'F:\miHoYo Launcher\games\ZenlessZoneZero Game\dxgi.dll' into 'F:\miHoYo Launcher\games\ZenlessZoneZero Game\ZenlessZoneZero.exe' (0xFE89F0FF) ...
+21:13:34:051 [ 4724] | INFO  | Registering hooks for 'user32.dll' ...
+21:13:34:051 [ 4724] | INFO  | > Libraries loaded.
+21:13:34:051 [ 4724] | INFO  | > Found 21 match(es). Installing ...
+21:13:34:075 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\dinput.dll' ...
+21:13:34:082 [ 4724] | INFO  | > Delayed.
+21:13:34:082 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\dinput8.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Delayed.
+21:13:34:084 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d2d1.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Delayed.
+21:13:34:084 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d3d9.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Delayed.
+21:13:34:084 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d3d10.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Delayed.
+21:13:34:084 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d3d10_1.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Delayed.
+21:13:34:084 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d3d11.dll' ...
+21:13:34:084 [ 4724] | INFO  | > Libraries loaded.
+21:13:34:084 [ 4724] | INFO  | > Found 3 match(es). Installing ...
+21:13:34:115 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\d3d12.dll' ...
+21:13:34:115 [ 4724] | INFO  | > Delayed.
+21:13:34:117 [ 4724] | INFO  | Registering hooks for 'C:\WINDOWS\system32\dxgi.dll' ...
+21:13:34:117 [ 4724] | INFO  | > Delayed until first call to an exported function.
+21:13:34:117 [ 4724] | INFO  | Registering hooks for 'openvr_api.dll' ...
+21:13:34:117 [ 4724] | INFO  | > Delayed.
+21:13:34:117 [ 4724] | INFO  | Initialized.
+21:13:34:117 [ 4724] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00007FF80B5433D8) ...
+21:13:34:117 [ 4724] | INFO  | Installing export hooks for 'C:\WINDOWS\system32\dxgi.dll' ...
+21:13:34:119 [ 4724] | INFO  | > Found 5 match(es). Installing ...
+21:13:34:147 [ 4724] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 00000279C3E16360, DriverType = 0, Software = 0000000000000000, Flags = 0x20, pFeatureLevels = 0000041D3A02FD80, FeatureLevels = 4, SDKVersion = 7, ppDevice = 00007FF80B5433A0, pFeatureLevel = 00007FF80B4EA500, ppImmediateContext = 00007FF80B5433C0) ...
+21:13:34:147 [ 4724] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+21:13:34:147 [ 4724] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 00000279C3E16360, DriverType = 0, Software = 0000000000000000, Flags = 0x20, pFeatureLevels = 0000041D3A02FD80, FeatureLevels = 4, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 00007FF80B5433A0, pFeatureLevel = 00007FF80B4EA500, ppImmediateContext = 00007FF80B5433C0) ...
+21:13:34:147 [ 4724] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'F:\miHoYo Launcher\games\ZenlessZoneZero Game' ...
+21:13:34:147 [ 4724] | INFO  | Loading add-on from 'F:\miHoYo Launcher\games\ZenlessZoneZero Game\nr-before-sr.zh-CN.addon64' ...
+21:13:34:153 [ 4724] | INFO  | Installing delayed hooks for 'C:\WINDOWS\system32\d3d12.dll' (Just loaded via LoadLibrary('C:\WINDOWS\SYSTEM32\d3d12.dll')) ...
+21:13:34:153 [ 4724] | INFO  | > Found 8 match(es). Installing ...
+21:13:34:184 [ 4724] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.6 (Chinese UI) | Bilibili UID 941799" v0.4.6.0 using ReShade API version 18.
+21:13:34:437 [ 4724] | INFO  | Using feature level b100.
+21:13:34:441 [ 4724] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000BB3179EC88) ...
+21:13:35:388 [ 4724] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 00000279C3E16360, DriverType = 0, Software = 0000000000000000, Flags = 0x820, pFeatureLevels = 0000000000000000, FeatureLevels = 0, SDKVersion = 7, ppDevice = 00007FF80B5D3BE8, pFeatureLevel = 0000000000000000, ppImmediateContext = 00007FF80B5D3BF0) ...
+21:13:35:390 [ 4724] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+21:13:35:390 [ 4724] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 00000279C3E16360, DriverType = 0, Software = 0000000000000000, Flags = 0x820, pFeatureLevels = 0000000000000000, FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 00007FF80B5D3BE8, pFeatureLevel = 0000000000000000, ppImmediateContext = 00007FF80B5D3BF0) ...
+21:13:35:434 [ 4724] | INFO  | Using feature level b000.
+21:13:35:584 [ 4724] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000BB3179EDF8) ...
+21:13:35:587 [ 4724] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = 00000279CDCD8B60, pDevice = 00000279CD0C7410, hWnd = 000000000016065E, pDesc = 000000BB3179EDA8, pFullscreenDesc = 000000BB3179ED90, pRestrictToOutput = 0000000000000000, ppSwapChain = ) ...
+21:13:35:590 [ 4724] | INFO  | > Dumping swap chain description:
+21:13:35:590 [ 4724] | INFO  |   +-----------------------------------------+-----------------------------------------+
+21:13:35:590 [ 4724] | INFO  |   | Parameter                               | Value                                   |
+21:13:35:590 [ 4724] | INFO  |   +-----------------------------------------+-----------------------------------------+
+21:13:35:590 [ 4724] | INFO  |   | Width                                   | 1920                                    |
+21:13:35:590 [ 4724] | INFO  |   | Height                                  | 1080                                    |
+21:13:35:590 [ 4724] | INFO  |   | RefreshRate                             | 0                   1                   |
+21:13:35:590 [ 4724] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+21:13:35:590 [ 4724] | INFO  |   | Stereo                                  | FALSE                                   |
+21:13:35:592 [ 4724] | INFO  |   | ScanlineOrdering                        | 0                                       |
+21:13:35:592 [ 4724] | INFO  |   | Scaling                                 | 0                                       |
+21:13:35:592 [ 4724] | INFO  |   | SampleCount                             | 1                                       |
+21:13:35:592 [ 4724] | INFO  |   | SampleQuality                           | 0                                       |
+21:13:35:592 [ 4724] | INFO  |   | BufferUsage                             | 0x30                                    |
+21:13:35:593 [ 4724] | INFO  |   | BufferCount                             | 2                                       |
+21:13:35:593 [ 4724] | INFO  |   | Windowed                                | TRUE                                    |
+21:13:35:593 [ 4724] | INFO  |   | SwapEffect                              | 3                                       |
+21:13:35:593 [ 4724] | INFO  |   | AlphaMode                               | 0                                       |
+21:13:35:593 [ 4724] | INFO  |   | Flags                                   | 0x842                                   |
+21:13:35:593 [ 4724] | INFO  |   +-----------------------------------------+-----------------------------------------+
+21:13:35:596 [ 4724] | INFO  | Running on NVIDIA GeForce RTX 4050 Laptop GPU Driver 616.92.
+21:13:36:515 [ 4724] | INFO  | Recreated runtime environment on runtime 0000027A688B4330 ('F:\miHoYo Launcher\games\ZenlessZoneZero Game\ReShade.ini').
+21:13:36:522 [ 4724] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = 0000027A6B24C220, BufferCount = 2, Width = 1920, Height = 1080, NewFormat = 28, SwapChainFlags = 0x842) ...
+21:13:36:522 [ 4724] | INFO  | Destroyed runtime environment on runtime 0000027A688B4330 ('F:\miHoYo Launcher\games\ZenlessZoneZero Game\ReShade.ini').
+21:13:36:524 [ 4724] | INFO  | Recreated runtime environment on runtime 0000027A688B4330 ('F:\miHoYo Launcher\games\ZenlessZoneZero Game\ReShade.ini').
+21:13:43:597 [ 4056] | INFO  | Installing delayed hooks for 'C:\WINDOWS\system32\dinput8.dll' (Just loaded via LoadLibrary('C:\Windows\System32\dinput8.dll')) ...
+21:13:43:597 [ 4056] | INFO  | > Found 2 match(es). Installing ...
+21:13:43:919 [ 4724] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = 0000027A6B24C220, BufferCount = 2, Width = 1920, Height = 1080, NewFormat = 28, SwapChainFlags = 0x842) ...
+21:13:43:921 [ 4724] | INFO  | Destroyed runtime environment on runtime 0000027A688B4330 ('F:\miHoYo Launcher\games\ZenlessZoneZero Game\ReShade.ini').
+21:13:43:923 [ 4724] | INFO  | Recreated runtime environment on runtime 0000027A688B4330 ('F:\miHoYo Launcher\games\ZenlessZoneZero Game\ReShade.ini').
+

@@ -1,0 +1,13 @@
+[07-09-2026 12:24:54:621][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCServer\Server\GameStateMachine.cpp 65 esv::GameStateMachine::SetTargetState]: esv::GameStateQueued: Uninitialized
+
+[07-09-2026 12:24:54:621][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCServer\Server\GameStateMachine.cpp 84 esv::GameStateMachine::Update]: SERVER STATE SWAP - from: Unknown, to: Uninitialized
+
+[07-09-2026 12:24:54:962][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: InitMenu
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: StartLoading
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: Init
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: LoadPsoCache
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: LoadModule
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: LoadMenu
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 130 ecl::GameStateMachine::SetTargetState]: ecl::GameStateQueued: StopLoading
+[07-09-2026 12:24:54:995][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 113 ecl::GameStateMachine::SetTargetStateAfterFade]: ecl::GameStateQueued: Menu after fade: FadeInFadeOut
+[07-09-2026 12:24:56:600][D:\Jenkins\workspace\Repo\FW4\Release\Stable\LSProjects\Apps\Gustav\Code\EoCClient\Client\GameStateMachine.cpp 248 ecl::GameStateMachine::Update]: CLIENT STATE SWAP - from: Unknown, to: InitMenu

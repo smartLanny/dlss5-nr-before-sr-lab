@@ -1,0 +1,40 @@
+20:17:03.266  DLSS 5 AI Rendering Perfect Chain beta0.4.2-native-bridge-exp1 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.2-native-bridge-exp1 | sourceCommit=9282e6ba771e369dac93166c02ff10a2173f35d0 sourceDirty=1
+20:17:03.269  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+20:17:03.269  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+20:17:03.269  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=0.750 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+20:17:03.273  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+20:17:04.095  Found SR NGX module: E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\nvngx_dlss.dll
+20:17:04.095  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFCA4FE0000 module=00007FFCA4FE0000 until process exit.
+20:17:04.095  [module] pinned hook owner name=_nvngx.dll address=00007FFCA8840000 module=00007FFCA8840000 until process exit.
+20:17:04.115  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFCA500F960 module=00007FFCA4FE0000 until process exit.
+20:17:04.116  MH_CreateHook D3D12_CreateFeature                    target=00007FFCA500F960 status=0 (MH_OK)
+20:17:04.116  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFCA500FAD0 module=00007FFCA4FE0000 until process exit.
+20:17:04.116  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFCA500FAD0 status=0 (MH_OK)
+20:17:04.116  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFCA500FDB0 module=00007FFCA4FE0000 until process exit.
+20:17:04.116  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFCA500FDB0 status=0 (MH_OK)
+20:17:04.116  [module] pinned hook owner name=core CreateFeature address=00007FFCA88A7FE0 module=00007FFCA8840000 until process exit.
+20:17:04.117  MH_CreateHook core CreateFeature                     target=00007FFCA88A7FE0 status=0 (MH_OK)
+20:17:04.117  [module] pinned hook owner name=core EvaluateFeature address=00007FFCA88A81E0 module=00007FFCA8840000 until process exit.
+20:17:04.117  MH_CreateHook core EvaluateFeature                   target=00007FFCA88A81E0 status=0 (MH_OK)
+20:17:04.117  [module] pinned hook owner name=core ReleaseFeature address=00007FFCA88A80E0 module=00007FFCA8840000 until process exit.
+20:17:04.117  MH_CreateHook core ReleaseFeature                    target=00007FFCA88A80E0 status=0 (MH_OK)
+20:17:04.152  MH_EnableHook all status=0
+20:17:04.152  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+20:17:04.152  [module] initial scan complete: sr=00007FFCA4FE0000 core=00007FFCA8840000 dlssd=0000000000000000.
+20:17:04.152  NGX observer/AI-upscaling hooks active.
+20:17:06.770  [module] lazy rescan #1 core=00007FFCA8840000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+20:17:06.773  [perf] reset stage=C-NR-transfer epoch=2 transfer=1.200; warming 180 frames
+20:17:06.785  [artifact-identity] sourceCommit=9282e6ba771e369dac93166c02ff10a2173f35d0 sourceDirty=1 status=verified addonPath=E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64 addonSha256=d2ab2f3eb3af784877855fe9c52d3436734edd1c9d9c7adb771256db5c50fba6 measurement=loaded-path-file-once-worker.
+20:17:07.787  [module] lazy rescan #2 core=00007FFCA8840000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+20:17:08.791  [module] lazy rescan #3 core=00007FFCA8840000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+20:17:13.164  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+20:17:13.164  [module] pinned hook owner name=D3D12 command state address=00007FFD782343A0 module=00007FFD78150000 until process exit.
+20:17:13.801  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+20:17:13.834  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=000002013B53E3F0
+20:17:13.834      Width                                      = 1920
+20:17:13.834      Height                                     = 1080
+20:17:13.834      OutWidth                                   = 3840
+20:17:13.834      OutHeight                                  = 2160
+20:17:13.834      PerfQualityValue                           = 0
+20:17:13.835      DLSS.Feature.Create.Flags                  = 107
+20:17:13.835      DLSS.Enable.Output.Subrects                = 1

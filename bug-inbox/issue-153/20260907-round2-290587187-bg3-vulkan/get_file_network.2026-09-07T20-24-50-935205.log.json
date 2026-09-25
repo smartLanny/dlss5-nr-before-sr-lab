@@ -1,0 +1,17 @@
+{
+  "file_id_tried": "33025211f95b09df4de35ea1c783c368_28993068-aab7-11f1-85e2-339cf2e9c523",
+  "resp": {
+    "status": "ok",
+    "retcode": 0,
+    "data": {
+      "file": "C:\\Users\\pc1\\Documents\\Tencent Files\\NapCat\\temp\\network.2026-09-07T20-24-50-935205.log",
+      "url": "C:\\Users\\pc1\\Documents\\Tencent Files\\NapCat\\temp\\network.2026-09-07T20-24-50-935205.log",
+      "file_size": "2413",
+      "file_name": "network.2026-09-07T20-24-50-935205.log"
+    },
+    "message": "",
+    "wording": "",
+    "echo": "dorr55fobgj",
+    "stream": "normal-action"
+  }
+}

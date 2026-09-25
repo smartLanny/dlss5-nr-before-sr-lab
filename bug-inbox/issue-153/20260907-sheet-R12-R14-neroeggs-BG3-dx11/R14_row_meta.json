@@ -1,0 +1,22 @@
+{
+  "row": 14,
+  "nick": "neroeggs",
+  "version": "0.4.2 dx11版",
+  "config": "5080  驱动616.56",
+  "game": "博德之门3",
+  "bug": "使用自己之前renodx 4.7版本可用的桥接文件  但是不生效",
+  "is_sample": false,
+  "folder": "R14_neroeggs_博德之门3_0.4.2_dx11版",
+  "files": [
+    {
+      "cell": "ReShade.log博德之门3自用桥接.txt",
+      "saved": "ReShade.log博德之门3自用桥接.txt",
+      "size": 17411
+    },
+    {
+      "cell": "nr-before-sr.log博德之门3自用桥接.txt",
+      "saved": "nr-before-sr.log博德之门3自用桥接.txt",
+      "size": 56347
+    }
+  ]
+}
