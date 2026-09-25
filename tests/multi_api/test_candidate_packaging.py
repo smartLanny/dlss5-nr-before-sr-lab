@@ -230,6 +230,40 @@ class Packaging(unittest.TestCase):
         self.assertIn('Temporal backend compilation is not verified', run.stdout + run.stderr)
         self.assertFalse((self.root/'output').exists())
 
+    def test_reconstruction_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1')
+
+    def test_reconstruction_ui_suffix_retains_current_and_new_gates(self):
+        self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1-ui1')
+
+    def check_reconstruction_suffix(self, version):
+        extra_path, extra = self.inbox_fixture()
+        self.manifest['colour_edge']['version'] = version
+        self.manifest['reconstruction'] = {'version':version,'source_commit':self.commit}
+        for field in ('temporal_entries', 'auxiliary', 'native_output', 'source_sha256'):
+            bad = dict(extra)
+            bad[field] = '0'*64 if field == 'source_sha256' else False
+            extra_path.write_text(json.dumps(bad))
+            run = self.run_package()
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('exact-source runtime checks are incomplete', run.stdout+run.stderr)
+        extra_path.write_text(json.dumps(extra))
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Reconstruction exact-source checks are missing', run.stdout+run.stderr)
+        folder = self.build/'reconstruction-checks'
+        folder.mkdir()
+        r={'passed':True,'runtime_controls':True,'defaults_unchanged':True,
+           'source_commit':self.commit,'source_sha256':digest(self.stage/'core/src/nr_before_sr.cpp')}
+        for field in tuple(r):
+            bad=dict(r)
+            bad[field]='wrong' if field.startswith('source_') else False
+            (folder/'validation.json').write_text(json.dumps(bad))
+            run=self.run_package()
+            self.assertNotEqual(run.returncode,0)
+            self.assertIn('Reconstruction exact-source checks are incomplete',run.stdout+run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
     def test_dirty_and_changed_build_sources_rejected(self):
         template = self.repo/'tests/post_scaled_work_gpu.cpp.in'
         template.write_bytes(template.read_bytes() + b'\n// dirty fixture\n')

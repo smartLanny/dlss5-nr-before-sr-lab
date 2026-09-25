@@ -83,6 +83,20 @@ class Lockperf2Workflow(unittest.TestCase):
         self.assertNotIn('Copy-Item build/nr_before_sr.ini', text)
         self.assertIn('exact linker maps', text)
 
+    def test_exact_product_parser_accepts_bounded_ui_revision(self):
+        text = read('scripts/build-perf12-candidate.ps1')
+        pattern = re.search(r'\$VersionMatch = \[regex\]::Match\(\$VersionSource, "([^"]+)"\)', text).group(1)
+        current = read('scripts/patch-colour-edge.py')
+        actual = re.search(pattern, current)
+        self.assertIsNotNone(actual)
+        self.assertEqual(actual.group(1), 'beta0.5-dline21-unified10-reconstruction1-ui1')
+        for leaf in ('unified10', 'unified10-inbox1', 'unified10-reconstruction1', 'unified10-reconstruction1-ui1'):
+            match = re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n")
+            self.assertIsNotNone(match)
+            self.assertEqual(match.group(2), leaf)
+        for leaf in ('unified10-reconstruction1-uiX', 'unified10-reconstruction1-ui1-extra', '../unified10', 'unified10/a'):
+            self.assertIsNone(re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n"))
+
     def test_legacy_command_cannot_label_new_code_as_lockperf1(self):
         text = read('scripts/build-lockperf1-candidate.ps1')
         self.assertIn('build-lockperf2-candidate.ps1', text)
