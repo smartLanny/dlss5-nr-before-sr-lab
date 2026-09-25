@@ -1,18 +1,12 @@
-name: Pull request validation
+name: Mainline validation (Windows gates primary)
 
 on:
   pull_request:
-    branches:
-      - main
-      - release/0.4
-      - release/0.4.5-test
-      - next/0.5
-      - codex/beta0.4.2
-      - codex/multiapi-045-integration
-      - fix/f8-single-txt-reset-evidence
-      - codex/d21-saved-route-fg-boundary-20260914
-      - codex/d21-uniform-chain-update-20260916
+    branches: [main]
+  workflow_dispatch:
 
+# ENABLE_HOSTED_CI is intentionally unset/false while billing is unavailable.
+# Skipped jobs are not verification. Full Windows validation is recorded per SHA.
 permissions:
   contents: read
 
@@ -22,57 +16,57 @@ concurrency:
 
 jobs:
   maintenance:
-    if: contains(fromJSON('["release/0.4","codex/beta0.4.2"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/beta042-validate.yml
 
   feedback:
-    if: contains(fromJSON('["release/0.4","next/0.5"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/feedback-integrity.yml
 
   baseline-and-release-contracts:
-    if: contains(fromJSON('["main","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/followup-validate.yml
 
   compatibility:
-    if: github.base_ref == 'codex/multiapi-045-integration'
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/compat-continuation.yml
 
   exposure:
-    if: contains(fromJSON('["main","codex/multiapi-045-integration","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/exposure-access.yml
 
   single-text:
-    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/f8-single-text-validate.yml
 
   multi-api:
-    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/multi-api-foundation.yml
 
   generated-picture:
-    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/multi-api-picture-regression.yml
 
   picture-controls:
-    if: contains(fromJSON('["main","fix/f8-single-txt-reset-evidence","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/picture-ui-budget-validate.yml
 
   recommended-picture:
-    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/recommended-picture-validate.yml
 
   retirement-ownership:
-    if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/retirement-return-validate.yml
 
   strength-cap:
-    if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/strength-cap-validate.yml
 
   research-050:
-    if: github.base_ref == 'next/0.5'
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/beta050-validate.yml
 
   d21-uniform-chain:
-    if: contains(fromJSON('["codex/d21-saved-route-fg-boundary-20260914","codex/d21-uniform-chain-update-20260916"]'), github.base_ref)
+    if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/d21-uniform-validate.yml

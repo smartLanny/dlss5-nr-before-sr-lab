@@ -1,6 +1,6 @@
 """Source routing checks, not execution of PowerShell, Windows or Actions.
 
-Regression: next/0.5 selected the old dev4 raw build instead of the complete
+Regression: the old next/0.5 entry selected the old dev4 raw build instead of the complete
 pinned D21 generator, bypassing the newly added hotpath gates and package label.
 """
 from pathlib import Path
@@ -19,7 +19,8 @@ def read(name):
 class Lockperf2Workflow(unittest.TestCase):
     def test_actual_research_route_reaches_canonical_builder(self):
         router = read('.github/workflows/pull-request-validation.yml').split('  research-050:', 1)[1]
-        self.assertIn("github.base_ref == 'next/0.5'", router)
+        self.assertIn("github.base_ref == 'main'", router)
+        self.assertIn("vars.ENABLE_HOSTED_CI == 'true'", router)
         self.assertIn('uses: ./.github/workflows/beta050-validate.yml', router)
         research = read('.github/workflows/beta050-validate.yml').split('  full-contract-build-and-package:', 1)[1]
         self.assertIn('needs: [host-bug-regressions, shader-structure-and-math]', research)
