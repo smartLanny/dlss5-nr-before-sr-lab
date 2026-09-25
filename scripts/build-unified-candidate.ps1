@@ -1,4 +1,4 @@
-﻿# One successor entry; the cumulative performance and canonical gates remain mandatory.
+# One successor entry; the cumulative performance and canonical gates remain mandatory.
 param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
@@ -34,6 +34,14 @@ $SavedFfxCache=$env:DLSS5_FFX_CACHE_ROOT
 try {
     $env:DLSS5_FFX_SDK_ROOT=$FfxSdkRoot
     $env:DLSS5_FFX_CACHE_ROOT=$FfxCacheRoot
+$ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
+# Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
+$ReconstructionPre=$OutputRoot + '.reconstruction-checks'
+$Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+& python (Join-Path $PSScriptRoot 'validate-reconstruction-math.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'math')
+if ($LASTEXITCODE) { throw 'Reconstruction production math/policy failed.' }
+& python (Join-Path $PSScriptRoot '../tests/test_reconstruction_runtime.py') -v
+if ($LASTEXITCODE) { throw 'Reconstruction source orchestration failed.' }
 & (Join-Path $PSScriptRoot 'build-perf12-candidate.ps1') @CandidateParameters -QualitySuccessor
 if ($LASTEXITCODE) { throw 'Cumulative candidate validation failed.' }
 # Complete source, bilingual binaries and inherited gates first. These tests
@@ -56,6 +64,17 @@ if ($LASTEXITCODE) { throw 'Actual native output capture failed.' }
     acceptance=$true;restoration_negative=$true;temporal_entries=$true;auxiliary=$true;native_output=$true;
     game=$false;nvidia_inference=$false;hosted_ci=$false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Tests 'validation.json') -Encoding utf8
+& python (Join-Path $PSScriptRoot '../tests/test_reconstruction_runtime.py') --generated $Core -v
+if ($LASTEXITCODE) { throw 'Final reconstruction wiring failed.' }
+& python (Join-Path $PSScriptRoot 'validate-reconstruction-gpu.py') --source-root $Core --compiler $Cxx --output (Join-Path $ReconstructionTests 'warp') --artifacts (Join-Path $Core 'build') --require-manifest
+if ($LASTEXITCODE) { throw 'Exact reconstruction codec WARP or inverse control failed.' }
+[ordered]@{passed=$true;source_sha256=(Get-FileHash -LiteralPath $Source).Hash.ToLowerInvariant();
+    source_commit=(Get-Content (Join-Path $OutputRoot 'source/source-manifest.json') -Raw|ConvertFrom-Json).source_commit;
+    math_receipt=(Join-Path $ReconstructionPre 'math/validation.json');
+    warp_receipt=(Join-Path $ReconstructionTests 'warp/validation.json');
+    runtime_controls=$true;defaults_unchanged=$true;game=$false;nvidia_inference=$false
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $ReconstructionTests 'validation.json') -Encoding utf8
+
 
 } finally {
     $env:DLSS5_FFX_SDK_ROOT=$SavedFfxSdk

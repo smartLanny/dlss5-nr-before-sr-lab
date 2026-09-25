@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$FaceRuntimeRoot,
@@ -29,7 +29,8 @@ $Version = [string]$Product.version
 # An explicitly named inbox candidate retains every unified10 dependency/gate.
 # Do not rewrite its public/binary/source identity or accept arbitrary suffixes.
 $IsInboxCandidate = $Version -eq 'beta0.5-dline21-unified10-inbox1'
-$ValidationVersion = if ($IsInboxCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
+$IsReconstructionCandidate = $Version -eq 'beta0.5-dline21-unified10-reconstruction1'
+$ValidationVersion = if ($IsInboxCandidate -or $IsReconstructionCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
 if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
     $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if(-not $Extra.passed -or -not $Extra.acceptance -or -not $Extra.restoration_negative -or
@@ -38,10 +39,39 @@ if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified
         throw 'Unified8 exact-source runtime checks are incomplete.'
     }
 }
+if ($IsReconstructionCandidate) {
+    $RPath=Join-Path $Build 'reconstruction-checks/validation.json'
+    if (-not (Test-Path -LiteralPath $RPath)) { throw 'Reconstruction exact-source checks are missing.' }
+    $R=Get-Content -LiteralPath $RPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $CoreHash=(Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant()
+    if (-not $R.passed -or -not $R.runtime_controls -or -not $R.defaults_unchanged -or
+        $R.source_sha256 -ne $CoreHash -or $R.source_commit -ne $Commit -or
+        $Manifest.reconstruction.source_commit -ne $Commit -or $Manifest.reconstruction.version -ne $Version) {
+        throw 'Reconstruction exact-source checks are incomplete.'
+    }
+    $Math=Get-Content -LiteralPath $R.math_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $Warp=Get-Content -LiteralPath $R.warp_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($Math.status -ne 'passed' -or $Math.production_shader_sha256 -ne
+        (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_math.hlsli')).Hash.ToLowerInvariant() -or
+        $Warp.status -ne 'passed' -or -not $Warp.manifest_verified -or $Warp.hardware -or
+        $Warp.source_sha256 -ne $CoreHash -or $Warp.source_commit -ne $Commit -or
+        @($Warp.runs|Where-Object {$_.name -eq 'positive' -and $_.exit -eq 0 -and $_.expected -eq 0}).Count -ne 1 -or
+        @($Warp.runs|Where-Object {$_.name -eq 'negative-disabled-protection' -and $_.exit -eq 1 -and $_.expected -eq 1}).Count -ne 1) {
+        throw 'Reconstruction math/WARP positive and inverse evidence is incomplete.'
+    }
+    foreach($Entry in @('EncodeV2CS','CombineCS','CombineV2CS')) {
+        $Shader=$Warp.exact_bytecode.$Entry
+        if ($Shader.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-FileHash -LiteralPath $Shader.file).Hash -ne $Shader.sha256) {
+            throw 'Reconstruction tested bytecode changed.'
+        }
+    }
+}
 $Unified = $ValidationVersion -in @('beta0.5-dline21-unified1','beta0.5-dline21-unified2','beta0.5-dline21-unified3','beta0.5-dline21-unified3-rr1','beta0.5-dline21-unified4','beta0.5-dline21-unified5','beta0.5-dline21-unified6','beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')
 $DisplayProperty = $Product.PSObject.Properties['display_version']
 $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
 if ($IsInboxCandidate) { $DisplayVersion = '0.5.1-Beta-Inbox1' }
+if ($IsReconstructionCandidate) { $DisplayVersion = '0.5.1-Beta-Reconstruction1' }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
 }
@@ -267,6 +297,7 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 }
                 $StatusSource = if ($ValidationVersion -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($ValidationVersion -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
                 if ($IsInboxCandidate) { $StatusSource = '051_INBOX_WINDOWS_20260924.md' }
+                if ($IsReconstructionCandidate) { $StatusSource = '051_RECONSTRUCTION1_20260925.md' }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
                 if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
                     Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
