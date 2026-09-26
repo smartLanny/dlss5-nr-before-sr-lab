@@ -123,6 +123,42 @@ Their historical dirty/untracked state was real and the archive remains intact;
 it is no longer an outstanding migration blocker. These are observation/tests,
 not proof that a model consumes a parameter merely because Set/Get echoes it.
 
+## Submission-order follow-up (2026-09-26)
+
+A new CPU regression reproduced a missing precondition in the previous owner:
+list A could record one private Evaluate without being submitted, then list B
+could advance the same feature's history. A direct queue identity alone does
+not stop the caller from later submitting B before A. Recording order is not
+submission order (see Microsoft's `ID3D12CommandQueue::ExecuteCommandLists` and
+`Design Philosophy of Command Queues and Command Lists` documentation).
+
+The private owner now refuses a new history update while any earlier flight
+has no successful submission receipt. The post transport checks this before
+encoding, barriers or taking a new slot, including a pending creation or a
+barrier-only frame. It keeps the existing candidate, holds no extra guide refs
+and does not allocate a replacement feature. Already-submitted GPU work may
+remain in flight: no CPU wait, flush, fixed-frame retirement or extra NR/SR
+inference is added. The three independent scratch slots remain usable. A caller
+that batches multiple source frames before any submission gets a safe refusal,
+not speculative history advancement; this is an explicit compatibility tradeoff.
+
+Duplicate-source calls are rejected before the new transport gate so that they
+do not reset an otherwise valid history. Genuine skipped frames still invalidate
+history as before. The producer must serialize recording and its submission
+callback, and must not falsely report a successful queue submission.
+
+Frozen implementation `c0eb2af2` passed the existing private lifecycle test and
+21 validation steps: 46 new CPU owner assertions; WARP and NVIDIA fixture hosts
+with 319 checks each; actual Feature1 with 691 checks and 20 Evaluate calls.
+The GPU host uses a real second direct command list to verify both creation and
+Evaluate backpressure. Removing the owner gate or the transport gate independently
+produces the expected runtime failure. Previous Evaluate, phase and guide-reference
+negative controls still fail at their intended assertion. All eight compiled
+shader bytecodes are identical to the preceding experiment; this changes temporal
+submission admissibility, not the residual color arithmetic or pixel tolerance.
+See [the new exact-source receipt](docs/POST_PRIVATE_SR_SUBMISSION_20260926.json).
+These remain controlled library tests, not injected-Core or game validation.
+
 ## Still required before product adoption
 
 The missing production callback/guide-phase integration is real development work,

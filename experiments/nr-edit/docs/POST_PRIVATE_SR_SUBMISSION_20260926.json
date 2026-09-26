@@ -1,0 +1,238 @@
+{
+  "schema": "owned-post-private-sr-validation-v1",
+  "status": "passed",
+  "source_commit": "c0eb2af2e52c9be8528543acd7804eeb782c96b4",
+  "source_dirty": false,
+  "source_hashes": {
+    "experiments/nr-edit/src/nr_post_private_sr_dx12.cpp": "f02d92a909c678dcfa3556be2e0421bf43fed8bdfb5394a8a1fc4ab2d158c431",
+    "experiments/nr-edit/src/nr_post_private_sr_dx12.hpp": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+    "experiments/nr-edit/src/nr_private_sr_runtime.hpp": "41d71f639c8c81113458962a0c9367236db8dc72e14b58781621f472a67d73c8",
+    "experiments/nr-edit/src/nr_edit_dx12.cpp": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+    "experiments/nr-edit/src/nr_edit_dx12.hpp": "f99cec9a5fc0aec622f6478b15d13a4be03e39634e6bb7989affd686cb8bd558",
+    "experiments/nr-edit/src/nr_post_residual_dx12.cpp": "13704f16ea3f17bb489fe7949b0d5411fecd0a08eb5f0cf1c358836c7f820af1",
+    "experiments/nr-edit/src/nr_post_residual_dx12.hpp": "79e57d7d5f7056bf7e6db7badb3185df6982c30abd6ce7f578f2ea3d131dba4c",
+    "experiments/nr-edit/tests/post_private_sr_gpu.cpp": "b3442bbcdbdd74a158588088828825f3f98eb83405ba3ff5dd1eff72d40c8e48",
+    "experiments/nr-edit/tests/private_sr_submission_order.cpp": "b36fe9e28c595e0cb1a044feaa0512ec5a3b0fe34717f42b875c20f43c90d74b",
+    "experiments/nr-edit/tests/windows_shader_validation.cpp": "a0c7ceb9b34a29c2126128730fa324d0fe476d4d9dee4fc96ac72e512b77c9f8",
+    "src/interop/nr_ngx_parameter_abi.h": "d57f4226bef442bef340945b2f1dc8f8434de78760a79ab32784ff66c68e71ec",
+    "experiments/nr-edit/tools/validate_post_private_sr.py": "66252a03d0bb85a716479c27d7d8d40fac1e8cfc110f3df83d4ee4eacdfd5670",
+    "experiments/nr-edit/shaders/nr_deferred_edit.hlsl": "58f15d77825c444d26d954c7f100a16ad40f9f91d2b8096935dc1bd80841ed61",
+    "experiments/nr-edit/shaders/nr_normalize_guides.hlsl": "4bffff0f049b9bacee38dec935831d96d299a4c78c4ba9a90626a3c32602e1da",
+    "experiments/nr-edit/shaders/nr_post_residual.hlsl": "08f7b6f0cdd33e3823e6ba60adbd3d2f47ada370817fe9e5e2695fb3f118dcb3",
+    "experiments/nr-edit/shaders/nr_rr_edit.hlsl": "e5984cf33243f19cf92b006b72c27212eaa9fbb6b9a7f22faf326d8306cc66d3",
+    "experiments/nr-edit/shaders/nr_edit_carrier.hlsli": "b48c7fc996dd2d618c65f20ef5dfa970704689df5bbe4bd872d168172b094a8c",
+    "experiments/nr-edit/shaders/nr_edit_scalar.hlsli": "7c873a1f997905808cad25f58191f7c986aa06e82f965a4664e2bf34a9bd3162"
+  },
+  "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+  "real_feature1_requested": true,
+  "actual_core_injection_tested": false,
+  "feature18_tested": false,
+  "game_tested": false,
+  "temporal_quality_tested": false,
+  "actual_feature1_passed": true,
+  "sources_unchanged": true,
+  "runs": [
+    {
+      "name": "build-submission-order",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "submission-order",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "7559b34e7cec699a1ae3bb240fb936da7db561fc4a3510866d52fc3152700a97"
+    },
+    {
+      "name": "build-negative-submission-order",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "negative-submission-order",
+      "exit": 1,
+      "expected": 1,
+      "passed": true,
+      "log_sha256": "75e3ebe8e16a9ec5f98df5c3fbadec530a966890f2aa0edc619fe2316687a01b"
+    },
+    {
+      "name": "build-shader-compiler",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "compile-shaders",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "2a76cb865bb5e60340e91e5744a329df79ca7bc4a4b7531d7787f2596210a070"
+    },
+    {
+      "name": "strict-owned-module",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "build-host",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "warp-fixture-api",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "d17994fae7598584b03d97bb118e4e2d055cbb45f714cf08ed536bc248b123bc"
+    },
+    {
+      "name": "nvidia-fixture-api",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "ca922b1fc8a1c88239259f4ea5e5233ff26d70e9f2ec8d6cc4f4bad20ba93cbc"
+    },
+    {
+      "name": "discarded-recording",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "b4fe8b943d133929f672854af393de019a91da763a216804a9a55e34594b7288"
+    },
+    {
+      "name": "wrong-submission-queue",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "406349db879f825922d9c3c3c751800f11d383d9c22fdd65da43f1a0eb9d1e33"
+    },
+    {
+      "name": "build-missing-transport-submission-gate",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "missing-transport-submission-gate",
+      "exit": 1,
+      "expected": 1,
+      "passed": true,
+      "log_sha256": "bc36afc35b2cd485195d72d40ae8b53fd0cfcfe218ce092285a8d72f5cfabf75"
+    },
+    {
+      "name": "build-missing-evaluate-proof",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "missing-evaluate-proof",
+      "exit": 1,
+      "expected": 1,
+      "passed": true,
+      "log_sha256": "b9250df935b2a6ad2ce195a7843974e4b88080d4e5bb2ea95befcd0c803a64df"
+    },
+    {
+      "name": "build-missing-post-phase-proof",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "missing-post-phase-proof",
+      "exit": 1,
+      "expected": 1,
+      "passed": true,
+      "log_sha256": "de3eb89f0a2cd54f64ca04a9230bb3e1be792c29530dd90e099255f7e11c9fd6"
+    },
+    {
+      "name": "build-missing-barrier-guide-retention",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "missing-barrier-guide-retention",
+      "exit": 1,
+      "expected": 1,
+      "passed": true,
+      "log_sha256": "7376917192a2d30d63d326eb0d2b8733b53978e644f2bf0c86c86cfa168df8a3"
+    },
+    {
+      "name": "actual-feature1",
+      "exit": 0,
+      "expected": 0,
+      "passed": true,
+      "log_sha256": "bbe10cfea08cf3aa0cec16023ad6235f7075ece07c48dd40e56891db606d8074"
+    }
+  ],
+  "verified_utc": "2026-09-26T09:26:42.152926+00:00",
+  "full_private_receipt_sha256": "e464e993d6a69db4db07c9bbcfdfeff34cbb0c9138aa9afd2e79f14c6bd1692b",
+  "checks": {
+    "submission-order": {
+      "checks": 46
+    },
+    "warp-fixture-api": {
+      "checks": 319,
+      "creates": 1,
+      "evaluates": 10
+    },
+    "nvidia-fixture-api": {
+      "checks": 319,
+      "creates": 1,
+      "evaluates": 10
+    },
+    "actual-feature1": {
+      "checks": 691,
+      "creates": 1,
+      "evaluates": 20
+    }
+  },
+  "pre_fix_reproduced": true,
+  "pre_fix_log_sha256": "75e3ebe8e16a9ec5f98df5c3fbadec530a966890f2aa0edc619fe2316687a01b",
+  "unchanged_shader_bytecodes": {
+    "deferred_compose.cso": "9438b05dbe57081d422b906bccf9a207de75ebe0a186babd80cc2d380bb98179",
+    "deferred_encode.cso": "b82f54096d10a49e0059b4a9da5d905290c8d964b6a95cf25bb8dfc52bfdc7c4",
+    "normalize.cso": "68c871ffed4e2afde37fd494f1a194a04383d00d48eee54b013399bf10292d22",
+    "post_compose.cso": "44fdb809a148ec37b4144e30324abd263e8a7a8b4b60f0cd61edf621febbe290",
+    "post_extract.cso": "a6d7c806884622292fe8641b3214ccb7f5ad06da4ec94c385599ac7884cdf305",
+    "rr_accumulate.cso": "661daadc3778ad284f3af9b6ec70bab3a1b6a4a3a6a96621bc5aaf1730cd2e8b",
+    "rr_compose.cso": "51894f47d2596c04ba5eddbb2d4c53e7c55203110dd121a1a0545ec87d83e3e0",
+    "rr_guides.cso": "cc4ae76d97cc562ed3fc0d6a8ae7f67886ba02e51290b9d21f545b9647c61ec4"
+  },
+  "binary_sha256": {
+    "compile-edit-shader.exe": "ef9a14c186f570da28caa181c8458ee2addce660785a4a75785f2a9f6be244e7",
+    "missing-barrier-guide-retention.exe": "d228898a9309772e9fea29c6441167909504b8e76420df44b51ee53462fdb10b",
+    "missing-evaluate-proof.exe": "4670e2ea19b7f47de7522ebe7293411e48ef3f4576ef44b27760a9e016c11dee",
+    "missing-post-phase-proof.exe": "88920d71fef55ff44f2fc70f862bcfc7f22713f837510db31c4467f4add2dbdc",
+    "missing-transport-submission-gate.exe": "da767ae03095b70e962de9eb33cc9ef719ff471664dd9dacbe1eb51f5cfbc9e8",
+    "negative-private-sr-order.exe": "6652c3fd3d15ab52f0f57716b23801ed4ee2c9a8649feba539bae61087b539d4",
+    "post-private-sr.exe": "0edde0184150c5722a47965e0f08db640f48f3fd8b6f7cf9dab5a2551a6b5931",
+    "private-sr-order.exe": "439112546d6a6adac68107e4fe6b9106f691f29de396deb54d50086e17d83305"
+  },
+  "private_test_runtimes": {
+    "nrchain_nvngx.dll": {
+      "bytes": 222720,
+      "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    },
+    "nvngx_dlss.dll": {
+      "bytes": 54778992,
+      "sha256": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1"
+    }
+  },
+  "known_scope": "Submission order in private residual SR experiment; not shipped Core integration or game acceptance"
+}
