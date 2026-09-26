@@ -69,7 +69,8 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
-            'version':edge_patch.VERSION,'display_version':'0.5.1-Beta-Reconstruction1-UI1','source_commit':source,'base_commit':BASE,
+            'version':edge_patch.VERSION,'display_version':edge_patch.PACKAGE_VERSION,
+            'core_pe_version':edge_patch.PE_VERSION,'source_commit':source,'base_commit':BASE,
             'default_mode':1,'default_colour_strength':0.5,'default_colour_range':0.5,'priority_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,

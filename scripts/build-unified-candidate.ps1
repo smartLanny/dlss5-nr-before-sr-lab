@@ -38,6 +38,8 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+& python (Join-Path $PSScriptRoot '../tests/test_product_identity.py') -v
+if ($LASTEXITCODE) { throw 'Final product identity regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --output ($OutputRoot + '.guide-domain-checks')
 if ($LASTEXITCODE) { throw 'Guide domain, invalid scale or negative-control regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-reconstruction-math.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'math')
