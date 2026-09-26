@@ -346,7 +346,17 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 $StatusSource = if ($ValidationVersion -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($ValidationVersion -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
                 if ($IsInboxCandidate) { $StatusSource = '051_INBOX_WINDOWS_20260924.md' }
                 if ($IsReconstructionCandidate) { $StatusSource = '051_RECONSTRUCTION1_20260925.md' }
-                if ($IsGuideCandidate) { $StatusSource = '052_BETA1_ACCEPTANCE.md' }
+                if ($IsGuideCandidate) {
+                    $StatusSource = '052_BETA1_ACCEPTANCE.md'
+                    $SummaryPath=Join-Path $Repo 'docs/interop/052_BETA1_VERIFICATION_20260926.json'
+                    $Summary=Get-Content -LiteralPath $SummaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($Summary.source_commit -ne $Commit -or $Summary.full_windows_exit -ne 0 -or
+                        $Summary.full_validation_receipt_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $Build 'validation.json')).Hash.ToLowerInvariant() -or
+                        $Summary.guide_receipt_sha256 -ne $GuideEvidenceHash) {
+                        throw 'Public validation summary does not match the actual built candidate.'
+                    }
+                    Copy-Item -LiteralPath $SummaryPath -Destination (Join-Path $Package '052_BETA1_VERIFICATION_20260926.json')
+                }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
                 if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
                     Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
