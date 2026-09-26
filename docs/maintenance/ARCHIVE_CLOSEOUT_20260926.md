@@ -23,9 +23,13 @@ remaining 93 as `archive/retired-20260926/...` tags before removing their branch
 names. `main` and the #308 head remain development branches. Cleanup's own PR is
 short-lived and must be removed after merging its maintenance-only changes.
 
-The index also maps 36 original local worktree HEADs to exact archival tags and
-private recovery keys. Tags and bundles preserve committed code; worktree ZIPs
-preserve local staged/unstaged changes, untracked files and ignored evidence.
+The index also maps 36 original local worktree HEADs, 222 historical local branch
+aliases and three commits previously reachable only through reflogs to exact
+archival tags and private recovery keys. The reflog commits include legacy wrapper
+recovery, D15 validation and Manager SR/FG work; none is silently counted as already
+integrated. The final retained-history bundle was independently restored and fsck
+checked. Tags and bundles preserve committed code; worktree ZIPs preserve local
+staged/unstaged changes, untracked files and ignored evidence.
 Keeping an old experiment in an archive does not assert that it was integrated
 or that a similarly named modern capability is equivalent.
 
@@ -108,8 +112,48 @@ acceptance; #309 needs actual runtime integration, not only archival recovery.
 
 ## Final measured results
 
-Final per-directory counts, logical bytes archived, ZIP sizes and sampled free
-space are recorded in the closeout receipt and #294. Logical file sizes, allocated
-disk space and free-space changes are different measures; do not label them as
-the same saving. Private full manifests and original failure logs remain in the
-F-drive final-pass archive rather than being published in the Manager release.
+The previously unfinished last directory has now completed verified restoration
+and removal. [The measured receipt](ARCHIVE_RESULT_20260926.json) was regenerated
+from completed per-directory receipts, actual archive/manifest hashes, preserved
+commits and the current Git worktree table, not from the planned total.
+
+| Item | Verified result before retiring this maintenance PR's own branch |
+| --- | --- |
+| Historical remote heads | 177 retired in two phases (84 + 93); exact retention recorded for each |
+| Continuing remote branches | main and the separate #308 head; this maintenance head is temporary |
+| Registered local worktrees | 39 to 5 in this pass; 34 removed only after archive extraction and verification |
+| Archived regular files | 78,795 files; 57,519,787,500 logical bytes |
+| Verified ZIP archives | 2,130,456,297 bytes across those 34 worktrees |
+| Local branch aliases | 226 to 5; 220 archived historical names plus one previously merged maintenance alias removed |
+| Sampled free space | C: 15,831,670,784; D: 65,649,819,648; F: 72,929,312,768 bytes |
+| CPU/filesystem/Git validation this continuation | 10 archival fixture tests + 5 index tests + 5 existing mainline tests passed |
+
+The five remaining worktrees are the normal main checkout, #308, the two protected
+Perf7/Perf9 junction worktrees and this maintenance checkout. After merging, detach
+this checkout at verified main and delete only its merged local/remote branch name;
+retain the directory containing validation logs and receipts. That changes branch
+counts, not the archived-file or worktree totals above. Final merged SHA/ref counts
+belong in #310/#294's closing receipt.
+
+Local alias retirement rechecked every exact old SHA against its remote archive
+tag and protected all registered worktree branches. No tag, commit history, main
+or active #308 state was rewritten. The two blocked junction aliases remain.
+
+The source bytes include 57,456,567,107 bytes from D and 63,220,393 from C; the
+observed increase in C free space is not wholly attributed to this task. Prior
+phase shadow-lockperf removal (6,182,530,135 bytes) is separate and not double-counted.
+Logical file sizes, physical allocation and free-space changes differ. Free-space
+samples can also change due unrelated activity. Private manifests, Git state and
+original failure logs remain in the F-drive final-pass archive, not the public
+Manager release. F is still not a verified independent-device backup.
+
+Manager PR #15 was independently confirmed merged at
+`70af75c1e9398dd3e7363b7816942c9b3d4ed35a`. It adds the public Core preview/rollback
+entry and accurate acceptance boundary to README only. This task did not change
+application logic, component pins or existing release assets. A concurrent Manager
+main had already listed 0.5.1 as recommended; that separate change is not represented
+as our full game acceptance or silently reverted.
+
+No new Core binary, shader, runtime behavior, default setting or product version
+was introduced by this cleanup continuation. #308 and #309 remain separate work,
+not inferred complete from a successful archive or a clean branch list.

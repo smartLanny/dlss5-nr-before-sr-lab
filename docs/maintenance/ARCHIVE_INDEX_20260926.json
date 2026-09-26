@@ -5826,5 +5826,23 @@
       "preserved_by": "refs/tags/archive/local-20260926/release/0.4.5-test"
     }
   ],
-  "final_history_bundle_sha256": "d32bb877e09bcea59018c3fafebbe52a0bbdd6452b40d05776fb1b3fe6e61286"
+  "final_history_bundle_sha256": "d32bb877e09bcea59018c3fafebbe52a0bbdd6452b40d05776fb1b3fe6e61286",
+  "reflog_only_commits": [
+    {
+      "commit": "23134b1fdd9d235b008237b3111915ab4eba4e12",
+      "preserved_by": "refs/tags/archive/reflog-20260926/23134b1fdd9d235b008237b3111915ab4eba4e12",
+      "subject": "Validate D15 dispatch and lifecycle through updated production fixtures"
+    },
+    {
+      "commit": "5ef35e7e1975d06f11606160dfcfb9493cb1f5d4",
+      "preserved_by": "refs/tags/archive/reflog-20260926/5ef35e7e1975d06f11606160dfcfb9493cb1f5d4",
+      "subject": "feat(manager): integrate SR and FG controls into current xiaofeng product"
+    },
+    {
+      "commit": "7ef5f9672b076cb993832150118b273209dfdb53",
+      "preserved_by": "refs/tags/archive/reflog-20260926/7ef5f9672b076cb993832150118b273209dfdb53",
+      "subject": "fix: recover legacy DLSS core wrapper alias"
+    }
+  ],
+  "complete_history_bundle_sha256": "af602abebb5465e0ce57b01d97cd509e73b7992eef0e5e319ec6064eaa0d4126"
 }

@@ -35,6 +35,10 @@ class ArchiveIndex(unittest.TestCase):
    self.assertTrue(row['preserved_by'].startswith('refs/tags/archive/'))
    actual=subprocess.check_output(['git','rev-parse',row['preserved_by']+'^{commit}'],cwd=R,text=True).strip()
    self.assertEqual(actual,row['commit'])
+  recovered=self.d['reflog_only_commits'];self.assertEqual(len(recovered),3)
+  for row in recovered:
+   actual=subprocess.check_output(['git','rev-parse',row['preserved_by']+'^{commit}'],cwd=R,text=True).strip()
+   self.assertEqual(actual,row['commit'])
  def test_old_cleanup_proposal_is_byte_exact_not_rewritten(self):
   old=subprocess.check_output(['git','show','c66f4a064bd150dcc775a8f432c60b4916b22e42:docs/maintenance/REPO_CLEANUP_20260925.md'],cwd=R)
   actual=(R/'docs/history/pre-mainline-20260926/REPO_CLEANUP_PROPOSAL.md').read_bytes()
