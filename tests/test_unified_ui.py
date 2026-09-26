@@ -53,7 +53,7 @@ class UnifiedUi(unittest.TestCase):
         self.assertTrue('nr_colour_preferences::SetRange(next,next.color_strength)' in self.settings)
         self.assertNotIn('NrChoice("colour-policy"',self.settings)
         self.assertGreater(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
-        self.assertLess(self.settings.index('ImGui::TextWrapped("DLSS 5  %s",kAddonVersion);'),self.settings.index('ImGui::BeginTabBar('))
+        self.assertLess(self.settings.index('ImGui::TextWrapped("DLSS 5  %s",kAddonVersion)'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
         self.assertNotIn('RequestStageCapture();',self.pages)
@@ -90,8 +90,14 @@ class UnifiedUi(unittest.TestCase):
         for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
             payload_identity = (GENERATED/path).read_text(encoding='utf-8-sig')
             self.assertIn(identity,payload_identity)
-        self.assertEqual(identity,'0.5.2-beta.1')
-        self.assertEqual(version,'0.5.2 Beta 1')
+        identity_source = (ROOT/'scripts/patch-colour-edge.py').read_text(encoding='utf-8')
+        self.assertEqual(identity,re.search(r"^VERSION = '([^']+)'",identity_source,re.M).group(1))
+        self.assertEqual(version,re.search(r"^DISPLAY_VERSION = '([^']+)'",identity_source,re.M).group(1))
+        addon_names = re.findall(r'const char \*NAME =\s*"([^"]+)"',core)
+        self.assertEqual(len(addon_names),2)
+        for name in addon_names:
+            self.assertIn(version,name)
+            self.assertNotIn('dline21-uniform3',name)
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
             # Exported files are canonical Git blobs, not CRLF working-tree bytes.
             frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)

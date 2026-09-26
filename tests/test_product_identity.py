@@ -13,14 +13,15 @@ class ProductIdentity(unittest.TestCase):
     def test_actual_resource_keeps_every_non_identity_byte(self):
         original = (ROOT/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
         final = edge.patch_product_file(original, 'src/nr_before_sr.rc')
-        self.assertIn('FILEVERSION 0,5,2,1', final)
-        self.assertIn('PRODUCTVERSION 0,5,2,1', final)
-        self.assertEqual(final.count('0.5.2 Beta 1'), 2)
-        self.assertEqual(final.count('0.5.2-beta.1'), 4)
+        numeric = edge.PE_VERSION.replace('.',',')
+        self.assertIn('FILEVERSION '+numeric, final)
+        self.assertIn('PRODUCTVERSION '+numeric, final)
+        self.assertEqual(final.count(edge.DISPLAY_VERSION), 2)
+        self.assertEqual(final.count(edge.VERSION), 4)
         inverse = final.replace(edge.VERSION, 'beta0.5-dline21-uniform3')
         inverse = inverse.replace(edge.DISPLAY_VERSION, '0.5.1 dline21-uniform3 beta')
-        inverse = inverse.replace('FILEVERSION 0,5,2,1','FILEVERSION 0,5,1,26')
-        inverse = inverse.replace('PRODUCTVERSION 0,5,2,1','PRODUCTVERSION 0,5,1,26')
+        inverse = inverse.replace('FILEVERSION '+numeric,'FILEVERSION 0,5,1,26')
+        inverse = inverse.replace('PRODUCTVERSION '+numeric,'PRODUCTVERSION 0,5,1,26')
         self.assertEqual(inverse, original)
 
     def test_build_leaf_identity_only(self):
@@ -36,9 +37,11 @@ class ProductIdentity(unittest.TestCase):
         with self.assertRaises(ValueError):edge.patch_product_file(edge.patch_product_file(original,'src/nr_before_sr.rc'),'src/nr_before_sr.rc')
 
     def test_short_version_paths_remain_safe(self):
-        self.assertEqual(edge.VERSION, '0.5.2-beta.1')
-        self.assertEqual(edge.PACKAGE_VERSION, '0.5.2-Beta-1')
-        self.assertEqual(edge.PE_VERSION, '0.5.2.1')
+        self.assertRegex(edge.VERSION, r'^0\.5\.2-beta\.[1-9][0-9]*$')
+        beta = edge.VERSION.rsplit('.',1)[1]
+        self.assertEqual(edge.PACKAGE_VERSION, '0.5.2-Beta-'+beta)
+        self.assertEqual(edge.DISPLAY_VERSION, '0.5.2 Beta '+beta)
+        self.assertEqual(edge.PE_VERSION, '0.5.2.'+beta)
         self.assertEqual(Path(edge.PACKAGE_VERSION).name, edge.PACKAGE_VERSION)
 
 

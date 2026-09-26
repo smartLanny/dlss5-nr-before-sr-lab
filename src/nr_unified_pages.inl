@@ -1,6 +1,7 @@
 // Flat product pages. All picture edits join DrawSettings' single transaction.
 const char* NrUi(const char* en,const char* zh){return UseChineseUi()?zh:en;}
-bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned count) {
+bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned count,
+              const char* const* tooltips=nullptr) {
     bool edited=false;ImGui::PushID(id);
     const float width=std::max(1.f,(SettingsContentWidth()-(count-1)*ImGui::GetStyle().ItemSpacing.x)/count);
     for(unsigned i=0;i<count;++i){
@@ -8,7 +9,9 @@ bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned 
         const bool selected=value==i;
         if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
         if(ImGui::Button(labels[i],ImVec2(width,0))&&!selected){value=i;edited=true;}
-        if(selected)ImGui::PopStyleColor();ImGui::PopID();
+        if(selected)ImGui::PopStyleColor();
+        if(tooltips)SettingsTooltip(tooltips[i]);
+        ImGui::PopID();
     }
     ImGui::PopID();return edited;
 }
@@ -161,11 +164,30 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
 #endif
 void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {
     SettingsSection(NrUi("Colour comparisons","颜色对照"));
-    int curve=next.colour_input_curve==1?1:0;
-    if(NrCombo(NrUi("Model input","模型输入"),"##experiment-input",curve,NrUi("D21 input\0N2 (experimental)\0","D21 原输入\0N2（实验）\0"))){next.colour_input_curve=curve;changed=true;discrete=true;}
-    int restore=nr_colour_restore::Normalize(next.colour_restore_mode);
-    if(NrCombo(NrUi("Recovery","恢复方式"),"##experiment-restore",restore,NrUi("D21 composition\0Protected RGB (halo reports)\0Raw RGB (diagnostic)\0","D21 合成\0受保护 RGB（有亮边反馈）\0原始 RGB（诊断）\0"))){next.colour_restore_mode=restore;changed=true;discrete=true;}
-    SettingsNote(NrUi("N2 changes model input/history. RGB changes recovery and has halo reports; neither is a proven replacement for the baseline.","N2 改变模型输入与历史；RGB 改变恢复方式且有亮边反馈。两者均是独立对照。"));
+    SettingsField(NrUi("Model input","模型输入"));
+    unsigned curve=next.colour_input_curve==1?1u:0u;
+    const char* input_labels[]={NrUi("Original","原输入"),NrUi("N2 (test)","N2（实验）")};
+    const char* input_tips[]={
+        NrUi("Uses the original D21 input mapping. Switching input mapping resets model history; it does not change the recovery choice.",
+             "使用原有 D21 模型输入映射。切换输入映射会重置模型历史，不会联动恢复方式。"),
+        NrUi("Uses the experimental N2 input mapping and resets model history. For comparison; it is not a verified quality upgrade.",
+             "改用实验性的 N2 输入映射，并重置模型历史。用于对照，尚未证明画质更好。")};
+    if(NrChoice("##experiment-input",curve,input_labels,2,input_tips)){
+        next.colour_input_curve=static_cast<int>(curve);changed=true;discrete=true;
+    }
+    SettingsField(NrUi("Recovery","恢复方式"));
+    unsigned restore=static_cast<unsigned>(nr_colour_restore::Normalize(next.colour_restore_mode));
+    const char* recovery_labels[]={NrUi("Default","默认合成"),NrUi("Protected RGB","保护 RGB"),NrUi("Raw RGB","原始 RGB")};
+    const char* recovery_tips[]={
+        NrUi("Uses the original D21 output composition. Keeps the selected model input and its history.",
+             "使用原有 D21 输出合成方式，保留所选模型输入及其历史。"),
+        NrUi("Compares protected RGB recovery. Halo regressions have been reported; this is not a recommended upgrade. Does not change model input/history.",
+             "对照带保护的 RGB 恢复。已有亮边回归反馈，不代表推荐升级；不改变模型输入及其历史。"),
+        NrUi("Diagnostic raw RGB recovery bypasses artistic attenuation, while GPU safety remains active. Not the normal final picture; it does not change model input/history.",
+             "诊断用原始 RGB 恢复，绕过审美衰减，仍保留 GPU 安全检查。不代表正常最终画面；不改变模型输入及其历史。")};
+    if(NrChoice("##experiment-restore",restore,recovery_labels,3,recovery_tips)){
+        next.colour_restore_mode=static_cast<int>(restore);changed=true;discrete=true;
+    }
     DrawUnifiedColourState(next,generation,pending||changed);
     const auto sample=SnapshotColorPolicy();
     if(!pending&&!changed&&sample.config_generation==generation&&sample.status==NrColorPolicyStatus::Current){

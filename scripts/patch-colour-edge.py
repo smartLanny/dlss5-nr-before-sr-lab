@@ -7,10 +7,10 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = '0.5.2-beta.1'
-DISPLAY_VERSION = '0.5.2 Beta 1'
-PACKAGE_VERSION = '0.5.2-Beta-1'
-PE_VERSION = '0.5.2.1'
+VERSION = '0.5.2-beta.2'
+DISPLAY_VERSION = '0.5.2 Beta 2'
+PACKAGE_VERSION = '0.5.2-Beta-2'
+PE_VERSION = '0.5.2.2'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
           'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl','src/nr_hotkeys.h','src/nr_colour_preferences.h',
           'src/nr_unified_settings.inl', 'src/nr_unified_pages.inl')
@@ -114,6 +114,14 @@ def patch_runtime(text: str, shader: str, helpers) -> str:
         value = DISPLAY_VERSION if name == 'kAddonVersion' else VERSION
         text=once(text,f'constexpr const char *{name} = "beta0.5-dline21-colour4";',
             f'constexpr const char *{name} = "{value}";','edge identity')
+    # ReShade reads NAME before drawing the overlay. Keep its visible identity
+    # in sync with the panel, feedback and PE resource, including attribution.
+    for old,new in (
+        ('DLSS 5 NR Perfect Chain beta0.5-dline21-uniform3 (Chinese UI) | Bilibili UID 941799',
+         f'DLSS 5 {DISPLAY_VERSION} (Chinese UI) | Bilibili UID 941799'),
+        ('DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-uniform3 | Bilibili UID 941799',
+         f'DLSS 5 {DISPLAY_VERSION} (English UI) | Bilibili UID 941799')):
+        text=once(text,old,new,'ReShade add-on display identity')
     for k,v in saved.items():
         if body(text,k)!=v: raise ValueError('Edge changed invariant: '+k)
     return text
@@ -155,8 +163,8 @@ def patch_product_file(text: str, path: str) -> str:
     text=text.replace(old,VERSION)
     if path.endswith('.rc'):
         for old,new,count in (
-            ('FILEVERSION 0,5,1,26','FILEVERSION 0,5,2,1',1),
-            ('PRODUCTVERSION 0,5,1,26','PRODUCTVERSION 0,5,2,1',1),
+            ('FILEVERSION 0,5,1,26','FILEVERSION '+PE_VERSION.replace('.',','),1),
+            ('PRODUCTVERSION 0,5,1,26','PRODUCTVERSION '+PE_VERSION.replace('.',','),1),
             ('0.5.1 dline21-uniform3 beta',DISPLAY_VERSION,2)):
             if text.count(old)!=count:raise ValueError('Review PE identity anchor: '+old)
             text=text.replace(old,new)
