@@ -39,6 +39,7 @@ class Context {
 public:
     struct Slot {
         ID3D12Resource *carrier=nullptr,*tail=nullptr,*upscaled=nullptr;
+        ID3D12Resource *depth=nullptr,*motion=nullptr;
         Recording recording{};
         ID3D12Fence* fence=nullptr;
         nr_private_sr::Fence completion{};
@@ -128,7 +129,11 @@ bool Collect(Context* c) {
         const auto value=s.fence->GetCompletedValue();
         if(value==UINT64_MAX){c->Poison();return false;}
         if(value>=s.completion.value&&c->api.recording_released(c->api.retirement_user,s.recording)) {
-            s.fence->Release();s.fence=nullptr;s.recording={};s.completion={};s.sr_recorded=false;
+            s.fence->Release();s.fence=nullptr;
+            if(s.depth)c->api.release_resource(c->api.user,s.depth);
+            if(s.motion)c->api.release_resource(c->api.user,s.motion);
+            s.depth=s.motion=nullptr;
+            s.recording={};s.completion={};s.sr_recorded=false;
         }
     }
     return true;
@@ -162,6 +167,13 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     frame.color=slot->carrier;frame.output=slot->upscaled;frame.depth=i.depth.resource;frame.motion=i.motion.resource;
     frame.jitter_x=frame.jitter_y=0;frame.mv_x=i.motion_scale_x;frame.mv_y=i.motion_scale_y;
     frame.reset=i.reset;frame.resource_contract_verified=true;
+    // Resource barriers themselves reference the guides even when private SR
+    // is still waiting for its creation fence and records no vendor work.
+    // The transport, not the caller's temporary input or SR's optional flight,
+    // owns those references until this exact recording is no longer replayable.
+    slot->depth=i.depth.resource;slot->motion=i.motion.resource;
+    c->api.retain_resource(c->api.user,slot->depth);
+    c->api.retain_resource(c->api.user,slot->motion);
     Transition(list,slot->carrier,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(list,slot->upscaled,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Transition(list,i.depth.resource,i.depth.state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

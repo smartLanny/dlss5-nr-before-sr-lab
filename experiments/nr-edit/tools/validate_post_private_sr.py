@@ -80,7 +80,11 @@ def main():
         negatives=[('missing-evaluate-proof','if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index};',
                     'if(false)return {Status::WaitingForSr,true,false,sr.result,index};','creation is not successful reconstruction'),
                    ('missing-post-phase-proof','!i.post_sr_phase_verified||','',
-                    'invalid input cannot record or consume private history')]
+                    'invalid input cannot record or consume private history'),
+                   ('missing-barrier-guide-retention',
+                    'c->api.retain_resource(c->api.user,slot->depth);\n    c->api.retain_resource(c->api.user,slot->motion);',
+                    '// Deliberately missing barrier-only guide references.',
+                    'barrier-only waiting frame retains both guide resources')]
         for name,old,new,error in negatives:
             if text.count(old)!=1:raise RuntimeError('Review changed negative anchor: '+name)
             altered=out/(name+'.cpp');altered.write_text(text.replace(old,new),encoding='utf-8')

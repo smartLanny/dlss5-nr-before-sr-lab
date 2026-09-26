@@ -81,9 +81,14 @@ backpressure/recovery and no release before recording retirement. Wrong submissi
 queue and discarded recording are separate child processes; uncertain resources
 are left to process exit instead of unsafe destructors.
 
-Two independently compiled negative controls remove (1) the Evaluate prerequisite
-and (2) the post-phase prerequisite. They must fail at the intended runtime
-assertion, not at compilation. The test-only altered sources are in the private
+Three independently compiled negative controls remove (1) the Evaluate prerequisite,
+(2) the post-phase prerequisite, and (3) the transport's own guide references.
+The third case holds the private creation completion pending: barriers still refer
+to new depth/MV resources although SR records no vendor work for that call. The
+transport retains those guides until both its fence and recording retirement,
+independent of the SR feature's optional flight. The reference-accounting test
+also requires every successful-retirement reference to be released exactly once.
+The negative controls must fail at the intended runtime assertion, not compilation. The test-only altered sources are in the private
 output directory, never production macros or defaults.
 
 Supplying both `--nrchain` and `--sr-runtime` copies the explicitly selected existing

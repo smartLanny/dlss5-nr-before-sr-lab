@@ -33,7 +33,8 @@ struct Rig {
     using Evaluate=unsigned(*)(ID3D12GraphicsCommandList*,const void*,const NVSDK_NGX_Parameter*,void*);
     using Release=unsigned(*)(void*);
     Allocate allocate=nullptr;Destroy destroy=nullptr;Create create=nullptr;Evaluate evaluate=nullptr;Release release=nullptr;
-    bool real=false;
+    bool real=false,hold_sr_completion=false;
+    std::map<void*,unsigned> retained_resources;
     std::array<std::vector<char>,2> shader_bytes;
 
     Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge)
@@ -42,11 +43,11 @@ struct Rig {
         api.user=this;api.original_sr_owner_verified=true;
         api.retirement_user=this;
         api.recording_released=[](void* u,Recording r){return static_cast<Rig*>(u)->retired.count(r.lifetime)!=0;};
-        api.retain_resource=[](void*,void* p){static_cast<IUnknown*>(p)->AddRef();};
-        api.release_resource=[](void*,void* p){static_cast<IUnknown*>(p)->Release();};
+        api.retain_resource=[](void* u,void* p){auto& r=*static_cast<Rig*>(u);++r.retained_resources[p];static_cast<IUnknown*>(p)->AddRef();};
+        api.release_resource=[](void* u,void* p){auto& r=*static_cast<Rig*>(u);Need(r.retained_resources[p]>0,"resource release has a matching owned reference");--r.retained_resources[p];static_cast<IUnknown*>(p)->Release();};
         api.retain_fence=[](void*,std::uint64_t p){reinterpret_cast<ID3D12Fence*>(p)->AddRef();};
         api.release_fence=[](void*,std::uint64_t p){reinterpret_cast<ID3D12Fence*>(p)->Release();};
-        api.poll=[](void*,nr_private_sr::Fence f){return nr_private_sr::Completion{f.queue,f.object,reinterpret_cast<ID3D12Fence*>(f.object)->GetCompletedValue()};};
+        api.poll=[](void* u,nr_private_sr::Fence f){auto& r=*static_cast<Rig*>(u);return nr_private_sr::Completion{f.queue,f.object,r.hold_sr_completion?0:reinterpret_cast<ID3D12Fence*>(f.object)->GetCompletedValue()};};
         if(real) {
             bridge=LoadLibraryW(real_bridge);Need(bridge!=nullptr,"load existing bootstrap");
             auto init=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(bridge,"NRChain_Bootstrap"));
@@ -155,6 +156,7 @@ struct Rig {
     void Done() {
         Need(pipeline::ReadyToRetire(context)&&pipeline::Retire(context)&&!context,"full explicit retirement");
         Need(creates==1&&releases==1&&allocations==destroys,"one feature, all independent params destroyed");
+        for(const auto& p:retained_resources)Need(p.second==0,"all completed guide and vendor references released exactly");
         // All commands completed and retired before resource destruction.
         Check(h->list->Close(),"empty final close");delete owner;owner=nullptr;delete h;h=nullptr;
         if(bridge){FreeLibrary(bridge);bridge=nullptr;}
@@ -174,8 +176,19 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
         Need(pipeline::Poisoned(r->context)&&!pipeline::Retire(r->context),"failed submission is not safe retirement");
         std::cout<<"PASS wrong queue poisons without release; process exit is only cleanup\n";std::cout.flush();ExitProcess(0);
     }
-    auto initial=r->h->CopyOut(*r->owner,warm.target.resource,10);r->Submit(true);r->h->Assert(initial,.75f,.75f, NAN,0);
+    auto initial=r->h->CopyOut(*r->owner,warm.target.resource,10);
+    r->hold_sr_completion=!r->real;
+    r->Submit(true);r->h->Assert(initial,.75f,.75f, NAN,0);
     Need(r->evaluates==0,"no evaluate hidden in creation");
+    if(!r->real) {
+        auto waiting=r->Frame(.75f);auto pending=pipeline::Record(r->context,r->h->list,waiting);
+        Need(pending.recorded&&!pending.composed&&r->evaluates==0,"waiting creation does not run SR or compose");
+        Need(r->retained_resources[waiting.depth.resource]>0&&r->retained_resources[waiting.motion.resource]>0,
+             "barrier-only waiting frame retains both guide resources");
+        auto unchanged=r->h->CopyOut(*r->owner,waiting.target.resource,10);
+        r->Submit(true);r->h->Assert(unchanged,.75f,.75f,NAN,0);
+        r->hold_sr_completion=false;Need(pipeline::Collect(r->context),"creation completion becomes visible");
+    }
     const float edits[]={0,1.f/1024,-1.f/2048,.25f,-.25f};
     for(unsigned kind=0;kind<5;++kind) {
         r->fixture_output=r->Image(kind==4?.375f:.625f);
