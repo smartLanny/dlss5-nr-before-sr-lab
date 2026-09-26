@@ -1,0 +1,9 @@
+52:01:15:20:206 [17472] | INFO  | Loading add-on from 'D:\steam\steamapps\common\Crimson Desert\bin64\nr-before-sr.zh-CN.addon64' ...
+53:01:15:21:170 [17472] | INFO  | Registered add-on "DLSS 5 AI渲染超分版 beta0.3.3-dev @野生的装机宅 Bilibili" v0.3.3.5 using ReShade API version 18.
+222:01:15:24:410 [17472] | INFO  | Running on NVIDIA GeForce RTX 5070 Ti Laptop GPU Driver 616.64.
+246:01:15:29:854 [17472] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = 00000000E77CB0B0, BufferCount = 0, Width = 0, Height = 0, NewFormat = 0, SwapChainFlags = 0) ...
+248:01:15:29:864 [17472] | ERROR | IDXGISwapChain::ResizeBuffers failed with error code E_INVALIDARG!
+285:01:15:29:934 [17472] | INFO  | Running on NVIDIA GeForce RTX 5070 Ti Laptop GPU Driver 616.64.
+359:01:17:46:050 [ 6160] | INFO  | Saving screenshot to 'D:\steam\steamapps\common\Crimson Desert\bin64\.\CrimsonDesert 2026-09-09 01-17-46_0 DLSS5_FB_29380_9046750_0.png'.
+360:01:17:48:043 [ 6160] | INFO  | Saving screenshot to 'D:\steam\steamapps\common\Crimson Desert\bin64\.\CrimsonDesert 2026-09-09 01-17-48_0 DLSS5_FB_29380_9046750_1.png'.
+361:01:17:50:048 [ 6160] | INFO  | Saving screenshot to 'D:\steam\steamapps\common\Crimson Desert\bin64\.\CrimsonDesert 2026-09-09 01-17-50_0 DLSS5_FB_29380_9046750_2.png'.

@@ -12,10 +12,13 @@ m3=load('recon_m3',ROOT/'scripts/patch-colour-restore.py')
 stage=load('recon_stage',ROOT/'scripts/patch-colour-stage.py')
 edge=load('recon_edge',ROOT/'scripts/patch-colour-edge.py')
 patch=load('recon_final',ROOT/'scripts/patch-reconstruction.py')
-# Canonical text comparison: Git worktrees may check out CRLF while the
-# exporter reads LF git blobs. Do not mistake that for a shader-code change.
-inputs={p:(ROOT/p).read_text(encoding='utf-8-sig').encode('utf-8') for p in patch.INPUTS}
+inputs={p:(ROOT/p).read_bytes() for p in patch.INPUTS}
 GENERATED=None
+
+def text_eol(data):
+    # Git's Windows checkout may use CRLF; generated text uses canonical LF.
+    # Normalize line endings only, never whitespace, tokens or source-pin hashes.
+    return data.replace(b'\r\n', b'\n')
 
 def body(s,k):return s[slice(*m3.definition(s,k))]
 def before():
@@ -96,7 +99,12 @@ class ReconstructionTests(unittest.TestCase):
     def test_real_ui_does_not_overwrite_other_settings(self):
         s=(ROOT/'src/nr_reconstruction_ui.inl').read_text()
         import re
-        self.assertEqual(set(re.findall(r'next\.(\w+)\s*=(?!=)',s)),{'reconstruction_mode','near_black_chroma_guard'})
+        edits=set(re.findall(r'next\.(\w+)\s*=(?!=)',s)) | set(re.findall(r'&next\.(\w+)',s))
+        self.assertEqual(edits,{'reconstruction_mode','near_black_chroma_guard'})
+        self.assertIn('去除暗噪',s)
+        self.assertIn('ReconstructionUiModeName(choice)',s)
+        self.assertIn('if(choice==2)ImGui::SameLine();',s)
+        for label in ('A##reconstruction', 'B##reconstruction', 'A+B', 'NrCombo('):self.assertNotIn(label,s)
         self.assertIn('sample.config_generation==generation',s)
         for bad in ('ApplyConfig(', 'WritePrivateProfile','CreateFeature(','EvaluateFeature('):self.assertNotIn(bad,s)
         self.assertIn('F8',s)
@@ -104,8 +112,8 @@ class ReconstructionTests(unittest.TestCase):
         if GENERATED is None:
             self.skipTest('complete source generation not supplied; source transformations still tested')
         s=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
-        self.assertIn(inputs['src/nr_reconstruction_math.hlsli'].decode(),s)
-        self.assertIn(inputs['src/nr_reconstruction_sampling.hlsli'].decode(),s)
+        self.assertIn(text_eol(inputs['src/nr_reconstruction_math.hlsli']).decode(),s)
+        self.assertIn(text_eol(inputs['src/nr_reconstruction_sampling.hlsli']).decode(),s)
         self.assertIn('frame_config.reconstruction_mode',body(s,'void DispatchCodec('))
         self.assertIn('constants.region_flags |= reconstruction.flags;',s)
         pages=(GENERATED/'src/nr_unified_pages.inl').read_text()
@@ -115,8 +123,11 @@ class ReconstructionTests(unittest.TestCase):
         a=(GENERATED/'src/nr_feedback_capture.inl').read_text()
         self.assertIn('reconstruction.recorded',a)
         self.assertIn('not GPU/pixel proof',f)
-        for p in patch.INPUTS[1:]:
-            self.assertEqual((GENERATED/p).read_text(encoding='utf-8-sig').encode('utf-8'),inputs[p])
+        for p in patch.INPUTS[1:]:self.assertEqual(text_eol((GENERATED/p).read_bytes()),text_eol(inputs[p]))
+    def test_line_endings_do_not_hide_changed_source(self):
+        self.assertEqual(text_eol(b'float a;\r\n'),text_eol(b'float a;\n'))
+        self.assertNotEqual(text_eol(b'float a;\r\n'),text_eol(b'float b;\n'))
+        self.assertNotEqual(text_eol(b'float a; \r\n'),text_eol(b'float a;\n'))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--generated',type=Path);p.add_argument('--repo',type=Path)

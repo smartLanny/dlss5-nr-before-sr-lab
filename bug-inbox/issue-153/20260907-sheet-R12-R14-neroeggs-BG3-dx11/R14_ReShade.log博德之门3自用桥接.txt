@@ -1,0 +1,146 @@
+20:17:00:945 [25008] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\dxgi.dll' into 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\bg3_dx11.exe' (0x64317982) ...
+20:17:00:976 [25008] | INFO  | Registering hooks for 'user32.dll' ...
+20:17:00:977 [25008] | INFO  | > Libraries loaded.
+20:17:00:977 [25008] | INFO  | > Found 21 match(es). Installing ...
+20:17:01:006 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\dinput.dll' ...
+20:17:01:007 [25008] | INFO  | > Delayed.
+20:17:01:007 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\dinput8.dll' ...
+20:17:01:007 [25008] | INFO  | > Delayed.
+20:17:01:007 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d2d1.dll' ...
+20:17:01:008 [25008] | INFO  | > Delayed.
+20:17:01:008 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d3d9.dll' ...
+20:17:01:008 [25008] | INFO  | > Delayed.
+20:17:01:008 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d3d10.dll' ...
+20:17:01:009 [25008] | INFO  | > Delayed.
+20:17:01:009 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d3d10_1.dll' ...
+20:17:01:009 [25008] | INFO  | > Delayed.
+20:17:01:009 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d3d11.dll' ...
+20:17:01:009 [25008] | INFO  | > Libraries loaded.
+20:17:01:009 [25008] | INFO  | > Found 3 match(es). Installing ...
+20:17:01:037 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\d3d12.dll' ...
+20:17:01:037 [25008] | INFO  | > Delayed.
+20:17:01:038 [25008] | INFO  | Registering hooks for 'C:\Windows\system32\dxgi.dll' ...
+20:17:01:038 [25008] | INFO  | > Delayed until first call to an exported function.
+20:17:01:038 [25008] | INFO  | Registering hooks for 'openvr_api.dll' ...
+20:17:01:038 [25008] | INFO  | > Delayed.
+20:17:01:038 [25008] | INFO  | Initialized.
+20:17:01:951 [24840] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+20:17:02:164 [25008] | INFO  | Redirecting RegisterClassW(lpWndClass = 00000028773FE8E0 { "SDLHelperWindowInputCatcher", style = 0 }) ...
+20:17:02:195 [25008] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = 00000028773FE810 { "SDL_app", style = 0x1020 }) ...
+20:17:02:215 [25008] | INFO  | Redirecting RegisterClassExA(lpWndClassEx = 00007FFCAEC1E348 { "SDL_HIDAPI_DEVICE_DETECTION", style = 0 }) ...
+20:17:02:243 [ 7700] | INFO  | Installing delayed hooks for 'C:\Windows\system32\dinput8.dll' (Just loaded via LoadLibrary('ext-ms-win-mininput-inputhost-l1-1-1.dll')) ...
+20:17:02:243 [ 7700] | INFO  | > Found 2 match(es). Installing ...
+20:17:02:245 [25008] | WARN  | Ignoring LoadLibrary('HID.DLL') call to avoid possible deadlock.
+20:17:02:246 [25008] | WARN  | Ignoring LoadLibrary('SETUPAPI.DLL') call to avoid possible deadlock.
+20:17:02:248 [25008] | WARN  | Ignoring LoadLibrary('WINMM.DLL') call to avoid possible deadlock.
+20:17:02:250 [25008] | WARN  | Ignoring LoadLibrary('USER32.DLL') call to avoid possible deadlock.
+20:17:02:265 [25008] | WARN  | Ignoring LoadLibrary('XInput1_4.dll') call to avoid possible deadlock.
+20:17:02:380 [25064] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = 00007FFCAEC1EB28 { "Message", style = 0 }) ...
+20:17:03:016 [25008] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = 00000028773FDF80 { "SteamWinsockInitFakeClass_1", style = 0 }) ...
+20:17:03:076 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-253C83D1B387}, ppFactory = 00000028773FE388) ...
+20:17:03:076 [25008] | INFO  | Installing export hooks for 'C:\Windows\system32\dxgi.dll' ...
+20:17:03:100 [25008] | INFO  | > Found 5 match(es). Installing ...
+20:17:03:170 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-253C83D1B387}, ppFactory = 00000028773FE770) ...
+20:17:03:263 [25008] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 000001FD60B4A050, DriverType = 0, Software = 0000000000000000, Flags = 0, pFeatureLevels = 00000028773FE778, FeatureLevels = 1, SDKVersion = 7, ppDevice = 00000028773FE790, pFeatureLevel = 0000000000000000, ppImmediateContext = 000001FDCCB80028) ...
+20:17:03:264 [25008] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+20:17:03:264 [25008] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 000001FD60B4A050, DriverType = 0, Software = 0000000000000000, Flags = 0, pFeatureLevels = 00000028773FE778, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 00000028773FE790, pFeatureLevel = 0000000000000000, ppImmediateContext = 000001FDCCB80028) ...
+20:17:03:264 [25008] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin' ...
+20:17:03:264 [25008] | INFO  | Loading add-on from 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64' ...
+20:17:03:272 [25008] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" v0.4.2.0 using ReShade API version 18.
+20:17:03:275 [25008] | INFO  | Installing delayed hooks for 'C:\Windows\system32\d3d12.dll' (Just loaded via LoadLibrary('E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64')) ...
+20:17:03:275 [25008] | INFO  | > Found 8 match(es). Installing ...
+20:17:03:315 [25008] | INFO  | Loading add-on from 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\dlss5-dx11-bridge.addon64' ...
+20:17:03:325 [25008] | INFO  | Registered add-on "DLSS 5 DX11 Bridge 1.0.16" v1.0.16.0 using ReShade API version 18.
+20:17:03:350 [25008] | INFO  | Loading add-on from 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\renodx-baldursgate3.addon64' ...
+20:17:03:359 [25008] | INFO  | Registered add-on "RenoDX" v0.2026.620.334 using ReShade API version 18.
+20:17:03:361 [25008] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+20:17:03:361 [25008] | INFO  | [RenoDX] utils::shader attached.
+20:17:03:361 [25008] | INFO  | [RenoDX] mods::shader attached.
+20:17:03:368 [25008] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 5 from 173799362144 to 140724433304512)
+20:17:03:368 [25008] | INFO  | [RenoDX] mods::shader(Attached Injections: 13 at 140724433301888)
+20:17:03:604 [ 8224] | WARN  | Ignoring LoadLibrary('bcrypt.dll') call to avoid possible deadlock.
+20:17:03:652 [26440] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+20:17:03:654 [ 4280] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+20:17:03:702 [25008] | INFO  | Using feature level b100.
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 2190816589944, api: d3d11)
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48e37c1e)
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc6879c29)
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x11c53bba)
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1b418d49)
+20:17:03:703 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x36496c32)
+20:17:03:703 [25008] | INFO  | [RenoDX] mods::shader::OnInitDevice(2190816589944)
+20:17:03:703 [25008] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Forcing cbuffer index 0x000001fe16f56e50: 13 )
+20:17:03:703 [25008] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout(Creating D3D11 Layout 0x000001fe16f56e10: 1 )
+20:17:03:703 [25008] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout(0x000001fe16f56e50, injection index: 0, descriptor injection index: -1, descriptor injection count: 0, injection layout: 0x000001fe16f56e10, cbvIndex:13 )
+20:17:03:704 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {50C83A1C-E072-4C48-87B0-3630FA36A6D0}, ppFactory = 00000028773FE728) ...
+20:17:04:408 [10116] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+20:17:04:616 [26456] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+20:17:04:618 [25008] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+20:17:04:621 [13440] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+20:17:04:623 [25008] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+20:17:04:625 [13440] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+20:17:04:627 [13440] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+20:17:04:629 [25008] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+20:17:04:633 [13440] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+20:17:04:638 [13440] | WARN  | Ignoring LoadLibrary('wintrust.dll') call to avoid possible deadlock.
+20:17:04:639 [25008] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+20:17:04:651 [25008] | WARN  | Ignoring LoadLibrary('api-ms-win-core-localization-l1-2-1') call to avoid possible deadlock.
+20:17:04:757 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-21CA39E5168A}, ppFactory = 00000028773FE698) ...
+20:17:04:760 [25008] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = 000001FDCAD08F80, pDevice = 000001FE16D83870, hWnd = 0000000001290E4C, pDesc = 00000028773FE6C8, pFullscreenDesc = 00000028773FE6B0, pRestrictToOutput = 0000000000000000, ppSwapChain = ) ...
+20:17:04:760 [25008] | INFO  | > Dumping swap chain description:
+20:17:04:760 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+
+20:17:04:760 [25008] | INFO  |   | Parameter                               | Value                                   |
+20:17:04:760 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+
+20:17:04:760 [25008] | INFO  |   | Width                                   | 3840                                    |
+20:17:04:760 [25008] | INFO  |   | Height                                  | 2160                                    |
+20:17:04:760 [25008] | INFO  |   | RefreshRate                             | 144                 1                   |
+20:17:04:760 [25008] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+20:17:04:762 [25008] | INFO  |   | Stereo                                  | FALSE                                   |
+20:17:04:762 [25008] | INFO  |   | ScanlineOrdering                        | 0                                       |
+20:17:04:762 [25008] | INFO  |   | Scaling                                 | 0                                       |
+20:17:04:762 [25008] | INFO  |   | SampleCount                             | 1                                       |
+20:17:04:762 [25008] | INFO  |   | SampleQuality                           | 0                                       |
+20:17:04:762 [25008] | INFO  |   | BufferUsage                             | 0x30                                    |
+20:17:04:762 [25008] | INFO  |   | BufferCount                             | 2                                       |
+20:17:04:762 [25008] | INFO  |   | Windowed                                | TRUE                                    |
+20:17:04:762 [25008] | INFO  |   | SwapEffect                              | 4                                       |
+20:17:04:762 [25008] | INFO  |   | AlphaMode                               | 0                                       |
+20:17:04:762 [25008] | INFO  |   | Flags                                   | 0x802                                   |
+20:17:04:762 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+
+20:17:04:772 [25008] | INFO  | Running on NVIDIA GeForce RTX 5080 Driver 616.56.
+20:17:05:007 [25008] | INFO  | Recreated runtime environment on runtime 000001FD43E2F370 ('E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\reshade.ini').
+20:17:05:034 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {50C83A1C-E072-4C48-87B0-3630FA36A6D0}, ppFactory = 00000028773FE4C8) ...
+20:17:05:038 [25008] | INFO  | Redirecting IDXGISwapChain3::SetColorSpace1(ColorSpace = 12) ...
+20:17:05:038 [25008] | INFO  | Destroyed runtime environment on runtime 000001FD43E2F370 ('E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\reshade.ini').
+20:17:05:039 [25008] | INFO  | Recreated runtime environment on runtime 000001FD43E2F370 ('E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\reshade.ini').
+20:17:06:688 [25008] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x1b418d49)
+20:17:06:688 [25008] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x1b418d49, pipeline: 0x00000200c4dd90f8, index: 0, type: compute_shader, stage: compute_shader)
+20:17:06:688 [25008] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x48e37c1e)
+20:17:06:688 [25008] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x48e37c1e, pipeline: 0x00000200c4dd93f8, index: 0, type: compute_shader, stage: compute_shader)
+20:17:06:689 [25008] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xc6879c29)
+20:17:06:689 [25008] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xc6879c29, pipeline: 0x00000200c4dd98b8, index: 0, type: pixel_shader, stage: pixel_shader)
+20:17:06:695 [25008] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x11c53bba)
+20:17:06:695 [25008] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x11c53bba, pipeline: 0x00000200c0ef5a38, index: 0, type: pixel_shader, stage: pixel_shader)
+20:17:06:704 [25008] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x36496c32)
+20:17:06:704 [25008] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x36496c32, pipeline: 0x00000200c0efb678, index: 0, type: pixel_shader, stage: pixel_shader)
+20:17:06:774 [25008] | WARN  | Failed to resolve search path 'E:\Program Files (x86)\Steam\steamapps\common\Baldurs Gate 3\bin\reshade-shaders\Shaders\' with error code 3.
+20:17:13:058 [25008] | INFO  | Redirecting D3D12CreateDevice(pAdapter = 000001FD60B4A050, MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-1821339B85F7}, ppDevice = 00007FFD25D5F750) ...
+20:17:13:059 [25008] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-21CA39E5168A}, ppFactory = 00000028773FDD68) ...
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 2187217746840, api: d3d12)
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48e37c1e)
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc6879c29)
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x11c53bba)
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1b418d49)
+20:17:13:199 [25008] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x36496c32)
+20:17:13:199 [25008] | INFO  | [RenoDX] mods::shader::OnInitDevice(2187217746840)
+20:17:13:562 [25008] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000028773FD7C0) ...
+20:17:13:741 [25008] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = 000001FD40563B90, pDesc = 00000028773FE3F8, riid = {0EC870A6-5D7E-4C22-8CFC-5BAAE07616ED}, ppCommandQueue = 00007FFD25D5F758) ...
+20:17:13:742 [25008] | INFO  | > Dumping command queue description:
+20:17:13:742 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+
+20:17:13:742 [25008] | INFO  |   | Parameter                               | Value                                   |
+20:17:13:742 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+
+20:17:13:742 [25008] | INFO  |   | Type                                    | 0                                       |
+20:17:13:742 [25008] | INFO  |   | Priority                                | 0                                       |
+20:17:13:742 [25008] | INFO  |   | Flags                                   | 0                                       |
+20:17:13:742 [25008] | INFO  |   | NodeMask                                | 0                                       |
+20:17:13:742 [25008] | INFO  |   +-----------------------------------------+-----------------------------------------+

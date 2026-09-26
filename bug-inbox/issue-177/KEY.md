@@ -46,3 +46,6 @@
 613:07:57:50.844  [state] bypass transition #8: waiting-feature1 -> none/active.
 637:07:57:52.214  [stats] session totals: Feature18-success=3597 transfer-prepared=3587 transfer-recorded=3587 transfer-bound=3587 transfer-submitted=3587 lifecycle-bypass=0; queue-affinity admitted=767 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
 638:07:57:52.215  [stats] current contract: generation=1 mode=2 carrier-requests=3600 Feature18-success=3597 transfer-prepared=3587 transfer-recorded=3587 transfer-bound=3587 transfer-submitted=3587.
+
+## 20260908 DM orphan 归位
+- 已 COPY: `20260908-dm-alon-dawnwalker/`（Win `_inbox/dm-20260908-alon-dawnwalker/`）

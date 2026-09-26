@@ -1,6 +1,6 @@
 """Source routing checks, not execution of PowerShell, Windows or Actions.
 
-Regression: next/0.5 selected the old dev4 raw build instead of the complete
+Regression: the old next/0.5 entry selected the old dev4 raw build instead of the complete
 pinned D21 generator, bypassing the newly added hotpath gates and package label.
 """
 from pathlib import Path
@@ -19,7 +19,8 @@ def read(name):
 class Lockperf2Workflow(unittest.TestCase):
     def test_actual_research_route_reaches_canonical_builder(self):
         router = read('.github/workflows/pull-request-validation.yml').split('  research-050:', 1)[1]
-        self.assertIn("github.base_ref == 'next/0.5'", router)
+        self.assertIn("github.base_ref == 'main'", router)
+        self.assertIn("vars.ENABLE_HOSTED_CI == 'true'", router)
         self.assertIn('uses: ./.github/workflows/beta050-validate.yml', router)
         research = read('.github/workflows/beta050-validate.yml').split('  full-contract-build-and-package:', 1)[1]
         self.assertIn('needs: [host-bug-regressions, shader-structure-and-math]', research)
@@ -82,6 +83,20 @@ class Lockperf2Workflow(unittest.TestCase):
         self.assertIn('deployed=$false', text)
         self.assertNotIn('Copy-Item build/nr_before_sr.ini', text)
         self.assertIn('exact linker maps', text)
+
+    def test_exact_product_parser_accepts_bounded_ui_revision(self):
+        text = read('scripts/build-perf12-candidate.ps1')
+        pattern = re.search(r'\$VersionMatch = \[regex\]::Match\(\$VersionSource, "([^"]+)"\)', text).group(1)
+        current = read('scripts/patch-colour-edge.py')
+        actual = re.search(pattern, current)
+        self.assertIsNotNone(actual)
+        self.assertEqual(actual.group(1), 'beta0.5-dline21-unified10-reconstruction1-ui1')
+        for leaf in ('unified10', 'unified10-inbox1', 'unified10-reconstruction1', 'unified10-reconstruction1-ui1'):
+            match = re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n")
+            self.assertIsNotNone(match)
+            self.assertEqual(match.group(2), leaf)
+        for leaf in ('unified10-reconstruction1-uiX', 'unified10-reconstruction1-ui1-extra', '../unified10', 'unified10/a'):
+            self.assertIsNone(re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n"))
 
     def test_legacy_command_cannot_label_new_code_as_lockperf1(self):
         text = read('scripts/build-lockperf1-candidate.ps1')

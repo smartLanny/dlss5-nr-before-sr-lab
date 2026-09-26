@@ -1,0 +1,135 @@
+01:15:21.168  DLSS 5 AI Rendering Upscaling Edition beta0.3.3.5 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.3.3.5
+01:15:21.169  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:15:21.169  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 feature18Evals=0
+01:15:21.172  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+01:15:21.435  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+01:15:21.436  [module] pinned hook owner name=D3D12 command state address=00007FFC75938E70 module=00007FFC75760000 until process exit.
+01:15:21.616  Found SR NGX module: D:\steam\steamapps\common\Crimson Desert\bin64\nvngx_dlss.dll
+01:15:21.616  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFC53D30000 module=00007FFC53D30000 until process exit.
+01:15:21.616  [module] pinned hook owner name=_nvngx.dll address=00007FFCB2980000 module=00007FFCB2980000 until process exit.
+01:15:21.616  [module] pinned hook owner name=nvngx_dlssd.dll address=00007FFC57570000 module=00007FFC57570000 until process exit.
+01:15:21.616  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFC53D5D960 module=00007FFC53D30000 until process exit.
+01:15:21.616  MH_CreateHook D3D12_CreateFeature                    target=00007FFC53D5D960 status=0
+01:15:21.616  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFC53D5DAD0 module=00007FFC53D30000 until process exit.
+01:15:21.616  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFC53D5DAD0 status=0
+01:15:21.616  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFC53D5DDB0 module=00007FFC53D30000 until process exit.
+01:15:21.617  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFC53D5DDB0 status=0
+01:15:21.617  [module] pinned hook owner name=core CreateFeature address=00007FFCB29E8540 module=00007FFCB2980000 until process exit.
+01:15:21.617  MH_CreateHook core CreateFeature                     target=00007FFCB29E8540 status=0
+01:15:21.617  [module] pinned hook owner name=core EvaluateFeature address=00007FFCB29E8740 module=00007FFCB2980000 until process exit.
+01:15:21.617  MH_CreateHook core EvaluateFeature                   target=00007FFCB29E8740 status=0
+01:15:21.617  [module] pinned hook owner name=core ReleaseFeature address=00007FFCB29E8640 module=00007FFCB2980000 until process exit.
+01:15:21.617  MH_CreateHook core ReleaseFeature                    target=00007FFCB29E8640 status=0
+01:15:21.617  [module] pinned hook owner name=DLSSD CreateFeature address=00007FFC57592E40 module=00007FFC57570000 until process exit.
+01:15:21.617  MH_CreateHook DLSSD CreateFeature                    target=00007FFC57592E40 status=0
+01:15:21.618  [module] pinned hook owner name=DLSSD EvaluateFeature address=00007FFC57592FB0 module=00007FFC57570000 until process exit.
+01:15:21.618  MH_CreateHook DLSSD EvaluateFeature                  target=00007FFC57592FB0 status=0
+01:15:21.618  [module] pinned hook owner name=DLSSD ReleaseFeature address=00007FFC57593290 module=00007FFC57570000 until process exit.
+01:15:21.618  MH_CreateHook DLSSD ReleaseFeature                   target=00007FFC57593290 status=0
+01:15:21.656  MH_EnableHook all status=0
+01:15:21.656  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+01:15:21.656  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+01:15:21.656  [module] initial scan complete: sr=00007FFC53D30000 core=00007FFCB2980000 dlssd=00007FFC57570000.
+01:15:21.657  NGX observer/AI-upscaling hooks active.
+01:15:24.352  [command-state] observed CreateCommandSignature: call=1 signature=00000000E71F2910 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+01:15:24.352  [command-state] observed CreateCommandSignature: call=2 signature=00000000EE1AD030 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+01:15:24.352  [command-state] observed CreateCommandSignature: call=3 signature=00000000DC64B2C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+01:15:24.352  [command-state] observed CreateCommandSignature: call=4 signature=00000000E91DD890 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=0000000000000000.
+01:15:24.353  [command-state] observed CreateCommandSignature: call=5 signature=00000000E7765880 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[10] root=0000000000000000.
+01:15:29.122  [command-state] observed CreateCommandSignature: call=6 signature=000000015CD31160 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=7 signature=000000015CD32080 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=8 signature=0000000167355230 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=9 signature=0000000167352C60 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=10 signature=00000001673559C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=11 signature=0000000167354310 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.123  [command-state] observed CreateCommandSignature: call=12 signature=0000000167354AA0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.124  [command-state] observed CreateCommandSignature: call=13 signature=00000001673524D0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.124  [command-state] observed CreateCommandSignature: call=14 signature=00000001673533F0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.124  [command-state] observed CreateCommandSignature: call=15 signature=0000000167353B80 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:29.124  [command-state] observed CreateCommandSignature: call=16 signature=00000001667FF360 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015DF077A0.
+01:15:32.242  _nvngx core CreateFeature entered: call=1 id=13 (RayReconstruction)
+01:15:32.242  [module] nvngx_dlssd CreateFeature entered: call=1 id=13 (RayReconstruction)
+01:15:32.326  core CreateFeature id=13 (RayReconstruction) result=0x00000001(Success) handle=00000003E75A2490
+01:15:32.327      Width                                      = 1707
+01:15:32.327      Height                                     = 1067
+01:15:32.327      OutWidth                                   = 2560
+01:15:32.327      OutHeight                                  = 1600
+01:15:32.327      PerfQualityValue                           = 2
+01:15:32.327      DLSS.Feature.Create.Flags                  = 43
+01:15:32.328      CreationNodeMask                           = 1
+01:15:32.328      VisibilityNodeMask                         = 1
+01:15:32.328  _nvngx core EvaluateFeature reached: call=1 handle=00000003E75A2490
+01:15:32.328  [state] bypass transition #1: waiting-feature1 -> rr-safe-bypass.
+01:15:32.329  Ray Reconstruction Feature 13 evaluate #1 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:15:32.329  [module] nvngx_dlssd EvaluateFeature reached: call=1 handle=00000003E75A2490
+01:15:32.345  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+01:15:32.449  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=0000000D595858F0
+01:15:32.458  [module] lazy rescan #1 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+01:15:32.459  [perf] reset stage=A1-native-RR-bypass epoch=2 transfer=1.000; warming 180 frames
+01:15:32.897  _nvngx core EvaluateFeature reached: call=2 handle=00000003E75A2490
+01:15:32.897  Ray Reconstruction Feature 13 evaluate #2 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:15:32.897  [module] nvngx_dlssd EvaluateFeature reached: call=2 handle=00000003E75A2490
+01:15:32.982  _nvngx core EvaluateFeature reached: call=3 handle=00000003E75A2490
+01:15:32.982  Ray Reconstruction Feature 13 evaluate #3 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:15:32.982  [module] nvngx_dlssd EvaluateFeature reached: call=3 handle=00000003E75A2490
+01:15:33.309  core ReleaseFeature handle=0000000D595858F0 id=11 (FrameGeneration)
+01:15:33.481  [module] lazy rescan #2 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+01:15:34.489  [module] lazy rescan #3 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+01:15:44.030  Ray Reconstruction Feature 13 evaluate #600 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:15:47.003  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=59.095 avgMs=16.9218 p95Ms=19.1775 p99Ms=22.1702 onePercentLowFPS=25.427
+01:15:53.809  Ray Reconstruction Feature 13 evaluate #1200 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:15:56.825  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.192 avgMs=16.3419 p95Ms=17.9840 p99Ms=19.6045 onePercentLowFPS=48.883
+01:16:03.714  Ray Reconstruction Feature 13 evaluate #1800 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:16:06.778  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=60.393 avgMs=16.5582 p95Ms=18.9236 p99Ms=19.7680 onePercentLowFPS=31.946
+01:16:13.545  Ray Reconstruction Feature 13 evaluate #2400 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:16:16.558  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.446 avgMs=16.2744 p95Ms=18.1047 p99Ms=19.4655 onePercentLowFPS=37.589
+01:16:23.304  Ray Reconstruction Feature 13 evaluate #3000 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:16:26.303  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.677 avgMs=16.2134 p95Ms=17.5991 p99Ms=18.4491 onePercentLowFPS=34.118
+01:16:31.519  [module] lazy rescan #60 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+01:16:33.088  Ray Reconstruction Feature 13 evaluate #3600 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:16:36.685  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=57.885 avgMs=17.2755 p95Ms=20.0328 p99Ms=23.4255 onePercentLowFPS=18.016
+01:16:47.097  Ray Reconstruction Feature 13 evaluate #4200 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:16:52.256  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=38.585 avgMs=25.9165 p95Ms=28.8487 p99Ms=29.6137 onePercentLowFPS=33.038
+01:16:58.379  _nvngx core CreateFeature entered: call=3 id=11 (FrameGeneration)
+01:16:58.671  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=0000000DBB485790
+01:17:01.722  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=67.337 avgMs=14.8507 p95Ms=30.0966 p99Ms=33.5143 onePercentLowFPS=10.931
+01:17:04.689  Ray Reconstruction Feature 13 evaluate #4800 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:17:11.561  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=117.104 avgMs=8.5394 p95Ms=33.1116 p99Ms=34.8439 onePercentLowFPS=25.205
+01:17:16.940  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=112.244 avgMs=8.9092 p95Ms=34.6687 p99Ms=37.1159 onePercentLowFPS=25.180
+01:17:22.248  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=113.051 avgMs=8.8456 p95Ms=34.5994 p99Ms=36.2319 onePercentLowFPS=24.445
+01:17:25.373  [state] bypass transition #2: rr-safe-bypass -> master-disabled.
+01:17:25.377  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=3 feature18Evals=0
+01:17:25.378  [perf] reset stage=A1-native-RR-bypass epoch=3 transfer=1.000; warming 180 frames
+01:17:26.549  [state] bypass transition #3: master-disabled -> waiting-feature1.
+01:17:26.552  Config updated from F6: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=4 feature18Evals=0
+01:17:26.553  [perf] reset stage=A1-native-RR-bypass epoch=4 transfer=1.000; warming 180 frames
+01:17:26.581  [state] bypass transition #4: waiting-feature1 -> rr-safe-bypass.
+01:17:26.654  Ray Reconstruction Feature 13 evaluate #5400 passed through strictly unmodified; Feature 18 and texture substitution are disabled for the RR path.
+01:17:27.660  [state] bypass transition #5: rr-safe-bypass -> master-disabled.
+01:17:27.664  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=5 feature18Evals=0
+01:17:27.665  [perf] reset stage=A1-native-RR-bypass epoch=5 transfer=1.000; warming 180 frames
+01:17:32.078  [module] lazy rescan #120 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+01:17:34.997  [perf] stage=A1-native-RR-bypass epoch=5 transfer=1.000 samples=600 avgFPS=104.811 avgMs=9.5410 p95Ms=37.8439 p99Ms=39.8042 onePercentLowFPS=24.550
+01:17:38.185  [state] bypass transition #6: master-disabled -> waiting-feature1.
+01:17:38.189  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=6 feature18Evals=0
+01:17:38.190  [perf] reset stage=A1-native-RR-bypass epoch=6 transfer=1.000; warming 180 frames
+01:17:38.213  [state] bypass transition #7: waiting-feature1 -> rr-safe-bypass.
+01:17:39.126  [state] bypass transition #8: rr-safe-bypass -> master-disabled.
+01:17:39.129  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=7 feature18Evals=0
+01:17:39.130  [perf] reset stage=A1-native-RR-bypass epoch=7 transfer=1.000; warming 180 frames
+01:17:39.625  [state] bypass transition #9: master-disabled -> waiting-feature1.
+01:17:39.627  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=8 feature18Evals=0
+01:17:39.629  [perf] reset stage=A1-native-RR-bypass epoch=8 transfer=1.000; warming 180 frames
+01:17:39.648  [state] bypass transition #10: waiting-feature1 -> rr-safe-bypass.
+01:17:40.092  [state] bypass transition #11: rr-safe-bypass -> master-disabled.
+01:17:40.095  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=9 feature18Evals=0
+01:17:40.097  [perf] reset stage=A1-native-RR-bypass epoch=9 transfer=1.000; warming 180 frames
+01:17:40.529  [state] bypass transition #12: master-disabled -> waiting-feature1.
+01:17:40.532  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=10 feature18Evals=0
+01:17:40.533  [perf] reset stage=A1-native-RR-bypass epoch=10 transfer=1.000; warming 180 frames
+01:17:42.460  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=11 feature18Evals=0
+01:17:42.461  [perf] reset stage=A1-native-RR-bypass epoch=11 transfer=1.000; warming 180 frames
+01:17:43.139  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=12 feature18Evals=0
+01:17:43.140  [perf] reset stage=A1-native-RR-bypass epoch=12 transfer=1.000; warming 180 frames
+01:17:46.050  [feedback] one-click session requested; current settings retained, 3 display images, exact-fence stages, bounded 30-second wait.
+01:17:49.128  [perf] stage=A1-native-RR-bypass epoch=12 transfer=1.000 samples=600 avgFPS=129.840 avgMs=7.7018 p95Ms=28.9041 p99Ms=30.0372 onePercentLowFPS=30.153

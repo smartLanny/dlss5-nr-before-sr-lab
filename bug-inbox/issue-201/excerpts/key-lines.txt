@@ -1,0 +1,77 @@
+### nr-current (beta0.3.3.5) key lines
+1:01:15:21.168  DLSS 5 AI Rendering Upscaling Edition beta0.3.3.5 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.3.3.5
+3:01:15:21.169  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 feature18Evals=0
+50:01:15:32.242  _nvngx core CreateFeature entered: call=1 id=13 (RayReconstruction)
+51:01:15:32.242  [module] nvngx_dlssd CreateFeature entered: call=1 id=13 (RayReconstruction)
+62:01:15:32.328  [state] bypass transition #1: waiting-feature1 -> rr-safe-bypass.
+65:01:15:32.345  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+67:01:15:32.458  [module] lazy rescan #1 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+68:01:15:32.459  [perf] reset stage=A1-native-RR-bypass epoch=2 transfer=1.000; warming 180 frames
+79:01:15:47.003  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=59.095 avgMs=16.9218 p95Ms=19.1775 p99Ms=22.1702 onePercentLowFPS=25.427
+81:01:15:56.825  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.192 avgMs=16.3419 p95Ms=17.9840 p99Ms=19.6045 onePercentLowFPS=48.883
+83:01:16:06.778  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=60.393 avgMs=16.5582 p95Ms=18.9236 p99Ms=19.7680 onePercentLowFPS=31.946
+85:01:16:16.558  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.446 avgMs=16.2744 p95Ms=18.1047 p99Ms=19.4655 onePercentLowFPS=37.589
+87:01:16:26.303  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=61.677 avgMs=16.2134 p95Ms=17.5991 p99Ms=18.4491 onePercentLowFPS=34.118
+90:01:16:36.685  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=57.885 avgMs=17.2755 p95Ms=20.0328 p99Ms=23.4255 onePercentLowFPS=18.016
+92:01:16:52.256  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=38.585 avgMs=25.9165 p95Ms=28.8487 p99Ms=29.6137 onePercentLowFPS=33.038
+93:01:16:58.379  _nvngx core CreateFeature entered: call=3 id=11 (FrameGeneration)
+95:01:17:01.722  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=67.337 avgMs=14.8507 p95Ms=30.0966 p99Ms=33.5143 onePercentLowFPS=10.931
+97:01:17:11.561  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=117.104 avgMs=8.5394 p95Ms=33.1116 p99Ms=34.8439 onePercentLowFPS=25.205
+98:01:17:16.940  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=112.244 avgMs=8.9092 p95Ms=34.6687 p99Ms=37.1159 onePercentLowFPS=25.180
+99:01:17:22.248  [perf] stage=A1-native-RR-bypass epoch=2 transfer=1.000 samples=600 avgFPS=113.051 avgMs=8.8456 p95Ms=34.5994 p99Ms=36.2319 onePercentLowFPS=24.445
+100:01:17:25.373  [state] bypass transition #2: rr-safe-bypass -> master-disabled.
+101:01:17:25.377  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=3 feature18Evals=0
+102:01:17:25.378  [perf] reset stage=A1-native-RR-bypass epoch=3 transfer=1.000; warming 180 frames
+103:01:17:26.549  [state] bypass transition #3: master-disabled -> waiting-feature1.
+104:01:17:26.552  Config updated from F6: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=4 feature18Evals=0
+105:01:17:26.553  [perf] reset stage=A1-native-RR-bypass epoch=4 transfer=1.000; warming 180 frames
+106:01:17:26.581  [state] bypass transition #4: waiting-feature1 -> rr-safe-bypass.
+108:01:17:27.660  [state] bypass transition #5: rr-safe-bypass -> master-disabled.
+109:01:17:27.664  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=5 feature18Evals=0
+110:01:17:27.665  [perf] reset stage=A1-native-RR-bypass epoch=5 transfer=1.000; warming 180 frames
+111:01:17:32.078  [module] lazy rescan #120 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+112:01:17:34.997  [perf] stage=A1-native-RR-bypass epoch=5 transfer=1.000 samples=600 avgFPS=104.811 avgMs=9.5410 p95Ms=37.8439 p99Ms=39.8042 onePercentLowFPS=24.550
+113:01:17:38.185  [state] bypass transition #6: master-disabled -> waiting-feature1.
+114:01:17:38.189  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=6 feature18Evals=0
+115:01:17:38.190  [perf] reset stage=A1-native-RR-bypass epoch=6 transfer=1.000; warming 180 frames
+116:01:17:38.213  [state] bypass transition #7: waiting-feature1 -> rr-safe-bypass.
+117:01:17:39.126  [state] bypass transition #8: rr-safe-bypass -> master-disabled.
+118:01:17:39.129  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=7 feature18Evals=0
+119:01:17:39.130  [perf] reset stage=A1-native-RR-bypass epoch=7 transfer=1.000; warming 180 frames
+120:01:17:39.625  [state] bypass transition #9: master-disabled -> waiting-feature1.
+121:01:17:39.627  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=8 feature18Evals=0
+122:01:17:39.629  [perf] reset stage=A1-native-RR-bypass epoch=8 transfer=1.000; warming 180 frames
+123:01:17:39.648  [state] bypass transition #10: waiting-feature1 -> rr-safe-bypass.
+124:01:17:40.092  [state] bypass transition #11: rr-safe-bypass -> master-disabled.
+125:01:17:40.095  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=9 feature18Evals=0
+126:01:17:40.097  [perf] reset stage=A1-native-RR-bypass epoch=9 transfer=1.000; warming 180 frames
+127:01:17:40.529  [state] bypass transition #12: master-disabled -> waiting-feature1.
+128:01:17:40.532  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=10 feature18Evals=0
+129:01:17:40.533  [perf] reset stage=A1-native-RR-bypass epoch=10 transfer=1.000; warming 180 frames
+130:01:17:42.460  Config updated from ReShade overlay committed edit: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=11 feature18Evals=0
+131:01:17:42.461  [perf] reset stage=A1-native-RR-bypass epoch=11 transfer=1.000; warming 180 frames
+132:01:17:43.139  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=1.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=12 feature18Evals=0
+133:01:17:43.140  [perf] reset stage=A1-native-RR-bypass epoch=12 transfer=1.000; warming 180 frames
+135:01:17:49.128  [perf] stage=A1-native-RR-bypass epoch=12 transfer=1.000 samples=600 avgFPS=129.840 avgMs=7.7018 p95Ms=28.9041 p99Ms=30.0372 onePercentLowFPS=30.153
+
+### nr-previous (beta0.4.5-dx11-compat) key lines — ends at Feature18 create
+1:01:13:48.019  DLSS 5 AI Rendering Perfect Chain beta0.4.5-dx11-compat attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.5-dx11-compat | sourceCommit=dccb5b398ccc540723f84a6ef789dd70dbda5cd3 sourceDirty=1
+4:01:13:48.021  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+65:01:14:00.256  [state] bypass transition #1: waiting-feature1 -> rr-safe-bypass.
+70:01:14:00.356  [post-compat] initial RR-post=1 Npost/O=100%; requested Mode=2 retained.
+76:01:14:00.528  [perf] reset stage=A1-RR-owner-observed epoch=2 transfer=1.200; warming 180 frames
+104:01:14:00.705  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+105:01:14:00.705  [state] bypass transition #2: rr-safe-bypass -> command-state-unverified.
+107:01:14:00.706  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+108:01:14:00.707  Observed D3D12 graphics queue identity=1 native=0000000036CEC330 live=1. Feature 18 admission requires stable per-command-list affinity.
+109:01:14:00.709  Observed D3D12 graphics queue identity=2 native=000000016D8DE4C0 live=2. Feature 18 admission requires stable per-command-list affinity.
+112:01:14:00.779  [command-state] NR bypass: reason=native-hooks-unavailable token=20 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+114:01:14:00.780  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+120:01:14:03.391  [state] bypass transition #3: command-state-unverified -> queue-affinity-unverified.
+122:01:14:03.391  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+127:01:14:03.432  [command-state] NR bypass: reason=native-hooks-unavailable token=32 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+128:01:14:03.432  [state] bypass transition #4: queue-affinity-unverified -> command-state-unverified.
+132:01:14:03.471  [state] bypass transition #5: command-state-unverified -> none/active.
+135:01:14:03.472  NR guide binding: mode=1 depth=1704x1064@0,0 mv=2560x1600@0,0 sourceMV=1704x1064 converted=1 scale=2560.000000,-1600.000000 flags=41 depthInverted=1 historyReset=1.
+136:01:14:03.472  NR create contract: mode=1 extent=2560x1600 depth=1704x1064 mv=2560x1600 gameFlags=43 normalizedFlags=41 perfQuality=5.
+138:01:14:03.473  Feature 18 create-time tuning: mode=1 extent=2560x1600 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 proxyMapping=existing.

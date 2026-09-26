@@ -1,11 +1,6 @@
 name: Feedback integrity
 on:
   workflow_call:
-  push:
-    branches:
-      - main
-      - release/0.4
-      - next/0.5
 permissions:
   contents: read
 concurrency:

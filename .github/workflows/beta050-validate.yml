@@ -3,8 +3,6 @@ name: Validate beta0.5 research candidate
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    branches: [next/0.5]
 
 permissions:
   contents: read

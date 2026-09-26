@@ -1,0 +1,17 @@
+{
+  "file_id_tried": "33025211f95b09df4de35ea1c783c368_28a1e942-aab7-11f1-891e-a152c4673ac8",
+  "resp": {
+    "status": "ok",
+    "retcode": 0,
+    "data": {
+      "file": "C:\\Users\\pc1\\Documents\\Tencent Files\\NapCat\\temp\\ReShade (3).log",
+      "url": "C:\\Users\\pc1\\Documents\\Tencent Files\\NapCat\\temp\\ReShade (3).log",
+      "file_size": "25331",
+      "file_name": "ReShade.log"
+    },
+    "message": "",
+    "wording": "",
+    "echo": "hpjvn9wwthc",
+    "stream": "normal-action"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source_row_dir": "/workspace/napcat/bug-collector/bug-reports/_sheet_logs/neice_20260907/R12_neroeggs_博德之门3_0.4.2_dx11版",
+  "rog_path": "C:\\Users\\pc1\\Documents\\ChatGPT\\DLSS5\\bug-reports\\_sheet_logs\\neice_20260907\\R12_neroeggs_博德之门3_0.4.2_dx11版",
+  "files_staged": [
+    "nr-before-sr.log.txt",
+    "ReShade.log.txt",
+    "bug.txt",
+    "row_meta.json"
+  ],
+  "notes": "Sheet re-export; custom RenoDX bridge logs on R14; #58 closed — DX11 separate"
+}
