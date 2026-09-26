@@ -6,6 +6,14 @@
   0.4 is frozen. Do not recreate a D16/D21 integration line or reset another tree.
   Historical branch names are now archival tags; resolve them through the index.
 - Read `docs/interop/CURRENT_STATUS.md` first. #294 is the task/experiment index.
+- Before ancestry, merge-base or archive-retirement decisions, check
+  `git rev-parse --is-shallow-repository`. A shallow clone is not evidence of
+  missing history. Obtain complete history and required tags (for example,
+  `git fetch --unshallow --tags origin`), then check again. If history/objects
+  remain unavailable, report that limitation; do not classify or retire refs.
+- Only the designated executing agent integrates main through reviewed PR merges.
+  Other sessions use task branches/PRs or issue comments; coordinate ownership
+  before writing shared files. Cloud-through-Windows MCP is one executor.
 - Fetch and inspect current main, relevant Issues/PRs and existing branches before
   coding. Use one short-lived task branch and one PR, normally targeting main.
   At most one explicit dependency layer; never maintain competing "latest" stacks.
@@ -47,6 +55,9 @@
 
 ## Preservation and privacy
 
+- The owner accepted the verified F-drive archive as the backup arrangement
+  (see #311); a second NAS/device copy is not a current execution gate. Keep
+  its limitations explicit and do not retry denied Z/junction operations.
 - Preserve other worktrees and all uncommitted/untracked work. Before authorized
   cleanup, save refs, index/diffs and unique files; independently verify archives.
   Git bundles do not back up ignored builds, captures, local edits or release assets.
