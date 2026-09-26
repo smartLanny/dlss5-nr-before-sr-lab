@@ -104,7 +104,8 @@ Manager #15 只补公开附件和验收说明；Manager 另行推荐 0.5.1 不�
 [私有SR产品接线核查](POST_PRIVATE_SR_PRODUCT_MAP_20260927.md) 已定位真实B/Z最终生产者
 和Execute/Signal/Reset/退休节点；同源N网格导引、相位及私有适配回调仍需实现。
 [#311 C.3的14条CI路由静态审计](../maintenance/CI_ROUTE_AUDIT_20260927.md) 已完成，
-发现旧包装身份冲突和重复调度等具体问题；workflow迁移及运行验证未完成，托管CI未启动。
+发现旧包装身份冲突和重复调度等具体问题；已补统一构建的编译器下载哈希检查，
+其余workflow迁移及运行验证未完成，托管CI未启动。
 
 [#311 执行接续清单](../maintenance/311_EXECUTION_PROGRESS_20260926.md) 区分已完成、
 需要游戏交互的验收和仍由执行者负责的开发。云端只读复核的请求不等于已接单或完成。
