@@ -146,6 +146,10 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     if(!Collect(c))return {Status::Poisoned};
     if(c->last_attempt.stream==i.pair.base_source.stream&&c->last_attempt.epoch==i.pair.base_source.epoch&&
        i.pair.base_source.sequence<=c->last_attempt.sequence)return {};
+    // Before Encode/barriers or slot adoption: a queue identity does not prove
+    // submission order across recorded lists. Already-submitted work may stay
+    // in flight. Duplicate-source rejection above does not reset good history.
+    for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory();return {Status::Busy};}
     Context::Slot* slot=nullptr;unsigned index=0;
     for(unsigned n=0;n<c->slots.size();++n) {
         // One source per command-list recording. A replay/duplicate submission

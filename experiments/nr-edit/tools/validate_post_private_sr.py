@@ -35,7 +35,8 @@ def main():
     sources=[PACKAGE/'src/nr_post_private_sr_dx12.cpp',PACKAGE/'src/nr_post_private_sr_dx12.hpp',
              PACKAGE/'src/nr_private_sr_runtime.hpp',PACKAGE/'src/nr_edit_dx12.cpp',PACKAGE/'src/nr_edit_dx12.hpp',
              PACKAGE/'src/nr_post_residual_dx12.cpp',PACKAGE/'src/nr_post_residual_dx12.hpp',
-             PACKAGE/'tests/post_private_sr_gpu.cpp',PACKAGE/'tests/windows_shader_validation.cpp',
+             PACKAGE/'tests/post_private_sr_gpu.cpp',PACKAGE/'tests/private_sr_submission_order.cpp',
+             PACKAGE/'tests/windows_shader_validation.cpp',
              ROOT/'src/interop/nr_ngx_parameter_abi.h',Path(__file__).resolve()]
     sources += sorted((PACKAGE/'shaders').glob('*.hlsl'))+sorted((PACKAGE/'shaders').glob('*.hlsli'))
     hashes={str(f.relative_to(ROOT)):sha(f) for f in sources}
@@ -60,6 +61,21 @@ def main():
         if not passed:raise RuntimeError('Failed test: '+name)
     save()
     try:
+        order_source=PACKAGE/'tests/private_sr_submission_order.cpp'
+        order_exe=out/'private-sr-order.exe'
+        run('build-submission-order',[compiler,'-std=c++20','-O2','-static','-Wall','-Wextra','-Werror',
+            '-I'+str(PACKAGE/'src'),order_source,'-o',order_exe])
+        run('submission-order',[order_exe],needle='PASS private SR submission order')
+        owner_text=(PACKAGE/'src/nr_private_sr_runtime.hpp').read_text(encoding='utf-8')
+        guard='for(const auto& f:flights_)if(f.pending&&!f.fence){history_reset_=true;return {Status::Busy};}'
+        if owner_text.count(guard)!=1:raise RuntimeError('Review submission-order negative anchor')
+        negative_owner=out/'negative-owner';negative_owner.mkdir()
+        (negative_owner/'nr_private_sr_runtime.hpp').write_text(owner_text.replace(guard,'// Test-only missing predecessor submission gate.'),encoding='utf-8')
+        negative_order=out/'negative-private-sr-order.exe'
+        run('build-negative-submission-order',[compiler,'-std=c++20','-O2','-static','-Wall','-Wextra','-Werror',
+            '-I'+str(negative_owner),order_source,'-o',negative_order])
+        run('negative-submission-order',[negative_order],expected=1,
+            needle='FAIL unsubmitted predecessor must block a different recording before Evaluate')
         shader=out/'compile-edit-shader.exe'
         run('build-shader-compiler',[compiler,'-std=c++20','-O2','-static','-municode',PACKAGE/'tools/compile_edit_shader.cpp','-ld3dcompiler','-o',shader])
         shader_root=out/'shaders'
@@ -77,7 +93,11 @@ def main():
         run('discarded-recording',[exe,shader_root,'--negative','discard'],needle='PASS discarded recording remains retained')
         run('wrong-submission-queue',[exe,shader_root,'--negative','submit'],needle='PASS wrong queue poisons without release')
         text=module.read_text(encoding='utf-8')
-        negatives=[('missing-evaluate-proof','if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index};',
+        negatives=[('missing-transport-submission-gate',
+                    'for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory();return {Status::Busy};}',
+                    '// Test-only missing transport submission gate.',
+                    'unsubmitted predecessor blocks second list before any transport or vendor work'),
+                   ('missing-evaluate-proof','if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index};',
                     'if(false)return {Status::WaitingForSr,true,false,sr.result,index};','creation is not successful reconstruction'),
                    ('missing-post-phase-proof','!i.post_sr_phase_verified||','',
                     'invalid input cannot record or consume private history'),

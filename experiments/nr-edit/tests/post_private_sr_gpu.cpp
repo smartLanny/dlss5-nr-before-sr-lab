@@ -140,6 +140,22 @@ struct Rig {
         i.target_contains_candidate=i.ordered_queue_verified=i.post_sr_phase_verified=i.normalized_guide_units_verified=true;
         i.native_result=1;i.reset=false;return i;
     }
+    void PendingSecondList() {
+        // A real second direct list on this device, not a fabricated new token
+        // attached to the first list. No work from it may reach the shared SR
+        // history before the first list has a successful submission receipt.
+        ID3D12CommandAllocator* allocator=nullptr;ID3D12GraphicsCommandList* list=nullptr;
+        Check(h->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)),"second allocator");
+        Check(h->device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,IID_PPV_ARGS(&list)),"second direct list");
+        auto pending=Frame(.75f);pending.recording.list=reinterpret_cast<std::uint64_t>(list);
+        pending.recording.lifetime+=10000;pending.recording.reset+=10000;
+        const auto before=creates+evaluates;const auto retained=retained_resources;
+        const auto answer=pipeline::Record(context,list,pending);
+        Need(answer.status==pipeline::Status::Busy&&!answer.recorded&&!answer.composed&&creates+evaluates==before,
+             "unsubmitted predecessor blocks second list before any transport or vendor work");
+        Need(retained_resources==retained,"unsubmitted successor holds no extra guides");
+        Check(list->Close(),"empty second list close");list->Release();allocator->Release();
+    }
     void Invalid(pipeline::Input good) {
         const unsigned before=creates+evaluates;
         auto check=[&](pipeline::Input x){auto r=pipeline::Record(context,h->list,x);Need(r.status==pipeline::Status::InvalidContract&&!r.recorded&&!r.composed,"invalid input cannot record or consume private history");};
@@ -176,6 +192,7 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
         Need(pipeline::Poisoned(r->context)&&!pipeline::Retire(r->context),"failed submission is not safe retirement");
         std::cout<<"PASS wrong queue poisons without release; process exit is only cleanup\n";std::cout.flush();ExitProcess(0);
     }
+    r->PendingSecondList();
     auto initial=r->h->CopyOut(*r->owner,warm.target.resource,10);
     r->hold_sr_completion=!r->real;
     r->Submit(true);r->h->Assert(initial,.75f,.75f, NAN,0);
@@ -201,6 +218,7 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
             auto final=r->h->CopyOut(*r->owner,i.target.resource,10),base=r->h->CopyOut(*r->owner,i.pair.base.resource,10);
             const auto again=pipeline::Record(r->context,r->h->list,i);
             Need(!again.recorded&&!again.composed,"same source cannot be reconstructed twice");
+            if(kind==4&&frame+1==count)r->PendingSecondList();
             r->Submit(true);
             r->h->Assert(base,.5f,.5f,NAN,0);
             // Exact neutrality and quantized tiny +/- changes must survive real

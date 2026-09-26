@@ -157,6 +157,11 @@ public:
             if(done.value==removed){Poison();return {Status::Poisoned};}
             if(!Complete(creation_fence_,done))return {Status::AwaitCreateCompletion};
         }
+        // CPU recording order is not GPU submission order. Do not advance one
+        // feature's history into a second list while its predecessor can still
+        // be submitted after it. Already-submitted work may remain in flight;
+        // this is backpressure, not a CPU fence wait or global serialization.
+        for(const auto& f:flights_)if(f.pending&&!f.fence){history_reset_=true;return {Status::Busy};}
         Flight* slot=nullptr;for(auto& f:flights_)if(!f.pending&&!f.fence){slot=&f;break;}
         if(!slot){history_reset_=true;return {Status::Busy};}
         Pin(*slot,frame,!created_);
