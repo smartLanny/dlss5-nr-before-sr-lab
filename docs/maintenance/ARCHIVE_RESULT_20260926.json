@@ -1,0 +1,409 @@
+{
+  "schema": "dlss5-cleanup-measured-result-v1",
+  "measured_utc": "2026-09-26T06:14:33.450110+00:00",
+  "reference_main": "134269606fc2bc8028604a8766d96d815726696d",
+  "remote_history": {
+    "phase1_removed": 84,
+    "phase2_removed": 93,
+    "total_removed": 177,
+    "long_lived_branches_after": [
+      "main",
+      "codex/051-guide-domain-audit-20260925"
+    ],
+    "temporary_maintenance_branch_excluded": true,
+    "history_preserved_not_claimed_integrated": true
+  },
+  "local_worktrees": {
+    "before_this_pass": 39,
+    "removed_this_pass": 34,
+    "remaining": 5,
+    "previous_pass_removed": 1,
+    "files_preserved_this_pass": 78795,
+    "source_logical_bytes_this_pass": 57519787500,
+    "source_logical_bytes_by_drive": {
+      "C:": 63220393,
+      "D:": 57456567107
+    },
+    "zip_bytes_this_pass": 2130456297,
+    "every_archive_extracted_and_byte_verified": true,
+    "raw_captures_or_shared_dependencies_deleted": false
+  },
+  "local_aliases": {
+    "before": 226,
+    "removed_historical": 220,
+    "old_merged_maintenance_removed": true,
+    "after_before_current_branch_retirement": 5,
+    "protected_linked_worktree_aliases": 2
+  },
+  "free_bytes_sample": {
+    "C:/": 15831670784,
+    "D:/": 65649819648,
+    "F:/": 72929312768
+  },
+  "bytes_note": "Logical file lengths, physical allocation and free-space movement are different. Free space may change due unrelated host activity.",
+  "remaining_protected": {
+    "junction_worktree_leaves": [
+      "nr-d21-perf7-20260918",
+      "nr-d21-perf9-20260919"
+    ],
+    "junction_targets_unchanged": true,
+    "junction_action_tool_blocked": true,
+    "nas_backup_tool_outside_allowed_roots": true,
+    "independent_device_backup_verified": false
+  },
+  "manager_documentation": {
+    "pr": 15,
+    "merge_commit": "70af75c1e9398dd3e7363b7816942c9b3d4ed35a",
+    "application_or_pin_changed_by_this_task": false
+  },
+  "validation": {
+    "worktree_fixture_tests": 10,
+    "archive_index_tests": 5,
+    "mainline_maintenance_tests": 5,
+    "core_rendering_files_changed": false,
+    "new_core_build": false,
+    "new_gpu_or_game_test": false
+  },
+  "archives": [
+    {
+      "archive_key": "dlss5-nr-before-sr-lab-product-5c3c67cc-dae86e98",
+      "head": "dae86e9898399c20e52ada54a5ec4350da4d4fa1",
+      "files": 1009,
+      "source_bytes": 36101134,
+      "zip_bytes": 16682448,
+      "zip_sha256": "3faf6c3678c3add0e8efdd91ad71a0c63538cee923f0066767eb4ef48aa6f33e",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "dlss5-nr-before-sr-lab-product-806350aa-e9313af1",
+      "head": "e9313af1d4a8640e9f3d2f89a47aa54b634d7d9f",
+      "files": 1503,
+      "source_bytes": 27119259,
+      "zip_bytes": 9204251,
+      "zip_sha256": "a54bbf0375ffe42f93be47f6e4d2f9543fd534092b482a466b4e7d11a59118d2",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-edit-adapter-preserved-20260920-539da00f",
+      "head": "539da00f6d856b75f19eff069b5ee7321b67e987",
+      "files": 1157,
+      "source_bytes": 24430672,
+      "zip_bytes": 7966084,
+      "zip_sha256": "4862dcebe54235eccc154188e61a64eb012a2f34a45cac5a82fd30a2f48c8532",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d22-entry-preserved-20260920-8d79ff65",
+      "head": "8d79ff6576450e28bf7b2c9c7e7468fb03285de2",
+      "files": 1158,
+      "source_bytes": 24448164,
+      "zip_bytes": 7970224,
+      "zip_sha256": "e48ea33b1853873439c4a289c2ca893435bebe8ea6240be1fe5dd0dbc9d6e972",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-residual-temporal-experiment-20260916-a295bb48",
+      "head": "a295bb4872b63a2d6a20891b600725420850ea6b",
+      "files": 1171,
+      "source_bytes": 24637871,
+      "zip_bytes": 8040988,
+      "zip_sha256": "8329e6aa861704e070bc1e19cfc15c9a6cc8c40b93eb0e81eb82554aa8442340",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-present-source-update-20260916-6a6980ae",
+      "head": "6a6980ae8c49e6839ca8c573e48c133476302f6e",
+      "files": 1165,
+      "source_bytes": 24677947,
+      "zip_bytes": 8066691,
+      "zip_sha256": "ac0ed2d0cc8e8ea5a79c4c33164e7170ae5d3e48e27330ef5235184848534640",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-private-sr-precision-20260916-c196eedd",
+      "head": "c196eedd83d25e23287d3d02d69bb71943b8eb46",
+      "files": 1192,
+      "source_bytes": 24748865,
+      "zip_bytes": 8095395,
+      "zip_sha256": "9487061037ed1b9e9a965c3868fb61d0294005d133a30c931cc05e9a936aadc8",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-colour3-lf-20260918-d9faa111",
+      "head": "d9faa111c292066f46cb8fd51f611a4638cfd5f0",
+      "files": 1184,
+      "source_bytes": 24786372,
+      "zip_bytes": 8115760,
+      "zip_sha256": "46377bcf92c7207f4f6431496b5b2f4cf2cac252372782bdf4177eb087e20a31",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-colour4-edge1-src-20260919-8c469637",
+      "head": "8c469637409c6ed4ee30a40e2d6b62e295625f91",
+      "files": 1207,
+      "source_bytes": 24935843,
+      "zip_bytes": 8194327,
+      "zip_sha256": "4d623e4491bf7f3aa0064ef1d37d0df634fe73e973b89b227b2d60f50b0d3bb3",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-quality-reference-20260920-cfcf0206",
+      "head": "cfcf02068dfc3a0a50f79fef4d31d76517d33b62",
+      "files": 1212,
+      "source_bytes": 24961860,
+      "zip_bytes": 8205354,
+      "zip_sha256": "ffdf86379267e9080b6907ceed52dfc3ec72cf3967f04dfa299e6a61eac2ba3d",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-colour-nonzero-validation-20260920-9abe6b09",
+      "head": "9abe6b092462492286f450e7fceb1384d2246180",
+      "files": 1281,
+      "source_bytes": 25354509,
+      "zip_bytes": 8392152,
+      "zip_sha256": "6cecd2c40d6bef8f18f2d7506465bfa74d9f2df345a17520e5d904ff6db75b15",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-rr-projection-admission-20260920-f124ff4d",
+      "head": "f124ff4d6d071caf0616678a0b2e7483885c05b0",
+      "files": 1321,
+      "source_bytes": 25860436,
+      "zip_bytes": 8634293,
+      "zip_sha256": "b14280e8b2b4305935467ca75c03b985f13e44d67b1409021b22b1315c3706b6",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-maint-perf-handoff-20260919-bc536a2e",
+      "head": "bc536a2e3a18538957dad13dd44c8f223b1aaa48",
+      "files": 1246,
+      "source_bytes": 26597699,
+      "zip_bytes": 8596512,
+      "zip_sha256": "bcbda4be0131d24a1bf90bf436437c1bb41b66a6e7c5ffe0964329dd94c41e8e",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-post-residual-sr-20260921-013a5a76",
+      "head": "013a5a76e67f7e13fcc240bfe4639ee2fea4b4c0",
+      "files": 1435,
+      "source_bytes": 26658793,
+      "zip_bytes": 8993637,
+      "zip_sha256": "4ee503827d59fcea27ef86f2fefc3028c2123313f15c8a0eb948282181727797",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-051-inbox-diagnostics-20260924-3e94329b",
+      "head": "3e94329b18d7ab1da16c46fd62011ccdc04e8ddc",
+      "files": 1482,
+      "source_bytes": 26916859,
+      "zip_bytes": 9106165,
+      "zip_sha256": "2f6e5a3fd3ee13247ed09bd4a4d15dbb7b62d924a70ba374445a251c389caa0d",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-uniform-chain-update-20260916-6a6980ae",
+      "head": "6a6980ae8c49e6839ca8c573e48c133476302f6e",
+      "files": 1173,
+      "source_bytes": 29455291,
+      "zip_bytes": 9715182,
+      "zip_sha256": "731e3dbbff7c103994a1599a738583280e145a2503caf88f5f3f8acf043e2f23",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-manager-beta4-core-20260921-b6050c01",
+      "head": "b6050c010210fdd5f36007b5d5b93e0c5dba2b15",
+      "files": 1399,
+      "source_bytes": 141703171,
+      "zip_bytes": 10722892,
+      "zip_sha256": "9ca493c011ed1c91323e80a13af2c1747c99cbdc684b89a75a953201955d2ffd",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-vrs-null-restore-20260921-414307c4",
+      "head": "414307c4080e63417b1b07e503b6484a96d31726",
+      "files": 1377,
+      "source_bytes": 142211634,
+      "zip_bytes": 10649744,
+      "zip_sha256": "d02501b916845d437a970140206b0af307d4c13c96411ff1ac94452477c36e50",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-aux-history-reuse-20260919-f7ca0d96",
+      "head": "f7ca0d9644e56b41114719877b136d1a8af2bdf3",
+      "files": 2224,
+      "source_bytes": 1546255556,
+      "zip_bytes": 23090549,
+      "zip_sha256": "8ee5a542844a72e62f075c10224b6f2864993b43e4e807d5db38b3604f1f76b7",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-perf8r-20260919-d112ff8d",
+      "head": "d112ff8dbdf7446054a0b0ea43334bcbb4bc080c",
+      "files": 2357,
+      "source_bytes": 1571060865,
+      "zip_bytes": 31591514,
+      "zip_sha256": "7d8b899fdb10a01ed8e4ccb594da309025a69fa0b1a6173ed3688dc497ecb1f6",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-aux-memory-retirement-20260920-86acb70b",
+      "head": "86acb70ba9f56715d26596651bea7cdfd9f677fa",
+      "files": 2278,
+      "source_bytes": 1660371119,
+      "zip_bytes": 24529768,
+      "zip_sha256": "ae858560d5178933cc8ca926d1670f9bdcb61a6861d0f02a0c683ad57d2aaa41",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified-next-20260920-3e94329b",
+      "head": "3e94329b18d7ab1da16c46fd62011ccdc04e8ddc",
+      "files": 3281,
+      "source_bytes": 2797776344,
+      "zip_bytes": 32142586,
+      "zip_sha256": "a0fadd082dfd7ac967444f0b228d92aad8f4d7f487205b38a8da3ad31107df25",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-perf10-20260919-0b01a8e5",
+      "head": "0b01a8e5f6d32cdbc57d7c0c4a7d106a9bdc442a",
+      "files": 3079,
+      "source_bytes": 3052414386,
+      "zip_bytes": 32788892,
+      "zip_sha256": "e6345be7521b1342db8859b9b25f1f0739e8a9a9092d44238d77cb2262163830",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified-switchfix-20260920-6b72a7ca",
+      "head": "6b72a7ca4ab3b318d47f0a0a8c757554f7c86175",
+      "files": 3155,
+      "source_bytes": 3053225999,
+      "zip_bytes": 33180804,
+      "zip_sha256": "fd8dd011e43803a22d1fd5054d26b735223824dda1293abb0c511cc998d93008",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified7-20260921-8a9f7378",
+      "head": "8a9f7378baac04c55f7d91e6255822d0e540d5a0",
+      "files": 3296,
+      "source_bytes": 3054672063,
+      "zip_bytes": 33823149,
+      "zip_sha256": "3a282b612f7a32269b6229cd53604f9059b35b42aacfa8604fee69c6fb095b92",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified10-20260923-3e94329b",
+      "head": "3e94329b18d7ab1da16c46fd62011ccdc04e8ddc",
+      "files": 3358,
+      "source_bytes": 3055145477,
+      "zip_bytes": 34048586,
+      "zip_sha256": "51dbedd79d51a91825715a0bcd957e9d42e84e814aef359a880c4e936ddb2c36",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-051-inbox-recovery-win-20260924-fe245aed",
+      "head": "fe245aed083c23cf246c42a0edbb9877f56e53de",
+      "files": 3428,
+      "source_bytes": 3057907471,
+      "zip_bytes": 34863229,
+      "zip_sha256": "d187d079c1baf1144de2fc84157b303c822721a82feae6f7eede524cad6ae8d1",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-051-guest-comparison-20260925-21db404d",
+      "head": "21db404d21db40f83ea55549f9439b5ab470292f",
+      "files": 3790,
+      "source_bytes": 3126527085,
+      "zip_bytes": 56010229,
+      "zip_sha256": "669f55c4f8f71170683856e99c93a4520fbcdf7beac4f313ceea3364b3e304bc",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified-ui3-20260920-f82930dd",
+      "head": "f82930dddbc68f244602261b673c7ebea71501e0",
+      "files": 4042,
+      "source_bytes": 4351619691,
+      "zip_bytes": 42284801,
+      "zip_sha256": "eda69fb495250c0c4d1a9ab74ae69f8ce9c83cae4eb1a23c8c72f76f29820862",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-temporal-runtime-20260921-5567bb47",
+      "head": "5567bb479275bf4eb24be4c8db5bbba9a11d5177",
+      "files": 4149,
+      "source_bytes": 4562549291,
+      "zip_bytes": 44129975,
+      "zip_sha256": "e89b93eeeccb132592ed38db519de4e2e1f84cbe5b0efc6519e6a139dbe07ae0",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified9-ui-20260922-101bc75f",
+      "head": "101bc75f11cb99a793e83668880ec6ae25e6afc0",
+      "files": 4199,
+      "source_bytes": 4562841452,
+      "zip_bytes": 44278288,
+      "zip_sha256": "01c9dd6e69aafc48ceed729450edd4b95a24b7d9cf322f07992b23d5d29b3125",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-unified8-20260922-24cd154b",
+      "head": "24cd154be9d818d73efb31a2cc8052e781bcbe2a",
+      "files": 3756,
+      "source_bytes": 5255101941,
+      "zip_bytes": 1390487036,
+      "zip_sha256": "84ca11ea2af290f74124f9da6623426be5dd74c87136e1b50d8f2de10382f678",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-uniform3-sottr-20260917-8fc10f94",
+      "head": "8fc10f94b81719d755256271da5363faaca60a6d",
+      "files": 4635,
+      "source_bytes": 5806889572,
+      "zip_bytes": 50109925,
+      "zip_sha256": "f09bf006daf3f9c67cdd371226696351e53a2a28676c59677516af4282f123ce",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    },
+    {
+      "archive_key": "nr-d21-successor-runtime-20260921-0e2e474a",
+      "head": "0e2e474a9704da9bf1badb7e36687d0eb8c540c7",
+      "files": 5096,
+      "source_bytes": 6299822809,
+      "zip_bytes": 57744867,
+      "zip_sha256": "494f52efa8a5efdf5556a9c69ea0c02cbf1ffed9d16db040adb13b3f53dcb5ff",
+      "local_changes_preserved": true,
+      "status": "archived-restored-verified-removed"
+    }
+  ]
+}
