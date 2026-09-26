@@ -2,9 +2,9 @@
 
 ## Current branch and ownership
 
-- `main` is the sole continuing Core integration branch (0.5.x). 0.4 is frozen.
-  During the authorized #300 promotion, its isolated maintenance candidate is
-  the pending main tree; do not open a parallel integration or reset another tree.
+- `main` is the sole continuing Core integration branch (0.5.x). #300 is merged;
+  0.4 is frozen. Do not recreate a D16/D21 integration line or reset another tree.
+  Historical branch names are now archival tags; resolve them through the index.
 - Read `docs/interop/CURRENT_STATUS.md` first. #294 is the task/experiment index.
 - Fetch and inspect current main, relevant Issues/PRs and existing branches before
   coding. Use one short-lived task branch and one PR, normally targeting main.
@@ -61,3 +61,5 @@
   unrelated deletion. Execute only the owner's scoped cleanup/release authorization.
 
 Historical instructions: `docs/history/pre-mainline-20260926/AGENTS.pre-mainline.md`.
+Archived source and local recovery keys: `docs/maintenance/ARCHIVE_INDEX_20260926.json`.
+Remaining task ownership stays with the executing agent; #294 is the live index.
