@@ -9,7 +9,10 @@ spec.loader.exec_module(m)
 
 class WorktreeArchival(unittest.TestCase):
     def setUp(self):
+        # Ignored build/ is absent in a clean checkout; never require an earlier build.
+        (ROOT/'build').mkdir(exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(prefix='archival-test-', dir=ROOT/'build')
+        self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.repo = self.root/'repo'; self.repo.mkdir()
         self.call('init', '-b', 'main')
@@ -30,8 +33,6 @@ class WorktreeArchival(unittest.TestCase):
         (self.src/'cache/result.bin').write_bytes(bytes(range(256))*1024)
         (self.src/'未跟踪.txt').write_text('preserve Unicode\n', encoding='utf-8')
         self.out = self.root/'archive'
-    def tearDown(self):
-        self.tmp.cleanup()
     def call(self,*args):
         return subprocess.check_output(['git','-C',str(self.repo),*args],stderr=subprocess.PIPE).decode().strip()
     def save(self):
@@ -97,5 +98,29 @@ class WorktreeArchival(unittest.TestCase):
     def test_manifest_tamper_rejected(self):
         self.save();p=self.out/'manifest.json';p.write_bytes(p.read_bytes()+b'\n')
         with self.assertRaisesRegex(RuntimeError,'Manifest changed'):self.remove()
+
+class FreshCheckoutSetup(unittest.TestCase):
+    def test_absent_build_directory_is_created_by_actual_setup(self):
+        with tempfile.TemporaryDirectory(prefix='fresh-archival-') as directory:
+            root = Path(directory)
+            self.assertFalse((root/'build').exists())
+            case = WorktreeArchival('test_roundtrip_index_untracked_ignored_and_empty_directories')
+            with mock.patch.dict(globals(), {'ROOT': root}):
+                try:
+                    case.setUp()
+                    self.assertTrue((root/'build').is_dir())
+                    self.assertEqual(case.root.parent, root/'build')
+                finally:
+                    case.doCleanups()
+
+    def test_existing_build_file_is_not_replaced(self):
+        with tempfile.TemporaryDirectory(prefix='fresh-archival-') as directory:
+            root = Path(directory)
+            (root/'build').write_bytes(b'not a directory; preserve me')
+            case = WorktreeArchival('test_roundtrip_index_untracked_ignored_and_empty_directories')
+            with mock.patch.dict(globals(), {'ROOT': root}):
+                with self.assertRaises(FileExistsError):
+                    case.setUp()
+            self.assertEqual((root/'build').read_bytes(), b'not a directory; preserve me')
 
 if __name__=='__main__':unittest.main()

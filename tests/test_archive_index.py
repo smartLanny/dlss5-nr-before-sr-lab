@@ -4,7 +4,11 @@ import hashlib,json,subprocess,unittest
 R=Path(__file__).resolve().parents[1]
 class ArchiveIndex(unittest.TestCase):
  @classmethod
- def setUpClass(cls):cls.d=json.loads((R/'docs/maintenance/ARCHIVE_INDEX_20260926.json').read_text(encoding='utf-8'))
+ def setUpClass(cls):
+  shallow=subprocess.check_output(['git','rev-parse','--is-shallow-repository'],cwd=R,text=True).strip()
+  if shallow!='false':
+   raise RuntimeError('Archive provenance requires complete Git history and tags; fetch --unshallow --tags, then recheck. No ancestry verdict was made.')
+  cls.d=json.loads((R/'docs/maintenance/ARCHIVE_INDEX_20260926.json').read_text(encoding='utf-8'))
  def test_all_original_remote_heads_have_unique_retention_entries(self):
   rows=self.d['source_refs'];self.assertEqual(len(rows),177);self.assertEqual(len({r['original_branch'] for r in rows}),177)
   self.assertEqual(sum(r['phase']==1 for r in rows),84);self.assertEqual(sum(r['phase']==2 for r in rows),93)
