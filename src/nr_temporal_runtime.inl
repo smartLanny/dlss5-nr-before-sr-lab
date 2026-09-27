@@ -105,7 +105,8 @@ Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandLis
  }
  auto& in=out.inputs;
  in.settings.enabled=true;in.settings.scope=g_config.temporal_scope?Scope::LaterLayers:Scope::WholeChain;
- in.settings.validation=g_config.temporal_legacy?Validation::Legacy:Validation::Basic065;
+ // Low-frequency reconstruction requires its neighborhood path; retain the saved legacy choice for ordinary mode.
+ in.settings.validation=(g_config.temporal_legacy&&!g_config.temporal_mode)?Validation::Legacy:Validation::Basic065;
  in.settings.mode=g_config.temporal_mode?Mode::LowFrequency:Mode::Adaptive;
  in.layers=g_config.nr_passes==2?(g_config.nr_full_reference?g_config.nr_full_passes:2u):1u;
  const auto backend=g_config.temporal_backend==1?Backend::NativeMotion:Backend::AmdOpticalFlow;

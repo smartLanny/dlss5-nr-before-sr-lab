@@ -10,6 +10,18 @@ def apply(stage:Path,inputs,helpers):
     p=root/'src/nr_before_sr.cpp';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
         '#define NR_HAS_ACCEPTANCE 1\nnamespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+    s=helpers.once(s,'#include "nr_compat_present_runtime.inl"',
+        '''#include "nr_compat_present_runtime.inl"
+namespace nr_acceptance {
+PresentCounters ReadPresentLocked() {
+    // The acceptance controller already holds g_chain_cs. Do not call Snapshot(),
+    // which acquires the same lock again.
+    const auto& o=nr_compat_present_runtime::observation;
+    return {nr_compat_present_runtime::stable_config,o.generation,o.completed_source,
+        o.submitted,o.completed,o.evaluated[0],o.attempted[0],o.timing_source,
+        o.reset_each_frame,o.timing_valid,o.total_ms};
+}
+}''','Present baseline reads exact owner counters under existing chain lock')
     s=helpers.once(s,'    nr_f8::Present(runtime);','    nr_f8::Present(runtime);\n    nr_acceptance::Present(runtime);','guided Present tick')
     s=helpers.once(s,'any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token)',
         'any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token)',

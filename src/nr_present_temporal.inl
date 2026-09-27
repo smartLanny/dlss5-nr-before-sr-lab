@@ -117,7 +117,8 @@ bool RecordTemporal(Context& c,Flight& f) {
     in.frame.previous_source=c.temporal_previous;
     in.settings.enabled=true;in.settings.scope=Scope::WholeChain;
     in.settings.mode=g_config.temporal_mode?Mode::LowFrequency:Mode::Adaptive;
-    in.settings.validation=g_config.temporal_legacy?Validation::Legacy:Validation::Basic065;
+    // Low-frequency reconstruction requires its neighborhood path; retain the saved legacy choice for ordinary mode.
+ in.settings.validation=(g_config.temporal_legacy&&!g_config.temporal_mode)?Validation::Legacy:Validation::Basic065;
     in.layers=c.passes;
     in.original=c.image.source;in.original_state=c.image.source_state;
     in.candidate=c.image.result;in.candidate_state=c.image.result_state;

@@ -20,7 +20,7 @@ struct Config {
  bool colour_range_control=false;
  float color_strength=1.f,colour_priority_strength=.7f,colour_conservative_strength=1.f;
  unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119;
- unsigned temporal_backend=0,temporal_scope=0;bool temporal_legacy=false;
+ unsigned temporal_backend=0,temporal_scope=0,temporal_mode=0;bool temporal_legacy=false;
 };
 int main(){
  using namespace nr_colour_preferences;
@@ -161,7 +161,7 @@ void save(const Config& config){auto record_light=[](bool ok){assert(ok);};auto 
 WriteIniInt(L"ColourLabMode",config.colour_lab_mode);}
 int main(){
  auto c=load();assert(c.color_strength==.5f && c.colour_lab_mode==1 && c.colour_range_control);
- assert(c.temporal_backend==0&&c.temporal_scope==0&&!c.temporal_legacy);
+ assert(c.temporal_backend==0&&c.temporal_scope==0&&c.temporal_mode==0&&!c.temporal_legacy);
  put(L"AllowUnverifiedHdrColor",L"0");put(L"ColorStrength",L"1.0");c=load();
  assert(c.colour_lab_mode==0 && c.color_strength==1.f && nr_colour_preferences::Policy(c)==1);
  nr_colour_preferences::Select(c,0);assert(c.color_strength==.7f);
@@ -171,8 +171,8 @@ int main(){
  nr_colour_preferences::Select(c,1);assert(c.color_strength==1.f);
  c.color_strength=.2f;nr_colour_preferences::Remember(c);save(c);c=load();
  assert(c.color_strength==.2f);nr_colour_preferences::Select(c,0);assert(c.color_strength==.6f);
- c.temporal_backend=2;c.temporal_scope=1;c.temporal_legacy=true;save(c);c=load();
- assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_legacy);
+ c.temporal_backend=2;c.temporal_scope=1;c.temporal_mode=1;c.temporal_legacy=true;save(c);c=load();
+ assert(c.temporal_backend==2&&c.temporal_scope==1&&c.temporal_mode==1&&c.temporal_legacy);
  nr_colour_preferences::SetRange(c,.5f);save(c);put(L"AllowUnverifiedHdrColor",L"0");put(L"ColourLabMode",L"2");c=load();
  assert(c.colour_range_control&&c.colour_lab_mode==1&&c.color_strength==.5f);
  nr_colour_preferences::SetRange(c,0.f);save(c);c=load();assert(c.color_strength==0.f&&c.colour_lab_mode==1);

@@ -4,7 +4,12 @@
 namespace nr_acceptance {
 using namespace nr_acceptance_policy;
 constexpr unsigned kRows=32768,kSteps=6;
-struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0,gpu_config=0,gpu_instance=0,gpu_tested=0,gpu_adopted=0; };
+struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0,gpu_config=0,gpu_instance=0,gpu_tested=0,gpu_adopted=0,present_completed=0,present_warmup=0; };
+struct PresentCounters {
+    unsigned config=0;unsigned long long generation=0,completed_source=0,submitted=0,completed=0,evaluated=0,attempted=0,timing_source=0;
+    bool reset_each_frame=false,timing_valid=false;double total_ms=0;
+};
+PresentCounters ReadPresentLocked(); // g_chain_cs held; defined after the Present runtime include.
 struct Group {
     Step step{};ChainConfig requested{};unsigned generation=0,percent=0;
     unsigned long long eval_start=0,submit_start=0,temporal_start=0,eval_end=0,submit_end=0,temporal_end=0;
@@ -15,6 +20,8 @@ struct Group {
     unsigned long long private_composed_end=0,private_submitted_end=0,private_adopted_end=0;
     unsigned long long carrier_start=0,carrier_end=0,attempt_start=0,attempt_end=0;
     unsigned long long measured_instance=0;
+    unsigned present_config_start=0;unsigned long long present_generation_start=0,present_completed_start=0,present_measure_completed_start=0,present_measure_source_start=0,present_completed_end=0;
+    bool present_reset_each_frame=false,present_timing_valid=false;double present_total_ms=0;
     unsigned long long warmup_eval_start=0,warmup_submit_start=0,warmup_evaluations=0,warmup_submissions=0;
     unsigned warmup_temporal_state=0;
     unsigned long long usage_start=0,usage_end=0,usage_sampled_peak=0,budget=0;
@@ -73,7 +80,12 @@ void StartGroup(Session& s){
         g.generation=g_config_generation.load();
         LeaveCriticalSection(&g_chain_cs);
     }
-    g.eval_start=g_nr_successful_evaluations.load();g.submit_start=g_nr_transfer_submitted_frames.load();g.temporal_start=nr_temporal_status::submitted.load();
+    if(s.original_effective==nr_processing::Start::Present&&s.program==Program::Current){
+        EnterCriticalSection(&g_chain_cs);const auto p=ReadPresentLocked();LeaveCriticalSection(&g_chain_cs);
+        g.eval_start=p.evaluated;g.submit_start=p.submitted;g.present_completed_start=p.completed;
+        g.present_config_start=p.config;g.present_generation_start=p.generation;
+    }else {g.eval_start=g_nr_successful_evaluations.load();g.submit_start=g_nr_transfer_submitted_frames.load();}
+    g.temporal_start=nr_temporal_status::submitted.load();
     g.gpu_frames_start=nr_temporal_status::gpu_frames.load();g.gpu_tested_start=nr_temporal_status::gpu_tested.load();
     g.gpu_adopted_start=nr_temporal_status::gpu_adopted.load();g.gpu_rejected_start=nr_temporal_status::gpu_rejected.load();
     g.gpu_warmup_start=nr_temporal_status::gpu_warmup.load();g.gpu_depth_rejected_start=nr_temporal_status::gpu_depth_rejected.load();
@@ -88,16 +100,16 @@ DWORD WINAPI Export(void* opaque){
     wchar_t path[1024]{};swprintf_s(path,L"%ls\\acceptance.csv",s->directory);
     FILE* f=nullptr;_wfopen_s(&f,path,L"wb");bool ok=f!=nullptr;
     if(f){
-        std::fprintf(f,"group,qpc,config,route,last_successful_source,instance,NR_evaluations,NR_submissions,temporal_submissions,temporal_state,carrier_calls,transfer_attempts,source_stream,source_epoch,primary_reset_reasons,primary_since_reset,primary_source_to_canonical\n");
-        for(unsigned i=0;i<s->rows;++i){const auto& r=s->samples[i];std::fprintf(f,"%u,%llu,%u,%u,%llu,%llu,%llu,%llu,%llu,%u,%llu,%llu,%llu,%llu,%u,%u,%.9g\n",r.group,r.tick,r.config,r.route,r.source,r.instance,r.evaluations,r.submitted,r.temporal_submitted,r.temporal_state,r.carriers,r.attempts,r.stream,r.epoch,r.reset_reasons,r.since_reset,double(r.source_to_canonical));}
+        std::fprintf(f,"group,qpc,config,route,last_successful_source,instance,NR_evaluations,NR_submissions,temporal_submissions,temporal_state,carrier_calls,transfer_attempts,source_stream,source_epoch,primary_reset_reasons,primary_since_reset,primary_source_to_canonical,present_completed,present_completed_since_owner_start\n");
+        for(unsigned i=0;i<s->rows;++i){const auto& r=s->samples[i];std::fprintf(f,"%u,%llu,%u,%u,%llu,%llu,%llu,%llu,%llu,%u,%llu,%llu,%llu,%llu,%u,%u,%.9g,%llu,%llu\n",r.group,r.tick,r.config,r.route,r.source,r.instance,r.evaluations,r.submitted,r.temporal_submitted,r.temporal_state,r.carriers,r.attempts,r.stream,r.epoch,r.reset_reasons,r.since_reset,double(r.source_to_canonical),r.present_completed,r.present_warmup);}
         ok=std::ferror(f)==0;ok=std::fclose(f)==0&&ok;
     }
     swprintf_s(path,L"%ls\\acceptance.txt",s->directory);f=nullptr;_wfopen_s(&f,path,L"wb");ok=f&&ok;
     if(f){
-        std::fprintf(f,"format=unified-acceptance-v2\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest successful NR source, not identity of each callback\ngpuTiming=unavailable; callback intervals must not be read as GPU cost\nmemory=worker sampled process-local DXGI usage/budget, not exact peak or NGX allocation total\nmeasurement=20 seconds after at least 3 seconds and 64 successful post-reset evaluations; captures and F8 occur afterwards\n",
+        std::fprintf(f,"format=unified-acceptance-v3\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest completed Present source for Present baseline, otherwise latest native NR source\nwholeFrameGpuTiming=unavailable; callback intervals must not be read as GPU cost\nmemory=worker sampled process-local DXGI usage/budget, not exact peak or NGX allocation total\nmeasurement=20 seconds after at least 3 seconds; native needs 64 post-reset evaluations, Present baseline needs 64 completed NR flights from current owner; captures and F8 occur afterwards\n",
             kBuildIdentity,kSourceCommit,s->id,static_cast<unsigned>(s->program),s->restored,s->cancelled,s->rows,s->overflow,static_cast<unsigned long long>(NrTimingFrequency()));
         std::fprintf(f,"missedCallbackSamples=%llu\n",dropped_samples.load()-s->dropped_start);
-        std::fprintf(f,"adoptionDenominator=observed carrier calls, not unique displayed frames; NR and temporal submissions alone do not prove visible history adoption; NR evaluate can include several layers\n");
+        std::fprintf(f,"adoptionDenominator=native: observed carrier calls; Present baseline: exact completed owned flights, not native carrier calls; neither proves final displayed quality\n");
         std::fprintf(f,"resetSchema=nr_reset_observation.Sample primary layer; bit64 is RR placeholder depth, not exposure readback; primary_source_to_canonical is the actual normalization multiplier, not nits; repeated rows of the same source are not new evaluations\n");
         for(unsigned i=0;i<s->count;++i){const auto& g=s->groups[i];char report[4096]{};WideToUtf8(g.report_path,report,sizeof(report));
             std::fprintf(f,"group.%u.warmup.nrEvaluations=%llu\ngroup.%u.warmup.nrSubmissions=%llu\ngroup.%u.warmup.temporalState=%s\n",
@@ -108,6 +120,10 @@ DWORD WINAPI Export(void* opaque){
             const auto carriers=g.carrier_end>=g.carrier_start?g.carrier_end-g.carrier_start:0;
             const auto attempts=g.attempt_end>=g.attempt_start?g.attempt_end-g.attempt_start:0;
             std::fprintf(f,"group.%u.carrierCalls=%llu\ngroup.%u.transferAttempts=%llu\n",i,carriers,i,attempts);
+            if(s->program==Program::Current&&s->original_effective==nr_processing::Start::Present)
+                std::fprintf(f,"group.%u.presentOwner=%llu\ngroup.%u.presentCompletedDuringMeasure=%llu\ngroup.%u.presentResetEachFrame=%u\ngroup.%u.presentGpuTotalMs=%s\ngroup.%u.presentGpuTotalLastMs=%.9g\n",
+                    i,g.present_generation_start,i,g.present_completed_end>=g.present_measure_completed_start?g.present_completed_end-g.present_measure_completed_start:0,
+                    i,g.present_reset_each_frame,i,g.present_timing_valid?"exact-source-last":"unavailable",i,g.present_timing_valid?g.present_total_ms:0.0);
             std::fprintf(f,"group.%u.privateSubmissions=%llu\n",i,g.private_submitted_end>=g.private_submitted_start?g.private_submitted_end-g.private_submitted_start:0);
             std::fprintf(f,"group.%u.temporalGpuScope=completed GPU counter readback for this config and owner; adoption is historical sampling, not final display proof\n",i);
             std::fprintf(f,"group.%u.temporalGpuConfig=%llu\ngroup.%u.temporalGpuInstance=%llu\n",i,g.gpu_config_end,i,g.gpu_instance_end);
@@ -128,7 +144,7 @@ DWORD WINAPI Export(void* opaque){
                 for(unsigned j=0;j<7;++j)std::fprintf(f,"group.%u.dualGpuMs.%s=median:%.9g,p95:%.9g\n",i,names[j],g.dual_median_ms[j],g.dual_p95_ms[j]);
             }
             if(carriers&&g.submit_end>=g.submit_start)std::fprintf(f,"group.%u.submittedPerCarrier=%.9g\n",i,double(g.submit_end-g.submit_start)/double(carriers));
-            std::fprintf(f,"group.%u=%s\ngroup.%u.config=%u\ngroup.%u.postPercent=%u\ngroup.%u.measured=%u\ngroup.%u.reason=%s\ngroup.%u.nrEvaluations=%llu\ngroup.%u.nrSubmissions=%llu\ngroup.%u.temporalSubmissions=%llu\ngroup.%u.nrSubmitted=%u\ngroup.%u.temporalHistoryAdopted=%u\ngroup.%u.privateComposed=%llu\ngroup.%u.privateAdopted=%llu\ngroup.%u.privateAdoptedDuringMeasure=%u\ngroup.%u.wholeFrameGpuTime=unavailable\ngroup.%u.captureRequest=%llu\ngroup.%u.captureComplete=%u\ngroup.%u.report=%s\ngroup.%u.memoryKnown=%u\ngroup.%u.usageStart=%llu\ngroup.%u.usageEnd=%llu\ngroup.%u.usageSampledPeak=%llu\ngroup.%u.budget=%llu\n",
+            std::fprintf(f,"group.%u=%s\ngroup.%u.config=%u\ngroup.%u.postPercent=%u\ngroup.%u.measured=%u\ngroup.%u.reason=%s\ngroup.%u.nrEvaluations=%llu\ngroup.%u.nrSubmissions=%llu\ngroup.%u.temporalSubmissions=%llu\ngroup.%u.nrRouteAdopted=%u\ngroup.%u.temporalHistoryAdopted=%u\ngroup.%u.privateComposed=%llu\ngroup.%u.privateAdopted=%llu\ngroup.%u.privateAdoptedDuringMeasure=%u\ngroup.%u.wholeFrameGpuTime=unavailable\ngroup.%u.captureRequest=%llu\ngroup.%u.captureComplete=%u\ngroup.%u.report=%s\ngroup.%u.memoryKnown=%u\ngroup.%u.usageStart=%llu\ngroup.%u.usageEnd=%llu\ngroup.%u.usageSampledPeak=%llu\ngroup.%u.budget=%llu\n",
                 i,g.step.name?g.step.name:"not-started",i,g.generation,i,g.percent,i,g.measured,i,g.reason[0]?g.reason:"recorded-not-quality-verified",i,g.eval_end>=g.eval_start?g.eval_end-g.eval_start:0,i,g.submit_end>=g.submit_start?g.submit_end-g.submit_start:0,i,g.temporal_end>=g.temporal_start?g.temporal_end-g.temporal_start:0,i,g.adopted,i,g.temporal_adopted,i,g.private_composed_end>=g.private_composed_start?g.private_composed_end-g.private_composed_start:0,i,g.private_adopted_end>=g.private_adopted_start?g.private_adopted_end-g.private_adopted_start:0,i,g.private_adopted,i,i,g.capture_id,i,g.capture_complete,i,report,i,g.memory_known,i,g.usage_start,i,g.usage_end,i,g.usage_sampled_peak,i,g.budget);
             const bool same=g.cpu_before.epoch==g.cpu_after.epoch&&!g.cpu_before.counter_overflow&&!g.cpu_after.counter_overflow;
             std::fprintf(f,"group.%u.cpuEpochComparable=%u\n",i,same);
@@ -164,22 +180,42 @@ void Tick(reshade::api::effect_runtime* runtime){
     if(s->window.phase==Phase::Warmup||s->window.phase==Phase::Measure){
         if(!runtime)return;
         Observation o{};Row r{};
+        const bool present_baseline=s->program==Program::Current&&s->original_effective==nr_processing::Start::Present;
         if(TryEnterCriticalSection(&g_chain_cs)){
             const auto& identity=g_applied_nr_identity;
             o.enabled=g_config.enabled;o.matches=g_config_generation.load()==g.generation&&SameRequested(g.requested,g_config)&&nr_post_settings::Read().percent==g.percent;
             const auto route=ObservedRoute();
             o.matches=o.matches&&route==s->original_effective;
-            const auto& sample=nr_reset_observation::counters.layers[0].last;
-            o.since_reset=sample.config_generation==g.generation?sample.since_reset:0;
-            r.config=g_config_generation.load();r.route=static_cast<unsigned>(route);r.source=sample.source_frame;r.instance=identity.instance_id;
-            r.stream=sample.stream;r.epoch=sample.epoch;r.reset_reasons=sample.reasons;r.since_reset=sample.since_reset;r.source_to_canonical=sample.source_to_canonical;
+            r.config=g_config_generation.load();r.route=static_cast<unsigned>(route);
+            if(present_baseline){
+                const auto p=ReadPresentLocked();
+                const bool owner=p.config==g.generation&&p.generation!=0;
+                if(owner&&(g.present_config_start!=p.config||g.present_generation_start!=p.generation)){
+                    g.present_config_start=p.config;g.present_generation_start=p.generation;
+                    g.present_completed_start=p.completed;g.eval_start=p.evaluated;g.submit_start=p.submitted;
+                    g.warmup_eval_start=p.evaluated;g.warmup_submit_start=p.submitted;
+                    if(s->window.phase==Phase::Warmup)s->window.Start(now);else o.matches=false;
+                }
+                r.instance=p.generation;r.source=p.completed_source;r.evaluations=p.evaluated;r.submitted=p.submitted;
+                r.attempts=p.attempted;r.present_completed=p.completed;
+                r.present_warmup=owner&&p.completed>=g.present_completed_start?p.completed-g.present_completed_start:0;
+                o.since_reset=static_cast<unsigned>(std::min<unsigned long long>(r.present_warmup,UINT_MAX));
+                if(s->window.phase==Phase::Measure&&!owner)o.matches=false;
+            }else {
+                const auto& sample=nr_reset_observation::counters.layers[0].last;
+                o.since_reset=sample.config_generation==g.generation?sample.since_reset:0;
+                r.source=sample.source_frame;r.instance=identity.instance_id;
+                r.stream=sample.stream;r.epoch=sample.epoch;r.reset_reasons=sample.reasons;r.since_reset=sample.since_reset;r.source_to_canonical=sample.source_to_canonical;
+            }
             if(s->window.phase==Phase::Measure&&o.enabled&&g.measured_instance!=r.instance)o.matches=false;
             LeaveCriticalSection(&g_chain_cs);
         }else {++dropped_samples;return;}
-        r.group=s->index;r.tick=NrTimingCounter();r.evaluations=g_nr_successful_evaluations.load();r.submitted=g_nr_transfer_submitted_frames.load();r.temporal_submitted=nr_temporal_status::submitted.load();r.temporal_state=nr_temporal_status::state.load();
+        r.group=s->index;r.tick=NrTimingCounter();
+        if(!present_baseline){r.evaluations=g_nr_successful_evaluations.load();r.submitted=g_nr_transfer_submitted_frames.load();}
+        r.temporal_submitted=nr_temporal_status::submitted.load();r.temporal_state=nr_temporal_status::state.load();
         r.gpu_config=nr_temporal_status::gpu_config.load();r.gpu_instance=nr_temporal_status::gpu_instance.load();
         r.gpu_tested=nr_temporal_status::gpu_tested.load();r.gpu_adopted=nr_temporal_status::gpu_adopted.load();
-        r.carriers=g_carrier_evaluations.load();r.attempts=g_nr_transfer_attempted_frames.load();
+        if(!present_baseline){r.carriers=g_carrier_evaluations.load();r.attempts=g_nr_transfer_attempted_frames.load();}
         const bool gpu_owner=r.instance&&r.gpu_config==g.generation&&r.gpu_instance==r.instance;
         if(s->window.phase==Phase::Measure&&g.requested.temporal_backend&&!gpu_owner)o.matches=false;
         if(gpu_owner&&(g.gpu_config_start!=r.gpu_config||g.gpu_instance_start!=r.gpu_instance)){
@@ -189,7 +225,7 @@ void Tick(reshade::api::effect_runtime* runtime){
             if(s->window.phase==Phase::Warmup)s->window.Start(now);
             else o.matches=false;
         }
-        o.adopted=CountersAdvanced(g.submit_start,r.submitted);
+        o.adopted=present_baseline?CountersAdvanced(g.present_completed_start,r.present_completed):CountersAdvanced(g.submit_start,r.submitted);
         o.temporal=g.requested.temporal_backend==0||s->program==Program::Current||
             (gpu_owner&&CountersAdvanced(g.gpu_tested_start,r.gpu_tested)&&CountersAdvanced(g.gpu_adopted_start,r.gpu_adopted));
         if(g.requested.private_residual_sr)
@@ -210,6 +246,7 @@ void Tick(reshade::api::effect_runtime* runtime){
         }
         if(previous==Phase::Warmup&&s->window.phase==Phase::Measure){
             g.eval_start=r.evaluations;g.submit_start=r.submitted;g.temporal_start=r.temporal_submitted;SnapshotNrTiming(g.cpu_before);
+            if(present_baseline){g.present_measure_completed_start=r.present_completed;g.present_measure_source_start=r.source;}
             g.gpu_frames_start=nr_temporal_status::gpu_frames.load();g.gpu_tested_start=r.gpu_tested;g.gpu_adopted_start=r.gpu_adopted;
             g.gpu_rejected_start=nr_temporal_status::gpu_rejected.load();g.gpu_warmup_start=nr_temporal_status::gpu_warmup.load();
             g.gpu_depth_rejected_start=nr_temporal_status::gpu_depth_rejected.load();
@@ -232,7 +269,14 @@ void Tick(reshade::api::effect_runtime* runtime){
             if(g.dual_timing_config==g.generation&&g.dual_timing_samples)
                 for(unsigned j=0;j<7;++j){g.dual_median_ms[j]=nr_dual_runtime::time_median[j].load();g.dual_p95_ms[j]=nr_dual_runtime::time_p95[j].load();}
             g.carrier_end=r.carriers;g.attempt_end=r.attempts;
-            g.adopted=CountersAdvanced(g.submit_start,g.submit_end);
+            if(present_baseline){
+                g.present_completed_end=r.present_completed;
+                EnterCriticalSection(&g_chain_cs);const auto p=ReadPresentLocked();LeaveCriticalSection(&g_chain_cs);
+                g.present_reset_each_frame=p.reset_each_frame;
+                g.present_timing_valid=p.timing_valid&&p.generation==g.measured_instance&&p.timing_source>=g.present_measure_source_start;
+                if(g.present_timing_valid)g.present_total_ms=p.total_ms;
+            }
+            g.adopted=present_baseline?CountersAdvanced(g.present_measure_completed_start,g.present_completed_end):CountersAdvanced(g.submit_start,g.submit_end);
             g.temporal_adopted=g.gpu_config_end==g.generation&&g.gpu_instance_end==g.measured_instance&&
                 CountersAdvanced(g.gpu_tested_start,g.gpu_tested_end)&&CountersAdvanced(g.gpu_adopted_start,g.gpu_adopted_end);
             g.private_adopted=CountersAdvanced(g.private_adopted_start,g.private_adopted_end);
