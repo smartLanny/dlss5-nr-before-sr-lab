@@ -1,11 +1,16 @@
 # 当前主线与交付入口
 
-## 正在执行：统一 Beta 4（#313）
+## 待游戏验收：统一 Beta 4（#313）
 
-已整合 Beta 1 安全修复、Beta 2 菜单与 #316 维护，正在完成运动/历史、私有 SR 和集中验收。
-**尚未冻结或交付 Beta 4。** 当前可用旧候选身份仍见下文，不把开发状态写成验收通过。
-入口：[本批功能矩阵与门槛](052_BETA4_UNIFIED_ACCEPTANCE.md)、[#315 运行库/OTA 合同](052_BETA4_RUNTIME_CONTRACT.json)。
+源码候选 `85b59bdc89a23db14f06d911e83a26a385af351c` 已冻结，**r6 canonical 构建 exit 0，软件回归及受控真实 GPU/NGX 功能验证已完成**；受控成本已测但稳定低开销/整帧 ≤3% 未获证实，游戏验收待完成，异环已部署并完成回退核对。已纳入 Beta 1 安全修复、Beta 2 菜单、#316，以及运动/历史、原生 HDR/jitter 私有 SR 和集中验收接线。未合 main、未发布 OTA。
 
+最终 r6 证据：实际 Core 私有 WARP/显卡各 17 模式、集中验收控制器 77 项、真实 NR/私有 SR 9 场（1–5 层 50%、25% odd/100%、RR-only、RR+5 层）通过；Present Adaptive、Low Frequency 和两套时域关闭运行库基线各 9 场，总计 36/36。私有 SR 成本三场各 32 帧通过；4K 时域成本八场功能通过但时间强多峰，详见[原始成本说明](D:/ChatGPT/DLSS5/evidence/beta4-final-temporal-cost-4k-r1/COST_RESULT.md)。三组光流模型实验 r6 复验通过，仍属独立研究。RR 最终矩阵使用异环 310.5 运行库；旧 310.1 小尺寸挂起及 HD 通过记录继续作为历史限制。受控人工输入不能代替游戏降噪或整帧 ≤3% 性能证明。
+
+Present 合法内容源跳号曾被 AMD 误拒，生产修正已纳入并由 r6 原生对象的原始 `+3` 来源夹具复验：两种时域模式各 9 场都有实际历史采用。旧失败与混合对象单场只保留诊断身份。产品功能、准入和证据统一见[本批矩阵与证据](052_BETA4_UNIFIED_ACCEPTANCE.md)。
+
+游戏继续由维护者安排，先异环、2077 后；FG 先关闭。新功能对新安装默认关闭，已有保存设置包括旧 jitter 均保留，不要求重置 INI；不合 main、不发 OTA、不改 Manager pin。Manager 当前为[运行库/OTA 合同交接](052_BETA4_RUNTIME_CONTRACT.json)，并非应用改造已完成。
+
+最终身份以 [r6 候选 JSON](D:/ChatGPT/DLSS5/deliveries/052-beta4-unified-85b59bdc-20260927-r6/0.5.2-BETA.4-CANDIDATE.json) 与[独立交付清单](D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/DELIVERY.json) 为准：`source-manifest.json` SHA256 `ee983859d3e529d4aed93bba6ff855af0d7b99f8a8c3c166ca09a1f33691c1de`；中文 Core/ZIP `061561fe76e758bded01ff85080e42768151a15017ce3442da04b5f57ec2db9a` / `8f2da829298346ca44144351db5f806d98beaf7c527cd68edab4c1b9d847ebfa`；英文 Core/ZIP `30ec1d00c4f4e4f916524db606fa0afc87016d91536e85e6b4700d73638abd77` / `4d725724daf6d73b9719bb32d85ec07df5e1cd071f9264188a8fd5cb877e5d2d`。**稳定低开销与游戏验收仍待完成。** 异环已由 6sol 部署中文 Core 与 Kio 40/50 NR 库；[安装回执](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/installation-receipt.json)确认唯一 Core、配置原字节和原生 SR/RR 不变，未启动游戏。[回退包](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/rollback.zip)及[使用说明](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/README-rollback.md)位于搜索目录外，回退脚本 VerifyOnly 已通过。 以下公开候选与历史回执保留原身份。
 
 ## 唯一主线和执行责任
 
@@ -91,7 +96,7 @@ Manager #15 只补公开附件和验收说明；Manager 另行推荐 0.5.1 不�
 | #277 / #298 | 同进程同工作量分析等待、提交、创建与总VRAM，不混旧ETL和局部账目 |
 | #293 / #296 | 首次创建与切镜恢复分开，不删必要Reset/fence |
 | #308 | 已解决冲突并完成 Beta 1 软件/受控模型验收、公开可选 OTA；只差真实游戏短测，不提前合 main |
-| #309 / #313 | Beta 3 默认关闭；完整构建、导引CPU/WARP、实际Core WARP/显卡及真实Feature1通过；待游戏验收，未合main/OTA |
+| #309 / #313 | Beta 4 r6 软件与受控 GPU 功能回归完成，成本回执已记录但稳定低开销未获证实；异环已部署，游戏验收待完成。Beta 3 回执保持历史身份，未合 main/OTA |
 | #211 / #239 / #275 | NVFP4/NVOF等按实际实现迁移；50系运行库约5%反馈独立同Core验证 |
 | #196 / Manager | 完整菜单仍有后续；Core附件与Manager应用、安装与运行责任分清 |
 
@@ -99,7 +104,7 @@ Manager #15 只补公开附件和验收说明；Manager 另行推荐 0.5.1 不�
 保留零修改、小正负量化尾差和有限越界分类；全链只重建一次，不丢第一层贡献，
 不在每层重复私有 SR/RR，也不默认堆叠多套长历史。跨原生 RR 与独立 RR 分别验收。
 
-## 最新协作与执行记录
+## 已完成协作与历史执行记录（不替代页首 Beta 4 状态）
 
 [Beta 3 接线与验证](PRIVATE_SR_CORE_052_BETA3.md)：编译/包装源码 `4f5ce993c6341e4649496cc618d105ef77a7d538`。
 实际Core通过1 Create/5 private Evaluate/6 submit、准确Reset退休和零修改字节对照；WARP/显卡通过尺寸、残差及生命周期反例。首版仅已知原始零jitter，非零拒绝；游戏仍待测。
@@ -110,7 +115,7 @@ Beta 1、已构建 UI 候选与 UI1/Inbox1 均保留；Beta 3 默认关闭，未
 9/26 历史实验：实现 `c0eb2af2`、文档 `6fb01d73` 的 CPU46、WARP/显卡各319、受控 Feature1 691 项通过；当时未接 Core，不覆盖当前 Beta 3 验证。
 #312 已补全新 checkout 的 build 目录处理和浅历史拒绝，不应重复修。
 
-维护依据：[本地验收接续](../maintenance/LOCAL_ACCEPTANCE_FOLLOWUP_20260927.md)、[CI 路由审计](../maintenance/CI_ROUTE_AUDIT_20260927.md)。旧静态接线核查保留其时间身份，以 Beta 3 产品回执为当前依据。
+维护依据：[本地验收接续](../maintenance/LOCAL_ACCEPTANCE_FOLLOWUP_20260927.md)、[CI 路由审计](../maintenance/CI_ROUTE_AUDIT_20260927.md)。旧静态接线及 Beta 3 产品回执保留其时间身份；Beta 4 以页首及统一矩阵对应回执为准。
 
 ## 历史
 

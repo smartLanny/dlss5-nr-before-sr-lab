@@ -1,7 +1,7 @@
 {
   "schema": "dlss5-nr-runtime-candidate/v1",
   "issue": 315,
-  "status": "compatibility-validation-in-progress",
+  "status": "fixed-beta4-software-compatible; owner-game-acceptance-pending",
   "core_candidate": "0.5.2-beta.4",
   "file_name": "nvngx_dlssnr.dll",
   "architecture": "x64",
@@ -30,7 +30,8 @@
     "core_max_inclusive": "0.5.2-beta.4",
     "other_core_versions": "unclaimed",
     "feature": 18,
-    "interface": "existing nrchain bridge; exact bridge identity supplied by frozen candidate"
+    "interface": "existing nrchain bridge; exact bridge identity supplied by frozen candidate",
+    "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
   },
   "ota": {
     "core_only_must_not_claim_runtime_updated": true,
@@ -52,7 +53,12 @@
   "verification": {
     "user_performance_observation": "20/30 substantial;40/50 small; compatibility not implied",
     "local_adapter_scope": "RTX 5090 D only",
-    "game": false
+    "game": false,
+    "final_core_source_commit": "85b59bdc89a23db14f06d911e83a26a385af351c",
+    "real_feature18_cases_per_runtime": 9,
+    "actual_controlled_runtime_loading_create_evaluate_release": true,
+    "delivery_manifest": "052_BETA4_DELIVERY.json",
+    "nte_deployed": true
   },
   "manager_handoff": "https://github.com/smartLanny/DLSS5-Manager-ZJZ/issues/2#issuecomment-5855337815",
   "manager_implementation_status": "contract-handed-off; active installer/catalog unchanged"

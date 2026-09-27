@@ -1,0 +1,228 @@
+{
+  "schema": "dlss5-unified-candidate-delivery/v1",
+  "candidate": "0.5.2-beta.4",
+  "source_commit": "85b59bdc89a23db14f06d911e83a26a385af351c",
+  "draft_pr": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/313",
+  "main_integrated": "b2990b120337cdd8026f83a1bd369f3708b78fbe",
+  "canonical_build_snapshot": {
+    "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\0.5.2-BETA.4-CANDIDATE.json",
+    "bytes": 3021,
+    "sha256": "9342fe73e44bb3363df065cc346fa613b112aa36112a7a6759adcfd19c845710"
+  },
+  "payload": [
+    {
+      "language": "en",
+      "core": {
+        "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\TEST-en\\nr-before-sr.0.5.2-beta.4.en.addon64",
+        "bytes": 17902080,
+        "sha256": "30ec1d00c4f4e4f916524db606fa0afc87016d91536e85e6b4700d73638abd77"
+      },
+      "archive": {
+        "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\DLSS5-Core-0.5.2-beta.4-en-test.zip",
+        "bytes": 2483484,
+        "sha256": "4d725724daf6d73b9719bb32d85ec07df5e1cd071f9264188a8fd5cb877e5d2d"
+      }
+    },
+    {
+      "language": "zh-CN",
+      "core": {
+        "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\TEST-zh-CN\\nr-before-sr.0.5.2-beta.4.zh-CN.addon64",
+        "bytes": 17988096,
+        "sha256": "061561fe76e758bded01ff85080e42768151a15017ce3442da04b5f57ec2db9a"
+      },
+      "archive": {
+        "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\DLSS5-Core-0.5.2-beta.4-zh-CN-test.zip",
+        "bytes": 2516082,
+        "sha256": "8f2da829298346ca44144351db5f806d98beaf7c527cd68edab4c1b9d847ebfa"
+      }
+    }
+  ],
+  "nr_runtimes": [
+    {
+      "gpu_group": "RTX20-30",
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\runtime-RTX20-30\\nvngx_dlssnr.dll",
+      "bytes": 309671536,
+      "sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8"
+    },
+    {
+      "gpu_group": "RTX40-50",
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\runtime-RTX40-50\\nvngx_dlssnr.dll",
+      "bytes": 165844992,
+      "sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
+    }
+  ],
+  "shared_bridge": {
+    "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\shared\\nrchain_nvngx.dll",
+    "bytes": 222720,
+    "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+  },
+  "tested_native_runtimes": {
+    "SR": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1",
+    "RR_NTE_310_5": "50eb21e654a1fd12403e000f5ac9c2488bf9149930c028e73196f3f1d47d10a9",
+    "distribution": "Native SR/RR are game-owned, not replaced or bundled."
+  },
+  "evidence": {
+    "canonical": {
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\validation.json",
+      "bytes": 4540,
+      "sha256": "9ea870b523195e17f32da004ffff779242dcd5bab3644b13d2f18761971269e9"
+    },
+    "unified": {
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\unified8-checks\\validation.json",
+      "bytes": 316,
+      "sha256": "dc0856eac93312ead1b6177dbbbab63cc7bb20670654f9f770aec599266754be"
+    },
+    "reconstruction": {
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\reconstruction-checks\\validation.json",
+      "bytes": 728,
+      "sha256": "6ef217580a061e9b836eb86d5b2f663cd46419d25ca3fc6150f3d4d6bb418eff"
+    },
+    "source": {
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-unified-85b59bdc-20260927-r6\\source\\source-manifest.json",
+      "bytes": 88336,
+      "sha256": "ee983859d3e529d4aed93bba6ff855af0d7b99f8a8c3c166ca09a1f33691c1de"
+    },
+    "audit": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-delivery-audit\\audit.json",
+      "bytes": 3027,
+      "sha256": "6b75cdcfca5296be670e13c2768c8de4e5f91ec3adf5b2178ee16c20741a6037"
+    },
+    "private_core_warp": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-private-core-warp-r1\\validation.json",
+      "bytes": 17746,
+      "sha256": "71c3d2622dae79288e5104e084e4525ea600369cfead445b1201c9b27b298e47"
+    },
+    "private_core_hardware": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-private-core-hardware-r1\\validation.json",
+      "bytes": 17757,
+      "sha256": "13607fe0da082eb4a933a9f66fd95f9c7ef26d0e20b808d809bc49f58c42fdd8"
+    },
+    "private_real_build": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-private-real-build-r1\\validation.json",
+      "bytes": 10015,
+      "sha256": "9f5ce607561b1671d47a8f311f01f92051eb153641b2a3da81bbd2b426ebfbcc"
+    },
+    "private_real_9_cases": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-private-real-matrix-r1\\validation.json",
+      "bytes": 10547,
+      "sha256": "83028d763c04d4a67503c8d61c229b1938c2e0b6b2b910b1bc14cfb0757f92b1"
+    },
+    "acceptance_controller": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-present-acceptance-controller\\run-r6-cpp\\result.json",
+      "bytes": 28938,
+      "sha256": "deee51439a2da6de654ad2e350da71693d5bdc18abc6e4027ab904e6a1d6f588"
+    },
+    "private_32_frames": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-private-cost-r1\\validation.json",
+      "bytes": 52772,
+      "sha256": "6be43906dd5ee8d82bb1554212bff30484580f16607dc7a3cd47d238dde44d31"
+    },
+    "model_flow_3_groups": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-model-flow-three-r1\\validation.json",
+      "bytes": 10357,
+      "sha256": "e44b99c4f7a230c823f7ffc49379f831c5b3645d69fb07d817170da9b336eab8"
+    },
+    "temporal_cost_4k": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-temporal-cost-4k-r1\\validation.json",
+      "bytes": 19495,
+      "sha256": "e5101afefcdd850d8a4b4602205596d4de65325b4ef9aa01219c35a630d7e045"
+    },
+    "temporal_distribution": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-temporal-cost-4k-r1\\timing-distribution-audit.json",
+      "bytes": 75244,
+      "sha256": "47110aa5b84cb0e83ba8ab84d66d7b3a0af365d566896c0a5cd37529c73d955b"
+    },
+    "temporal_quality": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-temporal-quality-r2\\validation.json",
+      "bytes": 21799,
+      "sha256": "36be5c6ee9554e94c3e3a1f458b1089acffbfdecc389ad761dbdaa9ee961604e"
+    },
+    "present_adaptive": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-present-adaptive-r1\\validation.json",
+      "bytes": 114240,
+      "sha256": "89194359aa70e7b5ac7fac5f6b49c4014d8898aba754e80c21891b897fe76931"
+    },
+    "present_lowfrequency": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-present-lowfrequency-r1\\validation.json",
+      "bytes": 114406,
+      "sha256": "55c8e1e355eefc153e2a96908e0fefcfc32b5b8d3efcac0920ebddc6f33aeb99"
+    },
+    "present_kio": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-present-kio-r1\\validation.json",
+      "bytes": 113735,
+      "sha256": "4c57b153fed5349f50fc59666e53aaf3861eb260de6683555ec5f770b99740f1"
+    },
+    "present_2030": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta4-final-present-2030-r1\\validation.json",
+      "bytes": 113764,
+      "sha256": "e119f0fd1f93146e72902e1dbbce23cbeb62bc3c575e0addd6e6b97cbeaa27ed"
+    },
+    "deployment": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\052-beta4-nte-install-20260927\\installation-receipt.json",
+      "bytes": 3064,
+      "sha256": "e44bb5425ab881caa7853d230f366983f8095c61c81ce4add488542e6f0b4fd7"
+    }
+  },
+  "validation": {
+    "canonical_build_and_functional_software": true,
+    "actual_generated_core_real_feature18_and_feature1": true,
+    "rr_only_init_host": true,
+    "present_cases": 36,
+    "private_real_matrix_cases": 9,
+    "private_controlled_modes_per_warp_and_hardware": 17,
+    "acceptance_controller_checks": 77,
+    "adapter": "RTX 5090 D",
+    "other_gpu_families_local_hardware_tested": false,
+    "debug_layer_verified": false,
+    "game_tested": false,
+    "game_quality_accepted": false,
+    "full_game_frame_3percent_accepted": false,
+    "stable_4k_temporal_performance_demonstrated": false
+  },
+  "compatibility": {
+    "runtime_core_min_inclusive": "0.5.2-beta.4",
+    "runtime_core_max_inclusive": "0.5.2-beta.4",
+    "other_core_versions": "unclaimed"
+  },
+  "defaults": {
+    "PrivateResidualSR": false,
+    "ResidualStabilizer": false,
+    "ResidualTemporalMode": 0,
+    "legacy_nr_jitter": false,
+    "power_saving_both": false,
+    "ai_colour_range": 0.5,
+    "saved_user_choices": "preserved; defaults do not overwrite an existing INI",
+    "ResidualDenoise": "not exposed; no proven additional spatial stage"
+  },
+  "publication": {
+    "merged_main": false,
+    "ota_published": false,
+    "manager_default_changed": false
+  },
+  "limits": [
+    "4K temporal cost has multimodal timing including the NR baseline; raw ms/median/P95 retained, no stable low-overhead claim.",
+    "Real game noise, flicker, ghosting, details, Esc/map recovery and performance await owner acceptance.",
+    "Optical flow as model input remains a separate controlled experiment. Independent residual RR and NVOF are not product features.",
+    "Private SR does not support Present, FG or multi-GPU. Native domain/phase must be proven; external accumulation and private SR are mutually exclusive."
+  ],
+  "receipt_ordering": "Frozen canonical metadata predates real NGX tests and deployment; later receipts here supplement it without rewriting the build snapshot.",
+  "deployment": {
+    "game": "Neverness to Everness",
+    "deployed": true,
+    "game_tested": false,
+    "operator": "6sol; file deployment only",
+    "receipt": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\052-beta4-nte-install-20260927\\installation-receipt.json",
+      "bytes": 3064,
+      "sha256": "e44bb5425ab881caa7853d230f366983f8095c61c81ce4add488542e6f0b4fd7"
+    },
+    "rollback_archive": {
+      "path": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta4-acceptance-20260927\\NTE-rollback-beta3.zip",
+      "bytes": 113320041,
+      "sha256": "aaf77d9d900ebe6260d57892b0cde9d55b51f34878f8e73da3a6451e3ee36cc5"
+    },
+    "rollback_verify_only_passed": true,
+    "original_ini_preserved": true,
+    "rollback_default": "Restore previous Core and NR bytes, preserve later user INI; -RestoreIni is explicit. Fixed original evidence path; ZIP is an offline backup."
+  }
+}
