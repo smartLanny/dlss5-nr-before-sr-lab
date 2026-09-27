@@ -16,11 +16,20 @@ $Root = Split-Path -Parent $PSScriptRoot
 if ($QualitySuccessor) {
     # The final generator owns identity. A new successor must not compile under
     # one version while its receipt, file names and test ZIPs retain another.
-    $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
-    $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
-    if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
-    $CandidateVersion = $VersionMatch.Groups[1].Value
-    $LeafVersion = $VersionMatch.Groups[2].Value
+    $PrivateVersionPath = Join-Path $PSScriptRoot 'patch-private-sr.py'
+    if (Test-Path -LiteralPath $PrivateVersionPath -PathType Leaf) {
+        $VersionSource = Get-Content -LiteralPath $PrivateVersionPath -Raw
+        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION\s*=\s*'((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-beta\.[1-9][0-9]*)'\r?$")
+        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final private SR product identity.' }
+        $CandidateVersion = $VersionMatch.Groups[1].Value
+        $LeafVersion = $CandidateVersion
+    } else {
+        $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
+        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
+        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
+        $CandidateVersion = $VersionMatch.Groups[1].Value
+        $LeafVersion = $VersionMatch.Groups[2].Value
+    }
 } else {
     $LeafVersion = 'perf12'
     $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion

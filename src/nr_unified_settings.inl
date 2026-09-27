@@ -32,7 +32,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,4.f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(ImGui::GetStyle().ItemSpacing.x,6.f));
     // A read-only, common header stays outside each page's scrolling child.
-    ImGui::TextWrapped("DLSS 5  0.5.1 Beta");
+    ImGui::TextWrapped("DLSS 5  %s",kAddonVersion);
     SettingsTooltip(ui("DLSS 5 NR candidate. Internal build: unified10. Full build, author and links are on Feedback.","DLSS 5 NR 测试版；内部构建 unified10；完整构建信息、作者和链接见反馈页。"));
     DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
     const char* routes[]={ui("Enhance → upscale","增强→放大"),ui("Upscale → enhance","放大→增强"),ui("Compatibility","自动兼容")};

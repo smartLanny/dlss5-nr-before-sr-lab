@@ -173,6 +173,9 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
     DrawTemporalOptions(next,changed,discrete);
 #endif
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    DrawPrivateResidualSr(next,changed,discrete);
+#endif
     DrawEnergyGateOptions();
     SettingsSection(NrUi("RR compatibility candidate","RR 兼容候选"));
     bool missing=nr_post_settings::missing_projection.load(std::memory_order_acquire);

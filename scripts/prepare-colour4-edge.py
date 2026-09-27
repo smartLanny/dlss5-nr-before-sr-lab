@@ -29,10 +29,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     native_output_patch=load('native_output_patch',core/'scripts/patch-native-output-capture.py')
     acceptance_patch=load('acceptance_patch',core/'scripts/patch-acceptance.py')
     reconstruction_patch=load('reconstruction_patch',core/'scripts/patch-reconstruction.py')
+    private_sr_patch=load('private_sr_patch',core/'scripts/patch-private-sr.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+private_sr_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -66,6 +67,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         check('test_user_controls.py',stage)
         reconstruction_patch.apply(stage,inputs,m3)
         check('test_reconstruction_runtime.py',stage)
+        private_sr_patch.apply(stage,inputs,m3)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
@@ -110,6 +112,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest['native_output_capture']={'optional':True,'schema':'native-output-v1',
             'old_nrf_unchanged':True,'same_call_required':True,'known_state_required':True,
             'missing_is_explicit':True,'game_verified':False}
+        manifest['private_residual_sr']={'version':private_sr_patch.VERSION,'default_enabled':False,
+            'source_commit':source,'producer':'same-source final B/Z with all NR layers',
+            'route':'D3D12 Feature1 post, FP16 SDR, known zero native jitter, no FG',
+            'lifetime':'successful Execute/Signal plus exact recording release',
+            'runtime_verified':False,'game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         if json.loads(mf.read_text(encoding='utf-8'))['files']!=base.file_hashes(stage):
             raise ValueError('Edge stage hash mismatch')
