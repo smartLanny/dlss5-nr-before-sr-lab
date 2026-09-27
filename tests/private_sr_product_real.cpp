@@ -201,6 +201,11 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 {"DLSS.Render.Subrect.Dimensions.Width",rw},{"DLSS.Render.Subrect.Dimensions.Height",rh}})SetUInt(params,v.first,v.second);
     SetInt(params,"PerfQualityValue",0);SetInt(params,"DLSS.Feature.Create.Flags",75);
     Require(MH_Initialize()==MH_OK,"controlled host actual lifecycle hook initialization");
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    // No addon is loaded by this isolated host. Run the actual observer producer
+    // normally invoked by OnNrFormatInitDevice(get_native()), never fake receipts.
+    Require(EnsureNrNativeFormatHooks(raw_device),"real native format init observer");
+#endif
     ScopedNgxLayer native_layer(NgxLayer::Core);g_original_core_create=create;
     if(rr){SetInt(params,"DLSS.Denoise.Mode",1);SetUInt(params,"DLSS.Roughness.Mode",0);SetUInt(params,"DLSS.Use.HW.Depth",1);}
     NgxHandle* parent=nullptr;h.Begin();Ngx(HookCoreCreate(h.list,rr?13:1,params,&parent),"observed original native parent Create");h.Submit();h.Wait();
