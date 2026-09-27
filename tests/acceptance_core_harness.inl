@@ -96,6 +96,18 @@ void Run(){
     ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);DrainExport();
     Check(!nr_acceptance::Active()&&!nr_f8::g_config_hold.load(),"missing Present restores without calling runtime");
     Sleep(2);
+    Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::PrivateSr,false),"private SR comparison starts");
+    Check(!g_config.private_residual_sr&&g_config.temporal_backend==0&&nr_post_settings::Read().percent==25,"low spatial baseline excludes external temporal");
+    AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
+    auto& private_session=*nr_acceptance::session;
+    private_session.index=1;nr_acceptance::StartGroup(private_session);
+    Check(g_config.private_residual_sr&&g_config.temporal_backend==0&&nr_post_settings::Read().percent==25,"same low scale enables private SR only");
+    private_session.index=2;nr_acceptance::StartGroup(private_session);
+    Check(!g_config.private_residual_sr&&nr_post_settings::Read().percent==100,"high spatial baseline retains model and layer count");
+    ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);
+    nr_acceptance::Cancel();DrainExport();
+    Check(nr_acceptance::SameRequested(original,SnapshotConfig())&&nr_post_settings::Read().percent==75,"private SR trial restores complete config and post precision");
+    Sleep(2);
     Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Colour,false),"runtime destruction case starts");
     nr_acceptance::RuntimeDestroyed(runtime);DrainExport();
     g_last_carrier_feature.store(13);g_live_rr_handles.store(1);

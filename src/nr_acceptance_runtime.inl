@@ -4,16 +4,26 @@
 namespace nr_acceptance {
 using namespace nr_acceptance_policy;
 constexpr unsigned kRows=32768,kSteps=6;
-struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0; };
+struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0,gpu_config=0,gpu_instance=0,gpu_tested=0,gpu_adopted=0; };
 struct Group {
     Step step{};ChainConfig requested{};unsigned generation=0,percent=0;
     unsigned long long eval_start=0,submit_start=0,temporal_start=0,eval_end=0,submit_end=0,temporal_end=0;
+    unsigned long long gpu_frames_start=0,gpu_tested_start=0,gpu_adopted_start=0,gpu_rejected_start=0,gpu_warmup_start=0,gpu_depth_rejected_start=0;
+    unsigned long long gpu_frames_end=0,gpu_tested_end=0,gpu_adopted_end=0,gpu_rejected_end=0,gpu_warmup_end=0,gpu_depth_rejected_end=0;
+    unsigned long long gpu_config_start=0,gpu_instance_start=0,gpu_config_end=0,gpu_instance_end=0;
+    unsigned long long private_composed_start=0,private_submitted_start=0,private_adopted_start=0;
+    unsigned long long private_composed_end=0,private_submitted_end=0,private_adopted_end=0;
     unsigned long long carrier_start=0,carrier_end=0,attempt_start=0,attempt_end=0;
     unsigned long long measured_instance=0;
     unsigned long long warmup_eval_start=0,warmup_submit_start=0,warmup_evaluations=0,warmup_submissions=0;
     unsigned warmup_temporal_state=0;
     unsigned long long usage_start=0,usage_end=0,usage_sampled_peak=0,budget=0;
-    bool memory_known=false,adopted=false,temporal_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false;
+    unsigned dual_timing_config=0,dual_timing_samples=0;
+    double dual_median_ms[7]{},dual_p95_ms[7]{};
+    unsigned long long private_timing_config=0,private_timing_instance=0,private_timing_samples=0;
+    double private_gpu_first_create_ms=0,private_gpu_first_inference_ms=0,private_gpu_median_ms=0,private_gpu_p95_ms=0;
+    bool private_gpu_timing_available=false;
+    bool memory_known=false,adopted=false,temporal_adopted=false,private_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false;
     unsigned long long capture_id=0,stage_tick=0;
     char reason[128]{},report_session[96]{};
     wchar_t report_path[1024]{},capture_path[1024]{};
@@ -42,6 +52,8 @@ bool SameRequested(const ChainConfig& expected,ChainConfig actual){actual.perf_e
 void StartGroup(Session& s){
     auto& g=s.groups[s.index];g.step=Get(s.program,s.index,s.original_effective==nr_processing::Start::Before);g.requested=s.original;
     if(g.step.backend>=0){g.requested.temporal_backend=static_cast<unsigned>(g.step.backend);g.requested.temporal_scope=g.step.scope;}
+    if(g.step.private_sr>=0)g.requested.private_residual_sr=g.step.private_sr!=0;
+    if(g.step.temporal_mode>=0)g.requested.temporal_mode=static_cast<unsigned>(g.step.temporal_mode);
     if(g.step.colour>=0)nr_colour_preferences::SetRange(g.requested,float(g.step.colour)/10.f);
     g.percent=s.post_original.percent;
     if(g.step.percent){
@@ -52,6 +64,7 @@ void StartGroup(Session& s){
     if(s.program!=Program::Current&&!s.original.enabled)Reason(g,"enable-NR-before-comparison");
     if(s.program!=Program::Current&&s.original_effective==nr_processing::Start::Present)Reason(g,"comparison-Present-unavailable-use-current-baseline");
     if(g.step.backend>0&&nr_processing_runtime::PresentSelected())Reason(g,"temporal-Present-unavailable");
+    if(s.program==Program::PrivateSr&&s.original_effective==nr_processing::Start::Before)Reason(g,"private-SR-needs-proven-post-SR-or-RR");
     if(!g.reason[0]){
         EnterCriticalSection(&g_chain_cs);
         ApplyConfig(g.requested,"acceptance transient",false);
@@ -61,6 +74,11 @@ void StartGroup(Session& s){
         LeaveCriticalSection(&g_chain_cs);
     }
     g.eval_start=g_nr_successful_evaluations.load();g.submit_start=g_nr_transfer_submitted_frames.load();g.temporal_start=nr_temporal_status::submitted.load();
+    g.gpu_frames_start=nr_temporal_status::gpu_frames.load();g.gpu_tested_start=nr_temporal_status::gpu_tested.load();
+    g.gpu_adopted_start=nr_temporal_status::gpu_adopted.load();g.gpu_rejected_start=nr_temporal_status::gpu_rejected.load();
+    g.gpu_warmup_start=nr_temporal_status::gpu_warmup.load();g.gpu_depth_rejected_start=nr_temporal_status::gpu_depth_rejected.load();
+    g.gpu_config_start=nr_temporal_status::gpu_config.load();g.gpu_instance_start=nr_temporal_status::gpu_instance.load();
+    g.private_composed_start=nr_private_sr_status::composed.load();g.private_submitted_start=nr_private_sr_status::submitted.load();g.private_adopted_start=nr_private_sr_status::adopted.load();
     g.warmup_eval_start=g.eval_start;g.warmup_submit_start=g.submit_start;
     s.window.Start(GetTickCount64());
     if(g.reason[0])s.window.phase=Phase::Report;
@@ -76,10 +94,10 @@ DWORD WINAPI Export(void* opaque){
     }
     swprintf_s(path,L"%ls\\acceptance.txt",s->directory);f=nullptr;_wfopen_s(&f,path,L"wb");ok=f&&ok;
     if(f){
-        std::fprintf(f,"format=unified-acceptance-v1\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest successful NR source, not identity of each callback\nmemory=worker sampled process-local DXGI usage/budget, not exact peak or NGX allocation total\nmeasurement=20 seconds after at least 3 seconds and 64 successful post-reset evaluations; captures and F8 occur afterwards\n",
+        std::fprintf(f,"format=unified-acceptance-v2\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest successful NR source, not identity of each callback\ngpuTiming=unavailable; callback intervals must not be read as GPU cost\nmemory=worker sampled process-local DXGI usage/budget, not exact peak or NGX allocation total\nmeasurement=20 seconds after at least 3 seconds and 64 successful post-reset evaluations; captures and F8 occur afterwards\n",
             kBuildIdentity,kSourceCommit,s->id,static_cast<unsigned>(s->program),s->restored,s->cancelled,s->rows,s->overflow,static_cast<unsigned long long>(NrTimingFrequency()));
         std::fprintf(f,"missedCallbackSamples=%llu\n",dropped_samples.load()-s->dropped_start);
-        std::fprintf(f,"adoptionDenominator=observed carrier calls, not unique displayed frames; compare NR submissions, transfer attempts and source continuity; NR evaluate can include several layers\n");
+        std::fprintf(f,"adoptionDenominator=observed carrier calls, not unique displayed frames; NR and temporal submissions alone do not prove visible history adoption; NR evaluate can include several layers\n");
         std::fprintf(f,"resetSchema=nr_reset_observation.Sample primary layer; bit64 is RR placeholder depth, not exposure readback; primary_source_to_canonical is the actual normalization multiplier, not nits; repeated rows of the same source are not new evaluations\n");
         for(unsigned i=0;i<s->count;++i){const auto& g=s->groups[i];char report[4096]{};WideToUtf8(g.report_path,report,sizeof(report));
             std::fprintf(f,"group.%u.warmup.nrEvaluations=%llu\ngroup.%u.warmup.nrSubmissions=%llu\ngroup.%u.warmup.temporalState=%s\n",
@@ -90,9 +108,28 @@ DWORD WINAPI Export(void* opaque){
             const auto carriers=g.carrier_end>=g.carrier_start?g.carrier_end-g.carrier_start:0;
             const auto attempts=g.attempt_end>=g.attempt_start?g.attempt_end-g.attempt_start:0;
             std::fprintf(f,"group.%u.carrierCalls=%llu\ngroup.%u.transferAttempts=%llu\n",i,carriers,i,attempts);
+            std::fprintf(f,"group.%u.privateSubmissions=%llu\n",i,g.private_submitted_end>=g.private_submitted_start?g.private_submitted_end-g.private_submitted_start:0);
+            std::fprintf(f,"group.%u.temporalGpuScope=completed GPU counter readback for this config and owner; adoption is historical sampling, not final display proof\n",i);
+            std::fprintf(f,"group.%u.temporalGpuConfig=%llu\ngroup.%u.temporalGpuInstance=%llu\n",i,g.gpu_config_end,i,g.gpu_instance_end);
+            std::fprintf(f,"group.%u.temporalGpu.frames=%llu\ngroup.%u.temporalGpu.tested=%llu\ngroup.%u.temporalGpu.adopted=%llu\ngroup.%u.temporalGpu.rejected=%llu\ngroup.%u.temporalGpu.warmup=%llu\ngroup.%u.temporalGpu.depthRejected=%llu\n",
+                i,g.gpu_frames_end>=g.gpu_frames_start?g.gpu_frames_end-g.gpu_frames_start:0,
+                i,g.gpu_tested_end>=g.gpu_tested_start?g.gpu_tested_end-g.gpu_tested_start:0,
+                i,g.gpu_adopted_end>=g.gpu_adopted_start?g.gpu_adopted_end-g.gpu_adopted_start:0,
+                i,g.gpu_rejected_end>=g.gpu_rejected_start?g.gpu_rejected_end-g.gpu_rejected_start:0,
+                i,g.gpu_warmup_end>=g.gpu_warmup_start?g.gpu_warmup_end-g.gpu_warmup_start:0,
+                i,g.gpu_depth_rejected_end>=g.gpu_depth_rejected_start?g.gpu_depth_rejected_end-g.gpu_depth_rejected_start:0);
+            std::fprintf(f,"group.%u.privateGpuTimingScope=actual queue timestamps for private residual Encode+Feature1+Compose only; excludes guides, native SR/RR, NR, and whole frame\n",i);
+            std::fprintf(f,"group.%u.privateGpuTimingConfig=%llu\ngroup.%u.privateGpuTimingInstance=%llu\ngroup.%u.privateGpuTimingSamples=%llu\ngroup.%u.privateGpuTimingAvailable=%u\n",i,g.private_timing_config,i,g.private_timing_instance,i,g.private_timing_samples,i,g.private_gpu_timing_available);
+            if(g.private_gpu_timing_available)std::fprintf(f,"group.%u.privateGpuMs=firstCreate:%.9g,firstInference:%.9g,median:%.9g,p95:%.9g\n",i,g.private_gpu_first_create_ms,g.private_gpu_first_inference_ms,g.private_gpu_median_ms,g.private_gpu_p95_ms);
+            std::fprintf(f,"group.%u.dualGpuTimingScope=GPU timestamp pairs for the multi-layer dual path only; rolling window may include warmup; excludes private SR, temporal, unrelated game work and whole-frame GPU time\n",i);
+            std::fprintf(f,"group.%u.dualGpuTimingConfig=%u\ngroup.%u.dualGpuTimingSamples=%u\n",i,g.dual_timing_config,i,g.dual_timing_samples);
+            if(g.dual_timing_samples&&g.dual_timing_config==g.generation){
+                static constexpr const char* names[]={"NR1","Down","NR2","Combine","NativeSR","Chain","LowResidual"};
+                for(unsigned j=0;j<7;++j)std::fprintf(f,"group.%u.dualGpuMs.%s=median:%.9g,p95:%.9g\n",i,names[j],g.dual_median_ms[j],g.dual_p95_ms[j]);
+            }
             if(carriers&&g.submit_end>=g.submit_start)std::fprintf(f,"group.%u.submittedPerCarrier=%.9g\n",i,double(g.submit_end-g.submit_start)/double(carriers));
-            std::fprintf(f,"group.%u=%s\ngroup.%u.config=%u\ngroup.%u.postPercent=%u\ngroup.%u.measured=%u\ngroup.%u.reason=%s\ngroup.%u.nrEvaluations=%llu\ngroup.%u.nrSubmissions=%llu\ngroup.%u.temporalSubmissions=%llu\ngroup.%u.nrAdopted=%u\ngroup.%u.temporalAdopted=%u\ngroup.%u.captureRequest=%llu\ngroup.%u.captureComplete=%u\ngroup.%u.report=%s\ngroup.%u.memoryKnown=%u\ngroup.%u.usageStart=%llu\ngroup.%u.usageEnd=%llu\ngroup.%u.usageSampledPeak=%llu\ngroup.%u.budget=%llu\n",
-                i,g.step.name?g.step.name:"not-started",i,g.generation,i,g.percent,i,g.measured,i,g.reason[0]?g.reason:"recorded-not-quality-verified",i,g.eval_end>=g.eval_start?g.eval_end-g.eval_start:0,i,g.submit_end>=g.submit_start?g.submit_end-g.submit_start:0,i,g.temporal_end>=g.temporal_start?g.temporal_end-g.temporal_start:0,i,g.adopted,i,g.temporal_adopted,i,g.capture_id,i,g.capture_complete,i,report,i,g.memory_known,i,g.usage_start,i,g.usage_end,i,g.usage_sampled_peak,i,g.budget);
+            std::fprintf(f,"group.%u=%s\ngroup.%u.config=%u\ngroup.%u.postPercent=%u\ngroup.%u.measured=%u\ngroup.%u.reason=%s\ngroup.%u.nrEvaluations=%llu\ngroup.%u.nrSubmissions=%llu\ngroup.%u.temporalSubmissions=%llu\ngroup.%u.nrSubmitted=%u\ngroup.%u.temporalHistoryAdopted=%u\ngroup.%u.privateComposed=%llu\ngroup.%u.privateAdopted=%llu\ngroup.%u.privateAdoptedDuringMeasure=%u\ngroup.%u.wholeFrameGpuTime=unavailable\ngroup.%u.captureRequest=%llu\ngroup.%u.captureComplete=%u\ngroup.%u.report=%s\ngroup.%u.memoryKnown=%u\ngroup.%u.usageStart=%llu\ngroup.%u.usageEnd=%llu\ngroup.%u.usageSampledPeak=%llu\ngroup.%u.budget=%llu\n",
+                i,g.step.name?g.step.name:"not-started",i,g.generation,i,g.percent,i,g.measured,i,g.reason[0]?g.reason:"recorded-not-quality-verified",i,g.eval_end>=g.eval_start?g.eval_end-g.eval_start:0,i,g.submit_end>=g.submit_start?g.submit_end-g.submit_start:0,i,g.temporal_end>=g.temporal_start?g.temporal_end-g.temporal_start:0,i,g.adopted,i,g.temporal_adopted,i,g.private_composed_end>=g.private_composed_start?g.private_composed_end-g.private_composed_start:0,i,g.private_adopted_end>=g.private_adopted_start?g.private_adopted_end-g.private_adopted_start:0,i,g.private_adopted,i,i,g.capture_id,i,g.capture_complete,i,report,i,g.memory_known,i,g.usage_start,i,g.usage_end,i,g.usage_sampled_peak,i,g.budget);
             const bool same=g.cpu_before.epoch==g.cpu_after.epoch&&!g.cpu_before.counter_overflow&&!g.cpu_after.counter_overflow;
             std::fprintf(f,"group.%u.cpuEpochComparable=%u\n",i,same);
             if(same)for(unsigned j=0;j<nr_timing::kStageCount;++j){const auto& a=g.cpu_before.stages[j];const auto& b=g.cpu_after.stages[j];if(b.count>=a.count&&b.total_ticks>=a.total_ticks)std::fprintf(f,"group.%u.cpu.%s=count:%llu,totalTicks:%llu\n",i,nr_timing::Name(static_cast<nr_timing::Stage>(j)),static_cast<unsigned long long>(b.count-a.count),static_cast<unsigned long long>(b.total_ticks-a.total_ticks));}
@@ -140,29 +177,68 @@ void Tick(reshade::api::effect_runtime* runtime){
             LeaveCriticalSection(&g_chain_cs);
         }else {++dropped_samples;return;}
         r.group=s->index;r.tick=NrTimingCounter();r.evaluations=g_nr_successful_evaluations.load();r.submitted=g_nr_transfer_submitted_frames.load();r.temporal_submitted=nr_temporal_status::submitted.load();r.temporal_state=nr_temporal_status::state.load();
+        r.gpu_config=nr_temporal_status::gpu_config.load();r.gpu_instance=nr_temporal_status::gpu_instance.load();
+        r.gpu_tested=nr_temporal_status::gpu_tested.load();r.gpu_adopted=nr_temporal_status::gpu_adopted.load();
         r.carriers=g_carrier_evaluations.load();r.attempts=g_nr_transfer_attempted_frames.load();
-        o.adopted=CountersAdvanced(g.submit_start,r.submitted);o.temporal=!o.enabled||g.requested.temporal_backend==0||CountersAdvanced(g.temporal_start,r.temporal_submitted);
+        const bool gpu_owner=r.instance&&r.gpu_config==g.generation&&r.gpu_instance==r.instance;
+        if(s->window.phase==Phase::Measure&&g.requested.temporal_backend&&!gpu_owner)o.matches=false;
+        if(gpu_owner&&(g.gpu_config_start!=r.gpu_config||g.gpu_instance_start!=r.gpu_instance)){
+            g.gpu_config_start=r.gpu_config;g.gpu_instance_start=r.gpu_instance;
+            g.gpu_frames_start=g.gpu_tested_start=g.gpu_adopted_start=0;
+            g.gpu_rejected_start=g.gpu_warmup_start=g.gpu_depth_rejected_start=0;
+            if(s->window.phase==Phase::Warmup)s->window.Start(now);
+            else o.matches=false;
+        }
+        o.adopted=CountersAdvanced(g.submit_start,r.submitted);
+        o.temporal=g.requested.temporal_backend==0||s->program==Program::Current||
+            (gpu_owner&&CountersAdvanced(g.gpu_tested_start,r.gpu_tested)&&CountersAdvanced(g.gpu_adopted_start,r.gpu_adopted));
+        if(g.requested.private_residual_sr)
+            o.temporal=o.temporal&&CountersAdvanced(g.private_adopted_start,nr_private_sr_status::adopted.load());
         const auto previous=s->window.phase;s->window.Tick(now,o);
         if(previous==Phase::Warmup){
             g.warmup_evaluations=r.evaluations>=g.warmup_eval_start?r.evaluations-g.warmup_eval_start:0;
             g.warmup_submissions=r.submitted>=g.warmup_submit_start?r.submitted-g.warmup_submit_start:0;
             g.warmup_temporal_state=r.temporal_state;
+            if(s->window.phase==Phase::Report&&s->program!=Program::Current&&g.requested.temporal_backend&&!o.temporal)
+                Reason(g,gpu_owner?"temporal-GPU-history-not-adopted":"temporal-GPU-owner-identity-unavailable");
+            if(s->window.phase==Phase::Report&&g.requested.private_residual_sr&&
+               !CountersAdvanced(g.private_adopted_start,nr_private_sr_status::adopted.load()))
+                Reason(g,"private-SR-not-adopted-during-warmup");
             if(s->window.phase==Phase::Report&&o.matches&&g.requested.temporal_backend&&
                (r.temporal_state==10||r.temporal_state==11||r.temporal_state==18||r.temporal_state==19))
                 Reason(g,nr_temporal_status::Name(r.temporal_state));
         }
         if(previous==Phase::Warmup&&s->window.phase==Phase::Measure){
             g.eval_start=r.evaluations;g.submit_start=r.submitted;g.temporal_start=r.temporal_submitted;SnapshotNrTiming(g.cpu_before);
+            g.gpu_frames_start=nr_temporal_status::gpu_frames.load();g.gpu_tested_start=r.gpu_tested;g.gpu_adopted_start=r.gpu_adopted;
+            g.gpu_rejected_start=nr_temporal_status::gpu_rejected.load();g.gpu_warmup_start=nr_temporal_status::gpu_warmup.load();
+            g.gpu_depth_rejected_start=nr_temporal_status::gpu_depth_rejected.load();
+            g.private_composed_start=nr_private_sr_status::composed.load();g.private_submitted_start=nr_private_sr_status::submitted.load();g.private_adopted_start=nr_private_sr_status::adopted.load();
             g.carrier_start=r.carriers;g.attempt_start=r.attempts;
             g.measured_instance=r.instance;
         }
         if(s->window.phase==Phase::Measure){if(s->rows<kRows)s->samples[s->rows++]=r;else s->overflow=true;}
         if(previous==Phase::Measure&&s->window.phase==Phase::Report){
             g.measured=true;g.eval_end=r.evaluations;g.submit_end=r.submitted;g.temporal_end=r.temporal_submitted;SnapshotNrTiming(g.cpu_after);
+            g.gpu_config_end=r.gpu_config;g.gpu_instance_end=r.gpu_instance;
+            g.gpu_frames_end=nr_temporal_status::gpu_frames.load();g.gpu_tested_end=r.gpu_tested;g.gpu_adopted_end=r.gpu_adopted;
+            g.gpu_rejected_end=nr_temporal_status::gpu_rejected.load();g.gpu_warmup_end=nr_temporal_status::gpu_warmup.load();
+            g.gpu_depth_rejected_end=nr_temporal_status::gpu_depth_rejected.load();
+            g.private_composed_end=nr_private_sr_status::composed.load();g.private_submitted_end=nr_private_sr_status::submitted.load();g.private_adopted_end=nr_private_sr_status::adopted.load();
+            g.private_timing_config=nr_private_sr_status::timing_config.load();g.private_timing_instance=nr_private_sr_status::timing_instance.load();g.private_timing_samples=nr_private_sr_status::timing_samples.load();
+            g.private_gpu_timing_available=nr_private_sr_status::gpu_timing_available.load()&&g.private_timing_config==g.generation&&g.private_timing_instance==g.measured_instance&&g.private_timing_samples>0;
+            if(g.private_gpu_timing_available){g.private_gpu_first_create_ms=nr_private_sr_status::gpu_first_create_ms.load();g.private_gpu_first_inference_ms=nr_private_sr_status::gpu_first_inference_ms.load();g.private_gpu_median_ms=nr_private_sr_status::gpu_median_ms.load();g.private_gpu_p95_ms=nr_private_sr_status::gpu_p95_ms.load();}
+            g.dual_timing_config=nr_dual_runtime::time_config.load();g.dual_timing_samples=nr_dual_runtime::time_samples.load();
+            if(g.dual_timing_config==g.generation&&g.dual_timing_samples)
+                for(unsigned j=0;j<7;++j){g.dual_median_ms[j]=nr_dual_runtime::time_median[j].load();g.dual_p95_ms[j]=nr_dual_runtime::time_p95[j].load();}
             g.carrier_end=r.carriers;g.attempt_end=r.attempts;
-            g.adopted=CountersAdvanced(g.submit_start,g.submit_end);g.temporal_adopted=CountersAdvanced(g.temporal_start,g.temporal_end);
+            g.adopted=CountersAdvanced(g.submit_start,g.submit_end);
+            g.temporal_adopted=g.gpu_config_end==g.generation&&g.gpu_instance_end==g.measured_instance&&
+                CountersAdvanced(g.gpu_tested_start,g.gpu_tested_end)&&CountersAdvanced(g.gpu_adopted_start,g.gpu_adopted_end);
+            g.private_adopted=CountersAdvanced(g.private_adopted_start,g.private_adopted_end);
             if(g.requested.enabled&&!g.adopted)Reason(g,"NR-not-adopted-during-measurement");
-            if(g.requested.temporal_backend&&!g.temporal_adopted)Reason(g,"temporal-not-adopted-during-measurement");
+            if(s->program!=Program::Current&&g.requested.temporal_backend&&!g.temporal_adopted)Reason(g,"temporal-GPU-history-not-adopted-during-measurement");
+            if(g.requested.private_residual_sr&&!g.private_adopted)Reason(g,"private-SR-not-adopted-during-measurement");
         }
         if(s->window.refusal)Reason(g,s->window.refusal);
     }
@@ -242,9 +318,9 @@ void Draw(reshade::api::effect_runtime* runtime,bool pending){
     const bool zh=UseChineseUi();static int program=0;static bool deep=true;
     ImGui::Separator();ImGui::TextUnformatted(zh?"集中验收":"Guided acceptance");
     const bool running=Active();ImGui::BeginDisabled(running||packaging.load()||pending||nr_f8::IsActive()||nr_core_feedback::Busy());
-    ImGui::Combo(zh?"本次方案":"This comparison",&program,zh?"当前设置·性能基准\0颜色与比例\0原生/AMD防闪\0":"Current settings / baseline\0Colour and scale\0Native / AMD temporal\0");
+    ImGui::Combo(zh?"本次方案":"This comparison",&program,zh?"当前设置·性能基准\0颜色与比例\0原生/AMD防闪\0私有 SR 与空间恢复\0普通累积与低频重建\0":"Current settings / baseline\0Colour and scale\0Native / AMD temporal\0Private SR / spatial recovery\0Ordinary / low-frequency temporal\0");
     ImGui::TextWrapped("%s",zh?"临时设置不写入INI，不切模型。每组预热后记录20秒；结束/取消恢复。RR/HDR/FG在游戏内手动切换，每次切好后重新开始。":"Temporary settings never write INI or switch models. Each group warms up then records 20 seconds. Finish/cancel restores settings. Change game RR/HDR/FG manually before starting a new comparison.");
-    ImGui::TextWrapped("%s",program==1?(zh?"保持当前路线与模型；关闭防闪，比较100/99/低分，再以原比例比较新AI色彩范围0/0.7/1（临时启用对应颜色许可）。":"Keep route/model; temporal OFF; compare 100/99/low scale, then the new colour range 0/0.7/1 (temporary colour admission) at original scale."):program==2?(zh?"保持模型和比例；比较关闭、原生、AMD及双层以上的后续层范围。不可用组合明确记录。":"Keep model/scale; compare OFF, Native, AMD, then later-layer scope when available. Unsupported groups are explicit."):(zh?"保持全部设置，记录当前基准；用于同设置对比两个版本。":"Keep all settings; record a baseline for equal-settings version comparison."));
+    ImGui::TextWrapped("%s",program==1?(zh?"保持当前路线与模型；关闭防闪，比较100/99/低分，再以原比例比较 AI 色彩范围 0/0.5/1。":"Keep route/model; temporal OFF; compare 100/99/low scale, then AI colour range 0/0.5/1 at the original scale."):program==2?(zh?"保持模型和比例；比较关闭、原生、AMD及双层以上后续层。只有实际 GPU 历史采用可验证才计入通过。":"Keep model/scale; compare OFF, Native, AMD and later-layer scope. GPU history use must be observable before a group can pass."):program==3?(zh?"同一模型和层数：低比例空间恢复、低比例私有 SR、高比例空间恢复。独立关闭外部累积，私有 SR 须实际采用。":"Same model and layer count: low-scale spatial recovery, low-scale private SR, high-scale spatial recovery. External temporal is disabled for this comparison; private SR must be adopted."):program==4?(zh?"同一模型与 AMDOF 运动源：普通累积对照低频重建。独立关闭私有 SR；历史采用计数不可用时跳过。":"Same model and AMDOF motion source: ordinary accumulation versus low-frequency reconstruction. Private SR is disabled; skip if GPU history-use counts are unavailable."):(zh?"保持全部设置，记录当前基准；用于同设置对比两个版本。":"Keep all settings; record a baseline for equal-settings version comparison."));
     if(program==1)ImGui::Checkbox(zh?"计时结束后采集模型阶段（会重置历史）":"Capture stages AFTER timing (resets history)",&deep);
     if(ImGui::Button(zh?"开始集中验收":"Start guided acceptance")){if(Start(runtime,static_cast<Program>(program),deep))runtime->open_overlay(false,reshade::api::input_source::mouse);}
     ImGui::EndDisabled();

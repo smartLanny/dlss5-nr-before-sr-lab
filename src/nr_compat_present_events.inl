@@ -1,5 +1,8 @@
 unsigned long long Collect(Context& c) {
     nr_present_capture::Collect();
+#if NR_HAS_TEMPORAL_RUNTIME
+    CollectTemporalStats(c);
+#endif
     if(c.timeline.Poisoned())return UINT64_MAX;
     if(!c.fence){if(c.recorded){Poison(c,0xBAD00002u,"missing-completion-fence");return UINT64_MAX;}return 0;}
     const auto done=ID3D12Fence_GetCompletedValue(c.fence);
@@ -36,6 +39,9 @@ bool Submit(Context& c,unsigned slot,unsigned long long source,bool create,bool 
     ID3D12CommandQueue_ExecuteCommandLists(c.queue,1,lists);
     const HRESULT result=ID3D12CommandQueue_Signal(c.queue,c.fence,fence);
     if(FAILED(result)||!c.timeline.Submitted(slot,fence,create)){Poison(c,static_cast<unsigned>(result),"Signal-after-Execute");return false;}
+#if NR_HAS_TEMPORAL_RUNTIME
+    if(!SubmitTemporal(c,f,fence))return false;
+#endif
     nr_present_capture::Submit(source,c.fence,fence);
     nr_source_runtime::CompletePresent(c.fence,fence);
     if(create)c.create_fence=fence;
@@ -162,6 +168,9 @@ bool Frame(Context& c,unsigned slot,ID3D12Resource* backbuffer,unsigned long lon
     if(!warmed)return Submit(c,slot,source,false,false);
     Transition(list,c.image.result,c.image.result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Codec(c,list,true);UavBarrier(list,c.image.result);
+#if NR_HAS_TEMPORAL_RUNTIME
+    if(!RecordTemporal(c,f))return false;
+#endif
     nr_present_capture::Finish(c,f);
     Transition(list,c.image.result,c.image.result_state,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     Stamp(c,f,3u+2u*c.passes);DrawBackbuffer(c,f);Stamp(c,f,4u+2u*c.passes);ResolveTiming(c,f);
@@ -185,7 +194,12 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     struct Unlock {~Unlock(){LeaveCriticalSection(&g_chain_cs);}} unlock;
     Recursion recursion;
     if(retirement_active)return;
-    if(current){const auto done=Collect(*current);if(done==UINT64_MAX)return;}
+    if(current){const auto done=Collect(*current);if(done==UINT64_MAX)return;
+#if NR_HAS_TEMPORAL_RUNTIME
+        MaintainTemporal(*current);
+        if(current->timeline.Poisoned())return;
+#endif
+    }
     if(!g_config.enabled||g_config.identity_use_original||
        !std::isfinite(g_config.transfer_strength)||g_config.transfer_strength<=0.000001f){
         settled_presents=0;
@@ -313,6 +327,9 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     auto& flight=c.flights[unsigned(index)];
     if(FAILED(ID3D12CommandAllocator_Reset(flight.allocator))||
        FAILED(ID3D12GraphicsCommandList_Reset(flight.list,flight.allocator,nullptr))){Poison(c,0xBAD00002u,"Reset-private-list");return;}
+#if NR_HAS_TEMPORAL_RUNTIME
+    EndTemporalRecording(c,flight); // both native Reset calls succeeded
+#endif
     if(!nr_source_runtime::MarkPresentRecorded(native_queue)){
         // A last-moment ownership change cancels an empty private recording.
         // Leave it closed so an Off transition can reuse the free flight.

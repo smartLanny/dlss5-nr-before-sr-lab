@@ -9,6 +9,7 @@ namespace nr::final_residual {
 using Id = std::uint64_t;
 constexpr Id kResidualSdrCodeValues=1;
 constexpr Id kResidualLinearScene=2; // signed scene-linear residual; not display PQ.
+constexpr Id kResidualLinearSdr=3; // scene-linear SDR; no HDR shoulder or tonemap.
 struct Source {
     Id stream=0, epoch=0, sequence=0;
     bool valid() const noexcept { return stream&&epoch&&sequence; }
@@ -43,6 +44,7 @@ struct Frame {
     Id source_time=0; // Caller-selected monotonic source time; not a Present counter.
     bool scene_reset=false;
     float source_to_scene=1.f; // 1 / same-source PreExposure; not display white/nits.
+    Source previous_source{}; // AMD owned B snapshot pair; never a Present counter.
     bool valid() const noexcept {return source.valid()&&contract.valid()&&source_time;}
 };
 enum class Action { Invalid, Busy, Duplicate, Stale, Quarantined, ResetBoth, Continue };
@@ -105,10 +107,14 @@ public:
             if(next.source.sequence==observed_.source.sequence)return {Action::Duplicate};
             if(next.source.sequence<observed_.source.sequence)return {Action::Stale};
         }
+        const bool paired_amd=next.contract.backend==Backend::AmdOpticalFlow&&
+            next.previous_source.valid()&&next.previous_source==adopted_.source&&
+            next.source.sequence>adopted_.source.sequence;
         const bool continuous=valid_&&!next.scene_reset&&same_stream(next.source,adopted_.source)&&
             adopted_.source.sequence!=std::numeric_limits<Id>::max()&&
-            next.source.sequence==adopted_.source.sequence+1&&
-            next.source_time>adopted_.source_time&&next.contract==adopted_.contract;
+            (next.source.sequence==adopted_.source.sequence+1||paired_amd)&&
+            next.source_time>adopted_.source_time&&
+            next.source_time-adopted_.source_time<=Id(250000)&&next.contract==adopted_.contract;
         if(valid_&&!continuous)invalidate();
         if(quarantined_||next_token_==std::numeric_limits<Id>::max()){
             failed();return {Action::Quarantined};

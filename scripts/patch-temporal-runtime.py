@@ -1,7 +1,7 @@
 """Final additive temporal seam; never replace cumulative NR/Core files."""
 from pathlib import Path
 
-LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_route.h','src/nr_temporal_ui.inl','src/nr_reset_observation.h')
+LOCAL=('src/nr_temporal_status.h','src/nr_temporal_runtime.inl','src/nr_temporal_route.h','src/nr_temporal_ui.inl','src/nr_present_temporal.inl','src/nr_reset_observation.h')
 TEMPORAL=('temporal_controls.hpp','history_contract.hpp','amd_of_producer.hpp','amd_of_producer.cpp',
  'amd_of_shader.hpp','residual_accumulator.hpp','residual_accumulator_shader.hpp','recorded_temporal.hpp','recorded_temporal.cpp',
  'compile_temporal_artifacts.cpp')
@@ -10,7 +10,7 @@ INPUTS=('scripts/patch-temporal-runtime.py','scripts/build-temporal-module.py','
 def runtime(s,h):
     once=h.once
     s=once(s,'#include "nr_colour_preferences.h"','#include "nr_colour_preferences.h"\n#define NR_HAS_TEMPORAL_RUNTIME 1\n#include "nr_temporal_status.h"\n#include "nr_process_memory.h"\n#include "temporal/recorded_temporal.hpp"','temporal module includes')
-    s=once(s,'struct ChainConfig {','struct ChainConfig {\n    unsigned temporal_backend=0,temporal_scope=0;\n    bool temporal_legacy=false;','temporal default off')
+    s=once(s,'struct ChainConfig {','struct ChainConfig {\n    unsigned temporal_backend=0,temporal_scope=0,temporal_mode=0;\n    bool temporal_legacy=false;','temporal default off')
     s=once(s,'struct NrContext {','#include "nr_reset_observation.h"\nstruct NrContext {\n    bool observed_delayed_exposure_reset=false;',
         'successful evaluate reset observation')
     s=once(s,'    context.diagnostic_reset_reasons = diagnostic_reset_reasons;',
@@ -24,26 +24,29 @@ def runtime(s,h):
         observed_source.stream,observed_source.epoch,observed_source.sequence,
         context.config_generation,context.history_generation});
     g_applied_nr_identity = identity;''','primary successful reset count')
-    s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    if(config.temporal_backend>2u)config.temporal_backend=0;\n    if(config.temporal_scope>1u)config.temporal_scope=0;','temporal normalization')
+    s=once(s,'void NormalizeConfig(ChainConfig &config) {','void NormalizeConfig(ChainConfig &config) {\n    if(config.temporal_backend>2u)config.temporal_backend=0;\n    if(config.temporal_scope>1u)config.temporal_scope=0;\n    if(config.temporal_mode>1u)config.temporal_mode=0;','temporal normalization')
     s=once(s,'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return ',
-        'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_legacy==b.temporal_legacy && ','temporal same config')
+        'bool SameConfig(const ChainConfig &a, const ChainConfig &b) {\n    return a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_mode==b.temporal_mode && a.temporal_legacy==b.temporal_legacy && ','temporal same config')
     s=once(s,'    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);','', 'obsolete colour read') if '    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);' in s else s
     marker='    next.master_virtual_key=GetPrivateProfileIntW'
     start=s.index(marker)
     s=s[:start]+'''    next.temporal_backend=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualStabilizer",0,g_ini_path);
     next.temporal_scope=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualStabilizerScope",0,g_ini_path);
+    next.temporal_mode=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualTemporalMode",0,g_ini_path);
     next.temporal_legacy=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualLegacyWeight",0,g_ini_path)!=0;
 '''+s[start:]
     marker='    record_write(WriteIniFloat(L"ColourPriorityStrength",config.colour_priority_strength));'
     s=once(s,marker,marker+'''
     record_write(WriteIniInt(L"ResidualStabilizer",config.temporal_backend));
     record_write(WriteIniInt(L"ResidualStabilizerScope",config.temporal_scope));
+    record_write(WriteIniInt(L"ResidualTemporalMode",config.temporal_mode));
     record_write(WriteIniInt(L"ResidualLegacyWeight",config.temporal_legacy?1:0));''','temporal persistence')
     s=once(s,'struct NrContext {','''struct NrContext {
     nr::final_residual::RecordedTemporal* temporal=nullptr;
     unsigned temporal_key=0,temporal_width=0,temporal_height=0;
     unsigned long long temporal_queue=0,temporal_token=0,temporal_retry_tick=0;
-    unsigned temporal_attempt_generation=0;''','temporal context owner')
+    unsigned temporal_attempt_generation=0;
+    nr::final_residual::TemporalStats temporal_gpu_observed{};''','temporal context owner')
     s=once(s,'void CollectRetiredContextsLocked() {',
         'namespace nr_temporal { void Maintain(NrContext&); }\nvoid CollectRetiredContextsLocked() {',
         'temporal maintenance declaration')
@@ -108,29 +111,20 @@ def runtime(s,h):
     # Both same-grid and resampled MV are captured at the native read boundary.
     # Reuse the slot's immutable descriptor/recording lease, not a second ring.
     marker='    ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);'
-    part=once(part,marker,'''    const bool temporal_native_motion=g_config.temporal_backend==1 && feature.feature_id==1 &&
-        !(feature.create_flags&(1|4)) && guides.valid_motion_scale_x && guides.valid_motion_scale_y &&
-        guides.capture_params.game_mv_valid && guides.motion &&
-        (post_sr_color_mode==CodecColorMode::Automatic || post_sr_color_mode==CodecColorMode::SrgbEncodedSdr);
-    const bool temporal_motion_ready=temporal_native_motion &&
-        EnsureMotionProxy(device,*slot,guides.motion,work_width,work_height);
-'''+marker,'native temporal motion snapshot allocation')
+    part=once(part,marker,'''    bool temporal_motion_ready=false;
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    if(g_config.enabled&&g_config.temporal_backend==1)
+        temporal_motion_ready=PrepareNativeTemporalGuideSnapshot(device,command_list,*slot,guides,feature,sr_params,
+            work_width,work_height,width,height);
+#endif
+'''+marker,'native temporal joint snapshot allocation')
     marker='    nr_regions::Dispatch(command_list,*slot,false);'
-    part=once(part,marker,'''    if(temporal_motion_ready){
-        const auto& motion=guides.signature;
-        Transition(command_list,slot->motion_proxy,slot->motion_proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        DispatchMotionResample(command_list,*slot,work_width,work_height,
-            motion.motion_source_width,motion.motion_source_height,motion.motion_x,motion.motion_y);
-        UavBarrier(command_list,slot->motion_proxy);
-        Transition(command_list,slot->motion_proxy,slot->motion_proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        substitution.temporal_motion_snapshot=true;
-    }
-'''+marker,'native temporal motion capture before opaque SR')
-    s=s[:a]+part+s[b:]
-    a,b=h.definition(s,'bool FinishAfterSr(');part=s[a:b]
-    part=once(part,'    if (substitution.guides.signature.resample_motion) {',
-        '    if (substitution.guides.signature.resample_motion && !substitution.temporal_motion_snapshot) {',
-        'reuse native input snapshot after SR')
+    part=once(part,marker,'''#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    if(temporal_motion_ready)substitution.temporal_motion_snapshot=RecordNativeTemporalGuideSnapshot(command_list,*slot);
+#else
+    (void)temporal_motion_ready;
+#endif
+'''+marker,'native temporal joint snapshot before opaque SR')
     s=s[:a]+part+s[b:]
     # Suppress diagnostic captures for P1; its nonlinear colour/light constants
     # still come from exactly the same current consumer as final Z.

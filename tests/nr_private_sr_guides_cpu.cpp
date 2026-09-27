@@ -28,11 +28,19 @@ void Cpu(){
     i=Valid();i.motion_reference.epoch++;Check(Prepare(i).reason==Reason::Source);
     i=Valid();i.reset=true;i.motion_reference={};Check(bool(Prepare(i)));
     i=Valid();i.read_boundary_snapshot=false;Check(Prepare(i).reason==Reason::NativePhase);
-    i=Valid();i.native_feature=13;Check(Prepare(i).reason==Reason::NativePhase);
+    i=Valid();i.native_feature=13;Check(bool(Prepare(i)));
     i=Valid();i.native_flags_known=false;Check(Prepare(i).reason==Reason::Flags);
-    for(unsigned flag:{1u,4u,64u,128u}){i=Valid();i.native_flags|=flag;Check(Prepare(i).reason==Reason::Flags);}
+    for(unsigned flag:{4u,128u}){i=Valid();i.native_flags|=flag;Check(Prepare(i).reason==Reason::Flags);}
     i=Valid();i.original_jitter_known=false;Check(Prepare(i).reason==Reason::JitterUnknown);
     i=Valid();i.original_jitter_x=.125f;Check(Prepare(i).reason==Reason::NonzeroJitter);
+    i.raster_convention=RasterConvention::NgxViewportOffset;Check(bool(Prepare(i)));
+    Check(Prepare(i).constants.raster_offset[0]==.125f);
+    i.native_flags=75;i.signature.depth_inverted=1;Check(bool(Prepare(i)));
+    i.original_jitter_x=-.5f;i.original_jitter_y=.5f;Check(bool(Prepare(i)));
+    i.original_jitter_x=.51f;Check(Prepare(i).reason==Reason::NonzeroJitter);
+    i=Valid();i.native_feature=13;i.signature.linear_depth=true;
+    i.signature.depth_projection_a=1;i.signature.depth_projection_b=-.1f;Check(bool(Prepare(i)));
+    Check(Prepare(i).constants.linear_depth==1&&Prepare(i).constants.projection_b==-.1f);
     i=Valid();i.original_jitter_y=std::numeric_limits<float>::quiet_NaN();Check(Prepare(i).reason==Reason::JitterUnknown);
     i=Valid();i.original_motion_scale_known=false;Check(Prepare(i).reason==Reason::Units);
     i=Valid();i.original_motion_scale_x=0;Check(Prepare(i).reason==Reason::Units);
@@ -40,6 +48,9 @@ void Cpu(){
     i=Valid();i.signature.depth_x=8;Check(Prepare(i).reason==Reason::Extent);
     i=Valid();i.signature.motion_y=8;Check(Prepare(i).reason==Reason::Extent);
     i=Valid();i.signature.motion_source_width=16;Check(Prepare(i).reason==Reason::Extent);
+    i=Valid();i.output_width=257;i.output_height=193;i.work_width=64;i.work_height=48;
+    Check(bool(Prepare(i)));i.work_width=63;Check(Prepare(i).reason==Reason::Extent);
+    i.work_width=64;i.work_height=47;Check(Prepare(i).reason==Reason::Extent);
     i=Valid();i.work_width=0;Check(Prepare(i).reason==Reason::Extent);
     i=Valid();i.work_width=17;Check(Prepare(i).reason==Reason::Extent);
     i=Valid();i.signature.linear_depth=true;Check(Prepare(i).reason==Reason::Depth);

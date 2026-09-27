@@ -8,7 +8,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('core','compiler','reshade','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--hardware',action='store_true',help='Use the NVIDIA host adapter with the same controlled fixture API; not NGX')
-    p.add_argument('--mode',action='append',choices=('neutral','numeric','odd','quarter','full','guide-only','reset-fail','discard','duplicate','pending','off','order','signal-fail'),help='Run only selected additive modes; omit for original frozen eleven')
+    p.add_argument('--mode',action='append',choices=('neutral','numeric','odd','odd-quarter','quarter','full','guide-only','reset-fail','discard','duplicate','pending','off','order','signal-fail','hdr-jitter','rr-jitter','domain'),help='Run selected modes; omit to run the complete controlled suite')
     a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     source=core/'src/nr_before_sr.cpp';manifest_path=core.parent/'source-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8-sig'))
@@ -29,11 +29,13 @@ def main():
     wrapper=out/'host.cpp';wrapper.write_text('#define NR_PRIVATE_SR_CORE "'+source.as_posix()+'"\n'+host+
         '#include "'+fixture.as_posix()+'"\n',encoding='utf-8')
     build=core/'build';objects=[build/'obj'/n for n in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o')]+objects_for(source)
+    modes=a.mode or ('neutral','numeric','odd','odd-quarter','quarter','full','guide-only','reset-fail','discard','duplicate','pending','off','order','signal-fail','hdr-jitter','rr-jitter','domain')
     report={'schema':'actual-core-warp-fixture-v1','result':'running','source_commit':manifest['source_commit'],
         'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(ROOT/'tests/private_sr_core_host.cpp'),
         'host_helpers_sha256':sha(original),'wrapper_sha256':sha(wrapper),'compiler_sha256':sha(a.compiler),'commands':[],
         'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':False,
-        'scope':'Controlled API output and unchanged Core callbacks; does not validate CreateOwner export resolution, native metadata, real NGX, actual multi-layer scheduler, or games.'}
+        'scope':'Unchanged Core callbacks with controlled model output and synthetic native parameter/resource inputs; no real NVIDIA NGX inference, actual Feature18 multi-layer scheduler, or games.',
+        'mode_scope':{mode:('Actual Core Create/Shutdown hooks, original-export owner resolution, exact parent generation/domain epochs, and private TLS forwarding through a controlled _nvngx fixture DLL; no NVIDIA initialization or inference.' if mode=='domain' else 'Actual Capture/Finish and guide shaders with synthetic Flags75 native Feature'+('13' if mode=='rr-jitter' else '1')+' parameters, dynamic jitter and HDR-range FP16 B/Z; manually installed Owner, no production CreateOwner/export resolution or NVIDIA inference.' if mode in ('hdr-jitter','rr-jitter') else 'Actual Capture/Finish and lifecycle callbacks; manually installed Owner with controlled API output, no production CreateOwner/export resolution or real native model.') for mode in modes}}
     generated=source.read_text(encoding='utf-8')
     finish='nr_post_product::Finish(command_list,context,slot,feature,substitution.private_sr_capture,'
     finish_at=generated.index(finish)
@@ -55,8 +57,11 @@ def main():
         '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
     try:
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'core-warp.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
+        if not result and (a.mode is None or 'domain' in a.mode):
+            result=run('compile-domain-fixture',[a.compiler,'-std=c++20','-shared','-static',ROOT/'tests/private_sr_domain_exports.cpp','-o',out/'_nvngx.dll'],60)
+            report['controlled_domain_fixture_sha256']=sha(ROOT/'tests/private_sr_domain_exports.cpp')
         if not result:
-            for mode in (a.mode or ('neutral','numeric','odd','quarter','full','guide-only','reset-fail','discard','duplicate','pending','off','order','signal-fail')):
+            for mode in modes:
                 result=run('warp-'+mode,[out/'core-warp.exe',mode],120)
                 if result:break
         report['result']='passed' if not result else 'failed'

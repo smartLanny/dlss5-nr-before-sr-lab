@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include "nr_post_private_sr_dx12.hpp"
 #include <cmath>
+#include <algorithm>
 #include <new>
 
 namespace nr_post_private_sr_dx12 {
@@ -71,8 +72,8 @@ Context* Create(ID3D12Device* device,nr_private_sr::Api api,nr_private_sr::Shape
     // jittered MV and unreviewed flags are not valid for a bounded edit signal.
     if(!device||device->GetNodeCount()!=1||!bytes||!api.Valid()||!api.recording_released||!same||!shape.Valid()||
        (shape.create_flags&2)==0||(shape.create_flags&~unsigned(1|2|8))!=0||
-       std::uint64_t(shape.render_width)*4<shape.output_width||
-       std::uint64_t(shape.render_height)*4<shape.output_height)return nullptr;
+       shape.render_width<std::max(1u,shape.output_width/4)||
+       shape.render_height<std::max(1u,shape.output_height/4))return nullptr;
     auto* c=new(std::nothrow)Context;
     if(!c)return nullptr;
     c->api=api;c->shape=shape;
@@ -103,7 +104,7 @@ bool Valid(const Context& c,const Input& i) {
        !i.view||!i.configuration||!i.encoding_generation||!i.recording||
        i.recording.device!=s.device||i.recording.queue!=s.queue||!p.base_source||
        !(p.base_source==p.candidate_source)||!(p.base_source==i.guide_source)||
-       p.domain!=nr_post_residual_dx12::Domain::SdrEncodedFp16||!p.same_encoding_verified||
+       (p.domain!=nr_post_residual_dx12::Domain::SdrEncodedFp16&&p.domain!=nr_post_residual_dx12::Domain::NativeOutputValueFp16)||!p.same_encoding_verified||
        p.work_width!=s.render_width||p.work_height!=s.render_height||
        p.base_rect.width!=s.output_width||p.base_rect.height!=s.output_height||
        p.candidate_rect.width!=s.output_width||p.candidate_rect.height!=s.output_height||

@@ -1,4 +1,4 @@
-"""Unmodified final Core Capture/Finish/submit/Reset/retire with real Feature1."""
+"""Actual Core private SR with native Feature1/13 and optional real Feature18 chain."""
 from pathlib import Path
 import argparse,hashlib,json,shutil,subprocess,time
 from temporal_test_objects import objects_for
@@ -7,7 +7,18 @@ def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('core','compiler','reshade','sr-runtime','output'):p.add_argument('--'+name,type=Path,required=True)
-    a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
+    p.add_argument('--nr-runtime',type=Path)
+    p.add_argument('--rr-runtime',type=Path)
+    p.add_argument('--layers',type=int,choices=range(6),default=0)
+    p.add_argument('--percent',type=int,choices=(25,50,100),default=50)
+    p.add_argument('--native-rr',action='store_true')
+    p.add_argument('--compile-only',action='store_true')
+    p.add_argument('--frames',type=int,default=6,help='Final Z frames, 2..256; use at least 32 for a stable timing window')
+    a=p.parse_args()
+    if not 2<=a.frames<=256:p.error('--frames must be 2..256')
+    if a.layers and not a.nr_runtime:p.error('--layers requires explicit --nr-runtime')
+    if a.native_rr and not a.rr_runtime:p.error('--native-rr requires explicit --rr-runtime')
+    core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     source=core/'src/nr_before_sr.cpp';manifest_path=core.parent/'source-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8-sig'))
     for rel,digest in manifest['files'].items():
@@ -17,26 +28,30 @@ def main():
     host=original.read_text(encoding='utf-8').split('void NeutralAndTinyComposition(',1)[0]+'\n}\n'
     # Preserve the existing host helpers verbatim, excluding its independent
     # experiment Run/main; the new fixture calls the actual product entry points.
+    fixture=out/'private_sr_product_real.cpp';shutil.copy2(ROOT/'tests/private_sr_product_real.cpp',fixture)
     wrapper=out/'host.cpp';wrapper.write_text('#define NR_PRIVATE_SR_CORE "'+source.as_posix()+'"\n'+host+
-        '#include "'+(ROOT/'tests/private_sr_product_real.cpp').as_posix()+'"\n',encoding='utf-8')
+        '#include "'+fixture.as_posix()+'"\n',encoding='utf-8')
     build=core/'build';objects=[build/'obj'/n for n in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o')]+objects_for(source)
     report={'schema':'actual-product-private-sr-v1','result':'running','source_commit':manifest['source_commit'],
-        'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(ROOT/'tests/private_sr_product_real.cpp'),
+        'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(fixture),
         'host_helpers_sha256':sha(original),'wrapper_sha256':sha(wrapper),'compiler_sha256':sha(a.compiler),'commands':[],
-        'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':False,
-        'timing':'CPU recording includes native SR; GPU timestamps isolate guide and private SR. Six small static host frames, not a game benchmark.'}
+        'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':bool(a.layers),'nr_layers':a.layers,'frames':a.frames,'percent':a.percent,'native_feature':13 if a.native_rr else 1,
+        'timing':'CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark.'}
     def save(): (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     def run(name,args,timeout):
         start=time.monotonic();r=subprocess.run(list(map(str,args)),cwd=out,capture_output=True,timeout=timeout)
         (out/(name+'.log')).write_bytes(r.stdout+r.stderr);report['commands'].append({'name':name,'args':list(map(str,args)),'exit':r.returncode,'seconds':time.monotonic()-start})
         save();print((r.stdout+r.stderr).decode('utf-8','replace')[-9000:],flush=True);return r.returncode
     for s,n in ((build/'nrchain_nvngx.dll','nrchain_nvngx.dll'),(a.sr_runtime,'nvngx_dlss.dll')):shutil.copy2(s,out/n)
-    report['runtime_sha256']={n:sha(out/n) for n in ('nrchain_nvngx.dll','nvngx_dlss.dll')};save()
+    for runtime,name in [(a.nr_runtime,'nvngx_dlssnr.dll'),(a.rr_runtime,'nvngx_dlssd.dll')]:
+        if runtime:shutil.copy2(runtime,out/name)
+    report['runtime_sha256']={f.name:sha(f) for f in out.glob('*.dll')};save()
     flags=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',
         '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
     try:
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
-        if not result:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll'],120)
+        if not result and not a.compile_only:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames],240)
+        report['gpu_execution']='not-run' if a.compile_only else ('passed' if not result else 'failed')
         report['result']='passed' if not result else 'failed'
         if (out/'real-feature1.log').is_file():
             import re

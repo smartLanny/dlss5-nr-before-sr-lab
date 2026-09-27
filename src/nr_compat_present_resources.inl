@@ -27,6 +27,10 @@ struct Flight {
     ID3D12Resource* backbuffer=nullptr; // released only after this exact flight fence
     unsigned long long fence=0,source=0;
     bool adopted=false;
+#if NR_HAS_TEMPORAL_RUNTIME
+    unsigned long long temporal_recording=0;
+    bool temporal_pending=false;
+#endif
 };
 struct Context {
     ID3D12Device* device=nullptr;
@@ -47,6 +51,13 @@ struct Context {
     ID3D12DescriptorHeap* unknown_guide_table=nullptr;
     D3D12_RESOURCE_STATES raw_state=D3D12_RESOURCE_STATE_COMMON;
     NrSlot image{};
+#if NR_HAS_TEMPORAL_RUNTIME
+    nr::final_residual::RecordedTemporal* temporal=nullptr;
+    nr::final_residual::Source temporal_previous{},temporal_pending_source{};
+    nr::final_residual::TemporalStats temporal_seen{};
+    unsigned temporal_mode=0;
+    unsigned long long temporal_serial=0,temporal_retry_tick=0;
+#endif
     Layer layers[kPassLimit]{};
     Flight flights[kFlightCount]{};
     nr_dual::dx12::Pipelines* spatial_pipelines=nullptr;

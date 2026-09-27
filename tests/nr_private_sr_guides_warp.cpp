@@ -29,6 +29,32 @@ void GuideCase(Harness& h,bool high,bool inverted,bool invalid){
     }
     D3D12_RANGE no_write{0,0};rm.buffer->Unmap(0,&no_write);h.Reset();
 }
+// Alternating atlas values provide an independent discrete sampling oracle:
+// N=R makes +.5 move to the next raster sample and -.5 retain the current one.
+// Different atlas origins ensure depth and MV use the same *local* sample.
+void DynamicPhase(Harness& h,float jitter){
+    using namespace nr_private_sr_guides;ResourceOwner owner;auto i=guide_test::Valid();
+    i.recording=i.snapshot_recording=h.Rec();i.native_flags=75;i.signature.depth_inverted=1;
+    i.raster_convention=RasterConvention::NgxViewportOffset;
+    i.original_jitter_x=jitter;i.original_jitter_y=-jitter;
+    i.work_width=8;i.work_height=6;
+    auto* d=h.Texture(owner,12,10,41,.25f,.75f,true,true);
+    auto* m=h.Texture(owner,12,10,16,2.f,.75f,true,true);
+    auto* od=h.Texture(owner,8,6,41,0,0,false);auto* om=h.Texture(owner,8,6,16,0,0,false);
+    i.depth=h.View(d,41);i.motion=h.View(m,16);
+    auto result=Record(h.kernels,h.list,i,h.View(od,41),h.View(om,16));guide_test::Check(result.dispatch.recorded);
+    auto rd=h.CopyOut(owner,od,41),rm=h.CopyOut(owner,om,16);h.Submit();
+    void *dp=nullptr,*mp=nullptr;Check(rd.buffer->Map(0,nullptr,&dp),"phase depth Map");Check(rm.buffer->Map(0,nullptr,&mp),"phase MV Map");
+    for(unsigned y=0;y<6;y++)for(unsigned x=0;x<8;x++){
+        const unsigned local=std::min(x+(jitter==.5f?1u:0u),7u);
+        const float depth=(local+2)%2?.25f:1.f,motion=(local+3)%2?2.f:1.f;
+        float z=0,mv[2]{};
+        std::memcpy(&z,static_cast<char*>(dp)+rd.footprint.Offset+y*rd.footprint.Footprint.RowPitch+x*4,4);
+        std::memcpy(mv,static_cast<char*>(mp)+rm.footprint.Offset+y*rm.footprint.Footprint.RowPitch+x*8,8);
+        guide_test::Check(z==depth&&mv[0]==motion*2&&mv[1]==motion*-3);
+    }
+    D3D12_RANGE no_write{0,0};rd.buffer->Unmap(0,&no_write);rm.buffer->Unmap(0,&no_write);h.Reset();
+}
 void Refusals(Harness& h){
     using namespace nr_private_sr_guides;ResourceOwner owner;auto i=guide_test::Valid();i.recording=i.snapshot_recording=h.Rec();
     auto* d=h.Texture(owner,12,10,41,.5f);auto* m=h.Texture(owner,12,10,16,1);
@@ -49,5 +75,6 @@ int wmain(int argc,wchar_t**argv){try{
     guide_test::Cpu();Harness h{std::filesystem::path(argv[1]),false};
     GuideCase(h,false,false,false);GuideCase(h,true,true,false);
     GuideCase(h,false,false,true);GuideCase(h,true,true,true);Refusals(h);
+    for(float j:{.5f,-.5f,.25f,-.25f})DynamicPhase(h,j);
     std::cout<<"private guides CPU + WARP checks="<<guide_test::checks<<" passed; no model/game acceptance\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

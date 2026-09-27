@@ -1,7 +1,7 @@
 #pragma once
 #include "nr_edit_dx12.hpp"
 namespace nr_post_residual_dx12 {
-enum class Domain:unsigned {Unknown, SdrEncodedFp16};
+enum class Domain:unsigned {Unknown, SdrEncodedFp16, NativeOutputValueFp16};
 struct Rect {unsigned x=0,y=0,width=0,height=0;};
 struct Pair {
     nr_edit_dx12::View base{},candidate{};

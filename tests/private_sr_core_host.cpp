@@ -47,8 +47,10 @@ std::vector<char> Bytes(Host& h,ID3D12Resource* texture,D3D12_RESOURCE_STATES st
 }
 
 struct Params {
-    NgxParams base{};void* table[17]{};
-    static NgxResult Float(const NgxParams*,const char* k,float* v){*v=std::strstr(k,"Jitter")?0:1;return 1;}
+    NgxParams base{};void* table[17]{};float jitter_x=0,jitter_y=0;
+    static NgxResult Float(const NgxParams* p,const char* k,float* v){
+        const auto& self=*reinterpret_cast<const Params*>(p);
+        *v=std::strcmp(k,"Jitter.Offset.X")==0?self.jitter_x:std::strcmp(k,"Jitter.Offset.Y")==0?self.jitter_y:1;return 1;}
     static NgxResult Int(const NgxParams*,const char*,int* v){*v=1;return 1;}
     static NgxResult UInt(const NgxParams*,const char*,unsigned* v){*v=0;return 0;}
     static NgxResult Resource(const NgxParams*,const char*,ID3D12Resource** v){*v=nullptr;return 0;}
@@ -74,9 +76,9 @@ struct Fixture {
         a.poll=[](void*,nr_private_sr::Fence f){return nr_private_sr::Completion{f.queue,f.object,ID3D12Fence_GetCompletedValue((ID3D12Fence*)f.object)};};return a;
     }
 };
-void Install(Host& h,Fixture& fixture,LifecycleQueue* queue,unsigned nw,unsigned nh,unsigned ow,unsigned oh){
+void Install(Host& h,Fixture& fixture,LifecycleQueue* queue,unsigned nw,unsigned nh,unsigned ow,unsigned oh,unsigned flags=2){
     auto* o=new nr_post_product::Owner;context.private_sr=o;o->queue=queue;o->configuration=g_config_generation.load();
-    o->shape={nw,nh,ow,oh,2,2,(uint64_t)h.device,queue->identity,1};auto code=nr_private_sr_artifacts::Kernels();
+    o->shape={nw,nh,ow,oh,2,flags,(uint64_t)h.device,queue->identity,1};auto code=nr_private_sr_artifacts::Kernels();
     o->normalizer=nr_edit_dx12::Create(h.device,o->shape.device,o->shape.queue,code,nr_post_product::SameDevice);Require(o->normalizer,"fixture normalizer");
     nr_edit_dx12::SetRetirementGuard(o->normalizer,nr_post_product::RecordingReleased,nullptr);
     for(auto& f:o->flights)for(unsigned n=0;n<2;++n){uint64_t bytes=0;auto*& plane=n?f.motion:f.depth;
@@ -105,9 +107,62 @@ void Pixels(const std::vector<char>& bytes,float expected,unsigned width,unsigne
 }
 HRESULT STDMETHODCALLTYPE FailedSignal(ID3D12CommandQueue*,ID3D12Fence*,UINT64){return E_FAIL;}
 HRESULT STDMETHODCALLTYPE FailedReset(ID3D12GraphicsCommandList*,ID3D12CommandAllocator*,ID3D12PipelineState*){return E_FAIL;}
-int Run(const std::wstring& mode){InitializeCriticalSection(&g_chain_cs);Host h;Register(h);Params parameters;auto* params=&parameters.base;
+Host* shutdown_host=nullptr;
+NgxHandle* shutdown_parent=nullptr;
+void DuringOriginalShutdown(){
+    Params parameters;auto module=GetModuleHandleW(L"_nvngx.dll");
+    const auto create=reinterpret_cast<nr_private_sr_core::Create>(GetProcAddress(module,"NVSDK_NGX_D3D12_CreateFeature"));
+    Ngx(create(shutdown_host->list,13,&parameters.base,&shutdown_parent),"controlled reentrant create during original Shutdown");
+    Require(!nr_private_sr_core::DomainEpoch(shutdown_host->device,module),"in-flight Shutdown cannot reopen factory domain");
+}
+int DomainCase(){
+    InitializeCriticalSection(&g_chain_cs);Host h;g_codec.device=h.device;
+    auto module=LoadLibraryW(L"_nvngx.dll");Require(module,"controlled export fixture loaded");
+    auto count=reinterpret_cast<unsigned(*)(unsigned)>(GetProcAddress(module,"FixtureCount"));Require(count,"fixture identity, not NVIDIA");
+    Require(MH_Initialize()==MH_OK,"domain host hook initialization");
+    auto* target=reinterpret_cast<void*>(GetProcAddress(module,"NVSDK_NGX_D3D12_CreateFeature"));bool queued=false;
+    Require(QueueLateHook(NgxHookOperation::Create,target,reinterpret_cast<void*>(&HookCoreCreate),
+        reinterpret_cast<void**>(&g_original_core_create),"controlled Core Create",queued),"original factory hook");
+    Require(MH_ApplyQueued()==MH_OK,"publish controlled Create hook");MarkNgxHooksPublished(false);
+    ScopedNgxLayer native_layer(NgxLayer::Core);Params parameters;NgxHandle* parent=nullptr;
+    auto create=reinterpret_cast<nr_private_sr_core::Create>(target);
+    Ngx(create(h.list,13,&parameters.base,&parent),"actual callback native RR-only Create");
+    const auto f=FindFeature(parent);Require(f.handle==parent&&f.feature_id==13&&f.generation&&!f.pending,"actual RR parent generation");
+    Require(count(3)==0&&count(4)==1,"no SR parent / exactly one native RR create");
+    nr_private_sr_core::Exports e;Require(nr_private_sr_core::ResolveExports(e,h.device,parent,f.generation),"RR-only original factory admitted");
+    auto api=nr_private_sr_core::MakeApi(e);Require(api.Valid(),"domain API complete");void* p=nullptr;void* private_handle=nullptr;
+    Ngx(api.allocate(api.user,&p),"private original allocate");Ngx(api.create(api.user,h.list,1,p,&private_handle),"private Feature1 through real Core hook TLS bypass");
+    Require(count(3)==1&&count(4)==1&&!FindFeature(static_cast<NgxHandle*>(private_handle)).handle,"private handle not observed as game feature");
+    Ngx(api.evaluate(api.user,h.list,private_handle,p),"private original Evaluate");Ngx(api.release(api.user,private_handle),"private original Release");
+    Ngx(api.destroy(api.user,p),"private original DestroyParameters");
+    const auto old_epoch=e.domain_epoch;const auto allocations=count(0);
+    auto shutdown=reinterpret_cast<NgxResult(*)(ID3D12Device*)>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown1"));
+    auto set_shutdown_callback=reinterpret_cast<void(*)(void(*)())>(GetProcAddress(module,"FixtureShutdownCallback"));
+    Require(set_shutdown_callback,"controlled Shutdown callback available");shutdown_host=&h;
+    set_shutdown_callback(&DuringOriginalShutdown);
+    Ngx(shutdown(h.device),"actual original Shutdown1 callback");set_shutdown_callback(nullptr);
+    Require(shutdown_parent&&!nr_private_sr_core::DomainEpoch(h.device,module),"reentrant successful Create has no surviving domain receipt");Require(count(7)==1&&!nr_private_sr_core::DomainAlive(e),"one forwarding and domain invalidation");
+    p=nullptr;Require(api.allocate(api.user,&p)!=1&&!p&&count(0)==allocations,"invalidated domain never reaches old allocator");
+    nr_private_sr_core::Exports stale;Require(!nr_private_sr_core::ResolveExports(stale,h.device,parent,f.generation),"stale RR generation cannot reopen domain");
+    // A failed or unobserved create cannot establish a domain. A new successful
+    // original create establishes a new epoch and handle generation only.
+    nr_private_sr_core::ObserveCoreCreate(h.list,13,parent,0,nr_private_sr_core::shutdown_sequence.load());
+    Require(!nr_private_sr_core::DomainEpoch(h.device,module),"failed original Create gives no receipt");
+    NgxHandle* replacement=nullptr;Ngx(create(h.list,13,&parameters.base,&replacement),"new original RR generation");
+    const auto next=FindFeature(replacement);Require(next.generation!=f.generation,"new generation");
+    nr_private_sr_core::Exports renewed;Require(nr_private_sr_core::ResolveExports(renewed,h.device,replacement,next.generation)&&renewed.domain_epoch!=old_epoch,"new exact epoch");
+    Require(!nr_private_sr_core::ResolveExports(stale,h.device,parent,f.generation),"old parent never borrows new epoch");
+    nr_private_sr_core::ReleaseExports(renewed);nr_private_sr_core::ReleaseExports(e);
+    auto shutdown_all=reinterpret_cast<NgxResult(*)()>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown"));
+    Ngx(shutdown_all(),"original global Shutdown callback");Require(count(7)==2&&!nr_private_sr_core::DomainEpoch(h.device,module),"both Shutdown forms covered");
+    std::printf("PASS controlled actual Core RR-only domain/TLS/Shutdown checks=%u; no NVIDIA NGX inference\n",checks);
+    std::fflush(nullptr);ExitProcess(0);
+}
+int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();InitializeCriticalSection(&g_chain_cs);Host h;Register(h);Params parameters;auto* params=&parameters.base;
     NgxHandle parent{};FeatureRecord feature{};feature.feature_id=1;feature.generation=1;feature.create_flags=2;feature.create_flags_known=true;
-    const bool odd=mode==L"odd";const unsigned rw=odd?31:32,rh=odd?23:24,ow=odd?63:64,oh=odd?47:48,nw=odd?21:mode==L"quarter"?16:mode==L"full"?64:32,nh=odd?17:mode==L"quarter"?12:mode==L"full"?48:24;
+    const bool hdr=mode==L"hdr-jitter"||mode==L"rr-jitter";
+    if(hdr){feature.create_flags=75;feature.feature_id=mode==L"rr-jitter"?13:1;}
+    const bool odd=mode==L"odd"||mode==L"odd-quarter"||hdr;const unsigned rw=odd?31:32,rh=odd?23:24,ow=odd?63:64,oh=odd?47:48,nw=mode==L"odd-quarter"?15:odd?21:mode==L"quarter"?16:mode==L"full"?64:32,nh=mode==L"odd-quarter"?11:odd?17:mode==L"quarter"?12:mode==L"full"?48:24;
     const unsigned gx=odd?2:0,gy=odd?1:0,tx=odd?3:0,ty=odd?2:0;const bool numeric=odd||mode==L"numeric"||mode==L"quarter"||mode==L"full";
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=true;g_config.temporal_backend=0;
     g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
@@ -117,16 +172,19 @@ int Run(const std::wstring& mode){InitializeCriticalSection(&g_chain_cs);Host h;
     auto* second_z=mode==L"order"?h.Plane(ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,true,.625f):nullptr;
     auto* queue=FindOrCreateLifecycleQueueLocked(h.queue);Require(queue&&queue->fence,"Core queue");
     for(unsigned n=0;n<kRequiredStableQueueSubmissions;++n){Require(RememberLastSubmissionQueue(h.list,queue->identity),"queue observation");ID3D12CommandList* lists[]={(ID3D12CommandList*)h.list};Execute(h.queue,1,lists);}
-    Hr(ID3D12CommandQueue_Signal(h.queue,h.fence,++h.value),"prime");h.Wait();Install(h,fixture,queue,nw,nh,ow,oh);
+    Hr(ID3D12CommandQueue_Signal(h.queue,h.fence,++h.value),"prime");h.Wait();Install(h,fixture,queue,nw,nh,ow,oh,hdr?10:2);
     context.instance_id=1;context.feature_generation=1;auto& slot=context.slots[0];slot.source=base;slot.result=final;
     slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     slot.snapshots_native_output=true;slot.result_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
-    NrGuideBinding guides{};guides.depth=depth;guides.motion=motion;auto& sig=guides.signature;
+    NrGuideBinding guides{};guides.depth=depth;guides.motion=motion;auto& sig=guides.signature;sig.depth_inverted=hdr?1:0;
     sig.depth_format=41;sig.motion_format=16;sig.depth_physical_width=rw+gx;sig.depth_width=rw;sig.depth_physical_height=rh+gy;sig.depth_height=rh;sig.depth_x=gx;sig.depth_y=gy;
     sig.motion_physical_width=rw+gx;sig.motion_source_width=rw;sig.motion_physical_height=rh+gy;sig.motion_source_height=rh;sig.motion_x=gx;sig.motion_y=gy;
     const unsigned frames=numeric?7:3;const float edits[]={.25f,.25f,-.25f,0,1.f/1024.f,-1.f/2048.f,.125f+.25f};
-    for(unsigned frame=0;frame<frames;++frame){const float edit=numeric?edits[frame]:0;
-        Fill(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,.5f+edit,tx,ty);Fill(h,fixture.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,.5f+edit/8);
+    for(unsigned frame=0;frame<frames;++frame){const float hdr_edits[]={1,1,-1,0,1.f/128,-1.f/256,1.5f};
+        const float edit=hdr?hdr_edits[frame]:numeric?edits[frame]:0,base_value=hdr?std::ldexp(1.f,2+int(frame%2)):.5f;
+        if(hdr)Fill(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,base_value);
+        if(hdr){parameters.jitter_x=frame%2?.5f:-.5f;parameters.jitter_y=frame%3?.25f:-.25f;}
+        Fill(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,base_value+edit,tx,ty);Fill(h,fixture.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,.5f+edit/8);
         Hr(ProcessCommandListReset(0,h.list,h.allocator,nullptr),"Core begin Reset");h.released=false;
         {nr_source_runtime::EvaluateScope source(h.list,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"actual source scope");
             Require(RecordNrUseLocked(h.list,context,slot),"Core resource lease");
@@ -218,7 +276,7 @@ int Run(const std::wstring& mode){InitializeCriticalSection(&g_chain_cs);Host h;
         }
         ResetAndClose(h);Require(nr_post_product::Ready(context),"fence and recording release");
         Require(nr_private_sr_status::composed.load()==(mode==L"guide-only"?0:frame),"first create preserves Z; later composes once");
-        Pixels(Bytes(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS),.5f+edit,ow+tx,tx,ty);
+        Pixels(Bytes(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS),base_value+edit,ow+tx,tx,ty);
         std::printf("CASE frame=%u edit=%.9f composed=%llu guide_only=%u\n",frame,edit,nr_private_sr_status::composed.load(),mode==L"guide-only");}
     Require(fixture.creates==(mode==L"guide-only"?0:1)&&fixture.evaluates==(mode==L"guide-only"?0:frames-1),"controlled fixture call counts");
     if(!numeric)Require(Bytes(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)==Bytes(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS),"zero edit exact bytes");

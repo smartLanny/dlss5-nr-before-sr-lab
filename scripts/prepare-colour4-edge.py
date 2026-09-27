@@ -100,12 +100,14 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest['files']=base.file_hashes(stage)
         manifest['temporal']={'default_enabled':False,'backends':['native-prepared-MV','AMD-FFX-1.1.4'],
             'scopes':['whole-chain','later-layers-composed-anchor'],
+            'modes':['adaptive','low-frequency'],'default_mode':0,'spatial_filter_product':False,
             'production_routes':{'DX12 Feature1 post-SR SDR':['native','AMD'],
                 'DX12 Feature1 pre-SR explicit SDR whole-chain':['AMD'],
                 'DX12 proven RR post SDR':['AMD'],
+                'DX12 Present SDR exact content lineage single swapchain whole chain':['AMD'],
                 'DX12 declared-linear-HDR pre-SR whole/post-SR/post-RR; same-frame PreExposure':['AMD']},
             'not_connected':['unknown-or-PQ-HDR','HDR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
-            'cpu_readback_wait':False,'history_half_life_ms':60,'reliability':0.65,'maximum_gap_ms':250,
+            'cpu_readback_wait':False,'history_half_life_ms':60,'global_history_weight_scale':0.65,'per_pixel_optical_flow_confidence':False,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,
             'captures_after_measurement':True,'manual_game_settings':['RR','HDR','FG'],
@@ -115,7 +117,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'missing_is_explicit':True,'game_verified':False}
         manifest['private_residual_sr']={'version':private_sr_patch.VERSION,'default_enabled':False,
             'source_commit':source,'producer':'same-source final B/Z with all NR layers',
-            'route':'D3D12 Feature1 post, FP16 SDR, known zero native jitter, no FG',
+            'route':'D3D12 native Feature1 or Feature13 post, same-output-value FP16 SDR or proven HDR/AutoExposure, no FG',
+            'native_jitter':'original render-pixel projection offset, jointly point-sampled low-resolution depth/MV; not NR jitter option',
+            'positive_contract':'Flags75 and dynamic nonzero native jitter with low-resolution non-jittered MV',
+            'declined':['Present','FG','multi-GPU','unproven-source-or-domain','jittered-MV','nonzero-jitter-high-resolution-MV','external-stabilizer-conflict'],
+            'initialization_domain':'observed successful original Init or original native Create; exact device/module/epoch/generation; shutdown invalidates; no second Init',
             'lifetime':'successful Execute/Signal plus exact recording release',
             'runtime_verified':False,'game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

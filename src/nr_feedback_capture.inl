@@ -303,6 +303,13 @@ void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
         FeedbackAppend(s,"%s.energyGate.state=not-loaded; saved choices unknown; observation did not load settings\n",prefix);
         return;
     }
+    const auto event_count=std::min<unsigned long long>(snapshot.event_count,snapshot.events.size());
+    for(unsigned long long i=snapshot.event_count-event_count;i<snapshot.event_count;++i){
+        const auto& event=snapshot.events[i%snapshot.events.size()];
+        FeedbackAppend(s,"%s.energyGate.event.%llu=atMs:%llu,transition:%u,history:%u\n",
+            prefix,event.sequence,event.tick,event.transition,event.history);
+    }
+    FeedbackAppend(s,"%s.energyGate.eventMeaning=1:explicit-pause,2:heuristic-pause,3:resume,4:stale-evidence,5:disabled; history increments before scheduling resumes; native calls absent must be checked separately against uiActivity carrier delta; no pause inferred from menu key or silent native calls\n",prefix);
     const auto& status=snapshot.status;
     FeedbackAppend(s,"%s.energyGate.observations=total:%llu,pauseTrue:%llu,pauseFalse:%llu,unknown:%llu,unbound:%llu,lastSignal:%u\n",
         prefix,status.observations,status.pause_true,status.pause_false,status.pause_unknown,status.unbound,status.last_signal);

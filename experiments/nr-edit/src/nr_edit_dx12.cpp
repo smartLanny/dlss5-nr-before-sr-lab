@@ -103,7 +103,7 @@ Answer Record(Kernels* k,ID3D12GraphicsCommandList* list,const Work& w){
     if(!list||kernel>=k->pso.size()||!k->pso[kernel]||!w.recording||
        w.recording.list!=reinterpret_cast<Id>(list)||w.recording.device!=k->device_id||w.recording.queue!=k->queue_id||
        !w.width||!w.height||w.width>16384||w.height>16384||!w.constants||
-       w.constant_bytes!=(kernel<=2?144u:kernel>=static_cast<unsigned>(Kernel::SparseAdvance)?64u:48u))return {Status::Invalid};
+       w.constant_bytes!=(w.kernel==Kernel::NormalizeGuides?80u:kernel<=2?144u:kernel>=static_cast<unsigned>(Kernel::SparseAdvance)?64u:48u))return {Status::Invalid};
     unsigned raw_constants[36]{};std::memcpy(raw_constants,w.constants,w.constant_bytes);
     const auto read=[&](unsigned slot){return w.reads[slot].resource!=nullptr;};
     const auto write=[&](unsigned slot){return w.writes[slot].resource!=nullptr;};

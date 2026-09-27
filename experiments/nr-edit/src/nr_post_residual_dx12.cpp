@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include "nr_post_residual_dx12.hpp"
 #include <cmath>
+#include <algorithm>
 namespace nr_post_residual_dx12 {
 namespace {
 using namespace nr_edit_dx12;
@@ -20,11 +21,11 @@ bool Exact(Kernels* k,const View& v,unsigned w,unsigned h,unsigned format){
 }
 bool Valid(Kernels* k,const Pair& p){
     const auto r=p.base_rect;
-    return p.domain==Domain::SdrEncodedFp16&&p.same_encoding_verified&&
+    return (p.domain==Domain::SdrEncodedFp16||p.domain==Domain::NativeOutputValueFp16)&&p.same_encoding_verified&&
         p.base_source&&p.base_source==p.candidate_source&&p.base.resource!=p.candidate.resource&&
         r.width==p.candidate_rect.width&&r.height==p.candidate_rect.height&&
         p.work_width&&p.work_height&&p.work_width<=r.width&&p.work_height<=r.height&&
-        p.work_width*4ull>=r.width&&p.work_height*4ull>=r.height&&
+        p.work_width>=std::max(1u,r.width/4)&&p.work_height>=std::max(1u,r.height/4)&&
         std::isfinite(p.carrier_range)&&p.carrier_range>1e-6f&&p.carrier_range<=1e6f&&
         Contains(k,p.base,r,10)&&Contains(k,p.candidate,p.candidate_rect,10);
 }

@@ -1,5 +1,7 @@
 # D21 统一后继实施交接
 
+> 历史 unified10 交接，保留原候选证据。当前统一入口为 [CURRENT_STATUS](CURRENT_STATUS.md) 和 [Beta 4 工作与验收](052_BETA4_UNIFIED_ACCEPTANCE.md)。游戏部署责任及测试顺序以维护者最新计划为准。
+
 ## 当前后继：unified10（2026-09-23）
 
 公开候选名 **0.5.1 Beta**，构建源码 `d36dc771`，基于 unified9 `101bc75f` 并合入

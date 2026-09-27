@@ -5325,6 +5325,19 @@ struct NrSlot {
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
+    // Independent same-source native temporal guides. Never rebound as NR model guides.
+    ID3D12Resource *temporal_depth=nullptr,*temporal_motion=nullptr;
+    ID3D12Resource *temporal_depth_input=nullptr,*temporal_motion_input=nullptr;
+    ID3D12DescriptorHeap* temporal_guide_heap=nullptr;
+    ID3D12RootSignature* temporal_guide_root=nullptr;
+    ID3D12PipelineState* temporal_guide_pso=nullptr;
+    D3D12_RESOURCE_STATES temporal_depth_state=D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_STATES temporal_motion_state=D3D12_RESOURCE_STATE_COMMON;
+    nr_source_frame::Source temporal_snapshot_source{};
+    unsigned long long temporal_snapshot_recording=0,temporal_guide_bytes=0;
+    unsigned temporal_width=0,temporal_height=0,temporal_guide_constants[20]{};
+    bool temporal_guide_prepared=false,temporal_guide_recorded=false;
+
     ID3D12Resource *rr_depth = nullptr, *rr_depth_source = nullptr;
     ID3D12DescriptorHeap *rr_depth_heap = nullptr;
     D3D12_RESOURCE_STATES rr_depth_state = D3D12_RESOURCE_STATE_COMMON;
@@ -5773,7 +5786,7 @@ constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
 constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
 
 unsigned long long ExtraSlotBytes(const NrSlot &slot) {
-    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes;
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes + slot.temporal_guide_bytes;
 }
 
 bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
@@ -5826,6 +5839,9 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
+    ReleaseCom(slot.temporal_depth);ReleaseCom(slot.temporal_motion);
+    ReleaseCom(slot.temporal_depth_input);ReleaseCom(slot.temporal_motion_input);
+    ReleaseCom(slot.temporal_guide_heap);ReleaseCom(slot.temporal_guide_pso);ReleaseCom(slot.temporal_guide_root);
     ReleaseCom(slot.rr_depth);
     ReleaseCom(slot.rr_depth_source);
     ReleaseCom(slot.rr_depth_heap);
@@ -10411,6 +10427,127 @@ nr_face_capture_geometry::OutputMapping ResolveFaceCaptureOutput(
         return {};
     return {width, height, true};
 }
+
+
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+// Only the baked normalization shader/admission are reused. No private NGX API,
+// model, owner, history, or additional initialization is created for temporal NR.
+bool PrepareNativeTemporalGuideSnapshot(ID3D12Device* device,ID3D12GraphicsCommandList* list,
+    NrSlot& slot,const NrGuideBinding& guides,const FeatureRecord& feature,const NgxParams* params,
+    unsigned nw,unsigned nh,unsigned ow,unsigned oh) {
+    if(!g_config.enabled||!g_config.temporal_backend||!device||ID3D12Device_GetNodeCount(device)!=1||!list||!params||!guides.depth||!guides.motion||
+       guides.depth==guides.motion||!CanMutateSlotLocked(slot))return false;
+    slot.temporal_guide_prepared=slot.temporal_guide_recorded=false;
+    const auto source=nr_source_runtime::CurrentSource();unsigned long long token=0;
+    const auto identity=SnapshotPostBoundaryList(list);CommandListQueueMarker marker{};
+    if(!source||!identity.known||identity.address!=reinterpret_cast<unsigned long long>(list)||identity.reset==UINT64_MAX||
+       !ReadLifecycleToken(list,token)||!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
+       marker.stable_submissions<kRequiredStableQueueSubmissions||!marker.identity||
+       ID3D12GraphicsCommandList_GetType(list)!=D3D12_COMMAND_LIST_TYPE_DIRECT)return false;
+    nr_private_sr_guides::Input input{};input.enabled=true;input.reset=true;
+    input.source=input.snapshot_source={source.stream,source.epoch,source.sequence};
+    input.recording=input.snapshot_recording={reinterpret_cast<unsigned long long>(device),marker.identity,
+        reinterpret_cast<unsigned long long>(list),token,identity.reset+1};
+    input.signature=guides.signature;input.native_feature=unsigned(feature.feature_id);
+    input.native_flags=unsigned(feature.create_flags);input.native_flags_known=feature.create_flags_known;
+    input.read_boundary_snapshot=true;input.render_width=guides.signature.depth_width;input.render_height=guides.signature.depth_height;
+    input.work_width=nw;input.work_height=nh;input.output_width=ow;input.output_height=oh;
+    input.original_motion_scale_known=GetFloat(params,"MV.Scale.X",&input.original_motion_scale_x)&&GetFloat(params,"MV.Scale.Y",&input.original_motion_scale_y);
+    input.original_jitter_known=GetFloat(params,"Jitter.Offset.X",&input.original_jitter_x)&&GetFloat(params,"Jitter.Offset.Y",&input.original_jitter_y);
+    input.raster_convention=nr_private_sr_guides::RasterConvention::NgxViewportOffset;
+    const auto plan=nr_private_sr_guides::Prepare(input);if(!plan)return false;
+    unsigned depth_state=0,motion_state=0;
+    if(!nr_source_runtime::PrivateSrInputReadState(list,guides.depth,depth_state)||
+       !nr_source_runtime::PrivateSrInputReadState(list,guides.motion,motion_state))return false;
+    unsigned typed_depth=guides.signature.depth_format;
+    if(typed_depth==DXGI_FORMAT_R32_TYPELESS)typed_depth=DXGI_FORMAT_R32_FLOAT;
+    if(typed_depth==DXGI_FORMAT_R16_TYPELESS)typed_depth=DXGI_FORMAT_R16_UNORM;
+    if(typed_depth==DXGI_FORMAT_R24G8_TYPELESS)typed_depth=DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    if(typed_depth==DXGI_FORMAT_R32G8X24_TYPELESS)typed_depth=DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+    if(typed_depth!=41&&typed_depth!=54&&typed_depth!=46&&typed_depth!=21&&typed_depth!=56)return false;
+    if(guides.signature.motion_format!=16&&guides.signature.motion_format!=34)return false;
+    for(auto* resource:{guides.depth,guides.motion}){
+        const auto d=ID3D12Resource_GetDesc(resource);ID3D12Device* actual=nullptr;
+        const bool same=SUCCEEDED(ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void**>(&actual)))&&
+            actual&&IsSameRrDepthDevice(device,actual);ReleaseCom(actual);
+        if(!same||d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.DepthOrArraySize!=1||d.SampleDesc.Count!=1||
+           !d.MipLevels||(d.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))return false;
+    }
+    const auto dd=ID3D12Resource_GetDesc(guides.depth),md=ID3D12Resource_GetDesc(guides.motion);
+    if(unsigned(dd.Format)!=guides.signature.depth_format||unsigned(md.Format)!=guides.signature.motion_format||
+       dd.Width!=guides.signature.depth_physical_width||dd.Height!=guides.signature.depth_physical_height||
+       md.Width!=guides.signature.motion_physical_width||md.Height!=guides.signature.motion_physical_height)return false;
+    if(!slot.temporal_guide_root){
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0};
+        ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,2,0,0,2};
+        D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants={0,0,20};D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=parameters;
+        ID3DBlob *blob=nullptr,*errors=nullptr;auto hr=D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&errors);ReleaseCom(errors);
+        if(SUCCEEDED(hr))hr=ID3D12Device_CreateRootSignature(device,0,ID3D10Blob_GetBufferPointer(blob),ID3D10Blob_GetBufferSize(blob),
+            IID_ID3D12RootSignature,reinterpret_cast<void**>(&slot.temporal_guide_root));ReleaseCom(blob);if(FAILED(hr))return false;
+    }
+    if(!slot.temporal_guide_pso){
+        const auto code=nr_private_sr_artifacts::Kernels()[unsigned(nr_edit_dx12::Kernel::NormalizeGuides)];
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=slot.temporal_guide_root;desc.CS={code.data,code.bytes};
+        if(!code.data||!code.bytes||FAILED(ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+            reinterpret_cast<void**>(&slot.temporal_guide_pso))))return false;
+    }
+    if(!slot.temporal_guide_heap){D3D12_DESCRIPTOR_HEAP_DESC desc{};desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors=4;desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if(FAILED(ID3D12Device_CreateDescriptorHeap(device,&desc,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&slot.temporal_guide_heap))))return false;}
+    if(!slot.temporal_depth||!slot.temporal_motion||slot.temporal_width!=nw||slot.temporal_height!=nh){
+        D3D12_RESOURCE_DESC desc[2]{};for(unsigned i=0;i<2;++i){auto& d=desc[i];d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            d.Width=nw;d.Height=nh;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
+            d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;d.Format=i?DXGI_FORMAT_R32G32_FLOAT:DXGI_FORMAT_R32_FLOAT;}
+        const auto da=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc[0]);
+        const auto ma=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc[1]);
+        if(!da.SizeInBytes||!ma.SizeInBytes||da.SizeInBytes>UINT64_MAX-ma.SizeInBytes)return false;
+        const auto bytes=da.SizeInBytes+ma.SizeInBytes;if(!FitsExtraResourcePeak(slot,bytes))return false;
+        ID3D12Resource *depth=nullptr,*motion=nullptr;
+        if(!CreateTexture(device,nw,nh,L"NRChain.TemporalNativeDepth",&depth,DXGI_FORMAT_R32_FLOAT)||
+           !CreateTexture(device,nw,nh,L"NRChain.TemporalNativeMotion",&motion,DXGI_FORMAT_R32G32_FLOAT)){
+            ReleaseCom(depth);ReleaseCom(motion);return false;}
+        g_extra_allocated_bytes+=bytes;ReleaseCom(slot.temporal_depth);ReleaseCom(slot.temporal_motion);
+        g_extra_allocated_bytes-=slot.temporal_guide_bytes;slot.temporal_guide_bytes=bytes;
+        slot.temporal_depth=depth;slot.temporal_motion=motion;slot.temporal_width=nw;slot.temporal_height=nh;
+        slot.temporal_depth_state=slot.temporal_motion_state=D3D12_RESOURCE_STATE_COMMON;
+    }
+    const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.temporal_guide_heap);
+    for(unsigned i=0;i<2;++i){D3D12_SHADER_RESOURCE_VIEW_DESC d{};d.Format=DXGI_FORMAT(i?guides.signature.motion_format:typed_depth);
+        d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;
+        ID3D12Device_CreateShaderResourceView(device,i?guides.motion:guides.depth,&d,cpu);cpu.ptr+=stride;}
+    for(unsigned i=0;i<2;++i){D3D12_UNORDERED_ACCESS_VIEW_DESC d{};d.Format=i?DXGI_FORMAT_R32G32_FLOAT:DXGI_FORMAT_R32_FLOAT;
+        d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;ID3D12Device_CreateUnorderedAccessView(device,i?slot.temporal_motion:slot.temporal_depth,nullptr,&d,cpu);cpu.ptr+=stride;}
+    ID3D12Resource_AddRef(guides.depth);ID3D12Resource_AddRef(guides.motion);
+    ReleaseCom(slot.temporal_depth_input);ReleaseCom(slot.temporal_motion_input);
+    slot.temporal_depth_input=guides.depth;slot.temporal_motion_input=guides.motion;
+    std::memcpy(slot.temporal_guide_constants,&plan.constants,sizeof(plan.constants));
+    slot.temporal_snapshot_source=source;slot.temporal_snapshot_recording=token;slot.temporal_guide_prepared=true;return true;
+}
+bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& slot){
+    if(!g_config.enabled||!g_config.temporal_backend||!slot.temporal_guide_prepared||slot.temporal_guide_recorded||!list)return false;
+    unsigned long long token=0;const auto source=nr_source_runtime::CurrentSource();
+    if(!source||!ReadLifecycleToken(list,token)||token!=slot.temporal_snapshot_recording||
+       source.stream!=slot.temporal_snapshot_source.stream||source.epoch!=slot.temporal_snapshot_source.epoch||
+       source.sequence!=slot.temporal_snapshot_source.sequence)return false;
+    unsigned ds=0,ms=0;if(!nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_depth_input,ds)||
+       !nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_motion_input,ms))return false;
+    Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12DescriptorHeap* heaps[]={slot.temporal_guide_heap};ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,heaps);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(list,slot.temporal_guide_root);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.temporal_guide_heap));
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,20,slot.temporal_guide_constants,0);
+    ID3D12GraphicsCommandList_SetPipelineState(list,slot.temporal_guide_pso);
+    ID3D12GraphicsCommandList_Dispatch(list,(slot.temporal_width+7)/8,(slot.temporal_height+7)/8);
+    UavBarrier(list,slot.temporal_depth);UavBarrier(list,slot.temporal_motion);
+    Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    slot.temporal_guide_recorded=true;return true;
+}
+#endif
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,

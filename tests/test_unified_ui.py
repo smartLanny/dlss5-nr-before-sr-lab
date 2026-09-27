@@ -75,6 +75,15 @@ class UnifiedUi(unittest.TestCase):
         self.assertFalse('face_preview' in requested)
         self.assertTrue('next.face_preview=0' in face)
 
+    def test_temporal_modes_and_private_sr_boundary_are_explicit(self):
+        temporal = (self.root/'src/nr_temporal_ui.inl').read_text(encoding='utf-8')
+        private_sr = (self.root/'src/nr_private_sr_ui.inl').read_text(encoding='utf-8')
+        self.assertIn('next.temporal_mode==0',temporal)
+        self.assertIn('next.temporal_mode==1',temporal)
+        self.assertIn('Submission does not prove visible history adoption',temporal)
+        self.assertIn('proven native FP16 colour domain',private_sr)
+        self.assertIn('Present, FG and multi-GPU are unsupported',private_sr)
+
     def test_final_export_uses_successor_once(self):
         if GENERATED is None:
             self.skipTest('real complete export checked by the generator')

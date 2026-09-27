@@ -388,6 +388,12 @@ bool BeginPresentReceiptWork(ID3D12CommandQueue* queue) {
         present_recorded=true;return true;
     }
     if(!present_guides)return false;
+    const auto temporal_label=lineage.Lookup(present_resource);
+    present_lease.color_lineage_proven=present_lease.color_lineage_proven&&
+        temporal_label.KnownApplication()&&temporal_label.source==present_lease.source&&
+        temporal_label.exact_write&&temporal_label.submitted&&temporal_label.submission&&
+        temporal_label.content&&!temporal_label.tainted&&!temporal_label.processed&&
+        !temporal_label.fg_consumed&&temporal_label.queue==QueueOf(queue);
     auto& c=*present_guides;
     // Consumption is irreversible at the first private GPU operation. A failed
     // queue wait or later opaque failure must never retry this source.

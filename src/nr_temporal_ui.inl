@@ -8,12 +8,28 @@ void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
     if(ImGui::RadioButton(ui("Whole chain","整链"),next.temporal_scope==0)){next.temporal_scope=0;changed=discrete=true;}
     ImGui::SameLine();if(ImGui::RadioButton(ui("Later layers","后续层"),next.temporal_scope==1)){next.temporal_scope=1;changed=discrete=true;}
     ImGui::EndDisabled();
+    ImGui::BeginDisabled(next.temporal_backend==0);
+    if(ImGui::RadioButton(ui("Normal accumulation","普通累积"),next.temporal_mode==0)){next.temporal_mode=0;changed=discrete=true;}
+    ImGui::SameLine();
+    if(ImGui::RadioButton(ui("Low-frequency reconstruction","低频时域重建"),next.temporal_mode==1)){next.temporal_mode=1;changed=discrete=true;}
+    ImGui::EndDisabled();
+    SettingsNote(ui("Motion source (native vectors or AMD optical flow) aligns history; it does not denoise on its own. Low-frequency mode stabilizes the NR edit while retaining current-frame fine detail. Submission does not prove visible history adoption.",
+        "运动来源（原生向量或 AMD 光流）用于对齐历史，本身不负责降噪。低频模式稳定 NR 修改量并保留本帧细节；提交不证明画面采用了历史。"));
     SettingsNote(ui("AMDOF supports native SR before/after NR and successful RR followed by NR. SDR and declared linear HDR with valid exposure are supported. Pre-SR uses whole-chain scope. Other inputs retain the current NR result.",
         "AMDOF 支持原生 SR 前后增强及成功 RR 后增强；可处理 SDR 和曝光有效的线性 HDR。前置限整链范围，其余输入保留当前 NR 结果。"));
-    SettingsNote(ui("Native motion currently requires a proven post-SR SDR snapshot. HDR uses AMDOF here. The flow guide is compressed; HDR highlights and signed edits remain linear. This does not replace model guides or remove existing ghosts.",
-        "原生运动目前需后置 SR 的 SDR 安全快照；HDR 请选 AMDOF。只压缩光流识别用画面，HDR 高光和修改量保持线性；不替换模型导引，也不保证消除已有拖影。"));
+    SettingsNote(ui("Native motion currently requires a proven post-SR SDR snapshot. HDR uses AMDOF here. Present requires its own proven colour lineage and adoption; an NR submission alone is insufficient. Motion does not replace model guides or remove existing ghosts.",
+        "原生运动目前需后置 SR 的 SDR 安全快照；HDR 请选 AMDOF。Present 还需独立证明颜色来源与实际采用，只有 NR 提交并不足够。运动不替换模型导引，也不保证消除已有拖影。"));
     if(next.temporal_scope&&next.nr_passes<2)SettingsNote(ui("Later-layer scope is unavailable with one layer; the selection is retained.","仅一层时后续层范围不可用，保留所选范围。"));
     if(next.temporal_backend){
+        const auto gpu_config=nr_temporal_status::gpu_config.load();
+        const auto gpu_instance=nr_temporal_status::gpu_instance.load();
+        if(gpu_config==g_config_generation.load()&&gpu_instance&&nr_temporal_status::gpu_frames.load())
+            ImGui::Text(ui("GPU history samples (owner %llu): tested %llu, adopted %llu, rejected %llu",
+                "GPU 历史抽样（实例 %llu）：检测 %llu、采用 %llu、拒绝 %llu"),gpu_instance,
+                nr_temporal_status::gpu_tested.load(),nr_temporal_status::gpu_adopted.load(),nr_temporal_status::gpu_rejected.load());
+        else SettingsNote(ui("GPU history adoption for the current configuration is not yet available.","当前配置的 GPU 历史采用数据尚不可用。"));
+        SettingsNote(ui("GPU counters sample one decision per 8x8 pixels after fence completion; they are not a full-pixel or final-display quality verdict.",
+            "GPU 计数在 fence 完成后每 8×8 像素抽样一个决策，不代表全部像素或最终显示画质。"));
         const auto state=nr_temporal_status::state.load();const auto tick=nr_temporal_status::last_tick.load();
         if(state==8&&GetTickCount64()-tick<2000)SettingsNote(ui("Stabilization was submitted for a recent source frame. Check F8 for adoption counts.","最近源帧已提交防闪处理；F8 可查看实际采用次数。"));
         else if(state==9)SettingsNote(ui("Recording fault: resources quarantined. Save F8 and restart after disabling the experiment.","录制异常，资源已隔离。保存 F8，关闭实验后重启。"));

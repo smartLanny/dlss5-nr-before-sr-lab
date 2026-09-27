@@ -65,7 +65,7 @@ struct Harness{
    Check(D3DReflect(blobs[n].data(),blobs[n].size(),IID_ID3D11ShaderReflection,reinterpret_cast<void**>(reflection.out())),"DXBC reflection");
    UINT x=0,y=0,z=0;reflection->GetThreadGroupSize(&x,&y,&z);if(x!=8||y!=8||z!=1)throw std::runtime_error("thread ABI");
    D3D11_SHADER_BUFFER_DESC b{};Check(reflection->GetConstantBufferByIndex(0)->GetDesc(&b),"constant ABI");
-   const unsigned expected=n<3?144:n<5?48:64;if(b.Size!=expected)throw std::runtime_error("constant size mismatch");
+   const unsigned expected=n<3?144:n<5?48:n==5?80:64;if(b.Size!=expected)throw std::runtime_error("constant size mismatch");
    unsigned index=n<5?n:n+1;code[index]={blobs[n].data(),blobs[n].size()};
   }
   kernels=nr_edit_dx12::Create(device,1,1,code,SameDevice);if(!kernels)throw std::runtime_error("real PSO creation");
@@ -118,8 +118,8 @@ void Run(Harness& h,unsigned kind){using namespace nr_edit_dx12;ResourceOwner ow
  auto* original=h.Texture(owner,4,4,10,1);auto* edited=h.Texture(owner,4,4,10,nr);
  auto* clean=h.Texture(owner,8,8,10,4);auto* motion=h.Texture(owner,4,4,16,1);auto* depth=h.Texture(owner,4,4,41,.5f);
  auto* normalizedMotion=h.Texture(owner,4,4,16,0,0,false);auto* normalizedDepth=h.Texture(owner,4,4,41,0,0,false);
- struct Normalize{unsigned r[2],d[2],mv[2],db[2],mb[2];float scale[2];float a,b;unsigned linear,inverted;} n{{4,4},{4,4},{4,4},{0,0},{0,0},{2,2},0,1,0,0};
- static_assert(sizeof(n)==64);Work w{};w.kernel=Kernel::NormalizeGuides;w.width=w.height=4;w.constants=&n;w.constant_bytes=64;
+ struct Normalize{unsigned r[2],d[2],mv[2],db[2],mb[2];float scale[2];float a,b;unsigned linear,inverted;float jitter[2]{};unsigned reserved[2]{};} n{{4,4},{4,4},{4,4},{0,0},{0,0},{2,2},0,1,0,0};
+ static_assert(sizeof(n)==80);Work w{};w.kernel=Kernel::NormalizeGuides;w.width=w.height=4;w.constants=&n;w.constant_bytes=80;
  w.reads[0]=h.View(depth,41);w.reads[1]=h.View(motion,16);w.writes[0]=h.View(normalizedDepth,41);w.writes[1]=h.View(normalizedMotion,16);h.Record(w);
  auto motionResult=h.CopyOut(owner,normalizedMotion,16);
  auto* reproj=h.Texture(owner,4,4,2,0,0,false);auto* currentDepth=h.Texture(owner,4,4,41,0,0,false);
@@ -190,8 +190,8 @@ void HistoryCase(Harness& h,bool reject){using namespace nr_edit_dx12;ResourceOw
 void InvalidMotion(Harness& h,float invalid){using namespace nr_edit_dx12;ResourceOwner owner;
  auto* motion=h.Texture(owner,4,4,16,invalid);auto* depth=h.Texture(owner,4,4,41,.5f);
  auto* nm=h.Texture(owner,4,4,16,0,0,false);auto* nd=h.Texture(owner,4,4,41,0,0,false);
- struct K{unsigned r[2],d[2],m[2],db[2],mb[2];float scale[2],a,b;unsigned linear,inverted;}k{{4,4},{4,4},{4,4},{0,0},{0,0},{1,1},0,1,0,0};
- Work w{};w.kernel=Kernel::NormalizeGuides;w.width=w.height=4;w.constants=&k;w.constant_bytes=64;
+ struct K{unsigned r[2],d[2],m[2],db[2],mb[2];float scale[2],a,b;unsigned linear,inverted;float jitter[2]{};unsigned reserved[2]{};}k{{4,4},{4,4},{4,4},{0,0},{0,0},{1,1},0,1,0,0};
+ Work w{};w.kernel=Kernel::NormalizeGuides;w.width=w.height=4;w.constants=&k;w.constant_bytes=80;
  w.reads[0]=h.View(depth,41);w.reads[1]=h.View(motion,16);w.writes[0]=h.View(nd,41);w.writes[1]=h.View(nm,16);h.Record(w);
  auto result=h.CopyOut(owner,nm,16);h.Submit();h.Assert(result,8);h.Reset();
 }

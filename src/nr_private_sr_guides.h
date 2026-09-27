@@ -8,10 +8,14 @@
 #include "../experiments/nr-edit/src/nr_edit_dx12.hpp"
 #endif
 #include <cmath>
+#include <algorithm>
 
 namespace nr_private_sr_guides {
 enum class Reason { Ready, Disabled, Source, Recording, NativePhase, JitterUnknown, NonzeroJitter,
                     Flags, Extent, Units, Depth, Resource, Dispatch };
+// NGX Programming Guide 3.7.3: viewport/projection offset in render pixels.
+// This is the original native Evaluate contract, never the NR JitterMode.
+enum class RasterConvention {Unknown, NgxViewportOffset};
 struct Input {
     bool enabled=false;
     nr_private_sr::Source source{}, snapshot_source{}, motion_reference{};
@@ -22,6 +26,7 @@ struct Input {
     unsigned work_width=0,work_height=0;
     unsigned native_feature=0,native_flags=0;
     bool native_flags_known=false,read_boundary_snapshot=false;
+    RasterConvention raster_convention=RasterConvention::Unknown;
     bool original_motion_scale_known=false,original_jitter_known=false,reset=true;
     float original_motion_scale_x=0,original_motion_scale_y=0;
     float original_jitter_x=0,original_jitter_y=0;
@@ -30,8 +35,9 @@ struct Constants {
     unsigned output[2]{},depth[2]{},motion[2]{},depth_origin[2]{},motion_origin[2]{};
     float motion_scale[2]{},projection_a=0,projection_b=0;
     unsigned linear_depth=0,inverted=0;
+    float raster_offset[2]{};unsigned phase_reserved[2]{};
 };
-static_assert(sizeof(Constants)==64);
+static_assert(sizeof(Constants)==80);
 struct Plan { Reason reason=Reason::Source;Constants constants{};
     explicit operator bool()const{return reason==Reason::Ready;} };
 inline bool Extent(unsigned w,unsigned h){return w&&h&&w<=16384&&h<=16384;}
@@ -46,18 +52,21 @@ inline Plan Prepare(const Input& i) {
        i.motion_reference.epoch!=i.source.epoch||i.motion_reference.sequence>=i.source.sequence||
        i.source.sequence-i.motion_reference.sequence!=1))return reject(Reason::Source);
     if(!i.recording||!(i.recording==i.snapshot_recording))return reject(Reason::Recording);
-    if(!i.read_boundary_snapshot||i.native_feature!=1)
+    if(!i.read_boundary_snapshot||(i.native_feature!=1&&i.native_feature!=13))
         return reject(Reason::NativePhase);
-    if(!i.native_flags_known||(i.native_flags&~unsigned(2|8))!=0)return reject(Reason::Flags);
-    // Non-jittered vectors do not prove unjittered spatial guide locations.
-    // Until a producer proves de-jittered guide sampling, only known zero input
-    // jitter is supported. Never turn missing jitter into zero or use NR's UI mode.
+    if(!i.native_flags_known||(i.native_flags&~unsigned(1|2|8|64))!=0)return reject(Reason::Flags);
     if(!i.original_jitter_known||!std::isfinite(i.original_jitter_x)||!std::isfinite(i.original_jitter_y))
         return reject(Reason::JitterUnknown);
-    if(i.original_jitter_x!=0||i.original_jitter_y!=0)return reject(Reason::NonzeroJitter);
+    const bool jittered=i.original_jitter_x!=0||i.original_jitter_y!=0;
+    // High-resolution MV fields need a separate raster-phase contract. The
+    // low-resolution native depth/MV pair shares the render raster by NGX ABI.
+    if(jittered&&(i.raster_convention!=RasterConvention::NgxViewportOffset||
+       !(i.native_flags&2)||std::fabs(i.original_jitter_x)>.5f||std::fabs(i.original_jitter_y)>.5f))
+        return reject(Reason::NonzeroJitter);
     const auto& s=i.signature;
     if(!Extent(i.render_width,i.render_height)||!Extent(i.output_width,i.output_height)||
        !Extent(i.work_width,i.work_height)||i.work_width>i.output_width||i.work_height>i.output_height||
+       i.work_width<std::max(1u,i.output_width/4)||i.work_height<std::max(1u,i.output_height/4)||
        s.depth_width!=i.render_width||s.depth_height!=i.render_height||
        !Contains(s.depth_physical_width,s.depth_physical_height,s.depth_x,s.depth_y,s.depth_width,s.depth_height)||
        !Contains(s.motion_physical_width,s.motion_physical_height,s.motion_x,s.motion_y,s.motion_source_width,s.motion_source_height))
@@ -65,7 +74,9 @@ inline Plan Prepare(const Input& i) {
     const bool low=(i.native_flags&2)!=0;
     if(s.motion_source_width!=(low?i.render_width:i.output_width)||
        s.motion_source_height!=(low?i.render_height:i.output_height))return reject(Reason::Extent);
-    if(s.linear_depth||s.rr_depth_placeholder||s.depth_inverted!=int((i.native_flags&8)!=0))return reject(Reason::Depth);
+    if(s.rr_depth_placeholder||(!s.linear_depth&&s.depth_inverted!=int((i.native_flags&8)!=0))||
+       (s.linear_depth&&(i.native_feature!=13||!std::isfinite(s.depth_projection_a)||
+        !std::isfinite(s.depth_projection_b)||s.depth_projection_b==0)))return reject(Reason::Depth);
     if(!i.original_motion_scale_known||!std::isfinite(i.original_motion_scale_x)||
        !std::isfinite(i.original_motion_scale_y)||i.original_motion_scale_x==0||i.original_motion_scale_y==0)
         return reject(Reason::Units);
@@ -81,6 +92,8 @@ inline Plan Prepare(const Input& i) {
     c.motion_scale[1]=i.original_motion_scale_y*(float(i.work_height)/i.render_height);
     if(!std::isfinite(c.motion_scale[0])||!std::isfinite(c.motion_scale[1])||
        c.motion_scale[0]==0||c.motion_scale[1]==0)return reject(Reason::Units);
+    c.raster_offset[0]=i.original_jitter_x;c.raster_offset[1]=i.original_jitter_y;
+    c.linear_depth=s.linear_depth;c.projection_a=s.depth_projection_a;c.projection_b=s.depth_projection_b;
     c.inverted=s.depth_inverted;p.reason=Reason::Ready;return p;
 }
 struct Result {
@@ -102,7 +115,7 @@ inline Result Finish(const Input& capture,Result recorded,const FinishProof& pro
     recorded.post_sr_phase_verified=false;
     if(recorded.reason!=Reason::Ready||!recorded.dispatch.recorded||
        !recorded.normalized_guide_units_verified)return recorded;
-    if(proof.native_feature!=1||proof.native_result!=1||!proof.native_output_phase_verified||
+    if(proof.native_feature!=capture.native_feature||proof.native_result!=1||!proof.native_output_phase_verified||
        !(proof.native_source==recorded.source)||!(proof.base_source==recorded.source)||
        !(proof.candidate_source==recorded.source)||!(recorded.source==capture.source)||
        !(proof.recording==capture.recording)||!(recorded.recording==capture.recording)){

@@ -110,6 +110,17 @@ bool Release(Context*& ptr) {
     auto& c=*ptr;
     if(c.timeline.Poisoned() || (c.recorded&&!RetireProof(&c)))return false;
     if(!nr_present_capture::Retire(c))return false;
+    // Completion alone does not end a replayable recording. These lists are
+    // private to this context; release them before any bound GPU dependency.
+    for(auto& f:c.flights){
+        ReleaseCom(f.list);
+#if NR_HAS_TEMPORAL_RUNTIME
+        EndTemporalRecording(c,f);
+#endif
+    }
+#if NR_HAS_TEMPORAL_RUNTIME
+    if(!ReleaseTemporal(c))return false;
+#endif
     // No GPU dependency is freed until every model Release and parameter destroy
     // succeeds. A returned error retains the remaining generation, no retry.
     for(unsigned i=0;i<c.passes;++i){auto& l=c.layers[i];ScopedSrwExclusive lock(&g_nr_api_lock);

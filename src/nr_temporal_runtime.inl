@@ -4,14 +4,24 @@
 namespace nr_temporal {
 using namespace nr::final_residual;
 struct Memory {unsigned live=0,retired=0,pending=0,quarantined=0;unsigned long long live_bytes=0,retired_bytes=0,pending_bytes=0,quarantined_bytes=0;};
+}
+namespace nr_compat_present_runtime {void AppendTemporalMemory(nr_temporal::Memory&);}
+namespace nr_temporal {
 Memory SnapshotMemory(){
  Memory out;EnterCriticalSection(&g_chain_cs);
  const auto collect=[&](const NrContext& c,bool pending){if(!c.temporal)return;const auto bytes=c.temporal->stats().bytes;
   if(pending){++out.pending;out.pending_bytes+=bytes;}else if(c.retired){++out.retired;out.retired_bytes+=bytes;}else{++out.live;out.live_bytes+=bytes;}
   if(c.create_dependencies_quarantined||c.lifecycle_dependencies_quarantined){++out.quarantined;out.quarantined_bytes+=bytes;}};
  for(const auto& c:g_contexts)collect(c,false);for(const auto& c:g_pending_destroy_contexts)collect(c,true);
+ nr_compat_present_runtime::AppendTemporalMemory(out);
  LeaveCriticalSection(&g_chain_cs);return out;
 }
+// Poll only completed exact fences; deltas never borrow the current config identity.
+void CollectGpuStats(NrContext& context){
+ if(context.temporal)nr_temporal_status::ObserveGpuStats(context.temporal->stats(),
+     context.temporal_gpu_observed,g_config_generation.load());
+}
+
 void Status(unsigned value){nr_temporal_status::state.store(value,std::memory_order_relaxed);}
 bool DropAnchorBindings(NrContext& context){
  if(!context.temporal||!context.temporal->anchor()||!context.binding_pool)return true;
@@ -32,13 +42,15 @@ bool ReleaseIdle(NrContext& context){
  if(g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)||
     context.create_dependencies_quarantined||context.lifecycle_dependencies_quarantined||
     context.awaiting_fence_signal||context.temporal_token||!context.temporal->releasable()||!DropAnchorBindings(context))return false;
+ CollectGpuStats(context);
  nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
  delete context.temporal;context.temporal=nullptr;context.temporal_queue=0;
  context.temporal_retry_tick=0;context.temporal_attempt_generation=0;return true;
 }
 void Maintain(NrContext& context){
+ CollectGpuStats(context);
  if(!context.temporal)return;
- const unsigned requested=g_config.temporal_backend|(g_config.temporal_scope<<8);
+ const unsigned requested=g_config.temporal_backend|(g_config.temporal_scope<<8)|(g_config.temporal_mode<<16);
  if(!g_config.enabled||!g_config.temporal_backend||context.retired||
     (context.mode==1?nr_processing_runtime::Effective()!=nr_processing::Start::After:
                      nr_processing_runtime::Effective()!=nr_processing::Start::Before)||
@@ -87,31 +99,28 @@ Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandLis
  if(!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||marker.stable_submissions<kRequiredStableQueueSubmissions){Status(2);return out;}
  for(auto& entry:g_lifecycle_queues)if(entry.identity==marker.identity&&entry.queue&&entry.fence){queue=&entry;break;}
  if(!queue||!ReadLifecycleToken(list,out.recording)||!CanBeginContextUseLocked(list,context,false)){Status(2);return {};}
- const unsigned key=g_config.temporal_backend|(g_config.temporal_scope<<8);
+ const unsigned key=g_config.temporal_backend|(g_config.temporal_scope<<8)|(g_config.temporal_mode<<16);
  if(context.temporal&&(!context.temporal->initialized()||context.temporal_key!=key||context.temporal_width!=width||context.temporal_height!=height||context.temporal_queue!=queue->identity)){
   if(!ReleaseIdle(context)){Status(3);return {};}
  }
  auto& in=out.inputs;
  in.settings.enabled=true;in.settings.scope=g_config.temporal_scope?Scope::LaterLayers:Scope::WholeChain;
  in.settings.validation=g_config.temporal_legacy?Validation::Legacy:Validation::Basic065;
+ in.settings.mode=g_config.temporal_mode?Mode::LowFrequency:Mode::Adaptive;
  in.layers=g_config.nr_passes==2?(g_config.nr_full_reference?g_config.nr_full_passes:2u):1u;
  const auto backend=g_config.temporal_backend==1?Backend::NativeMotion:Backend::AmdOpticalFlow;
- const auto& sig=guides.signature;
  if(backend==Backend::NativeMotion){
-  // Native MV is sampled directly while its existing Evaluate lease is valid.
-  // Scales are the game's original units, then converted to THIS output grid;
-  // do not use model-work-grid scales after WorkingScale was applied.
-  if(!guides.motion){Status(15);return {};}
-  if(!guides.valid_motion_scale_x||!guides.valid_motion_scale_y||
-     !guides.capture_params.game_mv_valid){Status(16);return {};}
-  if((feature.create_flags&4)||!context.width||!context.height){Status(5);return {};}
-  if(!native_motion_snapshot||!slot.motion_proxy){Status(17);return {};}
-  // Consume the Core's already prepared native-MV surface; do not guess the
-  // game's resource state after an opaque SR call. It stores the original
-  // vector values, while the signature carries conversion to model texels.
-  in.native={{source.stream,source.epoch,source.sequence},slot.motion_proxy,DXGI_FORMAT_R16G16_FLOAT,
-   slot.motion_proxy_state,0,0,context.width,context.height,
-   sig.motion_scale_x*float(width)/context.width,sig.motion_scale_y*float(height)/context.height,true};
+  // Independent joint depth/MV snapshot was recorded at the native read boundary.
+  // It contains N-pixel vectors already converted with original NGX scales.
+  if(!native_motion_snapshot||!slot.temporal_guide_recorded||!slot.temporal_motion||!slot.temporal_depth||
+     slot.temporal_snapshot_source.stream!=source.stream||slot.temporal_snapshot_source.epoch!=source.epoch||
+     slot.temporal_snapshot_source.sequence!=source.sequence||slot.temporal_snapshot_recording!=out.recording||
+     !slot.temporal_width||!slot.temporal_height){Status(17);return {};}
+  in.native={{source.stream,source.epoch,source.sequence},slot.temporal_motion,DXGI_FORMAT_R32G32_FLOAT,
+   slot.temporal_motion_state,0,0,slot.temporal_width,slot.temporal_height,
+   float(width)/slot.temporal_width,float(height)/slot.temporal_height,true};
+  in.native.depth=slot.temporal_depth;in.native.depth_state=slot.temporal_depth_state;
+  in.native.depth_source=in.native.source;in.native.depth_phase_proven=true;
  }
  if(!context.temporal){
   const auto now=GetTickCount64();const auto generation=g_config_generation.load();

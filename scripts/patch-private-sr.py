@@ -1,12 +1,29 @@
 """Product post-final private SR; applied after the complete quality generator."""
 from pathlib import Path
-VERSION = '0.5.2-beta.3'
+VERSION = '0.5.2-beta.4'
 LOCAL=('src/nr_private_sr_guides.h','src/nr_private_sr_guides.cpp','src/nr_private_sr_status.h',
        'src/nr_private_sr_product.inl','src/nr_private_sr_ui.inl','src/nr_private_sr_artifacts.h')
 MODULE=('nr_edit_dx12.hpp','nr_edit_dx12.cpp','nr_post_residual_dx12.hpp','nr_post_residual_dx12.cpp',
         'nr_post_private_sr_dx12.hpp','nr_post_private_sr_dx12.cpp','nr_private_sr_runtime.hpp','nr_private_sr_core_adapter.inl')
 SHADERS=('nr_rr_edit.hlsl','nr_deferred_edit.hlsl','nr_normalize_guides.hlsl','nr_post_residual.hlsl','nr_edit_scalar.hlsli','nr_edit_carrier.hlsli')
 INPUTS=('scripts/patch-private-sr.py','scripts/build-private-sr-module.py')+LOCAL+tuple('experiments/nr-edit/src/'+p for p in MODULE)+tuple('experiments/nr-edit/shaders/'+p for p in SHADERS)+('experiments/nr-edit/tools/compile_edit_shader.cpp','experiments/nr-edit/tools/compile_edit_artifacts.py')
+
+def patch_product_identity(s,path):
+    """Only the preceding Beta2 identity is accepted; reject mixed/repeated input."""
+    if path not in ('src/nr_before_sr.cpp','scripts/build.ps1','src/nr_before_sr.rc'):
+        raise ValueError('private SR unknown identity file: '+path)
+    if '0.5.2-beta.2' not in s or VERSION in s:
+        raise ValueError('private SR expected preceding Beta 2 identity: '+path)
+    s=s.replace('0.5.2-beta.2',VERSION).replace('0.5.2 Beta 2','0.5.2 Beta 4')
+    if path.endswith('.rc'):
+        for field in ('FILEVERSION','PRODUCTVERSION'):
+            old=field+' 0,5,2,2'
+            if s.count(old)!=1:raise ValueError('private SR expected one Beta 2 '+field)
+            s=s.replace(old,field+' 0,5,2,4')
+        for field in ('FileVersion','ProductVersion'):
+            if s.count('VALUE "'+field+'", "0.5.2 Beta 4\\0"')!=1:
+                raise ValueError('private SR missing exact final '+field)
+    return s
 
 def runtime(s,h):
     once=h.once
@@ -68,6 +85,70 @@ void DestroyContext(NrContext &context) {''','private SR lifecycle declarations'
     for name,original,args in hooks:
         change('NgxResult '+name+'(',lambda p,original=original,args=args:prepend(p,f'    if(nr_post_product::PrivateCall())return {original}?{original}({args}):0xBAD00005u;'))
     change('NgxResult DispatchEvaluate(',lambda p:prepend(p,'    if(nr_post_product::PrivateCall())return original(command_list,handle,params,callback);'))
+    s=once(s,'#include "nr_private_sr_product.inl"','#include "nr_private_sr_product.inl"\nbool CoverPrivateShutdownDomain();','private SR domain coverage declaration')
+    change('NgxResult HookCoreCreate(',lambda p:once(p,
+        '    if(nr_post_product::PrivateCall())return g_original_core_create?g_original_core_create(command_list, feature_id, params, out_handle):0xBAD00005u;',
+        '    if(nr_post_product::PrivateCall())return g_original_core_create?g_original_core_create(command_list, feature_id, params, out_handle):0xBAD00005u;\n    const bool private_domain_covered=CoverPrivateShutdownDomain();\n    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();','private SR native-only domain capture'))
+    change('NgxResult HookCoreCreate(',lambda p:once(p,'    observed.Finish(result, handle, params);',
+        '    if(result==kNgxSuccess&&handle&&private_domain_covered)\n        nr_private_sr_core::ObserveCoreCreate(command_list,feature_id,handle,result,private_domain_ticket);\n    observed.Finish(result, handle, params);','private SR observed initialized Core domain'))
+    for name in ('HookCreate','HookCoreCreate','HookDlssdCreate'):
+        change('NgxResult '+name+'(',lambda p:once(p,'    observed.Finish(result, handle, params);',
+            '    observed.Finish(result, handle, params);\n    nr_private_sr_core::SealCoreCreate(handle,result);','private SR exact native parent generation'))
+    for name in ('HookRelease','HookCoreRelease','HookDlssdRelease'):
+        change('NgxResult '+name+'(',lambda p:once(p,'    const FeatureRecord feature = FindFeature(handle);',
+            '    nr_private_sr_core::ForgetParent(handle);\n    const FeatureRecord feature = FindFeature(handle);','private SR native release parent invalidation'))
+    # Observe the exact original initialization domain, including RR-only hosts.
+    for name in ('HookLoaderInit','HookLoaderInitExt','HookLoaderInitProject'):
+        change('NgxResult '+name+'(',lambda p:prepend(p,'    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();'))
+        change('NgxResult '+name+'(',lambda p:once(p,'    return result;',
+            '    nr_private_sr_core::ObserveInit(device,result,nr_private_sr_core::DomainEvidence::OriginalInit,private_domain_ticket);\n    return result;','private SR native Init receipt'))
+    s=once(s,'enum class NgxHookOperation { Release, Create, Evaluate, Init };',
+        'enum class NgxHookOperation { Release, Create, Evaluate, Init, Shutdown };','private SR Shutdown operation')
+    s=once(s,'NgxHookTarget g_ngx_hook_targets[16]', 'NgxHookTarget g_ngx_hook_targets[24]','private SR Shutdown target capacity')
+    s=once(s,'void CoverNgxLifecycleAfterInit(const char *entry);',"""using PrivateShutdown0=NgxResult(*)();
+using PrivateShutdown1=NgxResult(*)(ID3D12Device*);
+PrivateShutdown0 g_private_shutdown0[2]{};
+PrivateShutdown1 g_private_shutdown1[2]{};
+template<unsigned N> NgxResult HookPrivateShutdown0(){
+    {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::shutdown_inflight.fetch_add(1);nr_private_sr_core::InvalidateInit(nullptr);}
+    // No private call can enter the invalidated epoch. Forward without the API
+    // lock: native Shutdown may itself call a hooked release needing chain locks.
+    const auto result=g_private_shutdown0[N]?g_private_shutdown0[N]():0xBAD00005u;
+    nr_private_sr_core::shutdown_inflight.fetch_sub(1);return result;
+}
+template<unsigned N> NgxResult HookPrivateShutdown1(ID3D12Device* device){
+    {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::shutdown_inflight.fetch_add(1);nr_private_sr_core::InvalidateInit(device);}
+    const auto result=g_private_shutdown1[N]?g_private_shutdown1[N](device):0xBAD00005u;
+    nr_private_sr_core::shutdown_inflight.fetch_sub(1);return result;
+}
+void CoverNgxLifecycleAfterInit(const char *entry);""",'private SR original Shutdown forwarding')
+    s=once(s,'bool InstallLoaderInitHooks(HMODULE loader) {',"""bool InstallPrivateShutdownHooks(HMODULE module,unsigned index){
+    if(!module||index>1)return false;
+    void* a=reinterpret_cast<void*>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown"));
+    void* b=reinterpret_cast<void*>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown1"));
+    if(!a&&!b)return false;
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);bool queued=false;
+    const bool first=!a||QueueLateHook(NgxHookOperation::Shutdown,a,index?
+        reinterpret_cast<void*>(&HookPrivateShutdown0<1>):reinterpret_cast<void*>(&HookPrivateShutdown0<0>),
+        reinterpret_cast<void**>(&g_private_shutdown0[index]),"private SR Shutdown",queued);
+    const bool second=!b||QueueLateHook(NgxHookOperation::Shutdown,b,index?
+        reinterpret_cast<void*>(&HookPrivateShutdown1<1>):reinterpret_cast<void*>(&HookPrivateShutdown1<0>),
+        reinterpret_cast<void**>(&g_private_shutdown1[index]),"private SR Shutdown1",queued);
+    const bool applied=!queued||MH_ApplyQueued()==MH_OK;
+    if(applied)MarkNgxHooksPublished(false);
+    const bool covered=first&&second&&applied&&(!a||IsNgxHookPublished(NgxHookOperation::Shutdown,a))&&
+        (!b||IsNgxHookPublished(NgxHookOperation::Shutdown,b));
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);return covered;
+}
+bool CoverPrivateShutdownDomain(){
+    const auto loader=GetModuleHandleW(L"nvngx.dll"),core=GetModuleHandleW(L"_nvngx.dll");
+    const bool covered=core&&(!loader||InstallPrivateShutdownHooks(loader,0))&&InstallPrivateShutdownHooks(core,1);
+    nr_private_sr_core::shutdown_hooks_covered.store(covered);return covered;
+}
+bool InstallLoaderInitHooks(HMODULE loader) {""",'private SR Shutdown hook coverage')
+    change('void CoverNgxLifecycleAfterInit(const char *entry) {',lambda p:once(p,'    Log("[module] %s returned;',
+        '    (void)CoverPrivateShutdownDomain();\n    Log("[module] %s returned;','private SR verified Shutdown coverage'))
+
     return s
 
 def apply(stage:Path,inputs,h):
@@ -104,7 +185,13 @@ Source CurrentSource(){''','private SR native state evidence'))
         prefix,nr_private_sr_status::creations.load(),prefix,nr_private_sr_status::recorded.load(),prefix,nr_private_sr_status::composed.load(),
         prefix,nr_private_sr_status::submitted.load(),prefix,nr_private_sr_status::adopted.load(),prefix,nr_private_sr_status::bytes.load(),
         prefix,nr_private_sr_status::peak.load(),prefix,nr_private_sr_status::retired.load());
-    FeedbackAppend(s,"%s.privateSR.contract=post Feature1 FP16 SDR; zero proven native jitter; no FG; plane bytes exclude opaque NGX; composed/submitted are not picture acceptance\n",prefix);
+    FeedbackAppend(s,"%s.privateSR.gpuTimingAvailable=%u\n%s.privateSR.timingConfig=%llu\n%s.privateSR.timingInstance=%llu\n%s.privateSR.gpuSamples=%llu\n%s.privateSR.gpuFirstCreateMs=%.9g\n%s.privateSR.gpuFirstInferenceMs=%.9g\n%s.privateSR.gpuMedianMs=%.9g\n%s.privateSR.gpuP95Ms=%.9g\n",
+        prefix,nr_private_sr_status::gpu_timing_available.load(),prefix,nr_private_sr_status::timing_config.load(),
+        prefix,nr_private_sr_status::timing_instance.load(),prefix,nr_private_sr_status::timing_samples.load(),
+        prefix,nr_private_sr_status::gpu_first_create_ms.load(),prefix,nr_private_sr_status::gpu_first_inference_ms.load(),
+        prefix,nr_private_sr_status::gpu_median_ms.load(),prefix,nr_private_sr_status::gpu_p95_ms.load());
+    FeedbackAppend(s,"%s.privateSR.gpuTimingScope=exact queue timestamp after GPU completion and recording release; private residual encode/Feature1/compose only; excludes guide conversion, native SR/RR, NR and complete-frame baseline; stable excludes first eight composed frames; not a 3-percent verdict\n",prefix);
+    FeedbackAppend(s,"%s.privateSR.contract=post Feature1/13 NativeOutputValue FP16; NGX native jitter lowres guides; no FG; plane bytes exclude opaque NGX; composed/submitted are not picture acceptance\n",prefix);
 ''','private SR diagnostics'))
     update('config/nr_before_sr.ini',lambda s:s+'\n; Experimental post-SR edit reconstruction, independent and default off.\nPrivateResidualSR=0\n')
     update('src/nr_feedback_picture.inl',lambda s:h.once(s,'    if (!valid) return; // A busy snapshot must not report constructor defaults as facts.',
@@ -113,7 +200,7 @@ Source CurrentSource(){''','private SR native state evidence'))
     const char* private_gate=!config.private_residual_sr?"off":!config.enabled?"master-off":
         config.temporal_backend?"residual-stabilizer-conflict":
         static_cast<nr_processing::Start>(nr_processing_runtime::effective.load())!=nr_processing::Start::After?"unsupported-current-route":
-        g_last_carrier_feature.load()!=1?"waiting-native-Feature1":"consult-last-event-and-counter-deltas";
+        (g_last_carrier_feature.load()!=1&&g_last_carrier_feature.load()!=13)?"waiting-native-Feature1-or-13":"consult-last-event-and-counter-deltas";
     FeedbackAppend(s,"requested.privateSR.configurationGate=%s\\n",private_gate);''','private SR requested flag'))
     update('scripts/build.ps1',lambda s:h.once(s,'$CodecCompiler=Join-Path $Build', '''# Compile owned post-SR module and its exact shader artifacts.
 & python (Join-Path $PSScriptRoot 'build-private-sr-module.py') --root $ProjectRoot --compiler $CppCompiler --output (Join-Path $Objects 'private-sr')
@@ -124,11 +211,5 @@ $ObjectFiles += @($PrivateSrManifest.objects)
 $Common += "-I$(Join-Path $ProjectRoot 'experiments/nr-edit/src')"
 $Common += "-I$(Join-Path $Objects 'private-sr/bytecode')"
 $CodecCompiler=Join-Path $Build''','private SR required module build'))
-    # Final candidate identity is distinct from the frozen intermediate overlays.
-    import re
-    for path in ('src/nr_before_sr.cpp','scripts/build.ps1'):
-        update(path,lambda s:s.replace('beta0.5-dline21-unified10-reconstruction1-ui1',VERSION))
-    def resource(s):
-        s=s.replace('FILEVERSION 0,5,1,26','FILEVERSION 0,5,2,3').replace('PRODUCTVERSION 0,5,1,26','PRODUCTVERSION 0,5,2,3')
-        return re.sub(r'(VALUE "(?:FileVersion|ProductVersion)", )"[^"\n]+"',lambda m:m[1]+'"'+VERSION+'\\0"',s)
-    update('src/nr_before_sr.rc',resource)
+    for path in ('src/nr_before_sr.cpp','scripts/build.ps1','src/nr_before_sr.rc'):
+        update(path,lambda s,path=path:patch_product_identity(s,path))

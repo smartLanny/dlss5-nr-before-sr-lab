@@ -19,7 +19,7 @@ def main():
     if out.exists():
         parser.error('Use a fresh output directory; retain earlier failures.')
     out.mkdir(parents=True)
-    report = {'scope': 'known zero-jitter native Feature1 guide capture; CPU and WARP only',
+    report = {'scope': 'NGX viewport jitter / HDR75 / SR and RR guide admission; CPU and WARP only',
               'commands': [], 'result': 'running', 'game': 'not-run', 'model': 'not-run'}
     def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
     sources = [ROOT/'src/nr_private_sr_guides.h', ROOT/'src/nr_private_sr_guides.cpp',

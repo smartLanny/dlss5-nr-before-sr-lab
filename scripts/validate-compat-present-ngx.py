@@ -26,6 +26,7 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--case',choices=['single','multi','all','post25'],default='single')
     p.add_argument('--compile-only',action='store_true')
+    p.add_argument('--temporal',choices=['adaptive','low-frequency'],help='Actual Present AMDOF consumer, controlled exact artificial color receipts; 32 adopted frames.')
     p.add_argument('--cold-bootstrap',action='store_true',help='Require the production bridge to bootstrap without any host NGX Init or bootstrap DLL.')
     p.add_argument('--consumer',action='store_true',help='Exercise the production FG-input NR consumer; native FG is explicitly a placeholder.')
     p.add_argument('--native-fg',action='store_true',help='Use the official native DLSSG Create/Evaluate helper and read back both outputs.')
@@ -36,6 +37,7 @@ def main():
     p.add_argument('--failure-controls',action='store_true',help='Inject one NR opaque API failure and one private allocation refusal, explicitly test-only.')
     p.add_argument('--capture',action='store_true',help='Require actual completed per-layer pre-FG NRF and metadata export.')
     a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve()
+    if a.temporal and (a.consumer or a.native_fg):p.error('--temporal covers Present only')
     if a.case=='post25' and (a.consumer or a.native_fg):
         p.error('--case post25 covers the Present host; native SR/RR and FG are separate validations')
     if out.exists() and any(out.iterdir()):p.error('--output must be empty to preserve earlier evidence')
@@ -83,13 +85,13 @@ def main():
     host_source=ROOT/('tests/fg_consumer_ngx_host.cpp' if a.consumer else 'tests/compat_present_ngx_host.cpp')
     binary=out/('fg-consumer-ngx.exe' if a.consumer else 'compat-present-ngx.exe')
     if not code:
-        common=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64',f'-DNR_FACE_BACKEND={face_backend}','-DNR_CODEC_PRECOMPILED=1',
+        common=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64',f'-DNR_FACE_BACKEND={face_backend}','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',
             '-DNR_PRESENT_NGX_CORE="'+(core/'src/nr_before_sr.cpp').as_posix()+'"','-ffunction-sections','-fdata-sections',
             '-I'+str(core/'build'),'-I'+str(core/'third_party/minhook/include'),'-I'+str(reshade/'include'),'-I'+str(reshade/'deps/imgui')]
         if a.native_fg:common.append('-DNR_HOST_NATIVE_FG=1')
         if a.cold_bootstrap:common.append('-DNR_HOST_COLD_BOOTSTRAP=1')
         if a.capture:common.append('-DNR_HOST_FG_CAPTURE=1')
-        objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o']]+objects_for(core/'src/nr_before_sr.cpp')
+        objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o']]+objects_for(core/'src/nr_before_sr.cpp')
         code=run([compiler,*common,'-static','-municode','-Wl,--gc-sections',host_source,*objs,
             '-o',binary,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-host',240)
     if not code:
@@ -99,7 +101,7 @@ def main():
         if not a.compile_only:
             cases=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(n,25) for n in range(1,6)] if a.case=='post25' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
             for passes,scale in cases:
-                code=run([binary,out,passes,scale],f'run-{passes}-{scale}',240)
+                code=run([binary,out,passes,scale,*(['--temporal-'+a.temporal] if a.temporal else [])],f'run-{passes}-{scale}',240)
                 if code:break
             if not code and a.native_fg and a.quadrants:
                 for nr,fg in [(0,0),(1,0),(0,1)]:
@@ -119,6 +121,8 @@ def main():
         'scope':('real NVIDIA, official NGX bootstrap, signed Feature18 and production FG input consumer; artificial input, native FG call placeholder, no game/FG output claim' if a.consumer else 'real NVIDIA, official NGX bootstrap, signed Feature18 and production Present internals; artificial color input, no game/FG claim')}
     result['artifacts']={name:sha(out/name) for name in [binary.name,'ngx-bootstrap.dll','nvngx_dlssnr.dll','nrchain_nvngx.dll'] if (out/name).is_file()}
     result['cold_bootstrap']=a.cold_bootstrap
+    result['temporal_consumer']=a.temporal
+    result['temporal_source_evidence']='controlled receipt after exact artificial upload; not game discovery' if a.temporal else None
     result['face_build']={'receipt':str(face_receipt),'sha256':sha(face_receipt),'enabled':bool(face_backend)}
     result['linked_objects']={str(f):sha(f) for f in objs} if 'objs' in locals() else {}
     if a.cold_bootstrap:

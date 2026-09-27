@@ -1,0 +1,59 @@
+{
+  "schema": "dlss5-nr-runtime-candidate/v1",
+  "issue": 315,
+  "status": "compatibility-validation-in-progress",
+  "core_candidate": "0.5.2-beta.4",
+  "file_name": "nvngx_dlssnr.dll",
+  "architecture": "x64",
+  "variants": [
+    {
+      "id": "nr-rtx20-30-plain-fp16",
+      "gpu_families": [
+        "RTX20",
+        "RTX30"
+      ],
+      "sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8",
+      "bytes": 309671536
+    },
+    {
+      "id": "nr-rtx40-50-kio-1.0.6",
+      "gpu_families": [
+        "RTX40",
+        "RTX50"
+      ],
+      "sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa",
+      "bytes": 165844992
+    }
+  ],
+  "compatibility": {
+    "core_min_inclusive": "0.5.2-beta.4",
+    "core_max_inclusive": "0.5.2-beta.4",
+    "other_core_versions": "unclaimed",
+    "feature": 18,
+    "interface": "existing nrchain bridge; exact bridge identity supplied by frozen candidate"
+  },
+  "ota": {
+    "core_only_must_not_claim_runtime_updated": true,
+    "default_pin_change": false,
+    "release_enabled": false,
+    "preserve_existing_settings": true
+  },
+  "transaction": {
+    "require_game_exited": true,
+    "select_by_gpu_family": true,
+    "unknown_family": "refuse",
+    "backup_original_bytes": true,
+    "backup_outside_addon_search": true,
+    "journal_before_replace": true,
+    "verify_complete_sha256": true,
+    "verify_single_core": true,
+    "failure": "restore original files and configuration bytes"
+  },
+  "verification": {
+    "user_performance_observation": "20/30 substantial;40/50 small; compatibility not implied",
+    "local_adapter_scope": "RTX 5090 D only",
+    "game": false
+  },
+  "manager_handoff": "https://github.com/smartLanny/DLSS5-Manager-ZJZ/issues/2#issuecomment-5855337815",
+  "manager_implementation_status": "contract-handed-off; active installer/catalog unchanged"
+}

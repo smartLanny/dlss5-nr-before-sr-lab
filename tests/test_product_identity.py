@@ -9,7 +9,31 @@ edge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(edge)
 
 
+spec_private = importlib.util.spec_from_file_location('private_identity', ROOT/'scripts/patch-private-sr.py')
+private = importlib.util.module_from_spec(spec_private)
+spec_private.loader.exec_module(private)
+
 class ProductIdentity(unittest.TestCase):
+    def test_final_private_overlay_all_resource_fields(self):
+        original=(ROOT/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
+        beta2=edge.patch_product_file(original,'src/nr_before_sr.rc')
+        final=private.patch_product_identity(beta2,'src/nr_before_sr.rc')
+        self.assertEqual(private.VERSION,'0.5.2-beta.4')
+        self.assertIn('FILEVERSION 0,5,2,4',final)
+        self.assertIn('PRODUCTVERSION 0,5,2,4',final)
+        self.assertEqual(final.count('0.5.2 Beta 4'),2)
+        self.assertEqual(final.count('0.5.2-beta.4'),4)
+        self.assertNotIn('Beta 2',final)
+        with self.assertRaises(ValueError):private.patch_product_identity(final,'src/nr_before_sr.rc')
+        with self.assertRaises(ValueError):private.patch_product_identity(beta2.replace('FILEVERSION 0,5,2,2','FILEVERSION 0,5,2,3'),'src/nr_before_sr.rc')
+
+    def test_final_private_source_and_build(self):
+        for path in ('src/nr_before_sr.cpp','scripts/build.ps1'):
+            original='identifier=0.5.2-beta.2; display=0.5.2 Beta 2'
+            final=private.patch_product_identity(original,path)
+            self.assertEqual(final,'identifier=0.5.2-beta.4; display=0.5.2 Beta 4')
+            with self.assertRaises(ValueError):private.patch_product_identity('unknown',path)
+
     def test_actual_resource_keeps_every_non_identity_byte(self):
         original = (ROOT/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
         final = edge.patch_product_file(original, 'src/nr_before_sr.rc')

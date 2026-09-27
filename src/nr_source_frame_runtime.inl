@@ -16,6 +16,12 @@ std::atomic<unsigned long long> energy_gate_resets{0},energy_gate_blocked_checks
 std::atomic<unsigned long long> energy_gate_observations{0},energy_gate_true{0},energy_gate_false{0},energy_gate_unknown{0},energy_gate_unbound{0};
 std::atomic<unsigned> energy_gate_last_signal{0}; // 0=none, 1=false, 2=true, 3=unknown, 4=unbound.
 unsigned long long energy_gate_last_resume_ms=0; // Protected by energy_gate_lock.
+struct EnergyGateEvent {
+    unsigned long long sequence=0,tick=0;
+    unsigned transition=0,history=0;
+};
+std::array<EnergyGateEvent,16> energy_gate_events{};
+unsigned long long energy_gate_event_count=0; // same small CPU-only lock
 nr_energy_gate::Options EnergyGateOptions() {
     return {energy_gate_conservative.load(std::memory_order_acquire),
             energy_gate_heuristic.load(std::memory_order_acquire)};
@@ -37,6 +43,11 @@ void EnergyGateTransitionLocked(nr_energy_gate::Transition transition) {
         g_history_generation.fetch_add(1,std::memory_order_acq_rel);
         energy_gate_resets.fetch_add(1,std::memory_order_relaxed);
         energy_gate_last_resume_ms=GetTickCount64();
+    }
+    if(transition!=Transition::None&&energy_gate_event_count!=UINT64_MAX){
+        const auto sequence=++energy_gate_event_count;
+        energy_gate_events[(sequence-1)%energy_gate_events.size()]={sequence,GetTickCount64(),
+            static_cast<unsigned>(transition),g_history_generation.load(std::memory_order_relaxed)};
     }
 }
 void PublishEnergyGateLocked() {
@@ -153,12 +164,14 @@ struct EnergyGateSnapshot {
     EnergyGateStatus status{};
     bool loaded=false,clock_reversed=false;
     unsigned explicit_streams=0,heuristic_streams=0,confirming_streams=0,stale_streams=0;
-    unsigned long long max_observation_age_ms=0;
+    unsigned long long max_observation_age_ms=0,event_count=0;
+    std::array<EnergyGateEvent,16> events{};
 };
 bool TrySnapshotEnergyGateStatus(EnergyGateSnapshot& out) {
     out={};
     if(!TryAcquireSRWLockShared(&energy_gate_lock))return false;
     out.loaded=energy_gate_loaded.load(std::memory_order_acquire);
+    out.event_count=energy_gate_event_count;out.events=energy_gate_events;
     if(out.loaded) {
         const auto now=GetTickCount64();
         const auto options=EnergyGateOptions();
@@ -369,6 +382,7 @@ struct PresentLease {
     NrGuideSignature source_signature{};
     bool guides_owned=false,guides_current=false;
     bool color_only=false; // Exact submitted color lineage; no native guide claim.
+    bool color_lineage_proven=false; // Same backbuffer content, not merely a recent native receipt.
     bool application_source=false; // Independent full-write producer, not a native result.
     Id application_chain=0,application_epoch=0;
     unsigned application_config=0;
@@ -1059,6 +1073,10 @@ bool CanPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chai
         diagnostic.reject_mask|=nr_source_frame::PresentRejectReceipt;
         diagnostic.decision=PresentDecisionFor(diagnostic);PublishPresentObservationLocked(diagnostic);return false;
     }
+    present_lease.color_lineage_proven=present_lease.color_only ||
+        (label.KnownApplication()&&label.source==present_lease.source&&label.exact_write&&
+         label.submitted&&label.submission&&label.content&&!label.tainted&&!label.processed&&
+         !label.fg_consumed&&label.queue==queue_identity);
     diagnostic.receipt_stream=present_lease.source.stream;diagnostic.receipt_epoch=present_lease.source.epoch;
     if(nr_processing_runtime::EnergyGateBlocks({present_resource.device,
         present_lease.source.stream,present_lease.source.epoch})) {
