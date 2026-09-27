@@ -103,6 +103,8 @@ Beta 1、已构建 UI 候选与 UI1/Inbox1 均保留；Beta 3 默认关闭，未
 9/26 历史实验：实现 `c0eb2af2`、文档 `6fb01d73` 的 CPU46、WARP/显卡各319、受控 Feature1 691 项通过；当时未接 Core，不覆盖当前 Beta 3 验证。
 #312 已补全新 checkout 的 build 目录处理和浅历史拒绝，不应重复修。
 
+维护依据：[本地验收接续](../maintenance/LOCAL_ACCEPTANCE_FOLLOWUP_20260927.md)、[CI 路由审计](../maintenance/CI_ROUTE_AUDIT_20260927.md)。旧静态接线核查保留其时间身份，以 Beta 3 产品回执为当前依据。
+
 ## 历史
 
 旧状态、规则、README、工作流和清理提案在[历史目录](../history/pre-mainline-20260926/)；旧交付与实验保留原路径。

@@ -61,6 +61,7 @@ jobs:
           git -C external-carrier checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
           if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
           Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          if ((Get-FileHash -Algorithm SHA256 llvm.zip).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'llvm-mingw digest mismatch' }
           Expand-Archive llvm.zip -DestinationPath toolchain
           $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
           git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
