@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -170,7 +170,13 @@ try {
     } elseif ($QualitySuccessor) { $Manifest.colour_lab.version } else { $Manifest.integration.version }
     $CoreSource = Get-Content -LiteralPath (Join-Path $Stage 'core/src/nr_before_sr.cpp') -Raw -Encoding UTF8
     $CoreVersionMatch = [regex]::Match($CoreSource, 'kAddonVersion\s*=\s*"([^"]+)"')
-    if (-not $CoreVersionMatch.Success -or $CoreVersionMatch.Groups[1].Value -ne $ProductVersion) {
+    # The overlay uses a readable label; archive and PE identities retain the
+    # machine version. Both must name exactly the same candidate.
+    $DisplayVersion = $ProductVersion
+    if ($ProductVersion -match '^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$') {
+        $DisplayVersion = "$($Matches[1]) Beta $($Matches[2])"
+    }
+    if (-not $CoreVersionMatch.Success -or $CoreVersionMatch.Groups[1].Value -notin @($ProductVersion, $DisplayVersion)) {
         throw 'Generated Core and final manifest product identities differ.'
     }
     $CarrierLeaf = $Manifest.integration.carrier_filename

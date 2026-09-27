@@ -38,6 +38,11 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+$AmdSourceProbe=$OutputRoot + '.amd-source-continuity.exe'
+& $Cxx '-std=c++20' '-O0' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $PSScriptRoot '../tests/amd_of_source_continuity_test.cpp') '-o' $AmdSourceProbe
+if ($LASTEXITCODE) { throw 'AMD exact owned-source pairing test failed to compile.' }
+& $AmdSourceProbe
+if ($LASTEXITCODE) { throw 'AMD source-gap admission or conflicting-reference rejection failed.' }
 & python (Join-Path $PSScriptRoot '../tests/test_product_identity.py') -v
 if ($LASTEXITCODE) { throw 'Final product identity regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --output ($OutputRoot + '.guide-domain-checks')

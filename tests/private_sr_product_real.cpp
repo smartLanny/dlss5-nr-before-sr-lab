@@ -63,6 +63,10 @@ void Scene(Host& h,ID3D12Resource* texture,float jitter_x,float jitter_y,bool no
     from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
     ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);h.Barrier(texture,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     h.Submit();h.Wait();
+    // Scene staging is complete and its recording retired. Do not grow the
+    // measurement baseline by retaining one upload allocation per source frame.
+    const auto staged=std::find(h.owned.begin(),h.owned.end(),upload);
+    Require(staged!=h.owned.end(),"owned scene upload");h.owned.erase(staged);ReleaseCom(upload);
 }
 namespace present=nr_compat_present_runtime;
 // Controlled assembly reuses the actual signed NR model/codec/spatial helpers.
@@ -140,7 +144,7 @@ struct RealNrChain {
     }
     void Destroy(){Require(present::Release(c)&&!c,"real signed NR release after host recording ended and all fences");}
 };
-int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames){
+int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd){
     InitializeCriticalSection(&g_chain_cs);Host h;Register(h);
     GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\product-real.log");
     HMODULE module=LoadLibraryW(bridge);Require(module!=nullptr,"existing verified bootstrap library");
@@ -154,7 +158,13 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     auto destroy=reinterpret_cast<nr_private_sr_core::Destroy>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_DestroyParameters"));
     Require(alloc&&create&&evaluate&&release&&destroy,"all original exports");
     NgxParams* params=nullptr;Ngx(alloc(&params),"parent parameters");
-    constexpr unsigned rw=320,rh=192,ow=640,oh=384;const unsigned nw=ow*percent/100,nh=oh*percent/100;
+    // The pinned real RR runtime hangs at the old synthetic 320x192 input on
+    // its second native Evaluate even with no private Feature1 creation. The
+    // 1280x720 -> 1920x1080 control passes; this is a fixture choice, not a
+    // claimed vendor minimum or a product admission restriction.
+    const unsigned rw=(rr?1280:320)+unsigned(odd),rh=(rr?720:192)+unsigned(odd),
+        ow=(rr?1920:640)+unsigned(odd),oh=(rr?1080:384)+unsigned(odd);
+    const unsigned nw=ow*percent/100,nh=oh*percent/100;
     for(auto v:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh},{"CreationNodeMask",1u},{"VisibilityNodeMask",1u},
                 {"DLSS.Render.Subrect.Dimensions.Width",rw},{"DLSS.Render.Subrect.Dimensions.Height",rh}})SetUInt(params,v.first,v.second);
     SetInt(params,"PerfQualityValue",0);SetInt(params,"DLSS.Feature.Create.Flags",75);
@@ -323,5 +333,5 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     std::printf("PASS actual generated Core native=%u realNRLayers=%u percent=%u checks=%u privateCreate=1 privateEvaluate=%u submit=%u retire=1; artificial scene, no game\n",rr?13:1,nr_layers_count,percent,checks,requested_frames-1,frame);return 0;
 }
 }
-int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc!=6)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames);}
+int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>7)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc==7&&std::wcstoul(argv[6],nullptr,10)!=0);}
 catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);ExitProcess(1);}}

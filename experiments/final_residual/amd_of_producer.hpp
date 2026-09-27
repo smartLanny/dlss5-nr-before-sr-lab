@@ -25,6 +25,19 @@ struct RecordedFlow {
     bool reset=false;
 };
 
+// Application content IDs may skip numbers between presented frames. A gap is
+// continuous only when the caller identifies the exact snapshot we actually own.
+inline bool AmdOwnedSourceContinues(const Frame& current,const Frame& previous,
+    const Plan& plan,Id generation) noexcept {
+    return previous.valid()&&!current.scene_reset&&plan.reference==previous.source&&
+        same_stream(current.source,previous.source)&&
+        current.source.sequence>previous.source.sequence&&
+        (current.previous_source.valid()?current.previous_source==previous.source:
+         current.source.sequence==previous.source.sequence+1)&&
+        current.source_time>previous.source_time&&current.contract==previous.contract&&
+        plan.history_generation==generation;
+}
+
 // Standalone actual FFX1.1.4 producer; no Core/ExternalProvider/NGX dependency.
 // One serialized owner and one outstanding result. The caller's DIRECT queue
 // orders immutable private source snapshots, dispatch and output consumers.

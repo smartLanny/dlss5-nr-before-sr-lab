@@ -206,10 +206,7 @@ Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsComma
        (!std::isfinite(f.source_to_scene)||f.source_to_scene<1.f/1024.f||f.source_to_scene>1024.f))return Submit::Rejected;
     const bool reset=plan.action==Action::ResetBoth;
     if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return Submit::Rejected;}
-    else if(!p.previous.valid()||f.scene_reset||!(plan.reference==p.previous.source)||
-        !same_stream(f.source,p.previous.source)||f.source.sequence!=p.previous.source.sequence+1||
-        f.source_time<=p.previous.source_time||!(f.contract==p.previous.contract)||
-        plan.history_generation!=p.generation)return Submit::Rejected;
+    else if(!AmdOwnedSourceContinues(f,p.previous,plan,p.generation))return Submit::Rejected;
     const auto d=snapshot->GetDesc();
     if(d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.Width<p.w||d.Height<p.h||
        (d.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&d.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&
@@ -275,8 +272,7 @@ Submit AmdOfProducer::dispatch(const Frame& f,const Plan& plan,ID3D12Resource* s
     if(p.previous.source.valid()&&same_stream(f.source,p.previous.source)&&f.source.sequence<p.previous.source.sequence)return Submit::Rejected;
     const bool reset=plan.action==Action::ResetBoth;
     if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return Submit::Rejected;}
-    else if(!p.previous.valid()||f.scene_reset||!(plan.reference==p.previous.source)||!same_stream(f.source,p.previous.source)||
-        f.source.sequence!=p.previous.source.sequence+1||f.source_time<=p.previous.source_time||!(f.contract==p.previous.contract)||plan.history_generation!=p.generation)return Submit::Rejected;
+    else if(!AmdOwnedSourceContinues(f,p.previous,plan,p.generation))return Submit::Rejected;
     auto desc=snapshot->GetDesc();
     if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.Width!=p.w||desc.Height!=p.h||desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM||
        desc.MipLevels!=1||desc.DepthOrArraySize!=1||desc.SampleDesc.Count!=1||p.value>=UINT64_MAX-1)return Submit::Rejected;

@@ -12,6 +12,7 @@ def main():
     p.add_argument('--layers',type=int,choices=range(6),default=0)
     p.add_argument('--percent',type=int,choices=(25,50,100),default=50)
     p.add_argument('--native-rr',action='store_true')
+    p.add_argument('--odd',action='store_true',help='Add one pixel to each native render/output dimension; N uses floor percent')
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--frames',type=int,default=6,help='Final Z frames, 2..256; use at least 32 for a stable timing window')
     a=p.parse_args()
@@ -36,6 +37,8 @@ def main():
         'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(fixture),
         'host_helpers_sha256':sha(original),'wrapper_sha256':sha(wrapper),'compiler_sha256':sha(a.compiler),'commands':[],
         'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':bool(a.layers),'nr_layers':a.layers,'frames':a.frames,'percent':a.percent,'native_feature':13 if a.native_rr else 1,
+        'native_render_extent':[x+int(a.odd) for x in ([1280,720] if a.native_rr else [320,192])],
+        'native_output_extent':[x+int(a.odd) for x in ([1920,1080] if a.native_rr else [640,384])],
         'timing':'CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark.'}
     def save(): (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     def run(name,args,timeout):
@@ -50,7 +53,7 @@ def main():
         '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
     try:
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
-        if not result and not a.compile_only:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames],240)
+        if not result and not a.compile_only:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd)],240)
         report['gpu_execution']='not-run' if a.compile_only else ('passed' if not result else 'failed')
         report['result']='passed' if not result else 'failed'
         if (out/'real-feature1.log').is_file():
