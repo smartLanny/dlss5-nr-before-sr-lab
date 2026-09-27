@@ -88,7 +88,7 @@ class Patches(unittest.TestCase):
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
         # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
         # Reviewed guide-domain guards/capture only; colour shader is unchanged.
-        self.assertEqual(digest,'df3b6dfbe5c0c507bec49b5a8e78d37b7ca2a3d7')
+        self.assertEqual(digest,'6cdec2a3f9557c568c7a5d27a9ebce61f22b89df')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

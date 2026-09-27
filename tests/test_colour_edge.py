@@ -41,12 +41,14 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
+        # Beta 4 adds independently owned native guide snapshots; the old note
+        # below records the prior pin transition. All semantic checks remain.
         # Guide-domain follow-up to Reconstruction1: reviewed 32bfacf3 -> df3b6dfb.
         # Only invalid guide guards, immutable capture metadata and bypass naming
         # changed. The full kCodecShader string and GPU/resource contracts match.
         # docs/interop/GUIDE_DOMAIN_AUDIT_20260925.md records the scoped evidence.
         # Keep this exact source pin AND the generated semantic assertions below.
-        for p,sha in [('src/nr_before_sr.cpp','df3b6dfbe5c0c507bec49b5a8e78d37b7ca2a3d7'),
+        for p,sha in [('src/nr_before_sr.cpp','6cdec2a3f9557c568c7a5d27a9ebce61f22b89df'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
