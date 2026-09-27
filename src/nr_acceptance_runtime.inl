@@ -3,7 +3,14 @@
 #include "nr_acceptance_policy.h"
 namespace nr_acceptance {
 using namespace nr_acceptance_policy;
-constexpr unsigned kRows=32768,kSteps=6;
+constexpr unsigned kRows=32768,kSteps=9,kShots=3;
+struct Shot {
+    bool requested=false,received=false,exported=false;
+    unsigned config=0,width=0,height=0;
+    unsigned long long instance=0,source=0,tick=0,private_adopted=0,gpu_frames=0,gpu_adopted=0;
+    wchar_t path[1024]{};
+    char exported_file[48]{};
+};
 struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0,gpu_config=0,gpu_instance=0,gpu_tested=0,gpu_adopted=0,present_completed=0,present_warmup=0; };
 struct PresentCounters {
     unsigned config=0;unsigned long long generation=0,completed_source=0,submitted=0,completed=0,evaluated=0,attempted=0,timing_source=0;
@@ -30,10 +37,12 @@ struct Group {
     unsigned long long private_timing_config=0,private_timing_instance=0,private_timing_samples=0;
     double private_gpu_first_create_ms=0,private_gpu_first_inference_ms=0,private_gpu_median_ms=0,private_gpu_p95_ms=0;
     bool private_gpu_timing_available=false;
-    bool memory_known=false,adopted=false,temporal_adopted=false,private_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false;
+    bool memory_known=false,adopted=false,temporal_adopted=false,private_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false,post_rr=false;
     unsigned long long capture_id=0,stage_tick=0;
     char reason[128]{},report_session[96]{};
     wchar_t report_path[1024]{},capture_path[1024]{};
+    Shot shots[kShots]{};unsigned shot_count=0,shot_width=0,shot_height=0;
+    bool adoption_probe=false;unsigned long long probe_private=0,probe_gpu=0;
     nr_timing::Snapshot cpu_before{},cpu_after{};
 };
 struct Session {
@@ -45,6 +54,7 @@ struct Session {
     LUID adapter{};bool adapter_known=false;
     reshade::api::effect_runtime* runtime=nullptr;
     wchar_t directory[1024]{};
+    char pending_shot[96]{};
 };
 SRWLOCK lock=SRWLOCK_INIT;
 Session* session=nullptr;
@@ -52,24 +62,33 @@ std::atomic<bool> active{false};std::atomic<bool> packaging{false};
 std::atomic<unsigned long long> next_id{0};
 std::atomic<unsigned long long> dropped_samples{0};
 wchar_t last_path[1024]{};char last_reason[128]{};bool last_restored=false;
+wchar_t last_screenshot_page[1024]{};
 bool Active(){return active.load(std::memory_order_acquire);}
 nr_processing::Start ObservedRoute(){return IsRayReconstructionRouteObserved()?nr_processing::Start::After:nr_processing_runtime::Effective();}
 void Reason(Group& g,const char* reason){if(!g.reason[0])std::snprintf(g.reason,sizeof(g.reason),"%s",reason);}
 bool SameRequested(const ChainConfig& expected,ChainConfig actual){actual.perf_epoch=expected.perf_epoch;return SameConfig(expected,actual);}
 void StartGroup(Session& s){
     auto& g=s.groups[s.index];g.step=Get(s.program,s.index,s.original_effective==nr_processing::Start::Before);g.requested=s.original;
+    if(s.program==Program::Screenshots){
+        g.requested.enabled=s.index!=0;
+        g.requested.processing_start=nr_processing::Start::After;
+        g.requested.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);
+        g.requested.mode=1;
+    }
     if(g.step.backend>=0){g.requested.temporal_backend=static_cast<unsigned>(g.step.backend);g.requested.temporal_scope=g.step.scope;}
     if(g.step.private_sr>=0)g.requested.private_residual_sr=g.step.private_sr!=0;
     if(g.step.temporal_mode>=0)g.requested.temporal_mode=static_cast<unsigned>(g.step.temporal_mode);
     if(g.step.colour>=0)nr_colour_preferences::SetRange(g.requested,float(g.step.colour)/10.f);
     g.percent=s.post_original.percent;
     if(g.step.percent){
+        if(s.program==Program::Screenshots)g.percent=g.step.percent;
+        else
         if(s.original_effective==nr_processing::Start::Before){g.requested.work_mode=5;g.requested.custom_work_scale=float(g.step.percent)/100.f;}
         else g.percent=g.step.percent;
     }
     if(g.step.scope&&s.original.nr_passes<2)Reason(g,"later-scope-needs-two-layers");
-    if(s.program!=Program::Current&&!s.original.enabled)Reason(g,"enable-NR-before-comparison");
-    if(s.program!=Program::Current&&s.original_effective==nr_processing::Start::Present)Reason(g,"comparison-Present-unavailable-use-current-baseline");
+    if(s.program!=Program::Current&&s.program!=Program::Screenshots&&!s.original.enabled)Reason(g,"enable-NR-before-comparison");
+    if(s.program!=Program::Current&&s.program!=Program::Screenshots&&s.original_effective==nr_processing::Start::Present)Reason(g,"comparison-Present-unavailable-use-current-baseline");
     if(g.step.backend>0&&nr_processing_runtime::PresentSelected())Reason(g,"temporal-Present-unavailable");
     if(s.program==Program::PrivateSr&&s.original_effective==nr_processing::Start::Before)Reason(g,"private-SR-needs-proven-post-SR-or-RR");
     if(!g.reason[0]){
@@ -77,6 +96,7 @@ void StartGroup(Session& s){
         ApplyConfig(g.requested,"acceptance transient",false);
         const bool post=nr_post_settings::RequestForCapture({s.post_original.rr,g.percent});
         if(!post||!SameRequested(g.requested,g_config))Reason(g,"requested-settings-not-applied");
+        g.post_rr=nr_post_settings::Read().rr;
         g.generation=g_config_generation.load();
         LeaveCriticalSection(&g_chain_cs);
     }
@@ -95,8 +115,10 @@ void StartGroup(Session& s){
     s.window.Start(GetTickCount64());
     if(g.reason[0])s.window.phase=Phase::Report;
 }
+#include "nr_acceptance_screenshot_export.inl"
 DWORD WINAPI Export(void* opaque){
     std::unique_ptr<Session> s(static_cast<Session*>(opaque));
+    if(s->program==Program::Screenshots)return ExportScreenshots(std::move(s));
     wchar_t path[1024]{};swprintf_s(path,L"%ls\\acceptance.csv",s->directory);
     FILE* f=nullptr;_wfopen_s(&f,path,L"wb");bool ok=f!=nullptr;
     if(f){
@@ -173,8 +195,109 @@ void Finish(Session* s,bool cancelled){
     session=nullptr;active.store(false);packaging.store(true);
     if(!QueueUserWorkItem(Export,s,WT_EXECUTEDEFAULT)){last_restored=s->restored;std::snprintf(last_reason,sizeof(last_reason),"export-worker-unavailable");packaging.store(false);delete s;}
 }
+void ScreenshotReceipt(reshade::api::effect_runtime* runtime,const char* path,unsigned width,unsigned height){
+    if(!path)return;
+    AcquireSRWLockExclusive(&lock);
+    auto* s=session;
+    if(s&&s->program==Program::Screenshots&&runtime==s->runtime&&s->index<s->count){
+        auto& g=s->groups[s->index];
+        if(g.shot_count<kShots){auto& shot=g.shots[g.shot_count];
+            char tag[96]{};std::snprintf(tag,sizeof(tag),"DLSS5_SHOT_%llu_%u_%u",s->id,s->index,g.shot_count);
+            const char* base=path;for(const char* p=path;*p;++p)if(*p=='/'||*p=='\\')base=p+1;
+            const char* ext=std::strrchr(base,'.');const auto tag_len=std::strlen(tag);
+            const bool exact=ext&&static_cast<std::size_t>(ext-base)>=tag_len&&
+                std::memcmp(ext-tag_len,tag,tag_len)==0;
+            if(shot.requested&&!shot.received&&!g.reason[0]&&exact){
+                EnterCriticalSection(&g_chain_cs);
+                const bool same=g_config_generation.load()==shot.config&&SameRequested(g.requested,g_config)&&
+                    nr_post_settings::Read().percent==g.percent&&nr_post_settings::Read().rr==g.post_rr&&
+                    ObservedRoute()==nr_processing::Start::After&&
+                    (!g.requested.enabled||g_applied_nr_identity.instance_id==shot.instance);
+                LeaveCriticalSection(&g_chain_cs);
+                if(!same||width!=shot.width||height!=shot.height){Reason(g,"screenshot-owner-or-display-changed");}
+                else {
+                    wchar_t decoded[1024]{},canonical[1024]{};
+                    if(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,decoded,1024)){
+                        const DWORD n=GetFullPathNameW(decoded,1024,canonical,nullptr);
+                        if(n&&n<1024&&nr_bundle::LocalAbsolutePath(canonical)&&
+                            GetFileAttributesW(canonical)!=INVALID_FILE_ATTRIBUTES){
+                            wcscpy_s(shot.path,canonical);shot.received=true;++g.shot_count;
+                        }else Reason(g,"screenshot-file-missing");
+                    }else Reason(g,"screenshot-path-invalid");
+                }
+            }
+        }
+    }
+    ReleaseSRWLockExclusive(&lock);
+}
+void Screenshot(reshade::api::effect_runtime* runtime,const char* path){
+    if(!Active()||!runtime||!path)return;
+    unsigned width=0,height=0;runtime->get_screenshot_width_and_height(&width,&height);
+    ScreenshotReceipt(runtime,path,width,height);
+}
+void TickScreenshotsAtExtent(reshade::api::effect_runtime* runtime,unsigned width,unsigned height){
+    auto* s=session;if(!s)return;auto& g=s->groups[s->index];const auto now=GetTickCount64();
+    if(runtime){if(runtime!=s->runtime)return;s->last_present=now;}
+    if(now-s->last_present>5000){Reason(g,"Present-stopped; restored");Finish(s,true);return;}
+    if(g.reason[0]){if(++s->index<s->count)StartGroup(*s);else {--s->index;Finish(s,false);}return;}
+    if(!runtime)return;
+    EnterCriticalSection(&g_chain_cs);
+    const auto sample=nr_reset_observation::counters.layers[0].last;
+    const auto owner=g_applied_nr_identity.instance_id;
+    const bool same=g_config_generation.load()==g.generation&&SameRequested(g.requested,g_config)&&
+        nr_post_settings::Read().percent==g.percent&&nr_post_settings::Read().rr==g.post_rr&&
+        ObservedRoute()==nr_processing::Start::After;
+    LeaveCriticalSection(&g_chain_cs);
+    if(!same){Reason(g,"configuration-or-route-changed");return;}
+    if(!width||!height||width>16384||height>16384||static_cast<unsigned long long>(width)*height>67108864){Reason(g,"display-extent-unsupported");return;}
+    if(!g.shot_width){g.shot_width=width;g.shot_height=height;}
+    if(width!=g.shot_width||height!=g.shot_height){Reason(g,"display-extent-changed");return;}
+    if(g.shot_count==kShots){if(++s->index<s->count)StartGroup(*s);else {--s->index;Finish(s,false);}return;}
+    auto& shot=g.shots[g.shot_count];
+    if(shot.requested){
+        if(g.requested.enabled&&owner!=shot.instance)Reason(g,"owner-changed-while-screenshot-pending");
+        else if(!shot.received&&now-shot.tick>5000)Reason(g,"screenshot-callback-timeout");return;
+    }
+    if(now-s->window.started>20000){Reason(g,"warmup-or-adoption-timeout");return;}
+    if(now-s->window.started<3000)return;
+    if(g.shot_count&&now-g.shots[g.shot_count-1].tick<250)return;
+    if(g.requested.enabled){
+        if(sample.config_generation!=g.generation||sample.since_reset<64||!owner||
+            g_nr_transfer_submitted_frames.load()<g.submit_start+64)return;
+        if(g.requested.private_residual_sr&&nr_private_sr_status::adopted.load()<g.private_adopted_start+64)return;
+        if(g.requested.temporal_backend&&!(nr_temporal_status::gpu_config.load()==g.generation&&
+            nr_temporal_status::gpu_instance.load()==owner&&nr_temporal_status::gpu_frames.load()>=64&&
+            nr_temporal_status::gpu_adopted.load()>0))return;
+    }
+    // Old cumulative adoption must not qualify a currently bypassed backend.
+    // Probe after warmup, then require new adopted work before the first image.
+    if(!g.shot_count&&(g.requested.private_residual_sr||g.requested.temporal_backend)){
+        if(!g.adoption_probe){g.adoption_probe=true;g.probe_private=nr_private_sr_status::adopted.load();
+            g.probe_gpu=nr_temporal_status::gpu_adopted.load();return;}
+        if(g.requested.private_residual_sr&&nr_private_sr_status::adopted.load()<=g.probe_private)return;
+        if(g.requested.temporal_backend&&nr_temporal_status::gpu_adopted.load()<=g.probe_gpu)return;
+    }
+    if(g.shot_count&&owner!=g.shots[0].instance){Reason(g,"owner-changed-during-shots");return;}
+    if(g.shot_count&&g.requested.enabled&&sample.source_frame<=g.shots[g.shot_count-1].source)return;
+    if(g.shot_count&&g.requested.private_residual_sr&&
+        nr_private_sr_status::adopted.load()<=g.shots[g.shot_count-1].private_adopted)return;
+    if(g.shot_count&&g.requested.temporal_backend&&
+        (nr_temporal_status::gpu_frames.load()<=g.shots[g.shot_count-1].gpu_frames||
+         nr_temporal_status::gpu_adopted.load()<=g.shots[g.shot_count-1].gpu_adopted))return;
+    shot.requested=true;shot.config=g.generation;shot.instance=owner;shot.source=g.requested.enabled?sample.source_frame:0;
+    shot.private_adopted=nr_private_sr_status::adopted.load();shot.gpu_frames=nr_temporal_status::gpu_frames.load();
+    shot.gpu_adopted=nr_temporal_status::gpu_adopted.load();
+    shot.width=width;shot.height=height;shot.tick=now;
+    std::snprintf(s->pending_shot,sizeof(s->pending_shot),"DLSS5_SHOT_%llu_%u_%u",s->id,s->index,g.shot_count);
+}
+void TickScreenshots(reshade::api::effect_runtime* runtime){
+    unsigned width=0,height=0;if(runtime&&session&&runtime==session->runtime)
+        runtime->get_screenshot_width_and_height(&width,&height);
+    TickScreenshotsAtExtent(runtime,width,height);
+}
 void Tick(reshade::api::effect_runtime* runtime){
     auto* s=session;if(!s)return;const auto now=GetTickCount64();auto& g=s->groups[s->index];
+    if(s->program==Program::Screenshots){TickScreenshots(runtime);return;}
     if(runtime){if(runtime!=s->runtime)return;s->last_present=now;}
     if(now-s->last_present>5000){Reason(g,"Present-stopped; restored");Finish(s,true);return;}
     if(s->window.phase==Phase::Warmup||s->window.phase==Phase::Measure){
@@ -349,13 +472,27 @@ bool Start(reshade::api::effect_runtime* runtime,Program program,bool deep){
     }
     if(accepted){
         next->id=++next_id;next->runtime=runtime;next->program=program;next->count=Count(program);next->deep=deep;next->last_present=GetTickCount64();next->dropped_start=dropped_samples.load();
-        session=next.release();active.store(true);last_path[0]=0;last_reason[0]=0;last_restored=false;StartGroup(*session);
+        session=next.release();active.store(true);last_path[0]=0;last_reason[0]=0;last_restored=false;
+        if(program==Program::Screenshots)last_screenshot_page[0]=0;
+        StartGroup(*session);
         if(!QueueUserWorkItem(Watchdog,reinterpret_cast<void*>(static_cast<std::uintptr_t>(session->id)),WT_EXECUTEDEFAULT)){Reason(session->groups[0],"watchdog-start-failed");Finish(session,true);accepted=false;}
     }
     if(!accepted)std::snprintf(last_reason,sizeof(last_reason),"busy, preview active, or output directory unavailable");
     ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&lock);return accepted;
 }
-void Present(reshade::api::effect_runtime* runtime){if(!Active())return;if(!TryAcquireSRWLockExclusive(&lock)){++dropped_samples;return;}if(TryAcquireSRWLockExclusive(&nr_f8::g_control)){Tick(runtime);ReleaseSRWLockExclusive(&nr_f8::g_control);}else ++dropped_samples;ReleaseSRWLockExclusive(&lock);}
+void Present(reshade::api::effect_runtime* runtime){
+    if(!Active())return;if(!TryAcquireSRWLockExclusive(&lock)){++dropped_samples;return;}
+    char tag[96]{};
+    if(TryAcquireSRWLockExclusive(&nr_f8::g_control)){
+        Tick(runtime);
+        if(session&&session->runtime==runtime&&session->program==Program::Screenshots){
+            std::snprintf(tag,sizeof(tag),"%s",session->pending_shot);session->pending_shot[0]=0;
+        }
+        ReleaseSRWLockExclusive(&nr_f8::g_control);
+    }else ++dropped_samples;
+    ReleaseSRWLockExclusive(&lock);
+    if(tag[0]&&runtime){runtime->open_overlay(false,reshade::api::input_source::mouse);runtime->save_screenshot(tag);}
+}
 void Cancel(){AcquireSRWLockExclusive(&lock);AcquireSRWLockExclusive(&nr_f8::g_control);if(session){Reason(session->groups[session->index],"cancelled");Finish(session,true);}ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&lock);}
 void RuntimeDestroyed(reshade::api::effect_runtime* runtime){AcquireSRWLockExclusive(&lock);AcquireSRWLockExclusive(&nr_f8::g_control);if(session&&session->runtime==runtime){Reason(session->groups[session->index],"runtime-destroyed");Finish(session,true);}ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&lock);}
 void Draw(reshade::api::effect_runtime* runtime,bool pending){
@@ -374,5 +511,29 @@ void Draw(reshade::api::effect_runtime* runtime,bool pending){
     if(reason[0])ImGui::TextWrapped(zh?"结果：%s；设置恢复=%s":"Result: %s; settings restored=%s",reason,restored?"yes":"no");
     if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制验收记录路径":"Copy acceptance record path"))ImGui::SetClipboardText(path);}
     ImGui::TextWrapped("%s",zh?"记录成功不等于画质通过。CSV为回调间隔，不是补帧FPS；显存是进程采样值。无效果或旁路不能算性能提升。":"Recording is not a quality pass. CSV measures callback intervals, not generated FPS; memory is sampled process usage. Bypassed NR is not a performance gain.");
+}
+void DrawScreenshotUi(reshade::api::effect_runtime* runtime,bool pending){
+    const bool zh=UseChineseUi();
+    ImGui::Separator();ImGui::TextUnformatted(zh?"一键画面对比":"One-click picture comparison");
+    ImGui::TextWrapped("%s",zh?"固定视角，自动依次预热并截取9组，每组3张；不更换模型和层数，不写入设置。截图来自不同显示时刻，不能作同帧像素差。":"Hold a fixed view. Warm up and capture nine groups, three screenshots each. Model, layers and saved settings stay intact. These are different display times, not same-frame pixels.");
+    const bool running=Active();
+    ImGui::BeginDisabled(running||packaging.load()||pending||nr_f8::IsActive()||nr_core_feedback::Busy());
+    if(ImGui::Button(zh?"开始自动截图对比":"Start screenshot comparison")){
+        if(Start(runtime,Program::Screenshots,false))runtime->open_overlay(false,reshade::api::input_source::mouse);
+    }
+    ImGui::EndDisabled();
+    AcquireSRWLockShared(&lock);unsigned index=0,count=0,shots=0;const char* label="";
+    if(session&&session->program==Program::Screenshots){index=session->index+1;count=session->count;shots=session->groups[session->index].shot_count;label=session->groups[session->index].step.name;}
+    wchar_t page[1024]{};wcscpy_s(page,last_screenshot_page);char reason[128]{};std::snprintf(reason,sizeof(reason),"%s",last_reason);
+    const bool restored=last_restored;ReleaseSRWLockShared(&lock);
+    if(count){ImGui::Text(zh?"第%u/%u组 %s，截图%u/3":"Group %u/%u %s, screenshots %u/3",index,count,label,shots);
+        if(ImGui::Button(zh?"停止并恢复":"Stop and restore"))Cancel();}
+    if(reason[0])ImGui::TextWrapped("%s; restored=%s",reason,restored?"yes":"no");
+    if(page[0]){char utf8[4096]{};WideToUtf8(page,utf8,sizeof(utf8));ImGui::TextWrapped("%s",utf8);
+        if(ImGui::Button(zh?"打开对比页":"Open comparison page"))ShellExecuteW(nullptr,L"open",page,nullptr,nullptr,SW_SHOWNORMAL);
+        ImGui::SameLine();if(ImGui::Button(zh?"打开结果目录":"Open result folder")){
+            wchar_t directory[1024]{};wcscpy_s(directory,page);if(auto* slash=wcsrchr(directory,L'\\')){*slash=0;ShellExecuteW(nullptr,L"open",directory,nullptr,nullptr,SW_SHOWNORMAL);}
+        }
+    }
 }
 }

@@ -111,7 +111,14 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'cpu_readback_wait':False,'history_half_life_ms':60,'global_history_weight_scale':0.65,'per_pixel_optical_flow_confidence':False,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,
-            'captures_after_measurement':True,'manual_game_settings':['RR','HDR','FG'],
+            'captures_after_measurement':True,'captures_after_measurement_scope':'existing timed programs only',
+            'manual_game_settings':['SR','RR','HDR','FG'],
+            'screenshot_program':{'groups':9,'shots_per_group':3,'capture_only':True,
+                'performance_measurement':False,'exact_same_frame_pairing':False,
+                'source':'ReShade encoded screenshot callback with exact session/group/shot token',
+                'route':'temporary native After; unsupported groups explicit',
+                'history_adoption_checked':True,'restore_on_cancel':True,
+                'viewer':'local bilingual dual selection and zoom'},
             'frame_timing':'ReShade callback intervals, not generated FPS','game_verified':False}
         manifest['native_output_capture']={'optional':True,'schema':'native-output-v1',
             'old_nrf_unchanged':True,'same_call_required':True,'known_state_required':True,

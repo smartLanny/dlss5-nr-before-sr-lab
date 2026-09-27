@@ -11,6 +11,8 @@ int main(){
     check(Get(Program::Colour,4,false).colour==5,"current colour midpoint");
     check(Get(Program::PrivateSr,0,true).percent==50&&Get(Program::PrivateSr,1,false).percent==25&&Get(Program::PrivateSr,1,false).private_sr==1&&Get(Program::PrivateSr,2,false).percent==100,"private SR fair comparisons");
     check(Get(Program::LowFrequency,0,false).private_sr==0&&Get(Program::LowFrequency,0,false).temporal_mode==0&&Get(Program::LowFrequency,1,false).temporal_mode==1,"mutually exclusive temporal comparisons");
+    check(Count(Program::Screenshots)==9&&Get(Program::Screenshots,0,false).private_sr==0&&Get(Program::Screenshots,3,false).private_sr==1&&Get(Program::Screenshots,5,false).percent==25,"screenshot order and private SR scope");
+    check(Get(Program::Screenshots,6,false).backend==1&&Get(Program::Screenshots,7,false).backend==2&&Get(Program::Screenshots,8,false).temporal_mode==1,"screenshot temporal variants");
     Window w;w.Start(1000);Observation o{true,true,false,true,100};
     check(!w.Tick(4000,o)&&w.phase==Phase::Warmup,"Evaluate without adoption does not begin measurement");
     o.adopted=true;o.temporal=false;check(!w.Tick(5000,o),"unavailable temporal does not look active");

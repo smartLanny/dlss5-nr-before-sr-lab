@@ -117,6 +117,92 @@ void Run(){
     Sleep(2);Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Colour,false),"observed RR starts despite saved pre preference");
     Check(nr_acceptance::session->original_effective==nr_processing::Start::After&&g_config.custom_work_scale==pre_scale&&nr_post_settings::Read().percent==100,"actual RR uses post precision without editing saved pre field");
     nr_acceptance::Cancel();DrainExport();g_last_carrier_feature.store(0);g_live_rr_handles.store(0);
+    // A screenshot session must start from F6 OFF/Before without asking the
+    // owner to enable NR first, and must restore every transient route field.
+    ChainConfig off=SnapshotConfig();off.enabled=false;off.mode=0;
+    off.processing_start=nr_processing::Start::Before;
+    ApplyConfig(off,"screenshot fixture",false);off=SnapshotConfig();
+    const auto original_route=nr_processing_runtime::session;
+    const auto original_post=nr_post_settings::Read();
+    Sleep(2);Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Screenshots,false),"NR-off Before screenshot session starts");
+    Check(!g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_acceptance::session->count==9,"native baseline temporarily routes After with NR off");
+    AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
+    auto& pictures=*nr_acceptance::session;
+    pictures.index=1;nr_acceptance::StartGroup(pictures);
+    Check(g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_post_settings::Read().percent==100,"next group enables NR and full post precision");
+    pictures.index=3;nr_acceptance::StartGroup(pictures);
+    Check(g_config.private_residual_sr&&nr_post_settings::Read().percent==50&&g_config.nr_passes==off.nr_passes,"private-SR shot changes only route/precision/backend");
+    pictures.index=8;nr_acceptance::StartGroup(pictures);
+    Check(g_config.temporal_backend==2&&g_config.temporal_mode==1&&nr_post_settings::Read().percent==50,"AMDOF low-frequency shot uses same model/layers");
+    auto& temporal_picture=pictures.groups[8];
+    const auto saved_owner=g_applied_nr_identity.instance_id;
+    g_applied_nr_identity.instance_id=321;
+    nr_reset_observation::counters.layers[0].last.config_generation=temporal_picture.generation;
+    nr_reset_observation::counters.layers[0].last.since_reset=64;
+    g_nr_transfer_submitted_frames=temporal_picture.submit_start+64;
+    nr_temporal_status::gpu_config=temporal_picture.generation;nr_temporal_status::gpu_instance=321;
+    nr_temporal_status::gpu_frames=64;nr_temporal_status::gpu_adopted=100;
+    pictures.window.started=GetTickCount64()-3001;
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(temporal_picture.adoption_probe&&!temporal_picture.shots[0].requested,"old adopted pixels only arm fresh-work probe");
+    nr_temporal_status::gpu_frames.fetch_add(1);
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(!temporal_picture.shots[0].requested,"completed frames with no new adopted pixels cannot capture");
+    nr_temporal_status::gpu_adopted.fetch_add(1);
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(temporal_picture.shots[0].requested,"fresh adopted work qualifies screenshot request");
+    pictures.pending_shot[0]=0;g_applied_nr_identity.instance_id=saved_owner;
+    pictures.index=0;nr_acceptance::StartGroup(pictures);
+    auto& sg=pictures.groups[0];auto& sh=sg.shots[0];
+    pictures.window.started=GetTickCount64()-3001;
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(sh.requested&&pictures.pending_shot[0],"actual screenshot branch schedules native baseline after warmup");
+    char good[120]{};std::snprintf(good,sizeof(good),"DLSS5_SHOT_%llu_0_0.png",pictures.id);
+    {std::ofstream image(good,std::ios::binary);image<<"test-image";}
+    char absolute[MAX_PATH]{};GetFullPathNameA(good,MAX_PATH,absolute,nullptr);
+    ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);
+    nr_acceptance::ScreenshotReceipt(runtime,"C:\\wrong-token.png",1920,1080);
+    Check(!sh.received&&!sg.reason[0],"wrong screenshot token ignored");
+    nr_acceptance::ScreenshotReceipt(reinterpret_cast<reshade::api::effect_runtime*>(std::uintptr_t(0x2000)),absolute,1920,1080);
+    Check(!sh.received,"wrong runtime callback ignored");
+    nr_acceptance::ScreenshotReceipt(runtime,absolute,1280,720);
+    Check(!sh.received&&sg.reason[0],"display resize rejects callback");
+    sg.reason[0]=0;g_config_generation.fetch_add(1);
+    nr_acceptance::ScreenshotReceipt(runtime,absolute,1920,1080);
+    Check(!sh.received&&sg.reason[0],"configuration change rejects callback");
+    g_config_generation.fetch_sub(1);
+    sg.reason[0]=0;nr_acceptance::ScreenshotReceipt(runtime,absolute,1920,1080);
+    Check(sh.received&&sg.shot_count==1,"exact callback and existing file accepted");
+    // Starting an NR group with no real owner/submissions cannot request a shot.
+    AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
+    pictures.index=1;nr_acceptance::StartGroup(pictures);pictures.window.started=GetTickCount64()-3001;
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(!pictures.groups[1].shots[0].requested,"zero NR adoption cannot schedule screenshot");
+    pictures.groups[1].shots[0].requested=true;pictures.groups[1].shots[0].config=pictures.groups[1].generation;
+    pictures.groups[1].shots[0].instance=g_applied_nr_identity.instance_id+1;
+    pictures.groups[1].shots[0].width=1920;pictures.groups[1].shots[0].height=1080;
+    char owner_tag[120]{};std::snprintf(owner_tag,sizeof(owner_tag),"DLSS5_SHOT_%llu_1_0.png",pictures.id);
+    {std::ofstream image(owner_tag,std::ios::binary);image<<"test-image";}
+    char owner_path[MAX_PATH]{};GetFullPathNameA(owner_tag,MAX_PATH,owner_path,nullptr);
+    ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);
+    nr_acceptance::ScreenshotReceipt(runtime,owner_path,1920,1080);
+    Check(!pictures.groups[1].shots[0].received&&pictures.groups[1].reason[0],"wrong NR owner rejects callback");
+    // A pending request without a callback is bounded; the watchdog path never
+    // dereferences the opaque runtime pointer.
+    pictures.groups[1].reason[0]=0;pictures.groups[1].shots[0].tick=GetTickCount64()-5001;
+    nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
+    Check(std::strstr(pictures.groups[1].reason,"timeout")!=nullptr,"missing screenshot callback times out");
+    nr_acceptance::Cancel();DrainExport();
+    Check(nr_acceptance::SameRequested(off,SnapshotConfig())&&nr_processing_runtime::session.Current()==original_route.Current()&&
+        nr_post_settings::Read().percent==original_post.percent,"screenshot cancel restores NR-off Before and post precision");
+    nr_acceptance::ScreenshotReceipt(runtime,absolute,1920,1080);
+    Check(!nr_acceptance::Active(),"late screenshot cannot revive cancelled session");
+    Sleep(2);Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Screenshots,false),"second screenshot session starts after cancel");
+    AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
+    nr_acceptance::session->last_present=GetTickCount64()-5001;
+    nr_acceptance::TickScreenshotsAtExtent(nullptr,0,0);
+    ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&nr_acceptance::lock);DrainExport();
+    Check(!nr_acceptance::Active()&&nr_acceptance::SameRequested(off,SnapshotConfig()),"stopped Present restores screenshot session");
     std::ifstream in("acceptance-user.ini",std::ios::binary);std::string after((std::istreambuf_iterator<char>(in)),{});
     Check(after==before_acceptance,"user INI byte identical across all operations");
     Sleep(300); // let idle controller watchdogs observe their exact session id

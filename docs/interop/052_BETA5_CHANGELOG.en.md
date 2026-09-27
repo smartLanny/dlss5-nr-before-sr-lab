@@ -1,0 +1,22 @@
+# 0.5.2 Beta 5: changes since 0.5 D21
+
+This is a candidate test release note. **See the package manifest and receipts for the exact identity and software-validation scope.** It covers the full path from the original 0.5 D21 baseline. Beta 4 test results must not be presented as a Beta 5 rerun or as proof that game issues are fixed.
+
+## What changes for you
+
+- **Clearer controls.** Picture, lighting, experiments, developer tools and feedback show the actual version and operating state. AI colour range is one slider, defaulting to 0.5 for a new configuration. Model-input, spatial-recovery and lighting choices are easier to compare; F6/F7/F8 can be rebound, and unavailable routes explain why.
+- **One to five NR layers.** Each layer has its own model settings, while the chain applies its working scale only once. Eligible post-SR/RR and compatibility routes can use a working scale as low as 25%. Several idle CPU, cache, switching and resource-retirement paths have improved. This does not establish an in-game FPS gain.
+- **Optional temporal stabilization and private SR.** When source and motion phase are proven, native motion vectors or AMD optical flow can supply motion for ordinary accumulation or low-frequency reconstruction. After a successful native SR/RR result, private residual SR can reconstruct the final NR edit once. Both features default off and cannot be stacked together. Optical flow is not itself denoising; private SR does not support Present, FG or multi-GPU.
+- **Guided acceptance and one-click screenshots.** Existing guided acceptance temporarily changes plugin settings and restores them on completion or cancellation. From a fixed camera, the Beta 5 Experiments page runs nine screenshot groups: native route with NR off; post-route NR at 100% with spatial recovery; 50% and 25% with spatial or private recovery; and 50% with native MV, ordinary AMD optical flow or low-frequency AMD optical flow. Each group defaults to three images, waits at least three seconds, completes warmup and checks actual adoption of the selected feature. The plugin restores the original settings afterwards. A button opens a two-choice comparison page **only when clicked**; it does not launch a browser automatically. Captures come from different display times, **not strictly paired pixels of the same frame**. Game SR/RR/HDR/FG modes are not switched automatically.
+
+## Upgrade and compatibility
+
+**Keep your existing INI; do not reset legacy jitter or other saved choices.** The first migration from old D21 multi-layer settings preserves the intended layer count and model parameters, but archives the old `NRSecondScaleNumerator/Denominator` auxiliary-layer ratio instead of applying it. Auxiliary layers now use the primary layer's work grid, so **actual auxiliary workload may change or increase**. Match effective layer count, dimensions and scale before comparing performance across versions.
+
+A Core-only OTA updates **Core and nrchain**. It does not install the NR model runtime or separate face assets, replace native SR/RR libraries, or change the Manager's default component pin. The 20/30 and 40/50 NR runtime families have separate packages and must be selected by the relevant hardware and manifest. New features default off for a fresh installation; defaults do not overwrite saved settings.
+
+## Validation limits
+
+[Beta 4 software and controlled GPU evidence](052_BETA4_UNIFIED_ACCEPTANCE.md) covers its bilingual build and real-NGX private-SR/Present artificial-input fixtures. That evidence belongs to **Beta 4** and is not a Beta 5 receipt. The Beta 5 package manifest and receipts define the software-validation scope for the nine screenshot groups, settings restoration and packaging. User acceptance is still needed for game image quality, Esc/map power saving, Cyberpunk 2077 compatibility and the **≤3% full-game-frame** added-cost target. Controlled 4K temporal timing is multimodal, so no stable low-overhead claim is made.
+
+*The comparison starts from 0.5 D21 source `cbfb33919696a2840ed5154c91abaea56228b661`, historically identified in the add-on as `beta0.5-dline21-223fix2`. This identifies a source baseline, not a newly verified physical D21 OTA package; later D21 Perf/unified branches are not the starting point. See the [previous changelog](051_BETA_CHANGELOG.zh-CN.md) and [archive index](../maintenance/ARCHIVE_INDEX_20260926.json).*

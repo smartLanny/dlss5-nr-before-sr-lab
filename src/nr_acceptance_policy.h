@@ -3,11 +3,19 @@
 
 // Session-only comparison policy. A successful recording is not a quality verdict.
 namespace nr_acceptance_policy {
-enum class Program : unsigned { Current, Colour, Temporal, PrivateSr, LowFrequency };
+enum class Program : unsigned { Current, Colour, Temporal, PrivateSr, LowFrequency, Screenshots };
 enum class Phase : unsigned { Warmup, Measure, Report, Capture, Complete };
 struct Step { const char* name; unsigned percent; int colour; int backend; unsigned scope; bool capture; int private_sr=-1,temporal_mode=-1; };
-inline unsigned Count(Program p) { return p==Program::Current?1u:p==Program::Colour?6u:p==Program::Temporal?5u:p==Program::PrivateSr?3u:2u; }
+inline unsigned Count(Program p) { return p==Program::Current?1u:p==Program::Colour?6u:p==Program::Temporal?5u:p==Program::PrivateSr?3u:p==Program::Screenshots?9u:2u; }
 inline Step Get(Program p,unsigned i,bool before) {
+    if(p==Program::Screenshots){
+        static constexpr Step shots[]={{"native-no-NR",100,-1,0,0,false,0,0},
+            {"NR100-spatial",100,-1,0,0,false,0,0},{"NR50-spatial",50,-1,0,0,false,0,0},
+            {"NR50-private-SR",50,-1,0,0,false,1,0},{"NR25-spatial",25,-1,0,0,false,0,0},
+            {"NR25-private-SR",25,-1,0,0,false,1,0},{"NR50-native-motion",50,-1,1,0,false,0,0},
+            {"NR50-AMDOF",50,-1,2,0,false,0,0},{"NR50-AMDOF-low-frequency",50,-1,2,0,false,0,1}};
+        return shots[i<9?i:0];
+    }
     if(p==Program::Current)return {"current",0,-1,-1,0,false};
     if(p==Program::Colour){
         static constexpr Step values[]={{"scale-100",100,-1,0,0,true},{"scale-99",99,-1,0,0,true},

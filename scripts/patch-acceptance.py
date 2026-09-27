@@ -1,15 +1,18 @@
 """Session-only guided comparison, applied after temporal and native O capture."""
 from pathlib import Path
-INPUTS=('scripts/patch-acceptance.py','src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl',
+INPUTS=('scripts/patch-acceptance.py','src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl',
         'tests/acceptance_policy_test.cpp','tests/acceptance_core_harness.inl','scripts/validate-acceptance.py')
 
 def apply(stage:Path,inputs,helpers):
     root=stage/'core'
-    for path in ('src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl'):
+    for path in ('src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl'):
         (root/path).write_bytes(inputs[path])
     p=root/'src/nr_before_sr.cpp';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
         '#define NR_HAS_ACCEPTANCE 1\nnamespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+    s=helpers.once(s,'#include "nr_feedback_capture.inl"',
+        'namespace nr_acceptance { void Screenshot(reshade::api::effect_runtime*,const char*); }\n#include "nr_feedback_capture.inl"',
+        'screenshot callback forward declaration before feedback include')
     s=helpers.once(s,'#include "nr_compat_present_runtime.inl"',
         '''#include "nr_compat_present_runtime.inl"
 namespace nr_acceptance {
@@ -35,6 +38,14 @@ PresentCounters ReadPresentLocked() {
     s=helpers.once(s,'bool RequestWithOptions(const Options &options) {',
         'bool RequestWithOptions(const Options &options) {\n    if(nr_acceptance::Active())return false;','single config owner images')
     p.write_text(s,encoding='utf-8',newline='\n')
+    p=root/'src/nr_feedback_capture.inl';s=p.read_text(encoding='utf-8')
+    s=helpers.once(s,'    nr_f8::Screenshot(runtime, path);',
+        '    nr_f8::Screenshot(runtime, path);\n    nr_acceptance::Screenshot(runtime, path);',
+        'guided screenshot callback')
+    p.write_text(s,encoding='utf-8',newline='\n')
     p=root/'src/nr_settings_ui.inl';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'    nr_f8::RuntimeDestroyed(runtime);','    nr_acceptance::RuntimeDestroyed(runtime);\n    nr_f8::RuntimeDestroyed(runtime);','guided runtime shutdown')
+    s=helpers.once(s,'        DrawEnergyGateOptions();\n        ImGui::EndDisabled();',
+        '        DrawEnergyGateOptions();\n        ImGui::EndDisabled();\n        nr_acceptance::DrawScreenshotUi(runtime, has_pending);',
+        'one-click picture comparison outside settings disabled block')
     p.write_text(s,encoding='utf-8',newline='\n')
