@@ -1,5 +1,6 @@
 #include <cstring>
 #include "recorded_temporal.hpp"
+#include "amd_of_budget.hpp"
 #include "residual_accumulator_shader.hpp"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -293,9 +294,14 @@ struct RecordedTemporal::Impl {
         need(one&&one!=UINT64_MAX,"temporal allocation estimate");
         texture_bytes=one;granted_budget=budget;
         const Id own=one*(scope==Scope::LaterLayers?6:5);
-        // Conservative creation allowance for the pinned FFX pyramid/context.
-        // Actual SDK usage is checked as well, before any GPU recording.
-        const Id sdk_allowance=backend==Backend::AmdOpticalFlow?Id(w)*h*64+16*1024*1024:0;
+        // Query the pinned SDK resource layout. A flat 64 bytes/output-pixel
+        // allowance falsely rejected every 4K context under the 768 MiB cap.
+        const Id sdk_allowance=backend==Backend::AmdOpticalFlow?
+            AmdBorrowedCreationAllowance(w,h,[&](unsigned x,unsigned y,unsigned format){
+                auto resource=description();resource.Width=x;resource.Height=y;resource.Format=DXGI_FORMAT(format);
+                return d->GetResourceAllocationInfo(0,1,&resource).SizeInBytes;
+            }):0;
+        need(backend!=Backend::AmdOpticalFlow||sdk_allowance,"temporal SDK allocation estimate unavailable");
         need(own<=budget&&sdk_allowance<=budget-own,"temporal creation budget exhausted");
         pipelines=temporal_pipelines(d,temporal_inplace_requested()&&temporal_fp16_load_supported(d));
         root=pipelines->root;copy_pso=pipelines->copy;accumulate_pso=pipelines->accumulate;

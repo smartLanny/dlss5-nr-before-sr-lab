@@ -22,7 +22,16 @@ void CollectGpuStats(NrContext& context){
      context.temporal_gpu_observed,g_config_generation.load());
 }
 
-void Status(unsigned value){nr_temporal_status::state.store(value,std::memory_order_relaxed);}
+void Status(unsigned value){
+ nr_temporal_status::state.store(value,std::memory_order_relaxed);
+ // Prepare/Record production callers hold g_chain_cs. The bitset publication
+ // itself is atomic so a diagnostic host cannot race or repeat alternating reasons.
+ static nr_temporal_status::AdmissionLogLimiter limiter;
+ const auto config=g_config_generation.load(std::memory_order_relaxed);
+ if(limiter.Observe(config,value)){
+  Log("[temporal-admission] config=%u backend=%u reason=%s",config,g_config.temporal_backend,nr_temporal_status::Name(value));
+ }
+}
 bool DropAnchorBindings(NrContext& context){
  if(!context.temporal||!context.temporal->anchor()||!context.binding_pool)return true;
  auto* anchor=context.temporal->anchor();
@@ -134,7 +143,7 @@ Prepared PrepareForRoute(nr_temporal_route::Entry entry,ID3D12GraphicsCommandLis
   const auto budget=std::min<unsigned long long>(768ull<<20,spare>64ull<<20?spare-(64ull<<20):0);
   context.temporal=new(std::nothrow)RecordedTemporal(g_codec.device,queue->queue,width,height,backend,in.settings.scope,budget);
   if(!context.temporal||!context.temporal->initialized()){
-   if(context.temporal)Log("Temporal creation declined: %s",context.temporal->status());
+   if(context.temporal)Log("Temporal creation declined: %s; extent=%ux%u backend=%u capBytes=%llu spareBytes=%llu",context.temporal->status(),width,height,unsigned(backend),budget,spare);
    delete context.temporal;context.temporal=nullptr;Status(3);return {};
   }
   context.temporal_key=key;context.temporal_width=width;context.temporal_height=height;context.temporal_queue=queue->identity;

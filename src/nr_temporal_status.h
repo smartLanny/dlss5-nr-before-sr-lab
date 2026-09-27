@@ -1,6 +1,26 @@
 #pragma once
 #include <atomic>
 namespace nr_temporal_status {
+// One bit per actionable refusal within a configuration. Atomic publication
+// also makes the limiter safe for controlled hosts without Core's owner lock.
+struct AdmissionLogLimiter {
+ std::atomic<unsigned long long> published{0};
+ static constexpr bool Actionable(unsigned reason){
+  return (reason>=2&&reason<=6)||(reason>=9&&reason<=12)||(reason>=14&&reason<=22);
+ }
+ bool Observe(unsigned config,unsigned reason){
+  if(!Actionable(reason))return false;
+  const auto bit=1ull<<reason;auto old=published.load(std::memory_order_relaxed);
+  for(;;){
+   const auto old_config=unsigned(old>>32);
+   if(old_config>config)return false; // Late publication must not reset a newer set.
+   const auto seen=old_config==config?(old&0xffffffffull):0;
+   if(seen&bit)return false;
+   const auto next=(static_cast<unsigned long long>(config)<<32)|seen|bit;
+   if(published.compare_exchange_weak(old,next,std::memory_order_relaxed))return true;
+  }
+ }
+};
 inline std::atomic<unsigned> state{0};
 inline std::atomic<unsigned> domain{0};
 inline std::atomic<float> source_to_scene{1.f};
