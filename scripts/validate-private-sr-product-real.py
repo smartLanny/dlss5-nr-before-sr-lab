@@ -1,0 +1,49 @@
+"""Unmodified final Core Capture/Finish/submit/Reset/retire with real Feature1."""
+from pathlib import Path
+import argparse,hashlib,json,shutil,subprocess,time
+from temporal_test_objects import objects_for
+ROOT=Path(__file__).resolve().parents[1]
+def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    for name in ('core','compiler','reshade','sr-runtime','output'):p.add_argument('--'+name,type=Path,required=True)
+    a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
+    source=core/'src/nr_before_sr.cpp';manifest_path=core.parent/'source-manifest.json'
+    manifest=json.loads(manifest_path.read_text(encoding='utf-8-sig'))
+    for rel,digest in manifest['files'].items():
+        f=(manifest_path.parent/rel).resolve()
+        if not f.is_relative_to(manifest_path.parent.resolve()) or sha(f)!=digest:raise ValueError('Generated source identity mismatch: '+rel)
+    original=ROOT/'experiments/nr-edit/tests/private_sr_ngx_host.cpp'
+    host=original.read_text(encoding='utf-8').split('void NeutralAndTinyComposition(',1)[0]+'\n}\n'
+    # Preserve the existing host helpers verbatim, excluding its independent
+    # experiment Run/main; the new fixture calls the actual product entry points.
+    wrapper=out/'host.cpp';wrapper.write_text('#define NR_PRIVATE_SR_CORE "'+source.as_posix()+'"\n'+host+
+        '#include "'+(ROOT/'tests/private_sr_product_real.cpp').as_posix()+'"\n',encoding='utf-8')
+    build=core/'build';objects=[build/'obj'/n for n in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o')]+objects_for(source)
+    report={'schema':'actual-product-private-sr-v1','result':'running','source_commit':manifest['source_commit'],
+        'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(ROOT/'tests/private_sr_product_real.cpp'),
+        'host_helpers_sha256':sha(original),'wrapper_sha256':sha(wrapper),'compiler_sha256':sha(a.compiler),'commands':[],
+        'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':False,
+        'timing':'CPU recording includes native SR; GPU timestamps isolate guide and private SR. Six small static host frames, not a game benchmark.'}
+    def save(): (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+    def run(name,args,timeout):
+        start=time.monotonic();r=subprocess.run(list(map(str,args)),cwd=out,capture_output=True,timeout=timeout)
+        (out/(name+'.log')).write_bytes(r.stdout+r.stderr);report['commands'].append({'name':name,'args':list(map(str,args)),'exit':r.returncode,'seconds':time.monotonic()-start})
+        save();print((r.stdout+r.stderr).decode('utf-8','replace')[-9000:],flush=True);return r.returncode
+    for s,n in ((build/'nrchain_nvngx.dll','nrchain_nvngx.dll'),(a.sr_runtime,'nvngx_dlss.dll')):shutil.copy2(s,out/n)
+    report['runtime_sha256']={n:sha(out/n) for n in ('nrchain_nvngx.dll','nvngx_dlss.dll')};save()
+    flags=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',
+        '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
+    try:
+        result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
+        if not result:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll'],120)
+        report['result']='passed' if not result else 'failed'
+        if (out/'real-feature1.log').is_file():
+            import re
+            log=(out/'real-feature1.log').read_text(encoding='utf-8',errors='replace')
+            report['metrics']=[dict((k,float(v) if '.' in v else int(v)) for k,v in re.findall(r'(\w+)=([0-9.]+)',line)) for line in log.splitlines() if line.startswith('METRIC ')]
+        report['captures_sha256']={f.name:sha(f) for f in out.glob('*.fp16')}
+        report['binary_sha256']=sha(out/'product-real.exe') if (out/'product-real.exe').is_file() else None
+        save();return result
+    except Exception as e:report['result']='failed';report['error']=str(e);save();raise
+if __name__=='__main__':raise SystemExit(main())
