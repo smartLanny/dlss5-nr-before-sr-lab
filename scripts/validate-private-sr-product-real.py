@@ -7,6 +7,7 @@ def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('core','compiler','reshade','sr-runtime','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--reshade-runtime',type=Path,help='Optional actual ReShade d3d12.dll; isolated proxy/raw device compatibility test, no Core addon')
     p.add_argument('--nr-runtime',type=Path)
     p.add_argument('--rr-runtime',type=Path)
     p.add_argument('--layers',type=int,choices=range(6),default=0)
@@ -48,9 +49,15 @@ def main():
     for s,n in ((build/'nrchain_nvngx.dll','nrchain_nvngx.dll'),(a.sr_runtime,'nvngx_dlss.dll')):shutil.copy2(s,out/n)
     for runtime,name in [(a.nr_runtime,'nvngx_dlssnr.dll'),(a.rr_runtime,'nvngx_dlssd.dll')]:
         if runtime:shutil.copy2(runtime,out/name)
+    if a.reshade_runtime:
+        shutil.copy2(a.reshade_runtime.resolve(strict=True),out/'d3d12.dll')
+    report['reshade_proxy_mode']=bool(a.reshade_runtime)
+    report['object_domains']=({'init':'proxy device','native_parent':'proxy command list','core_resources':'raw device','private_sr':'raw command list through actual product state hooks','feature18':'proxy command list','submission_and_reset':'raw list with exact Core receipts'} if a.reshade_runtime else {'all':'native raw D3D12'})
+    report['core_addon_loaded']=False
     report['runtime_sha256']={f.name:sha(f) for f in out.glob('*.dll')};save()
     flags=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',
         '-ffunction-sections','-fdata-sections','-static','-municode','-Wl,--gc-sections','-I'+str(build),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
+    if a.reshade_runtime:flags.append('-DNR_TEST_RESHADE_RUNTIME=1')
     try:
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
         if not result and not a.compile_only:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd)],240)

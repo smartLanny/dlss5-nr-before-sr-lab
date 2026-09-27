@@ -146,6 +146,16 @@ struct RealNrChain {
 };
 int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd){
     InitializeCriticalSection(&g_chain_cs);Host h;Register(h);
+    auto* native_device=h.device;auto* native_list=h.list;
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    const GUID test_unwrapped={0x7f2c9a11,0x3b4e,0x4d6a,{0x81,0x2f,0x5e,0x9c,0xd3,0x7a,0x1b,0x42}};
+    ID3D12Device* raw_device=nullptr;ID3D12GraphicsCommandList* raw_list=nullptr;
+    Hr(ID3D12Device_QueryInterface(native_device,test_unwrapped,(void**)&raw_device),"ReShade device raw interface");
+    Hr(ID3D12GraphicsCommandList_QueryInterface(native_list,test_unwrapped,(void**)&raw_list),"ReShade list raw interface");
+    Require(raw_device&&raw_device!=native_device&&raw_list&&raw_list!=native_list,"actual distinct ReShade proxy interfaces");
+    Require(IsSameRrDepthDevice(native_device,raw_device),"production proxy/raw device identity");
+    std::puts("RESHADE domains: Init/native parent=proxy; Core-owned device/list=raw; Feature18 recording=proxy; private Feature1=raw");
+#endif
     GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\product-real.log");
     HMODULE module=LoadLibraryW(bridge);Require(module!=nullptr,"existing verified bootstrap library");
     auto bootstrap=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(module,"NRChain_Bootstrap"));
@@ -173,6 +183,12 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     if(rr){SetInt(params,"DLSS.Denoise.Mode",1);SetUInt(params,"DLSS.Roughness.Mode",0);SetUInt(params,"DLSS.Use.HW.Depth",1);}
     NgxHandle* parent=nullptr;h.Begin();Ngx(HookCoreCreate(h.list,rr?13:1,params,&parent),"observed original native parent Create");h.Submit();h.Wait();
     const auto feature=FindFeature(parent);Require(feature.generation&&feature.create_flags_known,"observed parent contract");
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    // The raw aliases share the same device and recording; their QI references
+    // become Host-owned. Keep original proxy references for native forwarding.
+    h.device=raw_device;h.list=raw_list;Register(h);
+    Require(InstallNativeCommandStateHooks(h.list),"actual product native state hooks including private heap normalization");
+#endif
     if(nr_layers_count)Require(EnsureCodec(h.device)&&EnsureNrApi(h.device),"real codec/NR initialization before private capture");
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=true;g_config.temporal_backend=0;
     g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
@@ -182,6 +198,12 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     auto* base=h.Plane(ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,false);
     auto* final=h.Plane(ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
     for(auto p:{std::pair{"Color",color},{"Depth",depth},{"MotionVectors",motion},{"Output",native}})SetResource(params,p.first,p.second);
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    ID3D12Device* resource_device=nullptr;
+    Hr(ID3D12Resource_GetDevice(color,IID_ID3D12Device,(void**)&resource_device),"native color device identity");
+    std::printf("RESHADE resource_GetDevice_proxy=%u raw=%u\n",resource_device==native_device,resource_device==raw_device);
+    Require(IsSameRrDepthDevice(resource_device,raw_device),"native resource belongs to exact device");ReleaseCom(resource_device);
+#endif
     float view[16]{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
     float projection[16]{1,0,0,0,0,1,0,0,0,0,0,1,0,0,.1f,0}; // reversed infinite device depth
     if(rr){
@@ -252,7 +274,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,1);
             if(!capture)std::printf("capture reason=%s guide=%u\n",nr_private_sr_status::Name(nr_private_sr_status::state.load()),nr_private_sr_status::guide_reason.load());
             Require(capture!=0,"original product Capture/CreateOwner");
-            Ngx(evaluate(h.list,parent,params,nullptr),"actual native baseline Evaluate");
+            Ngx(evaluate(native_list,parent,params,nullptr),"actual native baseline Evaluate");
             Copy(h,native,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Copy(h,native,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,2);
             bool final_z=true;
@@ -265,7 +287,15 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 h.Barrier(normalized.depth,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 h.Barrier(normalized.motion,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 if(!chain.c)chain.Build(h,nr_layers_count,nw,nh,ow,oh,normalized);
+#if defined(NR_TEST_RESHADE_RUNTIME)
+                // Actual NR model calls retain the native proxy boundary. Core
+                // Capture/Finish and their recording receipts remain raw.
+                h.list=native_list;
+#endif
                 final_z=chain.Record(h,base,final,normalized);
+#if defined(NR_TEST_RESHADE_RUNTIME)
+                h.list=raw_list;
+#endif
                 h.Barrier(normalized.depth,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
                 h.Barrier(normalized.motion,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
             }
@@ -330,6 +360,10 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     Require(shutdown!=nullptr,"real device Shutdown export");Ngx(shutdown(h.device),"actual original device Shutdown");
     Require(nr_private_sr_core::DomainEpoch(h.device,ngx)==0,"Shutdown invalidated original domain");
     g_codec.device=nullptr;slot.source=slot.result=nullptr;
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    // All product and NR fences/recordings are retired before proxy release.
+    ReleaseCom(native_list);ReleaseCom(native_device);
+#endif
     std::printf("PASS actual generated Core native=%u realNRLayers=%u percent=%u checks=%u privateCreate=1 privateEvaluate=%u submit=%u retire=1; artificial scene, no game\n",rr?13:1,nr_layers_count,percent,checks,requested_frames-1,frame);return 0;
 }
 }

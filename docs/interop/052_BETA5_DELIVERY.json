@@ -1,0 +1,21 @@
+{
+  "schema": "dlss5-failed-candidate/v1",
+  "candidate": "0.5.2-beta.5",
+  "source_commit": "de8d5ab851e1f635e4bdb14b60fe8a5cc8aa84c7",
+  "status": "game-acceptance-failed-do-not-deliver",
+  "online_ota_published": false,
+  "core_sha256": {
+    "zh-CN": "3c7d306d5b901a5daa64a99e199ba99eecafd1ca48dcd01cd243036ac07fd3f5",
+    "en": "5717b2fa1d7cf190887099f5af1e6ee8e8d03232e39c30adad733b4bd8852d8b"
+  },
+  "ota_sha256": {
+    "zh-CN": "8134524b30b1025069c589b0321a770f85d853855a31c79292ea86164db10b2f",
+    "en": "3fe0850afab70afecd6b8abecaa4b8d577d8592d4ee054c0039a05115d3eb408"
+  },
+  "software_evidence": "D:/ChatGPT/DLSS5/evidence/beta5-final-gpu-summary.json",
+  "game_evidence": "D:/ChatGPT/DLSS5/evidence/beta5-nte-comparison-crash-20260927/capture-manifest.json",
+  "failure_document": "052_BETA5_NTE_FAILURE.md",
+  "original_build": "D:/ChatGPT/DLSS5/deliveries/052-beta5-unified-de8d5ab8-20260927-r1",
+  "original_delivery": "D:/ChatGPT/DLSS5/deliveries/052-beta5-acceptance-20260927",
+  "scope": "Preserved identities and failure index; not a successful delivery receipt. Private raw crash/capture files are not committed."
+}
