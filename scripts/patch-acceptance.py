@@ -46,9 +46,3 @@ PresentCounters ReadPresentLocked() {
     p=root/'src/nr_settings_ui.inl';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'    nr_f8::RuntimeDestroyed(runtime);','    nr_acceptance::RuntimeDestroyed(runtime);\n    nr_f8::RuntimeDestroyed(runtime);','guided runtime shutdown')
     p.write_text(s,encoding='utf-8',newline='\n')
-    p=root/'src/nr_unified_settings.inl';s=p.read_text(encoding='utf-8')
-    s=helpers.once(s,
-        'ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();',
-        'ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();nr_acceptance::DrawScreenshotUi(runtime,has_pending);ImGui::EndChild();ImGui::EndTabItem();',
-        'one-click screenshot controls remain enabled on Experiments tab')
-    p.write_text(s,encoding='utf-8',newline='\n')

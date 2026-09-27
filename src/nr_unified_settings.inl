@@ -174,7 +174,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         if(ImGui::BeginTabItem(ui("Experiments###nr-experiments","实验###nr-experiments"))){
             ImGui::BeginChild("nr-page-experiments",ImVec2(0,0));
-            ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
+            ImGui::BeginDisabled(collecting);DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit);ImGui::EndDisabled();
+#if defined(NR_HAS_ACCEPTANCE)
+            nr_acceptance::DrawScreenshotUi(runtime,has_pending);
+#endif
+            ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Developer###nr-developer","开发者###nr-developer"))){
             ImGui::BeginChild("nr-page-developer",ImVec2(0,0));
