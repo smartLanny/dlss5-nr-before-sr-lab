@@ -1,6 +1,7 @@
 // Included after F8. Lock order: this controller -> F8 control -> chain owner.
 // The watchdog never calls a runtime pointer; only Present records callback time.
 #include "nr_acceptance_policy.h"
+#include <shellapi.h>
 namespace nr_acceptance {
 using namespace nr_acceptance_policy;
 constexpr unsigned kRows=32768,kSteps=9,kShots=3;

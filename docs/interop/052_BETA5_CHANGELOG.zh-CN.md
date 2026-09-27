@@ -17,6 +17,6 @@ Core-only OTA 只更新 **Core 与 nrchain**，不安装 NR 模型运行库、�
 
 ## 验证边界
 
-[Beta 4 软件与受控 GPU 回归](052_BETA4_UNIFIED_ACCEPTANCE.md)已有双语构建、私有 SR 和 Present 真实 NGX 人工输入证据；这些属于 **Beta 4**，不能充当 Beta 5 回执。Beta 5 九组截图、配置恢复及打包的软件验证范围以**随包清单和回执**为准。游戏截图的画质判断、Esc/地图省电、2077 兼容以及新增成本占整游戏帧 **≤3%** 均待用户验收；4K 受控时域成本呈多峰，不宣传稳定低开销。
+[Beta 4 软件与受控 GPU 回归](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/fc436fd7ad3ab28b97ad4da889cea42b363f8319/docs/interop/052_BETA4_UNIFIED_ACCEPTANCE.md)已有双语构建、私有 SR 和 Present 真实 NGX 人工输入证据；这些属于 **Beta 4**，不能充当 Beta 5 回执。Beta 5 九组截图、配置恢复及打包的软件验证范围以**随包清单和回执**为准。游戏截图的画质判断、Esc/地图省电、2077 兼容以及新增成本占整游戏帧 **≤3%** 均待用户验收；4K 受控时域成本呈多峰，不宣传稳定低开销。
 
-*比较起点为 0.5 D21 源码 `cbfb33919696a2840ed5154c91abaea56228b661`，历史插件标识 `beta0.5-dline21-223fix2`。这是源码比较基线，并非已重新核验旧实体 OTA 包；更晚的 D21 Perf/unified 分支不是本说明的起点。来源见[旧版更新记录](051_BETA_CHANGELOG.zh-CN.md)与[归档索引](../maintenance/ARCHIVE_INDEX_20260926.json)。*
+*比较起点为 0.5 D21 源码 `cbfb33919696a2840ed5154c91abaea56228b661`，历史插件标识 `beta0.5-dline21-223fix2`。这是源码比较基线，并非已重新核验旧实体 OTA 包；更晚的 D21 Perf/unified 分支不是本说明的起点。来源见[旧版更新记录](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/fc436fd7ad3ab28b97ad4da889cea42b363f8319/docs/interop/051_BETA_CHANGELOG.zh-CN.md)与[归档索引](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/fc436fd7ad3ab28b97ad4da889cea42b363f8319/docs/maintenance/ARCHIVE_INDEX_20260926.json)。*
