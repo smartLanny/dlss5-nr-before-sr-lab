@@ -18,6 +18,7 @@ void DrawPrivateResidualSr(ChainConfig& next,bool& changed,bool& discrete) {
             "GPU 计时仅覆盖私有 Encode、Feature1 和 Compose；不包含导引、原生 SR/RR、NR 与整帧开销。"));
         const auto state=nr_private_sr_status::state.load();
         if(state==nr_private_sr_status::State::Quarantined)SettingsNote(ui("Resources quarantined after an uncertain failure. Save F8, disable this experiment and restart.","异常后资源已隔离。请保存 F8，关闭此实验后重启。"));
+        else if(state==nr_private_sr_status::State::OriginalInterface)SettingsNote(ui("The current native graphics interface could not be verified. The current NR result is retained; private SR was not adopted. Save F8 for diagnosis.","尚不能核对当前原生图形接口。已保留当前 NR 结果，未采用私有 SR；请保存 F8 供排查。"));
         else if(state==nr_private_sr_status::State::Phase)SettingsNote(ui("The native guide sampling phase is unproven. Private SR was not adopted; save F8 for diagnosis.","尚不能确认原生导引采样相位，未采用私有 SR；请保存 F8 供排查。"));
         else SettingsNote(ui("Selection, recording and submission are separate. F8 reports the current reason and adoption counts; these do not certify image quality.","勾选、录制与提交分别统计。F8 提供当前原因和采用次数，这些计数不代表画质验收通过。"));
     }

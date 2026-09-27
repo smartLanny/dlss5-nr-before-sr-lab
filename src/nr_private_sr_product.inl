@@ -1,6 +1,7 @@
 // Included in the generated Core after guide/codec helpers. Calls are serialized
 // by g_chain_cs; exact Core recording and queue receipts own every private use.
 #define NR_EDIT_PRIVATE_SR_BYPASS_COMPLETE 1
+#include "nr_private_sr_call_list.inl"
 #include "private_sr/nr_private_sr_core_adapter.inl"
 namespace nr_post_product {
 using Id=std::uint64_t;
@@ -218,6 +219,7 @@ unsigned Capture(ID3D12GraphicsCommandList* list,ID3D12Device* device,NrContext&
     if(!queue||ID3D12GraphicsCommandList_GetType(list)!=D3D12_COMMAND_LIST_TYPE_DIRECT){Refuse(State::Queue);return 0;}
     const auto recording=RecordingFor(list,queue);const auto current=nr_source_runtime::CurrentSource();
     if(!recording||!current){Refuse(State::Source);return 0;}
+    if(!NrPrivateOriginalCallList(list)){Refuse(State::OriginalInterface);return 0;}
     nr_private_sr_guides::Input input{};input.enabled=true;
     input.source=input.snapshot_source={current.stream,current.epoch,current.sequence};
     input.recording=input.snapshot_recording=recording;input.signature=guides.signature;
@@ -276,6 +278,7 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
     const Source source{current.stream,current.epoch,current.sequence};
     const auto recording=RecordingFor(list,o->queue);
     if(!source||!(source==f.capture.source)||!(recording==f.recording)){Refuse(State::Source);return true;}
+    if(!NrPrivateOriginalCallList(list)){Refuse(State::OriginalInterface);return true;}
     if((feature.feature_id!=1&&feature.feature_id!=13)||!slot.snapshots_native_output||slot.result_format!=DXGI_FORMAT_R16G16B16A16_FLOAT||
        slot.result_uav_format!=DXGI_FORMAT_R16G16B16A16_FLOAT){Refuse(State::Domain);return true;}
     // This entry follows successful native Evaluate, the exact B snapshot,

@@ -52,7 +52,7 @@ def main():
     if a.reshade_runtime:
         shutil.copy2(a.reshade_runtime.resolve(strict=True),out/'d3d12.dll')
     report['reshade_proxy_mode']=bool(a.reshade_runtime)
-    report['object_domains']=({'init':'proxy device','native_parent':'proxy command list','core_resources':'raw device','private_sr':'raw command list through actual product state hooks','feature18':'proxy command list','submission_and_reset':'raw list with exact Core receipts'} if a.reshade_runtime else {'all':'native raw D3D12'})
+    report['object_domains']=({'init':'proxy device','native_parent':'proxy command list','core_resources':'raw device','private_sr':'actual product live original alias; raw Core recording and resources','feature18':'proxy command list','submission_and_reset':'raw list with exact Core receipts'} if a.reshade_runtime else {'all':'native raw D3D12'})
     report['core_addon_loaded']=False
     report['runtime_sha256']={f.name:sha(f) for f in out.glob('*.dll')};save()
     flags=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1','-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1',

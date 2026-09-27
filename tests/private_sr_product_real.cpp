@@ -6,11 +6,27 @@
 namespace product_real {
 using namespace sr_host;
 NrContext context;
+#if defined(NR_TEST_RESHADE_RUNTIME)
+LONG WINAPI DiagnosticException(EXCEPTION_POINTERS* e){
+    if(e->ExceptionRecord->ExceptionCode!=EXCEPTION_ACCESS_VIOLATION)return EXCEPTION_CONTINUE_SEARCH;
+    HMODULE module=nullptr;wchar_t path[MAX_PATH]{};
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(e->ExceptionRecord->ExceptionAddress),&module);
+    GetModuleFileNameW(module,path,MAX_PATH);const auto* leaf=std::wcsrchr(path,L'\\');
+    std::printf("RESHADE_AV module=%ls offset=%llx access=%llu address=%llx rdx=%llx\n",leaf?leaf+1:path,
+        (unsigned long long)(reinterpret_cast<std::uintptr_t>(e->ExceptionRecord->ExceptionAddress)-reinterpret_cast<std::uintptr_t>(module)),
+        (unsigned long long)e->ExceptionRecord->ExceptionInformation[0],(unsigned long long)e->ExceptionRecord->ExceptionInformation[1],
+        (unsigned long long)e->ContextRecord->Rdx);std::fflush(stdout);return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
 void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q,UINT n,ID3D12CommandList*const* p){ID3D12CommandQueue_ExecuteCommandLists(q,n,p);}
 HRESULT STDMETHODCALLTYPE Reset(ID3D12GraphicsCommandList* l,ID3D12CommandAllocator* a,ID3D12PipelineState* p){return ID3D12GraphicsCommandList_Reset(l,a,p);}
 double Millis(std::chrono::steady_clock::time_point t){return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t).count();}
 void Register(Host& h){
     CommandStateMetaContract meta;meta.device_identity=g_next_command_device_identity.fetch_add(1);
+    // Real creation observer reads this same device lifetime record. Keep the
+    // cold proxy alias proof consistent with the registered native list.
+    Hr(ID3D12Device_SetPrivateData(h.device,kCommandStateMetaContract,sizeof(meta),&meta),"device creation identity record");
     CommandCreationInfo creation;creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
     // Only object identity is registered here; no command-state restoration
     // capability is fabricated. This controlled host owns all its bindings.
@@ -145,7 +161,10 @@ struct RealNrChain {
     void Destroy(){Require(present::Release(c)&&!c,"real signed NR release after host recording ended and all fences");}
 };
 int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd){
-    InitializeCriticalSection(&g_chain_cs);Host h;Register(h);
+#if defined(NR_TEST_RESHADE_RUNTIME)
+    SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);AddVectoredExceptionHandler(1,DiagnosticException);
+#endif
+    InitializeCriticalSection(&g_chain_cs);Host h;
     auto* native_device=h.device;auto* native_list=h.list;
 #if defined(NR_TEST_RESHADE_RUNTIME)
     const GUID test_unwrapped={0x7f2c9a11,0x3b4e,0x4d6a,{0x81,0x2f,0x5e,0x9c,0xd3,0x7a,0x1b,0x42}};
@@ -154,7 +173,10 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     Hr(ID3D12GraphicsCommandList_QueryInterface(native_list,test_unwrapped,(void**)&raw_list),"ReShade list raw interface");
     Require(raw_device&&raw_device!=native_device&&raw_list&&raw_list!=native_list,"actual distinct ReShade proxy interfaces");
     Require(IsSameRrDepthDevice(native_device,raw_device),"production proxy/raw device identity");
-    std::puts("RESHADE domains: Init/native parent=proxy; Core-owned device/list=raw; Feature18 recording=proxy; private Feature1=raw");
+    h.list=raw_list;Register(h);h.list=native_list; // Register the actual native pointer once, before any recording.
+    std::puts("RESHADE domains: Init/native parent=proxy; Core-owned device/list=raw; Feature18 recording=proxy; private Feature1=production live original alias; Core recording=raw");
+#else
+    Register(h);
 #endif
     GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\product-real.log");
     HMODULE module=LoadLibraryW(bridge);Require(module!=nullptr,"existing verified bootstrap library");
@@ -186,8 +208,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
 #if defined(NR_TEST_RESHADE_RUNTIME)
     // The raw aliases share the same device and recording; their QI references
     // become Host-owned. Keep original proxy references for native forwarding.
-    h.device=raw_device;h.list=raw_list;Register(h);
-    Require(InstallNativeCommandStateHooks(h.list),"actual product native state hooks including private heap normalization");
+    h.device=raw_device;h.list=raw_list; // The underlying native pointer was registered before parent creation.
+    Require(InstallNativeCommandStateHooks(h.list),"actual product native state hooks");
 #endif
     if(nr_layers_count)Require(EnsureCodec(h.device)&&EnsureNrApi(h.device),"real codec/NR initialization before private capture");
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=true;g_config.temporal_backend=0;
@@ -248,6 +270,20 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         SetFloat(params,"Jitter.Offset.X",jitter_x);SetFloat(params,"Jitter.Offset.Y",jitter_y);SetInt(params,"Reset",frame==0?1:0);
         const auto start=std::chrono::steady_clock::now();
         {
+            // Match the live scope held by the actual original DispatchEvaluate.
+            NrPostBoundaryAliasScope source_list_alias(native_list);
+#if defined(NR_TEST_RESHADE_RUNTIME)
+            const auto raw_identity=SnapshotPostBoundaryList(h.list);
+            const auto proxy_identity=SnapshotPostBoundaryList(native_list);
+            const auto& alias_identity=source_list_alias.identity;
+            Require(raw_identity.known&&alias_identity.known&&proxy_identity.known&&
+                raw_identity.address==alias_identity.address&&raw_identity.token==alias_identity.token&&
+                raw_identity.reset==alias_identity.reset&&raw_identity.device==alias_identity.device&&
+                proxy_identity.address==raw_identity.address&&proxy_identity.token==raw_identity.token&&
+                proxy_identity.reset==raw_identity.reset&&proxy_identity.device==raw_identity.device,
+                "production cold alias equals current raw recording snapshot");
+#endif
+            Require(NrPrivateOriginalCallList(h.list)==native_list,"production private call resolves live original interface");
             nr_source_runtime::EvaluateScope source(h.list,parent,params,feature);
             Require(bool(nr_source_runtime::CurrentSource()),"actual native source producer");
             Require(RecordNrUseLocked(h.list,context,slot),"Core resource recording lease");
@@ -260,6 +296,9 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 g_config.private_residual_sr=false;Require(capture_test(feature,guides)==0&&nr_private_sr_status::requested.load()==0&&!context.private_sr,"disabled skips even request and allocation");
                 g_config.private_residual_sr=true;g_config.temporal_backend=1;refused(feature,guides,nr_private_sr_status::State::Conflict);
                 Require(g_config.temporal_backend==1,"conflict preserves saved stabilizer");g_config.temporal_backend=0;
+                auto* original_alias=g_nr_post_boundary_alias_scope;g_nr_post_boundary_alias_scope=nullptr;
+                refused(feature,guides,nr_private_sr_status::State::OriginalInterface);
+                g_nr_post_boundary_alias_scope=original_alias;
                 auto unsupported=feature;unsupported.feature_id=18;refused(unsupported,guides,nr_private_sr_status::State::Route);
                 unsupported=feature;unsupported.create_flags_known=false;refused(unsupported,guides,nr_private_sr_status::State::Domain);
                 SetFloat(params,"Jitter.Offset.X",.75f);refused(feature,guides,nr_private_sr_status::State::Phase);SetFloat(params,"Jitter.Offset.X",jitter_x);
@@ -357,7 +396,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     // Real core Shutdown export is forwarded exactly once and retires its domain.
     const auto epoch=nr_private_sr_core::DomainEpoch(h.device,ngx);Require(epoch!=0,"live domain before real Shutdown");
     auto shutdown=reinterpret_cast<NgxResult(*)(ID3D12Device*)>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_Shutdown1"));
-    Require(shutdown!=nullptr,"real device Shutdown export");Ngx(shutdown(h.device),"actual original device Shutdown");
+    Require(shutdown!=nullptr,"real device Shutdown export");Ngx(shutdown(native_device),"actual original device Shutdown");
     Require(nr_private_sr_core::DomainEpoch(h.device,ngx)==0,"Shutdown invalidated original domain");
     g_codec.device=nullptr;slot.source=slot.result=nullptr;
 #if defined(NR_TEST_RESHADE_RUNTIME)

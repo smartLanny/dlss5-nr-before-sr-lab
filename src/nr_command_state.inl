@@ -805,22 +805,10 @@ NR_STATE_HOOK(SetPipelineState, (ID3D12GraphicsCommandList *command_list, ID3D12
     (command_list, pipeline), CommandStateSetPipeline(state,pipeline);)
 NR_STATE_HOOK(ClearState, (ID3D12GraphicsCommandList *command_list, ID3D12PipelineState *pipeline),
     (command_list, pipeline), ResetNativeCommandState(state, pipeline, "ClearState"))
-#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
-#include "nr_private_descriptor_heaps.h"
-#endif
 CommandStateHookFamily g_state_SetDescriptorHeaps;
 template<unsigned I> void STDMETHODCALLTYPE StateHookSetDescriptorHeaps(ID3D12GraphicsCommandList *command_list,
         UINT count,ID3D12DescriptorHeap *const *heaps) {
     using Fn=decltype(ID3D12GraphicsCommandListVtbl::SetDescriptorHeaps);
-#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
-    ScopedPrivateDescriptorHeaps bindings(nr_post_product::PrivateCall(),count,heaps);
-    heaps=bindings.data();
-    if(bindings.unwrapped_count()) {
-        static std::atomic<unsigned> reports{0};
-        if(reports.fetch_add(1,std::memory_order_relaxed)<4)
-            Log("[private-sr-binding] normalized %u ReShade descriptor heap interface(s) for native recording; creation/evaluation still requires its own success receipt.",bindings.unwrapped_count());
-    }
-#endif
     reinterpret_cast<Fn>(g_state_SetDescriptorHeaps.originals[I])(command_list,count,heaps);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE) && defined(NR_HAS_POST_BOUNDARY_TRACE)
     NrDescriptorObserveBoundHeaps(command_list,count,heaps);

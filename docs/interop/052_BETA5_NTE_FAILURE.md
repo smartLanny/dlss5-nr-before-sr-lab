@@ -19,3 +19,13 @@
 删除 Create 参数中的资源绑定未能消除故障，未采用该猜测修改。仅按物理设备判同不足以证明命令列表与 descriptor heap 的接口域兼容。修正保留原初始化、录制、提交与退休合同；仅私有 NGX 调用转换 heap，普通调用不查询或改写。QI 返回引用持续到转发及状态记录结束后释放。
 
 后继版本为 Beta6，完整 Core + ReShade 创建、推理和回收及统一构建仍需完成后才能交付。Beta5 的所有二进制和 OTA 哈希保留，不覆盖。窄回归证据：`D:/ChatGPT/DLSS5/evidence/private-descriptor-heaps-exact-hook-r2/validation.json`；受控机制证据：`D:/ChatGPT/DLSS5/evidence/beta5-proxy-domain-host-r4/validation.json`。这些本地测试均非游戏验收。
+
+### 完整推理对照后的修正
+
+完整 Core + 同版 ReShade 的受控检查证明：只解包 descriptor heap 后，首次 Create 成功，但下一帧私有 Evaluate 仍访问冲突；因此该中间改法没有进入交付。ReShade 同时拥有包装 heap 和虚拟 CPU descriptor 句柄，不能只转换一部分接口协议。
+
+仅将私有原始 NGX Create/Evaluate 的命令列表改回当前已验证的原始入口接口，其余 Core 资源、采集、合成、raw 录制与提交/退休不变，受控对照完成1次创建、5次推理、6次提交和1次退休，689650项检查、退休资源0、原始Shutdown成功。该对照替换过测试转发器，属于方案证据；产品完成后仍需用未替换出口的真实生成 Core 复验。证据 `D:/ChatGPT/DLSS5/evidence/beta6-reshade-core-proxyforward-r1/result.json`。
+
+最终接线复用已有原始调用 AliasScope：核对当前epoch、native地址、token、Reset序号和device身份，且原始接口的QI必须指向同一个raw列表；只在当前调用内借用，不跨帧缓存。Create/Evaluate每次调用前重验，无有效alias的已知包装设备拒绝并保留Z。首次仅heap归一化代码撤下，历史提交和失败记录保留。
+
+扩展测试宿主把整个NR链切到proxy导致反向混用，并在Feature18创建前崩溃，此用例不能作为产品NR失败或通过；本轮ReShade专项使用人工残差隔离私有Feature1，真实Feature18多层继续使用原来的完整Core独立验证。所有边界在最终清单分开记录。

@@ -3,7 +3,7 @@ from pathlib import Path
 VERSION = '0.5.2-beta.6'
 LOCAL=('src/nr_private_sr_guides.h','src/nr_private_sr_guides.cpp','src/nr_private_sr_status.h',
        'src/nr_private_sr_product.inl','src/nr_private_sr_ui.inl','src/nr_private_sr_artifacts.h',
-       'src/nr_private_descriptor_heaps.h')
+       'src/nr_private_sr_call_list.inl')
 MODULE=('nr_edit_dx12.hpp','nr_edit_dx12.cpp','nr_post_residual_dx12.hpp','nr_post_residual_dx12.cpp',
         'nr_post_private_sr_dx12.hpp','nr_post_private_sr_dx12.cpp','nr_private_sr_runtime.hpp','nr_private_sr_core_adapter.inl')
 SHADERS=('nr_rr_edit.hlsl','nr_deferred_edit.hlsl','nr_normalize_guides.hlsl','nr_post_residual.hlsl','nr_edit_scalar.hlsli','nr_edit_carrier.hlsli')

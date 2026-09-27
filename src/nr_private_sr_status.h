@@ -2,7 +2,7 @@
 #include <atomic>
 namespace nr_private_sr_status {
 enum class State : unsigned { Off, Waiting, Conflict, Route, Domain, Queue, Source, Guides,
-    Budget, Busy, Creating, Recorded, Submitted, Quarantined, Phase, Duplicate };
+    Budget, Busy, Creating, Recorded, Submitted, Quarantined, Phase, Duplicate, OriginalInterface };
 inline std::atomic<State> state{State::Off};
 inline std::atomic<unsigned> guide_reason{0};
 inline std::atomic<unsigned long long> requested{0}, rejected{0}, captures{0}, creations{0},
@@ -17,6 +17,7 @@ inline const char* Name(State s) {
     case State::Off:return "off";case State::Waiting:return "waiting-post-SR";
     case State::Conflict:return "residual-stabilizer-conflict";case State::Route:return "unsupported-route-or-FG";
     case State::Domain:return "unproven-native-output-value-FP16";case State::Queue:return "unproven-direct-queue";
+    case State::OriginalInterface:return "current-original-command-interface-unproven";
     case State::Source:return "source-or-recording-unproven";case State::Guides:return "guide-contract-rejected";
     case State::Budget:return "budget-or-retirement";case State::Busy:return "recording-or-slot-busy";
     case State::Creating:return "creation-awaiting-submission";case State::Recorded:return "recorded-not-submitted";

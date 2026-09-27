@@ -43,8 +43,8 @@ $AmdSourceProbe=$OutputRoot + '.amd-source-continuity.exe'
 if ($LASTEXITCODE) { throw 'AMD exact owned-source pairing test failed to compile.' }
 & $AmdSourceProbe
 if ($LASTEXITCODE) { throw 'AMD source-gap admission or conflicting-reference rejection failed.' }
-& python (Join-Path $PSScriptRoot 'validate-private-descriptor-heaps.py') --root (Join-Path $PSScriptRoot '..') --compiler $Cxx --output ($OutputRoot + '.private-heap-checks')
-if ($LASTEXITCODE) { throw 'Private NGX descriptor-heap domain regression failed.' }
+& python (Join-Path $PSScriptRoot 'validate-private-call-list.py') --root (Join-Path $PSScriptRoot '..') --compiler $Cxx --output ($OutputRoot + '.private-call-list-checks')
+if ($LASTEXITCODE) { throw 'Private NGX original-call interface regression failed.' }
 & python (Join-Path $PSScriptRoot '../tests/test_product_identity.py') -v
 if ($LASTEXITCODE) { throw 'Final product identity regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --output ($OutputRoot + '.guide-domain-checks')

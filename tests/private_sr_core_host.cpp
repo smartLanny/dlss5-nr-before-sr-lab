@@ -10,7 +10,12 @@ void STDMETHODCALLTYPE Execute(ID3D12CommandQueue* q,UINT n,ID3D12CommandList*co
 HRESULT STDMETHODCALLTYPE Reset(ID3D12GraphicsCommandList* l,ID3D12CommandAllocator* a,ID3D12PipelineState* p){return ID3D12GraphicsCommandList_Reset(l,a,p);}
 double Millis(std::chrono::steady_clock::time_point t){return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t).count();}
 void Register(Host& h){
-    CommandStateMetaContract meta;meta.device_identity=g_next_command_device_identity.fetch_add(1);
+    CommandStateMetaContract meta;UINT meta_bytes=sizeof(meta);
+    if(FAILED(ID3D12Device_GetPrivateData(h.device,kCommandStateMetaContract,&meta_bytes,&meta))||
+       meta_bytes!=sizeof(meta)||!meta.device_identity){
+        meta=CommandStateMetaContract{};meta.device_identity=g_next_command_device_identity.fetch_add(1);
+        Hr(ID3D12Device_SetPrivateData(h.device,kCommandStateMetaContract,sizeof(meta),&meta),"device creation identity");
+    }
     CommandCreationInfo creation;creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
     // Only object identity is registered here; no command-state restoration
     // capability is fabricated. This controlled host owns all its bindings.
@@ -116,7 +121,7 @@ void DuringOriginalShutdown(){
     Require(!nr_private_sr_core::DomainEpoch(shutdown_host->device,module),"in-flight Shutdown cannot reopen factory domain");
 }
 int DomainCase(){
-    InitializeCriticalSection(&g_chain_cs);Host h;g_codec.device=h.device;
+    InitializeCriticalSection(&g_chain_cs);Host h;Register(h);g_codec.device=h.device;
     auto module=LoadLibraryW(L"_nvngx.dll");Require(module,"controlled export fixture loaded");
     auto count=reinterpret_cast<unsigned(*)(unsigned)>(GetProcAddress(module,"FixtureCount"));Require(count,"fixture identity, not NVIDIA");
     Require(MH_Initialize()==MH_OK,"domain host hook initialization");
@@ -131,6 +136,8 @@ int DomainCase(){
     Require(count(3)==0&&count(4)==1,"no SR parent / exactly one native RR create");
     nr_private_sr_core::Exports e;Require(nr_private_sr_core::ResolveExports(e,h.device,parent,f.generation),"RR-only original factory admitted");
     auto api=nr_private_sr_core::MakeApi(e);Require(api.Valid(),"domain API complete");void* p=nullptr;void* private_handle=nullptr;
+    NrPostBoundaryAliasScope original_call(h.list);
+    Require(NrPrivateOriginalCallList(h.list)==h.list,"current native interface proof");
     Ngx(api.allocate(api.user,&p),"private original allocate");Ngx(api.create(api.user,h.list,1,p,&private_handle),"private Feature1 through real Core hook TLS bypass");
     Require(count(3)==1&&count(4)==1&&!FindFeature(static_cast<NgxHandle*>(private_handle)).handle,"private handle not observed as game feature");
     Ngx(api.evaluate(api.user,h.list,private_handle,p),"private original Evaluate");Ngx(api.release(api.user,private_handle),"private original Release");
@@ -186,7 +193,7 @@ int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();Initial
         if(hdr){parameters.jitter_x=frame%2?.5f:-.5f;parameters.jitter_y=frame%3?.25f:-.25f;}
         Fill(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,base_value+edit,tx,ty);Fill(h,fixture.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,.5f+edit/8);
         Hr(ProcessCommandListReset(0,h.list,h.allocator,nullptr),"Core begin Reset");h.released=false;
-        {nr_source_runtime::EvaluateScope source(h.list,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"actual source scope");
+        {NrPostBoundaryAliasScope original_call(h.list);nr_source_runtime::EvaluateScope source(h.list,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"actual source scope");
             Require(RecordNrUseLocked(h.list,context,slot),"Core resource lease");
             const auto capture=nr_post_product::Capture(h.list,h.device,context,&parent,params,feature,guides,CodecColorMode::SrgbEncodedSdr,rw,rh,nw,nh,ow,oh);
             if(!capture)std::printf("capture refused %s guide=%u\n",nr_private_sr_status::Name(nr_private_sr_status::state.load()),nr_private_sr_status::guide_reason.load());
@@ -204,7 +211,7 @@ int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();Initial
             Hr(ID3D12CommandQueue_Signal(h.queue,h.fence,++h.value),"second prime fence");h.Wait();
             Hr(ProcessCommandListReset(0,second,second_allocator,nullptr),"second actual begin Reset");h.released=false;
             auto& second_slot=independent_recording_context.slots[0];second_slot.source=base;second_slot.result=second_z;
-            {nr_source_runtime::EvaluateScope source(second,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"second source scope");
+            {NrPostBoundaryAliasScope original_call(second);nr_source_runtime::EvaluateScope source(second,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"second source scope");
                 Require(!RecordNrUseLocked(second,context,second_slot),"Core rejects second context use before private Capture");
                 // Exercise the additional private admission seam explicitly:
                 // normal routing already bypassed above. Obtain a real empty

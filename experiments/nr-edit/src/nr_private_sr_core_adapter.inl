@@ -158,11 +158,15 @@ nr_private_sr::Api MakeApi(Exports& e){
         if(DomainAlive(*static_cast<Exports*>(u)))SetResource(static_cast<NgxParams*>(p),k,static_cast<ID3D12Resource*>(v));};
     a.create=[](void* u,void* l,int feature,void* p,void** h)->std::uint32_t{ScopedSrwExclusive lock(&g_nr_api_lock);Scope s;
         if(!DomainAlive(*static_cast<Exports*>(u))||feature!=1)return 0xBAD00005u;
-        NgxHandle* created=nullptr;const auto r=static_cast<Exports*>(u)->create(static_cast<ID3D12GraphicsCommandList*>(l),1,static_cast<NgxParams*>(p),&created);
+        auto* call_list=NrPrivateOriginalCallList(static_cast<ID3D12GraphicsCommandList*>(l));
+        if(!call_list)return 0xBAD00005u;
+        NgxHandle* created=nullptr;const auto r=static_cast<Exports*>(u)->create(call_list,1,static_cast<NgxParams*>(p),&created);
         *h=created;return r;};
     a.evaluate=[](void* u,void* l,void* h,void* p)->std::uint32_t{ScopedSrwExclusive lock(&g_nr_api_lock);Scope s;
         if(!DomainAlive(*static_cast<Exports*>(u)))return 0xBAD00005u;
-        return static_cast<Exports*>(u)->evaluate(static_cast<ID3D12GraphicsCommandList*>(l),static_cast<NgxHandle*>(h),static_cast<NgxParams*>(p),nullptr);};
+        auto* call_list=NrPrivateOriginalCallList(static_cast<ID3D12GraphicsCommandList*>(l));
+        if(!call_list)return 0xBAD00005u;
+        return static_cast<Exports*>(u)->evaluate(call_list,static_cast<NgxHandle*>(h),static_cast<NgxParams*>(p),nullptr);};
     a.release=[](void* u,void* h)->std::uint32_t{ScopedSrwExclusive lock(&g_nr_api_lock);Scope s;
         if(!DomainAlive(*static_cast<Exports*>(u)))return 0xBAD00005u;
         return static_cast<Exports*>(u)->release(static_cast<NgxHandle*>(h));};
