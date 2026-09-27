@@ -41,7 +41,7 @@ def main():
            'residual_accumulator_shader.hpp','residual_gpu_probe.cpp','residual_finite_probe.inl','validate_residual_gpu.py']
     if args.recorded:
         assert not args.finite_only
-        names+=['recorded_temporal.hpp','recorded_temporal.cpp','recorded_temporal_probe.cpp']
+        names+=['recorded_temporal.hpp','recorded_temporal.cpp','recorded_temporal_probe.cpp','recorded_temporal_quality_probe.inl']
     if args.temporal_artifact_builder:
         assert args.recorded, 'precompiled temporal path requires recorded consumer'
         names+=['compile_temporal_artifacts.cpp']
@@ -120,6 +120,9 @@ def main():
              'result.rgb=current_valid&&fits?saturate(restored):fallback;','HDR_EXPOSURE_HIGHLIGHT_ORACLE'),
             ('ignore-hdr-exposure','residual_accumulator_shader.hpp','current*=SourceToScene;',
              'current*=1;','HDR_EXPOSURE_HIGHLIGHT_ORACLE')]
+    if args.recorded:
+        controls += [('ignore-depth','residual_accumulator_shader.hpp','if(DepthEnabled!=0){','if(false){','QUALITY_DEPTH_REJECTION_ORACLE'),
+            ('disable-statistics','residual_accumulator_shader.hpp','if(StatsEnabled!=0&&(p.x&7u)==0&&(p.y&7u)==0){','if(false){','QUALITY_GPU_WARMUP_SAMPLE_ORACLE')]
     for label,file,before,after,oracle in controls:
         work=out/label;work.mkdir(exist_ok=True)
         for n in names:shutil.copyfile(frozen/n,work/n)

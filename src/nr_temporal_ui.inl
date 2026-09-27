@@ -17,8 +17,8 @@ void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
         "运动来源（原生向量或 AMD 光流）用于对齐历史，本身不负责降噪。低频模式稳定 NR 修改量并保留本帧细节；提交不证明画面采用了历史。"));
     SettingsNote(ui("AMDOF supports native SR before/after NR and successful RR followed by NR. SDR and declared linear HDR with valid exposure are supported. Pre-SR uses whole-chain scope. Other inputs retain the current NR result.",
         "AMDOF 支持原生 SR 前后增强及成功 RR 后增强；可处理 SDR 和曝光有效的线性 HDR。前置限整链范围，其余输入保留当前 NR 结果。"));
-    SettingsNote(ui("Native motion currently requires a proven post-SR SDR snapshot. HDR uses AMDOF here. Present requires its own proven colour lineage and adoption; an NR submission alone is insufficient. Motion does not replace model guides or remove existing ghosts.",
-        "原生运动目前需后置 SR 的 SDR 安全快照；HDR 请选 AMDOF。Present 还需独立证明颜色来源与实际采用，只有 NR 提交并不足够。运动不替换模型导引，也不保证消除已有拖影。"));
+    SettingsNote(ui("Native motion requires a proven post-SR snapshot: SDR or declared linear HDR with same-frame exposure. RR post and Present use AMDOF; Present additionally requires exact colour lineage. Motion does not replace model guides or guarantee ghost removal.",
+        "原生运动需后置 SR 的安全快照：SDR，或具有同帧曝光证明的线性 HDR。RR 后置和 Present 使用 AMDOF；Present 还需精确颜色来源。运动不替换模型导引，也不保证消除拖影。"));
     if(next.temporal_scope&&next.nr_passes<2)SettingsNote(ui("Later-layer scope is unavailable with one layer; the selection is retained.","仅一层时后续层范围不可用，保留所选范围。"));
     if(next.temporal_backend){
         const auto gpu_config=nr_temporal_status::gpu_config.load();

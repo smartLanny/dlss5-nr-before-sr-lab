@@ -105,8 +105,9 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
                 'DX12 Feature1 pre-SR explicit SDR whole-chain':['AMD'],
                 'DX12 proven RR post SDR':['AMD'],
                 'DX12 Present SDR exact content lineage single swapchain whole chain':['AMD'],
-                'DX12 declared-linear-HDR pre-SR whole/post-SR/post-RR; same-frame PreExposure':['AMD']},
-            'not_connected':['unknown-or-PQ-HDR','HDR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
+                'DX12 declared-linear-HDR pre-SR whole/post-RR; same-frame PreExposure':['AMD'],
+                'DX12 post-SR declared-linear-HDR; same-frame PreExposure and native snapshot proof':['native','AMD']},
+            'not_connected':['unknown-or-PQ-HDR','RR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
             'cpu_readback_wait':False,'history_half_life_ms':60,'global_history_weight_scale':0.65,'per_pixel_optical_flow_confidence':False,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,

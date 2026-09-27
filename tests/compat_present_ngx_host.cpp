@@ -202,8 +202,14 @@ int wmain(int argc,wchar_t** argv){
             Check(c->temporal&&nr_temporal_status::recorded.load()>=target&&nr_temporal_status::submitted.load()>=target,
                 "actual Present consumer records and submits temporal work");
             Check(!c->temporal->releasable(),"completed GPU still retains live recording references");
-            std::printf("TEMPORAL mode=%u recorded=%llu submitted=%llu retainedBytes=%llu; actual consumer, controlled source receipt\n",
-                g_config.temporal_mode,nr_temporal_status::recorded.load(),nr_temporal_status::submitted.load(),c->temporal->stats().bytes);
+            const auto gpu=c->temporal->stats();
+            Check(gpu.gpu_configuration==g_config_generation.load()&&gpu.gpu_owner==c->generation,
+                "Present GPU decisions belong to the submitted configuration and owner");
+            Check(gpu.gpu_frames>0&&gpu.gpu_tested>0&&gpu.gpu_adopted>0,
+                "Present actually adopts sampled history after optical-flow warmup");
+            std::printf("TEMPORAL mode=%u recorded=%llu submitted=%llu retainedBytes=%llu sampledTested=%llu sampledAdopted=%llu sampledRejected=%llu; actual consumer, controlled source receipt\n",
+                g_config.temporal_mode,nr_temporal_status::recorded.load(),nr_temporal_status::submitted.load(),gpu.bytes,
+                gpu.gpu_tested,gpu.gpu_adopted,gpu.gpu_rejected);
         }
         const auto capture_deadline=GetTickCount64()+10000;
         while((nr_dual_capture::workers.load()||present::nr_present_capture::status.load()==1)&&GetTickCount64()<capture_deadline){present::nr_present_capture::Collect();Sleep(2);}
