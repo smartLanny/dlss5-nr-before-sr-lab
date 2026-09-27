@@ -2,6 +2,7 @@
 // resource ownership, Execute/Signal and Reset/retirement remain on the raw list.
 // ReShade owns both its heap objects and virtual CPU descriptor handles. Do not
 // partially unwrap this protocol or cache an interface past the native call.
+extern std::atomic<unsigned long long> g_command_state_epoch;
 ID3D12GraphicsCommandList* NrPrivateOriginalCallList(ID3D12GraphicsCommandList* native) {
     if(!native)return nullptr;
     static constexpr GUID unwrap={0x7f2c9a11,0x3b4e,0x4d6a,
