@@ -97,8 +97,6 @@ def apply(stage:Path,inputs,h):
     state=read;return true;
 }
 Source CurrentSource(){''','private SR native state evidence'))
-    update('src/nr_settings_ui.inl',lambda s:h.once(s,'#include "nr_temporal_ui.inl"',
-        '#include "nr_temporal_ui.inl"\n#include "nr_private_sr_ui.inl"','private SR bilingual UI'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',r'''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     FeedbackAppend(s,"%s.privateSR.state=%s\n%s.privateSR.guideReason=%u\n%s.privateSR.requested=%llu\n%s.privateSR.rejected=%llu\n%s.privateSR.guideCaptures=%llu\n%s.privateSR.createRecordings=%llu\n%s.privateSR.recorded=%llu\n%s.privateSR.composed=%llu\n%s.privateSR.submitted=%llu\n%s.privateSR.adopted=%llu\n%s.privateSR.planeBytes=%llu\n%s.privateSR.peakPlaneBytes=%llu\n%s.privateSR.retired=%llu\n",
         prefix,nr_private_sr_status::Name(nr_private_sr_status::state.load()),prefix,nr_private_sr_status::guide_reason.load(),

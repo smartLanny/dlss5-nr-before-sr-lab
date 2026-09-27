@@ -155,6 +155,9 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
 
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
 #include "nr_temporal_ui.inl"
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+#include "nr_private_sr_ui.inl"
+#endif
 #endif
 void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {
     SettingsSection(NrUi("Colour comparisons","颜色对照"));
