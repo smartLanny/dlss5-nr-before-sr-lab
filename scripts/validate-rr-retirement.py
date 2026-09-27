@@ -24,6 +24,9 @@ def main():
         if args.negative_control:
             body=body.replace(retirement_guard,'        if (feature.feature_id == 1) {')
         hooks.append(body)
+    private_hooks = ['nr_post_product::PrivateCall()' in body for body in hooks]
+    if any(private_hooks) and not all(private_hooks):
+        raise SystemExit('Private release guard must cover all three hook layers')
     prefix=r'''
 #include <atomic>
 #include <cstdio>
@@ -34,12 +37,14 @@ constexpr unsigned kNgxSuccess=1,kNgxFeatureNotFound=2;
 enum class NgxLayer {Dlss,Core,Dlssd}; enum class NgxOwner {Game,ExternalNr};
 struct ScopedNgxLayer { explicit ScopedNgxLayer(NgxLayer){} };
 struct FeatureRecord { NgxHandle*handle; int feature_id; NgxOwner owner=NgxOwner::Game; NgxHandle*context_handle=nullptr; unsigned long long generation=1; } record;
-void ObserveNgxRelease(const NgxHandle*){}
+unsigned observed=0,lookups=0;
+void ObserveNgxRelease(const NgxHandle*){++observed;}
+namespace nr_post_product { bool private_call=false; bool PrivateCall(){return private_call;} }
 unsigned g_release_hook_depth=0,calls=0,retired=0,forgotten=0;int g_chain_cs=0,locks=0;
 NgxResult native_result=0;
 std::atomic<bool> g_shortfuse_nr_enabled{false},g_feature_tracking_uncertain{false};
 bool LatchGenericRenoDxConflictIfLoaded(){return false;}
-FeatureRecord FindFeature(NgxHandle*){return record;}
+FeatureRecord FindFeature(NgxHandle*){++lookups;return record;}
 enum class ModuleObserverFault{UnknownRelease};
 void LatchUnknownFeatureHandle(const char*,const char*,ModuleObserverFault){}
 void LatchNestedRrOwnershipChange(const char*){}
@@ -56,6 +61,7 @@ auto g_original_release=NativeRelease,g_original_core_release=NativeRelease,g_or
 '''
     suffix=r'''
 int main(){unsigned checks=0;NgxHandle h;
+@PRIVATE_CASES@
  for(auto hook:{HookRelease,HookCoreRelease,HookDlssdRelease})
  for(int feature:{1,13,18}) for(unsigned result:{1u,2u,3u}) for(unsigned nested:{0u,1u}){
   record={&h,feature};record.context_handle=&h;native_result=result;g_release_hook_depth=nested;
@@ -69,6 +75,20 @@ int main(){unsigned checks=0;NgxHandle h;
  std::printf("PASS actual Release hooks: %u retirement/result/nesting scenarios\n",checks);
 }
 '''
+    private_cases=r'''
+ nr_post_product::private_call=true;
+ for(auto hook:{HookRelease,HookCoreRelease,HookDlssdRelease})
+ for(int feature:{1,13,18}) for(unsigned result:{1u,2u,3u}) for(unsigned nested:{0u,1u}){
+  record={&h,feature};record.context_handle=&h;native_result=result;g_release_hook_depth=nested;
+  calls=retired=forgotten=observed=lookups=0;locks=0;
+  auto returned=hook(&h);
+  if(returned!=result||calls!=1||retired||forgotten||observed||lookups||locks||g_release_hook_depth!=nested){
+    std::fprintf(stderr,"FAIL private Release passthrough feature=%d result=%u nested=%u\n",feature,result,nested);return 1;}
+  ++checks;
+ }
+ nr_post_product::private_call=false;
+'''
+    suffix=suffix.replace('@PRIVATE_CASES@',private_cases if all(private_hooks) else '')
     with tempfile.TemporaryDirectory(prefix='nr-rr-retire-') as tmp:
         cpp=Path(tmp)/'retire.cpp';exe=Path(tmp)/'retire.exe'
         cpp.write_text(prefix+'\n'.join(hooks)+suffix,encoding='utf-8')
