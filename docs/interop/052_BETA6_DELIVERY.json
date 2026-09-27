@@ -1,0 +1,731 @@
+{
+  "schema": "dlss5-unified-candidate-delivery/v3",
+  "candidate": "0.5.2-beta.6",
+  "pe_version": "0.5.2.6",
+  "source_commit": "e7407a39d12a6d43bf4e557f8c041e8361296831",
+  "draft_pr": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/313",
+  "main_integrated": "b2990b120337cdd8026f83a1bd369f3708b78fbe",
+  "d21_comparison_source": "cbfb33919696a2840ed5154c91abaea56228b661",
+  "generated_cpp": {
+    "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/src/nr_before_sr.cpp",
+    "bytes": 877988,
+    "sha256": "e7db8fc1cb7d9ac35d67c6e62998a42946a2aef85afbacbf896797f8f184cafd"
+  },
+  "payload": [
+    {
+      "language": "zh-CN",
+      "core": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-zh-CN/nr-before-sr.0.5.2-beta.6.zh-CN.addon64",
+        "bytes": 18001408,
+        "sha256": "fffcae611a6efef37f6c838255e3bc3df4c315f826b91425dc9bff156ab7736e"
+      },
+      "ota": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/DLSS5-0.5.2-beta.6-zh-CN-Core-OTA.zip",
+        "bytes": 2603374,
+        "sha256": "d2c301ebe6c373a00aba1b6740e717d9d3453661c6be436ec75f3e6a2d353eb4"
+      },
+      "package_receipt": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/package-receipt.json",
+        "bytes": 2009,
+        "sha256": "4491e7474feb5679ea505f0e8c7a6aa21ad20c7ae562c9e3f2b2ad9d6e650830"
+      }
+    },
+    {
+      "language": "en",
+      "core": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-en/nr-before-sr.0.5.2-beta.6.en.addon64",
+        "bytes": 17914368,
+        "sha256": "e2529fa9cd7ce5cf3b607c4080b8baa4ca8fa55e4aedaf4528fa6b63eaee7971"
+      },
+      "ota": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-en/DLSS5-0.5.2-beta.6-en-Core-OTA.zip",
+        "bytes": 2570304,
+        "sha256": "e7c536f9ad9a4bda1f2e8fa77b915cafa913f2e77e8ce1ef4a4d59227c65c630"
+      },
+      "package_receipt": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-en/package-receipt.json",
+        "bytes": 2000,
+        "sha256": "84f24d7c7070a9f6568b382a454b20101409cb0c4c3d41cf67970c7b5b1e5b83"
+      }
+    }
+  ],
+  "shared_bridge": {
+    "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/build/nrchain_nvngx.dll",
+    "bytes": 222720,
+    "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+  },
+  "nr_runtimes": [
+    {
+      "group": "RTX20-30",
+      "file": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/runtime-RTX20-30/nvngx_dlssnr.dll",
+        "bytes": 309671536,
+        "sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8"
+      },
+      "bundled_in_core_ota": false,
+      "new_hardware_group_benchmark": false
+    },
+    {
+      "group": "RTX40-50",
+      "file": {
+        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/runtime-RTX40-50/nvngx_dlssnr.dll",
+        "bytes": 165844992,
+        "sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
+      },
+      "bundled_in_core_ota": false,
+      "new_hardware_group_benchmark": false
+    }
+  ],
+  "software_validation": {
+    "path": "D:/ChatGPT/DLSS5/evidence/beta6-software-validation.json",
+    "bytes": 22176,
+    "sha256": "434f0d23028d3a3aeea2ce62cad1bd4adfa12747a5b664b4997c81dfd54a0aa0"
+  },
+  "evidence": {
+    "canonical_run": {
+      "path": "D:/ChatGPT/DLSS5/evidence/beta6-canonical-run.json",
+      "bytes": 295,
+      "sha256": "597d004fb933fbcfe009eca369cbfc8ab9e8b38cd684a46c6434ae49726c048c"
+    },
+    "canonical": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/validation.json",
+      "bytes": 4540,
+      "sha256": "3c85a1be2d1c9d5d9a5780ac843547f304fa01b5138057716ddee77b8739e11f"
+    },
+    "source_manifest": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/source-manifest.json",
+      "bytes": 89379,
+      "sha256": "8914ef8e4dd1b385c5affdeb1b6656bc82a103587ce1e5b09bfb2a470b1d932d"
+    },
+    "candidate": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/0.5.2-BETA.6-CANDIDATE.json",
+      "bytes": 3021,
+      "sha256": "39cc847c35b2f78d9a8e790211aeff7b9c73d11ea461e3c702617585f5e1264b"
+    },
+    "unified": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/unified8-checks/validation.json",
+      "bytes": 316,
+      "sha256": "9c330cdee557d5d2bd3c52625b5592d0fa08f7c83acb406a96314107f760bc92"
+    },
+    "reconstruction": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/reconstruction-checks/validation.json",
+      "bytes": 728,
+      "sha256": "6f66d092ea37d50393cb834471acc2fb25f5e1e52b88ebdf1737cf56fbb982d3"
+    },
+    "gpu_summary": {
+      "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-gpu-summary.json",
+      "bytes": 1002,
+      "sha256": "d157dcba620bfd3a43885711a1c24330e4625f5551375d8a390c9140bc39e739"
+    },
+    "reshade_summary": {
+      "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-summary.json",
+      "bytes": 7229,
+      "sha256": "fe7fded0834ab4d0aa426135df1b31f60282cf998eb1d0557641128ea4c71f37"
+    },
+    "manager_parser": {
+      "path": "D:/ChatGPT/DLSS5/evidence/beta6-ota-final-manager-r1/validation.json",
+      "bytes": 1811,
+      "sha256": "bcfba1f83e4c93d29eae0972ca70a0d96f90241822751cebf7041a501cf31092"
+    },
+    "private_call_list": {
+      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1.private-call-list-checks/validation.json",
+      "bytes": 1332,
+      "sha256": "01f21c7aac42a9dc8b4d4fc61700da9902c37e87c87d174acfc0f5c4a4e2bbad"
+    },
+    "canonical_build_log": {
+      "path": "D:/ChatGPT/DLSS5/evidence/beta6-canonical-build-e7407a39-r1.log",
+      "bytes": 241193,
+      "sha256": "449cbeec8a32957e7f082a3a6a5556a779bcebc84c2c27712e2a3f28a155f979"
+    }
+  },
+  "checks": [
+    {
+      "group": "final-core",
+      "name": "warp",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-warp-r1/validation.json",
+        "bytes": 17506,
+        "sha256": "09a43323a79b07a42cf4ffc46f84e5efca86902aaf61641e1d5389749d7e9821"
+      },
+      "metrics": [],
+      "runtime_sha256": {},
+      "scope": "Unchanged Core callbacks with controlled model output and synthetic native parameter/resource inputs; no real NVIDIA NGX inference, actual Feature18 multi-layer scheduler, or games."
+    },
+    {
+      "group": "final-core",
+      "name": "hardware",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-hardware-r1/validation.json",
+        "bytes": 12145,
+        "sha256": "9495473974094ed1de3210daa1de9336419e0c0a53d0651b124b387a17df3942"
+      },
+      "metrics": [],
+      "runtime_sha256": {},
+      "scope": "Unchanged Core callbacks with controlled model output and synthetic native parameter/resource inputs; no real NVIDIA NGX inference, actual Feature18 multi-layer scheduler, or games."
+    },
+    {
+      "group": "final-core",
+      "name": "real-sr",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-real-sr-r1/validation.json",
+        "bytes": 14090,
+        "sha256": "ea4275dcc56902a09e3f6ec693360df1d8b2ea6103be9043fa9127da31193756"
+      },
+      "metrics": [
+        {
+          "frame": 0,
+          "cpu_record_ms": 226.1247,
+          "cpu_submit_ms": 7.8798,
+          "cpu_retire_ms": 0.681,
+          "gpu_guides_ms": 0.006464,
+          "gpu_private_sr_ms": 6.4e-05,
+          "gpu_nr_chain_ms": 0.2048,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 8847360,
+          "dxgi_local_usage": 569245696
+        },
+        {
+          "frame": 1,
+          "cpu_record_ms": 86.8705,
+          "cpu_submit_ms": 0.6234,
+          "cpu_retire_ms": 0.3266,
+          "gpu_guides_ms": 0.006208,
+          "gpu_private_sr_ms": 6.4e-05,
+          "gpu_nr_chain_ms": 2.251936,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 8847360,
+          "dxgi_local_usage": 906821632
+        },
+        {
+          "frame": 2,
+          "cpu_record_ms": 22.2525,
+          "cpu_submit_ms": 0.1553,
+          "cpu_retire_ms": 0.5319,
+          "gpu_guides_ms": 0.005632,
+          "gpu_private_sr_ms": 0.036512,
+          "gpu_nr_chain_ms": 4.157792,
+          "nr_create": 0,
+          "produced": 1,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "frame": 3,
+          "cpu_record_ms": 1.4692,
+          "cpu_submit_ms": 0.1754,
+          "cpu_retire_ms": 0.3319,
+          "gpu_guides_ms": 0.00464,
+          "gpu_private_sr_ms": 0.189248,
+          "gpu_nr_chain_ms": 5.719872,
+          "nr_create": 0,
+          "produced": 2,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "frame": 4,
+          "cpu_record_ms": 1.0607,
+          "cpu_submit_ms": 0.1394,
+          "cpu_retire_ms": 0.2834,
+          "gpu_guides_ms": 0.005184,
+          "gpu_private_sr_ms": 0.169952,
+          "gpu_nr_chain_ms": 4.680896,
+          "nr_create": 0,
+          "produced": 3,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "frame": 5,
+          "cpu_record_ms": 0.92,
+          "cpu_submit_ms": 0.1372,
+          "cpu_retire_ms": 0.2649,
+          "gpu_guides_ms": 0.005184,
+          "gpu_private_sr_ms": 0.16976,
+          "gpu_nr_chain_ms": 4.158624,
+          "nr_create": 0,
+          "produced": 4,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "frame": 6,
+          "cpu_record_ms": 0.9284,
+          "cpu_submit_ms": 0.1356,
+          "cpu_retire_ms": 0.2709,
+          "gpu_guides_ms": 0.005088,
+          "gpu_private_sr_ms": 0.169984,
+          "gpu_nr_chain_ms": 4.154016,
+          "nr_create": 0,
+          "produced": 5,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "frame": 7,
+          "cpu_record_ms": 0.9109,
+          "cpu_submit_ms": 0.138,
+          "cpu_retire_ms": 0.2666,
+          "gpu_guides_ms": 0.0064,
+          "gpu_private_sr_ms": 0.170592,
+          "gpu_nr_chain_ms": 4.17312,
+          "nr_create": 0,
+          "produced": 6,
+          "plane_bytes": 8912896,
+          "dxgi_local_usage": 923852800
+        },
+        {
+          "timing_config": 1,
+          "timing_instance": 1,
+          "timing_samples": 0,
+          "first_create_ms": 0.031488,
+          "first_inference_ms": 0.185504,
+          "private_median_ms": 0.0,
+          "private_p95_ms": 0.0
+        },
+        {
+          "peak_plane_bytes": 8912896,
+          "retired_plane_bytes": 0,
+          "dxgi_before": 82616320,
+          "dxgi_after": 904323072
+        }
+      ],
+      "runtime_sha256": {
+        "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+        "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1",
+        "nvngx_dlssnr.dll": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
+      },
+      "scope": "CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark."
+    },
+    {
+      "group": "final-core",
+      "name": "real-rr",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-real-rr-r1/validation.json",
+        "bytes": 15582,
+        "sha256": "4b31a3e02eb51e2172f9eeb719aa6a8e2c7abe3e6b887b2ff48ae0219c9d4dec"
+      },
+      "metrics": [
+        {
+          "frame": 0,
+          "cpu_record_ms": 224.0112,
+          "cpu_submit_ms": 9.3256,
+          "cpu_retire_ms": 0.6675,
+          "gpu_guides_ms": 0.01168,
+          "gpu_private_sr_ms": 9.6e-05,
+          "gpu_nr_chain_ms": 0.264128,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 119537664,
+          "dxgi_local_usage": 1134825472
+        },
+        {
+          "frame": 1,
+          "cpu_record_ms": 91.3244,
+          "cpu_submit_ms": 0.7044,
+          "cpu_retire_ms": 0.6461,
+          "gpu_guides_ms": 0.011296,
+          "gpu_private_sr_ms": 9.6e-05,
+          "gpu_nr_chain_ms": 2.445984,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 119537664,
+          "dxgi_local_usage": 1519128576
+        },
+        {
+          "frame": 2,
+          "cpu_record_ms": 90.7121,
+          "cpu_submit_ms": 0.1285,
+          "cpu_retire_ms": 0.4109,
+          "gpu_guides_ms": 0.011456,
+          "gpu_private_sr_ms": 6.4e-05,
+          "gpu_nr_chain_ms": 4.63888,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 119537664,
+          "dxgi_local_usage": 1882525696
+        },
+        {
+          "frame": 3,
+          "cpu_record_ms": 88.2663,
+          "cpu_submit_ms": 0.0983,
+          "cpu_retire_ms": 0.3396,
+          "gpu_guides_ms": 0.011232,
+          "gpu_private_sr_ms": 6.4e-05,
+          "gpu_nr_chain_ms": 8.39088,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 119537664,
+          "dxgi_local_usage": 2245922816
+        },
+        {
+          "frame": 4,
+          "cpu_record_ms": 66.6977,
+          "cpu_submit_ms": 0.1759,
+          "cpu_retire_ms": 0.3458,
+          "gpu_guides_ms": 0.01168,
+          "gpu_private_sr_ms": 6.4e-05,
+          "gpu_nr_chain_ms": 10.746272,
+          "nr_create": 1,
+          "produced": 0,
+          "plane_bytes": 119537664,
+          "dxgi_local_usage": 2461536256
+        },
+        {
+          "frame": 5,
+          "cpu_record_ms": 29.7386,
+          "cpu_submit_ms": 0.1804,
+          "cpu_retire_ms": 0.3333,
+          "gpu_guides_ms": 0.011552,
+          "gpu_private_sr_ms": 0.064256,
+          "gpu_nr_chain_ms": 12.346432,
+          "nr_create": 0,
+          "produced": 1,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "frame": 6,
+          "cpu_record_ms": 2.4323,
+          "cpu_submit_ms": 0.22,
+          "cpu_retire_ms": 0.3079,
+          "gpu_guides_ms": 0.01136,
+          "gpu_private_sr_ms": 0.417856,
+          "gpu_nr_chain_ms": 11.243712,
+          "nr_create": 0,
+          "produced": 2,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "frame": 7,
+          "cpu_record_ms": 2.0766,
+          "cpu_submit_ms": 0.17,
+          "cpu_retire_ms": 0.3057,
+          "gpu_guides_ms": 0.011904,
+          "gpu_private_sr_ms": 0.347968,
+          "gpu_nr_chain_ms": 11.242976,
+          "nr_create": 0,
+          "produced": 3,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "frame": 8,
+          "cpu_record_ms": 1.9683,
+          "cpu_submit_ms": 0.1522,
+          "cpu_retire_ms": 0.3756,
+          "gpu_guides_ms": 0.012032,
+          "gpu_private_sr_ms": 0.335296,
+          "gpu_nr_chain_ms": 11.530272,
+          "nr_create": 0,
+          "produced": 4,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "frame": 9,
+          "cpu_record_ms": 2.0717,
+          "cpu_submit_ms": 0.1951,
+          "cpu_retire_ms": 0.3536,
+          "gpu_guides_ms": 0.012064,
+          "gpu_private_sr_ms": 0.34528,
+          "gpu_nr_chain_ms": 13.746368,
+          "nr_create": 0,
+          "produced": 5,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "frame": 10,
+          "cpu_record_ms": 2.1194,
+          "cpu_submit_ms": 0.1647,
+          "cpu_retire_ms": 0.3557,
+          "gpu_guides_ms": 0.012544,
+          "gpu_private_sr_ms": 0.33584,
+          "gpu_nr_chain_ms": 11.2256,
+          "nr_create": 0,
+          "produced": 6,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 2591506432
+        },
+        {
+          "timing_config": 1,
+          "timing_instance": 1,
+          "timing_samples": 0,
+          "first_create_ms": 0.060608,
+          "first_inference_ms": 0.4136,
+          "private_median_ms": 0.0,
+          "private_p95_ms": 0.0
+        },
+        {
+          "peak_plane_bytes": 119603200,
+          "retired_plane_bytes": 0,
+          "dxgi_before": 408793088,
+          "dxgi_after": 717963264
+        }
+      ],
+      "runtime_sha256": {
+        "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+        "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1",
+        "nvngx_dlssd.dll": "50eb21e654a1fd12403e000f5ac9c2488bf9149930c028e73196f3f1d47d10a9",
+        "nvngx_dlssnr.dll": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
+      },
+      "scope": "CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark."
+    },
+    {
+      "group": "final-core-reshade",
+      "name": "reshade-sr",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-sr-r1/validation.json",
+        "bytes": 13424,
+        "sha256": "6ee86a761b1614543a4e2ebe8bf5f72cd4bcb65a43634842c531bff2944f369d"
+      },
+      "metrics": [
+        {
+          "frame": 0,
+          "cpu_record_ms": 45.3976,
+          "cpu_submit_ms": 2.0833,
+          "cpu_retire_ms": 0.8565,
+          "gpu_guides_ms": 0.00688,
+          "gpu_private_sr_ms": 0.03824,
+          "gpu_nr_chain_ms": 6.4e-05,
+          "nr_create": 0,
+          "produced": 1,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "frame": 1,
+          "cpu_record_ms": 0.9566,
+          "cpu_submit_ms": 0.2286,
+          "cpu_retire_ms": 0.5185,
+          "gpu_guides_ms": 0.003968,
+          "gpu_private_sr_ms": 0.166848,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 2,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "frame": 2,
+          "cpu_record_ms": 0.4414,
+          "cpu_submit_ms": 0.157,
+          "cpu_retire_ms": 0.4053,
+          "gpu_guides_ms": 0.003808,
+          "gpu_private_sr_ms": 0.162784,
+          "gpu_nr_chain_ms": 6.4e-05,
+          "nr_create": 0,
+          "produced": 3,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "frame": 3,
+          "cpu_record_ms": 0.3421,
+          "cpu_submit_ms": 0.1549,
+          "cpu_retire_ms": 0.3901,
+          "gpu_guides_ms": 0.00352,
+          "gpu_private_sr_ms": 0.116384,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 4,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "frame": 4,
+          "cpu_record_ms": 0.3258,
+          "cpu_submit_ms": 0.1317,
+          "cpu_retire_ms": 0.3536,
+          "gpu_guides_ms": 0.003552,
+          "gpu_private_sr_ms": 0.114272,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 5,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "frame": 5,
+          "cpu_record_ms": 0.3115,
+          "cpu_submit_ms": 0.1452,
+          "cpu_retire_ms": 0.3392,
+          "gpu_guides_ms": 0.003616,
+          "gpu_private_sr_ms": 0.116128,
+          "gpu_nr_chain_ms": 6.4e-05,
+          "nr_create": 0,
+          "produced": 6,
+          "plane_bytes": 12845056,
+          "dxgi_local_usage": 258637824
+        },
+        {
+          "timing_config": 1,
+          "timing_instance": 1,
+          "timing_samples": 0,
+          "first_create_ms": 0.03504,
+          "first_inference_ms": 0.163776,
+          "private_median_ms": 0.0,
+          "private_p95_ms": 0.0
+        },
+        {
+          "peak_plane_bytes": 12845056,
+          "retired_plane_bytes": 0,
+          "dxgi_before": 80322560,
+          "dxgi_after": 242712576
+        }
+      ],
+      "runtime_sha256": {
+        "d3d12.dll": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+        "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+        "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1"
+      },
+      "scope": "CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark."
+    },
+    {
+      "group": "final-core-reshade",
+      "name": "reshade-rr",
+      "receipt": {
+        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-rr-r1/validation.json",
+        "bytes": 13426,
+        "sha256": "07c970c22b8b03eb1938cc22b35490dfe23035e356eab4b6efc8d056547dc7f2"
+      },
+      "metrics": [
+        {
+          "frame": 0,
+          "cpu_record_ms": 57.8574,
+          "cpu_submit_ms": 2.1876,
+          "cpu_retire_ms": 0.8676,
+          "gpu_guides_ms": 0.011168,
+          "gpu_private_sr_ms": 0.074528,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 1,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "frame": 1,
+          "cpu_record_ms": 1.2307,
+          "cpu_submit_ms": 0.2058,
+          "cpu_retire_ms": 0.5228,
+          "gpu_guides_ms": 0.011328,
+          "gpu_private_sr_ms": 0.42288,
+          "gpu_nr_chain_ms": 6.4e-05,
+          "nr_create": 0,
+          "produced": 2,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "frame": 2,
+          "cpu_record_ms": 0.7405,
+          "cpu_submit_ms": 0.1811,
+          "cpu_retire_ms": 0.4516,
+          "gpu_guides_ms": 0.013056,
+          "gpu_private_sr_ms": 0.3552,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 3,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "frame": 3,
+          "cpu_record_ms": 0.6212,
+          "cpu_submit_ms": 0.2032,
+          "cpu_retire_ms": 0.5093,
+          "gpu_guides_ms": 0.011904,
+          "gpu_private_sr_ms": 0.344704,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 4,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "frame": 4,
+          "cpu_record_ms": 0.8446,
+          "cpu_submit_ms": 0.2779,
+          "cpu_retire_ms": 0.5327,
+          "gpu_guides_ms": 0.011392,
+          "gpu_private_sr_ms": 0.3536,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 5,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "frame": 5,
+          "cpu_record_ms": 0.8639,
+          "cpu_submit_ms": 0.2164,
+          "cpu_retire_ms": 0.536,
+          "gpu_guides_ms": 0.010848,
+          "gpu_private_sr_ms": 0.342688,
+          "gpu_nr_chain_ms": 9.6e-05,
+          "nr_create": 0,
+          "produced": 6,
+          "plane_bytes": 119603200,
+          "dxgi_local_usage": 809951232
+        },
+        {
+          "timing_config": 1,
+          "timing_instance": 1,
+          "timing_samples": 0,
+          "first_create_ms": 0.070848,
+          "first_inference_ms": 0.418592,
+          "private_median_ms": 0.0,
+          "private_p95_ms": 0.0
+        },
+        {
+          "peak_plane_bytes": 119603200,
+          "retired_plane_bytes": 0,
+          "dxgi_before": 410497024,
+          "dxgi_after": 687267840
+        }
+      ],
+      "runtime_sha256": {
+        "d3d12.dll": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7",
+        "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+        "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1",
+        "nvngx_dlssd.dll": "50eb21e654a1fd12403e000f5ac9c2488bf9149930c028e73196f3f1d47d10a9"
+      },
+      "scope": "CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark."
+    }
+  ],
+  "game_acceptance": "pending-maintainer-retest; Beta5 comparison failed during first private Create",
+  "online_ota_published": false,
+  "main_merged": false,
+  "manager_default_changed": false,
+  "manager_ui_tested": false,
+  "deployment": {
+    "status": "deployed-by-6sol-no-game-operation",
+    "receipt": {
+      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/installation-receipt.json",
+      "bytes": 1925,
+      "sha256": "22be0cf0543f0a186685ed7155751933d06ac38b160e4b66a1b78c7cc8e4f9c5"
+    },
+    "rollback": {
+      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/rollback-portable.zip",
+      "bytes": 2528818,
+      "sha256": "5e612e6d2d7be7d7cb55cc9b6674d842ea3e8c9e214639763c8fd9b3298fd98d"
+    },
+    "ini_preserved": true,
+    "game_started_or_tested": false,
+    "rollback_validation": {
+      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/portable-rollback-receipt.json",
+      "bytes": 1082,
+      "sha256": "3e8565d41aeca179689c9c8e71a584162867209ed2264c7d914c46e49f4ab975"
+    }
+  },
+  "limitations": [
+    "No complete ReShade + multi-layer Feature18 fixture pass: its opposite interface mixing failure is preserved; game verification remains required.",
+    "Short inference checks do not establish steady median/P95 or the <=3% whole-frame denoising target.",
+    "No new ResidualDenoise product switch; independent RR/NVOF/model-motion research retains prior experimental scope.",
+    "Screenshots compare different display times, not exact same-frame B/Z; screenshot capture is separate from performance timing."
+  ]
+}
