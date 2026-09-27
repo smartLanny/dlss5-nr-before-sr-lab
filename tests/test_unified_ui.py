@@ -84,9 +84,14 @@ class UnifiedUi(unittest.TestCase):
         self.assertEqual(self.settings.count('void DrawSettings('),1)
         core = (GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
         version = re.search(r'kAddonVersion\s*=\s*"([^"]+)"',core).group(1)
+        identity = re.search(r'kBuildIdentity\s*=\s*"([^"]+)"',core).group(1)
+        resource = (GENERATED/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
+        self.assertIn(version,resource)
         for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
             payload_identity = (GENERATED/path).read_text(encoding='utf-8-sig')
-            self.assertIn(version,payload_identity)
+            self.assertIn(identity,payload_identity)
+        self.assertEqual(identity,'0.5.2-beta.1')
+        self.assertEqual(version,'0.5.2 Beta 1')
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
             # Exported files are canonical Git blobs, not CRLF working-tree bytes.
             frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)

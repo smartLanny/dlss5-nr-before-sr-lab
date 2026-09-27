@@ -25,10 +25,10 @@ if ($QualitySuccessor) {
         $LeafVersion = $CandidateVersion
     } else {
         $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
-        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
+        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(0\.5\.2-beta\.[1-9][0-9]*|beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
         if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
         $CandidateVersion = $VersionMatch.Groups[1].Value
-        $LeafVersion = $VersionMatch.Groups[2].Value
+        $LeafVersion = if ($VersionMatch.Groups[2].Success) { $VersionMatch.Groups[2].Value } else { $CandidateVersion }
     }
 } else {
     $LeafVersion = 'perf12'

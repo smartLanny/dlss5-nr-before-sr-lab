@@ -1,0 +1,154 @@
+{
+  "schema": "guide-domain-validation-v1",
+  "pr": 308,
+  "base_pr": 307,
+  "base_commit": "e9313af1d4a8640e9f3d2f89a47aa54b634d7d9f",
+  "executed_runtime_commit": "90666f3ea725b9722e2d48edb31620100392981a",
+  "generated_source_sha256": "04cc32ff88e808980482744c91bf5b628da39b59bda36920d4cb1146560159dd",
+  "raw_guide": {
+    "success": true,
+    "generated_core": false,
+    "source_compile_verified": true,
+    "gpu_verified": false,
+    "ngx_verified": false,
+    "game_verified": false,
+    "source_sha256": "8247536d4ce5abdf76ab63aa661871bce365e62e99c956e8a04a43ed76fa4fc6",
+    "capture_types_sha256": "21732ec18d3a45dad32bae03bec653b6e52793671eac3e9a23df64e5905b5ff0",
+    "capture_writer_sha256": "4952d27208fae21400a50e66cbd4d43cc31b8701875d63e179ef556c1a732d30",
+    "actual_function_and_negative_controls": [
+      {
+        "name": "production",
+        "passed": true,
+        "exit_code": 0,
+        "expected_failure": null
+      },
+      {
+        "name": "missing-empty-grid-guard",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "empty grid rejects before any resource lookup"
+      },
+      {
+        "name": "missing-converted-scale-guard",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "non-finite converted motion scale rejects before opaque NGX"
+      },
+      {
+        "name": "storage-confused-with-measurement-grid",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "MV.Scale remains render-referenced even for full-resolution storage"
+      }
+    ],
+    "actual_capture_json_verified": true,
+    "limitations": [
+      "NGX/resources/context services are CPU seams.",
+      "Matching raster sizes does not prove Feature18 guide use or temporal quality.",
+      "NGX input provenance is not inferred to be game-native.",
+      "Valid mapped values keep the established float operations and R reference."
+    ]
+  },
+  "generated_guide": {
+    "success": true,
+    "generated_core": true,
+    "source_compile_verified": true,
+    "gpu_verified": false,
+    "ngx_verified": false,
+    "game_verified": false,
+    "source_sha256": "04cc32ff88e808980482744c91bf5b628da39b59bda36920d4cb1146560159dd",
+    "capture_types_sha256": "21732ec18d3a45dad32bae03bec653b6e52793671eac3e9a23df64e5905b5ff0",
+    "capture_writer_sha256": "4952d27208fae21400a50e66cbd4d43cc31b8701875d63e179ef556c1a732d30",
+    "actual_function_and_negative_controls": [
+      {
+        "name": "production",
+        "passed": true,
+        "exit_code": 0,
+        "expected_failure": null
+      },
+      {
+        "name": "missing-empty-grid-guard",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "empty grid rejects before any resource lookup"
+      },
+      {
+        "name": "missing-converted-scale-guard",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "non-finite converted motion scale rejects before opaque NGX"
+      },
+      {
+        "name": "storage-confused-with-measurement-grid",
+        "passed": true,
+        "exit_code": 1,
+        "expected_failure": "MV.Scale remains render-referenced even for full-resolution storage"
+      }
+    ],
+    "actual_capture_json_verified": true,
+    "limitations": [
+      "NGX/resources/context services are CPU seams.",
+      "Matching raster sizes does not prove Feature18 guide use or temporal quality.",
+      "NGX input provenance is not inferred to be game-native.",
+      "Valid mapped values keep the established float operations and R reference."
+    ]
+  },
+  "full_translation_unit_warp": {
+    "compile_exit": 0,
+    "cpu_exit": 0,
+    "cpu_checks": 2225,
+    "warp_exit": 0,
+    "warp_checks": 669,
+    "gpu_executed": true,
+    "scope": "Real D3D12 WARP native descriptor/clear/lifetime/pixel fixtures; full final Core C++ translation unit compiled and linked. No Feature18 or game.",
+    "temporal_module_manifest_sha256": "aadf6968b62986177bd0857c6ba0d30ccb8a6e0f3726493b7255b4245ca91a53",
+    "object_reuse": "Unchanged temporal source plus every pinned SDK/module object verified by the fixture before link. No source overlay.",
+    "fixture_source_sha256": "83a57345e774e95e2bec8060a398a56763123aa7a52b3b2027234d726d6804bc",
+    "original_source_sha256": "04cc32ff88e808980482744c91bf5b628da39b59bda36920d4cb1146560159dd"
+  },
+  "f8_coordinator": {
+    "scope": "raw production coordinator, stream writer and ZIP using fake GPU/NGX; real IO and independent parser",
+    "checks": 1297,
+    "passed": true,
+    "capture_types_unchanged_after_this_run": true
+  },
+  "canonical_generation": {
+    "passed": true,
+    "tests": 46,
+    "skipped": 0,
+    "notes": "User-control compiler environment supplied for final export; all four tests ran."
+  },
+  "multi_api_python_suite": {
+    "discovered": 83,
+    "executed": 77,
+    "skipped": 6,
+    "failed": 0,
+    "skip_reasons": [
+      "real face packaging assets not selected",
+      "external full-core environment for legacy exposure/format/post fixtures not selected",
+      "pinned carrier environment for legacy ABI fixture not selected",
+      "portable clang++/g++ not selected for legacy RR fixture"
+    ],
+    "note": "These skips are not counted as passes; final canonical Core separately compiled/linked and WARP-tested."
+  },
+  "codec_unchanged_from_base": true,
+  "codec_shader_text_sha256": "66d59ae9daea77861e3cf27803751df6b05e3ac8bf9938d51087e06046ad6c38",
+  "shipping_addon_bilingual_build_complete": false,
+  "full_cumulative_candidate_gates_complete": false,
+  "nvidia_ngx_verified": false,
+  "game_verified": false,
+  "performance_or_visual_benefit_claimed": false,
+  "earlier_attempts": [
+    "Synchronous 73f54212 whole-addon build timed out before completion.",
+    "Retry in same object folder hit existing bytecode directory; failed evidence retained.",
+    "Fresh whole-addon build on superseded 73f54212 was explicitly cancelled after final runtime advanced to 90666f3e; own process tree only, no other agent touched.",
+    "Legacy F8 coordinator with generated config lacks its generated policy includes; not counted as success. Raw coordinator and exact final generated serializer tested separately."
+  ],
+  "local_evidence": "Isolated worktree build/guide-audit-evidence; no game deployment, Release or main merge.",
+  "test_script_sha256": {
+    "scripts/validate-guide-domain.py": "1b69355c7eefefee3b25cf64402ca8e5dfaae6c9954b477bc4f716a9655864e6",
+    "scripts/validate-guide-history.py": "299b8176252331263c592866c2838e80cb95ddb3e035e4b5e88a8070c5bd9d92",
+    "scripts/validate-descriptor-provenance.py": "3e41f0fdb1363cd861d97bdebc94635cb9bde6e6c8a153a3c738fc667522011a",
+    "scripts/validate-f8-controller.py": "1d3c1d9f44a3b514d9d590f61dc317b5a2c1d3b40c333ce1bfa8f0ec91107bbf"
+  }
+}

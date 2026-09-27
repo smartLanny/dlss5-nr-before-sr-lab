@@ -38,6 +38,10 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+& python (Join-Path $PSScriptRoot '../tests/test_product_identity.py') -v
+if ($LASTEXITCODE) { throw 'Final product identity regression failed.' }
+& python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --output ($OutputRoot + '.guide-domain-checks')
+if ($LASTEXITCODE) { throw 'Guide domain, invalid scale or negative-control regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-reconstruction-math.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'math')
 if ($LASTEXITCODE) { throw 'Reconstruction production math/policy failed.' }
 & python (Join-Path $PSScriptRoot 'validate-reconstruction-ui.py') --compiler $Cxx --output (Join-Path $ReconstructionPre 'ui')
@@ -52,6 +56,8 @@ $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
 $Core=Join-Path $OutputRoot 'source/core'
 $Source=Join-Path $Core 'src/nr_before_sr.cpp'
 $Tests=Join-Path $OutputRoot 'unified8-checks'
+& python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --source $Source --output (Join-Path $Tests 'guide-domain')
+if ($LASTEXITCODE) { throw 'Generated Core guide-domain regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-acceptance.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'acceptance')
 if ($LASTEXITCODE) { throw 'Actual acceptance controller failed.' }
 & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --acceptance --acceptance-negative --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'acceptance-negative')

@@ -90,7 +90,11 @@ class Lockperf2Workflow(unittest.TestCase):
         current = read('scripts/patch-colour-edge.py')
         actual = re.search(pattern, current)
         self.assertIsNotNone(actual)
-        self.assertEqual(actual.group(1), 'beta0.5-dline21-unified10-reconstruction1-ui1')
+        self.assertEqual(actual.group(1), '0.5.2-beta.1')
+        for value in ('0.5.2-beta.1','0.5.2-beta.12'):
+            self.assertEqual(re.search(pattern, "VERSION = '"+value+"'\n").group(1),value)
+        for value in ('0.5.2-beta.0','0.5.2-beta.01','0.5.2-beta.1/extra','../0.5.2-beta.1'):
+            self.assertIsNone(re.search(pattern, "VERSION = '"+value+"'\n"))
         for leaf in ('unified10', 'unified10-inbox1', 'unified10-reconstruction1', 'unified10-reconstruction1-ui1'):
             match = re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n")
             self.assertIsNotNone(match)

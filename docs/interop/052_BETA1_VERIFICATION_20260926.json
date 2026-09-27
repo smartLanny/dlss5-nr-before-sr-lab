@@ -1,0 +1,131 @@
+{
+  "schema": "dlss5-052-beta1-complete-acceptance-v1",
+  "source_commit": "c382bd19fb9a759e57319feb4ea09b9c0caa9962",
+  "verified_utc": "2026-09-26T08:00:37.683795+00:00",
+  "full_windows_exit": 0,
+  "canonical_groups": 46,
+  "generated_files_verified": 287,
+  "final_guide_and_serializer_verified": true,
+  "positive_and_three_negative_guide_controls": true,
+  "same_codec_variants_as_ui1": 26,
+  "backends": {
+    "warp": {
+      "receipt_sha256": "73ee4156fb22840aa3b66caf9db2b350dd4c918357ceb53153a76a5bf481c77c",
+      "runs": [
+        {
+          "name": "extract",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 0.062000000034458935
+        },
+        {
+          "name": "compile",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 1.1089999999385327
+        },
+        {
+          "name": "positive",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 22.5
+        },
+        {
+          "name": "negative-disabled-protection",
+          "exit": 1,
+          "expected": 1,
+          "seconds": 21.57900000002701
+        }
+      ]
+    },
+    "hardware": {
+      "receipt_sha256": "7d048e4358a3c4b5f0429007edb397fbfd1525fd77afd6bb597c3c707b921487",
+      "runs": [
+        {
+          "name": "extract",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 0.06199999991804361
+        },
+        {
+          "name": "compile",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 1.1099999999860302
+        },
+        {
+          "name": "positive",
+          "exit": 0,
+          "expected": 0,
+          "seconds": 0.8900000000139698
+        },
+        {
+          "name": "negative-disabled-protection",
+          "exit": 1,
+          "expected": 1,
+          "seconds": 0.375
+        }
+      ]
+    }
+  },
+  "binaries": [
+    {
+      "file": "DLSS5-AI-Rendering-Upscaling-0.5.2-beta.1-@野生的装机宅-Bilibili.en.addon64",
+      "bytes": 17626112,
+      "sha256": "367f83d95c1e180440d73463864635d563c618f0a407fa74b3e22225e01036f2"
+    },
+    {
+      "file": "DLSS5-AI渲染超分版-0.5.2-beta.1-@野生的装机宅-Bilibili.addon64",
+      "bytes": 17707520,
+      "sha256": "2b0a6a36843b8dc4f7cc0dfb6c10af6e917270215f95a1588a0a4ed333858da7"
+    },
+    {
+      "file": "nrchain_nvngx.dll",
+      "bytes": 222720,
+      "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    },
+    {
+      "file": "dlss5-native-carrier-045-dx11-compat.addon64",
+      "bytes": 809984,
+      "sha256": "221a567301f88459725e4d107a618c6e32babb8c2b36e0e509ede7c07f671128"
+    }
+  ],
+  "actual_feature18": {
+    "passed": true,
+    "receipt_sha256": "1bfd01d0ca0379aead421dd72c7b3472ac66ef421c95b5961c3c00a1285e205b",
+    "scope": "actual frozen generated Core + signed fixed NR/SR; static synthetic planar 320x192 color/depth/zero-MV; cold/hot intensity recreation; no game",
+    "independent_process_runs": 6,
+    "captured_neural_planes": 100,
+    "paired_full_plane_comparisons": 80,
+    "byte_equal_pairs": 80,
+    "max_absolute_difference": 0.0,
+    "runtime_hashes": {
+      "nvngx_dlssnr.dll": "e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1fc8e",
+      "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1",
+      "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    },
+    "game_or_motion_quality": false
+  },
+  "game_verified": false,
+  "hosted_ci": false,
+  "debug_layer": false,
+  "shader_cache": "existing exact source/compiler/CSO validated cache; GPU tests executed anew",
+  "full_validation_receipt_sha256": "1471c51a2a88028b6b12612903d3dd61baf4a1db9821c2b1164e65802cff67fb",
+  "guide_receipt_sha256": "2532508414ff1926f92f4c8873c1fa37acdcfc6273378d9b8e12b579e0ac797c",
+  "source_manifest_sha256": "ca445975847c04e3be0e6ad79cee27443c0282a14ec9102959deb80340e76e2c",
+  "recorded_utc": "2026-09-26T08:09:36.245767+00:00",
+  "core_source_sha256": "bc6198dac66bb8f2a29055a845520f2d758c3122bf963630ba119077c6b9c51a",
+  "local_tests": {
+    "identity": 4,
+    "workflow": 7,
+    "packaging": 13,
+    "final_reconstruction_wiring": 11
+  },
+  "review": {
+    "base": "79d4a0c27c31f37ec2334b986197d7a2cf947433",
+    "candidate": "c382bd19fb9a759e57319feb4ea09b9c0caa9962",
+    "method": "single executing agent, scoped runtime-safety and functional review, not independent reviewers",
+    "unresolved_release_blocking_code_findings": 0,
+    "still_required": "short game regression for native SR/RR, scaled/multilayer/HDR/FG/resize; no measured FPS/VRAM or blackspot remedy claim"
+  }
+}

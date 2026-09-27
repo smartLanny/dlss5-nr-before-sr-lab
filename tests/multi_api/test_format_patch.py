@@ -87,7 +87,8 @@ class Patches(unittest.TestCase):
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
         # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
-        self.assertEqual(digest,'32bfacf33c88ede6436ecb6aa26003f739aa23c9')
+        # Reviewed guide-domain guards/capture only; colour shader is unchanged.
+        self.assertEqual(digest,'df3b6dfbe5c0c507bec49b5a8e78d37b7ca2a3d7')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

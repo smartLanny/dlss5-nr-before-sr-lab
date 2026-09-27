@@ -79,6 +79,9 @@ std::atomic<unsigned long long> g_nr_instance_serial{0}, g_next_nr_instance_id{0
 void CollectRetiredContextsLocked() {} // No fence has completed in this trace.
 bool DeferNrCreationForReleaseLocked(const NgxHandle* = nullptr) { return false; } // No retirement in this history-only fixture; actual scoped admission/collector/drain is covered separately.
 void Log(const char*, ...) {}
+enum class BypassReason { None, GuideContractInvalid };
+BypassReason bypass_reason=BypassReason::None;
+void SetBypassReason(BypassReason reason) { bypass_reason=reason; }
 // Stage capture stays off in the guide/context regression. Its request and
 // retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
 void PrepareStageCaptureContextLocked(const NgxHandle*, unsigned long long, int) {}
@@ -145,7 +148,9 @@ struct NgxParams {
     int reset=0;
 };
 D3D12_RESOURCE_DESC ID3D12Resource_GetDesc(ID3D12Resource* r) { return r->desc; }
+unsigned guide_resource_reads=0;
 bool GetResource(const NgxParams* p,const char* k,ID3D12Resource** out) {
+    ++guide_resource_reads;
     *out = !std::strcmp(k,"Depth") ? p->depth : !std::strcmp(k,"MotionVectors") ? p->motion : !std::strcmp(k,"Output") ? p->output : nullptr;
     return *out!=nullptr;
 }
@@ -264,6 +269,52 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
         check(resolved.signature.motion_scale_x==-2 && resolved.signature.motion_scale_y==4,
               "base post path retains original displacement units");
     }
+    // Real generated post uses N/R, independently of MV texture resolution.
+    // This guards against copying an output-grid assumption from another consumer.
+    for (int mode : {1,2}) {
+        if (mode==1 && !kPostWorkRaster) continue;
+        for (bool low : {false,true}) {
+            feature.create_flags=low?2:0;
+            params.scale_x=-1920; params.scale_y=1080;
+            params.motion_x=13; params.motion_y=7;
+            motion.desc={low?1940u:3860u,low?1090u:2170u,34};
+            for (unsigned n : {3840u,2688u,1920u,1901u,1728u,1344u,960u,480u}) {
+                const unsigned nh=n*9/16;
+                resolved={};
+                check(ResolveNrGuideBinding(&params,feature,mode,n,nh,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"all active work sizes accept legal atlas guides");
+                check(resolved.signature.motion_scale_x==-float(n) && resolved.signature.motion_scale_y==float(nh),"MV.Scale remains render-referenced even for full-resolution storage");
+                check(resolved.signature.depth_width==1920 && resolved.signature.depth_height==1080,"depth mismatch is an observation, not proof of a broken runtime contract");
+                check(resolved.capture_params.guide_domain_known && resolved.capture_params.render_width==1920 &&
+                    resolved.capture_params.work_width==n && resolved.capture_params.mv_source_width==(low?1920u:3840u) &&
+                    resolved.capture_params.mv_source_x==13 && resolved.capture_params.game_mv_low_resolution==low,
+                    "capture retains R, N, logical MV storage, atlas origin and original low-resolution flag");
+            }
+        }
+    }
+    params.motion_x=params.motion_y=0; feature.create_flags=2; motion.desc={1920,1080,34};
+    params.scale_x=-2; params.scale_y=4;
+    for (int mode : {1,2}) {
+        resolved={}; guide_resource_reads=0;
+        check(!ResolveNrGuideBinding(&params,feature,mode,0,1080,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"zero NR width rejects before context or recording");
+        check(guide_resource_reads==0,"empty grid rejects before any resource lookup");
+        resolved={};
+        check(!ResolveNrGuideBinding(&params,feature,mode,1920,0,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"zero NR height rejects before context or recording");
+    }
+    // Finite incoming scales can overflow AFTER a valid R->N conversion in post.
+    // No model, queue, or texture work is required to expose this defect.
+    for (int mode : {1,2}) {
+        if (mode==1 && !kPostWorkRaster) continue;
+        for (int axis : {0,1}) {
+            params.scale_x=axis==0?3.402823466e38f:-2.0f;
+            params.scale_y=axis==1?-3.402823466e38f:4.0f;
+            resolved={};
+            check(!ResolveNrGuideBinding(&params,feature,mode,3840,2160,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved),"non-finite converted motion scale rejects before opaque NGX");
+        }
+    }
+    check(bypass_reason==BypassReason::GuideContractInvalid,"invalid mapping has an actionable bypass reason");
+    params.scale_x=-2;params.scale_y=4; resolved={};
+    check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::Automatic,resolved),"rejected mapping does not latch out a later valid source");
+
     params.scale_x=0; params.scale_y=NAN; params.has_jitter_x=false; params.has_jitter_y=false; resolved={};
     feature.create_flags=3;
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::ModelEncodedValueDomain,resolved),"bounded-R8 guide contract resolves");

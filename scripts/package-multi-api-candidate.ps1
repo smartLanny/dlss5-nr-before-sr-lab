@@ -29,7 +29,8 @@ $Version = [string]$Product.version
 # An explicitly named inbox candidate retains every unified10 dependency/gate.
 # Do not rewrite its public/binary/source identity or accept arbitrary suffixes.
 $IsInboxCandidate = $Version -eq 'beta0.5-dline21-unified10-inbox1'
-$IsReconstructionCandidate = $Version -in @('beta0.5-dline21-unified10-reconstruction1','beta0.5-dline21-unified10-reconstruction1-ui1')
+$IsGuideCandidate = $Version -eq '0.5.2-beta.1'
+$IsReconstructionCandidate = $IsGuideCandidate -or $Version -in @('beta0.5-dline21-unified10-reconstruction1','beta0.5-dline21-unified10-reconstruction1-ui1')
 $ValidationVersion = if ($IsInboxCandidate -or $IsReconstructionCandidate) { 'beta0.5-dline21-unified10' } else { $Version }
 if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) {
     $Extra=Get-Content -LiteralPath (Join-Path $Build 'unified8-checks/validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -38,6 +39,36 @@ if ($ValidationVersion -in @('beta0.5-dline21-unified8','beta0.5-dline21-unified
        $Extra.source_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant()) {
         throw 'Unified8 exact-source runtime checks are incomplete.'
     }
+}
+$GuideEvidenceHash = $null
+if ($IsGuideCandidate) {
+    $GuidePath = Join-Path $Build 'unified8-checks/guide-domain/validation.json'
+    if (-not (Test-Path -LiteralPath $GuidePath)) { throw 'Guide-domain exact-source checks are missing.' }
+    $G = Get-Content -LiteralPath $GuidePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($G.success -ne $true -or $G.generated_core -ne $true -or
+        $G.source_compile_verified -ne $true -or $G.actual_capture_json_verified -ne $true -or
+        $G.gpu_verified -ne $false -or $G.ngx_verified -ne $false -or $G.game_verified -ne $false -or
+        $G.source_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_before_sr.cpp')).Hash.ToLowerInvariant() -or
+        $G.capture_types_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_f8_types.h')).Hash.ToLowerInvariant() -or
+        $G.capture_writer_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_f8_stream.inl')).Hash.ToLowerInvariant()) {
+        throw 'Guide-domain exact-source checks are incomplete.'
+    }
+    $ExpectedGuideRuns=@{
+        'production'=@(0,$null)
+        'missing-empty-grid-guard'=@(1,'empty grid rejects before any resource lookup')
+        'missing-converted-scale-guard'=@(1,'non-finite converted motion scale rejects before opaque NGX')
+        'storage-confused-with-measurement-grid'=@(1,'MV.Scale remains render-referenced even for full-resolution storage')
+    }
+    if (@($G.actual_function_and_negative_controls).Count -ne 4) { throw 'Guide-domain controls are incomplete.' }
+    foreach($Name in $ExpectedGuideRuns.Keys) {
+        $Run=@($G.actual_function_and_negative_controls|Where-Object {$_.name -eq $Name})
+        if($Run.Count -ne 1 -or $Run[0].passed -ne $true -or
+            $Run[0].exit_code -ne $ExpectedGuideRuns[$Name][0] -or
+            $Run[0].expected_failure -ne $ExpectedGuideRuns[$Name][1]) {
+            throw 'Guide-domain positive/negative execution evidence is incomplete.'
+        }
+    }
+    $GuideEvidenceHash=(Get-FileHash -LiteralPath $GuidePath).Hash.ToLowerInvariant()
 }
 if ($IsReconstructionCandidate) {
     $RPath=Join-Path $Build 'reconstruction-checks/validation.json'
@@ -59,7 +90,7 @@ if ($IsReconstructionCandidate) {
         @($Warp.runs|Where-Object {$_.name -eq 'negative-disabled-protection' -and $_.exit -eq 1 -and $_.expected -eq 1}).Count -ne 1) {
         throw 'Reconstruction math/WARP positive and inverse evidence is incomplete.'
     }
-    if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') {
+    if ($IsGuideCandidate -or $Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') {
         $Ui=Get-Content -LiteralPath $R.ui_receipt -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($Ui.status -ne 'passed' -or $Ui.ui_sha256 -ne
             (Get-FileHash -LiteralPath (Join-Path $CoreBuild '../src/nr_reconstruction_ui.inl')).Hash.ToLowerInvariant() -or
@@ -81,6 +112,7 @@ $DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Val
 if ($IsInboxCandidate) { $DisplayVersion = '0.5.1-Beta-Inbox1' }
 if ($IsReconstructionCandidate) { $DisplayVersion = '0.5.1-Beta-Reconstruction1' }
 if ($Version -eq 'beta0.5-dline21-unified10-reconstruction1-ui1') { $DisplayVersion = '0.5.1-Beta-Reconstruction1-UI1' }
+if ($IsGuideCandidate) { $DisplayVersion = '0.5.2-Beta-1' }
 if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'Invalid public candidate name.'
 }
@@ -142,6 +174,13 @@ foreach ($Binary in $ExpectedBinaries) {
     $Evidence = @($Validation.binaries | Where-Object { $_.file -eq $Name })
     if ($Evidence.Count -ne 1) { throw "Missing/duplicated binary evidence: $Name" }
     Assert-Hash $Binary ([string]$Evidence[0].sha256)
+    if ($IsGuideCandidate -and $Binary.EndsWith('.addon64') -and $Name -ne $CarrierLeaf) {
+        $V=(Get-Item -LiteralPath $Binary).VersionInfo
+        if ($V.FileMajorPart -ne 0 -or $V.FileMinorPart -ne 5 -or $V.FileBuildPart -ne 2 -or $V.FilePrivatePart -ne 1 -or
+            $V.FileVersion -ne '0.5.2 Beta 1' -or $V.ProductVersion -ne '0.5.2 Beta 1') {
+            throw 'Guide candidate Core PE identity differs from 0.5.2 Beta 1.'
+        }
+    }
 }
 $PostLog = Join-Path $Build 'tests/post-scaled-work/stdout.txt'
 $PostScenarios = if ($ValidationVersion -in @('beta0.5-dline21-unified7','beta0.5-dline21-unified8','beta0.5-dline21-unified9','beta0.5-dline21-unified10')) { 60 } else { 48 }
@@ -307,6 +346,17 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
                 $StatusSource = if ($ValidationVersion -eq 'beta0.5-dline21-unified10') { 'UNIFIED10_DELIVERY_20260923.md' } elseif ($ValidationVersion -eq 'beta0.5-dline21-unified9') { 'UNIFIED9_DELIVERY_20260922.md' } else { 'UNIFIED8_DELIVERY_20260922.md' }
                 if ($IsInboxCandidate) { $StatusSource = '051_INBOX_WINDOWS_20260924.md' }
                 if ($IsReconstructionCandidate) { $StatusSource = '051_RECONSTRUCTION1_20260925.md' }
+                if ($IsGuideCandidate) {
+                    $StatusSource = '052_BETA1_ACCEPTANCE.md'
+                    $SummaryPath=Join-Path $Repo 'docs/interop/052_BETA1_VERIFICATION_20260926.json'
+                    $Summary=Get-Content -LiteralPath $SummaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($Summary.source_commit -ne $Commit -or $Summary.full_windows_exit -ne 0 -or
+                        $Summary.full_validation_receipt_sha256 -ne (Get-FileHash -LiteralPath (Join-Path $Build 'validation.json')).Hash.ToLowerInvariant() -or
+                        $Summary.guide_receipt_sha256 -ne $GuideEvidenceHash) {
+                        throw 'Public validation summary does not match the actual built candidate.'
+                    }
+                    Copy-Item -LiteralPath $SummaryPath -Destination (Join-Path $Package '052_BETA1_VERIFICATION_20260926.json')
+                }
                 Copy-Item -LiteralPath (Join-Path $Repo ('docs/interop/' + $StatusSource)) -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
                 if ($ValidationVersion -eq 'beta0.5-dline21-unified10') {
                     Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/PR303_INTEGRATION_REVIEW_20260923.md') -Destination (Join-Path $Package 'PR303-REVIEW.md')
@@ -324,7 +374,7 @@ See build-info.json and SHA256.json for exact identity, dependencies and hashes.
             Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/UNIFIED4_CONTINUATION_20260921.md') -Destination (Join-Path $Package 'IMPLEMENTATION-STATUS.md')
         }
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
-            language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
+            guide_domain_receipt_sha256=$GuideEvidenceHash; language=$Language; full_face_backend=[bool]$FaceEnabled; face_backend_receipt_sha256=$FaceReceiptHash; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
             core_file_version=$Addon.VersionInfo.FileVersion; carrier_upstream_file_version=(Get-Item -LiteralPath (Join-Path $Build $CarrierLeaf)).VersionInfo.FileVersion; bridge_upstream_commit=$Manifest.integration.bridge_commit;
             source_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();
             validation_sha256=(Get-FileHash -LiteralPath (Join-Path $Build 'validation.json') -Algorithm SHA256).Hash.ToLowerInvariant();

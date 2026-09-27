@@ -539,6 +539,11 @@ void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
         ImGui::TextWrapped("%s", ui("NR is off; game output continues.",
             "NR 已关闭，显示游戏原画面。"));
     }
+    else if (reason == BypassReason::GuideContractInvalid) {
+        displayed=Display::Checking;
+        ImGui::TextWrapped("%s", ui("NR skipped an invalid guide grid or converted motion scale. Native output is retained. Press F8 and submit the report; changing colour strength cannot repair this input contract.",
+            "NR 已跳过无效的引导尺寸或运动向量换算值，继续保留原生输出。请按 F8 收集并提交反馈；调节色彩强度不能修复此输入问题。"));
+    }
     else if (reason == BypassReason::ContextReleasePending) {
         displayed=Display::Checking;
         ImGui::TextWrapped("%s", ui("Waiting for the previous model's GPU work and safe release before applying new settings. Native output continues; your selected scale and route are retained. If this persists, press F8 and submit the report.",
