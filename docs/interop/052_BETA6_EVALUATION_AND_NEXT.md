@@ -1,0 +1,85 @@
+# Beta 6 异环复测评估与后续取舍（2026-09-28）
+
+当前安装候选仍为 Beta 6，编译源码 `e7407a39d12a6d43bf4e557f8c041e8361296831`，身份与回退见 [交付清单](052_BETA6_DELIVERY.json)。本页区分用户游戏证据、开发修正与后续实验，不能替代完整候选验收。
+
+## 本次游戏证据
+
+维护者的一键对比完成，恢复配置成功，未取消。共保存 18 张图：原生无 NR、100% 普通 NR、50% 普通 NR、50% 私有 SR、25% 普通 NR、25% 私有 SR，各三张。两组私有 SR 有实际采用门槛与提交记录；本次未再出现 Beta 5 的同阶段创建闪退，不等于稳定性全面通过。
+
+原生 MV、AMDOF、AMDOF 低频三组因预热或采用超时没有截图。AMDOF 日志明确记录 `temporal creation budget exhausted`；原生 MV 的旧日志不足以定位具体拒绝原因，不将其推断为同一故障。当前“光流没效果”至少部分是未实际运行，不能据此判定算法无效。
+
+原生渲染 2228×1253、输出 3840×2160；NR 的 50% 是 1920×1080，25% 经对齐是 960×544。保留 Flags 75、非零原生 jitter 与原配置。INI 的重复节仅记录，不替用户重写。
+
+### 质量结论：本场景私有 SR 未过关
+
+GPT-6 Sol 按原像素局部审核，并抽查每组后两张图：
+
+| 对照 | 观察 | 结论 |
+|---|---|---|
+| 50% 私有 SR / 50% 普通 NR | 私有 SR 暗发丝点状断裂、边缘锯齿更明显，草叶更软或融合 | 不支持同档改善 |
+| 25% 私有 SR / 25% 普通 NR | 局部对比增强，同时有碎点、尖锐阶梯与草叶粘连 | 没有可确认的整体优势 |
+| 私有 SR / 100% 普通 NR | 发束、细线与草叶分离未达到高比例普通路径的连续性 | 未证明目标质量已达到 |
+
+台阶亮线受照明变化影响，不能单凭亮度归因。不同采集时刻有人物、草叶与曝光变化，不计算跨图 PSNR，不由静态图断言 smear、拖影或闪烁。更强锐化感不作为恢复真实细节的证明。
+
+### 性能结论：当前无法给出有效提速幅度
+
+图像采集组约 3–4 秒，旧性能窗口需要预热 180 帧再统计 600 帧，没有形成这些成功组的稳定同条件窗口。失败时域组的约 16.6 ms 是旁路状态的回调时间，不是有效光流 GPU 成本。截图左下角 ms 为网络延迟。
+
+后续必须把采图和计时分段：相同 Core、运行库、场景、层数、强度和 NR 工作量，记录稳定 GPU 时间的绝对毫秒、中位数、P95、样本数与显存；创建、预热、截图、切换与旁路窗口单列。不能把新库提速、降低 NR 比例或未执行算法计为去噪收益。
+
+## 已落实的开发修正（Beta 7 开发中，未交付）
+
+- 修正 AMDOF 创建预算：原 `输出像素数×64+16 MiB` 的粗估与 Core 纹理相加会在 4K 超出 768 MiB 上限。改为对固定 FFX 1.1.4 资源布局查询实际 D3D12 分配大小，仍保留额外余量、原上限、SDK 实际用量复核、后续快照增量和退休合同。WARP 分配查询示例总预留从错误超限改为 407,240,704 字节；这不是游戏实测显存或性能。
+- 准入原因按配置分别记录，抑制重复与交替刷屏；创建拒绝带尺寸和预算，下一次能区分来源、单位、快照、预算和录制状态。
+- 预算 CPU 边界、WARP 分配查询、准入日志 CPU 并发检查接入统一构建。时域模块独立编译已通过；尚未完成新版本完整生成 Core、真实 GPU/NGX 及游戏复验，不覆盖安装中的 Beta 6。
+- 跨原生 RR 实验的既有录制入口提取共享标量准入合同，17 项 CPU 检查通过。它没有创建私有 Feature13，也不证明材质导引或游戏路线已接通。未完成的 Feature13 宿主草稿移入本地研究证据，不纳入产品。
+
+源码提交：时域修正 `953e9d38`；跨原生 RR 实验合同 `8c1f0470`。新增统一检查的独立复制头验证为 6/6 编译/运行通过，见 [检查回执](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks-static/validation.json)；该暂存头夹具不是完整生成 Core。首轮日志测试因缺动态运行库失败，改静态链接后通过，原 [失败回执](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks/validation.json)保留；[缺失暂存头负例](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/missing-input-control/validation.json)按预期拒绝。
+
+## 方向判断：保留私有 SR，移出近期私有 RR
+
+成本目标比较的是 `低比例 NR + 私有 SR + 导引/拷贝/同步` 与 `较高比例 NR + 普通恢复` 的总量。降比例可能节省 NR 运算，私有 SR 本身增加运算；同低比例的普通恢复也是必要对照。只有质量与总成本同时有收益才值得推荐。
+
+核对 Opti Multipass 固定 main `1bd39091337cc07ba961c8e59ded57e21dc95b18`：其 [DeferredSr 创建调用](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/1bd39091337cc07ba961c8e59ded57e21dc95b18/OptiScaler/shaders/dlssnr/DlssNr_DeferredSr.inl#L404)是 Feature1；[原生 RR 路由](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/1bd39091337cc07ba961c8e59ded57e21dc95b18/OptiScaler/shaders/dlssnr/DlssNr_Dx12.cpp#L3205)分开处理。核对的这条实现不是私有 Feature13。
+
+其 [跨 RR 说明](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/1bd39091337cc07ba961c8e59ded57e21dc95b18/docs/RESIDUAL-ACROSS-RR.md)是对齐累积 NR 修改量，在游戏原生 RR 后相加，明确缺少深度遮挡拒绝并有运动滞后风险。其 [私有 SR 说明](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/1bd39091337cc07ba961c8e59ded57e21dc95b18/docs/DEFERRED-NR-DLSS.md)使用原生渲染网格、曝光归一与压缩载体；我们的后置输出域载体不能照搬它的 jitter。两者都不能仅凭采用 DLSS 就推定更便宜或无 smear。
+
+独立 RR 需要匹配的辐射信号、材质和反射等输入，见 [NVIDIA RR 接入要求](https://raw.githubusercontent.com/NVIDIA-RTX/Streamline/main/docs/ProgrammingGuideDLSS_RR.md)。推断：平移编码的 NR 修改量并不会自动满足这些语义。按维护者本次选择，**私有 Feature13 RR 移出近期候选；跨原生 RR 的运动与遮挡研究保留在后续计划**。
+
+## 实施顺序与验收出口
+
+| 优先级 | 工作及实际状态 | 通过条件 |
+|---|---|---|
+| 1 | 私有 SR 静态质量归因：保存同帧 B、最终 Z、N 载体/尾差、私有输出和最终合成；当前仅源码与 CPU 代数检查 | 固定人工输入分别比较精确空间恢复和真实 Feature1，分离降采样损失、载体误差与私有推理误差；修正后再看游戏发丝/草叶 |
+| 1 | 原生 MV 具体拒绝原因与 4K AMDOF 创建修正 | 下一完整 Core 验证及实际采用计数；旁路不得混入成本或画质比较 |
+| 1 | 一键对比扩展独立计时阶段，沿用自动配置/预热/恢复 | 同条件有效样本、GPU 时间和显存；采图不污染计时，取消同样恢复 |
+| 2 | 原生 MV 优先对照，AMDOF 为补充；审计已有深度拒绝、残差邻域、自适应权重、低频模式 | 静止/平移/物体运动/遮挡显露/切镜/反射/HUD，减少错误历史且不明显模糊、拖尾或损失增强量 |
+| 2 | 噪点修复仍必做：先分清模型输出、恢复、载体与错误历史；必要时才增最小残差局部保护 | 保住文字、发丝、边缘与连续细线；同 NR 工作量新增 GPU 帧时间目标 ≤3%，超预算但明显有效的只保留手动实验 |
+| 3 | 跨原生 RR + 统一运动来源 + 同源深度遮挡拒绝 | 与普通后置 NR、无累积跨 RR、原生 MV 和光流各自对照；实际导引/来源与总成本证明后再考虑产品 |
+| 3 | NVOF，及原生 MV 作为外部提示 | 查询硬件能力，明确转换/帧配对/代价/拒绝；独立实验，不宣称自动混合即更好 |
+
+当前 SR 提取是 `D(Z-B)` 的面积平均；尾差保存 N 网格编码/裁剪余量，未保存 O 网格高频差。因此理想空间重建也不一般等于 Z。CPU 参考中常量保留，逐像素交替修改会消失；这证明传输性质，尚未证明是本次所有颗粒的根因。解码增益和支持区域硬边界也需单独受控测量，不先用全局模糊遮盖问题。
+
+另记录一个独立待修项：CPU 允许 257→64 的向下取整四分之一网格，但残差 shader 的 `WorkSize*4>=FullSize` 仍会拒绝。下一轮奇数尺寸正例需统一这项合同；异环本次 960×544→3840×2160 满足现有条件，不能用这个缺口解释当前截图。
+
+私有 SR 可因自身时域重建平滑噪声，也可能产生失真；它不是专门的 NR 去噪器。外部累积与私有 SR 继续互斥验证。运动信息首先用于对齐及拒绝不可靠历史，不意味着再叠一套长历史。光流应来自已证明的同源干净基线/真实帧，而不是追踪随机 NR 修改；不同消费者分别转换网格、单位、相位并管理历史。
+
+[NVOF SDK](https://docs.nvidia.com/video-technologies/optical-flow-sdk/nvofa-programming-guide/index.html)允许外部运动提示，也提供代价输出；引擎 MV 可研究转换为提示，但不是自动联动，代价不是校准的逐像素置信概率，转换与同步成本仍需计入。
+
+若私有 SR 在代表性的静态、运动和遮挡场景中无法比同档普通恢复取得有意义的质量/总成本优势，保留研究记录，不为凑功能强行推荐。新增空间降噪只有实际收益与质量门槛通过才提供默认关闭的独立开关。
+
+## 持续交付约束
+
+继续 #313 草稿，不另起竞争实现；Beta 6 和旧 OTA/回退均保留。下一包需完整统一构建、双语、CPU/WARP/硬件与实际生成 Core 的 Feature18/Feature1、RR-only 和生命周期检查。默认值及 OTA 旧设置保持；不因原生 jitter 内部映射重新打开旧 NR jitter 实验。Core OTA 与运行库升级继续区分。
+
+Esc/切镜恢复、UI/地图省电、Present 受限来源、真实暗部多层噪点和总帧成本仍是待验收项，不因本页方向取舍而删除。两项省电默认关闭。游戏由维护者统一测试，先异环、2077 最后；6sol 仅部署/核对/回退，不操作游戏。不合 main、不发布在线 OTA、不修改 Manager 默认版本。
+
+图片审核由 GPT-6 Sol 接收本地路径和审核要求，`fork_turns: "none"`，不再派生；按批保留原像素细节，只回传文字、证据位置和路径，主代理不重复打开整批原图。
+
+## 本地证据入口
+
+- [保全清单及 SHA-256](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/preserved-r1/inventory-verified.json)：42 个文件，514,850,982 字节；原图和原日志保持本地。
+- [分组/时间/恢复/采用摘要](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/evaluation-summary.json)、[Sol 画质报告与精确区域](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/gpt6-sol-image-review.md)。
+- [私有 SR 传输分析](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/assessment.md)、[CPU 参考](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/cpu-transport.json)。
+- [预算 CPU/WARP 查询](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-budget-gate-r1/validation.json)、[独立时域模块编译](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-module-budget-r1/module.json)、[跨 RR 标量合同](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/rr-admission-cpu-r2/validation.json)。
