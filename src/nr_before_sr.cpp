@@ -10541,7 +10541,7 @@ bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& s
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.temporal_guide_heap));
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,20,slot.temporal_guide_constants,0);
     ID3D12GraphicsCommandList_SetPipelineState(list,slot.temporal_guide_pso);
-    ID3D12GraphicsCommandList_Dispatch(list,(slot.temporal_width+7)/8,(slot.temporal_height+7)/8);
+    ID3D12GraphicsCommandList_Dispatch(list,(slot.temporal_width+7)/8,(slot.temporal_height+7)/8,1);
     UavBarrier(list,slot.temporal_depth);UavBarrier(list,slot.temporal_motion);
     Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
