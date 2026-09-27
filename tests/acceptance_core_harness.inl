@@ -189,7 +189,8 @@ void Run(){
     Check(!pictures.groups[1].shots[0].received&&pictures.groups[1].reason[0],"wrong NR owner rejects callback");
     // A pending request without a callback is bounded; the watchdog path never
     // dereferences the opaque runtime pointer.
-    pictures.groups[1].reason[0]=0;pictures.groups[1].shots[0].tick=GetTickCount64()-5001;
+    pictures.groups[1].reason[0]=0;pictures.groups[1].shots[0].instance=g_applied_nr_identity.instance_id;
+    pictures.groups[1].shots[0].tick=GetTickCount64()-5001;
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(std::strstr(pictures.groups[1].reason,"timeout")!=nullptr,"missing screenshot callback times out");
     nr_acceptance::Cancel();DrainExport();
