@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate real pre-Result storage through complete staged Core on WARP only."""
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -43,7 +44,7 @@ def main():
         (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
         if r.returncode:print((r.stdout+r.stderr)[-12000:])
         return r
-    objects=[]
+    objects=list(map(str,objects_for(source)))
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o')
         r=run([str(c_compiler),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)

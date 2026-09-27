@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from temporal_test_objects import objects_for
 import subprocess
 import re
 import time
@@ -56,7 +57,7 @@ def main() -> None:
             print((result.stdout+result.stderr)[-10000:])
             raise RuntimeError(f'{name} failed: {result.returncode}')
         return result
-    objects = []
+    objects = list(map(str,objects_for(source)))
     # nr_before_sr.cpp exposes the dual spatial API through its public header;
     # the D3D12 implementation remains a separate production translation unit.
     # Compile the same sibling source as the staged Core when it is present.

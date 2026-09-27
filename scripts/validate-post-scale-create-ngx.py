@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from temporal_test_objects import objects_for
 import shutil
 import subprocess
 
@@ -26,7 +27,7 @@ def main():
         p.error('Use an empty output to preserve prior evidence')
     out.mkdir(parents=True, exist_ok=True)
     objects = [core / 'build/obj' / x for x in ['buffer.o', 'hook.o', 'trampoline.o', 'hde64.o',
-        'nr_dual_spatial_d3d12.o', 'nr_face_detector.o', 'nr_face_worker.o']]
+        'nr_dual_spatial_d3d12.o', 'nr_face_detector.o', 'nr_face_worker.o']]+objects_for(core/'src/nr_before_sr.cpp')
     host = ROOT / 'tests/post_scale_create_ngx_host.cpp'
     files = [host, ROOT/'tests/compat_present_ngx_host.cpp', core.parent/'source-manifest.json',
              core/'build/face-backend.json', core/'build/nrchain_nvngx.dll', *objects,

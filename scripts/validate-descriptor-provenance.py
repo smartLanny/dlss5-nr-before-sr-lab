@@ -6,6 +6,7 @@ are explicit component tests; their source/manifest and all copied inputs are
 hashed separately and are never reported as an unchanged frozen candidate.
 """
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -159,16 +160,7 @@ def main():
         objects.append(target)
     dual_source = snapshot / 'nr_dual_spatial_d3d12.cpp'
     if dual_source.is_file(): objects.append(str(dual_source))
-    if (snapshot/'temporal/recorded_temporal.cpp').is_file():
-        module=source.parent.parent/'build/obj/temporal/module.json'
-        metadata=json.loads(module.read_text(encoding='utf-8'))
-        if not metadata['passed']:raise SystemExit('Temporal module has no successful build receipt.')
-        for filename,digest in metadata['source_sha256'].items():
-            if sha(snapshot/'temporal'/filename)!=digest:raise SystemExit('Temporal module source mismatch: '+filename)
-        record['temporal_module_manifest_sha256']=sha(module)
-        for path,digest in metadata['object_sha256'].items():
-            if sha(Path(path))!=digest:raise SystemExit('Temporal SDK/module object mismatch.')
-            objects.append(path)
+    objects.extend(objects_for(source))
     binary = out/'descriptor-warp.exe'
     code = run([compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper, *objects, '-o', binary,
                 '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid',

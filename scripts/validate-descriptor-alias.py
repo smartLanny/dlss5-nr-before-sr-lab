@@ -5,6 +5,7 @@ This gate creates no D3D device and never calls NGX. The source must be a staged
 Core with a manifest. Development overlays are explicit and separately hashed.
 """
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -145,7 +146,7 @@ def main():
               '-I'+str(minhook_snapshot/'include'),
               '-I'+str(reshade/'include'), '-I'+str(reshade/'deps/imgui')]
     c_compiler = compiler.with_name(compiler.name.replace('clang++', 'clang'))
-    objects = []
+    objects = list(objects_for(source))
     for name in ('buffer.c', 'hook.c', 'trampoline.c', 'hde/hde64.c'):
         target = out/(Path(name).stem+'.o')
         run([c_compiler, *common, '-std=c17', '-c', minhook_snapshot/'src'/name, '-o', target],
