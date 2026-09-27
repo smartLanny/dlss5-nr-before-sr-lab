@@ -98,7 +98,7 @@ def apply(stage:Path,inputs,h):
 }
 Source CurrentSource(){''','private SR native state evidence'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',r'''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
-    FeedbackAppend(s,"%s.privateSR.state=%s\n%s.privateSR.guideReason=%u\n%s.privateSR.requested=%llu\n%s.privateSR.rejected=%llu\n%s.privateSR.guideCaptures=%llu\n%s.privateSR.createRecordings=%llu\n%s.privateSR.recorded=%llu\n%s.privateSR.composed=%llu\n%s.privateSR.submitted=%llu\n%s.privateSR.adopted=%llu\n%s.privateSR.planeBytes=%llu\n%s.privateSR.peakPlaneBytes=%llu\n%s.privateSR.retired=%llu\n",
+    FeedbackAppend(s,"%s.privateSR.lastEvent=%s\n%s.privateSR.guideReason=%u\n%s.privateSR.requested=%llu\n%s.privateSR.rejected=%llu\n%s.privateSR.guideCaptures=%llu\n%s.privateSR.createRecordings=%llu\n%s.privateSR.recorded=%llu\n%s.privateSR.composed=%llu\n%s.privateSR.submitted=%llu\n%s.privateSR.adopted=%llu\n%s.privateSR.planeBytes=%llu\n%s.privateSR.peakPlaneBytes=%llu\n%s.privateSR.retired=%llu\n",
         prefix,nr_private_sr_status::Name(nr_private_sr_status::state.load()),prefix,nr_private_sr_status::guide_reason.load(),
         prefix,nr_private_sr_status::requested.load(),prefix,nr_private_sr_status::rejected.load(),prefix,nr_private_sr_status::captures.load(),
         prefix,nr_private_sr_status::creations.load(),prefix,nr_private_sr_status::recorded.load(),prefix,nr_private_sr_status::composed.load(),
@@ -108,7 +108,13 @@ Source CurrentSource(){''','private SR native state evidence'))
 ''','private SR diagnostics'))
     update('config/nr_before_sr.ini',lambda s:s+'\n; Experimental post-SR edit reconstruction, independent and default off.\nPrivateResidualSR=0\n')
     update('src/nr_feedback_picture.inl',lambda s:h.once(s,'    if (!valid) return; // A busy snapshot must not report constructor defaults as facts.',
-        '    if (!valid) return; // A busy snapshot must not report constructor defaults as facts.\n    FeedbackAppend(s,"requested.privateResidualSR=%d\\n",config.private_residual_sr?1:0);','private SR requested flag'))
+        '''    if (!valid) return; // A busy snapshot must not report constructor defaults as facts.
+    FeedbackAppend(s,"requested.privateResidualSR=%d\\n",config.private_residual_sr?1:0);
+    const char* private_gate=!config.private_residual_sr?"off":!config.enabled?"master-off":
+        config.temporal_backend?"residual-stabilizer-conflict":
+        static_cast<nr_processing::Start>(nr_processing_runtime::effective.load())!=nr_processing::Start::After?"unsupported-current-route":
+        g_last_carrier_feature.load()!=1?"waiting-native-Feature1":"consult-last-event-and-counter-deltas";
+    FeedbackAppend(s,"requested.privateSR.configurationGate=%s\\n",private_gate);''','private SR requested flag'))
     update('scripts/build.ps1',lambda s:h.once(s,'$CodecCompiler=Join-Path $Build', '''# Compile owned post-SR module and its exact shader artifacts.
 & python (Join-Path $PSScriptRoot 'build-private-sr-module.py') --root $ProjectRoot --compiler $CppCompiler --output (Join-Path $Objects 'private-sr')
 if($LASTEXITCODE){throw 'Private SR module build failed.'}
