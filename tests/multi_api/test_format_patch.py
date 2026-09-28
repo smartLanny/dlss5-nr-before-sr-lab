@@ -86,9 +86,9 @@ class Patches(unittest.TestCase):
         # every character (including a BOM if present); only EOL is canonical.
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
-        # Reviewed guide-domain guards/capture only; colour shader is unchanged.
-        self.assertEqual(digest,'feb555f6c2557be59a1687656866879a432210d0')
+        # Beta 8 moves native temporal guide validation to the recorded
+        # lifecycle token; format and colour shader code are unchanged.
+        self.assertEqual(digest,'e362c1f4a9b45782ecb84e1b777678c21e9eb292')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.
