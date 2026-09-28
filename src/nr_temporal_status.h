@@ -21,6 +21,46 @@ struct AdmissionLogLimiter {
   }
  }
 };
+// Internal diagnostic categories. These do not alter route decisions or the
+// public DLL ABI; one line per category/config bounds failure-path logging.
+enum class Detail : unsigned {
+    None=0, Route=1, MissingCandidate=2, CandidateExtent=3, Queue=4,
+    NativeSnapshot=5, Retirement=6, Budget=7, Slot=8, Anchor=9,
+    FrameContract=10, DeviceList=11, OriginalResource=12, CandidateResource=13,
+    NativeGuide=14, TypedCandidate=15, Snapshot=16, HistoryPlan=17,
+    AmdOwner=18, AmdBusy=19, AmdFrame=20, AmdContinuity=21, AmdSnapshot=22,
+    AmdFault=23
+};
+struct DetailLogLimiter {
+    std::atomic<unsigned long long> published{0};
+    bool Observe(unsigned config,Detail detail){
+        const auto index=static_cast<unsigned>(detail);
+        if(!index||index>=32)return false;
+        const auto bit=1ull<<index;auto old=published.load(std::memory_order_relaxed);
+        for(;;){
+            const auto old_config=unsigned(old>>32);
+            if(old_config>config)return false;
+            const auto seen=old_config==config?(old&0xffffffffull):0;
+            if(seen&bit)return false;
+            const auto next=(static_cast<unsigned long long>(config)<<32)|seen|bit;
+            if(published.compare_exchange_weak(old,next,std::memory_order_relaxed))return true;
+        }
+    }
+};
+inline const char* DetailName(Detail detail){switch(detail){
+    case Detail::None:return "none";case Detail::Route:return "route";
+    case Detail::MissingCandidate:return "missing-B-or-Z";case Detail::CandidateExtent:return "B-or-Z-extent-format";
+    case Detail::Queue:return "queue-or-lifecycle";case Detail::NativeSnapshot:return "native-snapshot";
+    case Detail::Retirement:return "retirement";case Detail::Budget:return "budget-or-create";
+    case Detail::Slot:return "slot-busy";case Detail::Anchor:return "later-anchor";
+    case Detail::FrameContract:return "frame-contract";case Detail::DeviceList:return "device-or-list";
+    case Detail::OriginalResource:return "original-resource";case Detail::CandidateResource:return "candidate-resource";
+    case Detail::NativeGuide:return "native-guide";case Detail::TypedCandidate:return "typed-candidate";
+    case Detail::Snapshot:return "snapshot-allocation";case Detail::HistoryPlan:return "history-plan";
+    case Detail::AmdOwner:return "amd-owner";case Detail::AmdBusy:return "amd-busy";
+    case Detail::AmdFrame:return "amd-frame";case Detail::AmdContinuity:return "amd-continuity";
+    case Detail::AmdSnapshot:return "amd-snapshot";case Detail::AmdFault:return "amd-fault";
+    }return "unknown";}
 inline std::atomic<unsigned> state{0};
 inline std::atomic<unsigned> domain{0};
 inline std::atomic<float> source_to_scene{1.f};

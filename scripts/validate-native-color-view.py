@@ -22,12 +22,15 @@ def main():
     p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
     p.add_argument('--acceptance',action='store_true',help='Exercise the actual transient configuration controller; no model or game.')
     p.add_argument('--acceptance-negative',action='store_true',help='Copied-source wrong post-precision restoration negative control.')
+    p.add_argument('--acceptance-timing-negative',action='store_true',help='Copied-source missing real RR q1/q2 negative control.')
     p.add_argument('--temporal-case',choices=('all','continuous','unsubmitted','replay','submit-reset'),default='all',
                    help='Separate processes preserve each real Core quarantine latch.')
     p.add_argument('--temporal-negative',action='store_true',help='Explicit copied-source wrong-P1 binding negative control.')
     a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
     if a.acceptance and a.temporal:p.error('Choose one production fixture.')
     if a.acceptance_negative and not a.acceptance:p.error('--acceptance-negative requires --acceptance')
+    if a.acceptance_timing_negative and (not a.acceptance or a.acceptance_negative):
+        p.error('--acceptance-timing-negative requires standalone --acceptance')
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
@@ -38,6 +41,13 @@ def main():
         old='nr_post_settings::RequestForCapture(s->post_original);'
         if text.count(old)!=1:raise ValueError('Acceptance restoration anchor drift')
         target.write_text(text.replace(old,'nr_post_settings::RequestForCapture({s->post_original.rr,100});'),encoding='utf-8')
+    if a.acceptance_timing_negative:
+        target=snapshot/'interop/nr_rr_post_runtime.inl';text=target.read_text(encoding='utf-8')
+        for query in (1,2):
+            old=f'nr_acceptance_gpu::Stamp(before.command_list,*prepared.slot,{query});'
+            if text.count(old)!=1:raise ValueError('Real RR timestamp anchor drift: '+old)
+            text=text.replace(old,'/* negative control omits RR q'+str(query)+' */')
+        target.write_text(text,encoding='utf-8')
     if a.temporal_negative:
         if not a.temporal:p.error('--temporal-negative requires --temporal')
         target=snapshot/'nr_temporal_runtime.inl';text=target.read_text(encoding='utf-8')
@@ -59,7 +69,7 @@ def main():
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
         'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'+
-        ('acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
+        ('if(argc>1&&std::string(argv[1])=="sr-entry")acceptance_core_test::RunSr();else acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
@@ -86,16 +96,16 @@ def main():
         if r.returncode:raise SystemExit(r.returncode)
         objects.append(str(obj))
     exe=out/'native-color-view.exe'
-    r=run([str(compiler),*common,'-std=c++20','-static','-Wl,--gc-sections',str(wrapper),*objects,'-o',str(exe),
+    r=run([str(compiler),*common,'-std=c++20',*(['-Werror=format'] if a.acceptance else []),'-static','-Wl,--gc-sections',str(wrapper),*objects,'-o',str(exe),
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
-            'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'warp_only':not a.acceptance,'nvidia_nr':False,'game_verified':False,'run_exit':None,
+            'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
             'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
-        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else [None]
+        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else ([None] if a.acceptance_timing_negative or a.acceptance_negative else [None,'sr-entry']) if a.acceptance else [None]
         if a.temporal_negative:cases=['continuous']
         records=[];logs=[]
         for case in cases:
@@ -110,6 +120,9 @@ def main():
             r.returncode=0 if record['negative_control_rejected'] else 1
         if a.acceptance_negative:
             record['negative_control_rejected']=r.returncode==41 and 'FAIL actual configuration restored' in r.stdout
+            r.returncode=0 if record['negative_control_rejected'] else 1
+        if a.acceptance_timing_negative:
+            record['negative_control_rejected']=r.returncode==41 and 'FAIL real RR entry emits q0-q3' in r.stdout
             r.returncode=0 if record['negative_control_rejected'] else 1
     (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
     raise SystemExit(r.returncode)

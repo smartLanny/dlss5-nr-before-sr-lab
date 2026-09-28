@@ -49,6 +49,10 @@ struct Group {
         performance_epoch=0,performance_source=0,performance_frame=0,performance_queue=0,
         performance_last_temporal_adopted=0,performance_history=0;
     unsigned performance_warmup=0,performance_count=0,performance_rejected=0;
+    unsigned long long performance_diagnostics_start[static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count)]{};
+    unsigned long long performance_diagnostics_end[static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count)]{};
+    int recorded_reconstruction_mode=-1,recorded_restore_mode=-1,recorded_edge_recovery=-1,recorded_near_black_guard=-1;
+    unsigned long long recorded_policy_frame=0;
     unsigned performance_work_width=0,performance_work_height=0,
         performance_output_width=0,performance_output_height=0;
     unsigned long long performance_temporal_adopted=0,performance_private_adopted=0;
@@ -134,6 +138,9 @@ void StartGroup(Session& s){
         g.performance_started=s.window.started;
         g.performance_history=g_history_generation.load();
         g.performance_last_temporal_adopted=nr_temporal_status::gpu_adopted.load();
+        nr_acceptance_gpu::diagnostic_config.store(g.generation,std::memory_order_relaxed);
+        for(unsigned d=0;d<static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count);++d)
+            g.performance_diagnostics_start[d]=nr_acceptance_gpu::diagnostics[d].load();
         performance_active.store(!g.reason[0]&&g.requested.enabled,std::memory_order_release);
     }
     if(g.reason[0])s.window.phase=Phase::Report;
@@ -202,9 +209,21 @@ DWORD WINAPI Export(void* opaque){
     packaging.store(false);ReleaseSRWLockExclusive(&lock);return 0;
 }
 void Finish(Session* s,bool cancelled){
-    performance_active.store(false,std::memory_order_release);
-    s->cancelled=cancelled;
     auto& g=s->groups[s->index];
+    if(s->program==Program::Screenshots&&g.screenshot_phase!=ScreenshotPhase::Capture){
+        // Cancellation and watchdog exit do not pass EndScreenshotPerformance.
+        // Preserve the current group's entry/decline evidence before restore.
+        performance_active.store(false,std::memory_order_release);
+        for(unsigned d=0;d<static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count);++d)
+            g.performance_diagnostics_end[d]=nr_acceptance_gpu::diagnostics[d].load();
+        const auto temporal=nr_temporal_status::gpu_adopted.load();
+        const auto private_sr=nr_private_sr_status::adopted.load();
+        g.performance_temporal_adopted=temporal>=g.gpu_adopted_start?temporal-g.gpu_adopted_start:0;
+        g.performance_private_adopted=private_sr>=g.private_adopted_start?private_sr-g.private_adopted_start:0;
+        if(!g.performance_reason[0])std::snprintf(g.performance_reason,sizeof(g.performance_reason),"%s",
+            cancelled?"cancelled-partial":"ended-before-performance-complete");
+    }else performance_active.store(false,std::memory_order_release);
+    s->cancelled=cancelled;
     if(cancelled&&g.capture_requested)CancelPendingStageCapture(g.capture_id);
     if(g.report_requested&&nr_core_feedback::Busy())nr_core_feedback::Cancel();
     EnterCriticalSection(&g_chain_cs);
@@ -261,6 +280,8 @@ void Screenshot(reshade::api::effect_runtime* runtime,const char* path){
 }
 void EndScreenshotPerformance(Session& s,Group& g,const char* reason,unsigned long long now){
     performance_active.store(false,std::memory_order_release);
+    for(unsigned d=0;d<static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count);++d)
+        g.performance_diagnostics_end[d]=nr_acceptance_gpu::diagnostics[d].load();
     const auto temporal=nr_temporal_status::gpu_adopted.load();
     const auto private_sr=nr_private_sr_status::adopted.load();
     g.performance_temporal_adopted=temporal>=g.gpu_adopted_start?temporal-g.gpu_adopted_start:0;
@@ -315,6 +336,17 @@ bool TickScreenshotPerformance(Session& s,Group& g,reshade::api::effect_runtime*
         }
     }
     LeaveCriticalSection(&g_chain_cs);
+    if(g.requested.enabled){
+        const auto policy=SnapshotColorPolicy(); // Acquires g_chain_cs itself.
+        if(policy.status==NrColorPolicyStatus::Current&&policy.config_generation==g.generation&&
+           policy.mode==1&&policy.frame_id>=g.recorded_policy_frame){
+            g.recorded_reconstruction_mode=policy.policy.recorded_reconstruction_mode;
+            g.recorded_restore_mode=policy.policy.recorded_restore_mode;
+            g.recorded_edge_recovery=policy.policy.recorded_edge_recovery;
+            g.recorded_near_black_guard=policy.policy.recorded_near_black_guard?1:0;
+            g.recorded_policy_frame=policy.frame_id;
+        }
+    }
     if(g.screenshot_phase==ScreenshotPhase::Measure&&g.performance_count==kScreenshotGpuSamples){
         if(g.requested.temporal_backend&&
            (nr_temporal_status::gpu_config.load()!=g.generation||

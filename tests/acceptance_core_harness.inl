@@ -1,6 +1,7 @@
 // Complete production controller and configuration functions. No ReShade/game
 // is launched: the opaque runtime identity is never dereferenced by this test.
 #include <fstream>
+#include <map>
 namespace acceptance_core_test {
 using queue_test::Check;
 void DrainExport(){
@@ -9,6 +10,260 @@ void DrainExport(){
     Check(!nr_acceptance::packaging.load(),"bounded export finishes");
     Check(nr_acceptance::last_restored,"actual configuration restored");
 }
+void WarpTiming(){
+    // Actual generated Core, WARP Direct list, production lifecycle and exact
+    // submission fence. Frame identity is a fixture; Sample is never injected.
+    queue_test::Fixture f;
+    auto owner=std::make_unique<NrContext>();auto& context=*owner;auto& slot=context.slots[0];
+    context.width=context.height=128;context.instance_id=501;context.feature_generation=551;
+    context.mode=1;context.sr_handle=reinterpret_cast<const NgxHandle*>(501);
+    g_config=ChainConfig{};g_config.enabled=true;g_config.mode=1;
+    g_config.processing_start=nr_processing::Start::After;g_config.processing_selection=1;
+    nr_processing_runtime::Reconcile();
+    Check(nr_processing_runtime::Effective()==nr_processing::Start::After,"WARP timing uses native After route");
+    queue_test::List list(f);
+    list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
+    Check(FindOrCreateLifecycleQueueLocked(f.a)!=nullptr,"real timing queue tracked");
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask=heap.VisibleNodeMask=1;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;
+    desc.Width=4u*1024u*1024u;desc.Height=desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+    desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource *from=nullptr,*to=nullptr;
+    queue_test::Hr(ID3D12Device_CreateCommittedResource(f.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+        D3D12_RESOURCE_STATE_COPY_SOURCE,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&from)),"GPU source buffer");
+    queue_test::Hr(ID3D12Device_CreateCommittedResource(f.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+        D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&to)),"GPU target buffer");
+    nr_acceptance::performance_active.store(true);
+    {
+        nr_source_runtime::StreamlineScope source(nr_source_frame::Source{41,51,1});
+        NgxParams params{};
+        nr_source_runtime::EvaluateScope evaluate(list.native,reinterpret_cast<const NgxHandle*>(501),
+            &params,1,551);
+        Check(nr_source_runtime::CurrentSource().sequence==1,"native source observed by timing");
+        Check(nr_acceptance_gpu::Prepare(f.device,slot,list.native,128,128,128,128),
+            "mutable slot prepares real timestamp resources before token exists");
+        Check(slot.acceptance_time_prepared&&!slot.acceptance_time_token,"prepare does not guess recording token");
+        Check(RecordNrUseLocked(list.native,context,slot),"actual NR lifecycle use records");
+        Check(nr_acceptance_gpu::Bind(list.native,slot),"timestamp binds successful exact recording token");
+        Check(slot.acceptance_time_token&&slot.acceptance_time_active,"bound slot owns exact token");
+        slot.acceptance_time_identity.instance_id=501;slot.acceptance_time_identity.frame_id=1;
+        slot.acceptance_time_identity.config_generation=g_config_generation.load();
+        slot.acceptance_time_identity.evaluation=1;slot.acceptance_time_identity.since_reset=64;
+        slot.acceptance_time_identity.warmed_up=true;
+        nr_acceptance_gpu::Stamp(list.native,slot,0);
+        ID3D12GraphicsCommandList_CopyBufferRegion(list.native,to,0,from,0,desc.Width);
+        nr_acceptance_gpu::Stamp(list.native,slot,1);
+        nr_acceptance_gpu::Stamp(list.native,slot,2);
+        ID3D12GraphicsCommandList_CopyBufferRegion(list.native,to,0,from,0,desc.Width);
+        nr_acceptance_gpu::Finish(list.native,slot,true);
+        Check(slot.acceptance_time_pending&&slot.acceptance_time_mask==15,"four real GPU queries resolved");
+        Check(RecordVisibleTransferLocked(list.native,1,1),"visible NR source bound to submission");
+    }
+    list.Close();list.Submit(f.a);
+    Check(slot.acceptance_time_queue&&slot.acceptance_time_fence,"exact submitted queue and fence published");
+    queue_test::Wait(slot.acceptance_time_queue->fence,slot.acceptance_time_fence);
+    nr_acceptance_gpu::Collect(slot);
+    nr_acceptance_gpu::Sample sample{};
+    Check(nr_acceptance_gpu::Pop(sample),"actual completed WARP GPU query yields Sample");
+    Check(sample.config==g_config_generation.load()&&sample.source==nr_source_frame::Source{41,51,1}&&
+          sample.instance==501&&sample.frame==1&&sample.since_reset==64&&sample.ms>0&&
+          sample.queue==slot.acceptance_time_queue->identity&&sample.fence==slot.acceptance_time_fence,
+          "Sample retains exact config/source/owner/queue/fence and positive GPU interval");
+    nr_acceptance::performance_active.store(false);
+    list.Detach();ReleaseCom(from);ReleaseCom(to);
+    ReleaseCom(slot.acceptance_time_heap);ReleaseCom(slot.acceptance_time_readback);
+}
+struct EntryParams:NgxParams {
+    std::map<std::string,double> numbers;
+    std::map<std::string,void*> pointers;
+    inline static void* table[16]{};
+    static EntryParams& Of(const NgxParams*p){return *static_cast<EntryParams*>(const_cast<NgxParams*>(p));}
+    template<class T> static NgxResult Number(const NgxParams*p,const char*k,T*v){
+        const auto&n=Of(p).numbers;const auto i=n.find(k);if(i==n.end())return 0xBAD00005u;
+        *v=T(i->second);return kNgxSuccess;}
+    template<class T> static void Put(NgxParams*p,const char*k,T v){Of(p).numbers[k]=double(v);}
+    static NgxResult Pointer(const NgxParams*p,const char*k,void**v){
+        const auto&m=Of(p).pointers;const auto i=m.find(k);if(i==m.end())return 0xBAD00005u;
+        *v=i->second;return kNgxSuccess;}
+    static void PutPointer(NgxParams*p,const char*k,void*v){Of(p).pointers[k]=v;}
+    EntryParams(){table[0]=table[1]=reinterpret_cast<void*>(&PutPointer);
+        table[3]=reinterpret_cast<void*>(&Put<int>);table[4]=reinterpret_cast<void*>(&Put<unsigned>);
+        table[6]=reinterpret_cast<void*>(&Put<float>);table[8]=table[9]=reinterpret_cast<void*>(&Pointer);
+        table[11]=reinterpret_cast<void*>(&Number<int>);table[12]=reinterpret_cast<void*>(&Number<unsigned>);
+        table[14]=reinterpret_cast<void*>(&Number<float>);vtable=table;}
+};
+ID3D12Device* entry_device=nullptr;ID3D12Resource* entry_output=nullptr;
+std::vector<std::unique_ptr<post_output_test::ClearViews>> entry_views;
+NgxResult EntryAllocate(NgxParams**p){*p=new EntryParams;return kNgxSuccess;}
+NgxResult EntryDestroy(NgxParams*p){delete static_cast<EntryParams*>(p);return kNgxSuccess;}
+NgxResult EntryCreate(void*,ID3D12GraphicsCommandList*,int feature,void*,void**out){
+    Check(feature==18,"entry stub only replaces opaque NR model");*out=new NgxHandle{901};return kNgxSuccess;}
+NgxResult EntryRelease(void*,void*p){delete static_cast<NgxHandle*>(p);return kNgxSuccess;}
+NgxResult EntryEvaluate(void*,ID3D12GraphicsCommandList*l,const void*,const void*raw,void*){
+    ID3D12Resource*r=nullptr;Check(GetResource(static_cast<const NgxParams*>(raw),"DLSSNR.Output",&r)&&r,
+        "entry model uses actual production-bound output");
+    entry_views.push_back(std::make_unique<post_output_test::ClearViews>(entry_device));
+    const float value[]={.55f,.5f,.45f,1};entry_views.back()->Clear(entry_device,l,r,0,value);
+    return kNgxSuccess;
+}
+NgxResult EntryNative(ID3D12GraphicsCommandList*l,const NgxHandle*,const NgxParams*,void*){
+    entry_views.push_back(std::make_unique<post_output_test::ClearViews>(entry_device));
+    const float value[]={.25f,.375f,.5f,1};entry_views.back()->Clear(entry_device,l,entry_output,0,value);
+    return kNgxSuccess;
+}
+NgxResult EntryNoop(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*){
+    return kNgxSuccess;
+}
+void WarpRrEntry(bool sr=false){
+    queue_test::Fixture f;entry_device=f.device;
+    GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\entry-rr.log");
+    g_original_command_list_reset[0]=[](ID3D12GraphicsCommandList*l,ID3D12CommandAllocator*a,
+        ID3D12PipelineState*p)->HRESULT{return ID3D12GraphicsCommandList_Reset(l,a,p);};
+    g_config=ChainConfig{};g_config.enabled=true;g_config.mode=1;
+    g_config.processing_start=nr_processing::Start::After;g_config.processing_selection=1;
+    g_config.post_transfer_strength=1;g_config.warmup_after_create=0;g_config.suppress_reset_frame=false;
+    nr_processing_runtime::Reconcile();nr_post_settings::bits.store(100u|256u);
+    g_nr_api.initialized=true;g_nr_api.allocate=EntryAllocate;g_nr_api.destroy=EntryDestroy;
+    g_nr_api.bridge_create=EntryCreate;g_nr_api.bridge_evaluate=EntryEvaluate;
+    g_nr_api.bridge_release=EntryRelease;
+    Check(EnsureCodec(f.device),"entry uses production GPU codec");
+    constexpr unsigned w=128,h=128;ID3D12Resource *color=nullptr,*depth=nullptr,*motion=nullptr;
+    Check(CreateTexture(f.device,w,h,L"entry B",&color)&&CreateTexture(f.device,w,h,L"entry native Output",&entry_output)&&
+          CreateTexture(f.device,w,h,L"entry depth",&depth,DXGI_FORMAT_R32_FLOAT)&&
+          CreateTexture(f.device,w,h,L"entry MV",&motion,DXGI_FORMAT_R16G16_FLOAT),"typed RR inputs");
+    D3D12_RESOURCE_STATES cs=D3D12_RESOURCE_STATE_COMMON,ds=cs,ms=cs;
+    {queue_test::List init(f);post_output_test::ClearViews a(f.device),b(f.device);
+        const float value[]={.25f,.375f,.5f,1},one[]={1,1,1,1},zero[]={0,0,0,0};
+        Transition(init.native,color,cs,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);a.Clear(f.device,init.native,color,0,value);
+        Transition(init.native,entry_output,cs,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);a.Clear(f.device,init.native,entry_output,1,value);
+        Transition(init.native,depth,ds,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);a.Clear(f.device,init.native,depth,2,one);
+        Transition(init.native,motion,ms,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);b.Clear(f.device,init.native,motion,0,zero);
+        Transition(init.native,color,cs,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(init.native,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(init.native,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        post_output_test::Submit(f,init);}
+    EntryParams params;SetResource(&params,"Color",color);SetResource(&params,"Output",entry_output);
+    SetResource(&params,"Depth",depth);SetResource(&params,"MotionVectors",motion);
+    SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Width",w);
+    SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Height",h);
+    SetFloat(&params,"MV.Scale.X",1);SetFloat(&params,"MV.Scale.Y",1);
+    SetFloat(&params,"Jitter.Offset.X",0);SetFloat(&params,"Jitter.Offset.Y",0);
+    SetFloat(&params,"DLSS.Pre.Exposure",1);SetFloat(&params,"DLSS.Exposure.Scale",1);
+    SetInt(&params,"Reset",0);
+    NgxHandle handle{501};FeatureRecord feature{};feature.handle=&handle;feature.feature_id=sr?1:13;
+    feature.width=feature.out_width=w;feature.height=feature.out_height=h;
+    feature.create_flags_known=feature.create_contract_known=true;feature.rr_depth_type=1;
+    PublishObservedFeature(feature);feature=FindFeature(&handle);
+    Check(feature.generation&&feature.feature_id==(sr?1:13),"real feature registry owns native identity");
+    queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);
+    CommandStateMetaContract meta{};meta.device_identity=g_next_command_device_identity.fetch_add(1);
+    ID3D12Device5* extended=nullptr;
+    const HRESULT query=ID3D12Device_QueryInterface(f.device,IID_ID3D12Device5,
+        reinterpret_cast<void**>(&extended));
+    if(query==E_NOINTERFACE)meta.known=true;
+    else if(SUCCEEDED(query)&&extended){
+        UINT count=0;
+        if(SUCCEEDED(ID3D12Device5_EnumerateMetaCommands(extended,&count,nullptr))&&count<=256){
+            std::vector<D3D12_META_COMMAND_DESC> descriptions(count);UINT actual=count;
+            meta.known=count==0||SUCCEEDED(ID3D12Device5_EnumerateMetaCommands(extended,&actual,descriptions.data()));
+            if(actual>count)meta.known=false;
+            if(meta.known)for(UINT i=0;i<actual;++i){
+                meta.initialization_dirty|=UINT(descriptions[i].InitializationDirtyState);
+                meta.execution_dirty|=UINT(descriptions[i].ExecutionDirtyState);
+            }
+        }
+        ReleaseCom(extended);
+    }
+    Check(meta.known&&((meta.initialization_dirty|meta.execution_dirty)&~kCommandStateCoveredDomains)==0,
+        "actual WARP device meta-command state can be restored");
+    queue_test::Hr(ID3D12Device_SetPrivateData(f.device,kCommandStateMetaContract,sizeof(meta),&meta),
+        "entry device creation identity");
+    CommandCreationInfo creation{};creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
+    Check(RegisterCreatedCommandStateList(list.native,meta,creation),"entry native list registered");
+    Check(MH_Initialize()==MH_OK,"entry native command state hook initialization");
+    Check(InstallNativeCommandStateHooks(list.native),"entry native command state hooks");
+    auto state_probe=std::make_unique<NativeCommandState>();
+    ID3D12GraphicsCommandList* observed=nullptr;
+    (void)CaptureNativeCommandState(list.native,*state_probe,&observed);
+    ReleaseNativeCommandState(*state_probe);state_probe.reset();
+    const auto state_token=ReadCommandStateToken(list.native);
+    Check(state_token!=0,"registered list has native state token");
+    CompleteCommandStateInstallation(state_token,list.native,true,false);
+    queue_test::Hr(ProcessCommandListReset(0,list.native,list.allocator,nullptr),"entry native Reset");
+    ID3D12GraphicsCommandList_SetPipelineState(list.native,g_codec.encode);
+
+    nr_acceptance::performance_active.store(true);
+    nr_acceptance_gpu::read_index=nr_acceptance_gpu::write_index=0;
+    const auto entry_kind=sr?nr_acceptance_gpu::Diagnostic::SrEntry:nr_acceptance_gpu::Diagnostic::RrEntry;
+    const auto reached_kind=sr?nr_acceptance_gpu::Diagnostic::SrPrepareReached:
+        nr_acceptance_gpu::Diagnostic::RrPrepareReached;
+    const auto entry_before=nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load();
+    const auto reached_before=nr_acceptance_gpu::diagnostics[static_cast<unsigned>(reached_kind)].load();
+    {
+        nr_source_runtime::StreamlineScope token(nr_source_frame::Source{41,51,1});
+        nr_source_runtime::EvaluateScope source(list.native,&handle,&params,feature);
+        Check(bool(nr_source_runtime::CurrentSource()),"entry source observed");
+        const auto status=sr?ProcessEvaluate(EntryNative,list.native,&handle,&params,nullptr):
+            ProcessRrPost(EntryNative,list.native,&handle,&params,nullptr,feature);
+        Check(status==kNgxSuccess,"real native SR/RR entry succeeds");
+        source.Finish(status);
+    }
+    std::printf("entry RR stage=%d recorded=%llu before=%llu prepare=%llu after=%llu finish=%llu bypass=%u state=%s\n",
+        nr_post_settings::last_rr_stage.load(),nr_post_settings::rr_recorded.load(),
+        nr_post_settings::rr_before_state_rejected.load(),nr_post_settings::rr_prepare_declined.load(),
+        nr_post_settings::rr_after_state_rejected.load(),nr_post_settings::rr_finish_declined.load(),
+        unsigned(g_last_bypass_reason.load()),SnapshotCommandStateEvidence().reason);
+    if(sr)Check(g_nr_successful_evaluations.load()>0,"real SR entry reaches post NR finish");
+    else Check(nr_post_settings::rr_recorded.load()>0,"real RR entry reaches post NR finish");
+    Check(nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load()==entry_before+1&&
+          nr_acceptance_gpu::diagnostics[static_cast<unsigned>(reached_kind)].load()==reached_before+1,
+          "production entry and Prepare are independently observed in active session");
+    list.Close();list.Submit(f.a);f.Drain(f.a);
+    NrSlot* slot=nullptr;for(auto&c:g_contexts)for(auto&candidate:c.slots)
+        if(candidate.acceptance_time_generation==g_config_generation.load()&&candidate.acceptance_time_source.sequence==1)
+            slot=&candidate;
+    Check(slot&&slot->acceptance_time_mask==15&&slot->acceptance_time_queue&&slot->acceptance_time_fence,
+        sr?"real SR entry emits q0-q3 and publishes exact queue/fence":
+           "real RR entry emits q0-q3 and publishes exact queue/fence");
+    nr_acceptance_gpu::Collect(*slot);nr_acceptance_gpu::Sample sample{};
+    Check(nr_acceptance_gpu::Pop(sample),"real SR/RR entry yields completed GPU query sample");
+    Check(sample.source==nr_source_frame::Source{41,51,1}&&sample.frame&&sample.instance&&sample.ms>0&&
+          sample.queue==slot->acceptance_time_queue->identity&&sample.fence==slot->acceptance_time_fence,
+          "production identity and exact queue/fence survive native entry");
+    {
+        queue_test::List declined(f);
+        const auto pre=static_cast<unsigned>(sr?nr_acceptance_gpu::Diagnostic::SrPreLifecycle:
+            nr_acceptance_gpu::Diagnostic::RrPreLifecycle);
+        const auto entries=nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load();
+        const auto prepares=nr_acceptance_gpu::diagnostics[static_cast<unsigned>(reached_kind)].load();
+        const auto declines=nr_acceptance_gpu::diagnostics[pre].load();
+        const bool old_uncertain=g_lifecycle_tracking_uncertain.exchange(true);
+        const auto declined_status=sr?ProcessEvaluate(EntryNoop,declined.native,&handle,&params,nullptr):
+            ProcessRrPost(EntryNoop,declined.native,&handle,&params,nullptr,feature);
+        Check(declined_status==kNgxSuccess,"real SR/RR entry can safely bypass on uncertain lifecycle");
+        g_lifecycle_tracking_uncertain.store(old_uncertain);
+        Check(nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load()==entries+1&&
+              nr_acceptance_gpu::diagnostics[pre].load()==declines+1&&
+              nr_acceptance_gpu::diagnostics[static_cast<unsigned>(reached_kind)].load()==prepares&&
+              nr_acceptance_gpu::read_index==nr_acceptance_gpu::write_index,
+              "production pre-Prepare lifecycle decline is diagnosed without a GPU sample");
+        nr_acceptance::performance_active.store(false);
+        const auto off_entries=nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load();
+        const auto off_declines=nr_acceptance_gpu::diagnostics[pre].load();
+        g_lifecycle_tracking_uncertain.store(true);
+        const auto off_status=sr?ProcessEvaluate(EntryNoop,declined.native,&handle,&params,nullptr):
+            ProcessRrPost(EntryNoop,declined.native,&handle,&params,nullptr,feature);
+        Check(off_status==kNgxSuccess,"real SR/RR bypass remains safe with diagnostic session off");
+        g_lifecycle_tracking_uncertain.store(old_uncertain);
+        Check(nr_acceptance_gpu::diagnostics[static_cast<unsigned>(entry_kind)].load()==off_entries&&
+              nr_acceptance_gpu::diagnostics[pre].load()==off_declines,
+              "closed diagnostic session does not count ordinary SR/RR bypasses");
+    }
+    nr_acceptance::performance_active.store(false);list.Detach();entry_views.clear();
+    ReleaseCom(color);ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(entry_output);entry_output=nullptr;
+}
+void RunSr(){WarpRrEntry(true);std::printf("actual SR entry: %u checks; no game/model claim\n",queue_test::checks);}
 void Run(){
     InitializeCriticalSection(&g_chain_cs);
     wchar_t full[MAX_PATH]{};GetFullPathNameW(L"acceptance-user.ini",MAX_PATH,full,nullptr);wcscpy_s(g_ini_path,full);
@@ -174,9 +429,9 @@ void Run(){
         timed_picture.screenshot_phase==nr_acceptance_policy::ScreenshotPhase::Capture,
         "one-click performance requires 180 owned warmup sources then 600 completed GPU samples");
     Check(!nr_acceptance::PerformanceActive(),"GPU instrumentation stops before image capture");
-    // All callbacks may have completed before Present drains the ring. Global
-    // adoption counters must retain the group-start baseline across the
-    // warmup/measurement boundary.
+    // All callbacks may have completed before Present drains the ring. The
+    // only observed adoption may be from warmup; completed GPU timing still
+    // must not be represented as adoption by the 600 measurement samples.
     for(const unsigned group_index:{3u,8u}){
         pictures.index=group_index;nr_acceptance::StartGroup(pictures);
         auto& buffered=pictures.groups[group_index];
@@ -193,16 +448,16 @@ void Run(){
             x.private_composed=private_route;x.temporal_recorded=!private_route;
             nr_acceptance_gpu::samples[nr_acceptance_gpu::write_index++%nr_acceptance_gpu::kRing]=x;
         }
-        if(private_route)nr_private_sr_status::adopted.fetch_add(780);
+        if(private_route)nr_private_sr_status::adopted.fetch_add(180);
         else {
             nr_temporal_status::gpu_config=buffered.generation;
             nr_temporal_status::gpu_instance=501+group_index;
-            nr_temporal_status::gpu_adopted.fetch_add(780);
+            nr_temporal_status::gpu_adopted.fetch_add(180);
         }
         Check(!nr_acceptance::TickScreenshotPerformance(pictures,buffered,runtime,GetTickCount64())&&
             buffered.performance_warmup==180&&buffered.performance_count==600&&
             std::strcmp(buffered.performance_reason,"complete")==0,
-            "buffered 180+600 private/temporal samples keep group-start adoption proof");
+            "buffered 180+600 samples complete timing with only warmup-period adoption observed");
     }
     // The production Reset hook invokes this only after native Reset succeeds.
     // An unsubmitted token can be reused; an already submitted slot remains
@@ -271,7 +526,48 @@ void Run(){
     pictures.groups[1].shots[0].tick=GetTickCount64()-5001;
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(std::strstr(pictures.groups[1].reason,"timeout")!=nullptr,"missing screenshot callback times out");
+    // A cancelled measurement must preserve observations made before the
+    // timestamp preparation stage, even when no GPU sample was collected.
+    pictures.groups[1].screenshot_phase=nr_acceptance_policy::ScreenshotPhase::Warmup;
+    pictures.groups[1].performance_reason[0]=0;
+    const bool cancelled_rr=pictures.groups[1].post_rr;
+    const auto cancelled_entry=cancelled_rr?nr_acceptance_gpu::Diagnostic::RrEntry:
+        nr_acceptance_gpu::Diagnostic::SrEntry;
+    nr_acceptance_gpu::diagnostics[static_cast<unsigned>(cancelled_entry)].fetch_add(1);
     nr_acceptance::Cancel();DrainExport();
+    char export_path[MAX_PATH]{};
+    WideCharToMultiByte(CP_UTF8,0,nr_acceptance::last_screenshot_page,-1,export_path,MAX_PATH,nullptr,nullptr);
+    std::string manifest_path(export_path);
+    const auto page=manifest_path.rfind("index.html");
+    Check(page!=std::string::npos,"screenshot export page path available");
+    if(page!=std::string::npos){
+        manifest_path.replace(page,std::strlen("index.html"),"screenshots.json");
+        std::ifstream exported(manifest_path,std::ios::binary);
+        const std::string json((std::istreambuf_iterator<char>(exported)),{});
+        Check(json.find("\"measurementAdoption\":\"unverified-not-bound-to-measured-samples\"")!=std::string::npos&&
+            json.find("\"statusScope\":\"completed-fence-local-GPU-timing-only\"")!=std::string::npos&&
+            json.find("\"screenshotFreshAdoption\":\"incomplete\"")!=std::string::npos&&
+            json.find("\"entryStatus\":\"entry-not-observed\"")!=std::string::npos&&
+            json.find("AdoptedDuringMeasure")==std::string::npos,
+            "whole-group warmup adoption cannot be exported as measured-sample adoption");
+        for(const unsigned group_index:{3u,8u}){
+            const auto begin=json.find("\"group\":"+std::to_string(group_index)+",");
+            const auto end=begin==std::string::npos?begin:json.find("\"shots\":[",begin);
+            const auto record=begin==std::string::npos?std::string{}:json.substr(begin,end-begin);
+            Check(record.find("\"status\":\"complete\"")!=std::string::npos&&
+                record.find("\"validWarmup\":180")!=std::string::npos&&
+                record.find("\"validGpuSamples\":600")!=std::string::npos&&
+                record.find("\"measurementAdoption\":\"unverified-not-bound-to-measured-samples\"")!=std::string::npos,
+                "temporal/private buffered timing complete is not measured-sample adoption proof");
+        }
+        const auto begin=json.find("\"group\":1,");
+        const auto end=begin==std::string::npos?begin:json.find("\"shots\":[",begin);
+        const auto record=begin==std::string::npos?std::string{}:json.substr(begin,end-begin);
+        Check(record.find("\"status\":\"cancelled-partial\"")!=std::string::npos&&
+            record.find("\"entryStatus\":\"entry-observed\"")!=std::string::npos&&
+            record.find(cancelled_rr?"\"rr-entry\":1":"\"sr-entry\":1")!=std::string::npos,
+            "cancelled pre-Prepare group preserves observed entry diagnostic and partial status");
+    }
     Check(!nr_acceptance::PerformanceActive(),"cancel disables diagnostic GPU instrumentation");
     Check(nr_acceptance::SameRequested(off,SnapshotConfig())&&nr_processing_runtime::session.Current()==original_route.Current()&&
         nr_post_settings::Read().percent==original_post.percent,"screenshot cancel restores NR-off Before and post precision");
@@ -287,6 +583,8 @@ void Run(){
     Check(after==before_acceptance,"user INI byte identical across all operations");
     Sleep(300); // let idle controller watchdogs observe their exact session id
     DeleteCriticalSection(&g_chain_cs);
+    WarpTiming();
+    WarpRrEntry();
     std::printf("actual acceptance controller: %u checks; no game/model or image-quality claim\n",queue_test::checks);
 }
 }

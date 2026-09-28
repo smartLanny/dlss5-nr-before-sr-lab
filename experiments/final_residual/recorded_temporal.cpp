@@ -237,6 +237,7 @@ struct RecordedTemporal::Impl {
     Backend backend=Backend::None;Scope scope=Scope::WholeChain;
     bool ready=false,fault=false,recording_unsafe=false,retiring=false;
     std::string message="not initialized";
+    RecordRefusal record_refusal=RecordRefusal::None;
     ComPtr<ID3D12Device> device;ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12RootSignature> root;ComPtr<ID3D12PipelineState> copy_pso,accumulate_pso;
     std::shared_ptr<TemporalPipelines> pipelines;
@@ -393,6 +394,7 @@ RetirementStats RecordedTemporal::collect_retired() noexcept {
 bool RecordedTemporal::initialized()const noexcept{return p_->ready&&!p_->fault;}
 bool RecordedTemporal::releasable()const noexcept{return p_->destroyable();}
 const char* RecordedTemporal::status()const noexcept{return p_->message.c_str();}
+RecordRefusal RecordedTemporal::record_refusal()const noexcept{return p_->record_refusal;}
 TemporalStats RecordedTemporal::stats()const noexcept{p_->poll_stats();return p_->counters;}
 ID3D12Resource* RecordedTemporal::anchor()const noexcept{return p_->first.Get();}
 bool RecordedTemporal::can_record()const noexcept {
@@ -400,7 +402,7 @@ bool RecordedTemporal::can_record()const noexcept {
         !p.slots[p.next_slot].recording&&reached(p.slots[p.next_slot].fence.Get(),p.slots[p.next_slot].value)&&(!p.amd||p.amd->can_record());
 }
 RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const RecordedInputs& in)noexcept {
-    auto& p=*p_;p.poll_stats();if(!in.settings.enabled)return RecordResult::Disabled;
+    auto& p=*p_;p.record_refusal=RecordRefusal::None;p.poll_stats();if(!in.settings.enabled)return RecordResult::Disabled;
     if(p.fault||!p.ready)return RecordResult::Faulted;
     if(p.previous.source.valid()&&in.frame.source==p.previous.source)return RecordResult::Duplicate;
     if(!can_record()){p.message="temporal recording or GPU resource slot is still occupied";return RecordResult::Busy;}
@@ -413,13 +415,21 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
         (frame.contract.color_domain!=kResidualSdrCodeValues&&frame.contract.color_domain!=kResidualLinearSdr&&!hdr)||
         (hdr&&(!std::isfinite(frame.source_to_scene)||frame.source_to_scene<1.f/1024.f||frame.source_to_scene>1024.f||in.candidate_format==DXGI_FORMAT_R8G8B8A8_UNORM))||
         frame.contract.width!=p.width||frame.contract.height!=p.height||
-        in.layers<1||in.layers>5||(later&&(in.layers<2||!(in.anchor_source==frame.source)))||
-        !device_is(l,p.device.Get())||l->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||
-        (original_format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&!(hdr&&packed))||
-        !region(in.original,p.device.Get(),original_format,0,0,p.width,p.height)||
+        in.layers<1||in.layers>5||(later&&(in.layers<2||!(in.anchor_source==frame.source)))){
+        p.record_refusal=RecordRefusal::FrameContract;
+        p.message="temporal frame, scope, colour/exposure or layer contract unavailable";return RecordResult::Unavailable;
+    }
+    if(!device_is(l,p.device.Get())||l->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT){
+        p.record_refusal=RecordRefusal::DeviceList;p.message="temporal device or DIRECT list unavailable";return RecordResult::Unavailable;
+    }
+    if((original_format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&!(hdr&&packed))||
+        !region(in.original,p.device.Get(),original_format,0,0,p.width,p.height)){
+        p.record_refusal=RecordRefusal::OriginalResource;p.message="temporal original format or region unavailable";return RecordResult::Unavailable;
+    }
+    if(
         !target_format(in.candidate_format)||!region(in.candidate,p.device.Get(),in.candidate_format,in.candidate_x,in.candidate_y,p.width,p.height)||
         !(in.candidate->GetDesc().Flags&D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)||in.candidate==in.original){
-        p.message="temporal source, scope, colour/exposure or active rectangle unavailable";return RecordResult::Unavailable;
+        p.record_refusal=RecordRefusal::CandidateResource;p.message="temporal candidate format, region, UAV or alias unavailable";return RecordResult::Unavailable;
     }
     if(p.backend==Backend::NativeMotion){const auto& m=in.native;
         if(!(m.source==frame.source)||!m.phase_proven||!std::isfinite(m.scale_x)||!std::isfinite(m.scale_y)||m.scale_x==0||m.scale_y==0||
@@ -427,7 +437,7 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             !region(m.resource,p.device.Get(),m.format,m.x,m.y,m.width,m.height)||m.resource==in.original||m.resource==in.candidate||
             (m.depth&&(!m.depth_phase_proven||!(m.depth_source==frame.source)||m.x||m.y||
             !region(m.depth,p.device.Get(),DXGI_FORMAT_R32_FLOAT,0,0,m.width,m.height)||m.depth==in.original||m.depth==in.candidate||m.depth==m.resource))){
-            p.message="native motion identity, phase, units or readable format unavailable";return RecordResult::Unavailable;
+            p.record_refusal=RecordRefusal::NativeGuide;p.message="native motion identity, phase, units or readable format unavailable";return RecordResult::Unavailable;
         }
     }
     D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
@@ -438,24 +448,32 @@ RecordResult RecordedTemporal::record(ID3D12GraphicsCommandList* l,const Recorde
             return SUCCEEDED(p.device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&value,sizeof(value)));
         })||
         !(support.Support1&D3D12_FORMAT_SUPPORT1_SHADER_LOAD)||!(support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)){
-        p.message="temporal candidate typed read/write unavailable";return RecordResult::Unavailable;
+        p.record_refusal=RecordRefusal::TypedCandidate;p.message="temporal candidate typed read/write unavailable";return RecordResult::Unavailable;
     }
     const bool inplace=in.settings.validation==Validation::Legacy&&temporal_inplace_choice(p.inplace_enabled,
         in.candidate_format==DXGI_FORMAT_R16G16B16A16_FLOAT,
         (support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD)!=0);
     if(!inplace&&!p.ensure_snapshot()) {
-        p.message="temporal snapshot fallback allocation refused; current candidate retained; collect F8 feedback";
+        p.record_refusal=RecordRefusal::Snapshot;p.message="temporal snapshot fallback allocation refused; current candidate retained; collect F8 feedback";
         return RecordResult::Unavailable;
     }
     Frame next_frame=frame;
     const double delta=p.previous.valid()&&frame.source_time>p.previous.source_time?double(frame.source_time-p.previous.source_time)/1000.:0;
     if(delta>in.settings.maximum_gap_ms)next_frame.scene_reset=true;
     p.plan=p.history.prepare(next_frame);
-    if(!p.plan.work()){p.message="temporal source identity did not admit a new frame";return p.plan.action==Action::Duplicate?RecordResult::Duplicate:RecordResult::Unavailable;}
+    if(!p.plan.work()){p.record_refusal=RecordRefusal::HistoryPlan;p.message="temporal source identity did not admit a new frame";return p.plan.action==Action::Duplicate?RecordResult::Duplicate:RecordResult::Unavailable;}
     try {
         RecordedFlow flow{};
         if(p.amd){const auto result=p.amd->record(next_frame,p.plan,l,in.original,in.original_state,flow);
             if(result!=Submit::Recorded){p.history.cancel_before_flow(p.plan.token);p.plan={};
+                switch(p.amd->record_refusal()){
+                case AmdRecordRefusal::Owner:p.record_refusal=RecordRefusal::AmdOwner;break;
+                case AmdRecordRefusal::Busy:p.record_refusal=RecordRefusal::AmdBusy;break;
+                case AmdRecordRefusal::Frame:p.record_refusal=RecordRefusal::AmdFrame;break;
+                case AmdRecordRefusal::Continuity:p.record_refusal=RecordRefusal::AmdContinuity;break;
+                case AmdRecordRefusal::Snapshot:p.record_refusal=RecordRefusal::AmdSnapshot;break;
+                default:p.record_refusal=RecordRefusal::AmdFault;break;
+                }
                 if(result==Submit::Faulted){p.recording_unsafe=true;p.fail(p.amd->status());return RecordResult::Faulted;}
                 p.message=p.amd->status();return RecordResult::Unavailable;
             }

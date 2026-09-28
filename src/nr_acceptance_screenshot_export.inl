@@ -10,7 +10,7 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
     bool ok=html&&manifest&&gpu;unsigned copied=0;unsigned long long total=0;
     if(gpu)std::fputs("group,config,sourceStream,sourceEpoch,sourceSequence,NRFrame,queue,fence,postCoreGpuMs\n",gpu);
     if(html)std::fprintf(html,"<!doctype html><meta charset=\"utf-8\"><title>DLSS5 comparison / 画面对比</title><style>body{font:16px sans-serif;background:#111;color:#eee}section{margin:2em 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:1em}.viewport{overflow:auto;height:70vh;border:1px solid #666}.viewport img{max-width:none;height:auto}details img{max-width:100%%;height:auto}</style><h1>DLSS5 fixed-view screenshots / 固定视角截图</h1><p>Different Present times / 不同显示时刻；not same-frame model pixels / 非同帧模型像素。ReShade encoded screenshots; HDR/raw equivalence unverified / 编码截图，不等价于 HDR 原始像素。</p><h2>Choose two images / 选择双图</h2><select id=left></select> <select id=right></select> <label>Zoom / 缩放 <input id=zoom type=range min=25 max=300 value=100></label><div class=pair><div class=viewport><img id=imga></div><div class=viewport><img id=imgb></div></div><details><summary>All groups / 全部组别</summary>");
-    if(manifest)std::fprintf(manifest,"{\"schema\":\"dlss5-screenshots-v2\",\"build\":\"%s\",\"source\":\"%s\",\"restored\":%s,\"cancelled\":%s,\"gpuScope\":\"same Direct queue completed timestamp pairs around recorded post-SR Core work; excludes native SR/RR and unobserved work; whole-frame GPU unavailable\",\"groups\":[",kBuildIdentity,kSourceCommit,s->restored?"true":"false",s->cancelled?"true":"false");
+    if(manifest)std::fprintf(manifest,"{\"schema\":\"dlss5-screenshots-v2\",\"build\":\"%s\",\"source\":\"%s\",\"restored\":%s,\"cancelled\":%s,\"gpuScope\":\"same Direct queue completed q0-q1 plus q2-q3 timestamp intervals around recorded post-native NR work; excludes native SR/RR, pre-q0 and unobserved cross-queue work; total plugin and whole-frame GPU unavailable\",\"groups\":[",kBuildIdentity,kSourceCommit,s->restored?"true":"false",s->cancelled?"true":"false");
     for(unsigned i=0;i<s->count;++i){
         auto& g=s->groups[i];const auto label=Get(Program::Screenshots,i,false).name;
         const char* reason=g.reason[0]?g.reason:i>s->index?"not-started":s->cancelled?"cancelled; partial":"capture attempted";
@@ -28,11 +28,37 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
                 g.performance_stream,g.performance_epoch,g.performance_sources[j],
                 g.performance_frames[j],g.performance_queue,g.performance_fences[j],g.performance_ms[j]);
         if(html)std::fprintf(html,"<section><h2>%u: %s</h2><p>%s</p><div class=\"pair\">",i,label,reason);
-        if(manifest)std::fprintf(manifest,"%s{\"group\":%u,\"name\":\"%s\",\"reason\":\"%s\",\"config\":%u,\"nativeRoute\":\"%s\",\"postPercent\":%u,\"performance\":{\"status\":\"%s\",\"validWarmup\":%u,\"validGpuSamples\":%u,\"rejectedSamples\":%u,\"medianMs\":%.9g,\"p95Ms\":%.9g,\"gpuTimeScope\":\"post-SR Core pre/post native call on one completed Direct queue; partial plugin scope, not whole-frame\",\"totalGpuTime\":\"unavailable\",\"wholeFrameGpuTime\":\"unavailable\",\"queue\":%llu,\"usageStartBytes\":%llu,\"usageEndBytes\":%llu,\"usageSampledPeakBytes\":%llu,\"memoryBudgetBytes\":%llu,\"memoryKnown\":%s,\"temporalGpuAdoptedDuringMeasure\":%llu,\"privateAdoptedDuringMeasure\":%llu},\"shots\":[",
+        if(manifest)std::fprintf(manifest,"%s{\"group\":%u,\"name\":\"%s\",\"reason\":\"%s\",\"config\":%u,\"nativeRoute\":\"%s\",\"postPercent\":%u,\"requestedReconstructionMode\":%d,\"recordedReconstructionMode\":%d,\"requestedColourRestoreMode\":%d,\"recordedColourRestoreMode\":%d,\"requestedEdgeRecovery\":%d,\"recordedEdgeRecovery\":%d,\"requestedNearBlackGuard\":%d,\"recordedNearBlackGuard\":%d,\"requestedLowGridLuma\":%d,\"requestedLowGridColour\":%d,\"recordedLowGridLuma\":-1,\"recordedLowGridColour\":-1,\"recordedPolicyFrame\":%llu,\"recordedPolicyProof\":\"recent-command-recording-only; -1 means unknown; no pixel or fence proof\",\"performance\":{\"status\":\"%s\",\"statusScope\":\"completed-fence-local-GPU-timing-only\",\"measurementAdoption\":\"%s\",\"screenshotFreshAdoption\":\"%s\",\"validWarmup\":%u,\"validGpuSamples\":%u,\"rejectedSamples\":%u,\"medianMs\":%.9g,\"p95Ms\":%.9g,\"gpuTimeScope\":\"q0-q1 plus q2-q3 on one completed Direct queue; excludes native call, pre-q0 and cross-queue work\",\"totalGpuTime\":\"unavailable\",\"wholeFrameGpuTime\":\"unavailable\",\"queue\":%llu,\"usageStartBytes\":%llu,\"usageEndBytes\":%llu,\"usageSampledPeakBytes\":%llu,\"memoryBudgetBytes\":%llu,\"memoryKnown\":%s,\"temporalGpuAdoptedObservedSinceGroupStart\":%llu,\"privateAdoptedObservedSinceGroupStart\":%llu}",
             i?",":"",i,label,reason,g.generation,g.post_rr?"native-RR":"native-SR",g.percent,
-            g.performance_reason[0]?g.performance_reason:"not-started",g.performance_warmup,g.performance_count,g.performance_rejected,median,p95,g.performance_queue,
+            g.requested.reconstruction_mode,g.recorded_reconstruction_mode,
+            g.requested.colour_restore_mode,g.recorded_restore_mode,
+            int(g.requested.colour_edge_recovery),g.recorded_edge_recovery,
+            int(g.requested.near_black_chroma_guard),g.recorded_near_black_guard,
+            int(g.requested.low_grid_edit_field),int(g.requested.low_grid_color_edit_field),
+            g.recorded_policy_frame,
+            g.performance_reason[0]?g.performance_reason:"not-started",
+            g.requested.temporal_backend||g.requested.private_residual_sr?"unverified-not-bound-to-measured-samples":"not-applicable",
+            g.requested.temporal_backend||g.requested.private_residual_sr?
+                (g.shot_count==kShots?"fresh-counter-advance-before-each-shot-request":"incomplete"):
+                "not-applicable",
+            g.performance_warmup,g.performance_count,g.performance_rejected,median,p95,g.performance_queue,
             g.usage_start,g.usage_end,g.usage_sampled_peak,g.budget,g.memory_known?"true":"false",
             g.performance_temporal_adopted,g.performance_private_adopted);
+        if(manifest){
+            const auto entry=static_cast<unsigned>(g.post_rr?nr_acceptance_gpu::Diagnostic::RrEntry:
+                nr_acceptance_gpu::Diagnostic::SrEntry);
+            const bool entry_observed=g.performance_diagnostics_end[entry]>g.performance_diagnostics_start[entry];
+            std::fprintf(manifest,",\"entryStatus\":\"%s\"",!g.requested.enabled?"not-applicable":
+                entry_observed?"entry-observed":"entry-not-observed");
+            std::fputs(",\"adoptionCounterScope\":\"whole-group observation including warmup and asynchronous publication; private counter is process-global; neither is bound to the 600 measured samples\",\"gpuDiagnostics\":{",manifest);
+            for(unsigned d=0;d<static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::Count);++d){
+                const auto before=g.performance_diagnostics_start[d],after=g.performance_diagnostics_end[d];
+                std::fprintf(manifest,"%s\"%s\":%llu",d?",":"",
+                    nr_acceptance_gpu::DiagnosticName(static_cast<nr_acceptance_gpu::Diagnostic>(d)),
+                    after>=before?after-before:0);
+            }
+            std::fputs("},\"shots\":[",manifest);
+        }
         for(unsigned j=0;j<kShots;++j){
             auto& shot=g.shots[j];char file[48]{};bool saved=false;
             if(shot.received&&shot.path[0]){

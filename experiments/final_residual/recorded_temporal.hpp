@@ -29,6 +29,9 @@ struct RecordedInputs {
     NativeMotion native{};
 };
 enum class RecordResult { Disabled, Unavailable, Duplicate, Busy, Recorded, Faulted };
+enum class RecordRefusal { None, FrameContract, DeviceList, OriginalResource,
+    CandidateResource, NativeGuide, TypedCandidate, Snapshot, HistoryPlan,
+    AmdOwner, AmdBusy, AmdFrame, AmdContinuity, AmdSnapshot, AmdFault };
 struct TemporalStats {
     Id recorded=0,submitted=0,cancelled=0,seeded=0,bytes=0;
     Id pending_token=0;
@@ -54,6 +57,7 @@ public:
     RecordedTemporal& operator=(const RecordedTemporal&)=delete;
     bool initialized() const noexcept;
     const char* status() const noexcept;
+    RecordRefusal record_refusal() const noexcept; // Last record attempt; diagnostic only.
     bool can_record() const noexcept;
     // All of this instance's recordings must be non-replayable and its final
     // consumers complete. Unrelated NR recordings do not own these resources.

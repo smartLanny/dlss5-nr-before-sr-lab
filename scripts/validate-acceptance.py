@@ -11,6 +11,7 @@ def main():
     if a.source:
         if not a.reshade:p.error('--source requires --reshade')
         commands.append([sys.executable,str(ROOT/'scripts/validate-native-color-view.py'),'--acceptance','--source',str(a.source),'--compiler',str(a.compiler),'--reshade',str(a.reshade),'--output',str(a.output/'core')])
+        commands.append([sys.executable,str(ROOT/'scripts/validate-native-color-view.py'),'--acceptance','--acceptance-timing-negative','--source',str(a.source),'--compiler',str(a.compiler),'--reshade',str(a.reshade),'--output',str(a.output/'rr-timing-negative')])
     records=[]
     for i,cmd in enumerate(commands):
         r=subprocess.run(cmd,text=True,capture_output=True,encoding='utf-8',errors='replace');log=r.stdout+r.stderr;(a.output/f'{i}.txt').write_text(log,encoding='utf-8');print(log[-8000:]);records.append({'command':cmd,'exit':r.returncode})

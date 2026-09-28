@@ -5336,6 +5336,9 @@ struct NrSlot {
     nr_source_frame::Source temporal_snapshot_source{};
     unsigned long long temporal_snapshot_recording=0,temporal_guide_bytes=0;
     unsigned temporal_width=0,temporal_height=0,temporal_guide_constants[20]{};
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    nr_private_sr_guides::Input temporal_guide_input{};
+#endif
     bool temporal_guide_prepared=false,temporal_guide_recorded=false;
 
     ID3D12Resource *rr_depth = nullptr, *rr_depth_source = nullptr;
@@ -10435,19 +10438,19 @@ nr_face_capture_geometry::OutputMapping ResolveFaceCaptureOutput(
 bool PrepareNativeTemporalGuideSnapshot(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     NrSlot& slot,const NrGuideBinding& guides,const FeatureRecord& feature,const NgxParams* params,
     unsigned nw,unsigned nh,unsigned ow,unsigned oh) {
-    if(!g_config.enabled||!g_config.temporal_backend||!device||ID3D12Device_GetNodeCount(device)!=1||!list||!params||!guides.depth||!guides.motion||
+    if(!g_config.enabled||g_config.temporal_backend!=1||feature.feature_id!=1||!device||ID3D12Device_GetNodeCount(device)!=1||!list||!params||!guides.depth||!guides.motion||
        guides.depth==guides.motion||!CanMutateSlotLocked(slot))return false;
     slot.temporal_guide_prepared=slot.temporal_guide_recorded=false;
-    const auto source=nr_source_runtime::CurrentSource();unsigned long long token=0;
+    const auto source=nr_source_runtime::CurrentSource();
     const auto identity=SnapshotPostBoundaryList(list);CommandListQueueMarker marker{};
     if(!source||!identity.known||identity.address!=reinterpret_cast<unsigned long long>(list)||identity.reset==UINT64_MAX||
-       !ReadLifecycleToken(list,token)||!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
+       !ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
        marker.stable_submissions<kRequiredStableQueueSubmissions||!marker.identity||
        ID3D12GraphicsCommandList_GetType(list)!=D3D12_COMMAND_LIST_TYPE_DIRECT)return false;
     nr_private_sr_guides::Input input{};input.enabled=true;input.reset=true;
     input.source=input.snapshot_source={source.stream,source.epoch,source.sequence};
     input.recording=input.snapshot_recording={reinterpret_cast<unsigned long long>(device),marker.identity,
-        reinterpret_cast<unsigned long long>(list),token,identity.reset+1};
+        reinterpret_cast<unsigned long long>(list),0,identity.reset+1};
     input.signature=guides.signature;input.native_feature=unsigned(feature.feature_id);
     input.native_flags=unsigned(feature.create_flags);input.native_flags_known=feature.create_flags_known;
     input.read_boundary_snapshot=true;input.render_width=guides.signature.depth_width;input.render_height=guides.signature.depth_height;
@@ -10455,7 +10458,7 @@ bool PrepareNativeTemporalGuideSnapshot(ID3D12Device* device,ID3D12GraphicsComma
     input.original_motion_scale_known=GetFloat(params,"MV.Scale.X",&input.original_motion_scale_x)&&GetFloat(params,"MV.Scale.Y",&input.original_motion_scale_y);
     input.original_jitter_known=GetFloat(params,"Jitter.Offset.X",&input.original_jitter_x)&&GetFloat(params,"Jitter.Offset.Y",&input.original_jitter_y);
     input.raster_convention=nr_private_sr_guides::RasterConvention::NgxViewportOffset;
-    const auto plan=nr_private_sr_guides::Prepare(input);if(!plan)return false;
+    if(!nr_private_sr_guides::PrepareScalars(input))return false;
     unsigned depth_state=0,motion_state=0;
     if(!nr_source_runtime::PrivateSrInputReadState(list,guides.depth,depth_state)||
        !nr_source_runtime::PrivateSrInputReadState(list,guides.motion,motion_state))return false;
@@ -10523,17 +10526,32 @@ bool PrepareNativeTemporalGuideSnapshot(ID3D12Device* device,ID3D12GraphicsComma
     ID3D12Resource_AddRef(guides.depth);ID3D12Resource_AddRef(guides.motion);
     ReleaseCom(slot.temporal_depth_input);ReleaseCom(slot.temporal_motion_input);
     slot.temporal_depth_input=guides.depth;slot.temporal_motion_input=guides.motion;
-    std::memcpy(slot.temporal_guide_constants,&plan.constants,sizeof(plan.constants));
-    slot.temporal_snapshot_source=source;slot.temporal_snapshot_recording=token;slot.temporal_guide_prepared=true;return true;
+    slot.temporal_guide_input=input;slot.temporal_snapshot_source=source;
+    slot.temporal_snapshot_recording=0;slot.temporal_guide_prepared=true;return true;
 }
 bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& slot){
     if(!g_config.enabled||!g_config.temporal_backend||!slot.temporal_guide_prepared||slot.temporal_guide_recorded||!list)return false;
     unsigned long long token=0;const auto source=nr_source_runtime::CurrentSource();
-    if(!source||!ReadLifecycleToken(list,token)||token!=slot.temporal_snapshot_recording||
+    if(!source||!ReadLifecycleToken(list,token)||!token||
        source.stream!=slot.temporal_snapshot_source.stream||source.epoch!=slot.temporal_snapshot_source.epoch||
        source.sequence!=slot.temporal_snapshot_source.sequence)return false;
+    const auto identity=SnapshotPostBoundaryList(list);CommandListQueueMarker marker{};
+    const auto& expected=slot.temporal_guide_input.recording;
+    if(!identity.known||identity.address!=reinterpret_cast<unsigned long long>(list)||
+       expected.list!=reinterpret_cast<unsigned long long>(list)||identity.reset==UINT64_MAX||
+       identity.reset+1!=expected.reset||!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
+       marker.stable_submissions<kRequiredStableQueueSubmissions||marker.identity!=expected.queue)return false;
+    const auto* owner=FindLifecycleCommandListLocked(token);
+    bool owns_slot=false;
+    if(owner&&!owner->detached)for(unsigned i=0;i<owner->slot_count;++i)if(owner->slots[i]==&slot){owns_slot=true;break;}
+    if(!owns_slot)return false;
+    auto input=slot.temporal_guide_input;
+    input.recording.lifetime=input.snapshot_recording.lifetime=token;
+    const auto plan=nr_private_sr_guides::Prepare(input);if(!plan)return false;
     unsigned ds=0,ms=0;if(!nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_depth_input,ds)||
        !nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_motion_input,ms))return false;
+    std::memcpy(slot.temporal_guide_constants,&plan.constants,sizeof(plan.constants));
+    slot.temporal_snapshot_recording=token;
     Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     ID3D12DescriptorHeap* heaps[]={slot.temporal_guide_heap};ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,heaps);

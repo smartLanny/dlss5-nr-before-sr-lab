@@ -5,6 +5,7 @@
 
 namespace nr::final_residual {
 enum class Submit { Rejected, Duplicate, Busy, Submitted, Faulted, Recorded };
+enum class AmdRecordRefusal { None, Owner, Busy, Frame, Continuity, Snapshot, Fault };
 struct GpuFlow {
     FlowReceipt receipt{};
     Id token=0;
@@ -69,6 +70,7 @@ public:
     bool can_record() const noexcept;
     Submit record(const Frame&,const Plan&,ID3D12GraphicsCommandList*,ID3D12Resource*,
         D3D12_RESOURCE_STATES snapshot_state,RecordedFlow&) noexcept;
+    AmdRecordRefusal record_refusal() const noexcept; // Last borrowed recording only; diagnostic, not a GPU receipt.
     bool commit_recording(Id token,ID3D12Fence* last_reader,Id value) noexcept;
     bool retire_replayed_recording(ID3D12Fence* last_reader,Id value) noexcept;
     bool cancel_recording(Id token) noexcept;

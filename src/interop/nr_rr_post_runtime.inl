@@ -1,3 +1,7 @@
+#if defined(NR_HAS_ACCEPTANCE)
+// Acceptance timestamp implementation follows this interop include in the generated Core.
+namespace nr_acceptance_gpu { void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned); void Abort(NrSlot&,const char*); }
+#endif
 // Included immediately before ProcessEvaluate. This is a real execution path
 // for observed Feature13, not Feature1 spoofing or a global Mode rewrite.
 NgxResult ProcessRrPost(EvaluateFeatureFn original,
@@ -10,7 +14,13 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     g_last_carrier_feature.store(13,std::memory_order_relaxed);
     g_rr_guard_was_active.store(true,std::memory_order_relaxed);
     [[maybe_unused]] const auto rr_frame=++g_rr_passthrough_evaluations;
+#if defined(NR_HAS_ACCEPTANCE)
+    nr_acceptance_gpu::EntryScope acceptance_rr_entry(nr_acceptance_gpu::EntryRoute::Rr);
+#endif
     if(!nr_post_settings::Read().rr || !params || !command_list || !feature.generation) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Route);
+#endif
         SetBypassReason(BypassReason::RayReconstructionGuard);
         return original(command_list,handle,params,callback);
     }
@@ -46,6 +56,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     FeedbackObserveEvaluate(params,feature,carrier);
     ScopedRrOwnershipGate ownership(true,false,true);
     if(!ownership.acquired() || ownership.is_nested()) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Owner);
+#endif
         if(!ownership.acquired() &&
            g_rr_ownership_gate_owner.load(std::memory_order_acquire)==1)
             LatchConcurrentRrOwnershipChange("Feature 13 Evaluate");
@@ -61,6 +74,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     chain_timing.Stop();
 #endif
     if(!chain_acquired) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
+#endif
         ownership.Release();
         SetBypassReason(BypassReason::Feature1TransactionBusy);
         return call_native();
@@ -70,6 +86,12 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
         (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
     if(!eligible) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(OtherNrOwnerActive()?nr_acceptance_gpu::PreReason::Owner:
+            (g_feature_tracking_uncertain.load(std::memory_order_acquire)||
+             g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))?
+                nr_acceptance_gpu::PreReason::Lifecycle:nr_acceptance_gpu::PreReason::Route);
+#endif
         LeaveCriticalSection(&g_chain_cs); ownership.Release();
         return call_native();
     }
@@ -77,6 +99,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     if(nr_processing_runtime::Effective()==nr_processing::Start::Before)
         nr_processing_runtime::Reject(nr_processing::Start::Before,"RR-requires-post-reconstruction");
     if(nr_processing_runtime::PresentSelected()) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Route);
+#endif
         LeaveCriticalSection(&g_chain_cs);ownership.Release();return call_native();
     }
     BeginPipelineStatsScopeLocked(feature.generation,1);
@@ -90,22 +115,38 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     NativeCommandStateScope before(command_list);
     PostSrSubstitution prepared{};
     if(before.active) {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Unavailable);
+#endif
         // No native Output/resource parameters are replaced. Capture guides and
         // exposure before the opaque native call using the ordinary post path.
         prepared=PrepareAfterSr(before.command_list,handle,params,feature);
         before.Restore();
         if(!prepared.active)
             nr_post_settings::rr_prepare_declined.fetch_add(1,std::memory_order_relaxed);
-    } else nr_post_settings::rr_before_state_rejected.fetch_add(1,std::memory_order_relaxed);
+    } else {
+#if defined(NR_HAS_ACCEPTANCE)
+        acceptance_rr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
+#endif
+        nr_post_settings::rr_before_state_rejected.fetch_add(1,std::memory_order_relaxed);
+    }
     if(!prepared.active&&!nr_processing_runtime::Recorded())
         nr_processing_runtime::Reject(nr_processing::Start::After,"RR-post-input-or-command-state-unavailable");
     if(prepared.active) nr_post_settings::last_rr_stage.store(1,std::memory_order_relaxed);
     // Exactly one original RR invocation on EVERY branch. Its HRESULT/status
     // is retained on ordinary declines. An opaque NR2 failure returns its fatal
     // status after quarantine; it never retries an already run denoiser.
-    if(prepared.active){nr_dual_runtime::Stamp(before.command_list,*prepared.slot,10);nr_dual_runtime::Stamp(before.command_list,*prepared.slot,8);}
+    if(prepared.active){
+#if defined(NR_HAS_ACCEPTANCE)
+        nr_acceptance_gpu::Stamp(before.command_list,*prepared.slot,1);
+#endif
+        nr_dual_runtime::Stamp(before.command_list,*prepared.slot,10);nr_dual_runtime::Stamp(before.command_list,*prepared.slot,8);}
     const NgxResult native_result=call_native();
-    if(prepared.active)nr_dual_runtime::Stamp(before.command_list,*prepared.slot,9);
+    if(prepared.active){
+#if defined(NR_HAS_ACCEPTANCE)
+        nr_acceptance_gpu::Stamp(before.command_list,*prepared.slot,2);
+#endif
+        nr_dual_runtime::Stamp(before.command_list,*prepared.slot,9);}
     const auto after_feature=FindFeature(handle);
     const bool uncertain=g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
@@ -122,6 +163,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
                 nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
             }
             if(prepared.fatal_recording){
+#if defined(NR_HAS_ACCEPTANCE)
+                nr_acceptance_gpu::Abort(*prepared.slot,"post-NR-fatal-before-finish");
+#endif
                 after.AbandonAfterOpaqueFailure();before.AbandonAfterOpaqueFailure();
                 LeaveCriticalSection(&g_chain_cs);ownership.Release();return prepared.fatal_recording;
             }
@@ -140,6 +184,10 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
             nr_post_settings::rr_finish_gate_rejected.fetch_add(1,std::memory_order_relaxed);
         nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
     }
+    #if defined(NR_HAS_ACCEPTANCE)
+    if(prepared.active)nr_acceptance_gpu::Abort(*prepared.slot,
+        native_result!=kNgxSuccess?"native-RR-failed-before-finish":"RR-finish-unavailable");
+    #endif
     if((uncertain || g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) && prepared.active)
         QuarantineAbortedRrTransactionLocked(command_list);

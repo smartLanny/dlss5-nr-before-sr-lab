@@ -19,6 +19,13 @@ Input Valid(){
 }
 void Cpu(){
     auto i=Valid();auto p=Prepare(i);Check(bool(p));Check(p.constants.motion_scale[0]==1&&p.constants.motion_scale[1]==-1.5f);
+    auto unregistered=i;unregistered.recording.lifetime=unregistered.snapshot_recording.lifetime=0;
+    Check(bool(PrepareScalars(unregistered))&&Prepare(unregistered).reason==Reason::Recording);
+    unregistered.original_jitter_x=.75f;
+    Check(PrepareScalars(unregistered).reason==Reason::NonzeroJitter);
+    unregistered=Valid();unregistered.recording.lifetime=unregistered.snapshot_recording.lifetime=0;
+    unregistered.original_motion_scale_x=0;
+    Check(PrepareScalars(unregistered).reason==Reason::Units);
     Check(p.constants.depth_origin[0]==2&&p.constants.motion_origin[1]==2);
     i.signature.motion_scale_x=999;Check(Prepare(i).constants.motion_scale[0]==1);
     i=Valid();i.enabled=false;i.source={};Check(Prepare(i).reason==Reason::Disabled);

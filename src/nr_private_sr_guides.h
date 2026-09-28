@@ -44,14 +44,16 @@ inline bool Extent(unsigned w,unsigned h){return w&&h&&w<=16384&&h<=16384;}
 inline bool Contains(unsigned long long w,unsigned h,unsigned x,unsigned y,unsigned rw,unsigned rh){
     return w<=16384&&h<=16384&&Extent(rw,rh)&&x<=w&&y<=h&&rw<=w-x&&rh<=h-y;
 }
-inline Plan Prepare(const Input& i) {
+// Validate the immutable native guide contract before allocating the slot.
+// Recording identity is deliberately excluded here and must be checked by
+// Prepare after RecordNrUseLocked has registered the real command list.
+inline Plan PrepareScalars(const Input& i) {
     Plan p;const auto reject=[&](Reason r){p.reason=r;return p;};
     if(!i.enabled)return reject(Reason::Disabled);
     if(!i.source||!(i.source==i.snapshot_source))return reject(Reason::Source);
     if(!i.reset&&(!i.motion_reference||i.motion_reference.stream!=i.source.stream||
        i.motion_reference.epoch!=i.source.epoch||i.motion_reference.sequence>=i.source.sequence||
        i.source.sequence-i.motion_reference.sequence!=1))return reject(Reason::Source);
-    if(!i.recording||!(i.recording==i.snapshot_recording))return reject(Reason::Recording);
     if(!i.read_boundary_snapshot||(i.native_feature!=1&&i.native_feature!=13))
         return reject(Reason::NativePhase);
     if(!i.native_flags_known||(i.native_flags&~unsigned(1|2|8|64))!=0)return reject(Reason::Flags);
@@ -95,6 +97,15 @@ inline Plan Prepare(const Input& i) {
     c.raster_offset[0]=i.original_jitter_x;c.raster_offset[1]=i.original_jitter_y;
     c.linear_depth=s.linear_depth;c.projection_a=s.depth_projection_a;c.projection_b=s.depth_projection_b;
     c.inverted=s.depth_inverted;p.reason=Reason::Ready;return p;
+}
+inline Plan Prepare(const Input& i) {
+    if(!i.enabled)return {Reason::Disabled,{}};
+    if(!i.source||!(i.source==i.snapshot_source))return {Reason::Source,{}};
+    if(!i.reset&&(!i.motion_reference||i.motion_reference.stream!=i.source.stream||
+       i.motion_reference.epoch!=i.source.epoch||i.motion_reference.sequence>=i.source.sequence||
+       i.source.sequence-i.motion_reference.sequence!=1))return {Reason::Source,{}};
+    if(!i.recording||!(i.recording==i.snapshot_recording))return {Reason::Recording,{}};
+    return PrepareScalars(i);
 }
 struct Result {
     Reason reason=Reason::Resource;
