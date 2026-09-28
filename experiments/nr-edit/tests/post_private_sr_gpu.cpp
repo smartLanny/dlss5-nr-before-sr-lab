@@ -228,13 +228,17 @@ struct Rig {
                     {17,10,4,4,4,10,17},         // X
                     {31,4,4,4,4,4,4}};           // T
                 const bool thin=x>=340&&x<541&&y==310+(x-340)/9;
+                // One-pixel low-contrast hair curve with changing tangent;
+                // integer coordinates keep B/Z identical across branches.
+                const int hair_dx=int(x)-400;
+                const bool hair=x>=350&&x<450&&y==348+unsigned(hair_dx*hair_dx/115);
                 bool letters=false;
                 if(x>=470&&x<494&&y>=336&&y<343){
                     const unsigned index=(x-470)/6,column=(x-470)%6;
                     letters=column<5&&((text_rows[index][y-336]>>(4-column))&1);
                 }
-                const float dark_base=.02f+(thin?.028f:0.f)+(letters?.035f:0.f);
-                const float dark_edit=x<320?0.f:(thin?.006f:0.f)+(letters?-.007f:0.f)+.002f;
+                const float dark_base=.02f+(thin?.028f:0.f)+(letters?.035f:0.f)+(hair?.026f:0.f);
+                const float dark_edit=x<320?0.f:(thin?.006f:0.f)+(letters?-.007f:0.f)+(hair?.004f:0.f)+.002f;
                 value=dark_base+(candidate?dark_edit:0.f);
             }
             for(unsigned c=0;c<4;++c){
@@ -381,12 +385,13 @@ void CaptureQuality(Rig& r,const std::filesystem::path& directory,float carrier_
                 <<",\"adopted\":true,\"mode\":\""<<(r.real?"feature1":"fixture")
                 <<"\",\"output\":[640,384],\"work\":[320,192],\"carrier_range\":"<<carrier_range
                 <<",\"depth\":\"two_planes_0.25_0.75_split_160\",\"scene\":\""
-                <<(r.dark_quality?"dark_text_v1":"legacy_v1")<<"\"}\n";
+                <<(r.dark_quality?"dark_text_hair_v2":"legacy_v1")
+                <<"\",\"encoding_policy\":\"post_legacy_range4_neutral\",\"zero_preserve\":true}\n";
         manifest.flush();Need(bool(manifest),"write quality identity log");
     }
 }
 void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridge,
-         const std::wstring& negative,const std::filesystem::path& quality_dir,float carrier_range,bool dark_quality) {
+         const std::wstring& negative,const std::filesystem::path& quality_dir,float carrier_range,bool dark_quality,float tiny_range) {
     auto* r=new Rig(shaders,hardware,bridge,!quality_dir.empty());
     r->dark_quality=dark_quality;
     r->fixture_output=r->Image(.625f);r->Submit(false);
@@ -421,7 +426,7 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
         const unsigned count=r->real?4:1;
         for(unsigned frame=0;frame<count;++frame) {
             auto i=r->Frame(.5f+edits[kind],kind%2==1);
-            i.pair.carrier_range=kind<=2?4.f:1.f;
+            i.pair.carrier_range=kind<=2?tiny_range:1.f;
             r->Invalid(i);auto v=pipeline::Record(r->context,r->h->list,i);
             Need(v.recorded&&v.composed&&v.status==pipeline::Status::Composed,"actual private evaluate precedes post composition");
             auto final=r->h->CopyOut(*r->owner,i.target.resource,10),base=r->h->CopyOut(*r->owner,i.pair.base.resource,10);
@@ -459,13 +464,19 @@ int wmain(int argc,wchar_t** argv) {
     try {
         if(argc<2)throw std::runtime_error("usage: post-private-sr <shaders> [--hardware|--real bridge|--negative submit|discard] [--quality-dir path] [--carrier-range value]");
         bool hardware=false,dark_quality=false;const wchar_t* real=nullptr;std::wstring negative;std::filesystem::path quality_dir;
-        float carrier_range=4.f;
+        float carrier_range=1.f,tiny_range=1.f;
         for(int n=2;n<argc;++n) {
             if(std::wstring(argv[n])==L"--hardware")hardware=true;
             else if(std::wstring(argv[n])==L"--real"&&n+1<argc)real=argv[++n];
             else if(std::wstring(argv[n])==L"--negative"&&n+1<argc)negative=argv[++n];
             else if(std::wstring(argv[n])==L"--quality-dir"&&n+1<argc)quality_dir=argv[++n];
             else if(std::wstring(argv[n])==L"--quality-dark")dark_quality=true;
+            else if(std::wstring(argv[n])==L"--tiny-range"&&n+1<argc){
+                std::size_t parsed=0;tiny_range=std::stof(argv[++n],&parsed);
+                if(parsed!=std::wstring(argv[n]).size()||!std::isfinite(tiny_range)||
+                   tiny_range<=1e-6f||tiny_range>1e6f)
+                    throw std::runtime_error("finite bounded tiny range");
+            }
             else if(std::wstring(argv[n])==L"--carrier-range"&&n+1<argc){
                 std::size_t parsed=0;carrier_range=std::stof(argv[++n],&parsed);
                 if(parsed!=std::wstring(argv[n]).size()||!std::isfinite(carrier_range)||
@@ -474,7 +485,7 @@ int wmain(int argc,wchar_t** argv) {
             }
             else throw std::runtime_error("unsupported test argument");
         }
-        post_sr_test::Run(argv[1],hardware,real,negative,quality_dir,carrier_range,dark_quality);return 0;
+        post_sr_test::Run(argv[1],hardware,real,negative,quality_dir,carrier_range,dark_quality,tiny_range);return 0;
     } catch(const std::exception& e) {
         std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);
         // Never unwind a pending/poisoned GPU fixture and release live objects.

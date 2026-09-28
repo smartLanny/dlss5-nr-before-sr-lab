@@ -234,9 +234,10 @@ struct GuideOnly {
 };
 
 // 0=off, 1=PostRr AMDOF, 2=PostRr AMDOF low-frequency,
-// 3=PostRr native-MV contract refusal. Later-layer P1 is not available here.
+// 3=PostRr native-MV contract refusal, 4/5=PostRr AMDOF later low-frequency/adaptive.
 int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case){
-    Require(temporal_case<=3&&(!temporal_case||(rr&&nr_layers_count&&!private_sr)),
+    Require(temporal_case<=5&&(!temporal_case||(rr&&nr_layers_count&&!private_sr))&&
+        ((temporal_case!=4&&temporal_case!=5)||nr_layers_count>=2),
         "PostRr temporal requires real RR, at least one real NR layer, and private SR OFF");
 #if defined(NR_TEST_RESHADE_RUNTIME)
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);AddVectoredExceptionHandler(1,DiagnosticException);
@@ -296,7 +297,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     if(nr_layers_count)Require(EnsureCodec(h.device)&&EnsureNrApi(h.device),"real codec/NR initialization before private capture");
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=private_sr;
     g_config.temporal_backend=temporal_case==3?1:temporal_case?2:0;
-    g_config.temporal_scope=0;g_config.temporal_mode=temporal_case==2?1:0;
+    g_config.temporal_scope=(temporal_case==4||temporal_case==5)?1:0;g_config.temporal_mode=(temporal_case==2||temporal_case==4)?1:0;
     g_config.nr_passes=nr_layers_count>1?2:1;g_config.nr_full_reference=nr_layers_count>2;
     g_config.nr_full_passes=nr_layers_count;
     g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
@@ -337,6 +338,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         ID3D12CommandList* lists[]={(ID3D12CommandList*)h.list};Execute(h.queue,1,lists);}
     Hr(ID3D12CommandQueue_Signal(h.queue,h.fence,++h.value),"prime completion");h.Wait();
     context.instance_id=1;context.feature_generation=feature.generation;context.mode=1;
+    context.width=nw;context.height=nh;
     auto& slot=context.slots[0];slot.source=base;slot.result=final;slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;slot.snapshots_native_output=true;
     slot.result_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -442,20 +444,54 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 // This is the same Evaluate's live exposure contract. The
                 // observed Flags75 FP16 parent declares HDR; do not relabel it SDR.
                 const auto color_contract=ReadColorContract(params);
+                NrSlot* temporal_slot=&slot;
+                if(temporal_case==4||temporal_case==5){
+                    auto& image=chain.c->image;
+                    auto& last=chain.c->layers[nr_layers_count-1];
+                    Require(last.context.evaluations&&last.binding.neural&&image.neural&&
+                        image.source&&image.result&&image.proxy&&image.heap,
+                        "same-source real first and final Feature18 model resources for P1");
+                    // This is the actually evaluated final layer, not a dummy
+                    // gate. Its recording and both Core-owned surfaces stay
+                    // pinned through this same list's Execute/Signal + Reset.
+                    image.dual_selected=&last.binding;
+                    image.snapshots_native_output=true;
+                    temporal_slot=&image;
+                }
                 auto prepared=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PostRr,
-                    h.list,context,slot,normalized,feature,ow,oh,0,0,false,&color_contract);
+                    h.list,context,*temporal_slot,normalized,feature,ow,oh,0,0,false,&color_contract);
                 if(temporal_case==3){
                     Require(!prepared&&nr_temporal_status::state.load()==19,
                         "native MV remains rejected by actual PostRr motion contract");
                 }else if(prepared){
+                    if(temporal_case==4||temporal_case==5){
+                        Require(prepared.primary_heap&&prepared.runtime->anchor(),
+                            "production descriptor packet and actual later-layer anchor");
+                        auto& image=*temporal_slot;
+                        RecordPostNrFields(h.list,context,image,feature,color_contract,ow,oh,prepared.primary_heap);
+                        DispatchCodec(h.list,image,g_codec.combine,ow,oh,color_contract,false,
+                            0,0,0,0,image.codec_color_mode,ow,oh,nw,nh,1.0f,1,prepared.primary_heap);
+                        UavBarrier(h.list,prepared.runtime->anchor());
+                        prepared.inputs.anchor_source=prepared.inputs.frame.source;
+                        if(capture_frame)captures.push_back(CapturePlane(h,"same-frame-P1.fp16",
+                            prepared.runtime->anchor(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+                    }
                     const auto before=nr_temporal_status::recorded.load();
-                    Require(nr_temporal::Record(h.list,context,slot,prepared),
+                    Require(nr_temporal::Record(h.list,context,*temporal_slot,prepared),
                         "actual Core PostRr temporal Record");
                     if(nr_temporal_status::recorded.load()>before)++temporal_recorded;
+                    if((temporal_case==4||temporal_case==5)&&nr_temporal_status::recorded.load()>before){
+                        auto& image=chain.c->image;
+                        Transition(h.list,image.result,image.result_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+                        h.Barrier(final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_DEST);
+                        ID3D12GraphicsCommandList_CopyResource(h.list,final,image.result);
+                        h.Barrier(final,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        Transition(h.list,image.result,image.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    }
                 }
             }
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,4);
-            if(capture_frame&&(temporal_case==1||temporal_case==2))
+            if(capture_frame&&(temporal_case==1||temporal_case==2||temporal_case==4||temporal_case==5))
                 captures.push_back(CapturePlane(h,"same-frame-temporal.fp16",final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
             if(final_z&&private_sr)Require(nr_post_product::Finish(h.list,context,slot,feature,capture,ow,oh,0,0),"original product Finish once after complete final Z");
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,5);
@@ -474,7 +510,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         ProcessSubmittedCommandLists(0,h.queue,1,lists);
         Require(!g_lifecycle_tracking_uncertain.load()&&context.completion_fence_value,"actual Core Execute/Signal receipt");
         const double submit_ms=Millis(submit);standalone_guides.Submitted(queue);Complete(h,queue);chain.SubmittedAndWait(h);
-        if(temporal_case==1||temporal_case==2)nr_temporal::CollectGpuStats(context);
+        if(temporal_case==1||temporal_case==2||temporal_case==4||temporal_case==5)nr_temporal::CollectGpuStats(context);
         if(!captures.empty())SaveCaptures(captures,capture_source,capture_recording,frame,rr,private_sr,temporal_case);
         UINT64* stamps=nullptr;Hr(ID3D12Resource_Map(timing_readback,0,nullptr,(void**)&stamps),"completed timing readback");
         for(unsigned n=1;n<6;++n)Require(stamps[n]>=stamps[n-1],"ordered GPU timestamps");
@@ -491,7 +527,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         Require(nr_private_sr_status::composed.load()==(private_sr&&produced?produced-1:0),"first create preserves Z; subsequent exact composition");
     }
     Require(produced==requested_frames,"all requested final Z frames completed");
-    if(temporal_case==1||temporal_case==2)
+    if(temporal_case==1||temporal_case==2||temporal_case==4||temporal_case==5)
         Require(temporal_recorded&&nr_temporal_status::recorded.load()==temporal_recorded&&
             nr_temporal_status::submitted.load()==temporal_recorded&&
             !context.temporal_token&&nr_temporal_status::gpu_config.load()==g_config_generation.load()&&
@@ -530,6 +566,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     Require(nr_private_sr_status::bytes.load()==0,"owned plane account retired");
     g_config.temporal_backend=0;nr_temporal::Maintain(context);
     Require(!context.temporal,"completed PostRr temporal owner retired after exact recording and fence");
+    Require(CanDestroyBindingsLocked(context),"P1 descriptor packets retired after exact Reset and fence");
+    DestroyBindings(context);
     standalone_guides.Destroy();if(chain.c)chain.Destroy();
     nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Ngx(release(parent),"native parent Release");Ngx(destroy(params),"native parameters destroyed");
     const auto final_memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(h.device),true);

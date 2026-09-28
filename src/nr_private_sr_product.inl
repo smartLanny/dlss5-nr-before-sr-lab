@@ -293,6 +293,7 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
     input.pair.base_source=input.pair.candidate_source=source;
     input.pair.domain=nr_post_residual_dx12::Domain::NativeOutputValueFp16;input.pair.same_encoding_verified=true;
     input.pair.work_width=o->shape.render_width;input.pair.work_height=o->shape.render_height;
+    input.pair.carrier_range=1.f; // Post-private-SR candidate; RR/deferred retain independent defaults.
     input.target=input.pair.candidate;input.target_rect=input.pair.candidate_rect;input.target_contains_candidate=true;
     input.depth={f.depth,41,0,D3D12_RESOURCE_STATE_COMMON,true};input.motion={f.motion,16,0,D3D12_RESOURCE_STATE_COMMON,true};
     input.recording=recording;input.guide_source=normalized.source;input.motion_reference=normalized.motion_reference;

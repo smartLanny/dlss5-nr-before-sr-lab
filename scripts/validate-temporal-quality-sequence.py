@@ -127,6 +127,19 @@ def main():
     p.add_argument('--core',type=Path,help='Unified generated Core root; verifies temporal module and shader receipt')
     p.add_argument('--hardware',action='store_true',help='Use real 5090D and run NativeMotion plus AMD optical flow')
     a=p.parse_args();out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
+    receipt={'passed':False,'phase':'initializing','generated_core':str(a.core.resolve()) if a.core else None,
+             'hardware_gpu':a.hardware,'commands':[]}
+    (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
+    try:
+        quality_run(a,out,receipt)
+    except Exception as exc:
+        receipt['passed']=False
+        receipt['phase']='failed'
+        receipt['error']=f'{type(exc).__name__}: {exc}'
+        (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
+        raise
+
+def quality_run(a,out,receipt):
     frozen=out/'source';frozen.mkdir()
     src=ROOT/'experiments/final_residual'
     production=(a.core.resolve()/'src/temporal') if a.core else src
@@ -150,9 +163,16 @@ def main():
             assert digest(artifact_dir/item['file'])==item['sha256']
         local_bytecode=frozen/'bytecode';local_bytecode.mkdir()
         shutil.copyfile(shader_header,local_bytecode/shader_header.name)
-    local_names={'amd_of_gpu_probe.cpp','residual_gpu_probe.cpp','residual_finite_probe.inl',
-                 'recorded_temporal_probe.cpp','recorded_temporal_quality_probe.inl'}
+    local_names={'amd_of_gpu_probe.cpp','residual_accumulator.cpp','residual_gpu_probe.cpp',
+                 'residual_finite_probe.inl','recorded_temporal_probe.cpp',
+                 'recorded_temporal_quality_probe.inl'}
     paths={n:(src/n if n in local_names else production/n) for n in NAMES}
+    if module:
+        generated=set(module['source_sha256'])
+        assert all(n in generated for n in NAMES if n not in local_names), 'generated production source missing from module receipt'
+    receipt['source_origin']={n:('repository-test-scaffolding' if n in local_names else
+                                 'generated-core-product' if module else 'repository-experiment') for n in NAMES}
+    receipt['module_source_sha256']=module['source_sha256'] if module else None
     for n,path in paths.items():shutil.copyfile(path,frozen/n)
     fixture=ROOT/'tests/temporal_quality_sequence.inl';shutil.copyfile(fixture,frozen/fixture.name)
     source_hash={n:digest(path) for n,path in paths.items()};source_hash[fixture.name]=digest(fixture)
@@ -186,7 +206,7 @@ int main(){try{
     objects=[Path(item['path']) for item in cache['sdk_objects']]
     for item in cache['sdk_objects']:
         assert digest(item['path'])==item['sha256']
-    receipt={'passed':False,'generated_core':str(a.core.resolve()) if a.core else None,
+    receipt.update({'passed':False,'phase':'ready-to-compile','generated_core':str(a.core.resolve()) if a.core else None,
              'module_sha256':digest(module_path) if module else None,
              'shader_receipt_sha256':digest(artifact_receipt) if module else None,
              'shader_header_sha256':digest(shader_header) if module else None,
@@ -195,7 +215,8 @@ int main(){try{
              'production_temporal':True,'hardware_gpu':a.hardware,
              'off_baseline':'saved same-frame Z before temporal processing','game':False,'ngx_inference':False,
              'source_sha256':source_hash,'sdk_cache_sha256':digest(a.sdk_cache/'build.json'),
-             'sdk_object_sha256':{str(x):digest(x) for x in objects},'commands':[]}
+             'sdk_object_sha256':{str(x):digest(x) for x in objects}})
+    (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
     exe=out/'quality.exe'
     cmd=[a.compiler,'-std=c++17','-O2','-fms-extensions','-DNDEBUG','-DUNICODE','-D_UNICODE',
          '-DFFX_OF',*(['-DNR_TEMPORAL_PRECOMPILED=1','-I',frozen/'bytecode'] if module else []),'-include','windows.h','-include','cwchar','-Wno-unused-function',
@@ -215,6 +236,7 @@ int main(){try{
         analyze(out,receipt)
     receipt['source_unchanged']=all(digest(path)==source_hash[n] for n,path in paths.items()) and digest(fixture)==source_hash[fixture.name]
     receipt['passed']=receipt['source_unchanged']
+    receipt['phase']='complete' if receipt['passed'] else 'failed'
     (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
     print('PASS build-only' if a.build_only else f'PASS {receipt["execution"]} {receipt["frames"]} production temporal frames')
 if __name__=='__main__':main()

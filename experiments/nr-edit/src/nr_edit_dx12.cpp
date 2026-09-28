@@ -32,7 +32,7 @@ public:
     ID3D12Device* device=nullptr;Id device_id=0,queue_id=0,next=1;
     SameDevice same=nullptr;ID3D12RootSignature* root=nullptr;
     std::array<ID3D12PipelineState*,static_cast<unsigned>(Kernel::Count)> pso{};std::array<Packet,24> packets{};
-    unsigned stride=0;bool poisoned=false;
+    unsigned stride=0;bool poisoned=false,post_typed_load=false;
     nr_private_sr::RecordingReleased released=nullptr;void* release_user=nullptr;
     void FreePacket(Packet& p){for(auto*& r:p.held)Drop(r);Drop(p.fence);p.recording={};p.receipt={};p.busy=false;p.serial=0;}
     void FreeCold(){for(auto& p:packets){FreePacket(p);Drop(p.heap);}for(auto*& p:pso)Drop(p);Drop(root);Drop(device);}
@@ -41,6 +41,9 @@ Kernels* Create(ID3D12Device* device,Id device_id,Id queue_id,const std::array<B
     if(error)*error=0;if(!device||!device_id||!queue_id||!same)return nullptr;
     auto* k=new(std::nothrow)Kernels;if(!k)return nullptr;k->device=device;device->AddRef();
     k->device_id=device_id;k->queue_id=queue_id;k->same=same;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT post_caps{};post_caps.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    k->post_typed_load=SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,&post_caps,sizeof(post_caps)))&&
+        (post_caps.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD)!=0;
     D3D12_DESCRIPTOR_RANGE ranges[2]{};
     ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,11,0,0,0};
     ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,5,0,0,11};
@@ -51,7 +54,8 @@ Kernels* Create(ID3D12Device* device,Id device_id,Id queue_id,const std::array<B
     ID3DBlob *blob=nullptr,*errors=nullptr;auto hr=D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&errors);Drop(errors);
     if(SUCCEEDED(hr))hr=device->CreateRootSignature(0,blob->GetBufferPointer(),blob->GetBufferSize(),IID_PPV_ARGS(&k->root));Drop(blob);
     bool any=false;
-    for(unsigned i=0;SUCCEEDED(hr)&&i<kernels.size();i++){if(!kernels[i].data||!kernels[i].bytes)continue;
+    for(unsigned i=0;SUCCEEDED(hr)&&i<kernels.size();i++){if(!kernels[i].data||!kernels[i].bytes||
+        (i==static_cast<unsigned>(Kernel::PostCompose)&&!k->post_typed_load))continue;
         D3D12_COMPUTE_PIPELINE_STATE_DESC p{};p.pRootSignature=k->root;p.CS={kernels[i].data,kernels[i].bytes};
         hr=device->CreateComputePipelineState(&p,IID_PPV_ARGS(&k->pso[i]));any=true;}
     if(!any)hr=E_INVALIDARG;
@@ -100,6 +104,7 @@ bool ValidateRead(Kernels* k,const View& v,unsigned width,unsigned height){
 Answer Record(Kernels* k,ID3D12GraphicsCommandList* list,const Work& w){
     if(!k||k->poisoned)return {Status::Poisoned};
     const auto kernel=static_cast<unsigned>(w.kernel);
+    if(w.kernel==Kernel::PostCompose&&!k->post_typed_load)return {Status::Format};
     if(!list||kernel>=k->pso.size()||!k->pso[kernel]||!w.recording||
        w.recording.list!=reinterpret_cast<Id>(list)||w.recording.device!=k->device_id||w.recording.queue!=k->queue_id||
        !w.width||!w.height||w.width>16384||w.height>16384||!w.constants||

@@ -16,7 +16,7 @@ def main():
     p.add_argument('--percent',type=int,choices=(25,50,100),default=50)
     p.add_argument('--native-rr',action='store_true')
     p.add_argument('--private-sr-off',action='store_true',help='Isolated native/ordinary NR control; performs no private Feature1 work')
-    p.add_argument('--temporal',choices=('off','amd-of','amd-of-low','native-mv-refusal'),default='off',
+    p.add_argument('--temporal',choices=('off','amd-of','amd-of-low','native-mv-refusal','amd-of-low-later','amd-of-later'),default='off',
                    help='Actual PostRr Core temporal route; private SR must be off')
     p.add_argument('--odd',action='store_true',help='Add one pixel to each native render/output dimension; N uses floor percent')
     p.add_argument('--compile-only',action='store_true')
@@ -27,7 +27,9 @@ def main():
     if a.native_rr and not a.rr_runtime:p.error('--native-rr requires explicit --rr-runtime')
     if a.temporal!='off' and (not a.native_rr or not a.layers or not a.private_sr_off):
         p.error('--temporal requires --native-rr, --layers >= 1, and --private-sr-off')
-    temporal_case={'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3}[a.temporal]
+    if a.temporal in ('amd-of-low-later','amd-of-later') and a.layers<2:
+        p.error('later-layer temporal requires at least two real NR layers')
+    temporal_case={'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3,'amd-of-low-later':4,'amd-of-later':5}[a.temporal]
     core=a.core.resolve(strict=True);out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     source=core/'src/nr_before_sr.cpp';manifest_path=core.parent/'source-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8-sig'))

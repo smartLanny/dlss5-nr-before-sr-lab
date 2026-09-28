@@ -4,7 +4,7 @@
 
 下一步与边界统一见 [本次评估和修订路线](052_BETA6_EVALUATION_AND_NEXT.md)：先修私有 SR 静态细节损失与时域准入，补独立计时，再比较运动/历史和必要的最小噪点保护。私有 Feature13 RR 移出近期候选；跨原生 RR＋运动/遮挡与 NVOF 放入后续研究。新包仍需完整统一构建，游戏只由维护者测试；图片审核委派 GPT-6 Sol，仅回传文字及本地证据路径。
 
-本轮 [Beta 7 开发验收记录](052_BETA7_ACCEPTANCE.md)已记录奇数网格修正、同帧空间对照、连续帧时域证据及首轮完整构建失败。受控 WARP 可见部分降噪收益和细线退步，真实 Feature1 改善尚未证明；当前没有 Beta 7 交付包。
+本轮 [Beta 7 开发验收记录](052_BETA7_ACCEPTANCE.md)已记录真实 Feature1 同输入暗部/文字改善、精确微量与零修改保真、同档普通恢复的局部优势、完整 Core 控制器和 4K 实际时域采用。两次完整构建失败均保留并定向修复；最终新 Core 统一门槛与发丝专项尚未完成，当前没有 Beta 7 交付包。
 
 入口：[Beta6验收与限制](052_BETA6_ACCEPTANCE.md)、[精确身份/安装/回退](052_BETA6_DELIVERY.json)、[一键手测](052_BETA6_MANUAL_CHECKLIST.md)、[相对0.5D21中文更新](052_BETA6_CHANGELOG.zh-CN.md)、[English](052_BETA6_CHANGELOG.en.md)。中英文Core-only OTA已通过实际Manager解析器，未在线发布、不合main、不改默认pin。
 

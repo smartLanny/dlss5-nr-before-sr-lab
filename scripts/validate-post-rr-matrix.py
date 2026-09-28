@@ -51,6 +51,8 @@ def main():
     for layers in (1,3,5):
         for temporal in ('amd-of','amd-of-low'):
             cases.append(dict(name=f'rr-{temporal}-layers{layers}-p50',native_rr=True,layers=layers,percent=50,private=False,temporal=temporal))
+    cases.append(dict(name='rr-amd-of-low-later-layers3-p50',native_rr=True,layers=3,percent=50,private=False,temporal='amd-of-low-later'))
+    cases.append(dict(name='rr-amd-of-later-layers3-p50',native_rr=True,layers=3,percent=50,private=False,temporal='amd-of-later'))
     cases.append(dict(name='rr-native-mv-refusal-layers1-p50',native_rr=True,layers=1,percent=50,private=False,temporal='native-mv-refusal'))
     if a.case:
         cases=[case for case in cases if case['name']==a.case]
@@ -60,9 +62,9 @@ def main():
         scope='Synthetic actual native Feature13/Feature1 and Feature18; private Feature1 independently disabled/enabled. Not private Feature13, not cross-native-RR transport, not game quality acceptance.',
         source_commit=receipt['source_commit'],compiled_receipt=str(receipt_path),compiled_receipt_sha256=sha(receipt_path),
         binary_sha256=sha(exe),runtime_sha256=runtimes,frames=a.frames,cases=[],
-        temporal_scope='Actual generated Core PostRr AMDOF whole-chain adaptive/low-frequency, same native RR and real Feature18 source/list/fence. NativeMotion rejected by product route contract. Later-layer remains untested because this host lacks decoded P1 and production binding/lifetime proof.',
+        temporal_scope='Actual generated Core PostRr AMDOF whole-chain and later-layer low-frequency, same native RR and real Feature18 source/list/fence. NativeMotion rejected by product route contract. Later-layer result is separately reported and cannot be inferred from whole-chain cases.',
         coverage={'executed_supported_cases_passed':False,'user_matrix_complete':False,
-                  'post_rr_amdoF_later_layers':{'status':'not-tested-harness-missing-P1','reason':'real Feature18 layer-one neural exists, but this host has no production decoded P1, slot.dual_selected descriptor packet, or exact lifetime binding'},
+                  'post_rr_amdoF_later_layers':{'status':'not-tested','reason':'real P1 descriptor/anchor case has not completed'},
                   'post_rr_native_mv':{'status':'unsupported-rejected','reason':'product PostRr route contract requires AMD optical flow; native RR MV lacks proven motion input'}},
         limitations=['synthetic scene and real runtimes, not game quality acceptance',
                      'later-layer PostRr temporal quality remains pending; top-level pass covers executed cases only'])
@@ -74,7 +76,7 @@ def main():
         for name in runtimes: shutil.copy2(compiled/name,folder/name)
         command=[str(folder/exe.name),str(folder/'nrchain_nvngx.dll'),str(case['layers']),str(case['percent']),
                  str(int(case['native_rr'])),str(a.frames),'0',str(int(case['private'])),
-                 str({'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3}[case['temporal']])]
+                 str({'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3,'amd-of-low-later':4,'amd-of-later':5}[case['temporal']])]
         row=dict(case,command=command,result='running',admission='unsupported-rejected' if case['temporal']=='native-mv-refusal' else 'supported');report['cases'].append(row);save();started=time.monotonic()
         try:
             r=subprocess.run(command,cwd=folder,capture_output=True,timeout=240)
@@ -85,8 +87,8 @@ def main():
                 capture=folder/'actual-core-same-frame.json'
                 data=json.loads(capture.read_text());row['capture']=data
                 row['capture_manifest_sha256']=sha(capture)
-                expected=6 if case['private'] else 4 if case['temporal'] in ('amd-of','amd-of-low') else 3
-                if len(data['planes'])!=expected or data['native_feature']!=(13 if case['native_rr'] else 1) or data['private_sr']!=case['private'] or data['temporal_case']!={'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3}[case['temporal']]:
+                expected=6 if case['private'] else 5 if case['temporal'] in ('amd-of-low-later','amd-of-later') else 4 if case['temporal'] in ('amd-of','amd-of-low') else 3
+                if len(data['planes'])!=expected or data['native_feature']!=(13 if case['native_rr'] else 1) or data['private_sr']!=case['private'] or data['temporal_case']!={'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3,'amd-of-low-later':4,'amd-of-later':5}[case['temporal']]:
                     raise ValueError('Same-frame evidence does not match requested control')
                 row['captures_sha256']={plane['file']:sha(folder/plane['file']) for plane in data['planes']}
                 log=(r.stdout+r.stderr).decode('utf-8','replace')
@@ -119,6 +121,13 @@ def main():
             'ordinary_case':case['name'],'private_case':next((c['name'] for c in cases if c['native_rr']==case['native_rr'] and c['layers']==case['layers'] and c['percent']==case['percent'] and c['private']),None),
             **comparison})
     report['result']='failed' if failed else 'passed';report['requested_cases']=len(cases)
+    later=[row for row in report['cases'] if row['temporal'] in ('amd-of-low-later','amd-of-later')]
+    if later:
+        later_passed=all(row['result']=='passed' for row in later)
+        both_modes={row['temporal'] for row in later}=={'amd-of-low-later','amd-of-later'}
+        report['coverage']['post_rr_amdoF_later_layers']={'status':'validated' if later_passed and both_modes else 'partial-validated' if later_passed else 'failed',
+            'executed_modes':[row['temporal'] for row in later],
+            'reason':'actual decoded P1 descriptor packet, temporal anchor, GPU adoption, and exact retirement' if later_passed else 'see case log'}
     report['coverage']['executed_supported_cases_passed']=not failed and all(
         row['result']=='passed' for row in report['cases'] if row['admission']=='supported')
     save();return int(failed)

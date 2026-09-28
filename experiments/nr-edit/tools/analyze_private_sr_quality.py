@@ -45,8 +45,10 @@ def taps(x, full, work):
 
 
 def region(x, y, scene):
-    dark = scene == "dark_text_v1"
+    dark = scene in ("dark_text_v1", "dark_text_hair_v2")
+    hair_scene = scene == "dark_text_hair_v2"
     dark_line = dark and 340 <= x < 541 and y == 310+(x-340)//9
+    hair = hair_scene and 350 <= x < 450 and y == 348+(x-400)**2//115
     text_rows = ((31, 4, 4, 4, 4, 4, 4), (31, 16, 16, 30, 16, 16, 31),
                  (17, 10, 4, 4, 4, 10, 17), (31, 4, 4, 4, 4, 4, 4))
     dark_text = False
@@ -61,9 +63,13 @@ def region(x, y, scene):
     if dark:
         masks.update(dark_line=dark_line, dark_text=dark_text,
                      dark_background=330 <= x < 561 and 300 <= y < 371
-                                     and not dark_line and not dark_text,
+                                     and not dark_line and not dark_text and not hair,
                      dark_boundary_outside=316 <= x < 320 and 300 <= y < 371,
                      dark_boundary_inside=320 <= x <= 326 and 300 <= y < 371)
+        if hair_scene:
+            masks.update(hair=hair,
+                         hair_neighborhood=348 <= x < 452 and 344 <= y < 371
+                                           and not hair)
     return masks
 
 
@@ -75,7 +81,7 @@ def summary(values):
             "p95": values[(len(values)*95+99)//100-1], "max": values[-1]}
 
 
-def analyze_frame(directory, frame, mode, carrier_range, scene):
+def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
     planes, hashes = {}, {}
     for name in PLANES:
         planes[name], hashes[name] = read_plane(directory, frame, name)
@@ -102,16 +108,18 @@ def analyze_frame(directory, frame, mode, carrier_range, scene):
     errors = {stage: {name: [] for name in regions}
               for stage in ("downsample_loss", "transport_error", "reconstruction_fp16_loss",
                             "reconstruction_quantization", "compose_error",
-                            "feature1_increment", "feature1_vs_z",
-                            "fixture_vs_spatial", "source_edit")}
+                            "feature1_increment", "feature1_increment_gate_aware", "feature1_vs_z",
+                            "fixture_vs_spatial", "fixture_vs_gated_spatial", "source_edit")}
     references = {"exact_spatial": bytearray(), "exact_spatial_fp16": bytearray(),
-                  "area_average": bytearray()}
+                  "gated_spatial_fp16": bytearray(), "area_average": bytearray()}
     invalid = 0
     dark_base_min, dark_base_max = math.inf, -math.inf
     for y in range(OH):
         yt = taps(y, OH, NH)
         for x in range(OW):
             xt = taps(x, OW, NW)
+            pixel_base = (y*OW+x)*4
+            exact_unchanged = zero_preserve and all(z[pixel_base+j] == b[pixel_base+j] for j in range(3))
             for c in range(3):
                 interpolation = edit = quantization = 0.0
                 support = False
@@ -135,11 +143,14 @@ def analyze_frame(directory, frame, mode, carrier_range, scene):
                 area = half(b[pixel]+edit)
                 references["exact_spatial"].extend(struct.pack("<e", spatial))
                 references["exact_spatial_fp16"].extend(struct.pack("<e", spatial_fp16))
+                gated_spatial = b[pixel] if exact_unchanged else spatial_fp16
+                references["gated_spatial_fp16"].extend(struct.pack("<e", gated_spatial))
                 references["area_average"].extend(struct.pack("<e", area))
                 observed = final[pixel]
                 actual_carrier = reconstructed[pixel]
-                composed = half(b[pixel]+((2*max(0, min(1, actual_carrier))-1)*carrier_range
-                                  if support else 0)+quantization)
+                composed = (b[pixel] if exact_unchanged else
+                    half(b[pixel]+((2*max(0, min(1, actual_carrier))-1)*carrier_range
+                                   if support else 0)+quantization))
                 if not all(math.isfinite(v) for v in (spatial, area, z[pixel], observed)):
                     invalid += 1
                     continue
@@ -151,18 +162,21 @@ def analyze_frame(directory, frame, mode, carrier_range, scene):
                     "reconstruction_quantization": abs(actual_carrier-stored_interpolation),
                     "compose_error": abs(observed-composed),
                     "feature1_increment": abs(observed-spatial_fp16),
+                    "feature1_increment_gate_aware": abs(observed-gated_spatial),
                     "feature1_vs_z": abs(observed-z[pixel]),
                     "fixture_vs_spatial": abs(observed-spatial_fp16),
+                    "fixture_vs_gated_spatial": abs(observed-gated_spatial),
                 }
                 masks = region(x, y, scene)
-                if masks.get("dark_background") or masks.get("dark_line") or masks.get("dark_text"):
+                if (masks.get("dark_background") or masks.get("dark_line") or
+                        masks.get("dark_text") or masks.get("hair")):
                     dark_base_min = min(dark_base_min, b[pixel])
                     dark_base_max = max(dark_base_max, b[pixel])
                 for name, enabled in masks.items():
                     if enabled:
                         for stage, value in differences.items():
-                            if (mode == "fixture") != (stage == "fixture_vs_spatial") and stage in (
-                                    "feature1_increment", "feature1_vs_z", "fixture_vs_spatial"):
+                            if ((mode == "fixture" and (stage.startswith("feature1_") or stage == "feature1_vs_z")) or
+                                    (mode != "fixture" and stage.startswith("fixture_vs_"))):
                                 continue
                             errors[stage][name].append(value)
             for ref in references.values():
@@ -173,7 +187,7 @@ def analyze_frame(directory, frame, mode, carrier_range, scene):
         hashes[name] = digest(path)
     return {"frame": frame, "plane_sha256": hashes,
             "invalid_or_nonfinite_samples": invalid,
-            "dark_base_range": [dark_base_min, dark_base_max] if scene == "dark_text_v1" else None,
+            "dark_base_range": [dark_base_min, dark_base_max] if scene in ("dark_text_v1", "dark_text_hair_v2") else None,
             "errors": {stage: {mask: summary(values) for mask, values in masks.items()}
                        for stage, masks in errors.items()}}, final
 
@@ -201,13 +215,21 @@ def main():
     if len({entry["source_sequence"] for entry in identities}) != 16:
         raise ValueError("Repeated source identity")
     scenes = {entry.get("scene", "legacy_v1") for entry in identities}
-    if len(scenes) != 1 or scenes.pop() not in ("legacy_v1", "dark_text_v1"):
+    if len(scenes) != 1 or scenes.pop() not in ("legacy_v1", "dark_text_v1", "dark_text_hair_v2"):
         raise ValueError("Mixed or unknown quality scene")
     scene = identities[0].get("scene", "legacy_v1")
+    policies = {entry.get("encoding_policy", "shared_legacy") for entry in identities}
+    zero_flags = {entry.get("zero_preserve", False) for entry in identities}
+    if (len(policies) != 1 or not policies.issubset({"shared_legacy", "post_legacy_range4_neutral"}) or
+            len(zero_flags) != 1 or any(type(flag) is not bool for flag in zero_flags)):
+        raise ValueError("Mixed or unknown encoding/zero-preserve identity")
+    policy, zero_preserve = policies.pop(), zero_flags.pop()
+    if zero_preserve and policy != "post_legacy_range4_neutral":
+        raise ValueError("Zero-preserve capture must name post encoding policy")
     results, first = [], None
     for frame in range(16):
-        result, output = analyze_frame(directory, frame, mode, carrier_range, scene)
-        if scene == "dark_text_v1" and result["errors"]["source_edit"]["dark_boundary_outside"]["max"] != 0:
+        result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve)
+        if scene in ("dark_text_v1", "dark_text_hair_v2") and result["errors"]["source_edit"]["dark_boundary_outside"]["max"] != 0:
             raise ValueError("Dark support exterior has source edit")
         if first is None:
             first = output
@@ -215,8 +237,8 @@ def main():
             [abs(a-b) for a, b in zip(first, output)])
         results.append(result)
     report = {"schema": "private-sr-controlled-quality-v1", "mode": mode,
-              "scene": scene,
-              "reference": "half-pixel bilinear carrier, ideal and FP16-stored, plus N-tail; independent area-average D(Z-B)",
+              "scene": scene, "encoding_policy": policy, "zero_preserve": zero_preserve,
+              "reference": "captured-carrier half-pixel spatial, ungated and exact-Z-equals-B gated FP16 variants, plus captured N-tail; independent area-average D(Z-B)",
               "carrier_range": carrier_range,
               "identity": identities, "frames": results,
               "quality_acceptance": "unjudged; compare against spatial baseline and user imagery"}
