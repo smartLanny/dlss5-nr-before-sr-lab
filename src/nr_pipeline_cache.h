@@ -99,7 +99,7 @@ inline bool FitsDirectory(const std::wstring& directory,std::uint64_t bytes){
     // Count orphaned .tmp and unexpected regular files as well: an interrupted
     // write must not evade the bound. Include the old destination so the temp
     // plus old file also fits during atomic replacement. No automatic deletion.
-    WIN32_FIND_DATAW item{};const HANDLE find=FindFirstFileW((directory+L"\\*.pso").c_str(),&item);
+    WIN32_FIND_DATAW item{};const HANDLE find=FindFirstFileW((directory+L"/*").c_str(),&item);
     if(find==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
     std::uint64_t total=0;unsigned files=0,scanned=0;bool ok=true;
     do {
