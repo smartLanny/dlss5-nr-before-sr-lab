@@ -93,7 +93,7 @@ int main() {
     std::printf("actual Win32 INI strength migration: %d checks / %d failures\n",checks,failures);
     return failures?1:0;
 }
-'''.replace('CONFIG', definition(s, 'struct ChainConfig', True)).replace('HELPERS', helpers).replace('PREFIX', prefix)
+'''.replace('CONFIG', definition(s, 'struct ChainConfig {', True)).replace('HELPERS', helpers).replace('PREFIX', prefix)
 with tempfile.TemporaryDirectory(prefix='nr-strength-ini-') as td:
     cpp, exe = Path(td)/'migration.cpp', Path(td)/'migration.exe'
     cpp.write_text(harness,encoding='utf-8')

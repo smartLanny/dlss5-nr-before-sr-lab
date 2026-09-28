@@ -1,13 +1,15 @@
-# 0.5.2 Beta 9: admission under severe commit pressure
+# 0.5.2 Beta 9: RR, residency and reporting fixes
 
-A focused fix after Beta 8. When native RR was enabled in NTE, the subsequent 4K NR creation threw std::bad_alloc with only about 75 MiB of available commit. Native RR had already been created successfully. Windows had also reported commit pressure before the switch.
+A combined local candidate after Beta 8, retaining the existing features and experiments relative to 0.5 D21. Ordinary balanced reconstruction remains recommended; saved selections are preserved.
 
-- Check available process commit immediately before a new or replacement NR model is created. A valid reading below 1 GiB defers creation and retains native SR/RR output.
-- Report commit-headroom-pressure separately and reuse the 300-frame and configuration-change retry paths. A declined attempt is not counted as an NR call or a vendor creation failure.
-- Existing models, disabled paths and retry cooldowns perform no additional memory queries, GPU processing or waits.
+- Defer new NR creation under severe available-commit pressure, retain native SR/RR output and report the reason. The 1 GiB floor is not an allocation estimate or a guarantee against all OOM failures.
+- Fix primary RR depth-conversion binding lifetimes, including the region-disabled path, while preserving safe bypass.
+- Reuse completed matching textures before growing the pool. After a persistent layer reduction or processing-position change, safely release the old NR chain before recreating the selected configuration. Ordinary F6 and temporary nine-group changes retain their existing behavior; in-flight resources are never forcibly freed.
+- Cache the plugin's compute pipelines with identity checks, storage limits and failure fallback. Game history and NR models are not cached.
+- Classify nine-group reports from actual outer game-native calls as SR, RR, mixed or unknown, correcting SR reports mislabeled as RR. Entry observations are not adoption or GPU-completion proof.
 
-The 1 GiB floor identifies severe pressure; it does not estimate opaque model allocation or guarantee that all allocation failures are prevented. The cause of the earlier commit growth remains unresolved. Pagefile settings, runtime DLLs and saved user settings are unchanged.
+New game feedback contains 600 valid local GPU samples for each ordinary NR/private SR group. The three temporal groups still lack adoption. Automatic Present compatibility still lacks current-frame source proof; its guards remain intact. Static captures and partial GPU timings do not establish general denoising, absence of trails or whole-frame overhead of at most 3%.
 
-Beta 8 observation fixes and existing experimental options are retained. Ordinary balanced reconstruction remains recommended. Private SR and current temporal modes remain separate comparisons. The new spatial four-tap candidate failed its thin-line gate and remains outside the product. Post-RR native motion vectors, private Feature13 and stacked private-SR/external-history processing remain excluded.
+Existing independent experiments remain available; disabled image algorithms create no resources or GPU processing of their own. The four-tap spatial candidate failed its thin-line gate and remains excluded. Post-RR native motion vectors, private Feature13 and stacked private-SR/external-history processing remain excluded.
 
-This is a local maintainer candidate; accompanying receipts identify the checks performed. Controlled checks do not establish NTE game stability, game image quality or a whole-frame overhead of at most 3%. Beta 8 and its original failure evidence are preserved.
+Accompanying receipts identify bilingual builds, hardware checks and deployment. Earlier commit growth and all UI flicker causes are not fully resolved. Previous packages, settings and runtime DLLs are preserved. No pagefile change, game launch, online OTA publication or Manager default change is performed.

@@ -29,7 +29,7 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
                 g.performance_frames[j],g.performance_queue,g.performance_fences[j],g.performance_ms[j]);
         if(html)std::fprintf(html,"<section><h2>%u: %s</h2><p>%s</p><div class=\"pair\">",i,label,reason);
         if(manifest)std::fprintf(manifest,"%s{\"group\":%u,\"name\":\"%s\",\"reason\":\"%s\",\"config\":%u,\"nativeRoute\":\"%s\",\"postPercent\":%u,\"requestedReconstructionMode\":%d,\"recordedReconstructionMode\":%d,\"requestedColourRestoreMode\":%d,\"recordedColourRestoreMode\":%d,\"requestedEdgeRecovery\":%d,\"recordedEdgeRecovery\":%d,\"requestedNearBlackGuard\":%d,\"recordedNearBlackGuard\":%d,\"requestedLowGridLuma\":%d,\"requestedLowGridColour\":%d,\"recordedLowGridLuma\":-1,\"recordedLowGridColour\":-1,\"recordedPolicyFrame\":%llu,\"recordedPolicyProof\":\"recent-command-recording-only; -1 means unknown; no pixel or fence proof\",\"performance\":{\"status\":\"%s\",\"statusScope\":\"completed-fence-local-GPU-timing-only\",\"measurementAdoption\":\"%s\",\"screenshotFreshAdoption\":\"%s\",\"validWarmup\":%u,\"validGpuSamples\":%u,\"rejectedSamples\":%u,\"medianMs\":%.9g,\"p95Ms\":%.9g,\"gpuTimeScope\":\"q0-q1 plus q2-q3 on one completed Direct queue; excludes native call, pre-q0 and cross-queue work\",\"totalGpuTime\":\"unavailable\",\"wholeFrameGpuTime\":\"unavailable\",\"queue\":%llu,\"usageStartBytes\":%llu,\"usageEndBytes\":%llu,\"usageSampledPeakBytes\":%llu,\"memoryBudgetBytes\":%llu,\"memoryKnown\":%s,\"temporalGpuAdoptedObservedSinceGroupStart\":%llu,\"privateAdoptedObservedSinceGroupStart\":%llu}",
-            i?",":"",i,label,reason,g.generation,g.post_rr?"native-RR":"native-SR",g.percent,
+            i?",":"",i,label,reason,g.generation,NativeRouteName(g),g.percent,
             g.requested.reconstruction_mode,g.recorded_reconstruction_mode,
             g.requested.colour_restore_mode,g.recorded_restore_mode,
             int(g.requested.colour_edge_recovery),g.recorded_edge_recovery,
@@ -45,9 +45,28 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
             g.usage_start,g.usage_end,g.usage_sampled_peak,g.budget,g.memory_known?"true":"false",
             g.performance_temporal_adopted,g.performance_private_adopted);
         if(manifest){
-            const auto entry=static_cast<unsigned>(g.post_rr?nr_acceptance_gpu::Diagnostic::RrEntry:
-                nr_acceptance_gpu::Diagnostic::SrEntry);
-            const bool entry_observed=g.performance_diagnostics_end[entry]>g.performance_diagnostics_start[entry];
+            const auto sr_entry=static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::SrEntry);
+            const auto rr_entry=static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::RrEntry);
+            const bool entry_observed=
+                g.performance_diagnostics_end[sr_entry]>g.performance_diagnostics_start[sr_entry] ||
+                g.performance_diagnostics_end[rr_entry]>g.performance_diagnostics_start[rr_entry];
+            std::fprintf(manifest,
+                ",\"requestedRrPolicy\":%s,\"nativeRouteEvidence\":{\"scope\":\"outermost-game-native-Evaluate-entry; not native success, distinct source frames, NR adoption or GPU completion\",\"config\":%u,\"srEntries\":%llu,\"rrEntries\":%llu,\"srFeatureGeneration\":[%llu,%llu],\"rrFeatureGeneration\":[%llu,%llu],\"srSourceFirst\":[%llu,%llu,%llu],\"srSourceLast\":[%llu,%llu,%llu],\"rrSourceFirst\":[%llu,%llu,%llu],\"rrSourceLast\":[%llu,%llu,%llu]}",
+                g.post_rr?"true":"false",g.generation,g.native_sr_entries,g.native_rr_entries,
+                g.native_sr_first_generation,g.native_sr_last_generation,
+                g.native_rr_first_generation,g.native_rr_last_generation,
+                static_cast<unsigned long long>(g.native_sr_first_source.stream),
+                static_cast<unsigned long long>(g.native_sr_first_source.epoch),
+                static_cast<unsigned long long>(g.native_sr_first_source.sequence),
+                static_cast<unsigned long long>(g.native_sr_last_source.stream),
+                static_cast<unsigned long long>(g.native_sr_last_source.epoch),
+                static_cast<unsigned long long>(g.native_sr_last_source.sequence),
+                static_cast<unsigned long long>(g.native_rr_first_source.stream),
+                static_cast<unsigned long long>(g.native_rr_first_source.epoch),
+                static_cast<unsigned long long>(g.native_rr_first_source.sequence),
+                static_cast<unsigned long long>(g.native_rr_last_source.stream),
+                static_cast<unsigned long long>(g.native_rr_last_source.epoch),
+                static_cast<unsigned long long>(g.native_rr_last_source.sequence));
             std::fprintf(manifest,",\"entryStatus\":\"%s\"",!g.requested.enabled?"not-applicable":
                 entry_observed?"entry-observed":"entry-not-observed");
             std::fputs(",\"adoptionCounterScope\":\"whole-group observation including warmup and asynchronous publication; private counter is process-global; neither is bound to the 600 measured samples\",\"gpuDiagnostics\":{",manifest);

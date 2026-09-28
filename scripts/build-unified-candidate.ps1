@@ -38,6 +38,13 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+$ResidencyPre=$OutputRoot + '.residency-checks'
+& python (Join-Path $PSScriptRoot 'validate-residency-policy.py') --compiler $Cxx --output (Join-Path $ResidencyPre 'slots')
+if ($LASTEXITCODE) { throw 'Actual slot selection and fence negative controls failed.' }
+& python (Join-Path $PSScriptRoot 'validate-residency-drain.py') --compiler $Cxx --output (Join-Path $ResidencyPre 'drain')
+if ($LASTEXITCODE) { throw 'Global compaction and inherited retirement proofs failed.' }
+& python (Join-Path $PSScriptRoot 'validate-pipeline-cache.py') --compiler $Cxx --output (Join-Path $ResidencyPre 'pipeline-cache')
+if ($LASTEXITCODE) { throw 'Pipeline cache provenance/files/WARP output checks failed.' }
 $AmdSourceProbe=$OutputRoot + '.amd-source-continuity.exe'
 & $Cxx '-std=c++20' '-O0' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $PSScriptRoot '../tests/amd_of_source_continuity_test.cpp') '-o' $AmdSourceProbe
 if ($LASTEXITCODE) { throw 'AMD exact owned-source pairing test failed to compile.' }

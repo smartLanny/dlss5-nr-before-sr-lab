@@ -12,7 +12,7 @@ def apply(stage:Path,inputs,helpers):
         '#define NR_HAS_ACCEPTANCE 1\n#include "interop/nr_rr_post_runtime.inl"',
         'acceptance enabled before real RR route include')
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
-        'namespace nr_acceptance { bool Active(); bool PerformanceActive(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_gpu_timing.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+        'namespace nr_acceptance { bool Active(); bool PerformanceActive(); void ObserveNativeEntry(int,unsigned long long); void ObserveNativeSource(int,const nr_source_frame::Source&); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_gpu_timing.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
     s=helpers.once(s,'    ID3D12QueryHeap* dual_time_heap=nullptr;', '''    ID3D12QueryHeap* acceptance_time_heap=nullptr;
     ID3D12Resource* acceptance_time_readback=nullptr;
     LifecycleQueue* acceptance_time_queue=nullptr;
@@ -28,7 +28,7 @@ def apply(stage:Path,inputs,helpers):
     s=helpers.once(s,'    if (slot.delta_stats_capture_armed)\n        slot.diagnostic_identity = identity;',
         '    if(slot.acceptance_time_active||slot.acceptance_time_pending)slot.acceptance_time_identity=identity;\n    if (slot.delta_stats_capture_armed)\n        slot.diagnostic_identity = identity;','freeze acceptance source identity')
     s=helpers.once(s,'namespace nr_dual_runtime {void CollectTiming(NrSlot&);}',
-        '''namespace nr_acceptance {bool PerformanceActive();}
+        '''namespace nr_acceptance {bool Active(); bool PerformanceActive(); void ObserveNativeEntry(int,unsigned long long); void ObserveNativeSource(int,const nr_source_frame::Source&);}
 namespace nr_acceptance_gpu {
 enum class EntryRoute : unsigned { Sr, Rr };
 enum class PreReason : unsigned { Route, Lifecycle, Owner, Unavailable };
@@ -66,8 +66,21 @@ namespace nr_dual_runtime {void CollectTiming(NrSlot&);}''','acceptance timestam
             }
         }
         if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {''','exact acceptance submit receipt')
-    s=helpers.once(s,'    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {',
-        '    nr_acceptance_gpu::ReachPrepare();\n    nr_acceptance_gpu::Prepare(device,*slot,command_list,context->width,context->height,width,height);\n    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {\n        nr_acceptance_gpu::DiscardPrepared(*slot);','prepare timestamp before lifecycle recording')
+    prepare='    nr_acceptance_gpu::ReachPrepare();\n    nr_acceptance_gpu::Prepare(device,*slot,command_list,context->width,context->height,width,height);\n'
+    if '    nr_binding::DescriptorSet rr_depth_bindings{};' in s:
+        s=helpers.once(s,'    nr_binding::DescriptorSet rr_depth_bindings{};',
+            prepare+'    nr_binding::DescriptorSet rr_depth_bindings{};',
+            'prepare timestamp before sealed RR depth descriptors')
+        s=helpers.once(s,'        RejectRrDepth(RrDepthReject::DispatchBinding);',
+            '        nr_acceptance_gpu::DiscardPrepared(*slot);\n        RejectRrDepth(RrDepthReject::DispatchBinding);',
+            'retire unbound timestamp if RR depth binding cannot be sealed')
+        s=helpers.once(s,'    if (!RecordNrUseLocked(command_list, *context, *slot)) {\n        ReleaseCom(device);',
+            '    if (!RecordNrUseLocked(command_list, *context, *slot)) {\n        nr_acceptance_gpu::DiscardPrepared(*slot);\n        ReleaseCom(device);',
+            'discard unbound timestamp after RR depth descriptor seal')
+    else:
+        s=helpers.once(s,'    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {',
+            prepare+'    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {\n        nr_acceptance_gpu::DiscardPrepared(*slot);',
+            'prepare timestamp before lifecycle recording')
     s=helpers.once(s,'    // A disabled add-on must be indistinguishable from an unloaded add-on on',
         '    nr_acceptance_gpu::EntryScope acceptance_sr_entry(nr_acceptance_gpu::EntryRoute::Sr,\n        nr_acceptance::PerformanceActive() && IsUpscalingCarrierFeature(FindFeature(handle).feature_id));\n    // A disabled add-on must be indistinguishable from an unloaded add-on on',
         'session-only real SR entry before global owner and lifecycle guards')
@@ -132,6 +145,27 @@ PresentCounters ReadPresentLocked() {
         o.reset_each_frame,o.timing_valid,o.total_ms};
 }
 }''','Present baseline reads exact owner counters under existing chain lock')
+    # Each export can be the game's outermost hook. Observe only the proven
+    # game-owned Feature after the private/external and unknown-handle guards;
+    # an NR-off screenshot baseline still reaches this point.
+    for hook in ('HookEvaluate','HookEvaluateC','HookCoreEvaluate','HookDlssdEvaluate'):
+        begin=s.index('NgxResult '+hook+'(')
+        end=s.find('\nNgxResult ',begin+1)
+        if end<0: raise ValueError('missing native hook end: '+hook)
+        body=s[begin:end]
+        anchor='    if (!g_enabled_fast.load(std::memory_order_acquire) ||\n        OtherNrOwnerActive() ||'
+        if body.count(anchor)!=1: raise ValueError('ambiguous native entry: '+hook)
+        body=body.replace(anchor,
+            '    if (!g_inside_ngx_evaluate && observed_feature.owner == NgxOwner::Game)\n'
+            '        nr_acceptance::ObserveNativeEntry(observed_feature.feature_id, observed_feature.generation);\n'
+            +anchor,1)
+        s=s[:begin]+body+s[end:]
+    s=helpers.once(s,
+        '    nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);',
+        '    nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);\n'
+        '    if(nr_acceptance::Active() && source_feature.owner == NgxOwner::Game)\n'
+        '        nr_acceptance::ObserveNativeSource(source_feature.feature_id, nr_source_runtime::CurrentSource());',
+        'bind observed native source-frame range to active screenshot group')
     s=helpers.once(s,'    nr_f8::Present(runtime);','    nr_f8::Present(runtime);\n    nr_acceptance::Present(runtime);','guided Present tick')
     s=helpers.once(s,'any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token)',
         'any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token)',

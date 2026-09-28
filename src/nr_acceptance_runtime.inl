@@ -39,6 +39,11 @@ struct Group {
     double private_gpu_first_create_ms=0,private_gpu_first_inference_ms=0,private_gpu_median_ms=0,private_gpu_p95_ms=0;
     bool private_gpu_timing_available=false;
     bool memory_known=false,adopted=false,temporal_adopted=false,private_adopted=false,measured=false,capture_requested=false,capture_complete=false,report_requested=false,post_rr=false;
+    unsigned long long native_sr_entries=0,native_rr_entries=0;
+    unsigned long long native_sr_first_generation=0,native_sr_last_generation=0;
+    unsigned long long native_rr_first_generation=0,native_rr_last_generation=0;
+    nr_source_frame::Source native_sr_first_source{},native_sr_last_source{};
+    nr_source_frame::Source native_rr_first_source{},native_rr_last_source{};
     unsigned long long capture_id=0,stage_tick=0;
     char reason[128]{},report_session[96]{};
     wchar_t report_path[1024]{},capture_path[1024]{};
@@ -85,10 +90,57 @@ bool Active(){return active.load(std::memory_order_acquire);}
 bool PerformanceActive(){return performance_active.load(std::memory_order_acquire);}
 nr_processing::Start ObservedRoute(){return IsRayReconstructionRouteObserved()?nr_processing::Start::After:nr_processing_runtime::Effective();}
 void Reason(Group& g,const char* reason){if(!g.reason[0])std::snprintf(g.reason,sizeof(g.reason),"%s",reason);}
+const char* NativeRouteName(const Group& g){
+    if(g.native_sr_entries&&g.native_rr_entries)return "mixed";
+    if(g.native_sr_entries)return "native-SR";
+    if(g.native_rr_entries)return "native-RR";
+    return "unknown";
+}
+// An outermost game Feature Evaluate reached a real native wrapper. This is
+// route evidence, never an NR adoption or GPU timing sample. Calls can repeat
+// the same source frame; generation is the observed native Feature lifetime.
+void ObserveNativeEntry(int feature,unsigned long long feature_generation){
+    if(!Active()||(feature!=1&&feature!=13))return;
+    if(!TryAcquireSRWLockExclusive(&lock)){
+        ++dropped_samples;return;
+    }
+    auto* s=session;
+    if(s&&s->program==Program::Screenshots&&s->index<s->count){
+        auto& g=s->groups[s->index];
+        if(g.generation==g_config_generation.load(std::memory_order_acquire)){
+            auto& count=feature==1?g.native_sr_entries:g.native_rr_entries;
+            auto& first=feature==1?g.native_sr_first_generation:g.native_rr_first_generation;
+            auto& last=feature==1?g.native_sr_last_generation:g.native_rr_last_generation;
+            if(!count)first=feature_generation;
+            ++count;last=feature_generation;
+        }
+    }
+    ReleaseSRWLockExclusive(&lock);
+}
+void ObserveNativeSource(int feature,const nr_source_frame::Source& source){
+    if(!Active()||!source||(feature!=1&&feature!=13))return;
+    if(!TryAcquireSRWLockExclusive(&lock))return;
+    auto* s=session;
+    if(s&&s->program==Program::Screenshots&&s->index<s->count){
+        auto& g=s->groups[s->index];
+        if(g.generation==g_config_generation.load(std::memory_order_acquire)){
+            auto& first=feature==1?g.native_sr_first_source:g.native_rr_first_source;
+            auto& last=feature==1?g.native_sr_last_source:g.native_rr_last_source;
+            if(!first)first=source;
+            last=source;
+        }
+    }
+    ReleaseSRWLockExclusive(&lock);
+}
 bool SameRequested(const ChainConfig& expected,ChainConfig actual){actual.perf_epoch=expected.perf_epoch;return SameConfig(expected,actual);}
 void StartGroup(Session& s){
     performance_active.store(false,std::memory_order_release);
     auto& g=s.groups[s.index];g.step=Get(s.program,s.index,s.original_effective==nr_processing::Start::Before);g.requested=s.original;
+    g.native_sr_entries=g.native_rr_entries=0;
+    g.native_sr_first_generation=g.native_sr_last_generation=0;
+    g.native_rr_first_generation=g.native_rr_last_generation=0;
+    g.native_sr_first_source=g.native_sr_last_source={};
+    g.native_rr_first_source=g.native_rr_last_source={};
     if(s.program==Program::Screenshots){
         g.requested.enabled=s.index!=0;
         g.requested.processing_start=nr_processing::Start::After;

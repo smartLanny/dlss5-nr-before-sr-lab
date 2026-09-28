@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -16,10 +17,14 @@
 #include "nr_processing_route.h"
 #include "nr_fg_presentation.h"
 #include "nr_launch_preferences.h"
+#include "nr_layer_config.h"
 
 @JITTER_ENUM@
 @CHAIN_CONFIG@
 ChainConfig g_config;
+std::array<unsigned long long,nr_layers::Count> g_layer_epochs{1,1,1,1,1};
+unsigned residency_reconcile_calls=0;
+void ReconcileNrResidencyLocked(unsigned, unsigned, bool) {++residency_reconcile_calls;}
 nr_fg_presentation::Policy g_fg_presentation_policy;
 wchar_t g_ini_path[MAX_PATH]{};
 CRITICAL_SECTION g_chain_cs;
@@ -73,6 +78,7 @@ ULONGLONG TestTick() { return test_tick; }
 @SAME_CONFIG@
 @SAME_HISTORY@
 @ACTIVE_TRANSFER@
+@LAYER_FUNCTIONS@
 @RELOAD_PREFIX@
     // Skip module discovery/log formatting; preserve the actual production
     // config publication and route reconciliation after those observations.

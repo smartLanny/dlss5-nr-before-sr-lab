@@ -132,7 +132,7 @@ def main():
         objects.append(str(obj))
     exe=out/'native-color-view.exe'
     r=run([str(compiler),*common,'-std=c++20',*(['-Werror=format'] if a.acceptance else []),'-static','-Wl,--gc-sections',str(wrapper),*objects,'-o',str(exe),
-           '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
+           '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
             'codec_cache':cache_receipt,

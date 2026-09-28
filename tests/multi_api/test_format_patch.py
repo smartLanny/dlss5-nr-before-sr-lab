@@ -89,7 +89,7 @@ class Patches(unittest.TestCase):
         # Beta 8 moves native temporal guide validation to the recorded
         # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
         # Format and colour shader code are unchanged.
-        self.assertEqual(digest,'53375d866fd4a1774d5e87de4356fe53f3622e66')
+        self.assertEqual(digest,'3aa963eb4275f423c6c44e1785fcaeca44c5d137')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

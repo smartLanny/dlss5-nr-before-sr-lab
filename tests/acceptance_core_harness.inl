@@ -341,9 +341,57 @@ void RunPressureBounds(){
     Check(false,"policy-bound test requires exact Core test injection");
 #endif
 }
+void RunNativeRouteObservation(){
+    auto probe=std::make_unique<nr_acceptance::Session>();
+    probe->program=nr_acceptance_policy::Program::Screenshots;
+    probe->count=9;probe->index=0;
+    const auto previous_config=g_config_generation.exchange(0);
+    constexpr unsigned config=0;
+    probe->groups[0].generation=config;
+    probe->groups[0].requested.enabled=false; // Native baseline still has a route.
+    nr_acceptance::session=probe.get();nr_acceptance::active.store(true);
+    const bool was_enabled=g_enabled_fast.exchange(false);
+    const auto old_sr=g_original_evaluate,old_rr=g_original_dlssd_evaluate;
+    g_original_evaluate=EntryNoop;g_original_dlssd_evaluate=EntryNoop;
+    NgxHandle sr{901},rr{902};
+    FeatureRecord sr_record{};sr_record.handle=&sr;sr_record.feature_id=1;
+    FeatureRecord rr_record{};rr_record.handle=&rr;rr_record.feature_id=13;
+    {ScopedNgxLayer layer(NgxLayer::Dlss);PublishObservedFeature(sr_record);}
+    {ScopedNgxLayer layer(NgxLayer::Dlssd);PublishObservedFeature(rr_record);}
+    Check(HookEvaluate(nullptr,&sr,nullptr,nullptr)==kNgxSuccess,
+        "NR-off baseline reaches a real game Feature1 Evaluate hook");
+    Check(probe->groups[0].native_sr_entries==1&&probe->groups[0].native_rr_entries==0&&
+          std::strcmp(nr_acceptance::NativeRouteName(probe->groups[0]),"native-SR")==0,
+        "NR-off baseline identifies native SR from entry, not RR policy");
+    probe->index=1;probe->groups[1].generation=config;
+    Check(HookDlssdEvaluate(nullptr,&rr,nullptr,nullptr)==kNgxSuccess&&
+          probe->groups[1].native_rr_entries==1&&probe->groups[0].native_rr_entries==0&&
+          std::strcmp(nr_acceptance::NativeRouteName(probe->groups[1]),"native-RR")==0,
+        "new group records only its own real Feature13 entry");
+    Check(HookEvaluate(nullptr,&sr,nullptr,nullptr)==kNgxSuccess&&
+          std::strcmp(nr_acceptance::NativeRouteName(probe->groups[1]),"mixed")==0,
+        "one group with both actual native features is mixed");
+    const auto mixed_sr=probe->groups[1].native_sr_entries;
+    g_inside_ngx_evaluate=true;
+    Check(HookEvaluate(nullptr,&sr,nullptr,nullptr)==kNgxSuccess&&
+          probe->groups[1].native_sr_entries==mixed_sr,
+        "forwarded nested Feature1 wrapper is not counted as a second game call");
+    g_inside_ngx_evaluate=false;
+    probe->index=2;probe->groups[2].generation=config+1;
+    Check(HookEvaluate(nullptr,&sr,nullptr,nullptr)==kNgxSuccess&&
+          std::strcmp(nr_acceptance::NativeRouteName(probe->groups[2]),"unknown")==0,
+        "mismatched configuration cannot borrow a previous group's route");
+    Check(nr_acceptance_gpu::read_index==nr_acceptance_gpu::write_index,
+        "native route observation does not fabricate a GPU timing Sample");
+    g_original_evaluate=old_sr;g_original_dlssd_evaluate=old_rr;
+    g_enabled_fast.store(was_enabled);nr_acceptance::active.store(false);
+    nr_acceptance::session=nullptr;
+    g_config_generation.store(previous_config);
+}
 void Run(){
     Stage("Run begin");
     InitializeCriticalSection(&g_chain_cs);
+    RunNativeRouteObservation();
     wchar_t full[MAX_PATH]{};GetFullPathNameW(L"acceptance-user.ini",MAX_PATH,full,nullptr);wcscpy_s(g_ini_path,full);
     const std::string sentinel="[NRBeforeSR]\r\nEnabled=1\r\nOwner=unchanged\r\n";
     {std::ofstream out("acceptance-user.ini",std::ios::binary);out<<sentinel;}

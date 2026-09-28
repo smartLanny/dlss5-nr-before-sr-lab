@@ -67,7 +67,7 @@ int main() {
 }
 '''
 harness = harness.replace("ENUM", "enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };\n")
-harness = harness.replace("CONFIG", definition(source, "struct ChainConfig", True))
+harness = harness.replace("CONFIG", definition(source, "struct ChainConfig {", True))
 harness = harness.replace("FINITE", definition(source, "float FiniteOr("))
 harness = harness.replace("MIGRATE", definition(source, "int MigrateConfigMode("))
 harness = harness.replace("NORMALIZE", definition(source, "void NormalizeConfig("))

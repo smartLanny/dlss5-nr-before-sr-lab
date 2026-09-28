@@ -63,7 +63,7 @@ enum class NrJitterMode : int { Legacy = 0, GameInputPixel = 1 };
 
 def config_code() -> str:
     return "\n".join([
-        definition(source, "struct ChainConfig", True),
+        definition(source, "struct ChainConfig {", True),
         "ChainConfig g_config;",
         definition(source, "float FiniteOr("),
         definition(source, "void NormalizeConfig("),

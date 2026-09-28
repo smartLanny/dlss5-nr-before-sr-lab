@@ -77,4 +77,4 @@ int main(int argc,char** argv){if(argc>1&&std::strcmp(argv[1],"--reproduction")=
 #if !BASELINE
  safety();
 #endif
- std::puts("PASS unchanged live-parent, scope and uncertain-lifetime behavior");}
+ std::puts("PASS unchanged live-parent, scope and uncertain-lifetime behavior");return 0;}
