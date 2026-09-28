@@ -31,6 +31,7 @@ struct NrContext {
     std::uint64_t evaluations = 0;
     unsigned successful_evaluations_since_reset = 0;
     bool diagnostic_reset_requested = false;
+    bool diagnostic_warmup_reset = false;
     bool reset_retry_pending = false;
     std::uint64_t width = 640, height = 360;
     GuideHistory guide_history{};
@@ -67,15 +68,19 @@ struct Observation {
 // This is the fixture's narrow equivalent of BindNrParameters.  The reset
 // decision itself is computed by the injected production AuxHistory line; the
 // adapter only exposes that decision to the injected Run success segment.
-bool BindFixtureGuides(NrContext &aux, bool reset) noexcept {
+bool BindFixtureGuides(NrContext &aux, bool reset, bool model_reset_only) noexcept {
     g_last_reset = reset;
-    aux.diagnostic_reset_requested = reset;
+    // Match the production distinction: a placeholder may request an NR reset
+    // without restarting the successful-evaluation warmup/history counter.
+    aux.diagnostic_reset_requested = reset || model_reset_only;
+    aux.diagnostic_warmup_reset = reset;
     return true;
 }
 
 NgxResult RunHistoryStep(NrContext &primary, NrSlot &main, Prepared &prepared,
                          std::uint64_t parent_evaluation, bool second_success,
-                         std::uint64_t queue_identity = 7001) {
+                         std::uint64_t queue_identity = 7001,
+                         bool model_reset_only = false) {
     auto &aux = *prepared.context;
     auto &slot = *prepared.slot;
     ID3D12GraphicsCommandList *list = nullptr; // No GPU work in this history host.
@@ -89,7 +94,7 @@ NgxResult RunHistoryStep(NrContext &primary, NrSlot &main, Prepared &prepared,
         : nr_dual::Attempt{nr_dual::Selection::Primary, false, 0u};
     Observation observation{};
     // @CORE_AUX_HISTORY_RESET@
-    if (!BindFixtureGuides(aux, reset)) return 0;
+    if (!BindFixtureGuides(aux, reset, model_reset_only)) return 0;
     // @CORE_RUN_SUCCESS_SEGMENT@
     // @CORE_RUN_ACTIVE_STATUS@
     return 0;
@@ -147,6 +152,18 @@ int main() {
                 g_last_reset ? 1u : 0u, aux.successful_evaluations_since_reset,
                 main.dual_selected ? 1u : 0u);
     if (!missed_reset) return 1;
-    std::printf("PASS D13 production AuxHistory/Run history regression; old intermittent gate resets 16/16 with zero P2, continuous warmup=2 then adopted=30, missed parent frame resets again; controlled CPU history only\n");
+
+    // Continuing model-only resets must not leave P2 permanently in warmup.
+    // The success segment above is extracted from production, not mirrored.
+    for (std::uint64_t frame = 35; frame <= 36; ++frame) {
+        RunHistoryStep(primary, main, prepared, frame, true, 7001, true);
+        if (g_last_reset || !aux.diagnostic_reset_requested ||
+            aux.diagnostic_warmup_reset ||
+            aux.successful_evaluations_since_reset != frame - 33 ||
+            (main.dual_selected != nullptr) != (frame == 36)) return 1;
+    }
+    std::printf("MODEL-ONLY RESET: requested=1 warmup_reset=0 since_reset=%u selected=%u\n",
+                aux.successful_evaluations_since_reset, main.dual_selected ? 1u : 0u);
+    std::printf("PASS D13 production AuxHistory/Run history regression; old intermittent gate resets 16/16 with zero P2, continuous warmup=2 then adopted=30, missed parent frame resets again, model-only reset does not restart warmup; controlled CPU history only\n");
     return 0;
 }
