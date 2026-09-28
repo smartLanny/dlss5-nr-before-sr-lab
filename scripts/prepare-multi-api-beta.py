@@ -31,8 +31,8 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
-    'src/nr_residency_policy.h': '44feb1a50e5512b3a8722845033448aa7a39a42c',
-    'src/nr_pipeline_cache.h': '7af533c9fb95797ab2667ddf100280f9c3357a84',
+    'src/nr_residency_policy.h': '168f34a3484be936f64e2c3e60f82bf1456c8873',
+    'src/nr_pipeline_cache.h': '364fac2ddcb773a3669f7ec18f25d87e22e90895',
     'src/nr_f8_types.h': '4f435ff7a95c1516ee8ee54700dedae123cd2129',
     'src/nr_aux_shader_runtime.cpp': '97422517284ff8c147a4c2ac2232338acf887d70',
     'src/nr_aux_shader_runtime.hpp': '43816a8c011f41b4267989ed0b2d2a6cf1a22d30',
