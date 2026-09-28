@@ -23,6 +23,8 @@ def main():
         report['runs'].append({'name':name,'command':list(map(str,command)),'exit':code,'expected_exit':expected,'log_sha256':sha(log)})
         print(name,code,data.decode('utf-8','replace')[-3500:],flush=True)
         if code!=expected:raise RuntimeError(name+' failed')
+        if name=='checksum-negative' and b'corruption must fail before the driver sees bytes' not in data:
+            raise RuntimeError('Negative exited for the wrong reason')
     try:
         exe=out/'pipeline-cache.exe'
         common=[a.compiler,'-std=c++20','-O2','-Wall','-Wextra','-Werror','-static','-municode']

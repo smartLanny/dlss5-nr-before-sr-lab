@@ -32,7 +32,7 @@ REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
     'src/nr_residency_policy.h': '168f34a3484be936f64e2c3e60f82bf1456c8873',
-    'src/nr_pipeline_cache.h': 'db8119b313ce883b8e135070fbca801817486bfe',
+    'src/nr_pipeline_cache.h': 'bdb62d4fd52c7b3cc0a4f5d73f86a1f493d2f387',
     'src/nr_aux_shader_runtime.cpp': '97422517284ff8c147a4c2ac2232338acf887d70',
     'src/nr_aux_shader_runtime.hpp': '43816a8c011f41b4267989ed0b2d2a6cf1a22d30',
     'scripts/prepare-aux-artifacts.py': '744f7a012a5f389ac287c900ee4c1f0029a9944e',

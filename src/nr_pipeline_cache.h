@@ -95,15 +95,18 @@ inline bool Read(const std::wstring& path,const Digest& key,std::vector<unsigned
        !DigestOf(data.data(),data.size(),hash)||hash!=header.payload){data.clear();return false;}
     return true;
 }
-inline bool FitsDirectory(const std::wstring& directory,const std::wstring& destination,std::uint64_t bytes){
+inline bool FitsDirectory(const std::wstring& directory,std::uint64_t bytes){
+    // Count orphaned .tmp and unexpected regular files as well: an interrupted
+    // write must not evade the bound. Include the old destination so the temp
+    // plus old file also fits during atomic replacement. No automatic deletion.
     WIN32_FIND_DATAW item{};const HANDLE find=FindFirstFileW((directory+L"\\*.pso").c_str(),&item);
     if(find==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
     std::uint64_t total=0;unsigned files=0,scanned=0;bool ok=true;
     do {
         if(++scanned>MaxFiles*2){ok=false;break;}
-        if(!OwnedName(item.cFileName))continue;
+        if(std::wcscmp(item.cFileName,L".")==0||std::wcscmp(item.cFileName,L"..")==0||
+           std::wcscmp(item.cFileName,L"write.lock")==0)continue;
         if(item.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)){ok=false;break;}
-        if(destination==directory+L"\\"+item.cFileName)continue;
         const auto size=(static_cast<std::uint64_t>(item.nFileSizeHigh)<<32)|item.nFileSizeLow;
         if(++files>=MaxFiles||size>MaxDirectoryBytes-total){ok=false;break;}total+=size;
     }while(FindNextFileW(find,&item));
@@ -120,7 +123,7 @@ inline bool Write(const std::wstring& directory,const Digest& key,const void* da
     if(!lock)return false;
     BY_HANDLE_FILE_INFORMATION lock_info{};
     if(!GetFileInformationByHandle(lock.h,&lock_info)||(lock_info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)||
-       !FitsDirectory(directory,destination,bytes+sizeof(Header)))return false;
+       !FitsDirectory(directory,bytes+sizeof(Header)))return false;
     const auto attributes=GetFileAttributesW(destination.c_str());
     if(attributes!=INVALID_FILE_ATTRIBUTES&&(attributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)))return false;
     Header header{};header.key=key;header.bytes=static_cast<std::uint32_t>(bytes);

@@ -38,6 +38,13 @@ void FileTests(const std::wstring& root){
     const auto quota=root+L"\\quota";Check(Directory(quota),"quota fixture");
     for(unsigned i=0;i<MaxFiles;++i){Digest k{};std::memcpy(k.data(),&i,sizeof(i));Check(Write(quota,k,payload,sizeof(payload)),"within file quota");}
     Digest full{};full[10]=1;Check(!Write(quota,full,payload,sizeof(payload)),"bounded file count");
+    const auto orphan=root+L"\orphan";Check(Directory(orphan),"orphan fixture");
+    {
+        File partial(CreateFileW((orphan+L"\interrupted.tmp").c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr));
+        Check(bool(partial),"create orphaned private temp");LARGE_INTEGER end{};end.QuadPart=MaxDirectoryBytes;
+        Check(SetFilePointerEx(partial.h,end,nullptr,FILE_BEGIN)&&SetEndOfFile(partial.h),"bounded-size orphan fixture");
+    }
+    Check(!Write(orphan,key,payload,sizeof(payload)),"orphaned temp escaped total disk quota");
     Identity id{};id.driver=1;unsigned char shader[]={1,2,3};D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.CS={shader,sizeof(shader)};
     Digest a{},b{};Check(PipelineKey(id,desc,a),"key generation");
     ++id.driver;Check(PipelineKey(id,desc,b)&&a!=b,"driver invalidation");--id.driver;
