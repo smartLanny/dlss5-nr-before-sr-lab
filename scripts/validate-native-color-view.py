@@ -91,7 +91,7 @@ def main():
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
         'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'+
-        ('if(argc>1&&std::string(argv[1])=="pressure-bounds")acceptance_core_test::RunPressureBounds();else if(argc>1&&std::string(argv[1])=="pressure-rr")acceptance_core_test::RunPressure(false);else if(argc>1&&std::string(argv[1])=="pressure-sr")acceptance_core_test::RunPressure(true);else if(argc>1&&std::string(argv[1])=="sr-entry")acceptance_core_test::RunSr();else acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
+        ('if(argc>1&&std::string(argv[1])=="pressure-bounds")acceptance_core_test::RunPressureBounds();else if(argc>1&&std::string(argv[1])=="pressure-rr")acceptance_core_test::RunPressure(false);else if(argc>1&&std::string(argv[1])=="pressure-sr")acceptance_core_test::RunPressure(true);else if(argc>1&&std::string(argv[1])=="pressure-secondary")acceptance_core_test::RunSecondaryPressure();else if(argc>1&&std::string(argv[1])=="sr-entry")acceptance_core_test::RunSr();else acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
@@ -141,7 +141,7 @@ def main():
             'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'commit_pressure_negative_control':a.acceptance_commit_pressure,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
             'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
-        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else (['pressure-bounds','pressure-rr','pressure-sr'] if a.acceptance_commit_pressure else [None] if a.acceptance_timing_negative or a.acceptance_negative else [None,'sr-entry']) if a.acceptance else [None]
+        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else (['pressure-bounds','pressure-rr','pressure-sr','pressure-secondary'] if a.acceptance_commit_pressure else [None] if a.acceptance_timing_negative or a.acceptance_negative else [None,'sr-entry']) if a.acceptance else [None]
         if a.temporal_negative:cases=['continuous']
         records=[];logs=[]
         for case in cases:

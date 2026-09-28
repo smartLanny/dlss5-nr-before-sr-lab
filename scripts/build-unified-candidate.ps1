@@ -38,6 +38,11 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+$GuideStorageProbe=$OutputRoot + '.guide-storage-contract.exe'
+& $Cxx '-std=c++20' '-O0' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $PSScriptRoot '../tests/nr_guide_storage_contract_test.cpp') '-o' $GuideStorageProbe
+if ($LASTEXITCODE) { throw 'NR guide storage contract CPU regression failed to compile.' }
+& $GuideStorageProbe
+if ($LASTEXITCODE) { throw 'NR guide storage/history Reset CPU regression failed.' }
 $ResidencyPre=$OutputRoot + '.residency-checks'
 & python (Join-Path $PSScriptRoot 'validate-residency-policy.py') --compiler $Cxx --output (Join-Path $ResidencyPre 'slots')
 if ($LASTEXITCODE) { throw 'Actual slot selection and fence negative controls failed.' }
@@ -90,7 +95,8 @@ $CommitPressureReceipt=Get-Content -LiteralPath (Join-Path $CommitPressureGate '
 if (-not $CommitPressureReceipt.commit_pressure_negative_control -or
     -not $CommitPressureReceipt.production_translation_unit -or
     $CommitPressureReceipt.run_exit -ne 0 -or
-    $CommitPressureReceipt.cases.Count -ne 3 -or
+    $CommitPressureReceipt.cases.Count -ne 4 -or
+    (($CommitPressureReceipt.cases | ForEach-Object { $_.case }) -join ',') -ne 'pressure-bounds,pressure-rr,pressure-sr,pressure-secondary' -or
     (@($CommitPressureReceipt.cases | Where-Object { $_.run_exit -ne 0 })).Count -ne 0) {
     throw 'Actual SR/RR entry commit-pressure receipt is incomplete or failed.'
 }

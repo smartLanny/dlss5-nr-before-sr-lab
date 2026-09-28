@@ -5564,6 +5564,8 @@ struct NrContext {
     unsigned int create_failures = 0;
     unsigned int frames_seen = 0;
     unsigned int next_create_retry_frame = 0;
+    unsigned int dual_commit_retry_primary_frame = 0;
+    unsigned int dual_commit_retry_config_generation = 0;
     int bound_create_flags = 0;
     int bound_perf_quality = 5;
     bool create_variant_selected = false;
@@ -7693,13 +7695,21 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 !SameNrGuideStorageContract(context.guide_storage_signature,
                                             requested_guides)) {
                 context.retired = true;
+                const auto& previous=context.guide_storage_signature;
                 Log("NR dimensions/guide storage changed: handle=%p mode=%d "
-                    "extent=%ux%u->%ux%u flags=%d->%d; retiring temporal "
-                    "history after its exact GPU fence.",
+                    "extent=%ux%u->%ux%u flags=%d->%d "
+                    "formats(depth/motion/color)=%u/%u/%u->%u/%u/%u "
+                    "motionBound=%ux%u->%ux%u placeholder=%d->%d resample=%d->%d; "
+                    "retiring temporal history after its exact GPU fence.",
                     static_cast<const void *>(sr_handle), mode,
                     context.width, context.height, width, height,
-                    context.guide_storage_signature.normalized_create_flags,
-                    requested_guides.normalized_create_flags);
+                    previous.normalized_create_flags,requested_guides.normalized_create_flags,
+                    previous.depth_format,previous.motion_format,previous.color_format,
+                    requested_guides.depth_format,requested_guides.motion_format,requested_guides.color_format,
+                    previous.motion_bound_width,previous.motion_bound_height,
+                    requested_guides.motion_bound_width,requested_guides.motion_bound_height,
+                    previous.rr_depth_placeholder?1:0,requested_guides.rr_depth_placeholder?1:0,
+                    previous.resample_motion?1:0,requested_guides.resample_motion?1:0);
                 continue;
             }
             if (context.codec_color_mode_initialized &&
@@ -10396,7 +10406,8 @@ std::atomic<unsigned long long> g_nr_create_commit_test_queries{0};
 std::atomic<unsigned long long> g_nr_create_commit_pressure_declines{0};
 // A severe-pressure admission floor, not an estimate of opaque NGX allocation.
 constexpr unsigned long long kMinimumNrCreateAvailableCommitBytes=1ull<<30;
-bool DeferNrCreateForCommitPressure(NrContext& context) {
+struct NrCreateCommitHeadroom {bool valid=false;unsigned long long available=0;};
+NrCreateCommitHeadroom ReadNrCreateCommitHeadroom() {
 #if defined(NR_CREATE_COMMIT_TEST)
     g_nr_create_commit_test_queries.fetch_add(1,std::memory_order_relaxed);
 #endif
@@ -10407,6 +10418,10 @@ bool DeferNrCreateForCommitPressure(NrContext& context) {
     const int test_valid=g_nr_create_commit_test_valid.load(std::memory_order_relaxed);
     if(test_valid>=0){valid=test_valid!=0;available=g_nr_create_commit_test_available.load(std::memory_order_relaxed);}
 #endif
+    return {valid,available};
+}
+bool DeferNrCreateForCommitPressure(NrContext& context) {
+    const auto [valid,available]=ReadNrCreateCommitHeadroom();
     if(!valid){
         static std::atomic<unsigned> unavailable{0};
         const auto count=unavailable.fetch_add(1,std::memory_order_relaxed)+1;

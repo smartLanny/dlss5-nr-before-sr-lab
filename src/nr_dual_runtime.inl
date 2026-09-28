@@ -229,6 +229,30 @@ std::uint32_t Evaluate(void* user,ID3D12GraphicsCommandList* list,const void* fe
     ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
     return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list,aux.nr_handle,aux.params,nullptr);
 }
+bool DeferSecondaryCreateForCommitPressure(NrContext& primary,NrContext& aux) {
+        // Earlier layers may already have recorded work on this list. Defer
+        // before registering this auxiliary or recording its GPU inputs.
+        const auto config=g_config_generation.load(std::memory_order_relaxed);
+        if(aux.dual_commit_retry_primary_frame &&
+           aux.dual_commit_retry_config_generation==config &&
+           primary.frames_seen<aux.dual_commit_retry_primary_frame) {
+            SetStatus(Status::ResourceBudget);return true;
+        }
+        aux.dual_commit_retry_primary_frame=0;
+        const auto headroom=ReadNrCreateCommitHeadroom();
+        if(headroom.valid&&headroom.available<kMinimumNrCreateAvailableCommitBytes) {
+            aux.dual_commit_retry_primary_frame=primary.frames_seen+300;
+            aux.dual_commit_retry_config_generation=config;
+            static std::atomic<unsigned long long> declines{0};
+            const auto count=declines.fetch_add(1,std::memory_order_relaxed)+1;
+            if(count<=3||count%600==0)
+                Log("[dual-nr] secondary-create-commit layer=%u parent=%llu available=%llu floor=%llu admission=deferred retryPrimaryFrame=%u count=%llu; existing NR recording retained.",
+                    aux.layer_index,primary.instance_id,headroom.available,
+                    kMinimumNrCreateAvailableCommitBytes,aux.dual_commit_retry_primary_frame,count);
+            SetStatus(Status::ResourceBudget);return true;
+        }
+    return false;
+}
 NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     LayerPrepared& prepared,const FeatureRecord& feature,const ColorContract& color) {
     struct Observation {
@@ -247,6 +271,7 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
     if(primary.diagnostic_warmup_reset||primary.successful_evaluations_since_reset<=g_config.warmup_after_create){
         aux.dual_history.Invalidate();SetStatus(Status::PrimaryWarming);return 0;
     }
+    if(!aux.nr_handle&&DeferSecondaryCreateForCommitPressure(primary,aux))return 0;
     if(!RecordNrUseLocked(list,aux,slot)){SetStatus(Status::QueuePending);return 0;}
     const auto& g=prepared.guides.signature;
     if(g.resample_motion) {

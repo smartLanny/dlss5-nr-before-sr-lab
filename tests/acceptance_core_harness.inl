@@ -316,6 +316,174 @@ void WarpRrEntry(bool sr=false,bool pressure=false){
 }
 void RunSr(){WarpRrEntry(true);std::printf("actual SR entry: %u checks; no game/model claim\n",queue_test::checks);}
 void RunPressure(bool sr){WarpRrEntry(sr,true);std::printf("pressure %s entry: %u checks; no game/model claim\n",sr?"SR":"RR",queue_test::checks);}
+void RunSecondaryPressure(){
+#if defined(NR_CREATE_COMMIT_TEST)
+    queue_test::Fixture f;
+    auto primary_owner=std::make_unique<NrContext>();
+    auto aux_owner=std::make_unique<NrContext>();
+    auto& primary=*primary_owner;auto& aux=*aux_owner;
+    auto& main=primary.slots[0];auto& slot=aux.slots[0];
+    g_config=ChainConfig{};g_config.warmup_after_create=0;
+    primary.instance_id=11;primary.frames_seen=100;
+    primary.sr_handle=reinterpret_cast<const NgxHandle*>(501);
+    primary.nr_handle=reinterpret_cast<NgxHandle*>(502);
+    primary.mode=1;primary.width=primary.height=128;
+    primary.successful_evaluations_since_reset=1;
+    aux.layer_index=2;
+    nr_dual_runtime::LayerPrepared prepared{};
+    prepared.context=&aux;prepared.slot=&slot;prepared.source=&main;
+    prepared.plan=nr_dual::MakePlan({2,{1,1}},{128,128},{{1,1},{16384,16384},{1,1}});
+    auto binding=std::make_unique<NrBindingPacket>();
+    prepared.binding=binding.get();
+    prepared.full=true;
+    Check(bool(prepared),"independent second layer prepared");
+    ID3D12Resource* output=nullptr;
+    Check(CreateTexture(f.device,128,128,L"recorded preceding layer",&output),
+          "preceding layer output exists");
+    D3D12_RESOURCE_STATES state=D3D12_RESOURCE_STATE_COMMON;
+    queue_test::List list(f);post_output_test::ClearViews views(f.device);
+    list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);
+    list.ResetWithNewAllocator(f);
+    Check(FindOrCreateLifecycleQueueLocked(f.a)!=nullptr,
+          "preceding NR layer has an exact submission queue");
+    Check(RecordNrUseLocked(list.native,primary,main),
+          "preceding NR layer owns an actual command-list token");
+    const auto token=primary.pending_recording_token;
+    Check(token&&main.recording_command_lists==1,
+          "recorded preceding layer retains a real lifetime closure");
+    const float value[]={.25f,.375f,.5f,1};
+    Transition(list.native,output,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    views.Clear(f.device,list.native,output,0,value);
+    g_nr_create_commit_test_valid.store(1);
+    g_nr_create_commit_test_available.store(474750976ull);
+    g_nr_create_commit_test_queries.store(0);
+    g_last_nr_create_result.store(0x12345678u);
+    const auto before=nr_dual_runtime::second_creates.load();
+    FeatureRecord feature{};ColorContract color{};
+    Check(nr_dual_runtime::RunOne(list.native,primary,main,prepared,feature,color)==0,
+          "severe pressure defers second layer without fatal result");
+    Check(nr_dual_runtime::second_creates.load()==before&&
+          g_nr_create_commit_test_queries.load()==1&&
+          g_last_nr_create_result.load()==0x12345678u,
+          "no opaque Create or fabricated vendor failure");
+    Check(!aux.nr_handle&&!aux.pending_recording_token&&
+          !slot.recording_command_lists&&primary.pending_recording_token==token&&
+          main.recording_command_lists==1&&!g_lifecycle_tracking_uncertain.load()&&
+          !nr_dual_runtime::fatal_result.load()&&
+          aux.dual_commit_retry_primary_frame==400&&
+          aux.dual_commit_retry_config_generation==g_config_generation.load(),
+          "deferred layer has no recorded dependencies or process isolation");
+    list.Close();list.Submit(f.a);f.Drain(f.a);
+    Check(!primary.pending_recording_token&&primary.completion_fence_value&&
+          IsContextFenceCompleteLocked(primary)&&main.recording_command_lists==1&&
+          !g_lifecycle_tracking_uncertain.load(),
+          "preceding NR layer received actual submission and completed fence");
+    const auto pixels=post_output_test::ReadTexture(f,output,state);
+    const unsigned char expected[]={0x00,0x34,0x00,0x36,0x00,0x38,0x00,0x3c};
+    Check(pixels.size()>=sizeof(expected)&&
+          std::memcmp(pixels.data(),expected,sizeof(expected))==0,
+          "earlier same-list GPU work submitted and completed unchanged");
+    g_nr_create_commit_test_available.store(2ull<<30);
+    primary.frames_seen=101;
+    Check(nr_dual_runtime::DeferSecondaryCreateForCommitPressure(primary,aux)&&
+          g_nr_create_commit_test_queries.load()==1,
+          "cooldown avoids repeated create admission reads");
+    primary.frames_seen=400;
+    Check(!nr_dual_runtime::DeferSecondaryCreateForCommitPressure(primary,aux)&&
+          g_nr_create_commit_test_queries.load()==2,
+          "primary-frame retry admits recovered commit headroom");
+    g_nr_create_commit_test_available.store(474750976ull);
+    Check(nr_dual_runtime::DeferSecondaryCreateForCommitPressure(primary,aux),
+          "renewed pressure remains a nonfatal deferral");
+    const auto config=g_config_generation.fetch_add(1)+1;
+    g_nr_create_commit_test_available.store(2ull<<30);
+    Check(!nr_dual_runtime::DeferSecondaryCreateForCommitPressure(primary,aux)&&
+          aux.dual_commit_retry_config_generation!=config,
+          "settings change retries without waiting for old deadline");
+    g_nr_create_commit_test_valid.store(-1);
+    list.Detach();
+    Check(!main.recording_command_lists&&!primary.pending_recording_token&&
+          !g_lifecycle_tracking_uncertain.load(),
+          "completed preceding layer releases its command-list ownership");
+    ReleaseCom(output);
+    // Exercise the actual auxiliary Create boundary after commit headroom
+    // recovers, using the same complete-Core WARP guide and spatial path.
+    g_config.enabled=true;g_config.mode=1;g_config.nr_passes=2;
+    g_nr_api.initialized=true;g_nr_api.allocate=EntryAllocate;g_nr_api.destroy=EntryDestroy;
+    g_nr_api.bridge_create=EntryCreate;g_nr_api.bridge_evaluate=EntryEvaluate;
+    g_nr_api.bridge_release=EntryRelease;
+    entry_device=f.device;entry_create_calls=0;
+    Check(EnsureCodec(f.device),"secondary recovery has production codec");
+    ID3D12Resource *neural=nullptr,*depth=nullptr,*motion=nullptr;
+    Check(CreateTexture(f.device,128,128,L"secondary source",&neural)&&
+          CreateTexture(f.device,128,128,L"secondary depth",&depth,DXGI_FORMAT_R32_FLOAT)&&
+          CreateTexture(f.device,128,128,L"secondary motion",&motion,DXGI_FORMAT_R16G16_FLOAT),
+          "secondary recovery has typed WARP inputs");
+    D3D12_RESOURCE_STATES ns=D3D12_RESOURCE_STATE_COMMON,ds=ns,ms=ns;
+    {queue_test::List init(f);post_output_test::ClearViews colors(f.device),motion_views(f.device);
+        const float flat[]={.25f,.375f,.5f,1},one[]={1,1,1,1},zero[]={0,0,0,0};
+        Transition(init.native,neural,ns,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        colors.Clear(f.device,init.native,neural,0,flat);
+        Transition(init.native,depth,ds,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        colors.Clear(f.device,init.native,depth,1,one);
+        Transition(init.native,motion,ms,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        motion_views.Clear(f.device,init.native,motion,0,zero);
+        Transition(init.native,neural,ns,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(init.native,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        Transition(init.native,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        post_output_test::Submit(f,init);}
+    EntryParams inputs,primary_params;
+    SetResource(&inputs,"Depth",depth);SetResource(&inputs,"MotionVectors",motion);
+    SetResource(&inputs,"Output",neural);
+    SetUInt(&inputs,"DLSS.Render.Subrect.Dimensions.Width",128);
+    SetUInt(&inputs,"DLSS.Render.Subrect.Dimensions.Height",128);
+    SetFloat(&inputs,"MV.Scale.X",1);SetFloat(&inputs,"MV.Scale.Y",1);
+    SetFloat(&inputs,"Jitter.Offset.X",0);SetFloat(&inputs,"Jitter.Offset.Y",0);
+    SetFloat(&inputs,"DLSS.Pre.Exposure",1);SetFloat(&inputs,"DLSS.Exposure.Scale",1);
+    SetInt(&inputs,"Reset",0);
+    main.neural=neural;main.neural_state=ns;
+    primary.params=&primary_params;
+    FeatureRecord actual{};actual.handle=primary.sr_handle;actual.feature_id=13;
+    actual.generation=1;actual.width=actual.height=128;
+    actual.out_width=actual.out_height=128;actual.rr_depth_type=1;
+    actual.create_flags_known=actual.create_contract_known=true;
+    queue_test::List recovered(f);
+    recovered.Close();recovered.Prime(f.a);recovered.Prime(f.a);f.Drain(f.a);
+    recovered.ResetWithNewAllocator(f);
+    g_nr_create_commit_test_valid.store(1);
+    g_nr_create_commit_test_available.store(2ull<<30);
+    const auto recovery_queries=g_nr_create_commit_test_queries.load();
+    auto stage=nr_dual_runtime::PrepareOne(f.device,recovered.native,primary,main,
+        &inputs,actual,128,128,neural,0,0,CodecColorMode::Automatic);
+    Check(bool(stage),"normal margin prepares a real secondary layer");
+    nr_dual_runtime::SealOne(recovered.native,main,stage);
+    Check(stage.binding,"normal margin seals a real descriptor packet");
+    const auto create_before=nr_dual_runtime::second_creates.load();
+    Check(nr_dual_runtime::RunOne(recovered.native,primary,main,stage,actual,ColorContract{})==0&&
+          nr_dual_runtime::second_creates.load()==create_before+1&&
+          entry_create_calls==1&&stage.context->nr_handle&&!g_lifecycle_tracking_uncertain.load()&&
+          g_nr_create_commit_test_queries.load()==recovery_queries+1,
+          "injected 2 GiB margin reaches one actual auxiliary Create callback");
+    // This synthetic primary has no actual prior Feature18 Evaluate output.
+    // Do not submit its spatial work as a substitute for a real frame. An
+    // unsubmitted Create recording owns resources, so explicitly quarantine
+    // its closure until this isolated test process exits.
+    unsigned long long recovery_token=0;
+    Check(ReadLifecycleToken(recovered.native,recovery_token)&&recovery_token&&
+          QuarantineUnsubmittedLifecycleRecordLocked(recovery_token,"synthetic recovery fixture")&&
+          g_lifecycle_tracking_uncertain.load()&&stage.context->lifecycle_dependencies_quarantined,
+          "unsubmitted synthetic Create keeps the complete dependency closure");
+    recovered.Detach();
+    Check(!stage.context->pending_recording_token&&
+          !stage.context->recording_command_lists&&!stage.slot->recording_command_lists&&
+          !FindLifecycleCommandListLocked(recovery_token),
+          "synthetic list detach drops recording references without releasing quarantined resources");
+    ReleaseCom(depth);ReleaseCom(motion);
+    std::printf("secondary commit pressure: %u checks; real WARP preceding fence and stub Create boundary, no recovered GPU/game claim\n",queue_test::checks);
+#else
+    Check(false,"secondary pressure requires complete Core test injection");
+#endif
+}
 void RunPressureBounds(){
 #if defined(NR_CREATE_COMMIT_TEST)
     static NrContext context{};
