@@ -1,6 +1,6 @@
 # Beta 7 开发验收记录
 
-状态：**开发中，未交付；当前安装仍为 Beta 6。** 私有 SR 已取得真实 Feature1 同输入受控改善证据；完整最终 Core 与发丝专项仍需闭环，不以功能录制成功、WARP 结果或新测量工具替代画质门槛。唯一实施路线见 [Beta 6 评估及后续路线](052_BETA6_EVALUATION_AND_NEXT.md)。
+状态：**开发中，未交付；当前安装仍为 Beta 6。** 私有 SR 已取得真实 Feature1 同输入受控改善证据；发丝专项同源对照已完成，完整最终 Core 门槛仍需闭环，不以功能录制成功、WARP 结果或新测量工具替代画质门槛。唯一实施路线见 [Beta 6 评估及后续路线](052_BETA6_EVALUATION_AND_NEXT.md)。
 
 相对 D21 更新说明：[中文](052_BETA7_CHANGELOG.zh-CN.md) / [English](052_BETA7_CHANGELOG.en.md)，均保留开发身份。
 
@@ -42,6 +42,14 @@
 
 第二次完整构建 `d1bc2e0aa5b09013a9fe54845dd86b2b5293bfde` 的双语 Core 与继承门槛完成，但新连续帧门槛将仓库测试脚手架误当作生成产品源而失败：[原回执](D:/ChatGPT/DLSS5/evidence/beta7-canonical-d1bc2e0a-r1.json)。已修正来源映射，明确区分生成模块和仓库脚手架；[相同 d1 Core 定向复验](D:/ChatGPT/DLSS5/evidence/beta7-temporal-quality-20260928/sequence-generated-core-warp-dark-r1/result.json)为 168/168，初始化失败也保存失败收据。旧失败未覆盖，最终统一构建须重新通过。
 
+## 发丝专项与 a2 实际 Core 预检
+
+[发丝 v2 真实同源对照](D:/ChatGPT/DLSS5/evidence/beta7-private-sr-quality-20260928/hair-comparison-r1.json)为 `passed`：旧范围 4 原始编码/无门控与新范围 1/精确中性保留/零修改保真使用相同 16 帧 B/Z/depth，输入字节逐帧相同。发丝 MAE 0.007088→0.005700（16/16 帧改善），P95 0.018092→0.00858；最差帧超过源半对比阈值的最长连续段 12→95/100 像素，帧间步差 0.004026→0.00145。平均发丝对比轻降约 0.000029；同档普通空间恢复 MAE 约 0.00262 仍优于私有 SR。6sol 已按原像素检查曲线、文字与暗部，未声称私有 SR 普遍优于普通恢复。
+
+第三次统一构建冻结为 `a2afcc4fa9c507907764b2115707fa343a7c2502`。双语静态分析零诊断，完整 Core、继承门槛、预算和生成时域 WARP 168 帧通过；新增私有质量门槛缺测试专用 RR/deferred 头而失败：[原构建回执](D:/ChatGPT/DLSS5/evidence/beta7-canonical-a2afcc4f-r1.json)。只修验证脚本的来源映射，产品源码、五对象和八 shader 仍锁定生成模块，测试专用头单列仓库脚手架来源；[相同 a2 Core 定向回执](D:/ChatGPT/DLSS5/evidence/beta7-private-sr-quality-20260928/exactcore-a2-hair-warp-r3/validation.json)严格 81 项、微量同档、16 帧发丝与分析通过。
+
+[余下统一门槛预检](D:/ChatGPT/DLSS5/evidence/beta7-postbuild-preflight-a2afcc4f-r1/validation.json)全部通过，含导引、错误恢复负例、时域路由、辅助 shader、原生输出与重建。[完整 Core 控制器](F:/ChatGPT/DLSS5/evidence/beta7-acceptance-controller-a2afcc4f-r1/validation.json)为 99 项、策略 19 项。独立 Core WARP numeric 发现假 Feature1 夹具仍按旧范围 4 填 carrier，而产品已经是范围 1，0.25 编辑被假输入解码为 0.0625；原失败保留，只更新夹具数学输入，逐像素、边界和 alpha 精确断言不放宽。修正后的完整回归与下一干净源码统一构建仍为交付门槛。
+
 ## 报告范围
 
 一键报告测量同一 Direct 队列、同一完成栅栏所覆盖的原生调用前后 Core 区间；原生 SR/RR 时间不包含在内。跨队列或覆盖不足时不提供总插件/整帧成本。原生无 NR 组没有该插件 GPU 工作，记为不适用并保留截图，不伪造 GPU 样本。创建、reset、旁路、切换和截图排除；有效不足和不支持均明确记录并继续；结束/取消恢复配置，不写入 INI。
@@ -50,7 +58,7 @@
 
 ## 尚未通过的交付门槛
 
-1. 将已取得的真实 Feature1 受控改善闭环到最终 Core，并完成发丝专项；同档普通恢复的优劣和暗线局部回退必须保留。
+1. 将已取得的真实 Feature1 受控改善和发丝专项闭环到最终交付 Core；同档普通恢复的优劣和暗线局部回退必须保留。
 2. 新源码完整双语统一构建、生成 Core 控制器/生命周期、Feature18/Feature1 和后置原生 RR/AMDOF 硬件回执。
 3. 连续帧降噪/拖影独立判定和同 NR 工作量成本；游戏整帧新增成本 ≤3% 由维护者实测。
 4. 通过后才建立正式包身份，并由 6sol 确认异环退出后备份、部署和核对；当前没有新包可交付。

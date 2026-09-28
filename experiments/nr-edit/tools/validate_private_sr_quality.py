@@ -1,13 +1,15 @@
 """Run controlled 16-frame private SR transport attribution on WARP.
 
---core accepts the generated stage/core tree from a unified build. All source
-and shader inputs are taken from that tree and checked against its manifest.
+--core accepts the generated stage/core tree from a unified build. Product
+sources, objects and shaders are checked against that tree; test-only RR and
+deferred headers come from the repository test scaffold with separate hashes.
 This run makes no Feature1, hardware, game, or visual acceptance claim.
 """
 import argparse
 import hashlib
 import json
 import math
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +19,7 @@ ROOT = PACKAGE.parents[1]
 MODULE = ("nr_edit_dx12", "nr_post_residual_dx12", "nr_post_private_sr_dx12")
 SHADERS = ("nr_rr_edit.hlsl", "nr_deferred_edit.hlsl", "nr_normalize_guides.hlsl",
            "nr_post_residual.hlsl", "nr_edit_scalar.hlsli", "nr_edit_carrier.hlsli")
+SCAFFOLD_HEADERS = ("nr_rr_dx12.hpp", "nr_deferred_dx12.hpp")
 
 
 def sha(path):
@@ -45,13 +48,15 @@ def main():
     files = [package/"src"/(name+extension) for name in MODULE
              for extension in (".cpp", ".hpp")]
     files += [package/"shaders"/name for name in SHADERS]
+    product_files = list(files)
     files += [package/"tools/compile_edit_shader.cpp",
               package/"tools/compile_edit_artifacts.py",
               PACKAGE/"tests/post_residual_gpu.cpp",
               PACKAGE/"tests/post_private_sr_gpu.cpp",
               PACKAGE/"tests/windows_shader_validation.cpp",
               PACKAGE/"tools/analyze_private_sr_quality.py",
-              ROOT/"src/interop/nr_ngx_parameter_abi.h"]
+              *(PACKAGE/"src"/name for name in SCAFFOLD_HEADERS),
+              (core if core else ROOT)/"src/interop/nr_ngx_parameter_abi.h"]
     report = {"schema": "private-sr-controlled-quality-warp-v1", "status": "running",
               "source_kind": "generated-core" if core else "experiment",
               "source_root": str(package), "compiler_sha256": sha(compiler),
@@ -60,6 +65,11 @@ def main():
               "zero_preserve": True,
               "scene": "dark_text_hair_v2" if args.quality_dark else "legacy_v1",
               "source_hashes": {str(path): sha(path) for path in files}, "commands": [],
+              "source_origin": {str(path): ("generated-core-product" if core and path in product_files else
+                                           "generated-core-build-tool" if core and path.is_relative_to(package/"tools") else
+                                           "repository-test-scaffold" if core and path.is_relative_to(PACKAGE) else
+                                           "generated-core-abi" if core else "repository-experiment")
+                                for path in files},
               "feature1": "not-run", "game": "not-run", "quality_acceptance": "unjudged"}
 
     def save():
@@ -96,6 +106,18 @@ def main():
                 staged = core/"src/private_sr"/(name+".hpp")
                 if sha(staged) != sha(package/"src"/(name+".hpp")):
                     raise RuntimeError("Generated Core module header mismatch: "+name)
+            module_path = core/"build/obj/private-sr/module.json"
+            module = json.loads(module_path.read_text(encoding="utf-8-sig"))
+            if not module["passed"]:
+                raise RuntimeError("Generated private SR module did not pass")
+            for relative, digest in module["source_sha256"].items():
+                if sha(core/relative) != digest:
+                    raise RuntimeError("Generated private SR module source mismatch: "+relative)
+            for absolute, digest in module["object_sha256"].items():
+                if sha(Path(absolute)) != digest:
+                    raise RuntimeError("Generated private SR object mismatch: "+absolute)
+            report["module_receipt_sha256"] = sha(module_path)
+            report["module_object_sha256"] = module["object_sha256"]
             save()
         shader_compiler = output/"compile-edit-shader.exe"
         run("build-shader-compiler", [compiler, "-std=c++20", "-O2", "-static", "-municode",
@@ -105,8 +127,24 @@ def main():
         run("compile-shaders", [sys.executable, package/"tools/compile_edit_artifacts.py",
                                 "--compiler", shader_compiler, "--source", package/"shaders",
                                 "--output", shaders])
+        if core:
+            for name, artifact in module["shaders"].items():
+                if sha(Path(artifact["path"])) != artifact["sha256"] or sha(shaders/(name+".cso")) != artifact["sha256"]:
+                    raise RuntimeError("Generated Core shader bytecode mismatch: "+name)
+            report["module_shader_sha256"] = {name: artifact["sha256"]
+                                               for name, artifact in module["shaders"].items()}
+            save()
+        scaffold = output/"test-scaffold"
+        scaffold.mkdir()
+        for name in SCAFFOLD_HEADERS:
+            shutil.copyfile(PACKAGE/"src"/name, scaffold/name)
+            if sha(scaffold/name) != sha(PACKAGE/"src"/name):
+                raise RuntimeError("Test scaffold copy mismatch: "+name)
+        report["scaffold_hashes"] = {name: sha(scaffold/name) for name in SCAFFOLD_HEADERS}
+        save()
         common = [compiler, "-std=c++20", "-O2", "-static", "-municode",
-                  "-I"+str(ROOT), "-I"+str(package/"src")]
+                  "-I"+str(core if core else ROOT), "-I"+str(package/"src"),
+                  "-I"+str(scaffold)]
         libs = ["-ld3d12", "-ldxgi", "-ldxguid", "-ld3dcompiler", "-lole32", "-luuid"]
         residual = output/"post-residual.exe"
         run("build-residual", [*common, PACKAGE/"tests/post_residual_gpu.cpp",

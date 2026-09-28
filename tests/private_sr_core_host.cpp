@@ -108,7 +108,9 @@ void Pixels(const std::vector<char>& bytes,float expected,unsigned width,unsigne
     for(size_t i=0;i<bytes.size();i+=2){unsigned short p=0;std::memcpy(&p,bytes.data()+i,2);unsigned e=(p>>10)&31,m=p&1023;
         const float v=(p&0x8000?-1.f:1.f)*(e?std::ldexp(1.f+float(m)/1024,int(e)-15):std::ldexp(float(m),-24));
         const unsigned x=unsigned(i/8)%width,y=unsigned(i/8)/width;const float want=x<origin_x||y<origin_y?.25f:expected;
-        Require(v==((i/2)%4==3?1.f:want),"whole image including atlas margin and alpha exact");}
+        const float expected_channel=(i/2)%4==3?1.f:want;
+        if(v!=expected_channel)std::printf("PIXEL_MISMATCH x=%u y=%u channel=%u actual=%.9g expected=%.9g\n",x,y,unsigned((i/2)%4),v,expected_channel);
+        Require(v==expected_channel,"whole image including atlas margin and alpha exact");}
 }
 HRESULT STDMETHODCALLTYPE FailedSignal(ID3D12CommandQueue*,ID3D12Fence*,UINT64){return E_FAIL;}
 HRESULT STDMETHODCALLTYPE FailedReset(ID3D12GraphicsCommandList*,ID3D12CommandAllocator*,ID3D12PipelineState*){return E_FAIL;}
@@ -191,7 +193,12 @@ int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();Initial
         const float edit=hdr?hdr_edits[frame]:numeric?edits[frame]:0,base_value=hdr?std::ldexp(1.f,2+int(frame%2)):.5f;
         if(hdr)Fill(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,base_value);
         if(hdr){parameters.jitter_x=frame%2?.5f:-.5f;parameters.jitter_y=frame%3?.25f:-.25f;}
-        Fill(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,base_value+edit,tx,ty);Fill(h,fixture.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,.5f+edit/8);
+        Fill(h,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,base_value+edit,tx,ty);
+        // The controlled Feature1 output is an identity upscale of the actual post-only range-1 carrier.
+        // Legacy range-4 half encoding rounds these two tiny edits to neutral; their entire signal is in the tail.
+        const bool legacy_neutral=edit==1.f/1024.f||edit==-1.f/2048.f;
+        const float carrier_value=legacy_neutral?.5f:.5f+std::clamp(edit,-1.f,1.f)/2.f;
+        Fill(h,fixture.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,carrier_value);
         Hr(ProcessCommandListReset(0,h.list,h.allocator,nullptr),"Core begin Reset");h.released=false;
         {NrPostBoundaryAliasScope original_call(h.list);nr_source_runtime::EvaluateScope source(h.list,&parent,params,feature);Require(bool(nr_source_runtime::CurrentSource()),"actual source scope");
             Require(RecordNrUseLocked(h.list,context,slot),"Core resource lease");
