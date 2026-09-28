@@ -4,6 +4,8 @@
 
 下一步与边界统一见 [本次评估和修订路线](052_BETA6_EVALUATION_AND_NEXT.md)：先修私有 SR 静态细节损失与时域准入，补独立计时，再比较运动/历史和必要的最小噪点保护。私有 Feature13 RR 移出近期候选；跨原生 RR＋运动/遮挡与 NVOF 放入后续研究。新包仍需完整统一构建，游戏只由维护者测试；图片审核委派 GPT-6 Sol，仅回传文字及本地证据路径。
 
+本轮 [Beta 7 开发验收记录](052_BETA7_ACCEPTANCE.md)已记录奇数网格修正、同帧空间对照、连续帧时域证据及首轮完整构建失败。受控 WARP 可见部分降噪收益和细线退步，真实 Feature1 改善尚未证明；当前没有 Beta 7 交付包。
+
 入口：[Beta6验收与限制](052_BETA6_ACCEPTANCE.md)、[精确身份/安装/回退](052_BETA6_DELIVERY.json)、[一键手测](052_BETA6_MANUAL_CHECKLIST.md)、[相对0.5D21中文更新](052_BETA6_CHANGELOG.zh-CN.md)、[English](052_BETA6_CHANGELOG.en.md)。中英文Core-only OTA已通过实际Manager解析器，未在线发布、不合main、不改默认pin。
 
 同Core ReShade专项只证明0层NR的私有Feature1创建/推理/退休，真实多层Feature18在原生接口单独通过；组合夹具未通过，两项不能合并成游戏全链通过。质量、稳定低开销与整帧≤3%仍待验收。Beta5的九张图、崩溃、旧包与撤下的heap-only中间方案保留于[故障记录](052_BETA5_NTE_FAILURE.md)。

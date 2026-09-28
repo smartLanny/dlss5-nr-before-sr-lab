@@ -304,9 +304,6 @@ bool TickScreenshotPerformance(Session& s,Group& g,reshade::api::effect_runtime*
         if(g.screenshot_phase==ScreenshotPhase::Warmup){
             if(++g.performance_warmup==kScreenshotWarmupSamples){
                 g.screenshot_phase=ScreenshotPhase::Measure;g.performance_started=now;
-                g.gpu_adopted_start=nr_temporal_status::gpu_adopted.load();
-                g.gpu_tested_start=nr_temporal_status::gpu_tested.load();
-                g.private_adopted_start=nr_private_sr_status::adopted.load();
             }
         }else if(g.performance_count<kScreenshotGpuSamples){
             const unsigned index=g.performance_count++;

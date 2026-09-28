@@ -174,6 +174,58 @@ void Run(){
         timed_picture.screenshot_phase==nr_acceptance_policy::ScreenshotPhase::Capture,
         "one-click performance requires 180 owned warmup sources then 600 completed GPU samples");
     Check(!nr_acceptance::PerformanceActive(),"GPU instrumentation stops before image capture");
+    // All callbacks may have completed before Present drains the ring. Global
+    // adoption counters must retain the group-start baseline across the
+    // warmup/measurement boundary.
+    for(const unsigned group_index:{3u,8u}){
+        pictures.index=group_index;nr_acceptance::StartGroup(pictures);
+        auto& buffered=pictures.groups[group_index];
+        nr_acceptance_gpu::read_index=nr_acceptance_gpu::write_index=0;
+        const bool private_route=buffered.requested.private_residual_sr;
+        Check(private_route||buffered.requested.temporal_backend,"buffered route has a GPU adoption requirement");
+        for(unsigned i=0;i<nr_acceptance_policy::kScreenshotWarmupSamples+
+                        nr_acceptance_policy::kScreenshotGpuSamples;++i){
+            nr_acceptance_gpu::Sample x{};x.config=buffered.generation;
+            x.history=buffered.performance_history;x.since_reset=64;
+            x.work_width=960;x.work_height=540;x.output_width=1920;x.output_height=1080;
+            x.instance=501+group_index;x.frame=i+1;x.queue=701+group_index;x.fence=i+1;
+            x.source={11+group_index,21+group_index,i+1};x.ms=2.0;
+            x.private_composed=private_route;x.temporal_recorded=!private_route;
+            nr_acceptance_gpu::samples[nr_acceptance_gpu::write_index++%nr_acceptance_gpu::kRing]=x;
+        }
+        if(private_route)nr_private_sr_status::adopted.fetch_add(780);
+        else {
+            nr_temporal_status::gpu_config=buffered.generation;
+            nr_temporal_status::gpu_instance=501+group_index;
+            nr_temporal_status::gpu_adopted.fetch_add(780);
+        }
+        Check(!nr_acceptance::TickScreenshotPerformance(pictures,buffered,runtime,GetTickCount64())&&
+            buffered.performance_warmup==180&&buffered.performance_count==600&&
+            std::strcmp(buffered.performance_reason,"complete")==0,
+            "buffered 180+600 private/temporal samples keep group-start adoption proof");
+    }
+    // The production Reset hook invokes this only after native Reset succeeds.
+    // An unsubmitted token can be reused; an already submitted slot remains
+    // pinned to its exact retirement fence.
+    {
+        LifecycleCommandList* record=nullptr;
+        for(auto& candidate:g_lifecycle_command_lists)if(!candidate.token){record=&candidate;break;}
+        Check(record!=nullptr,"empty lifecycle record available for Reset regression");
+        if(record){
+            NrSlot timing_slot{};record->token=0xabcde;record->slots[0]=&timing_slot;record->slot_count=1;
+            timing_slot.acceptance_time_token=record->token;timing_slot.acceptance_time_pending=true;
+            timing_slot.acceptance_time_mask=15;
+            nr_acceptance_gpu::DiscardUnsubmitted(record->token);
+            Check(!timing_slot.acceptance_time_pending&&!timing_slot.acceptance_time_token&&
+                !timing_slot.acceptance_time_mask,"successful Reset clears unsubmitted exact-token timing");
+            timing_slot.acceptance_time_token=record->token;timing_slot.acceptance_time_pending=true;
+            timing_slot.acceptance_time_fence=7;record->submission_count=1;
+            nr_acceptance_gpu::DiscardUnsubmitted(record->token);
+            Check(timing_slot.acceptance_time_pending&&timing_slot.acceptance_time_fence==7,
+                "submitted Reset preserves timestamp until exact fence completion");
+            *record={};
+        }
+    }
     pictures.index=0;nr_acceptance::StartGroup(pictures);
     auto& sg=pictures.groups[0];auto& sh=sg.shots[0];
     Check(!nr_acceptance::TickScreenshotPerformance(pictures,sg,runtime,GetTickCount64())&&

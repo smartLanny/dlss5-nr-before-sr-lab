@@ -13,7 +13,7 @@ void quality_save(const std::string& name,const std::vector<unsigned char>& data
 }
 void quality_scene(Host& host,const char* scene,Mode mode,Scope scope,Backend backend,unsigned frames){
  const std::string label=std::string(scene)+(mode==Mode::Adaptive?"-adaptive":"-low")+(scope==Scope::LaterLayers?"-later":"-whole")+(backend==Backend::NativeMotion?"-native":"-amd");
- const unsigned scene_id=std::string(scene)=="static"?1:std::string(scene)=="pan"?2:std::string(scene)=="occlusion"?3:std::string(scene)=="cut"?4:std::string(scene)=="object"?5:6;
+ const unsigned scene_id=std::string(scene)=="static"?1:std::string(scene)=="pan"?2:std::string(scene)=="occlusion"?3:std::string(scene)=="cut"?4:std::string(scene)=="object"?5:std::string(scene)=="hud_reflection"?6:7;
  RecordedTemporal owner(host.device.Get(),host.queue.Get(),quality_w,quality_h,backend,scope,256ull<<20);
  check(owner.initialized(),owner.status());
  for(unsigned seq=1;seq<=frames;++seq){
@@ -32,12 +32,19 @@ void quality_scene(Host& host,const char* scene,Mode mode,Scope scope,Backend ba
    // Screen-space HUD remains fixed while the reflected patch changes with the source frame.
    if(scene_id==6&&x==20&&y>=20&&y<108)b=.9f;
    if(scene_id==6&&x>=132&&x<176&&y>=72&&y<112)b+=seq%2?.1f:-.1f;
-   const float stable=.06f;
+   // True dark content: the clean target stays below 0.05 even on the line.
+   // Flat, single-pixel line and low-amplitude edited patch have distinct ROIs.
+   if(scene_id==7){
+    b=.018f+.000025f*float((x+256)%32)+.000015f*float(y);
+    if(x==96&&y>=24&&y<104)b+=.012f;
+    if(x>=112&&x<152&&y>=40&&y<88)b+=.005f;
+   }
+   const float stable=scene_id==7?.006f:.06f;
    const int noise_code=int((x*73u+y*151u+seq*97u)%17u)-8;
-   const float noise=float(noise_code)*.0025f;
+   const float noise=float(noise_code)*(scene_id==7?.00075f:.0025f);
    const float z=b+stable+noise;
    for(unsigned c=0;c<3;++c){
-    original[p*4+c]=half(b);anchor[p*4+c]=half(b+.018f);
+    original[p*4+c]=half(b);anchor[p*4+c]=half(b+(scene_id==7?.002f:.018f));
     candidate[p*4+c]=half(z);
    }
    original[p*4+3]=anchor[p*4+3]=candidate[p*4+3]=half(1);
@@ -77,7 +84,7 @@ void quality_scene(Host& host,const char* scene,Mode mode,Scope scope,Backend ba
    const unsigned p=y*quality_w+x;const float base=unhalf(raw_b.data()+p*8);
    const float current=unhalf(raw_input.data()+p*8);
    const float output=unhalf(raw_out.data()+p*8);
-   const float clean=base+.06f;
+   const float clean=base+(scene_id==7?.006f:.06f);
    input_err+=std::abs(current-clean);output_err+=std::abs(output-clean);++noise_pixels;
    if((scene_id==3||scene_id==5)&&seq>1&&x>=unsigned(int(seq-1)*3+40)&&x<unsigned(int(seq)*3+40)&&y>=36&&y<92){
     tail+=std::max(0.f,output-current);++tail_pixels;

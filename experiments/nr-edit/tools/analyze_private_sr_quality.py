@@ -44,12 +44,27 @@ def taps(x, full, work):
             (max(0, min(work-1, origin+1)), fraction))
 
 
-def region(x, y):
-    return {"all": True, "neutral": x < 318,
+def region(x, y, scene):
+    dark = scene == "dark_text_v1"
+    dark_line = dark and 340 <= x < 541 and y == 310+(x-340)//9
+    text_rows = ((31, 4, 4, 4, 4, 4, 4), (31, 16, 16, 30, 16, 16, 31),
+                 (17, 10, 4, 4, 4, 10, 17), (31, 4, 4, 4, 4, 4, 4))
+    dark_text = False
+    if dark and 470 <= x < 494 and 336 <= y < 343:
+        letter, column = divmod(x-470, 6)
+        dark_text = column < 5 and bool(text_rows[letter][y-336] & (1 << (4-column)))
+    masks = {"all": True, "neutral": x < 318,
             "support_boundary": 316 <= x <= 326,
             "glyph": 468 <= x <= 500 and 78 <= y <= 143,
             "slanted_line": 348 <= x <= 552 and 68 <= y <= 125,
             "smooth": 330 <= x <= 468 and 180 <= y <= 300}
+    if dark:
+        masks.update(dark_line=dark_line, dark_text=dark_text,
+                     dark_background=330 <= x < 561 and 300 <= y < 371
+                                     and not dark_line and not dark_text,
+                     dark_boundary_outside=316 <= x < 320 and 300 <= y < 371,
+                     dark_boundary_inside=320 <= x <= 326 and 300 <= y < 371)
+    return masks
 
 
 def summary(values):
@@ -60,7 +75,7 @@ def summary(values):
             "p95": values[(len(values)*95+99)//100-1], "max": values[-1]}
 
 
-def analyze_frame(directory, frame, mode, carrier_range):
+def analyze_frame(directory, frame, mode, carrier_range, scene):
     planes, hashes = {}, {}
     for name in PLANES:
         planes[name], hashes[name] = read_plane(directory, frame, name)
@@ -83,15 +98,16 @@ def analyze_frame(directory, frame, mode, carrier_range):
                     z[((ny*2+dy)*OW+nx*2+dx)*4+c]-
                     b[((ny*2+dy)*OW+nx*2+dx)*4+c]
                     for dy in range(2) for dx in range(2))/4
-    errors = {stage: {name: [] for name in
-              ("all", "neutral", "support_boundary", "glyph", "slanted_line", "smooth")}
+    regions = tuple(region(0, 0, scene))
+    errors = {stage: {name: [] for name in regions}
               for stage in ("downsample_loss", "transport_error", "reconstruction_fp16_loss",
                             "reconstruction_quantization", "compose_error",
                             "feature1_increment", "feature1_vs_z",
-                            "fixture_vs_spatial")}
+                            "fixture_vs_spatial", "source_edit")}
     references = {"exact_spatial": bytearray(), "exact_spatial_fp16": bytearray(),
                   "area_average": bytearray()}
     invalid = 0
+    dark_base_min, dark_base_max = math.inf, -math.inf
     for y in range(OH):
         yt = taps(y, OH, NH)
         for x in range(OW):
@@ -128,6 +144,7 @@ def analyze_frame(directory, frame, mode, carrier_range):
                     invalid += 1
                     continue
                 differences = {
+                    "source_edit": abs(z[pixel]-b[pixel]),
                     "downsample_loss": abs(area-z[pixel]),
                     "transport_error": abs(spatial-area),
                     "reconstruction_fp16_loss": abs(stored_interpolation-interpolation),
@@ -137,7 +154,11 @@ def analyze_frame(directory, frame, mode, carrier_range):
                     "feature1_vs_z": abs(observed-z[pixel]),
                     "fixture_vs_spatial": abs(observed-spatial_fp16),
                 }
-                for name, enabled in region(x, y).items():
+                masks = region(x, y, scene)
+                if masks.get("dark_background") or masks.get("dark_line") or masks.get("dark_text"):
+                    dark_base_min = min(dark_base_min, b[pixel])
+                    dark_base_max = max(dark_base_max, b[pixel])
+                for name, enabled in masks.items():
                     if enabled:
                         for stage, value in differences.items():
                             if (mode == "fixture") != (stage == "fixture_vs_spatial") and stage in (
@@ -152,6 +173,7 @@ def analyze_frame(directory, frame, mode, carrier_range):
         hashes[name] = digest(path)
     return {"frame": frame, "plane_sha256": hashes,
             "invalid_or_nonfinite_samples": invalid,
+            "dark_base_range": [dark_base_min, dark_base_max] if scene == "dark_text_v1" else None,
             "errors": {stage: {mask: summary(values) for mask, values in masks.items()}
                        for stage, masks in errors.items()}}, final
 
@@ -178,15 +200,22 @@ def main():
         raise ValueError("Mixed extent, range or non-adopted frame")
     if len({entry["source_sequence"] for entry in identities}) != 16:
         raise ValueError("Repeated source identity")
+    scenes = {entry.get("scene", "legacy_v1") for entry in identities}
+    if len(scenes) != 1 or scenes.pop() not in ("legacy_v1", "dark_text_v1"):
+        raise ValueError("Mixed or unknown quality scene")
+    scene = identities[0].get("scene", "legacy_v1")
     results, first = [], None
     for frame in range(16):
-        result, output = analyze_frame(directory, frame, mode, carrier_range)
+        result, output = analyze_frame(directory, frame, mode, carrier_range, scene)
+        if scene == "dark_text_v1" and result["errors"]["source_edit"]["dark_boundary_outside"]["max"] != 0:
+            raise ValueError("Dark support exterior has source edit")
         if first is None:
             first = output
         result["first_frame_change"] = summary(
             [abs(a-b) for a, b in zip(first, output)])
         results.append(result)
     report = {"schema": "private-sr-controlled-quality-v1", "mode": mode,
+              "scene": scene,
               "reference": "half-pixel bilinear carrier, ideal and FP16-stored, plus N-tail; independent area-average D(Z-B)",
               "carrier_range": carrier_range,
               "identity": identities, "frames": results,

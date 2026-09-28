@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--compiler", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--carrier-range", type=float, default=4.0)
+    parser.add_argument("--quality-dark", action="store_true", help="Add low-luminance 1px line and TEXT bitmap ROI")
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--source", type=Path, help="experimental nr-edit package root")
     source.add_argument("--core", type=Path, help="generated stage/core root")
@@ -55,6 +56,7 @@ def main():
               "source_kind": "generated-core" if core else "experiment",
               "source_root": str(package), "compiler_sha256": sha(compiler),
               "carrier_range": args.carrier_range,
+              "scene": "dark_text_v1" if args.quality_dark else "legacy_v1",
               "source_hashes": {str(path): sha(path) for path in files}, "commands": [],
               "feature1": "not-run", "game": "not-run", "quality_acceptance": "unjudged"}
 
@@ -115,7 +117,8 @@ def main():
                               *libs, "-o", private])
         capture = output/"capture"
         run("warp-quality-capture", [private, shaders, "--quality-dir", capture,
-                                     "--carrier-range", args.carrier_range], timeout=300)
+                                     "--carrier-range", args.carrier_range,
+                                     *(["--quality-dark"] if args.quality_dark else [])], timeout=300)
         run("analyze", [sys.executable, PACKAGE/"tools/analyze_private_sr_quality.py",
                         capture], timeout=300)
         report["capture_analysis_sha256"] = sha(capture/"analysis.json")

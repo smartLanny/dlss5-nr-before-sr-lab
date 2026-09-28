@@ -70,7 +70,7 @@ $TemporalQualityGate=Join-Path $Tests 'temporal-quality-sequence'
 & python (Join-Path $PSScriptRoot 'validate-temporal-quality-sequence.py') --core $Core --compiler $Cxx --sdk $FfxSdkRoot --sdk-cache $FfxCacheRoot --output $TemporalQualityGate
 if ($LASTEXITCODE) { throw "Generated temporal production shader sequence WARP failed; see $TemporalQualityGate/result.json." }
 $PrivateQualityGate=Join-Path $Tests 'private-sr-quality-warp'
-& python (Join-Path $PSScriptRoot '../experiments/nr-edit/tools/validate_private_sr_quality.py') --core $Core --compiler $Cxx --output $PrivateQualityGate
+& python (Join-Path $PSScriptRoot '../experiments/nr-edit/tools/validate_private_sr_quality.py') --core $Core --compiler $Cxx --output $PrivateQualityGate --quality-dark
 if ($LASTEXITCODE) { throw "Generated private SR controlled spatial/WARP quality attribution failed; see $PrivateQualityGate/validation.json." }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --source $Source --output (Join-Path $Tests 'guide-domain')
 if ($LASTEXITCODE) { throw 'Generated Core guide-domain regression failed.' }

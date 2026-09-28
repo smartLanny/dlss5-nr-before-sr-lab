@@ -45,6 +45,23 @@ void Collect(NrSlot& slot){
         slot.acceptance_time_temporal_recorded,ms};
     ++write_index;
 }
+void DiscardUnsubmitted(unsigned long long token){
+    // A successful native Reset discards this recording. Only its exact
+    // unsubmitted token may release timestamps; submitted slots need the fence.
+    auto* record=FindLifecycleCommandListLocked(token);
+    if(!record||record->detached||record->submission_count||
+       record->in_flight_submissions||record->execution_attempted_without_proof)return;
+    for(unsigned i=0;i<record->slot_count;++i){
+        auto* slot=record->slots[i];
+        if(!slot||slot->acceptance_time_token!=token||
+           slot->acceptance_time_queue||slot->acceptance_time_fence)continue;
+        slot->acceptance_time_active=false;
+        slot->acceptance_time_pending=false;
+        slot->acceptance_time_mask=0;
+        slot->acceptance_time_token=0;
+        slot->acceptance_time_visible=false;
+    }
+}
 bool Prepare(ID3D12Device* device,NrSlot& slot,ID3D12GraphicsCommandList* list,
              unsigned work_width,unsigned work_height,unsigned output_width,unsigned output_height){
     Collect(slot);

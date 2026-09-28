@@ -30,10 +30,13 @@ bool Prepare(ID3D12Device*,NrSlot&,ID3D12GraphicsCommandList*,unsigned,unsigned,
 void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned);
 void Finish(ID3D12GraphicsCommandList*,NrSlot&,bool);
 void Collect(NrSlot&);
+void DiscardUnsubmitted(unsigned long long);
 }
 namespace nr_dual_runtime {void CollectTiming(NrSlot&);}''','acceptance timestamp declarations')
     s=helpers.once(s,'    nr_dual_runtime::CollectTiming(slot);',
         '    nr_dual_runtime::CollectTiming(slot);\n    nr_acceptance_gpu::Collect(slot);','asynchronous timestamp collection')
+    s=helpers.once(s,'        if (QuarantineUnsubmittedLifecycleRecordLocked(\n                token, "native Reset")) {',
+        '        nr_acceptance_gpu::DiscardUnsubmitted(token);\n        if (QuarantineUnsubmittedLifecycleRecordLocked(\n                token, "native Reset")) {','successful Reset discards only unsubmitted timestamp recording')
     s=helpers.once(s,'        if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {',
         '''        if(slot->acceptance_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
             const auto* record=batch.records[r];
@@ -44,8 +47,8 @@ namespace nr_dual_runtime {void CollectTiming(NrSlot&);}''','acceptance timestam
         if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {''','exact acceptance submit receipt')
     s=helpers.once(s,'    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {',
         '    nr_acceptance_gpu::Prepare(device,*slot,command_list,context->width,context->height,width,height);\n    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {','prepare timestamp before lifecycle recording')
-    s=helpers.once(s,'    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);',
-        '    nr_acceptance_gpu::Stamp(command_list,*slot,0);\n    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);','start post route GPU sample before private guide capture')
+    s=helpers.once(s,'    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);\n\n    substitution.active = true;',
+        '    nr_acceptance_gpu::Stamp(command_list,*slot,0);\n    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);\n\n    substitution.active = true;','start post route GPU sample before private guide capture')
     s=helpers.once(s,'    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);',
         '    if(after_sr.active&&timed)nr_acceptance_gpu::Stamp(before_state.command_list,*timed,1);\n    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);','end pre-native plugin work')
     s=helpers.once(s,'    if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);',

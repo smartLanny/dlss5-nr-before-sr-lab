@@ -37,6 +37,7 @@ struct Rig {
     bool spatial_fixture=false;
     ID3D12RootSignature* spatial_root=nullptr;
     ID3D12PipelineState* spatial_pipeline=nullptr;
+    bool dark_quality=false;
     ID3D12DescriptorHeap* spatial_heap=nullptr;
     std::map<void*,unsigned> retained_resources;
     std::array<std::vector<char>,2> shader_bytes;
@@ -217,7 +218,25 @@ struct Rig {
             const float sx=(float(x)-320.f)/320.f,sy=(float(y)-192.f)/192.f;
             const float smooth=.035f*sx-.025f*sy;
             const float edit=x<width/2?0.f:smooth+(line||glyph?.03f:0.f);
-            const float value=base+(candidate?edit:0.f);
+            float value=base+(candidate?edit:0.f);
+            if(dark_quality&&y>=300&&y<371&&x>=312&&x<561){
+                // Separate low-luminance ROI. The support boundary remains
+                // at x=320; the left strip has exactly zero source edit.
+                constexpr unsigned char text_rows[4][7]={
+                    {31,4,4,4,4,4,4},             // T
+                    {31,16,16,30,16,16,31},      // E
+                    {17,10,4,4,4,10,17},         // X
+                    {31,4,4,4,4,4,4}};           // T
+                const bool thin=x>=340&&x<541&&y==310+(x-340)/9;
+                bool letters=false;
+                if(x>=470&&x<494&&y>=336&&y<343){
+                    const unsigned index=(x-470)/6,column=(x-470)%6;
+                    letters=column<5&&((text_rows[index][y-336]>>(4-column))&1);
+                }
+                const float dark_base=.02f+(thin?.028f:0.f)+(letters?.035f:0.f);
+                const float dark_edit=x<320?0.f:(thin?.006f:0.f)+(letters?-.007f:0.f)+.002f;
+                value=dark_base+(candidate?dark_edit:0.f);
+            }
             for(unsigned c=0;c<4;++c){
                 const float v=c==3?.75f:value;
                 int exponent=0;std::frexp(v,&exponent);--exponent;
@@ -361,13 +380,15 @@ void CaptureQuality(Rig& r,const std::filesystem::path& directory,float carrier_
                 <<",\"reset\":"<<(i.reset?"true":"false")
                 <<",\"adopted\":true,\"mode\":\""<<(r.real?"feature1":"fixture")
                 <<"\",\"output\":[640,384],\"work\":[320,192],\"carrier_range\":"<<carrier_range
-                <<",\"depth\":\"two_planes_0.25_0.75_split_160\"}\n";
+                <<",\"depth\":\"two_planes_0.25_0.75_split_160\",\"scene\":\""
+                <<(r.dark_quality?"dark_text_v1":"legacy_v1")<<"\"}\n";
         manifest.flush();Need(bool(manifest),"write quality identity log");
     }
 }
 void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridge,
-         const std::wstring& negative,const std::filesystem::path& quality_dir,float carrier_range) {
+         const std::wstring& negative,const std::filesystem::path& quality_dir,float carrier_range,bool dark_quality) {
     auto* r=new Rig(shaders,hardware,bridge,!quality_dir.empty());
+    r->dark_quality=dark_quality;
     r->fixture_output=r->Image(.625f);r->Submit(false);
     auto warm=r->Frame(.75f);r->Invalid(warm);auto result=pipeline::Record(r->context,r->h->list,warm);
     Need(result.recorded&&!result.composed&&result.status==pipeline::Status::WaitingForSr,"creation is not successful reconstruction");
@@ -437,13 +458,14 @@ int wmain(int argc,wchar_t** argv) {
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
         if(argc<2)throw std::runtime_error("usage: post-private-sr <shaders> [--hardware|--real bridge|--negative submit|discard] [--quality-dir path] [--carrier-range value]");
-        bool hardware=false;const wchar_t* real=nullptr;std::wstring negative;std::filesystem::path quality_dir;
+        bool hardware=false,dark_quality=false;const wchar_t* real=nullptr;std::wstring negative;std::filesystem::path quality_dir;
         float carrier_range=4.f;
         for(int n=2;n<argc;++n) {
             if(std::wstring(argv[n])==L"--hardware")hardware=true;
             else if(std::wstring(argv[n])==L"--real"&&n+1<argc)real=argv[++n];
             else if(std::wstring(argv[n])==L"--negative"&&n+1<argc)negative=argv[++n];
             else if(std::wstring(argv[n])==L"--quality-dir"&&n+1<argc)quality_dir=argv[++n];
+            else if(std::wstring(argv[n])==L"--quality-dark")dark_quality=true;
             else if(std::wstring(argv[n])==L"--carrier-range"&&n+1<argc){
                 std::size_t parsed=0;carrier_range=std::stof(argv[++n],&parsed);
                 if(parsed!=std::wstring(argv[n]).size()||!std::isfinite(carrier_range)||
@@ -452,7 +474,7 @@ int wmain(int argc,wchar_t** argv) {
             }
             else throw std::runtime_error("unsupported test argument");
         }
-        post_sr_test::Run(argv[1],hardware,real,negative,quality_dir,carrier_range);return 0;
+        post_sr_test::Run(argv[1],hardware,real,negative,quality_dir,carrier_range,dark_quality);return 0;
     } catch(const std::exception& e) {
         std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);
         // Never unwind a pending/poisoned GPU fixture and release live objects.

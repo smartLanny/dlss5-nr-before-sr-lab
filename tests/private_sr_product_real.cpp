@@ -181,12 +181,13 @@ PlaneCapture CapturePlane(Host& h,const char* name,ID3D12Resource* resource,D3D1
     ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);
     h.Barrier(resource,D3D12_RESOURCE_STATE_COPY_SOURCE,state);return c;
 }
-void SaveCaptures(const std::vector<PlaneCapture>& captures,nr_private_sr::Source source,nr_private_sr::Recording recording,unsigned frame,bool rr,bool private_sr){
+void SaveCaptures(const std::vector<PlaneCapture>& captures,nr_private_sr::Source source,nr_private_sr::Recording recording,unsigned frame,bool rr,bool private_sr,unsigned temporal_case){
     std::ofstream manifest("actual-core-same-frame.json");Require(bool(manifest),"capture identity file");
     manifest<<"{\"schema\":\"actual-core-same-frame-v1\",\"frame\":"<<frame<<",\"source_stream\":"<<source.stream
         <<",\"source_epoch\":"<<source.epoch<<",\"source_sequence\":"<<source.sequence
         <<",\"recording_lifetime\":"<<recording.lifetime<<",\"queue\":"<<recording.queue
         <<",\"native_feature\":"<<(rr?13:1)<<",\"private_sr\":"<<(private_sr?"true":"false")
+        <<",\"temporal_case\":"<<temporal_case
         <<",\"exact_fence_completed\":true,\"capture_excluded_from_cost\":true,\"planes\":[";
     for(unsigned i=0;i<captures.size();++i){const auto& c=captures[i];char* mapped=nullptr;
         Hr(ID3D12Resource_Map(c.readback,0,nullptr,(void**)&mapped),"completed same-frame capture map");
@@ -232,7 +233,11 @@ struct GuideOnly {
         Require(nr_edit_dx12::DestroyAfterRetirement(kernels),"spatial guide normalizer release");ReleaseCom(depth);ReleaseCom(motion);}}
 };
 
-int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr){
+// 0=off, 1=PostRr AMDOF, 2=PostRr AMDOF low-frequency,
+// 3=PostRr native-MV contract refusal. Later-layer P1 is not available here.
+int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case){
+    Require(temporal_case<=3&&(!temporal_case||(rr&&nr_layers_count&&!private_sr)),
+        "PostRr temporal requires real RR, at least one real NR layer, and private SR OFF");
 #if defined(NR_TEST_RESHADE_RUNTIME)
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);AddVectoredExceptionHandler(1,DiagnosticException);
 #endif
@@ -289,7 +294,11 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     Require(InstallNativeCommandStateHooks(h.list),"actual product native state hooks");
 #endif
     if(nr_layers_count)Require(EnsureCodec(h.device)&&EnsureNrApi(h.device),"real codec/NR initialization before private capture");
-    g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=private_sr;g_config.temporal_backend=0;
+    g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=private_sr;
+    g_config.temporal_backend=temporal_case==3?1:temporal_case?2:0;
+    g_config.temporal_scope=0;g_config.temporal_mode=temporal_case==2?1:0;
+    g_config.nr_passes=nr_layers_count>1?2:1;g_config.nr_full_reference=nr_layers_count>2;
+    g_config.nr_full_passes=nr_layers_count;
     g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
     auto* color=h.Plane(rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT,false,.5f);
     auto* depth=h.Plane(rw,rh,DXGI_FORMAT_R32_FLOAT,false);auto* motion=h.Plane(rw,rh,DXGI_FORMAT_R32G32_FLOAT,false);
@@ -327,19 +336,21 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     for(unsigned n=0;n<kRequiredStableQueueSubmissions;++n){Require(RememberLastSubmissionQueue(h.list,queue->identity),"queue observation");
         ID3D12CommandList* lists[]={(ID3D12CommandList*)h.list};Execute(h.queue,1,lists);}
     Hr(ID3D12CommandQueue_Signal(h.queue,h.fence,++h.value),"prime completion");h.Wait();
-    context.instance_id=1;context.feature_generation=feature.generation;
+    context.instance_id=1;context.feature_generation=feature.generation;context.mode=1;
     auto& slot=context.slots[0];slot.source=base;slot.result=final;slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;slot.snapshots_native_output=true;
     slot.result_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    slot.codec_color_mode=PostSrCodecColorMode(ClassifyPostSrStorage(
+        ID3D12Resource_GetDesc(native).Format,feature.create_flags));
     NrGuideBinding guides{};guides.depth=depth;guides.motion=motion;auto& sig=guides.signature;
     sig.depth_format=41;sig.motion_format=16;sig.depth_inverted=1;sig.depth_physical_width=sig.depth_width=rw;sig.depth_physical_height=sig.depth_height=rh;
     sig.motion_physical_width=sig.motion_source_width=rw;sig.motion_physical_height=sig.motion_source_height=rh;
-    ID3D12QueryHeap* timing=nullptr;D3D12_QUERY_HEAP_DESC timing_desc{};timing_desc.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;timing_desc.Count=5;
+    ID3D12QueryHeap* timing=nullptr;D3D12_QUERY_HEAP_DESC timing_desc{};timing_desc.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;timing_desc.Count=6;
     Hr(ID3D12Device_CreateQueryHeap(h.device,&timing_desc,IID_ID3D12QueryHeap,(void**)&timing),"host timestamp queries");
-    auto* timing_readback=h.Buffer(5*sizeof(UINT64),D3D12_HEAP_TYPE_READBACK);UINT64 frequency=0;
+    auto* timing_readback=h.Buffer(6*sizeof(UINT64),D3D12_HEAP_TYPE_READBACK);UINT64 frequency=0;
     Hr(ID3D12CommandQueue_GetTimestampFrequency(h.queue,&frequency),"direct queue timestamp frequency");Require(frequency!=0,"nonzero GPU clock");
     const auto initial_memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(h.device),true);
-    RealNrChain chain;GuideOnly standalone_guides;unsigned frame=0,produced=0;
+    RealNrChain chain;GuideOnly standalone_guides;unsigned frame=0,produced=0,temporal_recorded=0;
     for(;produced<requested_frames&&frame<nr_layers_count+requested_frames+2;++frame){
         const float jitter_x=frame%2?.25f:-.25f,jitter_y=frame%3?.125f:-.125f;
         if(nr_layers_count||rr)Scene(h,color,jitter_x,jitter_y);
@@ -397,7 +408,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
             Copy(h,native,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Copy(h,native,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,2);
             bool final_z=true;
-            if(nr_layers_count){NrGuideBinding normalized{};
+            NrGuideBinding normalized{};
+            if(nr_layers_count){
                 normalized.depth=private_sr?context.private_sr->flights[capture-1].depth:standalone_guides.depth;
                 normalized.motion=private_sr?context.private_sr->flights[capture-1].motion:standalone_guides.motion;auto& ns=normalized.signature;
                 ns.depth_width=ns.motion_source_width=ns.motion_bound_width=nw;ns.depth_height=ns.motion_source_height=ns.motion_bound_height=nh;
@@ -426,8 +438,27 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 captures.push_back(CapturePlane(h,"same-frame-B.fp16",base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
                 captures.push_back(CapturePlane(h,"same-frame-Z.fp16",final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS));}
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,3);
-            if(final_z&&private_sr)Require(nr_post_product::Finish(h.list,context,slot,feature,capture,ow,oh,0,0),"original product Finish once after complete final Z");
+            if(final_z&&temporal_case){
+                // This is the same Evaluate's live exposure contract. The
+                // observed Flags75 FP16 parent declares HDR; do not relabel it SDR.
+                const auto color_contract=ReadColorContract(params);
+                auto prepared=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PostRr,
+                    h.list,context,slot,normalized,feature,ow,oh,0,0,false,&color_contract);
+                if(temporal_case==3){
+                    Require(!prepared&&nr_temporal_status::state.load()==19,
+                        "native MV remains rejected by actual PostRr motion contract");
+                }else if(prepared){
+                    const auto before=nr_temporal_status::recorded.load();
+                    Require(nr_temporal::Record(h.list,context,slot,prepared),
+                        "actual Core PostRr temporal Record");
+                    if(nr_temporal_status::recorded.load()>before)++temporal_recorded;
+                }
+            }
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,4);
+            if(capture_frame&&(temporal_case==1||temporal_case==2))
+                captures.push_back(CapturePlane(h,"same-frame-temporal.fp16",final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+            if(final_z&&private_sr)Require(nr_post_product::Finish(h.list,context,slot,feature,capture,ow,oh,0,0),"original product Finish once after complete final Z");
+            ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,5);
             if(capture_frame){
                 if(private_sr){auto planes=nr_post_private_sr_dx12::InspectRecordedPlanes(context.private_sr->backend,capture_recording);
                     Require(bool(planes),"same-recording private diagnostic planes");
@@ -435,7 +466,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                     captures.push_back(CapturePlane(h,"same-frame-tail.fp32",planes.tail,D3D12_RESOURCE_STATE_COMMON));
                     captures.push_back(CapturePlane(h,"same-frame-reconstructed.fp16",planes.reconstructed,D3D12_RESOURCE_STATE_COMMON));}
                 captures.push_back(CapturePlane(h,"same-frame-final.fp16",final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS));}
-            ID3D12GraphicsCommandList_ResolveQueryData(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,0,5,timing_readback,0);
+            ID3D12GraphicsCommandList_ResolveQueryData(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,0,6,timing_readback,0);
             Require(!private_sr||(context.private_sr&&!context.private_sr->poisoned),"no private quarantine");source.Finish(1);
         }
         const double record_ms=Millis(start);const auto submit=std::chrono::steady_clock::now();
@@ -443,21 +474,34 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         ProcessSubmittedCommandLists(0,h.queue,1,lists);
         Require(!g_lifecycle_tracking_uncertain.load()&&context.completion_fence_value,"actual Core Execute/Signal receipt");
         const double submit_ms=Millis(submit);standalone_guides.Submitted(queue);Complete(h,queue);chain.SubmittedAndWait(h);
-        if(!captures.empty())SaveCaptures(captures,capture_source,capture_recording,frame,rr,private_sr);
+        if(temporal_case==1||temporal_case==2)nr_temporal::CollectGpuStats(context);
+        if(!captures.empty())SaveCaptures(captures,capture_source,capture_recording,frame,rr,private_sr,temporal_case);
         UINT64* stamps=nullptr;Hr(ID3D12Resource_Map(timing_readback,0,nullptr,(void**)&stamps),"completed timing readback");
-        for(unsigned n=1;n<5;++n)Require(stamps[n]>=stamps[n-1],"ordered GPU timestamps");
-        const double guide_ms=double(stamps[1]-stamps[0])*1000/frequency,private_ms=double(stamps[4]-stamps[3])*1000/frequency;
+        for(unsigned n=1;n<6;++n)Require(stamps[n]>=stamps[n-1],"ordered GPU timestamps");
+        const double guide_ms=double(stamps[1]-stamps[0])*1000/frequency,private_ms=double(stamps[5]-stamps[4])*1000/frequency;
         const double nr_ms=double(stamps[3]-stamps[2])*1000/frequency;
+        const double temporal_ms=double(stamps[4]-stamps[3])*1000/frequency;
         ID3D12Resource_Unmap(timing_readback,0,nullptr);
         if(private_sr)Require(!nr_post_product::Ready(context),"fence alone cannot retire replayable recording");
         const auto retire=std::chrono::steady_clock::now();ResetAndClose(h);
         Require(nr_post_product::Ready(context),"fence plus real Reset permits retirement");
         const auto memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(h.device),true);
-        std::printf("METRIC frame=%u cpu_record_ms=%.6f cpu_submit_ms=%.6f cpu_retire_ms=%.6f gpu_guides_ms=%.6f gpu_private_sr_ms=%.6f gpu_nr_chain_ms=%.6f nr_create=%u produced=%u plane_bytes=%llu dxgi_local_usage=%llu diagnostic_capture=%u private_enabled=%u\n",
-            frame,record_ms,submit_ms,Millis(retire),guide_ms,private_ms,nr_ms,chain.c&&chain.created_this_frame?1u:0u,produced,nr_private_sr_status::bytes.load(),(unsigned long long)memory.local.CurrentUsage,unsigned(!captures.empty()),unsigned(private_sr));
+        std::printf("METRIC frame=%u cpu_record_ms=%.6f cpu_submit_ms=%.6f cpu_retire_ms=%.6f gpu_guides_ms=%.6f gpu_private_sr_ms=%.6f gpu_nr_chain_ms=%.6f gpu_temporal_ms=%.6f nr_create=%u produced=%u plane_bytes=%llu temporal_bytes=%llu dxgi_local_usage=%llu diagnostic_capture=%u private_enabled=%u temporal_recorded=%u temporal_submitted=%llu temporal_gpu_frames=%llu temporal_gpu_tested=%llu temporal_gpu_adopted=%llu temporal_gpu_rejected=%llu temporal_gpu_depth_rejected=%llu\n",
+            frame,record_ms,submit_ms,Millis(retire),guide_ms,private_ms,nr_ms,temporal_ms,chain.c&&chain.created_this_frame?1u:0u,produced,nr_private_sr_status::bytes.load(),nr_temporal_status::bytes.load(),(unsigned long long)memory.local.CurrentUsage,unsigned(!captures.empty()),unsigned(private_sr),temporal_recorded,(unsigned long long)nr_temporal_status::submitted.load(),(unsigned long long)nr_temporal_status::gpu_frames.load(),(unsigned long long)nr_temporal_status::gpu_tested.load(),(unsigned long long)nr_temporal_status::gpu_adopted.load(),(unsigned long long)nr_temporal_status::gpu_rejected.load(),(unsigned long long)nr_temporal_status::gpu_depth_rejected.load());
         Require(nr_private_sr_status::composed.load()==(private_sr&&produced?produced-1:0),"first create preserves Z; subsequent exact composition");
     }
     Require(produced==requested_frames,"all requested final Z frames completed");
+    if(temporal_case==1||temporal_case==2)
+        Require(temporal_recorded&&nr_temporal_status::recorded.load()==temporal_recorded&&
+            nr_temporal_status::submitted.load()==temporal_recorded&&
+            !context.temporal_token&&nr_temporal_status::gpu_config.load()==g_config_generation.load()&&
+            nr_temporal_status::gpu_instance.load()==context.instance_id&&
+            nr_temporal_status::gpu_tested.load()&&nr_temporal_status::gpu_adopted.load()&&
+            nr_temporal_status::domain.load()==2,
+            "actual Core PostRr temporal recordings have matching Execute/Signal and GPU history-adoption receipts");
+    if(temporal_case==3)Require(!temporal_recorded&&!nr_temporal_status::recorded.load()&&
+        !nr_temporal_status::submitted.load()&&!context.temporal,
+        "rejected PostRr native MV creates no temporal owner or GPU work");
     if(private_sr)Require(nr_private_sr_status::creations.load()==1&&nr_private_sr_status::captures.load()==frame&&nr_private_sr_status::composed.load()==requested_frames-1&&nr_private_sr_status::adopted.load()==requested_frames-1,"distinct creation/record/submit counts");
     else Require(!context.private_sr&&!nr_private_sr_status::creations.load()&&!nr_private_sr_status::captures.load()&&!nr_private_sr_status::composed.load()&&!nr_private_sr_status::adopted.load(),"spatial-only control performs no private SR work");
     if(!nr_layers_count&&!rr)h.Pixels(final,.5f,L"actual-core-neutral.fp16",.04);
@@ -484,6 +528,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     ReleaseCom(timing);ResetAndClose(h); // end readback recording before releasing any referenced model resource
     const auto peak=nr_private_sr_status::peak.load();Require(nr_post_product::Destroy(context)&&!context.private_sr,"product original owner retirement");
     Require(nr_private_sr_status::bytes.load()==0,"owned plane account retired");
+    g_config.temporal_backend=0;nr_temporal::Maintain(context);
+    Require(!context.temporal,"completed PostRr temporal owner retired after exact recording and fence");
     standalone_guides.Destroy();if(chain.c)chain.Destroy();
     nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Ngx(release(parent),"native parent Release");Ngx(destroy(params),"native parameters destroyed");
     const auto final_memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(h.device),true);
@@ -501,5 +547,5 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     std::printf("PASS actual generated Core native=%u realNRLayers=%u percent=%u checks=%u privateCreate=%u privateEvaluate=%u submit=%u retire=1; artificial scene, no game\n",rr?13:1,nr_layers_count,percent,checks,unsigned(private_sr),private_sr?requested_frames-1:0,frame);return 0;
 }
 }
-int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>8)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0);}
+int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>9)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0,argc>=9?std::wcstoul(argv[8],nullptr,10):0);}
 catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);ExitProcess(1);}}

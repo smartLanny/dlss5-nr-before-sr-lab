@@ -33,7 +33,7 @@ def frame_values(path):
 
 def analyze(out,receipt):
     checks=[]
-    for scene in ('static','pan','occlusion','cut','object','hud_reflection'):
+    for scene in ('static','pan','occlusion','cut','object','hud_reflection','dark'):
       for mode in ('adaptive','low'):
        for scope in ('whole','later'):
         for backend in (('native','amd') if receipt['hardware_gpu'] else ('native',)):
@@ -42,7 +42,7 @@ def analyze(out,receipt):
           base=frame_values(out/(name+'-B.f16'))
           candidate=frame_values(out/(name+'-Z.f16'))
           actual=frame_values(out/(name+'-out.f16'))
-          clean=[v+.06 for v in base]
+          clean=[v+(.006 if scene=='dark' else .06) for v in base]
           area=[y*192+x for y in range(8,120) for x in range(8,184)]
           mae=lambda values:sum(abs(values[i]-clean[i]) for i in area)/len(area)
           input_mae,output_mae=mae(candidate),mae(actual)
@@ -67,6 +67,22 @@ def analyze(out,receipt):
            roi=lambda values,indices:sum(abs(values[i]-clean[i]) for i in indices)/len(indices)
            hud_input,hud_output=roi(candidate,hud),roi(actual,hud)
            reflection_input,reflection_output=roi(candidate,reflection),roi(actual,reflection)
+          dark_roi=None
+          if scene=='dark':
+           flat=[y*192+x for y in range(24,104) for x in range(24,72)]
+           edited=[y*192+x for y in range(40,88) for x in range(112,152)]
+           line_ys=range(24,104)
+           dark_contrast=lambda values:sum(values[y*192+96]-(values[y*192+95]+values[y*192+97])/2
+                                           for y in line_ys)/80
+           roi=lambda values,indices:sum(abs(values[i]-clean[i]) for i in indices)/len(indices)
+           dark_roi={'flat_off_mae':roi(candidate,flat),'flat_output_mae':roi(actual,flat),
+                     'edited_off_mae':roi(candidate,edited),'edited_output_mae':roi(actual,edited),
+                     'clean_line_contrast':dark_contrast(clean),
+                     'off_line_contrast':dark_contrast(candidate),
+                     'output_line_contrast':dark_contrast(actual),
+                     'off_line_error':abs(dark_contrast(candidate)-dark_contrast(clean)),
+                     'output_line_error':abs(dark_contrast(actual)-dark_contrast(clean)),
+                     'clean_min':min(clean),'clean_max':max(clean)}
           checks.append({'scene':scene,'mode':mode,'scope':scope,'backend':backend,'frame':seq,
                          'off_mae':input_mae,'output_mae':output_mae,
                          'clean_line_contrast':clean_edge,'off_line_contrast':off_edge,
@@ -77,20 +93,26 @@ def analyze(out,receipt):
                          'hud_input_mae':hud_input,'hud_output_mae':hud_output,
                          'reflection_input_mae':reflection_input,
                          'reflection_output_mae':reflection_output,
+                         'dark_roi':dark_roi,
                          'cut_reseed_exact':actual==candidate if scene=='cut' and seq==4 else None})
     (out/'analysis.json').write_text(json.dumps(checks,indent=2),encoding='utf-8')
     # Functional execution and synthetic quality observations are separate.
     final_frame=12 if receipt['hardware_gpu'] else 6
     finals=[x for x in checks if x['frame']==final_frame and x['scene'] in ('static','pan')]
+    dark_finals=[x['dark_roi'] for x in checks if x['frame']==final_frame and x['scene']=='dark']
     receipt['synthetic_quality']={
       'static_pan_noise_improved':sum(x['output_mae']<x['off_mae'] for x in finals),
       'static_pan_cases':len(finals),
       'line_error_improved':sum(x['output_line_error']<x['off_line_error'] for x in finals),
       'line_cases':len(finals),
+      'dark_flat_noise_improved':sum(x['flat_output_mae']<x['flat_off_mae'] for x in dark_finals),
+      'dark_edited_noise_improved':sum(x['edited_output_mae']<x['edited_off_mae'] for x in dark_finals),
+      'dark_line_error_improved':sum(x['output_line_error']<x['off_line_error'] for x in dark_finals),
+      'dark_cases':len(dark_finals),
       'cut_reseed_exact':sum(x['cut_reseed_exact'] is True for x in checks),
       'cut_cases':8 if receipt['hardware_gpu'] else 4,
       'full_quality_pass':False,
-      'coverage':['static','pan','occlusion','cut','object','hud_reflection'],
+      'coverage':['static','pan','occlusion','cut','object','hud_reflection','dark'],
       'uncovered':([] if receipt['hardware_gpu'] else ['hardware_AMDOF'])+['game','native_RR_inference']
     }
     receipt['analysis_sha256']=digest(out/'analysis.json')
@@ -149,13 +171,13 @@ def main():
     replacement='''#include "temporal_quality_sequence.inl"
 int main(){try{
  std::setvbuf(stdout,nullptr,_IONBF,0);Host host;
- for(const char* scene:{"static","pan","occlusion","cut","object","hud_reflection"})
+ for(const char* scene:{"static","pan","occlusion","cut","object","hud_reflection","dark"})
   for(auto mode:{Mode::Adaptive,Mode::LowFrequency})
    for(auto scope:{Scope::WholeChain,Scope::LaterLayers})
    for(auto backend:{Backend::NativeMotion,Backend::AmdOpticalFlow})
     if(backend==Backend::NativeMotion || QUALITY_HARDWARE)
      quality_scene(host,scene,mode,scope,backend,QUALITY_HARDWARE?12u:6u);
- host.validate_debug();std::printf("PASS production temporal quality frames=%u\\n",QUALITY_HARDWARE?576u:144u);
+ host.validate_debug();std::printf("PASS production temporal quality frames=%u\\n",QUALITY_HARDWARE?672u:168u);
  return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\\n",e.what(),checks);return 1;}}
 '''
@@ -185,7 +207,7 @@ int main(){try{
     if not a.build_only:
         log=run([exe],out,'warp',receipt)
         rows=[line for line in log.splitlines() if line.startswith('QUALITY ')]
-        expected=576 if a.hardware else 144
+        expected=672 if a.hardware else 168
         assert len(rows)==expected and f'PASS production temporal quality frames={expected}' in log
         receipt['frames']=len(rows)
         receipt['raw_frame_sha256']={p.name:digest(p) for p in out.glob('*.f16')}
