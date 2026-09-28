@@ -153,3 +153,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\Users\PC\.devspace\w
 随后 Git 建立 index.lock 时再次遇到 No space left on device；以相同复制后核对三份 SHA256 的方式，将本次构建中间目录的中文重复 Core 保存到同一 C 目录的 original-build-Chinese-Core.addon64（SHA256 cd4f372b8fe7882604a5f4b3faf7d9211f396a76f978362894128ac0442fdee8），迁移记录为 relocation-zh.json。仅移除已保全的 build 中文重复件并立即提交文档；TEST-zh-CN 正式产物保持原位。
 
 CI run `36436466517` 为 skipped，未启用付费托管 CI。没有部署、启动游戏、改配置/OTA/Manager pin、联系 guest 或并入私有 SR。A/B/C 的游戏画面与切换问题，以及 #298 的同进程显存峰值、FG、resize、退出仍需独立实测；当前没有泄漏或节省量结论。即使后续准备拒绝减少，也要核对真实工作量，不能把旁路形成的 FPS 当作改善。
+
+文档提交后检测到 D 盘重新有足够空间，两份构建中间重复件均已从 C 保全副本按原路径恢复并重新核对 SHA256，C 副本继续保留；恢复记录为 C:/Users/PC/.devspace/pr318-build-preservation-65b97819/restoration.json。本任务未清理其他目录，未将重新出现的磁盘空间计作本任务清理成果。当前规范输出目录的原中英文 build 副本也完整保留。
