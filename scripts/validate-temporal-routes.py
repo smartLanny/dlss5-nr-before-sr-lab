@@ -52,7 +52,7 @@ def main():
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o');run([cc,*flags,'-c',ROOT/'third_party/minhook/src'/rel,'-o',obj],'compile-'+obj.stem);objects.append(obj)
     spatial=snapshot/'nr_dual_spatial_d3d12.cpp';obj=out/'spatial.o';run([cxx,*flags,'-std=c++20','-c',spatial,'-o',obj],'compile-spatial');objects.append(obj)
-    exe=out/'temporal-routes.exe';run([cxx,*flags,'-std=c++20','-static','-Wl,--gc-sections',cpp,*objects,'-o',exe,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
+    exe=out/'temporal-routes.exe';run([cxx,*flags,'-std=c++20','-static','-Wl,--gc-sections',cpp,*objects,'-o',exe,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-core')
     record['binary_sha256']=sha(exe)
     if not a.compile_only:
         cases=('pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','sr-native','sr-native-bad-jitter','rr','rr-later','rr-off','rr-hdr','rr-native','rr-low','rr-later-low') if a.case=='all' else (a.case,)

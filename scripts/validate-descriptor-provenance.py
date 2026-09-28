@@ -164,7 +164,7 @@ def main():
     binary = out/'descriptor-warp.exe'
     code = run([compiler, *common, '-std=c++20', '-static', '-Wl,--gc-sections', wrapper, *objects, '-o', binary,
                 '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid',
-                '-ld3dcompiler', '-lshell32'], 'compile-warp')
+                '-ld3dcompiler', '-lshell32', '-lbcrypt'], 'compile-warp')
     record['warp_compile_exit'] = code
     if code:
         save();raise SystemExit(code)
