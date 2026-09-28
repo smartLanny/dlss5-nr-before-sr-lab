@@ -31,6 +31,8 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
+    'src/nr_residency_policy.h': '168f34a3484be936f64e2c3e60f82bf1456c8873',
+    'src/nr_pipeline_cache.h': 'db8119b313ce883b8e135070fbca801817486bfe',
     'src/nr_aux_shader_runtime.cpp': '97422517284ff8c147a4c2ac2232338acf887d70',
     'src/nr_aux_shader_runtime.hpp': '43816a8c011f41b4267989ed0b2d2a6cf1a22d30',
     'scripts/prepare-aux-artifacts.py': '744f7a012a5f389ac287c900ee4c1f0029a9944e',
@@ -41,7 +43,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_external_provider.h': '2f3233ffd69d739a32009415eeaf2cf709791ede',
     'src/interop/nr_external_provider_abi.h': 'dfe5179d9d59dae473d02cc5ea4a87be769c2c40',
     'src/nr_present_mapping.h': 'bb8bda165d5864a1a76727486a1f0cdf5f6f1dda',
-    'config/nr_before_sr.ini': '5b023770d7eb2da4a786198c1ee3c5cd735e91da',
+    'config/nr_before_sr.ini': '1242f6eb0dfcc016a7f6abfd71e64c9a838f1947',
     'scripts/build.ps1': '83f64d29c32cad71f320da5ec0a4498d12864ce5',
     'scripts/compile-codec-artifact.cpp': '5607678fb1cf888c92ebf8bb869f4002eee1404e',
     'scripts/embed-dual-shaders.py': '0c4c155ca8e51b75bce5ea77bfb0066ba24c1335',
@@ -57,7 +59,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_post_ui.inl': 'a033e85dc150c1f73a008bc141d051e4d695eeba',
     'src/interop/nr_rr_depth_evidence.inl': '0746e827d6b72b35e26e778b865a9cfdd1587f9e',
     'src/interop/nr_rr_post_runtime.inl': '868feb221d58dba63fb5ceebecd8c28e23cfbcd7',
-    'src/nr_before_sr.cpp': '32bfacf33c88ede6436ecb6aa26003f739aa23c9',
+    'src/nr_before_sr.cpp': '52aace9815e7a42e619c7caca01cd8edd48deb70',
     'src/nr_before_sr.rc': '37a8370cbd6cdabb81a7ab7dc17b38e71edc623a',
     'src/nr_binding_runtime.inl': 'b546021cae08144654fd1efb986d916a46414a22',
     'src/nr_binding_types.inl': '2c78122bdbdff885c6f829cad929cb2825377d7a',

@@ -37,6 +37,7 @@ struct NrContext{
 NrContext g_contexts[16]{},g_pending_destroy_contexts[16]{};
 std::atomic<bool>g_lifecycle_tracking_uncertain{false},g_nr_failed_create_process_latched{false};
 std::atomic<unsigned>g_nr_context_releases_in_progress{0},g_history_generation{0};
+bool g_nr_residency_drain_pending=false; // Explicit compaction is independently tested.
 std::atomic<unsigned long long>g_nr_create_release_deferrals{0},g_aux_parent_retirements{0};
 struct Lock{unsigned depth=0;}g_chain_cs;
 void EnterCriticalSection(Lock* p){++p->depth;}
@@ -79,7 +80,7 @@ void DestroyContext(NrContext& c){
  for(auto& s:c.slots)check(s.dual_owner==&c,"owners rebound to detached storage before Release");
  released.push_back(c.instance_id);c={};
 }
-void clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)c={};g_config={};released.clear();reenter=false;matching_during_release=nullptr;g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;g_nr_context_releases_in_progress=0;g_nr_create_release_deferrals=0;g_aux_parent_retirements=0;reason=BypassReason::None;nr_processing_runtime::session={};nr_processing_runtime::session.Select(nr_processing::Start::After,1);nr_processing_runtime::effective=1;nr_processing_runtime::source_blocked=false;}
+void clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)c={};g_config={};released.clear();reenter=false;matching_during_release=nullptr;g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;g_nr_context_releases_in_progress=0;g_nr_residency_drain_pending=false;g_nr_create_release_deferrals=0;g_aux_parent_retirements=0;reason=BypassReason::None;nr_processing_runtime::session={};nr_processing_runtime::session.Select(nr_processing::Start::After,1);nr_processing_runtime::effective=1;nr_processing_runtime::source_blocked=false;}
 void collect(){EnterCriticalSection(&g_chain_cs);CollectRetiredContextsLocked();LeaveCriticalSection(&g_chain_cs);}
 int main(){
  clear();auto* old=lookup();check(old,"initial context");old->instance_id=100;

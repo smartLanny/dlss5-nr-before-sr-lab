@@ -892,6 +892,8 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 #include "nr_replay_format.h"
 
 struct ChainConfig;
+#include "nr_residency_policy.h"
+void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change);
 void DrawPerformanceRouteNotice(const ChainConfig&);
 
 struct ChainConfig {
@@ -1922,6 +1924,8 @@ void ReloadConfig(bool force = false) {
 
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
+    ReconcileNrResidencyLocked(nr_layers::Active(g_config.nr_layers), nr_layers::Active(next.nr_layers),
+        next.processing_start!=g_config.processing_start);
     AdvanceLayerEpochs(next,g_config);
     g_config = next;
     nr_processing_runtime::Reconcile();
@@ -2176,6 +2180,11 @@ bool ApplyConfig(ChainConfig next, const char *source,
     persisted_next.face_preview=g_config.face_preview;
     const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
+    // F8 owns temporary configurations. Only committed user changes request
+    // allocator compaction; F6 with the same layer selection retains cache.
+    if (persist_to_ini)
+        ReconcileNrResidencyLocked(nr_layers::Active(g_config.nr_layers), nr_layers::Active(next.nr_layers),
+            next.processing_start!=g_config.processing_start);
     AdvanceLayerEpochs(next,g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
@@ -4947,6 +4956,8 @@ bool EnsureFaceCodec() {
     return true;
 }
 
+#include "nr_pipeline_cache.h"
+
 bool EnsureCodec(ID3D12Device *device) {
     if (g_codec.device == device && g_codec.root != nullptr) return true;
     if (g_codec.failed || device == nullptr || g_codec.device != nullptr) return false;
@@ -4999,6 +5010,11 @@ bool EnsureCodec(ID3D12Device *device) {
         device, 0, serialized->lpVtbl->GetBufferPointer(serialized),
         serialized->lpVtbl->GetBufferSize(serialized), IID_ID3D12RootSignature,
         reinterpret_cast<void **>(&g_codec.root));
+    nr_pipeline_cache::Session pipeline_cache;
+    if (SUCCEEDED(hr))
+        pipeline_cache.Initialize(device, serialized->lpVtbl->GetBufferPointer(serialized),
+            serialized->lpVtbl->GetBufferSize(serialized),
+            GetPrivateProfileIntW(L"NRBeforeSR", L"PipelineCache", 1, g_ini_path)!=0);
     ReleaseCom(serialized);
     if (FAILED(hr)) {
         Log("CreateRootSignature failed: 0x%08X", static_cast<unsigned int>(hr));
@@ -5026,47 +5042,46 @@ bool EnsureCodec(ID3D12Device *device) {
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline = {};
     pipeline.pRootSignature = g_codec.root;
+    const auto create_pipeline=[&](const char* entry, ID3D12PipelineState** output) {
+        LARGE_INTEGER begin{},end{},frequency{};
+        QueryPerformanceCounter(&begin);
+        const auto result=pipeline_cache.Create(device,pipeline,output);
+        QueryPerformanceCounter(&end);QueryPerformanceFrequency(&frequency);
+        const double ms=frequency.QuadPart>0?1000.0*static_cast<double>(end.QuadPart-begin.QuadPart)/static_cast<double>(frequency.QuadPart):0.0;
+        Log("[nr-pso-cache] entry=%s enabled=%d hit=%d rejected=%d written=%d bytes=%llu cpuMs=%.3f hr=0x%08X; disk-only pipeline preparation, not NR inference or GPU completion.",
+            entry,result.enabled?1:0,result.hit?1:0,result.rejected?1:0,result.written?1:0,
+            static_cast<unsigned long long>(result.bytes),ms,static_cast<unsigned>(result.hr));
+        return result.hr;
+    };
     pipeline.CS.pShaderBytecode = encode->lpVtbl->GetBufferPointer(encode);
     pipeline.CS.BytecodeLength = encode->lpVtbl->GetBufferSize(encode);
-    hr = ID3D12Device_CreateComputePipelineState(
-        device, &pipeline, IID_ID3D12PipelineState,
-        reinterpret_cast<void **>(&g_codec.encode));
+    hr = create_pipeline("EncodeCS", &g_codec.encode);
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = combine->lpVtbl->GetBufferPointer(combine);
         pipeline.CS.BytecodeLength = combine->lpVtbl->GetBufferSize(combine);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.combine));
+        hr = create_pipeline("CombineCS", &g_codec.combine);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = encode_v2->lpVtbl->GetBufferPointer(encode_v2);
         pipeline.CS.BytecodeLength = encode_v2->lpVtbl->GetBufferSize(encode_v2);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.encode_v2));
+        hr = create_pipeline("EncodeV2CS", &g_codec.encode_v2);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = combine_v2->lpVtbl->GetBufferPointer(combine_v2);
         pipeline.CS.BytecodeLength = combine_v2->lpVtbl->GetBufferSize(combine_v2);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.combine_v2));
+        hr = create_pipeline("CombineV2CS", &g_codec.combine_v2);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = copy->lpVtbl->GetBufferPointer(copy);
         pipeline.CS.BytecodeLength = copy->lpVtbl->GetBufferSize(copy);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.copy));
+        hr = create_pipeline("CopyCS", &g_codec.copy);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode =
             motion_resample->lpVtbl->GetBufferPointer(motion_resample);
         pipeline.CS.BytecodeLength =
             motion_resample->lpVtbl->GetBufferSize(motion_resample);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.motion_resample));
+        hr = create_pipeline("ResampleMotionCS", &g_codec.motion_resample);
     }
     ReleaseCom(encode);
     ReleaseCom(combine);
@@ -5086,9 +5101,7 @@ bool EnsureCodec(ID3D12Device *device) {
     if (probe) {
         pipeline.CS.pShaderBytecode = probe->lpVtbl->GetBufferPointer(probe);
         pipeline.CS.BytecodeLength = probe->lpVtbl->GetBufferSize(probe);
-        const HRESULT probe_hr = ID3D12Device_CreateComputePipelineState(
-            device,&pipeline,IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.post_store_probe));
+        const HRESULT probe_hr = create_pipeline("ProbePostStoreCS", &g_codec.post_store_probe);
         if (FAILED(probe_hr)) Log("Post-store probe unavailable: 0x%08X",probe_hr);
         ReleaseCom(probe);
     }
@@ -5572,6 +5585,17 @@ struct NrContext {
 
 #include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
+
+bool g_nr_residency_drain_pending=false; // Existing g_chain_cs; not a completion proof.
+void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change) {
+    const unsigned marked=nr_residency::RetireForCompaction(
+        g_contexts, std::size(g_contexts), previous_active, requested_active, explicit_route_change);
+    if (marked) {
+        g_nr_residency_drain_pending=true;
+        Log("[nr-residency] explicit layers %u->%u routeChanged=%d; retiring %u old NR contexts before rebuilding the selected chain. Drain all owned instances to permit allocator compaction; exact recording/binding/fence proofs and quarantine remain required. Ordinary F6 cache is retained; persistent waiting: collect F8 and upload BUG feedback.",
+            previous_active, requested_active, explicit_route_change?1:0, marked);
+    }
+}
 
 #include "nr_jitter_status.inl"
 
@@ -6367,7 +6391,15 @@ bool DeferNrCreationForReleaseLocked(const NgxHandle* requested_handle) {
             context.sr_handle==requested_handle && context.retired;
     bool pending=g_nr_context_releases_in_progress.load(std::memory_order_acquire)!=0;
     for(const auto& context:g_pending_destroy_contexts)pending|=context.sr_handle!=nullptr;
-    if(!retired_in_scope&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
+    bool residency_drain=false;
+    if (g_nr_residency_drain_pending) {
+        for (const auto& context:g_contexts) residency_drain|=context.sr_handle!=nullptr;
+        if (!residency_drain && !pending && !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+            g_nr_residency_drain_pending=false;
+            Log("[nr-residency] all old owned NR contexts released; selected-chain Create may resume. Disk PSO/API cache retained; no GPU-completion shortcut.");
+        }
+    }
+    if(!retired_in_scope&&!residency_drain&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
     // Keep native SR/RR and the saved route. A transient release is not a reason
     // to create yet another model at Present, or to block the CPU on a GPU fence.
     nr_processing_runtime::BlockSource();
@@ -8703,6 +8735,39 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
         return selected;
     }
     if (empty != nullptr) {
+        // Do not grow eight full-resolution texture sets merely because a
+        // game rotates resource addresses. Prefer the same safe rebinding
+        // already used by a full pool, provided no owned allocation changes.
+        // Exact external/motion matches above remain the first choice.
+        auto* reusable=nr_residency::OldestReusable(context.slots, std::size(context.slots),
+            [&](const NrSlot& slot) {
+                if (!slot.key || !slot.heap || !CanMutateSlotLocked(slot)) return false;
+                if (post_sr)
+                    return slot.owns_source && !slot.owns_result && slot.snapshots_native_output &&
+                        slot.result_format==desc.Format && slot.result_srv_format==current_view.typed.Format &&
+                        slot.result_uav_format==static_cast<DXGI_FORMAT>(current_view.plan.uav);
+                if (slot.owns_source || !slot.owns_result || !slot.result ||
+                    slot.codec_color_mode!=pre_sr_color_mode ||
+                    slot.source_srv_format!=current_view.typed.Format) return false;
+                const auto result_desc=ID3D12Resource_GetDesc(slot.result);
+                return result_desc.Width==desc.Width && result_desc.Height==desc.Height;
+            });
+        if (reusable) {
+            CollectSlotDeltaStatsLocked(context, *reusable);
+            NrRecoveryRetireSlot(*reusable, CanMutateSlotLocked(*reusable));
+            // Rebind retains its independent binding-packet proof; a refused
+            // reuse falls back to the old empty-slot path, not a CPU/GPU wait.
+            if (RebindSlotExternal(device, external, post_sr, exposure, *reusable,
+                    pre_sr_color_mode, feature_create_flags, context.feature_generation, semantic_contract)) {
+                reusable->last_used_serial=serial;
+                NrRecoveryAdoptSlot(*reusable, recovery_token, post_sr);
+                ++context.slot_recycles;
+                if (context.slot_recycles<=3 || context.slot_recycles%600==0)
+                    Log("[nr-residency] reused idle owned textures before pool growth: count=%u mode=%d extent=%ux%u; no NR feature/history sharing, exact retirement required.",
+                        context.slot_recycles, context.mode, context.width, context.height);
+                return reusable;
+            }
+        }
         if (!CreateSlot(device, external, context.width, context.height,
                         post_sr, exposure, *empty, pre_sr_color_mode,
                         feature_create_flags, context.feature_generation, semantic_contract)) {

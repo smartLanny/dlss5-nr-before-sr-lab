@@ -45,7 +45,7 @@ class EdgeTests(unittest.TestCase):
         # Reviewed c27f7fe3 -> 32bfacf3: only the release/admission helper and its
         # call change; colour shader bodies, resources and contracts are unchanged.
         # Keep this exact source pin AND the generated semantic assertions below.
-        for p,sha in [('src/nr_before_sr.cpp','32bfacf33c88ede6436ecb6aa26003f739aa23c9'),
+        for p,sha in [('src/nr_before_sr.cpp','52aace9815e7a42e619c7caca01cd8edd48deb70'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
