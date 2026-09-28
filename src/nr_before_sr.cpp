@@ -11337,7 +11337,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
         post_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
-    if (!EnsureRrDepthSlot(device,*slot,guides)) {
+    // Like auxiliary layers, keep same-shape depth planes queue-ordered and
+    // seal per-recording descriptors below. Actual allocation/resize still
+    // requires the original slot and binding retirement checks.
+    if (!EnsureRrDepthSlot(device,*slot,guides,true)) {
         g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         ReleaseCom(device);return substitution;
@@ -11353,7 +11356,20 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
-    nr_regions::Seal(device,command_list,*context,*slot);
+    nr_binding::DescriptorSet rr_depth_bindings{};
+    if(guides.signature.linear_depth) {
+        rr_depth_bindings.Srv(0,guides.depth,static_cast<DXGI_FORMAT>(guides.signature.depth_format));
+        rr_depth_bindings.Uav(1,slot->rr_depth,DXGI_FORMAT_R32_FLOAT);
+    }
+    const bool primary_bindings_ready=nr_regions::Seal(device,command_list,*context,*slot,&rr_depth_bindings);
+    // Region-only failure may retain the existing ordinary composition fallback.
+    // A depth conversion must never fall back to an unsealed mutable heap.
+    if(guides.signature.linear_depth && !primary_bindings_ready) {
+        RejectRrDepth(RrDepthReject::DispatchBinding);
+        g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        ReleaseCom(device);return substitution;
+    }
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;

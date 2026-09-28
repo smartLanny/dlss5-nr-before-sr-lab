@@ -96,16 +96,25 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
  }
  guide_flags.store(c[6]);slot.region_ready=true;return true;
 }
-bool Seal(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot) {
- if(!slot.region_ready)return true;
+// Primary RR also needs an immutable depth table when regions are disabled.
+// Combine optional tables into one lease rather than consume two pool entries.
+bool Seal(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,
+          const nr_binding::DescriptorSet* depth=nullptr) {
+ const bool depth_requested=depth && depth->count!=0;
+ if(!slot.region_ready && !depth_requested)return true;
  nr_binding::Plan plan{};plan.primary_owner=&slot;
- WriteDescriptors(device,slot,nullptr,slot.neural,nullptr,&plan.heaps[nr_binding::Region]);
+ if(slot.region_ready) {
+  WriteDescriptors(device,slot,nullptr,slot.neural,nullptr,&plan.heaps[nr_binding::Region]);
+ }
+ // DispatchCodec selects Consumer whenever compose_binding exists, including
+ // region-OFF RR. A Depth-only packet would otherwise select a null heap.
  WriteCodecDescriptorSet(device,slot,nullptr,&plan.heaps[nr_binding::Consumer]);
+ if(depth_requested)plan.heaps[nr_binding::Depth]=*depth;
  nr_binding::Refusal refusal=nr_binding::Refusal::None;
  auto* packet=AcquireBindingPacket(device,list,context,plan,&refusal);
  binding_reason.store(refusal);
  if(!packet){slot.region_ready=false;status.store(4);return false;}
- slot.region_binding=slot.compose_binding=packet;return true;
+ slot.region_binding=slot.region_ready?packet:nullptr;slot.compose_binding=packet;return true;
 }
 
 void Dispatch(ID3D12GraphicsCommandList* cmd,NrSlot& slot,bool field){
