@@ -404,6 +404,7 @@ enum class BypassReason : int {
     ExposureTextureUnverified,
     RayReconstructionGuard,
     RuntimeRejected,
+    CommitHeadroomPressure,
     ShortFuseOwnsNr,
     GenericRenoDxConflict,
     LifecycleIsolation,
@@ -512,6 +513,7 @@ const char *BypassReasonName(BypassReason reason) {
         return "exposure-texture-unverified";
     case BypassReason::RayReconstructionGuard: return "rr-safe-bypass";
     case BypassReason::RuntimeRejected: return "runtime-rejected";
+    case BypassReason::CommitHeadroomPressure: return "commit-headroom-pressure";
     case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
     case BypassReason::ExternalNrOwner: return "external-feature18-owner";
     case BypassReason::GenericRenoDxConflict:
@@ -10319,6 +10321,43 @@ void LogNrCreateMemory(const char* phase,const NrContext& context,NgxResult resu
         static_cast<unsigned long long>(perf.CommitPeak)*perf.PageSize);
 }
 
+#if defined(NR_CREATE_COMMIT_TEST)
+// Only test builds may replace the operating-system reading; production always
+// uses GlobalMemoryStatusEx at the actual new-model creation boundary.
+std::atomic<int> g_nr_create_commit_test_valid{-1};
+std::atomic<unsigned long long> g_nr_create_commit_test_available{0};
+std::atomic<unsigned long long> g_nr_create_commit_test_queries{0};
+#endif
+std::atomic<unsigned long long> g_nr_create_commit_pressure_declines{0};
+// A severe-pressure admission floor, not an estimate of opaque NGX allocation.
+constexpr unsigned long long kMinimumNrCreateAvailableCommitBytes=1ull<<30;
+bool DeferNrCreateForCommitPressure(NrContext& context) {
+#if defined(NR_CREATE_COMMIT_TEST)
+    g_nr_create_commit_test_queries.fetch_add(1,std::memory_order_relaxed);
+#endif
+    MEMORYSTATUSEX system{};system.dwLength=sizeof(system);
+    bool valid=GlobalMemoryStatusEx(&system)!=FALSE;
+    unsigned long long available=valid?system.ullAvailPageFile:0;
+#if defined(NR_CREATE_COMMIT_TEST)
+    const int test_valid=g_nr_create_commit_test_valid.load(std::memory_order_relaxed);
+    if(test_valid>=0){valid=test_valid!=0;available=g_nr_create_commit_test_available.load(std::memory_order_relaxed);}
+#endif
+    if(!valid){
+        static std::atomic<unsigned> unavailable{0};
+        const auto count=unavailable.fetch_add(1,std::memory_order_relaxed)+1;
+        if(count<=3||count%600==0)Log("[nr-create-commit] valid=0 admission=unchanged count=%u; no zero-as-OOM inference.",count);
+        return false;
+    }
+    if(available>=kMinimumNrCreateAvailableCommitBytes)return false;
+    context.next_create_retry_frame=context.frames_seen+300;
+    SetBypassReason(BypassReason::CommitHeadroomPressure);
+    const auto count=g_nr_create_commit_pressure_declines.fetch_add(1,std::memory_order_relaxed)+1;
+    if(count<=3||count%600==0)
+        Log("[nr-create-commit] valid=1 processAvailableCommitBytes=%llu floorBytes=%llu admission=deferred count=%llu; native SR/RR retained; retry after 300 frames or setting change. This floor does not predict opaque NR allocation.",
+            available,kMinimumNrCreateAvailableCommitBytes,count);
+    return true;
+}
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
@@ -11030,6 +11069,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (first) {
+        if (DeferNrCreateForCommitPressure(*context)) return substitution;
         void *handle = nullptr;
         const NgxResult created = CreateSignedNrFeature(
             command_list, *context, feature, &handle);
@@ -11750,6 +11790,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (first) {
+        if (DeferNrCreateForCommitPressure(context)) {
+            PreservePostSrOnFailure(command_list, substitution);
+            return false;
+        }
         void *handle = nullptr;
         const NgxResult created = CreateSignedNrFeature(
             command_list, context, feature, &handle);

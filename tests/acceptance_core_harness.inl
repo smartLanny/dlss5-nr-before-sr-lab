@@ -98,11 +98,12 @@ struct EntryParams:NgxParams {
         table[14]=reinterpret_cast<void*>(&Number<float>);vtable=table;}
 };
 ID3D12Device* entry_device=nullptr;ID3D12Resource* entry_output=nullptr;
+unsigned entry_create_calls=0,entry_native_calls=0;
 std::vector<std::unique_ptr<post_output_test::ClearViews>> entry_views;
 NgxResult EntryAllocate(NgxParams**p){*p=new EntryParams;return kNgxSuccess;}
 NgxResult EntryDestroy(NgxParams*p){delete static_cast<EntryParams*>(p);return kNgxSuccess;}
 NgxResult EntryCreate(void*,ID3D12GraphicsCommandList*,int feature,void*,void**out){
-    Check(feature==18,"entry stub only replaces opaque NR model");*out=new NgxHandle{901};return kNgxSuccess;}
+    ++entry_create_calls;Check(feature==18,"entry stub only replaces opaque NR model");*out=new NgxHandle{901};return kNgxSuccess;}
 NgxResult EntryRelease(void*,void*p){delete static_cast<NgxHandle*>(p);return kNgxSuccess;}
 NgxResult EntryEvaluate(void*,ID3D12GraphicsCommandList*l,const void*,const void*raw,void*){
     ID3D12Resource*r=nullptr;Check(GetResource(static_cast<const NgxParams*>(raw),"DLSSNR.Output",&r)&&r,
@@ -112,6 +113,7 @@ NgxResult EntryEvaluate(void*,ID3D12GraphicsCommandList*l,const void*,const void
     return kNgxSuccess;
 }
 NgxResult EntryNative(ID3D12GraphicsCommandList*l,const NgxHandle*,const NgxParams*,void*){
+    ++entry_native_calls;
     entry_views.push_back(std::make_unique<post_output_test::ClearViews>(entry_device));
     const float value[]={.25f,.375f,.5f,1};entry_views.back()->Clear(entry_device,l,entry_output,0,value);
     return kNgxSuccess;
@@ -119,7 +121,7 @@ NgxResult EntryNative(ID3D12GraphicsCommandList*l,const NgxHandle*,const NgxPara
 NgxResult EntryNoop(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*){
     return kNgxSuccess;
 }
-void WarpRrEntry(bool sr=false){
+void WarpRrEntry(bool sr=false,bool pressure=false){
     Stage(sr?"WarpSrEntry begin":"WarpRrEntry begin");
     queue_test::Fixture f;entry_device=f.device;
     GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\entry-rr.log");
@@ -132,6 +134,17 @@ void WarpRrEntry(bool sr=false){
     g_nr_api.initialized=true;g_nr_api.allocate=EntryAllocate;g_nr_api.destroy=EntryDestroy;
     g_nr_api.bridge_create=EntryCreate;g_nr_api.bridge_evaluate=EntryEvaluate;
     g_nr_api.bridge_release=EntryRelease;
+#if defined(NR_CREATE_COMMIT_TEST)
+    if(pressure){
+        g_nr_create_commit_test_valid.store(1);
+        g_nr_create_commit_test_available.store(75ull<<20);
+        g_nr_create_commit_test_queries.store(0);
+    }
+#else
+    Check(!pressure,"pressure case requires exact Core test injection");
+#endif
+    entry_create_calls=entry_native_calls=0;
+    if(pressure)g_last_nr_create_result.store(0x12345678u);
     Stage("WarpEntry EnsureCodec begin");
     Check(EnsureCodec(f.device),"entry uses production GPU codec");
     Stage("WarpEntry EnsureCodec end");
@@ -216,6 +229,37 @@ void WarpRrEntry(bool sr=false){
         Check(status==kNgxSuccess,"real native SR/RR entry succeeds");
         source.Finish(status);
     }
+    if(pressure){
+        Check(entry_native_calls==1&&entry_create_calls==0,
+            "pressure preserves exactly one native SR/RR call and skips opaque NR Create");
+        Check(g_nr_create_commit_pressure_declines.load()==1&&
+              g_last_bypass_reason.load()==int(BypassReason::CommitHeadroomPressure),
+            "actual entry records pressure admission, not vendor failure");
+#if defined(NR_CREATE_COMMIT_TEST)
+        Check(g_nr_create_commit_test_queries.load()==1&&
+              g_last_nr_create_result.load()==0x12345678u,
+            "cold-create pressure sampled once and did not fabricate a vendor result");
+#endif
+        bool retry=false;
+        for(const auto& c:g_contexts)if(c.sr_handle==&handle&&c.nr_handle==nullptr&&
+            c.next_create_retry_frame==c.frames_seen+300&&c.create_failures==0)retry=true;
+        Check(retry,"actual entry retains the 300-frame cold-create retry contract");
+        Check(!sr?nr_post_settings::rr_recorded.load()==0:true,
+            "pressure decline does not claim post-RR NR recording");
+        list.Close();list.Submit(f.a);f.Drain(f.a);
+        D3D12_RESOURCE_STATES output_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        const auto native=post_output_test::ReadTexture(f,entry_output,output_state);
+        const unsigned char native_pixel[]={0x00,0x34,0x00,0x36,0x00,0x38,0x00,0x3c};
+        Check(native.size()>=sizeof(native_pixel)&&
+              std::memcmp(native.data(),native_pixel,sizeof(native_pixel))==0,
+            "actual game Output retains the native SR/RR FP16 pixel after pressure bypass");
+#if defined(NR_CREATE_COMMIT_TEST)
+        g_nr_create_commit_test_valid.store(-1);
+#endif
+        nr_acceptance::performance_active.store(false);list.Detach();entry_views.clear();
+        ReleaseCom(color);ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(entry_output);entry_output=nullptr;
+        return;
+    }
     std::printf("entry RR stage=%d recorded=%llu before=%llu prepare=%llu after=%llu finish=%llu bypass=%u state=%s\n",
         nr_post_settings::last_rr_stage.load(),nr_post_settings::rr_recorded.load(),
         nr_post_settings::rr_before_state_rejected.load(),nr_post_settings::rr_prepare_declined.load(),
@@ -271,6 +315,32 @@ void WarpRrEntry(bool sr=false){
     ReleaseCom(color);ReleaseCom(depth);ReleaseCom(motion);ReleaseCom(entry_output);entry_output=nullptr;
 }
 void RunSr(){WarpRrEntry(true);std::printf("actual SR entry: %u checks; no game/model claim\n",queue_test::checks);}
+void RunPressure(bool sr){WarpRrEntry(sr,true);std::printf("pressure %s entry: %u checks; no game/model claim\n",sr?"SR":"RR",queue_test::checks);}
+void RunPressureBounds(){
+#if defined(NR_CREATE_COMMIT_TEST)
+    static NrContext context{};
+    context.frames_seen=41;
+    g_nr_create_commit_test_valid.store(1);
+    g_nr_create_commit_test_available.store(kMinimumNrCreateAvailableCommitBytes-1);
+    Check(DeferNrCreateForCommitPressure(context)&&context.next_create_retry_frame==341,
+        "below 1 GiB records pressure and 300-frame retry");
+    context.next_create_retry_frame=0;
+    g_nr_create_commit_test_available.store(kMinimumNrCreateAvailableCommitBytes);
+    Check(!DeferNrCreateForCommitPressure(context)&&context.next_create_retry_frame==0,
+        "exactly 1 GiB admits new model Create");
+    g_nr_create_commit_test_available.store(kMinimumNrCreateAvailableCommitBytes+1);
+    Check(!DeferNrCreateForCommitPressure(context)&&context.next_create_retry_frame==0,
+        "above 1 GiB admits new model Create");
+    g_nr_create_commit_test_valid.store(0);
+    g_nr_create_commit_test_available.store(0);
+    Check(!DeferNrCreateForCommitPressure(context)&&context.next_create_retry_frame==0,
+        "unavailable system reading is not interpreted as zero commit");
+    g_nr_create_commit_test_valid.store(-1);
+    std::printf("commit pressure bounds: %u checks; no vendor/game claim\n",queue_test::checks);
+#else
+    Check(false,"policy-bound test requires exact Core test injection");
+#endif
+}
 void Run(){
     Stage("Run begin");
     InitializeCriticalSection(&g_chain_cs);

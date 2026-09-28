@@ -87,8 +87,9 @@ class Patches(unittest.TestCase):
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
         # Beta 8 moves native temporal guide validation to the recorded
-        # lifecycle token; format and colour shader code are unchanged.
-        self.assertEqual(digest,'e362c1f4a9b45782ecb84e1b777678c21e9eb292')
+        # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
+        # Format and colour shader code are unchanged.
+        self.assertEqual(digest,'53375d866fd4a1774d5e87de4356fe53f3622e66')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

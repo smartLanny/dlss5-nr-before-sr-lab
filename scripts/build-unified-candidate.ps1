@@ -76,6 +76,17 @@ if ($LASTEXITCODE) { throw "Generated private SR controlled spatial/WARP quality
 if ($LASTEXITCODE) { throw 'Generated Core guide-domain regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-acceptance.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'acceptance')
 if ($LASTEXITCODE) { throw 'Actual acceptance controller failed.' }
+$CommitPressureGate=Join-Path $Tests 'commit-pressure-entry'
+& python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --acceptance --acceptance-commit-pressure --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output $CommitPressureGate
+if ($LASTEXITCODE) { throw "Actual SR/RR entry commit-pressure safe bypass failed; see $CommitPressureGate/result.json." }
+$CommitPressureReceipt=Get-Content -LiteralPath (Join-Path $CommitPressureGate 'result.json') -Raw | ConvertFrom-Json
+if (-not $CommitPressureReceipt.commit_pressure_negative_control -or
+    -not $CommitPressureReceipt.production_translation_unit -or
+    $CommitPressureReceipt.run_exit -ne 0 -or
+    $CommitPressureReceipt.cases.Count -ne 3 -or
+    (@($CommitPressureReceipt.cases | Where-Object { $_.run_exit -ne 0 })).Count -ne 0) {
+    throw 'Actual SR/RR entry commit-pressure receipt is incomplete or failed.'
+}
 & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --acceptance --acceptance-negative --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'acceptance-negative')
 if ($LASTEXITCODE) { throw 'Wrong-restoration negative control failed.' }
 & python (Join-Path $PSScriptRoot 'validate-temporal-routes.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'temporal-routes')
@@ -85,7 +96,8 @@ if ($LASTEXITCODE) { throw 'Actual auxiliary precompiled shader oracle failed.' 
 & python (Join-Path $PSScriptRoot 'validate-native-output-capture.py') --compiler $Cxx --source $Source --link-core $Core --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'native-output') --run
 if ($LASTEXITCODE) { throw 'Actual native output capture failed.' }
 [ordered]@{passed=$true;source_sha256=(Get-FileHash -LiteralPath $Source).Hash.ToLowerInvariant();
-    acceptance=$true;restoration_negative=$true;temporal_entries=$true;auxiliary=$true;native_output=$true;
+    acceptance=$true;commit_pressure_entry=$true;restoration_negative=$true;temporal_entries=$true;auxiliary=$true;native_output=$true;
+    commit_pressure_entry_receipt=(Join-Path $CommitPressureGate 'result.json');
     temporal_budget_status_receipt=(Join-Path $TemporalGate 'validation.json');
     temporal_quality_sequence_receipt=(Join-Path $TemporalQualityGate 'result.json');
     private_sr_quality_warp_receipt=(Join-Path $PrivateQualityGate 'validation.json');

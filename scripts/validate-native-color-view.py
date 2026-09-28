@@ -24,6 +24,7 @@ def main():
     p.add_argument('--acceptance',action='store_true',help='Exercise the actual transient configuration controller; no model or game.')
     p.add_argument('--acceptance-negative',action='store_true',help='Copied-source wrong post-precision restoration negative control.')
     p.add_argument('--acceptance-timing-negative',action='store_true',help='Copied-source missing real RR q1/q2 negative control.')
+    p.add_argument('--acceptance-commit-pressure',action='store_true',help='Actual SR/RR entry with a test-only low system-commit reading; no vendor Create.')
     p.add_argument('--temporal-case',choices=('all','continuous','unsubmitted','replay','submit-reset'),default='all',
                    help='Separate processes preserve each real Core quarantine latch.')
     p.add_argument('--temporal-negative',action='store_true',help='Explicit copied-source wrong-P1 binding negative control.')
@@ -32,11 +33,15 @@ def main():
     if a.acceptance_negative and not a.acceptance:p.error('--acceptance-negative requires --acceptance')
     if a.acceptance_timing_negative and (not a.acceptance or a.acceptance_negative):
         p.error('--acceptance-timing-negative requires standalone --acceptance')
+    if a.acceptance_commit_pressure and (not a.acceptance or a.acceptance_negative or a.acceptance_timing_negative):
+        p.error('--acceptance-commit-pressure requires standalone --acceptance')
     if a.acceptance and not a.codec_cache:
         p.error('--acceptance requires --codec-cache from the same generated Core')
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
+    if a.acceptance_commit_pressure and 'DeferNrCreateForCommitPressure' not in (snapshot/'nr_before_sr.cpp').read_text(encoding='utf-8'):
+        raise ValueError('Complete generated Core lacks the commit-pressure production admission')
     original_runtime=sha(snapshot/'nr_native_format_runtime.inl')
     if a.runtime:shutil.copyfile(a.runtime,snapshot/'nr_native_format_runtime.inl')
     cache_receipt=None
@@ -86,13 +91,14 @@ def main():
     wrapper=out/'native-color.cpp'
     wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
         'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'+
-        ('if(argc>1&&std::string(argv[1])=="sr-entry")acceptance_core_test::RunSr();else acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
+        ('if(argc>1&&std::string(argv[1])=="pressure-bounds")acceptance_core_test::RunPressureBounds();else if(argc>1&&std::string(argv[1])=="pressure-rr")acceptance_core_test::RunPressure(false);else if(argc>1&&std::string(argv[1])=="pressure-sr")acceptance_core_test::RunPressure(true);else if(argc>1&&std::string(argv[1])=="sr-entry")acceptance_core_test::RunSr();else acceptance_core_test::Run()' if a.acceptance else 'temporal_core_test::Run(argc>1?argv[1]:"continuous")' if a.temporal else 'native_color_test::Run()')+';return 0;}\n',encoding='utf-8')
     compiler=a.compiler.resolve(strict=True)
     c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
             '-I'+str(ROOT/'third_party/minhook/include'),'-I'+str(a.reshade.resolve()/'include'),
             '-I'+str(a.reshade.resolve()/'deps/imgui')]
     if cache_receipt:common.append('-DNR_CODEC_PRECOMPILED=1')
+    if a.acceptance_commit_pressure:common.append('-DNR_CREATE_COMMIT_TEST=1')
     def run(command,name,timeout=180):
         try:
             r=subprocess.run(command,cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout)
@@ -132,10 +138,10 @@ def main():
             'codec_cache':cache_receipt,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
-            'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
+            'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'commit_pressure_negative_control':a.acceptance_commit_pressure,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,
             'temporal_objects_sha256':{str(p):sha(p) for p in objects_for(source)}}
     if not a.compile_only:
-        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else ([None] if a.acceptance_timing_negative or a.acceptance_negative else [None,'sr-entry']) if a.acceptance else [None]
+        cases=(['continuous','unsubmitted','replay','submit-reset'] if a.temporal_case=='all' else [a.temporal_case]) if a.temporal else (['pressure-bounds','pressure-rr','pressure-sr'] if a.acceptance_commit_pressure else [None] if a.acceptance_timing_negative or a.acceptance_negative else [None,'sr-entry']) if a.acceptance else [None]
         if a.temporal_negative:cases=['continuous']
         records=[];logs=[]
         for case in cases:
