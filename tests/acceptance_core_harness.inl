@@ -4,6 +4,8 @@
 #include <map>
 namespace acceptance_core_test {
 using queue_test::Check;
+void Stage(const char* name){std::fprintf(stderr,"[acceptance-stage] %llu %s\n",
+    static_cast<unsigned long long>(GetTickCount64()),name);std::fflush(stderr);}
 void DrainExport(){
     const auto end=GetTickCount64()+5000;
     while(nr_acceptance::packaging.load()&&GetTickCount64()<end)Sleep(10);
@@ -11,6 +13,7 @@ void DrainExport(){
     Check(nr_acceptance::last_restored,"actual configuration restored");
 }
 void WarpTiming(){
+    Stage("WarpTiming begin");
     // Actual generated Core, WARP Direct list, production lifecycle and exact
     // submission fence. Frame identity is a fixture; Sample is never injected.
     queue_test::Fixture f;
@@ -73,6 +76,7 @@ void WarpTiming(){
     nr_acceptance::performance_active.store(false);
     list.Detach();ReleaseCom(from);ReleaseCom(to);
     ReleaseCom(slot.acceptance_time_heap);ReleaseCom(slot.acceptance_time_readback);
+    Stage("WarpTiming end");
 }
 struct EntryParams:NgxParams {
     std::map<std::string,double> numbers;
@@ -116,8 +120,9 @@ NgxResult EntryNoop(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*
     return kNgxSuccess;
 }
 void WarpRrEntry(bool sr=false){
+    Stage(sr?"WarpSrEntry begin":"WarpRrEntry begin");
     queue_test::Fixture f;entry_device=f.device;
-    GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\entry-rr.log");
+    GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\entry-rr.log");
     g_original_command_list_reset[0]=[](ID3D12GraphicsCommandList*l,ID3D12CommandAllocator*a,
         ID3D12PipelineState*p)->HRESULT{return ID3D12GraphicsCommandList_Reset(l,a,p);};
     g_config=ChainConfig{};g_config.enabled=true;g_config.mode=1;
@@ -127,7 +132,9 @@ void WarpRrEntry(bool sr=false){
     g_nr_api.initialized=true;g_nr_api.allocate=EntryAllocate;g_nr_api.destroy=EntryDestroy;
     g_nr_api.bridge_create=EntryCreate;g_nr_api.bridge_evaluate=EntryEvaluate;
     g_nr_api.bridge_release=EntryRelease;
+    Stage("WarpEntry EnsureCodec begin");
     Check(EnsureCodec(f.device),"entry uses production GPU codec");
+    Stage("WarpEntry EnsureCodec end");
     constexpr unsigned w=128,h=128;ID3D12Resource *color=nullptr,*depth=nullptr,*motion=nullptr;
     Check(CreateTexture(f.device,w,h,L"entry B",&color)&&CreateTexture(f.device,w,h,L"entry native Output",&entry_output)&&
           CreateTexture(f.device,w,h,L"entry depth",&depth,DXGI_FORMAT_R32_FLOAT)&&
@@ -265,6 +272,7 @@ void WarpRrEntry(bool sr=false){
 }
 void RunSr(){WarpRrEntry(true);std::printf("actual SR entry: %u checks; no game/model claim\n",queue_test::checks);}
 void Run(){
+    Stage("Run begin");
     InitializeCriticalSection(&g_chain_cs);
     wchar_t full[MAX_PATH]{};GetFullPathNameW(L"acceptance-user.ini",MAX_PATH,full,nullptr);wcscpy_s(g_ini_path,full);
     const std::string sentinel="[NRBeforeSR]\r\nEnabled=1\r\nOwner=unchanged\r\n";
@@ -585,6 +593,7 @@ void Run(){
     DeleteCriticalSection(&g_chain_cs);
     WarpTiming();
     WarpRrEntry();
+    Stage("Run end");
     std::printf("actual acceptance controller: %u checks; no game/model or image-quality claim\n",queue_test::checks);
 }
 }

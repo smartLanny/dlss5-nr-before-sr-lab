@@ -17,6 +17,7 @@ def main():
     p.add_argument('--reshade',type=Path,required=True)
     p.add_argument('--source',type=Path,required=True)
     p.add_argument('--runtime',type=Path,help='Explicit latest runtime overlay for a focused unfrozen-source check.')
+    p.add_argument('--codec-cache',type=Path,help='Exact generated-Core shader cache; validates source key, header and payload hashes.')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--temporal',action='store_true',help='Run the actual Core temporal seam instead of color-view cases.')
@@ -31,11 +32,27 @@ def main():
     if a.acceptance_negative and not a.acceptance:p.error('--acceptance-negative requires --acceptance')
     if a.acceptance_timing_negative and (not a.acceptance or a.acceptance_negative):
         p.error('--acceptance-timing-negative requires standalone --acceptance')
+    if a.acceptance and not a.codec_cache:
+        p.error('--acceptance requires --codec-cache from the same generated Core')
     if out.exists():raise SystemExit('Preserve existing color-view evidence; use a fresh output directory.')
     out.mkdir(parents=True)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     original_runtime=sha(snapshot/'nr_native_format_runtime.inl')
     if a.runtime:shutil.copyfile(a.runtime,snapshot/'nr_native_format_runtime.inl')
+    cache_receipt=None
+    if a.codec_cache:
+        cache=a.codec_cache.resolve(strict=True)
+        receipt=cache/'codec-artifacts.json';data=json.loads(receipt.read_text(encoding='utf-8'))
+        body=source.read_text(encoding='utf-8').split('const char kCodecShader[] = R"HLSL(',1)[1].split(')HLSL";',1)[0]
+        if hashlib.sha256(body.encode()).hexdigest()!=data['source']:
+            raise ValueError('Cache is not this complete generated production shader')
+        header=cache/'nr_codec_precompiled.h'
+        if sha(header)!=data['header_sha256']:raise ValueError('Embedded shader header hash mismatch')
+        for item in data['artifacts']:
+            if sha(cache/item['file'])!=item['sha256']:raise ValueError('Cached shader payload mismatch')
+        shutil.copyfile(header,snapshot/'nr_codec_precompiled.h')
+        cache_receipt={'receipt_sha256':sha(receipt),'source':data['source'],
+                       'header_sha256':sha(header),'artifacts':len(data['artifacts'])}
     if a.acceptance_negative:
         target=snapshot/'nr_acceptance_runtime.inl';text=target.read_text(encoding='utf-8')
         old='nr_post_settings::RequestForCapture(s->post_original);'
@@ -75,8 +92,20 @@ def main():
     common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
             '-I'+str(ROOT/'third_party/minhook/include'),'-I'+str(a.reshade.resolve()/'include'),
             '-I'+str(a.reshade.resolve()/'deps/imgui')]
+    if cache_receipt:common.append('-DNR_CODEC_PRECOMPILED=1')
     def run(command,name,timeout=180):
-        r=subprocess.run(command,cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout)
+        try:
+            r=subprocess.run(command,cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            def partial(value):
+                return value.decode('utf-8','replace') if isinstance(value,bytes) else value or ''
+            stdout,stderr=partial(exc.stdout),partial(exc.stderr)
+            (out/(name+'.timeout.json')).write_text(json.dumps({
+                'command':list(map(str,command)),'timeout_seconds':timeout,
+                'stdout_file':name+'.stdout.partial.txt','stderr_file':name+'.stderr.partial.txt'},indent=2)+'\n',encoding='utf-8')
+            (out/(name+'.stdout.partial.txt')).write_text(stdout,encoding='utf-8')
+            (out/(name+'.stderr.partial.txt')).write_text(stderr,encoding='utf-8')
+            r=subprocess.CompletedProcess(command,124,stdout,stderr)
         (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
         if r.returncode:print((r.stdout+r.stderr)[-14000:])
         return r
@@ -100,6 +129,7 @@ def main():
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
+            'codec_cache':cache_receipt,
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
             'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,

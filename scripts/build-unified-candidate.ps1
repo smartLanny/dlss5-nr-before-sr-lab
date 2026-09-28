@@ -74,9 +74,9 @@ $PrivateQualityGate=Join-Path $Tests 'private-sr-quality-warp'
 if ($LASTEXITCODE) { throw "Generated private SR controlled spatial/WARP quality attribution failed; see $PrivateQualityGate/validation.json." }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --source $Source --output (Join-Path $Tests 'guide-domain')
 if ($LASTEXITCODE) { throw 'Generated Core guide-domain regression failed.' }
-& python (Join-Path $PSScriptRoot 'validate-acceptance.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'acceptance')
+& python (Join-Path $PSScriptRoot 'validate-acceptance.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'acceptance')
 if ($LASTEXITCODE) { throw 'Actual acceptance controller failed.' }
-& python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --acceptance --acceptance-negative --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'acceptance-negative')
+& python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --acceptance --acceptance-negative --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'acceptance-negative')
 if ($LASTEXITCODE) { throw 'Wrong-restoration negative control failed.' }
 & python (Join-Path $PSScriptRoot 'validate-temporal-routes.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --codec-cache (Join-Path $Core 'build') --output (Join-Path $Tests 'temporal-routes')
 if ($LASTEXITCODE) { throw 'Actual temporal route entries failed.' }
