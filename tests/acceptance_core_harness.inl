@@ -126,15 +126,18 @@ void Run(){
     const auto original_post=nr_post_settings::Read();
     Sleep(2);Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Screenshots,false),"NR-off Before screenshot session starts");
     Check(!g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_acceptance::session->count==9,"native baseline temporarily routes After with NR off");
+    Check(!nr_acceptance::PerformanceActive(),"native no-NR baseline has no plugin GPU instrumentation");
     AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
     auto& pictures=*nr_acceptance::session;
     pictures.index=1;nr_acceptance::StartGroup(pictures);
+    Check(nr_acceptance::PerformanceActive(),"NR screenshot group enables session-only GPU timestamps");
     Check(g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_post_settings::Read().percent==100,"next group enables NR and full post precision");
     pictures.index=3;nr_acceptance::StartGroup(pictures);
     Check(g_config.private_residual_sr&&nr_post_settings::Read().percent==50&&g_config.nr_passes==off.nr_passes,"private-SR shot changes only route/precision/backend");
     pictures.index=8;nr_acceptance::StartGroup(pictures);
     Check(g_config.temporal_backend==2&&g_config.temporal_mode==1&&nr_post_settings::Read().percent==50,"AMDOF low-frequency shot uses same model/layers");
     auto& temporal_picture=pictures.groups[8];
+    temporal_picture.screenshot_phase=nr_acceptance_policy::ScreenshotPhase::Capture;
     const auto saved_owner=g_applied_nr_identity.instance_id;
     g_applied_nr_identity.instance_id=321;
     nr_reset_observation::counters.layers[0].last.config_generation=temporal_picture.generation;
@@ -152,8 +155,30 @@ void Run(){
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(temporal_picture.shots[0].requested,"fresh adopted work qualifies screenshot request");
     pictures.pending_shot[0]=0;g_applied_nr_identity.instance_id=saved_owner;
+    pictures.index=2;nr_acceptance::StartGroup(pictures);
+    auto& timed_picture=pictures.groups[2];
+    nr_acceptance_gpu::read_index=nr_acceptance_gpu::write_index=0;
+    nr_acceptance_gpu::Sample stale{};stale.config=timed_picture.generation-1;stale.ms=1;
+    nr_acceptance_gpu::samples[nr_acceptance_gpu::write_index++]=stale;
+    for(unsigned i=0;i<nr_acceptance_policy::kScreenshotWarmupSamples+
+                    nr_acceptance_policy::kScreenshotGpuSamples;++i){
+        nr_acceptance_gpu::Sample x{};x.config=timed_picture.generation;
+        x.history=timed_picture.performance_history;x.since_reset=64;
+        x.work_width=960;x.work_height=540;x.output_width=1920;x.output_height=1080;
+        x.instance=500;x.frame=i+1;x.queue=700;x.fence=i+1;
+        x.source={10,20,i+1};x.ms=2.0;
+        nr_acceptance_gpu::samples[nr_acceptance_gpu::write_index++%nr_acceptance_gpu::kRing]=x;
+    }
+    Check(!nr_acceptance::TickScreenshotPerformance(pictures,timed_picture,runtime,GetTickCount64())&&
+        timed_picture.performance_warmup==180&&timed_picture.performance_count==600&&
+        timed_picture.screenshot_phase==nr_acceptance_policy::ScreenshotPhase::Capture,
+        "one-click performance requires 180 owned warmup sources then 600 completed GPU samples");
+    Check(!nr_acceptance::PerformanceActive(),"GPU instrumentation stops before image capture");
     pictures.index=0;nr_acceptance::StartGroup(pictures);
     auto& sg=pictures.groups[0];auto& sh=sg.shots[0];
+    Check(!nr_acceptance::TickScreenshotPerformance(pictures,sg,runtime,GetTickCount64())&&
+        std::strstr(sg.performance_reason,"not-applicable")!=nullptr,
+        "NR-off baseline has no fabricated plugin GPU sample and reaches image phase");
     pictures.window.started=GetTickCount64()-3001;
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(sh.requested&&pictures.pending_shot[0],"actual screenshot branch schedules native baseline after warmup");
@@ -175,7 +200,8 @@ void Run(){
     Check(sh.received&&sg.shot_count==1,"exact callback and existing file accepted");
     // Starting an NR group with no real owner/submissions cannot request a shot.
     AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
-    pictures.index=1;nr_acceptance::StartGroup(pictures);pictures.window.started=GetTickCount64()-3001;
+    pictures.index=1;nr_acceptance::StartGroup(pictures);pictures.groups[1].screenshot_phase=nr_acceptance_policy::ScreenshotPhase::Capture;
+    pictures.window.started=GetTickCount64()-3001;
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(!pictures.groups[1].shots[0].requested,"zero NR adoption cannot schedule screenshot");
     pictures.groups[1].shots[0].requested=true;pictures.groups[1].shots[0].config=pictures.groups[1].generation;
@@ -194,6 +220,7 @@ void Run(){
     nr_acceptance::TickScreenshotsAtExtent(runtime,1920,1080);
     Check(std::strstr(pictures.groups[1].reason,"timeout")!=nullptr,"missing screenshot callback times out");
     nr_acceptance::Cancel();DrainExport();
+    Check(!nr_acceptance::PerformanceActive(),"cancel disables diagnostic GPU instrumentation");
     Check(nr_acceptance::SameRequested(off,SnapshotConfig())&&nr_processing_runtime::session.Current()==original_route.Current()&&
         nr_post_settings::Read().percent==original_post.percent,"screenshot cancel restores NR-off Before and post precision");
     nr_acceptance::ScreenshotReceipt(runtime,absolute,1920,1080);

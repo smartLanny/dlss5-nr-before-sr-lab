@@ -14,7 +14,7 @@ RWTexture2D<float4> CarrierOut:register(u0);
 RWTexture2D<float4> TailOut:register(u1);
 RWTexture2D<float4> Target:register(u2);
 bool Valid(){return PairValid&&all(FullSize>0)&&all(WorkSize>0)&&all(WorkSize<=FullSize)&&
-    all(WorkSize*4>=FullSize)&&isfinite(CarrierRange)&&CarrierRange>1e-6&&CarrierRange<=1e6;}
+    all(WorkSize>=max(uint2(1,1),FullSize/4))&&isfinite(CarrierRange)&&CarrierRange>1e-6&&CarrierRange<=1e6;}
 [numthreads(8,8,1)]
 void ExtractCS(uint3 id:SV_DispatchThreadID){
     if(any(id.xy>=WorkSize))return;

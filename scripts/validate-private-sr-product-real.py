@@ -13,6 +13,7 @@ def main():
     p.add_argument('--layers',type=int,choices=range(6),default=0)
     p.add_argument('--percent',type=int,choices=(25,50,100),default=50)
     p.add_argument('--native-rr',action='store_true')
+    p.add_argument('--private-sr-off',action='store_true',help='Isolated native/ordinary NR control; performs no private Feature1 work')
     p.add_argument('--odd',action='store_true',help='Add one pixel to each native render/output dimension; N uses floor percent')
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--frames',type=int,default=6,help='Final Z frames, 2..256; use at least 32 for a stable timing window')
@@ -34,8 +35,8 @@ def main():
     wrapper=out/'host.cpp';wrapper.write_text('#define NR_PRIVATE_SR_CORE "'+source.as_posix()+'"\n'+host+
         '#include "'+fixture.as_posix()+'"\n',encoding='utf-8')
     build=core/'build';objects=[build/'obj'/n for n in ('buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o')]+objects_for(source)
-    report={'schema':'actual-product-private-sr-v1','result':'running','source_commit':manifest['source_commit'],
-        'generated_source_sha256':sha(source),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(fixture),
+    report={'schema':'actual-product-private-sr-v2','result':'running','gpu_execution':'not-run','compile_only':a.compile_only,'private_sr_enabled':not a.private_sr_off,'source_commit':manifest['source_commit'],
+        'generated_source':str(source),'generated_source_sha256':sha(source),'manifest_path':str(manifest_path),'manifest_sha256':sha(manifest_path),'fixture_sha256':sha(fixture),
         'host_helpers_sha256':sha(original),'wrapper_sha256':sha(wrapper),'compiler_sha256':sha(a.compiler),'commands':[],
         'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':bool(a.layers),'nr_layers':a.layers,'frames':a.frames,'percent':a.percent,'native_feature':13 if a.native_rr else 1,
         'native_render_extent':[x+int(a.odd) for x in ([1280,720] if a.native_rr else [320,192])],
@@ -60,15 +61,25 @@ def main():
     if a.reshade_runtime:flags.append('-DNR_TEST_RESHADE_RUNTIME=1')
     try:
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
-        if not result and not a.compile_only:result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd)],240)
-        report['gpu_execution']='not-run' if a.compile_only else ('passed' if not result else 'failed')
+        if not result and not a.compile_only:
+            report['gpu_execution']='running';save()
+            result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd),int(not a.private_sr_off)],240)
+            report['gpu_execution']='passed' if not result else 'failed'
         report['result']='passed' if not result else 'failed'
         if (out/'real-feature1.log').is_file():
             import re
             log=(out/'real-feature1.log').read_text(encoding='utf-8',errors='replace')
             report['metrics']=[dict((k,float(v) if '.' in v else int(v)) for k,v in re.findall(r'(\w+)=([0-9.]+)',line)) for line in log.splitlines() if line.startswith('METRIC ')]
-        report['captures_sha256']={f.name:sha(f) for f in out.glob('*.fp16')}
+        report['captures_sha256']={f.name:sha(f) for pattern in ('*.fp16','*.fp32') for f in out.glob(pattern)}
+        capture_manifest=out/'actual-core-same-frame.json'
+        if capture_manifest.is_file():
+            report['same_frame']=json.loads(capture_manifest.read_text())
+            report['same_frame_manifest_sha256']=sha(capture_manifest)
+        report['cost_sample_exclusion']='Final diagnostic-capture frame and all creation frames are excluded from stable cost comparisons.'
         report['binary_sha256']=sha(out/'product-real.exe') if (out/'product-real.exe').is_file() else None
         save();return result
-    except Exception as e:report['result']='failed';report['error']=str(e);save();raise
+    except Exception as e:
+        report['result']='failed';report['error']=str(e)
+        if report['gpu_execution']=='running':report['gpu_execution']='failed'
+        save();raise
 if __name__=='__main__':raise SystemExit(main())

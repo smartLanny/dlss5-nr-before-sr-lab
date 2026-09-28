@@ -44,6 +44,18 @@ struct Group {
     wchar_t report_path[1024]{},capture_path[1024]{};
     Shot shots[kShots]{};unsigned shot_count=0,shot_width=0,shot_height=0;
     bool adoption_probe=false;unsigned long long probe_private=0,probe_gpu=0;
+    ScreenshotPhase screenshot_phase=ScreenshotPhase::Warmup;
+    unsigned long long performance_started=0,performance_owner=0,performance_stream=0,
+        performance_epoch=0,performance_source=0,performance_frame=0,performance_queue=0,
+        performance_last_temporal_adopted=0,performance_history=0;
+    unsigned performance_warmup=0,performance_count=0,performance_rejected=0;
+    unsigned performance_work_width=0,performance_work_height=0,
+        performance_output_width=0,performance_output_height=0;
+    unsigned long long performance_temporal_adopted=0,performance_private_adopted=0;
+    double performance_ms[kScreenshotGpuSamples]{};
+    unsigned long long performance_sources[kScreenshotGpuSamples]{},performance_frames[kScreenshotGpuSamples]{},
+        performance_fences[kScreenshotGpuSamples]{};
+    char performance_reason[96]{};
     nr_timing::Snapshot cpu_before{},cpu_after{};
 };
 struct Session {
@@ -60,15 +72,18 @@ struct Session {
 SRWLOCK lock=SRWLOCK_INIT;
 Session* session=nullptr;
 std::atomic<bool> active{false};std::atomic<bool> packaging{false};
+std::atomic<bool> performance_active{false};
 std::atomic<unsigned long long> next_id{0};
 std::atomic<unsigned long long> dropped_samples{0};
 wchar_t last_path[1024]{};char last_reason[128]{};bool last_restored=false;
 wchar_t last_screenshot_page[1024]{};
 bool Active(){return active.load(std::memory_order_acquire);}
+bool PerformanceActive(){return performance_active.load(std::memory_order_acquire);}
 nr_processing::Start ObservedRoute(){return IsRayReconstructionRouteObserved()?nr_processing::Start::After:nr_processing_runtime::Effective();}
 void Reason(Group& g,const char* reason){if(!g.reason[0])std::snprintf(g.reason,sizeof(g.reason),"%s",reason);}
 bool SameRequested(const ChainConfig& expected,ChainConfig actual){actual.perf_epoch=expected.perf_epoch;return SameConfig(expected,actual);}
 void StartGroup(Session& s){
+    performance_active.store(false,std::memory_order_release);
     auto& g=s.groups[s.index];g.step=Get(s.program,s.index,s.original_effective==nr_processing::Start::Before);g.requested=s.original;
     if(s.program==Program::Screenshots){
         g.requested.enabled=s.index!=0;
@@ -114,6 +129,13 @@ void StartGroup(Session& s){
     g.private_composed_start=nr_private_sr_status::composed.load();g.private_submitted_start=nr_private_sr_status::submitted.load();g.private_adopted_start=nr_private_sr_status::adopted.load();
     g.warmup_eval_start=g.eval_start;g.warmup_submit_start=g.submit_start;
     s.window.Start(GetTickCount64());
+    if(s.program==Program::Screenshots){
+        g.screenshot_phase=ScreenshotPhase::Warmup;
+        g.performance_started=s.window.started;
+        g.performance_history=g_history_generation.load();
+        g.performance_last_temporal_adopted=nr_temporal_status::gpu_adopted.load();
+        performance_active.store(!g.reason[0]&&g.requested.enabled,std::memory_order_release);
+    }
     if(g.reason[0])s.window.phase=Phase::Report;
 }
 #include "nr_acceptance_screenshot_export.inl"
@@ -180,6 +202,7 @@ DWORD WINAPI Export(void* opaque){
     packaging.store(false);ReleaseSRWLockExclusive(&lock);return 0;
 }
 void Finish(Session* s,bool cancelled){
+    performance_active.store(false,std::memory_order_release);
     s->cancelled=cancelled;
     auto& g=s->groups[s->index];
     if(cancelled&&g.capture_requested)CancelPendingStageCapture(g.capture_id);
@@ -236,10 +259,85 @@ void Screenshot(reshade::api::effect_runtime* runtime,const char* path){
     unsigned width=0,height=0;runtime->get_screenshot_width_and_height(&width,&height);
     ScreenshotReceipt(runtime,path,width,height);
 }
+void EndScreenshotPerformance(Session& s,Group& g,const char* reason,unsigned long long now){
+    performance_active.store(false,std::memory_order_release);
+    const auto temporal=nr_temporal_status::gpu_adopted.load();
+    const auto private_sr=nr_private_sr_status::adopted.load();
+    g.performance_temporal_adopted=temporal>=g.gpu_adopted_start?temporal-g.gpu_adopted_start:0;
+    g.performance_private_adopted=private_sr>=g.private_adopted_start?private_sr-g.private_adopted_start:0;
+    if(reason&&!g.performance_reason[0])std::snprintf(g.performance_reason,sizeof(g.performance_reason),"%s",reason);
+    g.screenshot_phase=ScreenshotPhase::Capture;
+    s.window.Start(now); // Screenshot admission has its own warmup and timeout.
+    g.adoption_probe=false;
+}
+bool TickScreenshotPerformance(Session& s,Group& g,reshade::api::effect_runtime* runtime,unsigned long long now){
+    if(g.screenshot_phase==ScreenshotPhase::Capture)return false;
+    if(g.reason[0]){EndScreenshotPerformance(s,g,"group-admission-failed",now);return false;}
+    if(!g.requested.enabled){EndScreenshotPerformance(s,g,"not-applicable-no-plugin-GPU-work",now);return false;}
+    EnterCriticalSection(&g_chain_cs);
+    const bool same=g_config_generation.load()==g.generation&&SameRequested(g.requested,g_config)&&
+        nr_post_settings::Read().percent==g.percent&&nr_post_settings::Read().rr==g.post_rr&&
+        ObservedRoute()==nr_processing::Start::After&&g_history_generation.load()==g.performance_history;
+    if(!same){LeaveCriticalSection(&g_chain_cs);Reason(g,"configuration-route-or-reset-changed");
+        EndScreenshotPerformance(s,g,"configuration-route-or-reset-changed",now);return false;}
+    nr_acceptance_gpu::Sample sample{};
+    while(nr_acceptance_gpu::Pop(sample)){
+        if(sample.config!=g.generation||sample.history!=g.performance_history)continue;
+        const bool valid=sample.instance&&sample.frame&&sample.queue&&sample.fence&&sample.source&&
+            sample.work_width&&sample.work_height&&sample.output_width&&sample.output_height&&
+            sample.since_reset>=64&&std::isfinite(sample.ms)&&sample.ms>0&&
+            (!g.requested.private_residual_sr||sample.private_composed)&&
+            (!g.requested.temporal_backend||sample.temporal_recorded);
+        if(!valid){++g.performance_rejected;continue;}
+        if(!g.performance_owner){g.performance_owner=sample.instance;g.performance_stream=sample.source.stream;
+            g.performance_epoch=sample.source.epoch;g.performance_queue=sample.queue;
+            g.performance_work_width=sample.work_width;g.performance_work_height=sample.work_height;
+            g.performance_output_width=sample.output_width;g.performance_output_height=sample.output_height;}
+        if(g.performance_owner!=sample.instance||g.performance_stream!=sample.source.stream||
+           g.performance_epoch!=sample.source.epoch||g.performance_queue!=sample.queue||
+           g.performance_work_width!=sample.work_width||g.performance_work_height!=sample.work_height||
+           g.performance_output_width!=sample.output_width||g.performance_output_height!=sample.output_height||
+           sample.source.sequence<=g.performance_source||sample.frame<=g.performance_frame){
+            ++g.performance_rejected;continue;
+        }
+        g.performance_source=sample.source.sequence;g.performance_frame=sample.frame;
+        if(g.screenshot_phase==ScreenshotPhase::Warmup){
+            if(++g.performance_warmup==kScreenshotWarmupSamples){
+                g.screenshot_phase=ScreenshotPhase::Measure;g.performance_started=now;
+                g.gpu_adopted_start=nr_temporal_status::gpu_adopted.load();
+                g.gpu_tested_start=nr_temporal_status::gpu_tested.load();
+                g.private_adopted_start=nr_private_sr_status::adopted.load();
+            }
+        }else if(g.performance_count<kScreenshotGpuSamples){
+            const unsigned index=g.performance_count++;
+            g.performance_ms[index]=sample.ms;
+            g.performance_sources[index]=sample.source.sequence;
+            g.performance_frames[index]=sample.frame;
+            g.performance_fences[index]=sample.fence;
+            if(g.performance_count==kScreenshotGpuSamples)break;
+        }
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    if(g.screenshot_phase==ScreenshotPhase::Measure&&g.performance_count==kScreenshotGpuSamples){
+        if(g.requested.temporal_backend&&
+           (nr_temporal_status::gpu_config.load()!=g.generation||
+            nr_temporal_status::gpu_instance.load()!=g.performance_owner||
+            nr_temporal_status::gpu_adopted.load()<=g.gpu_adopted_start))
+            EndScreenshotPerformance(s,g,"temporal-GPU-history-not-adopted",now);
+        else if(g.requested.private_residual_sr&&nr_private_sr_status::adopted.load()<=g.private_adopted_start)
+            EndScreenshotPerformance(s,g,"private-SR-not-submitted",now);
+        else EndScreenshotPerformance(s,g,"complete",now);
+    }else if(now-g.performance_started >= (g.screenshot_phase==ScreenshotPhase::Warmup?
+        kScreenshotWarmupTimeoutMs:kScreenshotMeasureTimeoutMs))
+        EndScreenshotPerformance(s,g,g.screenshot_phase==ScreenshotPhase::Warmup?
+            "warmup-insufficient-valid-GPU-sources":"measure-insufficient-valid-GPU-samples",now);
+    return g.screenshot_phase!=ScreenshotPhase::Capture;
+}
 void TickScreenshotsAtExtent(reshade::api::effect_runtime* runtime,unsigned width,unsigned height){
     auto* s=session;if(!s)return;auto& g=s->groups[s->index];const auto now=GetTickCount64();
     if(runtime){if(runtime!=s->runtime)return;s->last_present=now;}
     if(now-s->last_present>5000){Reason(g,"Present-stopped; restored");Finish(s,true);return;}
+    if(TickScreenshotPerformance(*s,g,runtime,now))return;
     if(g.reason[0]){if(++s->index<s->count)StartGroup(*s);else {--s->index;Finish(s,false);}return;}
     if(!runtime)return;
     EnterCriticalSection(&g_chain_cs);
@@ -451,7 +549,9 @@ DWORD WINAPI Watchdog(void* opaque){
         auto* s=session;
         if(GetTickCount64()-s->last_memory>=1000){
             s->last_memory=GetTickCount64();const auto memory=nr_process_memory::Read(s->adapter,s->adapter_known);
-            if(s->window.phase==Phase::Measure&&SUCCEEDED(memory.local_result)){
+            if((s->window.phase==Phase::Measure||
+                (s->program==Program::Screenshots&&s->groups[s->index].screenshot_phase==ScreenshotPhase::Measure))&&
+                SUCCEEDED(memory.local_result)){
                 auto& g=s->groups[s->index];if(!g.memory_known)g.usage_start=memory.local.CurrentUsage;
                 g.memory_known=true;g.usage_end=memory.local.CurrentUsage;g.budget=memory.local.Budget;g.usage_sampled_peak=std::max(g.usage_sampled_peak,static_cast<unsigned long long>(memory.local.CurrentUsage));
             }
@@ -516,18 +616,24 @@ void Draw(reshade::api::effect_runtime* runtime,bool pending){
 void DrawScreenshotUi(reshade::api::effect_runtime* runtime,bool pending){
     const bool zh=UseChineseUi();
     ImGui::Separator();ImGui::TextUnformatted(zh?"一键画面对比":"One-click picture comparison");
-    ImGui::TextWrapped("%s",zh?"固定视角，自动依次预热并截取9组，每组3张；不更换模型和层数，不写入设置。截图来自不同显示时刻，不能作同帧像素差。":"Hold a fixed view. Warm up and capture nine groups, three screenshots each. Model, layers and saved settings stay intact. These are different display times, not same-frame pixels.");
+    ImGui::TextWrapped("%s",zh?"固定视角，9组各自先测GPU再截3张：预热180个有效源帧（最多20秒），采样600个有效帧（最多60秒）；不更换模型和层数，不写入设置。截图来自不同显示时刻。":"Hold a fixed view. Each of nine groups measures GPU work before three screenshots: 180 valid source frames (20s limit), then 600 valid samples (60s limit). Model, layers and saved settings stay intact.");
     const bool running=Active();
     ImGui::BeginDisabled(running||packaging.load()||pending||nr_f8::IsActive()||nr_core_feedback::Busy());
     if(ImGui::Button(zh?"开始自动截图对比":"Start screenshot comparison")){
         if(Start(runtime,Program::Screenshots,false))runtime->open_overlay(false,reshade::api::input_source::mouse);
     }
     ImGui::EndDisabled();
-    AcquireSRWLockShared(&lock);unsigned index=0,count=0,shots=0;const char* label="";
-    if(session&&session->program==Program::Screenshots){index=session->index+1;count=session->count;shots=session->groups[session->index].shot_count;label=session->groups[session->index].step.name;}
+    AcquireSRWLockShared(&lock);unsigned index=0,count=0,shots=0,warmup=0,gpu_samples=0;const char* label="";
+    ScreenshotPhase shot_phase=ScreenshotPhase::Capture;
+    if(session&&session->program==Program::Screenshots){index=session->index+1;count=session->count;
+        const auto& g=session->groups[session->index];shots=g.shot_count;label=g.step.name;
+        shot_phase=g.screenshot_phase;warmup=g.performance_warmup;gpu_samples=g.performance_count;}
     wchar_t page[1024]{};wcscpy_s(page,last_screenshot_page);char reason[128]{};std::snprintf(reason,sizeof(reason),"%s",last_reason);
     const bool restored=last_restored;ReleaseSRWLockShared(&lock);
-    if(count){ImGui::Text(zh?"第%u/%u组 %s，截图%u/3":"Group %u/%u %s, screenshots %u/3",index,count,label,shots);
+    if(count){
+        if(shot_phase==ScreenshotPhase::Warmup)ImGui::Text(zh?"第%u/%u组 %s，GPU预热%u/180":"Group %u/%u %s, GPU warmup %u/180",index,count,label,warmup);
+        else if(shot_phase==ScreenshotPhase::Measure)ImGui::Text(zh?"第%u/%u组 %s，GPU样本%u/600":"Group %u/%u %s, GPU samples %u/600",index,count,label,gpu_samples);
+        else ImGui::Text(zh?"第%u/%u组 %s，截图%u/3":"Group %u/%u %s, screenshots %u/3",index,count,label,shots);
         if(ImGui::Button(zh?"停止并恢复":"Stop and restore"))Cancel();}
     if(reason[0])ImGui::TextWrapped("%s; restored=%s",reason,restored?"yes":"no");
     if(page[0]){char utf8[4096]{};WideToUtf8(page,utf8,sizeof(utf8));ImGui::TextWrapped("%s",utf8);

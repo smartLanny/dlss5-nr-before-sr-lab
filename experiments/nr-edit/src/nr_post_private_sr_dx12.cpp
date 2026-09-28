@@ -64,6 +64,24 @@ public:
         }
     }
 };
+RecordedPlanes InspectRecordedPlanes(const Context* c,unsigned index,Recording recording) {
+    if(!c||c->poisoned||index>=c->slots.size()||
+       c->slots[index].recording!=recording)return {};
+    const auto& s=c->slots[index];
+    return {s.carrier,s.tail,s.upscaled};
+}
+RecordedPlanes InspectRecordedPlanes(const Context* c,Recording recording) {
+    if(!c||!recording||c->poisoned)return {};
+    RecordedPlanes found{};
+    for(unsigned index=0;index<c->slots.size();++index) {
+        const auto current=InspectRecordedPlanes(c,index,recording);
+        if(current) {
+            if(found)return {}; // Ambiguous identity is never observable.
+            found=current;
+        }
+    }
+    return found;
+}
 Context* Create(ID3D12Device* device,nr_private_sr::Api api,nr_private_sr::Shape shape,
     const std::array<nr_edit_dx12::Bytecode,static_cast<unsigned>(nr_edit_dx12::Kernel::Count)>& code,
     nr_edit_dx12::SameDevice same,std::uint64_t budget,std::uint64_t* bytes) {

@@ -57,10 +57,12 @@ Footprint Bilinear(unsigned x,unsigned y,unsigned w,unsigned height,unsigned nw,
     const float fx=float(ax-ix*dx)/dx,fy=float(ay-iy*dy)/dy;Footprint f{};
     for(int j=0;j<2;++j)for(int i=0;i<2;++i){const auto k=j*2+i;f.x[k]=std::clamp(ix+i,0,int(nw)-1);f.y[k]=std::clamp(iy+j,0,int(nh)-1);f.w[k]=(i?fx:1-fx)*(j?fy:1-fy);}return f;
 }
-void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target){
+void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target,
+              unsigned w=129,unsigned height=97,bool floor_quarter=false){
     using namespace nr_edit_dx12;using namespace nr_post_residual_dx12;ResourceOwner owner;
-    constexpr unsigned w=129,height=97,aw=140,ah=109;
-    const unsigned nw=(w*percent+99)/100,nh=(height*percent+99)/100;
+    const unsigned aw=w+11,ah=height+12;
+    const unsigned nw=floor_quarter?w/4:(w*percent+99)/100;
+    const unsigned nh=floor_quarter?height/4:(height*percent+99)/100;
     const Rect br{3,5,w,height},zr{6,2,w,height},tr=alias_target?zr:Rect{4,4,w,height};
     const Pixel sentinel{.4375f,.4375f,.4375f,.75f};
     std::vector<Pixel> b(aw*ah,sentinel),z(aw*ah,sentinel),target(aw*ah,sentinel);
@@ -146,5 +148,6 @@ int wmain(int argc,wchar_t** argv){try{
     Require(argc==2||(argc==3&&std::wstring(argv[2])==L"--nvidia"),"usage: post_residual_gpu <shaders> [--nvidia]");
     Harness h(std::filesystem::path(argv[1]),argc==3);
     for(unsigned percent:{25u,33u,50u,75u,99u,100u})for(unsigned kind=0;kind<10;++kind)Scenario(h,percent,kind,kind%2==0);
-    std::cout<<"PASS post-final-residual "<<(argc==3?"NVIDIA":"WARP")<<" cases=60 checks="<<checks<<"; analytic reconstruction, no NR/private SR/game claim\n";return 0;
+    Scenario(h,25,3,false,257,193,true);
+    std::cout<<"PASS post-final-residual "<<(argc==3?"NVIDIA":"WARP")<<" cases=61 checks="<<checks<<"; odd floor-quarter 257x193 to 64x48; analytic reconstruction, no NR/private SR/game claim\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

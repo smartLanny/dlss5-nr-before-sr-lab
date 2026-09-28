@@ -310,6 +310,8 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
         f.timing_creation=result.status==nr_post_private_sr_dx12::Status::WaitingForSr&&!o->creation_observed;
     }
     f.backend_recorded=result.recorded;f.composed=result.composed;
+    if(slot.acceptance_time_active&&slot.acceptance_time_source==current)
+        slot.acceptance_time_private_composed=result.composed;
     if(result.recorded)nr_private_sr_status::recorded.fetch_add(1);
     if(result.composed){o->last_source=source;nr_private_sr_status::composed.fetch_add(1);Say(State::Recorded);}
     else if(result.status==nr_post_private_sr_dx12::Status::WaitingForSr){

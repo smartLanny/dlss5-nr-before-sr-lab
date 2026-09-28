@@ -13,6 +13,9 @@ int main(){
     check(Get(Program::LowFrequency,0,false).private_sr==0&&Get(Program::LowFrequency,0,false).temporal_mode==0&&Get(Program::LowFrequency,1,false).temporal_mode==1,"mutually exclusive temporal comparisons");
     check(Count(Program::Screenshots)==9&&Get(Program::Screenshots,0,false).private_sr==0&&Get(Program::Screenshots,3,false).private_sr==1&&Get(Program::Screenshots,5,false).percent==25,"screenshot order and private SR scope");
     check(Get(Program::Screenshots,6,false).backend==1&&Get(Program::Screenshots,7,false).backend==2&&Get(Program::Screenshots,8,false).temporal_mode==1,"screenshot temporal variants");
+    check(kScreenshotWarmupSamples==180&&kScreenshotGpuSamples==600&&
+        kScreenshotWarmupTimeoutMs==20000&&kScreenshotMeasureTimeoutMs==60000,
+        "nine-group performance windows are bounded and separate from image capture");
     Window w;w.Start(1000);Observation o{true,true,false,true,100};
     check(!w.Tick(4000,o)&&w.phase==Phase::Warmup,"Evaluate without adoption does not begin measurement");
     o.adopted=true;o.temporal=false;check(!w.Tick(5000,o),"unavailable temporal does not look active");

@@ -196,6 +196,8 @@ bool Record(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,Prep
  const auto bytes_after=p.runtime->stats().bytes;
  if(bytes_after>bytes_before)nr_temporal_status::Allocated(bytes_after-bytes_before);
  if(result==RecordResult::Recorded){
+  if(slot.acceptance_time_active&&slot.acceptance_time_source==nr_source_runtime::CurrentSource())
+   slot.acceptance_time_temporal_recorded=true;
   context.temporal_token=p.recording;nr_temporal_status::recorded.fetch_add(1);Status(7);return true;
  }
  if(result==RecordResult::Faulted){

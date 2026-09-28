@@ -1,15 +1,57 @@
 """Session-only guided comparison, applied after temporal and native O capture."""
 from pathlib import Path
-INPUTS=('scripts/patch-acceptance.py','src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl',
+INPUTS=('scripts/patch-acceptance.py','src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl','src/nr_acceptance_gpu_timing.inl',
         'tests/acceptance_policy_test.cpp','tests/acceptance_core_harness.inl','scripts/validate-acceptance.py')
 
 def apply(stage:Path,inputs,helpers):
     root=stage/'core'
-    for path in ('src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl'):
+    for path in ('src/nr_acceptance_policy.h','src/nr_acceptance_runtime.inl','src/nr_acceptance_screenshot_export.inl','src/nr_acceptance_gpu_timing.inl'):
         (root/path).write_bytes(inputs[path])
     p=root/'src/nr_before_sr.cpp';s=p.read_text(encoding='utf-8')
     s=helpers.once(s,'#include "nr_f8_sequence.inl"',
-        '#define NR_HAS_ACCEPTANCE 1\nnamespace nr_acceptance { bool Active(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+        '#define NR_HAS_ACCEPTANCE 1\nnamespace nr_acceptance { bool Active(); bool PerformanceActive(); }\n#include "nr_f8_sequence.inl"\n#include "nr_acceptance_gpu_timing.inl"\n#include "nr_acceptance_runtime.inl"','guided controller ordering')
+    s=helpers.once(s,'    ID3D12QueryHeap* dual_time_heap=nullptr;', '''    ID3D12QueryHeap* acceptance_time_heap=nullptr;
+    ID3D12Resource* acceptance_time_readback=nullptr;
+    LifecycleQueue* acceptance_time_queue=nullptr;
+    unsigned long long acceptance_time_token=0,acceptance_time_fence=0;
+    unsigned acceptance_time_mask=0,acceptance_time_generation=0,acceptance_time_history=0;
+    unsigned acceptance_time_work_width=0,acceptance_time_work_height=0,acceptance_time_output_width=0,acceptance_time_output_height=0;
+    nr_source_frame::Source acceptance_time_source{};
+    NrDiagnosticIdentity acceptance_time_identity{};
+    bool acceptance_time_active=false,acceptance_time_pending=false,acceptance_time_visible=false,acceptance_time_private_composed=false,acceptance_time_temporal_recorded=false;
+    ID3D12QueryHeap* dual_time_heap=nullptr;''','acceptance timestamp slot state')
+    s=helpers.once(s,'    ReleaseCom(slot.dual_time_heap);ReleaseCom(slot.dual_time_readback);',
+        '    ReleaseCom(slot.acceptance_time_heap);ReleaseCom(slot.acceptance_time_readback);\n    ReleaseCom(slot.dual_time_heap);ReleaseCom(slot.dual_time_readback);','acceptance timestamp retirement')
+    s=helpers.once(s,'    if (slot.delta_stats_capture_armed)\n        slot.diagnostic_identity = identity;',
+        '    if(slot.acceptance_time_active||slot.acceptance_time_pending)slot.acceptance_time_identity=identity;\n    if (slot.delta_stats_capture_armed)\n        slot.diagnostic_identity = identity;','freeze acceptance source identity')
+    s=helpers.once(s,'namespace nr_dual_runtime {void CollectTiming(NrSlot&);}',
+        '''namespace nr_acceptance_gpu {
+bool Prepare(ID3D12Device*,NrSlot&,ID3D12GraphicsCommandList*,unsigned,unsigned,unsigned,unsigned);
+void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned);
+void Finish(ID3D12GraphicsCommandList*,NrSlot&,bool);
+void Collect(NrSlot&);
+}
+namespace nr_dual_runtime {void CollectTiming(NrSlot&);}''','acceptance timestamp declarations')
+    s=helpers.once(s,'    nr_dual_runtime::CollectTiming(slot);',
+        '    nr_dual_runtime::CollectTiming(slot);\n    nr_acceptance_gpu::Collect(slot);','asynchronous timestamp collection')
+    s=helpers.once(s,'        if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {',
+        '''        if(slot->acceptance_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
+            const auto* record=batch.records[r];
+            if(record&&record->token==slot->acceptance_time_token){
+                slot->acceptance_time_queue=queue_state;slot->acceptance_time_fence=batch.fence_value;break;
+            }
+        }
+        if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {''','exact acceptance submit receipt')
+    s=helpers.once(s,'    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {',
+        '    nr_acceptance_gpu::Prepare(device,*slot,command_list,context->width,context->height,width,height);\n    nr_regions::Seal(device,command_list,*context,*slot);\n    if (!RecordNrUseLocked(command_list, *context, *slot)) {','prepare timestamp before lifecycle recording')
+    s=helpers.once(s,'    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);',
+        '    nr_acceptance_gpu::Stamp(command_list,*slot,0);\n    nr_regions::Dispatch(command_list,*slot,false);\n    ReleaseCom(device);','start post route GPU sample before private guide capture')
+    s=helpers.once(s,'    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);',
+        '    if(after_sr.active&&timed)nr_acceptance_gpu::Stamp(before_state.command_list,*timed,1);\n    if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);','end pre-native plugin work')
+    s=helpers.once(s,'    if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);',
+        '    if(after_sr.active&&timed)nr_acceptance_gpu::Stamp(before_state.command_list,*timed,2);\n    if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);','start post-native plugin work')
+    s=helpers.once(s,'        ~TimingEnd(){if(safe)nr_dual_runtime::ResolveTiming(list,slot,visible);}',
+        '        ~TimingEnd(){if(safe){nr_acceptance_gpu::Finish(list,slot,visible);nr_dual_runtime::ResolveTiming(list,slot,visible);}}','finish successful post route GPU sample')
     s=helpers.once(s,'#include "nr_feedback_capture.inl"',
         'namespace nr_acceptance { void Screenshot(reshade::api::effect_runtime*,const char*); }\n#include "nr_feedback_capture.inl"',
         'screenshot callback forward declaration before feedback include')

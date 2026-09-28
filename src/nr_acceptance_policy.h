@@ -5,6 +5,9 @@
 namespace nr_acceptance_policy {
 enum class Program : unsigned { Current, Colour, Temporal, PrivateSr, LowFrequency, Screenshots };
 enum class Phase : unsigned { Warmup, Measure, Report, Capture, Complete };
+enum class ScreenshotPhase : unsigned { Warmup, Measure, Capture };
+constexpr unsigned kScreenshotWarmupSamples=180,kScreenshotGpuSamples=600;
+constexpr std::uint64_t kScreenshotWarmupTimeoutMs=20000,kScreenshotMeasureTimeoutMs=60000;
 struct Step { const char* name; unsigned percent; int colour; int backend; unsigned scope; bool capture; int private_sr=-1,temporal_mode=-1; };
 inline unsigned Count(Program p) { return p==Program::Current?1u:p==Program::Colour?6u:p==Program::Temporal?5u:p==Program::PrivateSr?3u:p==Program::Screenshots?9u:2u; }
 inline Step Get(Program p,unsigned i,bool before) {

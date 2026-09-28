@@ -66,6 +66,12 @@ $Tests=Join-Path $OutputRoot 'unified8-checks'
 $TemporalGate=Join-Path $Tests 'temporal-budget-status'
 & python (Join-Path $PSScriptRoot 'validate-temporal-budget.py') --compiler $Cxx --source (Join-Path $Core 'src/temporal') --status-source (Join-Path $Core 'src') --sdk $FfxSdkRoot --output $TemporalGate
 if ($LASTEXITCODE) { throw "Staged temporal budget CPU, WARP allocation queries, or admission log limiter CPU failed; see $TemporalGate/validation.json." }
+$TemporalQualityGate=Join-Path $Tests 'temporal-quality-sequence'
+& python (Join-Path $PSScriptRoot 'validate-temporal-quality-sequence.py') --core $Core --compiler $Cxx --sdk $FfxSdkRoot --sdk-cache $FfxCacheRoot --output $TemporalQualityGate
+if ($LASTEXITCODE) { throw "Generated temporal production shader sequence WARP failed; see $TemporalQualityGate/result.json." }
+$PrivateQualityGate=Join-Path $Tests 'private-sr-quality-warp'
+& python (Join-Path $PSScriptRoot '../experiments/nr-edit/tools/validate_private_sr_quality.py') --core $Core --compiler $Cxx --output $PrivateQualityGate
+if ($LASTEXITCODE) { throw "Generated private SR controlled spatial/WARP quality attribution failed; see $PrivateQualityGate/validation.json." }
 & python (Join-Path $PSScriptRoot 'validate-guide-domain.py') --compiler $Cxx --source $Source --output (Join-Path $Tests 'guide-domain')
 if ($LASTEXITCODE) { throw 'Generated Core guide-domain regression failed.' }
 & python (Join-Path $PSScriptRoot 'validate-acceptance.py') --compiler $Cxx --source $Source --reshade $ReShadeSourceRoot --output (Join-Path $Tests 'acceptance')
@@ -81,6 +87,8 @@ if ($LASTEXITCODE) { throw 'Actual native output capture failed.' }
 [ordered]@{passed=$true;source_sha256=(Get-FileHash -LiteralPath $Source).Hash.ToLowerInvariant();
     acceptance=$true;restoration_negative=$true;temporal_entries=$true;auxiliary=$true;native_output=$true;
     temporal_budget_status_receipt=(Join-Path $TemporalGate 'validation.json');
+    temporal_quality_sequence_receipt=(Join-Path $TemporalQualityGate 'result.json');
+    private_sr_quality_warp_receipt=(Join-Path $PrivateQualityGate 'validation.json');
     game=$false;nvidia_inference=$false;hosted_ci=$false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Tests 'validation.json') -Encoding utf8
 & python (Join-Path $PSScriptRoot '../tests/test_reconstruction_runtime.py') --generated $Core -v

@@ -34,11 +34,16 @@ struct Rig {
     using Release=unsigned(*)(void*);
     Allocate allocate=nullptr;Destroy destroy=nullptr;Create create=nullptr;Evaluate evaluate=nullptr;Release release=nullptr;
     bool real=false,hold_sr_completion=false;
+    bool spatial_fixture=false;
+    ID3D12RootSignature* spatial_root=nullptr;
+    ID3D12PipelineState* spatial_pipeline=nullptr;
+    ID3D12DescriptorHeap* spatial_heap=nullptr;
     std::map<void*,unsigned> retained_resources;
     std::array<std::vector<char>,2> shader_bytes;
 
-    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge)
-        :width(real_bridge?640:64),height(real_bridge?384:48),nw(width/2),nh(height/2),real(real_bridge!=nullptr) {
+    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge,bool quality)
+        :width(real_bridge||quality?640:64),height(real_bridge||quality?384:48),
+         nw(width/2),nh(height/2),real(real_bridge!=nullptr) {
         h=new Harness(shaders,hardware||real);owner=new ResourceOwner;
         api.user=this;api.original_sr_owner_verified=true;
         api.retirement_user=this;
@@ -82,6 +87,7 @@ struct Rig {
             auto& p=*static_cast<Block*>(params);r.reset_count+=p.ints.at("Reset")!=0;
             Need(p.floats.at("Jitter.Offset.X")==0&&p.floats.at("Jitter.Offset.Y")==0,"post source phase is not game render jitter");
             auto* output=static_cast<ID3D12Resource*>(p.resources.at("Output"));auto* l=static_cast<ID3D12GraphicsCommandList*>(list);
+            if(r.spatial_fixture){r.RecordSpatial(static_cast<ID3D12Resource*>(p.resources.at("Color")),output,l);return 1u;}
             Need(r.fixture_output!=nullptr,"fixture output supplied explicitly");
             Transition(l,r.fixture_output,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE);
             Transition(l,output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_DEST);
@@ -100,6 +106,84 @@ struct Rig {
         context=pipeline::Create(h->device,api,shape,code,SameDevice,64ull<<20,&bytes);
         Need(context&&!pipeline::Poisoned(context)&&bytes>0&&allocations==4,"three scratch slots, one feature with private parameter blocks");
     }
+    void RecordSpatial(ID3D12Resource* carrier,ID3D12Resource* output,ID3D12GraphicsCommandList* list) {
+        if(!spatial_pipeline){
+            // Test-only exact half-pixel reconstruction of the same N carrier
+            // passed to Feature1. Production transport and Compose are unchanged.
+            static constexpr char shader[]=R"(
+                cbuffer Dims:register(b0){uint2 FullSize;uint2 WorkSize;};
+                Texture2D<float4> Source:register(t0);
+                RWTexture2D<float4> Dest:register(u0);
+                [numthreads(8,8,1)] void main(uint3 id:SV_DispatchThreadID){
+                    if(any(id.xy>=FullSize))return;
+                    uint2 numerator=(2*id.xy+1)*WorkSize+FullSize;
+                    uint2 denominator=2*FullSize;
+                    int2 origin=int2(numerator/denominator)-1;
+                    float2 f=float2(numerator%denominator)/float2(denominator);
+                    float3 sum=0;
+                    [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
+                        int2 p=clamp(origin+int2(x,y),int2(0,0),int2(WorkSize)-1);
+                        float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
+                        sum+=Source.Load(int3(p,0)).rgb*w;
+                    }
+                    Dest[id.xy]=float4(sum,1);
+                })";
+            ID3DBlob *compiled=nullptr,*errors=nullptr,*signature=nullptr;
+            const auto result=D3DCompile(shader,sizeof(shader)-1,nullptr,nullptr,nullptr,
+                                         "main","cs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&compiled,&errors);
+            if(FAILED(result)){
+                if(errors)std::cerr.write(static_cast<const char*>(errors->GetBufferPointer()),errors->GetBufferSize());
+                throw std::runtime_error("quality spatial shader compilation");
+            }
+            if(errors)errors->Release();
+            D3D12_DESCRIPTOR_RANGE ranges[2]{};
+            ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
+            ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND};
+            D3D12_ROOT_PARAMETER parameters[3]{};
+            for(unsigned n=0;n<2;++n){parameters[n].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+                parameters[n].DescriptorTable={1,&ranges[n]};parameters[n].ShaderVisibility=D3D12_SHADER_VISIBILITY_ALL;}
+            parameters[2].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+            parameters[2].Constants={0,0,4};parameters[2].ShaderVisibility=D3D12_SHADER_VISIBILITY_ALL;
+            D3D12_ROOT_SIGNATURE_DESC root_desc{3,parameters,0,nullptr,D3D12_ROOT_SIGNATURE_FLAG_NONE};
+            Check(D3D12SerializeRootSignature(&root_desc,D3D_ROOT_SIGNATURE_VERSION_1,
+                                              &signature,&errors),"quality root signature serialization");
+            if(errors)errors->Release();
+            Check(h->device->CreateRootSignature(0,signature->GetBufferPointer(),
+                                                 signature->GetBufferSize(),IID_PPV_ARGS(&spatial_root)),
+                  "quality root signature");
+            signature->Release();
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_desc{};
+            pipeline_desc.pRootSignature=spatial_root;
+            pipeline_desc.CS={compiled->GetBufferPointer(),compiled->GetBufferSize()};
+            Check(h->device->CreateComputePipelineState(&pipeline_desc,IID_PPV_ARGS(&spatial_pipeline)),
+                  "quality spatial pipeline");
+            compiled->Release();
+            D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+            heap_desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            heap_desc.NumDescriptors=2;heap_desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            Check(h->device->CreateDescriptorHeap(&heap_desc,IID_PPV_ARGS(&spatial_heap)),
+                  "quality spatial descriptors");
+        }
+        const auto stride=h->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        auto cpu=spatial_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+        srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Texture2D.MipLevels=1;
+        h->device->CreateShaderResourceView(carrier,&srv,cpu);
+        cpu.ptr+=stride;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+        uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
+        h->device->CreateUnorderedAccessView(output,nullptr,&uav,cpu);
+        ID3D12DescriptorHeap* heaps[]={spatial_heap};list->SetDescriptorHeaps(1,heaps);
+        list->SetComputeRootSignature(spatial_root);list->SetPipelineState(spatial_pipeline);
+        auto gpu=spatial_heap->GetGPUDescriptorHandleForHeapStart();
+        list->SetComputeRootDescriptorTable(0,gpu);gpu.ptr+=stride;
+        list->SetComputeRootDescriptorTable(1,gpu);
+        const unsigned dims[]={width,height,nw,nh};
+        list->SetComputeRoot32BitConstants(2,4,dims,0);
+        list->Dispatch((width+7)/8,(height+7)/8,1);
+    }
     ID3D12Resource* Image(float value,float alpha=.75f) {
         auto* result=h->Texture(*owner,width,height,10,0,0,false);auto d=result->GetDesc();
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 bytes=0;h->device->GetCopyableFootprints(&d,0,1,0,&fp,nullptr,nullptr,&bytes);
@@ -114,6 +198,56 @@ struct Rig {
         D3D12_TEXTURE_COPY_LOCATION a{},b{};a.pResource=result;a.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         b.pResource=upload;b.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;b.PlacedFootprint=fp;
         h->list->CopyTextureRegion(&a,0,0,0,&b,nullptr);Transition(h->list,result,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);return result;
+    }
+    ID3D12Resource* Pattern(bool candidate) {
+        auto* result=h->Texture(*owner,width,height,10,0,0,false);auto d=result->GetDesc();
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 bytes=0;
+        h->device->GetCopyableFootprints(&d,0,1,0,&fp,nullptr,nullptr,&bytes);
+        auto* upload=h->Buffer(*owner,bytes,D3D12_HEAP_TYPE_UPLOAD);void* mapped=nullptr;D3D12_RANGE empty{};
+        Check(upload->Map(0,&empty,&mapped),"quality pattern map");
+        for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x){
+            // Same-frame B/Z: single-pixel strokes, a slanted edge, smooth
+            // signed edit, neutral area and a sharp edit-support boundary.
+            const bool line=(x>=350&&x<550&&y==70+(x-350)/4);
+            const bool glyph=(x==480&&(y>=80&&y<=140))||
+                (x>=480&&x<=496&&(y==80||y==110||y==140))||
+                (x==496&&y>=80&&y<=140);
+            const float edge=(x>410+y/5)?.09f:0.f;
+            const float base=.40f+edge+(line||glyph?.22f:0.f);
+            const float sx=(float(x)-320.f)/320.f,sy=(float(y)-192.f)/192.f;
+            const float smooth=.035f*sx-.025f*sy;
+            const float edit=x<width/2?0.f:smooth+(line||glyph?.03f:0.f);
+            const float value=base+(candidate?edit:0.f);
+            for(unsigned c=0;c<4;++c){
+                const float v=c==3?.75f:value;
+                int exponent=0;std::frexp(v,&exponent);--exponent;
+                unsigned mantissa=unsigned(std::nearbyint(std::ldexp(v,10-exponent)));
+                if(mantissa==2048){mantissa=1024;++exponent;}
+                const auto half=std::uint16_t(unsigned(exponent+15)*1024+(mantissa-1024));
+                std::memcpy(static_cast<char*>(mapped)+y*fp.Footprint.RowPitch+x*8+c*2,&half,2);}
+        }
+        upload->Unmap(0,nullptr);Transition(h->list,result,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION to{},from{};to.pResource=result;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
+        h->list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+        Transition(h->list,result,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);return result;
+    }
+    ID3D12Resource* DepthPlanes() {
+        auto* result=h->Texture(*owner,nw,nh,41,0,0,false);auto d=result->GetDesc();
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT64 bytes=0;
+        h->device->GetCopyableFootprints(&d,0,1,0,&fp,nullptr,nullptr,&bytes);
+        auto* upload=h->Buffer(*owner,bytes,D3D12_HEAP_TYPE_UPLOAD);void* mapped=nullptr;D3D12_RANGE empty{};
+        Check(upload->Map(0,&empty,&mapped),"quality depth map");
+        for(unsigned y=0;y<nh;++y)for(unsigned x=0;x<nw;++x){
+            const float depth=x<nw/2?.25f:.75f;
+            std::memcpy(static_cast<char*>(mapped)+y*fp.Footprint.RowPitch+x*4,&depth,4);
+        }
+        upload->Unmap(0,nullptr);
+        Transition(h->list,result,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION to{},from{};to.pResource=result;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
+        h->list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+        Transition(h->list,result,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);return result;
     }
     void Submit(bool recorded,bool release_recording=true) {
         const auto recording=h->Rec();Check(h->list->Close(),"close");ID3D12CommandList* lists[]={h->list};
@@ -175,11 +309,65 @@ struct Rig {
         for(const auto& p:retained_resources)Need(p.second==0,"all completed guide and vendor references released exactly");
         // All commands completed and retired before resource destruction.
         Check(h->list->Close(),"empty final close");delete owner;owner=nullptr;delete h;h=nullptr;
+        if(spatial_heap)spatial_heap->Release();
+        if(spatial_pipeline)spatial_pipeline->Release();
+        if(spatial_root)spatial_root->Release();
         if(bridge){FreeLibrary(bridge);bridge=nullptr;}
     }
 };
-void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridge,const std::wstring& negative) {
-    auto* r=new Rig(shaders,hardware,bridge);
+void SaveReadback(const Harness::Readback& readback,const std::filesystem::path& file) {
+    void* mapped=nullptr;Check(readback.buffer->Map(0,nullptr,&mapped),"quality readback map");
+    std::ofstream out(file,std::ios::binary);Need(bool(out),"open quality plane");
+    const auto row=std::size_t(readback.w)*PixelBytes(readback.format);
+    for(unsigned y=0;y<readback.h;++y)
+        out.write(static_cast<const char*>(mapped)+readback.footprint.Offset+
+                  y*readback.footprint.Footprint.RowPitch,row);
+    out.close();Need(bool(out),"write quality plane");
+    D3D12_RANGE empty{};readback.buffer->Unmap(0,&empty);
+}
+void CaptureQuality(Rig& r,const std::filesystem::path& directory,float carrier_range) {
+    Need(r.width==640&&r.height==384&&r.nw==320&&r.nh==192,
+         "quality capture requires fixed 640x384 to 320x192 shape");
+    std::filesystem::create_directories(directory);
+    r.spatial_fixture=!r.real;
+    std::ofstream manifest(directory/"frames.jsonl");Need(bool(manifest),"open quality identity log");
+    for(unsigned frame=0;frame<16;++frame) {
+        auto i=r.Frame(.5f);
+        i.pair.base=r.h->View(r.Pattern(false),10);
+        i.pair.candidate=r.h->View(r.Pattern(true),10);
+        i.target=r.h->View(r.Pattern(true),10);
+        i.depth=r.h->View(r.DepthPlanes(),41);
+        i.pair.carrier_range=carrier_range;i.reset=frame==0;
+        // A fixture copies a neutral reconstruction. The independent exact
+        // spatial result is computed from these same captured N-grid planes.
+        r.fixture_output=r.Image(.5f);
+        auto result=pipeline::Record(r.context,r.h->list,i);
+        Need(result.recorded&&result.composed&&result.status==pipeline::Status::Composed,
+             "quality frame adopted by private SR");
+        const auto planes=pipeline::InspectRecordedPlanes(r.context,result.slot,i.recording);
+        Need(bool(planes),"exact recorded diagnostic planes");
+        const std::array<const char*,7> names={"B","Z","carrier","tail","reconstructed","final","depth"};
+        const std::array<ID3D12Resource*,7> resources={i.pair.base.resource,i.pair.candidate.resource,
+            planes.carrier,planes.tail,planes.reconstructed,i.target.resource,i.depth.resource};
+        const std::array<unsigned,7> formats={10,10,10,2,10,10,41};
+        std::array<Harness::Readback,7> copies{};
+        for(unsigned k=0;k<7;++k)copies[k]=r.h->CopyOut(*r.owner,resources[k],formats[k]);
+        r.Submit(true);
+        for(unsigned k=0;k<7;++k)
+            SaveReadback(copies[k],directory/("frame-"+std::to_string(frame)+"-"+names[k]+
+                         (formats[k]==2||formats[k]==41?".fp32":".fp16")));
+        manifest<<"{\"frame\":"<<frame<<",\"source_sequence\":"<<i.pair.base_source.sequence
+                <<",\"recording_lifetime\":"<<i.recording.lifetime
+                <<",\"reset\":"<<(i.reset?"true":"false")
+                <<",\"adopted\":true,\"mode\":\""<<(r.real?"feature1":"fixture")
+                <<"\",\"output\":[640,384],\"work\":[320,192],\"carrier_range\":"<<carrier_range
+                <<",\"depth\":\"two_planes_0.25_0.75_split_160\"}\n";
+        manifest.flush();Need(bool(manifest),"write quality identity log");
+    }
+}
+void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridge,
+         const std::wstring& negative,const std::filesystem::path& quality_dir,float carrier_range) {
+    auto* r=new Rig(shaders,hardware,bridge,!quality_dir.empty());
     r->fixture_output=r->Image(.625f);r->Submit(false);
     auto warm=r->Frame(.75f);r->Invalid(warm);auto result=pipeline::Record(r->context,r->h->list,warm);
     Need(result.recorded&&!result.composed&&result.status==pipeline::Status::WaitingForSr,"creation is not successful reconstruction");
@@ -227,6 +415,7 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
             r->h->Assert(final,.5f+edits[kind],.5f,NAN,r->real&&kind>=3?.075f:0.f);
         }
     }
+    if(!quality_dir.empty())CaptureQuality(*r,quality_dir,carrier_range);
     if(!r->real) {
         unsigned resets=r->reset_count;
         auto i=r->Frame(.75f);++i.encoding_generation;
@@ -247,15 +436,23 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
 int wmain(int argc,wchar_t** argv) {
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
-        if(argc<2)throw std::runtime_error("usage: post-private-sr <shaders> [--hardware|--real bridge|--negative submit|discard]");
-        bool hardware=false;const wchar_t* real=nullptr;std::wstring negative;
+        if(argc<2)throw std::runtime_error("usage: post-private-sr <shaders> [--hardware|--real bridge|--negative submit|discard] [--quality-dir path] [--carrier-range value]");
+        bool hardware=false;const wchar_t* real=nullptr;std::wstring negative;std::filesystem::path quality_dir;
+        float carrier_range=4.f;
         for(int n=2;n<argc;++n) {
             if(std::wstring(argv[n])==L"--hardware")hardware=true;
             else if(std::wstring(argv[n])==L"--real"&&n+1<argc)real=argv[++n];
             else if(std::wstring(argv[n])==L"--negative"&&n+1<argc)negative=argv[++n];
+            else if(std::wstring(argv[n])==L"--quality-dir"&&n+1<argc)quality_dir=argv[++n];
+            else if(std::wstring(argv[n])==L"--carrier-range"&&n+1<argc){
+                std::size_t parsed=0;carrier_range=std::stof(argv[++n],&parsed);
+                if(parsed!=std::wstring(argv[n]).size()||!std::isfinite(carrier_range)||
+                   carrier_range<=1e-6f||carrier_range>1e6f)
+                    throw std::runtime_error("finite bounded carrier range");
+            }
             else throw std::runtime_error("unsupported test argument");
         }
-        post_sr_test::Run(argv[1],hardware,real,negative);return 0;
+        post_sr_test::Run(argv[1],hardware,real,negative,quality_dir,carrier_range);return 0;
     } catch(const std::exception& e) {
         std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);
         // Never unwind a pending/poisoned GPU fixture and release live objects.

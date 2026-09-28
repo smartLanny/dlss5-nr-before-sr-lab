@@ -9,7 +9,7 @@ def main():
     for n in ('compiler','reshade','source','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--codec-cache',type=Path,help='Exact source-keyed published shader cache; every payload hash is verified.')
-    p.add_argument('--case',default='all',choices=('all','pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native'))
+    p.add_argument('--case',default='all',choices=('all','pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native','rr-low','rr-later-low'))
     a=p.parse_args();out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     source=a.source.resolve();snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl';fixture=ROOT/'tests/temporal_routes_gpu.inl'
@@ -52,7 +52,7 @@ def main():
     exe=out/'temporal-routes.exe';run([cxx,*flags,'-std=c++20','-static','-Wl,--gc-sections',cpp,*objects,'-o',exe,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
     record['binary_sha256']=sha(exe)
     if not a.compile_only:
-        cases=('pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native') if a.case=='all' else (a.case,)
+        cases=('pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native','rr-low','rr-later-low') if a.case=='all' else (a.case,)
         for case in cases:
             r=run([exe,case],'run-'+case);print(r.stdout);record['cases'].append({'name':case,'passed':True})
     record['passed']=True;record['compile_only']=a.compile_only;save()

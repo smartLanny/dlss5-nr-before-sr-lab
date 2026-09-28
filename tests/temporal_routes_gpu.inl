@@ -44,7 +44,7 @@ void Run(const char* scenario){
     g_config.processing_start=pre?nr_processing::Start::Before:nr_processing::Start::After;g_config.processing_selection=1;
     g_config.transfer_strength=g_config.post_transfer_strength=1;g_config.color_strength=.7f;g_config.warmup_after_create=0;
     g_config.suppress_reset_frame=false; // Explicit fixture setting; exercise the compositor on the cold frame.
-    g_config.preserve_lighting=false;g_config.lighting_lock=0;g_config.temporal_backend=off?0:native?1:2;g_config.temporal_scope=later?1:0;
+    g_config.preserve_lighting=false;g_config.lighting_lock=0;g_config.temporal_backend=off?0:native?1:2;g_config.temporal_scope=later?1:0;g_config.temporal_mode=choice.find("low")!=std::string::npos?1:0;
     if(later){nr_layers::Migrate(g_config.nr_layers,2,nr_layers::Primary(g_config));NormalizeConfig(g_config);}
     if(scaled){g_config.work_mode=5;g_config.custom_work_scale=.75f;}
     nr_processing_runtime::Reconcile();g_nr_api.initialized=true;g_nr_api.allocate=Allocate;g_nr_api.destroy=Destroy;

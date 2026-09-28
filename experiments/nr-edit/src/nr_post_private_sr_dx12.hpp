@@ -25,6 +25,16 @@ struct Result {
     unsigned sr_result=0, slot=0;
 };
 class Context;
+// Diagnostic view for a still-live, exact recording. Borrowed resources must
+// be copied on that recording before submission; callers never retain them.
+struct RecordedPlanes {
+    ID3D12Resource* carrier=nullptr;
+    ID3D12Resource* tail=nullptr;
+    ID3D12Resource* reconstructed=nullptr;
+    explicit operator bool() const {return carrier&&tail&&reconstructed;}
+};
+RecordedPlanes InspectRecordedPlanes(const Context*,unsigned slot,nr_private_sr::Recording);
+RecordedPlanes InspectRecordedPlanes(const Context*,nr_private_sr::Recording);
 // Three independent scratch slots, one private Feature1 history. The existing
 // caller serializes CPU access and supplies verified original API ownership.
 // accounted_plane_bytes excludes opaque NGX memory and descriptor/kernel storage.
