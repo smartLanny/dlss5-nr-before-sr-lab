@@ -88,8 +88,10 @@ class Patches(unittest.TestCase):
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
         # Beta 8 moves native temporal guide validation to the recorded
         # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
+        # Beta 10 shares its headroom reader with auxiliary layers and logs
+        # detailed storage transitions; shader/codec math remains unchanged.
         # Format and colour shader code are unchanged.
-        self.assertEqual(digest,'3aa963eb4275f423c6c44e1785fcaeca44c5d137')
+        self.assertEqual(digest,'ba275c972173de130127d173b3234e57f778afd7')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

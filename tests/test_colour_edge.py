@@ -43,6 +43,8 @@ class EdgeTests(unittest.TestCase):
     def test_actual_base_identity(self):
         # Beta 8 moves native temporal guide validation to the recorded
         # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
+        # Beta 10 shares its headroom reader with auxiliary layers and logs
+        # detailed storage transitions; shader/codec math remains unchanged.
         # The codec shader and colour/reconstruction math
         # are unchanged; the semantic checks below still guard this baseline.
         # Guide-domain follow-up to Reconstruction1: reviewed 32bfacf3 -> df3b6dfb.
@@ -50,7 +52,7 @@ class EdgeTests(unittest.TestCase):
         # changed. The full kCodecShader string and GPU/resource contracts match.
         # docs/interop/GUIDE_DOMAIN_AUDIT_20260925.md records the scoped evidence.
         # Keep this exact source pin AND the generated semantic assertions below.
-        for p,sha in [('src/nr_before_sr.cpp','3aa963eb4275f423c6c44e1785fcaeca44c5d137'),
+        for p,sha in [('src/nr_before_sr.cpp','ba275c972173de130127d173b3234e57f778afd7'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)
