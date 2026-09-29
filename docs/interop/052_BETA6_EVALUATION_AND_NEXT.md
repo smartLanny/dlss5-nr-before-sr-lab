@@ -1,5 +1,7 @@
 # Beta 6 异环复测评估与后续取舍（2026-09-28）
 
+> **当前交付状态（2026-09-29）：** 本文以下 Beta 6/7 数据是历史评估，不代表 Beta 11 游戏验收。Beta 11 产品源码 `1329c116f0108621d342214c466f6f41c1a305bd` 已完成 canonical、18 模式受控 Core/WARP 和双语真实 Manager 包解析；异环仍装 Beta 10，游戏运行中，Beta 11 硬件/安装均 not-run。Esc、真实游戏显存、画质和完整帧成本仍待测。精确身份与证据见 [Beta 11 验收](052_BETA11_ACCEPTANCE.md)及[交付清单](052_BETA11_DELIVERY.json)。
+
 本页保留 Beta 6 游戏评估及唯一后续路线。该次游戏证据来自 `e7407a39d12a6d43bf4e557f8c041e8361296831`，原身份与回退见 [Beta 6 清单](052_BETA6_DELIVERY.json)。**此前安装推进到 Beta 7（之后为 Beta 8/9，当前为 Beta 10）**：最终 `80dcc999` 完整双语/真实 Core 验证与私有 SR 受控改善通过，6sol 已部署异环；[Beta 7 历史验收](052_BETA7_ACCEPTANCE.md)和[交付/回退](052_BETA7_DELIVERY.json)单独记录。Beta 7 随后完成了一次维护者原生 RR 游戏录制：计时仍为零样本、时域未采用，同档私有 SR 优势未获证明；不能覆盖下面的 Beta 6 游戏反证。
 
 ## 当前后续：Beta 11 可观测性与实际可用性
