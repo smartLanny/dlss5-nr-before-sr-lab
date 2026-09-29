@@ -18,11 +18,11 @@ class ProductIdentity(unittest.TestCase):
         original=(ROOT/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
         beta2=edge.patch_product_file(original,'src/nr_before_sr.rc')
         final=private.patch_product_identity(beta2,'src/nr_before_sr.rc')
-        self.assertEqual(private.VERSION,'0.5.2-beta.12')
-        self.assertIn('FILEVERSION 0,5,2,12',final)
-        self.assertIn('PRODUCTVERSION 0,5,2,12',final)
-        self.assertEqual(final.count('0.5.2 Beta 12'),2)
-        self.assertEqual(final.count('0.5.2-beta.12'),4)
+        self.assertEqual(private.VERSION,'0.5.2-beta.13')
+        self.assertIn('FILEVERSION 0,5,2,13',final)
+        self.assertIn('PRODUCTVERSION 0,5,2,13',final)
+        self.assertEqual(final.count('0.5.2 Beta 13'),2)
+        self.assertEqual(final.count('0.5.2-beta.13'),4)
         self.assertNotIn('Beta 2',final)
         with self.assertRaises(ValueError):private.patch_product_identity(final,'src/nr_before_sr.rc')
         with self.assertRaises(ValueError):private.patch_product_identity(beta2.replace('FILEVERSION 0,5,2,2','FILEVERSION 0,5,2,3'),'src/nr_before_sr.rc')
@@ -31,7 +31,7 @@ class ProductIdentity(unittest.TestCase):
         for path in ('src/nr_before_sr.cpp','scripts/build.ps1'):
             original='identifier=0.5.2-beta.2; display=0.5.2 Beta 2'
             final=private.patch_product_identity(original,path)
-            self.assertEqual(final,'identifier=0.5.2-beta.12; display=0.5.2 Beta 12')
+            self.assertEqual(final,'identifier=0.5.2-beta.13; display=0.5.2 Beta 13')
             with self.assertRaises(ValueError):private.patch_product_identity('unknown',path)
 
     def test_actual_resource_keeps_every_non_identity_byte(self):

@@ -91,7 +91,9 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     }else{
         const char* names[]={NrUi("Total edit gain","总改动倍率"),NrUi("Brightening edits","增亮修改"),NrUi("Darkening edits","压暗修改"),NrUi("Saturation edits","饱和度修改"),NrUi("Lightness edits","明度修改")};
         for(unsigned i=0;i<5;++i){ImGui::PushID(static_cast<int>(i));changed|=SettingsSliderFloat(names[i],"##edit-gain",&next.generic_gains[i],i?0.f:1.f,2.f,"%.2fx");ImGui::PopID();}
-        SettingsNote(NrUi("Saturation edits scale only the change added by NR, not whole-image saturation. All 1x preserves the current edit.","饱和度修改只调节 NR 新增颜色变化，不是全画面饱和度。全部 1 倍保留当前修改。"));
+        SettingsNote(NrUi("Only NR-added colour changes.","只调整 NR 新增颜色。"));
+        SettingsHelp(NrUi("This scales NR's added colour, not whole-image saturation. All 1x preserves the current edit.",
+            "仅缩放 NR 新增的颜色变化，不改变全画面饱和度；全部设为 1 倍会保留当前修改。"));
     }
     // Legacy algorithms remain visible only while requested, in the same page
     // as the controls with which they can combine. No hidden cross-page gain.
@@ -211,11 +213,15 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验未保存：本次仍使用。"));
     SettingsTooltip(NrUi("On for new settings; saved choices are retained. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
         "新配置默认开启，旧保存值保留。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
-    ImGui::TextWrapped(NrUi("Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Save F8 to verify NR adoption.",
-        "最近投影输入：%s。转换／占位录制次数：%llu／%llu。是否真正采用 NR 请查看 F8。"),
+    SettingsNote(NrUi("NR use after RR is unverified; check F8.","RR 后 NR 是否采用待确认，详见 F8。"));
+    char rr_detail[256]{};
+    std::snprintf(rr_detail,sizeof(rr_detail),NrUi(
+        "Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Recording does not prove NR use.",
+        "最近投影输入：%s。转换／占位录制次数：%llu／%llu。录制不代表 NR 已采用。"),
         nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
         g_rr_depth_conversions.load(std::memory_order_relaxed),
         nr_rr_depth::observations.placeholder_recorded.load(std::memory_order_relaxed));
+    SettingsHelp(rr_detail);
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
@@ -334,7 +340,9 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     SettingsSection(NrUi("Detailed captures","深度采集"));
     ImGui::BeginDisabled(busy||StageCaptureStatus()==1u||StageCaptureStatus()==2u);
     if(ImGui::Button(NrUi("Capture centre model stages","采集中央区域模型阶段")))nr_f8::RequestWithOptions({});ImGui::EndDisabled();
-    SettingsNote(NrUi("Captures S/P/real N/E in the centre region with a paired report; resets/warms history. Pre-SR E is not the native SR output. Compatibility input captures available current-path layers instead.","采集中央区域原图、P、真实N和E并附报告，会重置/预热历史。前置E不是原生SR输出；兼容入口改为采集当前路径可用的各层。"));
+    SettingsNote(NrUi("Captures centre model stages; affects history and timing.","采集中央模型阶段；会影响历史和计时。"));
+    SettingsHelp(NrUi("Captures S/P/real N/E with a report and resets/warms history. Pre-SR E is not native SR output; compatibility captures available current-path layers.",
+        "采集中央原图、P、真实 N、E 和报告，并重置／预热历史。前置 E 不是原生 SR 输出；兼容入口采集当前路径可用层。"));
     nr_replay::DrawUi();DrawFaceDiagnosticControls(runtime,config);
     SettingsSection(NrUi("Runtime information","详细运行信息"));
     ImGui::PushTextWrapPos(0.f);
