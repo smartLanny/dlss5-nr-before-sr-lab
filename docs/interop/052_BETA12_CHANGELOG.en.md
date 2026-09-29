@@ -7,3 +7,5 @@ The requested option, submission status and refusal reasons are reported separat
 Retains Beta 11's concise UI, detailed memory sampling, Esc timing markers and private-SR budget preflight. Esc transitions are not claimed fixed. Native RR followed by NR remains distinct from the unavailable NR-to-private-RR path.
 
 Prepares a common external measurement procedure for D13 and the new candidate at one and two NR layers, recording memory, frame times, versions, runtimes and actual workload. Memory savings and whole-frame cost remain unproven until measured. See the delivery record for installation and completed checks.
+
+Cumulative changes since 0.5 D21 remain: independent NR layers, reduced-workload restoration, private-SR and temporal experiments, actual-route and local GPU timing reports, and subsequent lifetime/memory-admission fixes. See the [Beta 10 cumulative D21 notes](052_BETA10_CHANGELOG.en.md). These features do not imply accepted image quality or whole-frame cost.
