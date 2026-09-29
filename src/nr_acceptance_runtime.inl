@@ -4,7 +4,7 @@
 #include <shellapi.h>
 namespace nr_acceptance {
 using namespace nr_acceptance_policy;
-constexpr unsigned kRows=32768,kSteps=9,kShots=3;
+constexpr unsigned kRows=32768,kSteps=9,kShots=3,kMemoryRows=2048;
 struct Shot {
     bool requested=false,received=false,exported=false;
     unsigned config=0,width=0,height=0;
@@ -13,6 +13,12 @@ struct Shot {
     char exported_file[48]{};
 };
 struct Row { unsigned group=0,config=0,route=0,temporal_state=0,reset_reasons=0,since_reset=0; float source_to_canonical=1; unsigned long long tick=0,source=0,instance=0,evaluations=0,submitted=0,temporal_submitted=0,carriers=0,attempts=0,stream=0,epoch=0,gpu_config=0,gpu_instance=0,gpu_tested=0,gpu_adopted=0,present_completed=0,present_warmup=0; };
+struct MemorySample {
+    unsigned group=0,config=0,phase=0,percent=0,work_width=0,work_height=0,gpu_samples=0,nr_passes=0;
+    unsigned observed_config_before=0,observed_config_after=0;
+    unsigned long long tick=0,elapsed=0,usage=0,budget=0;
+    unsigned long result=0;bool valid=false,config_matches=false;
+};
 struct PresentCounters {
     unsigned config=0;unsigned long long generation=0,completed_source=0,submitted=0,completed=0,evaluated=0,attempted=0,timing_source=0;
     bool reset_each_frame=false,timing_valid=false;double total_ms=0;
@@ -33,6 +39,8 @@ struct Group {
     unsigned long long warmup_eval_start=0,warmup_submit_start=0,warmup_evaluations=0,warmup_submissions=0;
     unsigned warmup_temporal_state=0;
     unsigned long long usage_start=0,usage_end=0,usage_sampled_peak=0,budget=0;
+    unsigned memory_success=0,memory_failure=0,memory_measure_success=0;
+    unsigned long long memory_group_start=0,memory_first_tick=0,memory_last_tick=0;
     unsigned dual_timing_config=0,dual_timing_samples=0;
     double dual_median_ms[7]{},dual_p95_ms[7]{};
     unsigned long long private_timing_config=0,private_timing_instance=0,private_timing_samples=0;
@@ -73,6 +81,7 @@ struct Session {
     ChainConfig original{};nr_post_settings::Options post_original{};nr_processing::Session processing_original{};
     nr_processing::Start original_effective=nr_processing::Start::Before;
     Window window{};Group groups[kSteps]{};Row samples[kRows]{};
+    MemorySample memory_samples[kMemoryRows]{};unsigned memory_rows=0;bool memory_overflow=false;
     LUID adapter{};bool adapter_known=false;
     reshade::api::effect_runtime* runtime=nullptr;
     wchar_t directory[1024]{};
@@ -184,7 +193,7 @@ void StartGroup(Session& s){
     g.gpu_config_start=nr_temporal_status::gpu_config.load();g.gpu_instance_start=nr_temporal_status::gpu_instance.load();
     g.private_composed_start=nr_private_sr_status::composed.load();g.private_submitted_start=nr_private_sr_status::submitted.load();g.private_adopted_start=nr_private_sr_status::adopted.load();
     g.warmup_eval_start=g.eval_start;g.warmup_submit_start=g.submit_start;
-    s.window.Start(GetTickCount64());
+    g.memory_group_start=GetTickCount64();s.window.Start(g.memory_group_start);
     if(s.program==Program::Screenshots){
         g.screenshot_phase=ScreenshotPhase::Warmup;
         g.performance_started=s.window.started;
@@ -196,6 +205,25 @@ void StartGroup(Session& s){
         performance_active.store(!g.reason[0]&&g.requested.enabled,std::memory_order_release);
     }
     if(g.reason[0])s.window.phase=Phase::Report;
+}
+bool ExportMemorySamples(const Session& s){
+    wchar_t path[1100]{};swprintf_s(path,L"%ls\\memory-samples.csv",s.directory);
+    FILE* f=nullptr;_wfopen_s(&f,path,L"wb");if(!f)return false;
+    std::fputs("group,plannedConfig,observedConfigBefore,observedConfigAfter,configMatches,phase,processTickMs,groupElapsedMs,postPercent,workWidth,workHeight,validGpuSamples,nrPasses,scope,localQueryHr,localValid,usageBytes,budgetBytes\n",f);
+    static constexpr const char* phases[]={"warmup","measure","report","capture"};
+    for(unsigned i=0;i<s.memory_rows;++i){const auto& m=s.memory_samples[i];
+        std::fprintf(f,"%u,%u,%u,%u,%u,%s,%llu,%llu,%u,%u,%u,%u,%u,process-DXGI-local,0x%08lx,%u,%llu,%llu\n",
+            m.group,m.config,m.observed_config_before,m.observed_config_after,m.config_matches?1u:0u,
+            m.phase<4?phases[m.phase]:"unknown",m.tick,m.elapsed,m.percent,
+            m.work_width,m.work_height,m.gpu_samples,m.nr_passes,m.result,m.valid?1u:0u,m.usage,m.budget);
+    }
+    bool ok=std::ferror(f)==0;return std::fclose(f)==0&&ok;
+}
+const char* MemoryMeasureStatus(const Session& s,unsigned group){
+    const auto& g=s.groups[group];
+    if(g.memory_measure_success)return "sampled";
+    if(s.program==Program::Screenshots&&group==0)return "native-no-NR: no plugin GPU measure phase; see capture-phase samples";
+    return "no-successful-measure-sample; see memory-samples.csv";
 }
 #include "nr_acceptance_screenshot_export.inl"
 DWORD WINAPI Export(void* opaque){
@@ -210,9 +238,10 @@ DWORD WINAPI Export(void* opaque){
     }
     swprintf_s(path,L"%ls\\acceptance.txt",s->directory);f=nullptr;_wfopen_s(&f,path,L"wb");ok=f&&ok;
     if(f){
-        std::fprintf(f,"format=unified-acceptance-v3\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest completed Present source for Present baseline, otherwise latest native NR source\nwholeFrameGpuTiming=unavailable; callback intervals must not be read as GPU cost\nmemory=worker sampled process-local DXGI usage/budget, not exact peak or NGX allocation total\nmeasurement=20 seconds after at least 3 seconds; native needs 64 post-reset evaluations, Present baseline needs 64 completed NR flights from current owner; captures and F8 occur afterwards\n",
+        std::fprintf(f,"format=unified-acceptance-v3\nbuild=%s\nsource=%s\nsession=%llu\nprogram=%u\nrestored=%u\ncancelled=%u\nrows=%u\nrowsOverflow=%u\nqpcFrequency=%llu\niniWrites=0\nmodelSwitches=0\nqualityVerdict=not-evaluated\nframeTiming=ReShade Present callback intervals, not GPU time or generated/displayed FPS; source column is latest completed Present source for Present baseline, otherwise latest native NR source\nwholeFrameGpuTiming=unavailable; callback intervals must not be read as GPU cost\nmemory=worker sampled process DXGI local usage/budget; sampled peak is not an instantaneous peak or plugin/NGX allocation total; see memory-samples.csv\nmemorySampling=success/failure/coverage span warmup, measure and capture; measureSuccess only counts measure; CSV configMatches must be checked for config attribution; legacy usage fields retain prior sampling semantics\nmeasurement=20 seconds after at least 3 seconds; native needs 64 post-reset evaluations, Present baseline needs 64 completed NR flights from current owner; captures and F8 occur afterwards\n",
             kBuildIdentity,kSourceCommit,s->id,static_cast<unsigned>(s->program),s->restored,s->cancelled,s->rows,s->overflow,static_cast<unsigned long long>(NrTimingFrequency()));
         std::fprintf(f,"missedCallbackSamples=%llu\n",dropped_samples.load()-s->dropped_start);
+        std::fprintf(f,"memorySampleRows=%u\nmemorySampleRowsOverflow=%u\n",s->memory_rows,s->memory_overflow?1u:0u);
         std::fprintf(f,"adoptionDenominator=native: observed carrier calls; Present baseline: exact completed owned flights, not native carrier calls; neither proves final displayed quality\n");
         std::fprintf(f,"resetSchema=nr_reset_observation.Sample primary layer; bit64 is RR placeholder depth, not exposure readback; primary_source_to_canonical is the actual normalization multiplier, not nits; repeated rows of the same source are not new evaluations\n");
         for(unsigned i=0;i<s->count;++i){const auto& g=s->groups[i];char report[4096]{};WideToUtf8(g.report_path,report,sizeof(report));
@@ -250,12 +279,17 @@ DWORD WINAPI Export(void* opaque){
             if(carriers&&g.submit_end>=g.submit_start)std::fprintf(f,"group.%u.submittedPerCarrier=%.9g\n",i,double(g.submit_end-g.submit_start)/double(carriers));
             std::fprintf(f,"group.%u=%s\ngroup.%u.config=%u\ngroup.%u.postPercent=%u\ngroup.%u.measured=%u\ngroup.%u.reason=%s\ngroup.%u.nrEvaluations=%llu\ngroup.%u.nrSubmissions=%llu\ngroup.%u.temporalSubmissions=%llu\ngroup.%u.nrRouteAdopted=%u\ngroup.%u.temporalHistoryAdopted=%u\ngroup.%u.privateComposed=%llu\ngroup.%u.privateAdopted=%llu\ngroup.%u.privateAdoptedDuringMeasure=%u\ngroup.%u.wholeFrameGpuTime=unavailable\ngroup.%u.captureRequest=%llu\ngroup.%u.captureComplete=%u\ngroup.%u.report=%s\ngroup.%u.memoryKnown=%u\ngroup.%u.usageStart=%llu\ngroup.%u.usageEnd=%llu\ngroup.%u.usageSampledPeak=%llu\ngroup.%u.budget=%llu\n",
                 i,g.step.name?g.step.name:"not-started",i,g.generation,i,g.percent,i,g.measured,i,g.reason[0]?g.reason:"recorded-not-quality-verified",i,g.eval_end>=g.eval_start?g.eval_end-g.eval_start:0,i,g.submit_end>=g.submit_start?g.submit_end-g.submit_start:0,i,g.temporal_end>=g.temporal_start?g.temporal_end-g.temporal_start:0,i,g.adopted,i,g.temporal_adopted,i,g.private_composed_end>=g.private_composed_start?g.private_composed_end-g.private_composed_start:0,i,g.private_adopted_end>=g.private_adopted_start?g.private_adopted_end-g.private_adopted_start:0,i,g.private_adopted,i,i,g.capture_id,i,g.capture_complete,i,report,i,g.memory_known,i,g.usage_start,i,g.usage_end,i,g.usage_sampled_peak,i,g.budget);
+            std::fprintf(f,"group.%u.memoryScope=process-DXGI-local\ngroup.%u.memoryPeakScope=sampled-not-instantaneous\ngroup.%u.memorySuccess=%u\ngroup.%u.memoryFailure=%u\ngroup.%u.memoryMeasureSuccess=%u\ngroup.%u.memoryFirstTickMs=%llu\ngroup.%u.memoryLastTickMs=%llu\ngroup.%u.memoryCoverageMs=%llu\ngroup.%u.memoryCoverageSeconds=%.3f\ngroup.%u.memoryMeasureStatus=%s\n",
+                i,i,i,g.memory_success,i,g.memory_failure,i,g.memory_measure_success,i,g.memory_first_tick,i,g.memory_last_tick,
+                i,g.memory_success?g.memory_last_tick-g.memory_first_tick:0,
+                i,g.memory_success?double(g.memory_last_tick-g.memory_first_tick)/1000.0:0.0,i,MemoryMeasureStatus(*s,i));
             const bool same=g.cpu_before.epoch==g.cpu_after.epoch&&!g.cpu_before.counter_overflow&&!g.cpu_after.counter_overflow;
             std::fprintf(f,"group.%u.cpuEpochComparable=%u\n",i,same);
             if(same)for(unsigned j=0;j<nr_timing::kStageCount;++j){const auto& a=g.cpu_before.stages[j];const auto& b=g.cpu_after.stages[j];if(b.count>=a.count&&b.total_ticks>=a.total_ticks)std::fprintf(f,"group.%u.cpu.%s=count:%llu,totalTicks:%llu\n",i,nr_timing::Name(static_cast<nr_timing::Stage>(j)),static_cast<unsigned long long>(b.count-a.count),static_cast<unsigned long long>(b.total_ticks-a.total_ticks));}
         }
         ok=std::ferror(f)==0&&ok;ok=std::fclose(f)==0&&ok;
     }
+    ok=ExportMemorySamples(*s)&&ok;
     AcquireSRWLockExclusive(&lock);wcscpy_s(last_path,path);last_restored=s->restored;
     std::snprintf(last_reason,sizeof(last_reason),"%s",!ok?"export-failed":s->cancelled?"cancelled; inspect partial record":s->overflow?"sample-limit; partial":"recorded; inspect adoption and unsupported groups");
     packaging.store(false);ReleaseSRWLockExclusive(&lock);return 0;
@@ -628,13 +662,38 @@ DWORD WINAPI Watchdog(void* opaque){
         if(!session||session->id!=id){ReleaseSRWLockExclusive(&lock);break;}
         AcquireSRWLockExclusive(&nr_f8::g_control);
         auto* s=session;
-        if(GetTickCount64()-s->last_memory>=1000){
-            s->last_memory=GetTickCount64();const auto memory=nr_process_memory::Read(s->adapter,s->adapter_known);
-            if((s->window.phase==Phase::Measure||
-                (s->program==Program::Screenshots&&s->groups[s->index].screenshot_phase==ScreenshotPhase::Measure))&&
-                SUCCEEDED(memory.local_result)){
-                auto& g=s->groups[s->index];if(!g.memory_known)g.usage_start=memory.local.CurrentUsage;
-                g.memory_known=true;g.usage_end=memory.local.CurrentUsage;g.budget=memory.local.Budget;g.usage_sampled_peak=std::max(g.usage_sampled_peak,static_cast<unsigned long long>(memory.local.CurrentUsage));
+        const auto now=GetTickCount64();
+        if(now-s->last_memory>=1000){
+            s->last_memory=now;
+            const unsigned observed_before=g_config_generation.load();
+            const auto memory=nr_process_memory::Read(s->adapter,s->adapter_known);
+            const unsigned observed_after=g_config_generation.load();
+            auto& g=s->groups[s->index];
+            const unsigned phase=s->program==Program::Screenshots?
+                (g.screenshot_phase==ScreenshotPhase::Capture?3u:static_cast<unsigned>(g.screenshot_phase)):
+                static_cast<unsigned>(s->window.phase);
+            if(phase<4){
+                const bool valid=SUCCEEDED(memory.local_result);
+                if(valid){if(!g.memory_success)g.memory_first_tick=now;++g.memory_success;g.memory_last_tick=now;}
+                else ++g.memory_failure;
+                const bool measuring=s->program==Program::Screenshots?
+                    g.screenshot_phase==ScreenshotPhase::Measure:s->window.phase==Phase::Measure;
+                if(valid&&measuring){
+                    ++g.memory_measure_success;
+                    if(!g.memory_known)g.usage_start=memory.local.CurrentUsage;
+                    g.memory_known=true;g.usage_end=memory.local.CurrentUsage;g.budget=memory.local.Budget;
+                    g.usage_sampled_peak=std::max(g.usage_sampled_peak,static_cast<unsigned long long>(memory.local.CurrentUsage));
+                }
+                if(s->memory_rows<kMemoryRows){auto& m=s->memory_samples[s->memory_rows++];
+                    m.group=s->index;m.config=g.generation;m.phase=phase;m.tick=now;
+                    m.observed_config_before=observed_before;m.observed_config_after=observed_after;
+                    m.config_matches=observed_before==g.generation&&observed_after==g.generation;
+                    m.elapsed=now>=g.memory_group_start?now-g.memory_group_start:0;
+                    m.percent=g.percent;m.work_width=g.performance_work_width;m.work_height=g.performance_work_height;
+                    m.gpu_samples=g.performance_count;m.nr_passes=g.requested.nr_passes;
+                    m.result=static_cast<unsigned long>(memory.local_result);m.valid=valid;
+                    if(valid){m.usage=memory.local.CurrentUsage;m.budget=memory.local.Budget;}
+                }else s->memory_overflow=true;
             }
         }
         Tick(nullptr);ReleaseSRWLockExclusive(&nr_f8::g_control);ReleaseSRWLockExclusive(&lock);

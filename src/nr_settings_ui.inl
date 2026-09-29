@@ -63,6 +63,12 @@ void SettingsSection(const char *title) {
     ImGui::SeparatorText(title);
 }
 
+void SettingsHelp(const char *text) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    SettingsTooltip(text);
+}
+
 void SettingsNote(const char *text) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", text);
@@ -174,23 +180,23 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded,
         if(selected)ImGui::PopStyleColor();
         SettingsTooltip(i==0?(zh?"先增强游戏场景，再由原生 SR 放大。不兼容时自动尝试后置，再尝试兼容模式。":"Enhances the scene before native SR. Automatically tries post-SR and then compatibility when unavailable."):
             i==1?(zh?"原生 SR／RR 完成后增强；不兼容时自动尝试兼容模式。":"Enhances the native SR/RR result. Automatically tries compatibility when unavailable."):
-            (zh?"供原生增强入口不可用时尝试：处理接近输出的整张游戏画面，可能包含字幕和界面。当前仍需近期已提交的原生 SR／RR 深度和运动数据；缺少可信数据时跳过。\n\n当前尚未完整支持 FG 开启时的最终整图增强。检测到 FG 接管呈现后，临时尝试原生 SR 后、FG 前增强，沿用后置精度；没有合法入口时不执行 NR。此时不是最终整图处理，所选模式和游戏 FG 设置保持；关闭 FG 后恢复兼容路径。直接处理 FG 输出存在真实帧与生成帧效果不一致、闪烁风险，不代表所有 FG 游戏必然闪烁。\n\n开销取决于 AI 渲染精度和层数。无效或闪烁请按 F8 收集日志；兼容模式仍以扩大可用入口为目标。":"Try this when native enhancement entries are unavailable. Processes the game image near presentation, possibly including subtitles and HUD. Currently still needs recent submitted native SR/RR depth and motion; skips without trusted inputs.\n\nFinal-image enhancement with FG is not yet fully supported. When FG ownership is detected, temporarily tries native post-SR, pre-FG NR using post-SR precision; skips NR without a valid entry. This processes the scene rather than the final image, preserving your selected mode and game FG settings. Disabling FG restores the compatibility route. Directly processing FG output risks inconsistent real/generated images and flicker; this does not mean every FG game must flicker.\n\nCost depends on precision and pass count. Press F8 if enhancement is unavailable or flickers. This mode remains intended to broaden compatibility."));
+            (zh?"其他位置不可用时，尝试在接近最终画面处增强，可能包含字幕。FG 开启时可能改在生成帧之前处理；缺少可信输入会跳过。无效或闪烁请按 F8。":"Tries enhancement near the final image when other routes fail. It may include the HUD. FG may move it before frame generation; missing trusted inputs skip NR. Save F8 if unavailable or flickering."));
         ImGui::PopID();
     }
     ImGui::PopID();
     nr_processing::Snapshot route_snapshot{};
     const auto actual=nr_processing_runtime::TrySnapshot(route_snapshot)?route_snapshot.current:nr_processing_runtime::Effective();
     const char* names[]={zh?"先增强后放大":"Enhance first",zh?"先放大后增强":"Upscale first",zh?"自动兼容":"Compatibility"};
-    ImGui::TextWrapped(zh?"当前入口（运行状态见顶部）：%s":"Current entry (activity shown above): %s",names[static_cast<unsigned>(actual)]);
+    ImGui::TextDisabled(zh?"当前位置：%s":"Current position: %s",names[static_cast<unsigned>(actual)]);
     if(nr_processing_runtime::FgRedirectRequested())
-        ImGui::TextWrapped("%s",zh?"FG 已接管呈现，当前在原生 SR 后、FG 前尝试增强，沿用后置精度；FG 设置和所选起点保持。":"FG owns presentation. NR uses an available post-SR, pre-FG entry with post-SR precision. FG settings and your selected start are preserved.");
+        ImGui::TextWrapped("%s",zh?"FG 开启：在生成帧前尝试增强。":"FG on: trying enhancement before generated frames.");
     else if(actual!=next.processing_start)
-        ImGui::TextWrapped("%s",zh?"已自动切换兼容路径，可能存在兼容问题。请按 F8 收集日志并提交；点击按钮可重新尝试所选位置。":"Compatibility fallback is active. A compatibility issue may exist: press F8 and submit logs. Click a route to retry it.");
+        ImGui::TextWrapped("%s",zh?"已切兼容位置；可点选重试，异常按 F8。":"Compatibility position active; retry or press F8 if unavailable.");
     if(actual==nr_processing::Start::Present){
         nr_compat_present::Observation status{};
         if(nr_compat_present_runtime::TrySnapshot(status)){
             ImGui::TextDisabled(zh?"整链工作尺寸 %u × %u，%u 层":"Chain work size %u x %u, %u passes",status.work_width,status.work_height,status.passes);
-            if(status.color_only)ImGui::TextWrapped("%s",zh?"导引不足：使用明确标记的占位深度和运动尝试增强，每帧重置历史。未取得可用结果时保留游戏原画面。":"Guides unavailable: trying NR with marked placeholder depth and motion, resetting history each frame. The game image is retained until a usable result is ready.");
+            if(status.color_only)ImGui::TextWrapped("%s",zh?"占位深度/运动每帧重置；按 F8。":"Placeholder depth/motion resets each frame; press F8.");
         }
     }
     return changed;
@@ -244,8 +250,8 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     ImGui::BeginDisabled(current_color_policy &&
         color_policy_snapshot.policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr);
     const bool lighting_match_changed = ImGui::Checkbox(
-        ui("Experimental Lighting Match (NR -> SR)",
-           "实验性光照匹配（NR -> SR）"),
+        ui("Pre-SR lighting match###Experimental Lighting Match (NR -> SR)",
+           "前置光照匹配###实验性光照匹配（NR -> SR）"),
         &next.preserve_lighting);
     ImGui::EndDisabled();
     changed |= lighting_match_changed;
@@ -667,10 +673,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
     ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
     ImGui::TextDisabled("%s", kAddonVersion);
-    SettingsSection(ui("About and links", "作者与链接"));
+    if (ImGui::CollapsingHeader(ui("About###nr-about", "关于###nr-about"))) {
     ImGui::TextDisabled("%s", use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
     ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
+    }
     if (kChineseUi && !use_chinese_ui)
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     // Keep controls stationary while live status text changes (#121).
@@ -685,10 +692,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (next.identity_use_original)
         ImGui::TextWrapped("%s", ui(
             "Diagnostic identity mode is ON; NR output is discarded. Turn it off to compare the effect.",
-            "诊断原图模式已开启，NR 效果被丢弃。请关闭后再对比。"));
+            "诊断原图：NR 效果未显示。"));
     if (g_config_persistence_failed.load())
         ImGui::TextWrapped("%s", ui("Settings cannot be saved. Check that the plugin folder is writable.",
-            "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
+            "设置未保存：请检查插件目录。"));
 
     ImGui::EndChild();
     DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),
@@ -714,7 +721,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsSection(ui("Quick settings", "快速设置"));
     apply_discrete_edit = ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
     changed |= apply_discrete_edit;
-    if (ImGui::Button(ui("Restore default picture settings", "一键恢复默认画质"))) {
+    if (ImGui::Button(ui("Restore picture###Restore default picture settings", "恢复推荐画质###一键恢复默认画质"))) {
         RestoreRecommendedPictureSettings(next);
         next.processing_start=nr_processing::Start::Before;
         next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
@@ -727,11 +734,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0.2 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0.2，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
-    SettingsSection(ui("Processing order", "处理顺序"));
+    SettingsSection(ui("Processing order", "处理位置"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const bool compatibility_post = !rr_guarded && next.mode == 2 &&
         compatibility_snapshot.recent && compatibility_snapshot.effective_mode == 1;
-    SettingsField(ui("Processing mode", "处理模式"));
+    SettingsField(ui("Processing mode", "增强位置"));
     if (DrawProcessingModeBlocks(next, rr_guarded, compatibility_post, compatibility_post ? 1 : next.mode)) {
         changed = true;
         apply_discrete_edit = true;
@@ -765,7 +772,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
-    const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
+    const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "NR 工作比例"),
         "##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
@@ -823,7 +830,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     DrawUniformLayerControls(next,changed,apply_discrete_edit);
     SettingsSection(ui("Final composition", "最终合成"));
     float effect_strength = ActiveTransferStrength(next);
-    if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
+    if (SettingsSliderFloat(ui("Effect strength", "效果强度"),
             "##nr-strength-amplification", &effect_strength, 1.0f, 4.0f, "%.2f")) {
         // Only user edits use 1-4. Internal diagnostic zero keeps its native endpoint.
         effect_strength = std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f);
@@ -832,7 +839,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     SettingsTooltip(ui("1 keeps the model's base amount. Higher values amplify its final brightness and detail changes and may look less natural; lower Model strength for a weaker model result.",
         "1 保持模型原量；调高会放大最终明暗和细节，也可能失真。想减弱模型效果请调低模型强度。"));
-    SettingsNote(ui("1 = base amount (default).", "1 = 原量（默认）。"));
+    SettingsNote(ui("1 = base amount (default).", "1 为原量"));
 
     // Colour is a common control and stays before the model's face setting.
     DrawColorControls(next, has_pending, changed);
@@ -1101,8 +1108,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (ImGui::BeginTabItem(ui("Experiments###nr-experiments", "实验###nr-experiments"))) {
         ImGui::BeginDisabled(collecting);
-        SettingsNote(ui("Optional experiments. Saved choices are retained; closing this page does not disable them.",
-            "可选实验。保留已保存的选择；关闭此页不会停用正在运行的实验。"));
+        SettingsHelp(ui("Closing this page keeps saved experiment choices.", "关闭此页不会停用已保存的实验。"));
         DrawEnergyGateOptions();
         ImGui::EndDisabled();
         ImGui::EndTabItem();

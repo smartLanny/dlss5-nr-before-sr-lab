@@ -14917,6 +14917,35 @@ void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
 void ServiceFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
 void CleanupFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
 
+// A time anchor for the reported Esc transition. Reads ReShade's cached input
+// only for this foreground game window; never consumes keys, changes settings,
+// opens a capture, or waits for the GPU. Existing lifecycle logs carry the cause.
+// Called under screenshot_hotkey_lock; three observations per press at most.
+void ObserveMenuTransition(reshade::api::effect_runtime* runtime, ULONGLONG now_ms) {
+    static ULONGLONG started=0,last_press=0;
+    static unsigned phase=3;
+    const bool pressed=runtime->is_key_pressed(VK_ESCAPE);
+    if(!pressed&&phase>=3)return;
+    const HWND window=static_cast<HWND>(runtime->get_hwnd());
+    const HWND foreground=GetForegroundWindow();
+    if(!window||!foreground||GetAncestor(window,GA_ROOT)!=GetAncestor(foreground,GA_ROOT))return;
+    if(pressed&&now_ms-last_press>=250) {
+        started=last_press=now_ms;phase=0;
+    }
+    if(phase>=3)return;
+    const ULONGLONG elapsed=now_ms-started;
+    if((phase==1&&elapsed<500)||(phase==2&&elapsed<1500))return;
+    Log("[menu-transition] input=Esc observation=%u elapsedMs=%llu config=%u history=%u "
+        "bypass=%s carrierFeature=%d nrSuccess=%llu transferSubmitted=%llu rrEvaluations=%llu "
+        "NR=%ux%u output=%ux%u; key-time anchor only, not proof of menu state or final pixels.",
+        phase,elapsed,g_config_generation.load(),g_history_generation.load(),
+        BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())),
+        g_last_carrier_feature.load(),g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load(),
+        g_rr_passthrough_evaluations.load(),g_last_nr_width.load(),g_last_nr_height.load(),
+        g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
+    ++phase;
+}
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
     ServiceFaceDiagnosticSelection(runtime);
@@ -14936,6 +14965,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
         (screenshot_key_is_down && !screenshot_key_was_down);
     const ULONGLONG now_ms = GetTickCount64();
+    ObserveMenuTransition(runtime,now_ms);
 
     static bool feedback_key_was_down = false;
     static bool feedback_key_loaded=false;

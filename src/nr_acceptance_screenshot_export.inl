@@ -10,7 +10,7 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
     bool ok=html&&manifest&&gpu;unsigned copied=0;unsigned long long total=0;
     if(gpu)std::fputs("group,config,sourceStream,sourceEpoch,sourceSequence,NRFrame,queue,fence,postCoreGpuMs\n",gpu);
     if(html)std::fprintf(html,"<!doctype html><meta charset=\"utf-8\"><title>DLSS5 comparison / 画面对比</title><style>body{font:16px sans-serif;background:#111;color:#eee}section{margin:2em 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:1em}.viewport{overflow:auto;height:70vh;border:1px solid #666}.viewport img{max-width:none;height:auto}details img{max-width:100%%;height:auto}</style><h1>DLSS5 fixed-view screenshots / 固定视角截图</h1><p>Different Present times / 不同显示时刻；not same-frame model pixels / 非同帧模型像素。ReShade encoded screenshots; HDR/raw equivalence unverified / 编码截图，不等价于 HDR 原始像素。</p><h2>Choose two images / 选择双图</h2><select id=left></select> <select id=right></select> <label>Zoom / 缩放 <input id=zoom type=range min=25 max=300 value=100></label><div class=pair><div class=viewport><img id=imga></div><div class=viewport><img id=imgb></div></div><details><summary>All groups / 全部组别</summary>");
-    if(manifest)std::fprintf(manifest,"{\"schema\":\"dlss5-screenshots-v2\",\"build\":\"%s\",\"source\":\"%s\",\"restored\":%s,\"cancelled\":%s,\"gpuScope\":\"same Direct queue completed q0-q1 plus q2-q3 timestamp intervals around recorded post-native NR work; excludes native SR/RR, pre-q0 and unobserved cross-queue work; total plugin and whole-frame GPU unavailable\",\"groups\":[",kBuildIdentity,kSourceCommit,s->restored?"true":"false",s->cancelled?"true":"false");
+    if(manifest)std::fprintf(manifest,"{\"schema\":\"dlss5-screenshots-v2\",\"build\":\"%s\",\"source\":\"%s\",\"restored\":%s,\"cancelled\":%s,\"gpuScope\":\"same Direct queue completed q0-q1 plus q2-q3 timestamp intervals around recorded post-native NR work; excludes native SR/RR, pre-q0 and unobserved cross-queue work; total plugin and whole-frame GPU unavailable\",\"memoryScope\":\"process DXGI local usage/budget; sampled peak is not instantaneous peak or plugin/NGX allocation total\",\"memorySamplingScope\":\"group success/failure/coverage span warmup, measure and capture; measureSuccess only counts measure; use CSV configMatches for attribution; legacy usage fields retain prior semantics\",\"memorySamplesFile\":\"memory-samples.csv\",\"memorySampleRows\":%u,\"memorySampleRowsOverflow\":%s,\"groups\":[",kBuildIdentity,kSourceCommit,s->restored?"true":"false",s->cancelled?"true":"false",s->memory_rows,s->memory_overflow?"true":"false");
     for(unsigned i=0;i<s->count;++i){
         auto& g=s->groups[i];const auto label=Get(Program::Screenshots,i,false).name;
         const char* reason=g.reason[0]?g.reason:i>s->index?"not-started":s->cancelled?"cancelled; partial":"capture attempted";
@@ -44,6 +44,10 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
             g.performance_warmup,g.performance_count,g.performance_rejected,median,p95,g.performance_queue,
             g.usage_start,g.usage_end,g.usage_sampled_peak,g.budget,g.memory_known?"true":"false",
             g.performance_temporal_adopted,g.performance_private_adopted);
+        if(manifest)std::fprintf(manifest,",\"memorySampling\":{\"scope\":\"process-DXGI-local\",\"peakScope\":\"sampled-not-instantaneous\",\"success\":%u,\"failure\":%u,\"measureSuccess\":%u,\"firstTickMs\":%llu,\"lastTickMs\":%llu,\"coverageMs\":%llu,\"coverageSeconds\":%.3f,\"measureStatus\":\"%s\"}",
+            g.memory_success,g.memory_failure,g.memory_measure_success,g.memory_first_tick,g.memory_last_tick,
+            g.memory_success?g.memory_last_tick-g.memory_first_tick:0,
+            g.memory_success?double(g.memory_last_tick-g.memory_first_tick)/1000.0:0.0,MemoryMeasureStatus(*s,i));
         if(manifest){
             const auto sr_entry=static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::SrEntry);
             const auto rr_entry=static_cast<unsigned>(nr_acceptance_gpu::Diagnostic::RrEntry);
@@ -104,6 +108,7 @@ DWORD ExportScreenshots(std::unique_ptr<Session> s){
         std::fputs("];for(const id of ['left','right']){const e=document.getElementById(id);shots.forEach((s,i)=>e.add(new Option(s.name,i)));e.onchange=show;}if(shots.length>1)document.getElementById('right').selectedIndex=1;document.getElementById('zoom').oninput=show;function show(){const z=document.getElementById('zoom').value+'%';for(const [select,img] of [['left','imga'],['right','imgb']]){const i=document.getElementById(select).selectedIndex;const e=document.getElementById(img);e.src=i>=0?shots[i].file:'';e.style.width=z;}}show();</script>",html);
     }
     if(manifest)std::fprintf(manifest,"],\"copied\":%u,\"maxBytes\":1073741824}",copied);
+    ok=ExportMemorySamples(*s)&&ok;
     if(html)ok=std::fclose(html)==0&&ok;if(manifest)ok=std::fclose(manifest)==0&&ok;
     if(gpu)ok=std::fclose(gpu)==0&&ok;
     AcquireSRWLockExclusive(&lock);wcscpy_s(last_path,html_path);wcscpy_s(last_screenshot_page,html_path);last_restored=s->restored;

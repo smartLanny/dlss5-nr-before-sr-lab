@@ -80,9 +80,9 @@ class UnifiedUi(unittest.TestCase):
         private_sr = (self.root/'src/nr_private_sr_ui.inl').read_text(encoding='utf-8')
         self.assertIn('next.temporal_mode==0',temporal)
         self.assertIn('next.temporal_mode==1',temporal)
-        self.assertIn('Submission does not prove visible history adoption',temporal)
-        self.assertIn('proven native FP16 colour domain',private_sr)
-        self.assertIn('Present, FG and multi-GPU are unsupported',private_sr)
+        self.assertIn('A submitted frame is not proof of history adoption',temporal)
+        self.assertIn('It needs proven D3D12, colour and motion inputs',private_sr)
+        self.assertIn('Present, FG and multiple GPUs are unsupported',private_sr)
 
     def test_final_export_uses_successor_once(self):
         if GENERATED is None:

@@ -1,7 +1,7 @@
 """Product post-final private SR; applied after the complete quality generator."""
 from pathlib import Path
-VERSION = '0.5.2-beta.10'
-LOCAL=('src/nr_private_sr_guides.h','src/nr_private_sr_guides.cpp','src/nr_private_sr_status.h',
+VERSION = '0.5.2-beta.11'
+LOCAL=('src/nr_private_sr_guides.h','src/nr_private_sr_guides.cpp','src/nr_private_sr_status.h','src/nr_private_sr_budget.h',
        'src/nr_private_sr_product.inl','src/nr_private_sr_ui.inl','src/nr_private_sr_artifacts.h',
        'src/nr_private_sr_call_list.inl')
 MODULE=('nr_edit_dx12.hpp','nr_edit_dx12.cpp','nr_post_residual_dx12.hpp','nr_post_residual_dx12.cpp',
@@ -15,14 +15,14 @@ def patch_product_identity(s,path):
         raise ValueError('private SR unknown identity file: '+path)
     if '0.5.2-beta.2' not in s or VERSION in s:
         raise ValueError('private SR expected preceding Beta 2 identity: '+path)
-    s=s.replace('0.5.2-beta.2',VERSION).replace('0.5.2 Beta 2','0.5.2 Beta 10')
+    s=s.replace('0.5.2-beta.2',VERSION).replace('0.5.2 Beta 2','0.5.2 Beta 11')
     if path.endswith('.rc'):
         for field in ('FILEVERSION','PRODUCTVERSION'):
             old=field+' 0,5,2,2'
             if s.count(old)!=1:raise ValueError('private SR expected one Beta 2 '+field)
-            s=s.replace(old,field+' 0,5,2,10')
+            s=s.replace(old,field+' 0,5,2,11')
         for field in ('FileVersion','ProductVersion'):
-            if s.count('VALUE "'+field+'", "0.5.2 Beta 10\\0"')!=1:
+            if s.count('VALUE "'+field+'", "0.5.2 Beta 11\\0"')!=1:
                 raise ValueError('private SR missing exact final '+field)
     return s
 
@@ -35,7 +35,7 @@ def runtime(s,h):
         a=body.index('{')+1;return body[:a]+'\n'+text+'\n'+body[a:]
     s=once(s,'#include "nr_guide_contract.h"','#include "nr_guide_contract.h"\n#define NR_HAS_PRIVATE_RESIDUAL_SR 1\n#include "nr_private_sr_guides.h"\n#include "private_sr/nr_post_private_sr_dx12.hpp"\n#include "nr_private_sr_status.h"\n#include "nr_private_sr_artifacts.h"','private SR types')
     s=once(s,'struct ChainConfig {','struct ChainConfig {\n    bool private_residual_sr=false;','private SR config')
-    s=once(s,'struct NrContext {','namespace nr_post_product { struct Owner; }\nstruct NrContext {\n    nr_post_product::Owner* private_sr=nullptr;','private SR context')
+    s=once(s,'struct NrContext {','namespace nr_post_product { struct Owner; }\nstruct NrContext {\n    nr_post_product::Owner* private_sr=nullptr;\n    nr_private_sr_status::BudgetRetry private_sr_budget_retry{};','private SR context')
     s=once(s,'void DestroyContext(NrContext &context) {','''namespace nr_post_product {
 bool PrivateCall();bool Ready(const NrContext&);bool Destroy(NrContext&);void Maintain(NrContext&);
 void Submitted(NrContext&,unsigned long long,LifecycleQueue*,unsigned long long);
@@ -180,12 +180,31 @@ def apply(stage:Path,inputs,h):
 }
 Source CurrentSource(){''','private SR native state evidence'))
     update('src/nr_feedback_capture.inl',lambda s:h.once(s,'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {',r'''void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    const auto private_config=g_config_generation.load();
+    const auto private_state=nr_private_sr_status::state.load();
+    const bool private_current=nr_private_sr_status::state_configuration.load()==private_config;
+    const bool private_budget=private_current&&nr_private_sr_status::budget_configuration.load()==private_config&&
+        (private_state==nr_private_sr_status::State::BudgetCap||private_state==nr_private_sr_status::State::BudgetHeadroom||
+         private_state==nr_private_sr_status::State::BudgetUnknown||private_state==nr_private_sr_status::State::MemoryInfoUnknown||
+         private_state==nr_private_sr_status::State::Budget)&&
+        nr_private_sr_status::budget_instance.load()!=0&&nr_private_sr_status::budget_feature_generation.load()!=0;
     FeedbackAppend(s,"%s.privateSR.lastEvent=%s\n%s.privateSR.guideReason=%u\n%s.privateSR.requested=%llu\n%s.privateSR.rejected=%llu\n%s.privateSR.guideCaptures=%llu\n%s.privateSR.createRecordings=%llu\n%s.privateSR.recorded=%llu\n%s.privateSR.composed=%llu\n%s.privateSR.submitted=%llu\n%s.privateSR.adopted=%llu\n%s.privateSR.planeBytes=%llu\n%s.privateSR.peakPlaneBytes=%llu\n%s.privateSR.retired=%llu\n",
-        prefix,nr_private_sr_status::Name(nr_private_sr_status::state.load()),prefix,nr_private_sr_status::guide_reason.load(),
+        prefix,private_current?nr_private_sr_status::Name(private_state):"not-current-config",prefix,
+        private_current&&nr_private_sr_status::guide_configuration.load()==private_config&&
+            (private_state==nr_private_sr_status::State::Guides||private_state==nr_private_sr_status::State::Phase)?
+            nr_private_sr_status::guide_reason.load():0,
         prefix,nr_private_sr_status::requested.load(),prefix,nr_private_sr_status::rejected.load(),prefix,nr_private_sr_status::captures.load(),
         prefix,nr_private_sr_status::creations.load(),prefix,nr_private_sr_status::recorded.load(),prefix,nr_private_sr_status::composed.load(),
         prefix,nr_private_sr_status::submitted.load(),prefix,nr_private_sr_status::adopted.load(),prefix,nr_private_sr_status::bytes.load(),
         prefix,nr_private_sr_status::peak.load(),prefix,nr_private_sr_status::retired.load());
+    FeedbackAppend(s,"%s.privateSR.stateConfig=%u\n%s.privateSR.budgetConfig=%u\n%s.privateSR.budget.snapshotMatched=%u\n%s.privateSR.budget.instance=%llu\n%s.privateSR.budget.featureGeneration=%llu\n%s.privateSR.budget.reason=%s\n%s.privateSR.budget.requiredBytes=%llu\n%s.privateSR.budget.availableBytes=%llu\n",
+        prefix,nr_private_sr_status::state_configuration.load(),prefix,nr_private_sr_status::budget_configuration.load(),
+        prefix,private_budget?1u:0u,
+        prefix,private_budget?nr_private_sr_status::budget_instance.load():0ull,
+        prefix,private_budget?nr_private_sr_status::budget_feature_generation.load():0ull,
+        prefix,private_budget?nr_private_sr_status::Name(private_state):"none-current-config",
+        prefix,private_budget?nr_private_sr_status::budget_required.load():0ull,
+        prefix,private_budget?nr_private_sr_status::budget_available.load():0ull);
     FeedbackAppend(s,"%s.privateSR.gpuTimingAvailable=%u\n%s.privateSR.timingConfig=%llu\n%s.privateSR.timingInstance=%llu\n%s.privateSR.gpuSamples=%llu\n%s.privateSR.gpuFirstCreateMs=%.9g\n%s.privateSR.gpuFirstInferenceMs=%.9g\n%s.privateSR.gpuMedianMs=%.9g\n%s.privateSR.gpuP95Ms=%.9g\n",
         prefix,nr_private_sr_status::gpu_timing_available.load(),prefix,nr_private_sr_status::timing_config.load(),
         prefix,nr_private_sr_status::timing_instance.load(),prefix,nr_private_sr_status::timing_samples.load(),

@@ -1,6 +1,7 @@
 // Included in the generated Core after guide/codec helpers. Calls are serialized
 // by g_chain_cs; exact Core recording and queue receipts own every private use.
 #define NR_EDIT_PRIVATE_SR_BYPASS_COMPLETE 1
+#include "nr_private_sr_budget.h"
 #include "nr_private_sr_call_list.inl"
 #include "private_sr/nr_private_sr_core_adapter.inl"
 namespace nr_post_product {
@@ -85,10 +86,33 @@ void CollectTiming(Owner& o,Flight& f) {
     nr_private_sr_status::timing_samples.store(n);nr_private_sr_status::gpu_timing_available.store(true);
 }
 void Say(State s) {
+    nr_private_sr_status::state_configuration.store(g_config_generation.load());
     const auto old=nr_private_sr_status::state.exchange(s);
     if(old!=s)Log("Private residual SR: %s; F8 records admission/submission, not picture acceptance.",nr_private_sr_status::Name(s));
 }
-void Refuse(State s) {nr_private_sr_status::rejected.fetch_add(1);Say(s);}
+void Refuse(State s) {
+    nr_private_sr_status::guide_configuration.store(0);
+    nr_private_sr_status::guide_reason.store(0);
+    nr_private_sr_status::budget_configuration.store(0);
+    nr_private_sr_status::budget_instance.store(0);
+    nr_private_sr_status::budget_feature_generation.store(0);
+    nr_private_sr_status::budget_required.store(0);
+    nr_private_sr_status::budget_available.store(0);
+    nr_private_sr_status::rejected.fetch_add(1);Say(s);
+}
+void RefuseGuide(State s,unsigned reason) {
+    Refuse(s);
+    nr_private_sr_status::guide_reason.store(reason);
+    nr_private_sr_status::guide_configuration.store(g_config_generation.load());
+}
+void RefuseBudget(const NrContext& context,const nr_private_sr_status::BudgetRetry& retry) {
+    Refuse(retry.reason);
+    nr_private_sr_status::budget_configuration.store(retry.key.configuration);
+    nr_private_sr_status::budget_instance.store(context.instance_id);
+    nr_private_sr_status::budget_feature_generation.store(retry.key.feature_generation);
+    nr_private_sr_status::budget_required.store(retry.required);
+    nr_private_sr_status::budget_available.store(retry.available);
+}
 bool PrivateCall(){return nr_private_sr_core::InPrivateCall();}
 bool SameDevice(ID3D12Device* a,ID3D12Device* b){return IsSameRrDepthDevice(a,b);}
 bool RecordingReleased(void*,Recording r) {
@@ -107,6 +131,7 @@ Recording RecordingFor(ID3D12GraphicsCommandList* list,LifecycleQueue* queue) {
     return {reinterpret_cast<Id>(g_codec.device),queue->identity,reinterpret_cast<Id>(list),token,identity.reset+1};
 }
 void Poison(NrContext& context) {
+    context.private_sr_budget_retry.valid=false;
     if(auto* owner=context.private_sr) {
         owner->poisoned=true;nr_edit_dx12::MarkUncertain(owner->normalizer);
         for(const auto& f:owner->flights)if(f.backend_recorded)nr_post_private_sr_dx12::Discarded(owner->backend,f.recording);
@@ -173,12 +198,27 @@ void Discarded(NrContext& context,unsigned long long token) {
     }
 }
 bool CreateOwner(NrContext& context,ID3D12Device* device,const NgxHandle* parent,const FeatureRecord& feature,
-                 LifecycleQueue* queue,unsigned nw,unsigned nh,unsigned ow,unsigned oh) {
+                 LifecycleQueue* queue,unsigned nw,unsigned nh,unsigned ow,unsigned oh,
+                 const nr_private_sr_status::BudgetKey& key) {
     if(context.private_sr)return false;
+    constexpr Id cap=768ull<<20;
+    const auto planes=nr_private_sr_budget::Query(device,nw,nh,ow,oh);
+    auto deny=[&](State reason,Id available,bool permanent){
+        context.private_sr_budget_retry={key,reason,context.frames_seen,true,permanent,planes.required,available};
+        Log("Private residual SR admission refused: reason=%s config=%u work=%ux%u output=%ux%u requiredBytes=%llu availableBytes=%llu capBytes=%llu; no private planes or model allocated.",
+            nr_private_sr_status::Name(reason),key.configuration,nw,nh,ow,oh,
+            static_cast<unsigned long long>(planes.required),static_cast<unsigned long long>(available),
+            static_cast<unsigned long long>(cap));
+        return false;
+    };
+    if(!planes.valid)return deny(State::BudgetUnknown,0,false);
+    if(planes.required>cap)return deny(State::BudgetCap,cap,true);
     const auto memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(device),true);
-    if(FAILED(memory.local_result)||memory.local.CurrentUsage>=memory.local.Budget)return false;
-    const auto spare=memory.local.Budget-memory.local.CurrentUsage;
-    const Id budget=std::min<Id>(768ull<<20,spare>(64ull<<20)?spare-(64ull<<20):0);
+    if(FAILED(memory.local_result))return deny(State::MemoryInfoUnknown,0,false);
+    const Id spare=memory.local.CurrentUsage<memory.local.Budget?memory.local.Budget-memory.local.CurrentUsage:0;
+    const Id budget=std::min<Id>(cap,spare>(64ull<<20)?spare-(64ull<<20):0);
+    if(planes.required>budget)return deny(State::BudgetHeadroom,budget,false);
+    context.private_sr_budget_retry={key,State::Budget,context.frames_seen,true,false,planes.required,budget};
     auto* o=new(std::nothrow)Owner;if(!o)return false;
     o->shape={nw,nh,ow,oh,2,2u|(unsigned(feature.create_flags)&8),reinterpret_cast<Id>(device),queue->identity,feature.generation};
     o->queue=queue;o->configuration=g_config_generation.load();o->budget=budget;o->instance=context.instance_id;
@@ -247,14 +287,33 @@ unsigned Capture(ID3D12GraphicsCommandList* list,ID3D12Device* device,NrContext&
     if(!nr_source_runtime::PrivateSrInputReadState(list,guides.depth,input.depth.state)||
        !nr_source_runtime::PrivateSrInputReadState(list,guides.motion,input.motion.state)){Refuse(State::Guides);return 0;}
     const auto plan=nr_private_sr_guides::Prepare(input);
-    if(!plan){nr_private_sr_status::guide_reason.store(unsigned(plan.reason));Refuse(plan.reason==nr_private_sr_guides::Reason::NonzeroJitter||plan.reason==nr_private_sr_guides::Reason::JitterUnknown?State::Phase:State::Guides);return 0;}
+    if(!plan){RefuseGuide(plan.reason==nr_private_sr_guides::Reason::NonzeroJitter||plan.reason==nr_private_sr_guides::Reason::JitterUnknown?State::Phase:State::Guides,unsigned(plan.reason));return 0;}
     auto private_feature=feature;private_feature.create_flags=(feature.create_flags&~8)|(guides.signature.depth_inverted?8:0);
     auto* o=context.private_sr;
     if(o&&(o->retiring||o->shape.render_width!=nw||o->shape.render_height!=nh||o->shape.output_width!=ow||o->shape.output_height!=oh||
            o->shape.queue!=queue->identity||o->shape.create_flags!=(2u|(unsigned(private_feature.create_flags)&8))||o->configuration!=g_config_generation.load())) {
         if(!Destroy(context)){Refuse(State::Budget);return 0;}o=nullptr;
     }
-    if(!o){if(!CreateOwner(context,device,parent,private_feature,queue,nw,nh,ow,oh)){if(!context.lifecycle_dependencies_quarantined)Refuse(State::Budget);return 0;}o=context.private_sr;}
+    if(!o){
+        const nr_private_sr_status::BudgetKey key{reinterpret_cast<Id>(device),reinterpret_cast<Id>(parent),
+            queue->identity,private_feature.generation,g_config_generation.load(),nw,nh,ow,oh,
+            2u|(unsigned(private_feature.create_flags)&8)};
+        auto& retry=context.private_sr_budget_retry;
+        if(retry.valid&&retry.key==key&&
+           (retry.permanent||unsigned(context.frames_seen-retry.first_frame)<300)){
+            RefuseBudget(context,retry);return 0;
+        }
+        retry.valid=false;
+        if(!CreateOwner(context,device,parent,private_feature,queue,nw,nh,ow,oh,key)){
+            if(!context.lifecycle_dependencies_quarantined){
+                if(!retry.valid)retry={key,State::Budget,context.frames_seen,true,false};
+                RefuseBudget(context,retry);
+            }
+            return 0;
+        }
+        retry.valid=false;nr_private_sr_status::budget_configuration.store(0);
+        o=context.private_sr;Say(State::Creating);
+    }
     if(!Collect(*o)){Poison(context);return 0;}
     if(o->last_capture.stream==input.source.stream&&o->last_capture.epoch==input.source.epoch&&
        o->last_capture.sequence>=input.source.sequence){Refuse(State::Duplicate);return 0;}
@@ -267,7 +326,7 @@ unsigned Capture(ID3D12GraphicsCommandList* list,ID3D12Device* device,NrContext&
     auto& f=*selected;f.capture=input;
     const View depth{f.depth,41,0,D3D12_RESOURCE_STATE_COMMON,true},motion{f.motion,16,0,D3D12_RESOURCE_STATE_COMMON,true};
     f.guides=nr_private_sr_guides::Record(o->normalizer,list,input,depth,motion);
-    if(!f.guides.dispatch.recorded){nr_private_sr_status::guide_reason.store(unsigned(f.guides.reason));Refuse(State::Guides);return 0;}
+    if(!f.guides.dispatch.recorded){RefuseGuide(State::Guides,unsigned(f.guides.reason));return 0;}
     f.recording=recording;o->last_capture=input.source;nr_private_sr_status::captures.fetch_add(1);return index+1;
 }
 bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,const FeatureRecord& feature,

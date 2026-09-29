@@ -77,14 +77,14 @@ struct CompatibilityFallbackSnapshot {
     unsigned long long attempts=0,recordings=0;
 };
 bool chinese=false, dismiss_click=false;
-std::vector<std::string> lines;
+std::vector<std::string> lines, hints;
 std::vector<bool> highlights;
 int click_index=-1, button_index=0, buttons=0, disabled_depth=0;
 bool highlight=false;
 unsigned checks=0, failures=0;
 bool UseChineseUi() { return chinese; }
 float SettingsContentWidth() { return 420; }
-void SettingsTooltip(const char *) {}
+void SettingsTooltip(const char *text) { hints.emplace_back(text); }
 void SettingsNote(const char *text) { lines.emplace_back(text); }
 namespace ImGui {
 Style style;
@@ -121,11 +121,15 @@ float GetFontSize() { return 16; }
 }
 #include "nr_settings_notices_ui.inl"
 void ResetUi(int click=-1) {
-    lines.clear(); highlights.clear(); dismiss_click=false;
+    lines.clear(); hints.clear(); highlights.clear(); dismiss_click=false;
     click_index=click; button_index=buttons=disabled_depth=0; highlight=false;
 }
 bool Has(const char *part) {
     for(const auto &line:lines) if(line.find(part)!=std::string::npos) return true;
+    return false;
+}
+bool HasHint(const char *part) {
+    for(const auto &hint:hints) if(hint.find(part)!=std::string::npos) return true;
     return false;
 }
 void Check(bool ok, const char *name) {
@@ -178,19 +182,19 @@ int main() {
             fallback.cause=cause; fallback.recorded=false;
             const auto before=fallback;
             ResetUi(); DrawCompatibilityFallbackNotice(fallback);
-            Check(Has(zh?"暂未确认":"not yet confirmed"),"attempt is not reported as NR processing");
-            Check(!Has(zh?"最近已记录到":"Recent NR processing was recorded"),"attempt has no recording claim");
-            Check(Has("F8")&&Has(zh?"保留":"retained"),"fallback explains retained preference and feedback");
+            Check(Has(zh?"准备中":"preparing"),"attempt is not reported as NR processing");
+            Check(!Has(zh?"有处理记录":"recent NR processing recorded"),"attempt has no recording claim");
+            Check(HasHint("F8")&&HasHint(zh?"保留":"retained"),"fallback explains retained preference and feedback");
             const char *en[]={"compatibility requirements","image format","colour encoding","8-bit image","HDR image","cannot be read"};
             const char *cn[]={"兼容条件","格式暂不支持","颜色编码","画面的曝光组合","HDR 画面的曝光组合","无法读取"};
             const auto index=cause<=5?cause:0;
-            Check(Has(zh?cn[index]:en[index]),"cause has a bounded readable explanation including unknown values");
+            Check(HasHint(zh?cn[index]:en[index]),"cause has a bounded readable explanation including unknown values");
             Check(std::memcmp(&fallback,&before,sizeof(fallback))==0,"notice does not mutate coherent route snapshot");
         }
         fallback.recorded=true;
         ResetUi(); DrawCompatibilityFallbackNotice(fallback);
-        Check(Has(zh?"最近已记录到":"Recent NR processing was recorded"),"matching recording has distinct wording");
-        Check(!Has(zh?"暂未确认":"not yet confirmed"),"matching recording does not retain attempt wording");
+        Check(Has(zh?"有处理记录":"recent NR processing recorded"),"matching recording has distinct wording");
+        Check(!Has(zh?"准备中":"preparing"),"matching recording does not retain attempt wording");
 
         ChainConfig config;
         ResetUi(); Check(!DrawProcessingModeBlocks(config,false,false,1),"drawing effective post is read only");

@@ -52,7 +52,7 @@ class EdgeTests(unittest.TestCase):
         # changed. The full kCodecShader string and GPU/resource contracts match.
         # docs/interop/GUIDE_DOMAIN_AUDIT_20260925.md records the scoped evidence.
         # Keep this exact source pin AND the generated semantic assertions below.
-        for p,sha in [('src/nr_before_sr.cpp','ba275c972173de130127d173b3234e57f778afd7'),
+        for p,sha in [('src/nr_before_sr.cpp','b87b5dacb735e448bc4747ecfc30111383a1c980'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)

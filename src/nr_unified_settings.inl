@@ -39,19 +39,22 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const auto actual=nr_processing_runtime::Effective();
     unsigned actual_w=current.work_width,actual_h=current.work_height;
     if(actual==nr_processing::Start::Present){nr_compat_present::Observation cp{};if(nr_compat_present_runtime::TrySnapshot(cp)){actual_w=cp.work_width;actual_h=cp.work_height;}else actual_w=actual_h=0;}
-    if(actual_w&&actual_h)ImGui::TextWrapped(ui("Actual: %s · %u x %u per layer","实际：%s · 每层 %u × %u"),routes[std::min(static_cast<unsigned>(actual),2u)],actual_w,actual_h);
-    else SettingsNote(ui("Waiting for actual route and model dimensions.","等待实际路线与模型尺寸。"));
-    if(has_pending||changed)SettingsNote(ui("Settings pending; apply on release or input commit.","设置待提交，松手或提交输入后应用。"));
-    if(next.identity_use_original||next.colour_neutral_probe)SettingsNote(ui("Diagnostic output is active; this is not the normal NR result.","诊断输出正在运行，当前不是正常 NR 结果。"));
-    if(next.colour_restore_mode)SettingsNote(ui("RGB recovery active; reported halo regression. Change it in Experiments.","RGB 恢复正在运行，有亮边回归反馈；可在实验页切换。"));
+    if(actual_w&&actual_h){
+        ImGui::TextDisabled(ui("Current position: %s","当前位置：%s"),routes[std::min(static_cast<unsigned>(actual),2u)]);
+        char size_hint[128]{};std::snprintf(size_hint,sizeof(size_hint),ui("Model work size: %u x %u per layer","模型工作尺寸：每层 %u × %u"),actual_w,actual_h);
+        SettingsHelp(size_hint);
+    } else SettingsNote(ui("Preparing: waiting for a game picture.","准备中：等待游戏画面。"));
+    if(has_pending||changed)SettingsNote(ui("Settings pending; apply on release or input commit.","设置准备应用。"));
+    if(next.identity_use_original||next.colour_neutral_probe)SettingsNote(ui("Diagnostic output is active; this is not the normal NR result.","诊断中：非正常 NR 画面。"));
+    if(next.colour_restore_mode)SettingsNote(ui("RGB recovery active; reported halo regression. Change it in Experiments.","RGB 实验开启：有亮边反馈。"));
     if(next.light_preview||next.region_preview||next.face_preview){
-        SettingsNote(ui("A preview is active; this is not the final picture.","预览正在运行；可在光影页退出，当前不是最终画面。"));
+        SettingsNote(ui("A preview is active; this is not the final picture.","预览中：非最终画面。"));
     }
-    if(g_config_persistence_failed.load())SettingsNote(ui("Settings could not be saved; current session still uses them.","设置无法保存，当前运行仍采用这些设置。"));
+    if(g_config_persistence_failed.load())SettingsNote(ui("Settings could not be saved; current session still uses them.","设置未保存：本次运行仍采用。"));
     if (edit_conflict)
         ImGui::TextWrapped("%s", ui(
             "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
-            "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
+            "设置已更新：请按当前值重新调整。"));
     if(ImGui::BeginTabBar("nr-main-tabs",ImGuiTabBarFlags_FittingPolicyScroll)){
         const ImGuiTabItemFlags feedback_tab_flags=nr_f8::TakeSettingsFeedbackPageRequest()?ImGuiTabItemFlags_SetSelected:ImGuiTabItemFlags_None;
         if(ImGui::BeginTabItem(ui("Picture###nr-picture","画面###nr-picture"))){
@@ -63,11 +66,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             if(SettingsSliderFloat(ui("AI colour range","AI 色彩范围"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
                 nr_colour_preferences::SetRange(next,next.color_strength);changed=true;
             }
-            SettingsTooltip(ui("0: no added NR chroma, while NR light/detail edits remain. 1: full requested NR colour amount, still subject to existing confidence/gamut safeguards; not guaranteed identical to raw model output. Default 0.5. Editing uses the former colour-priority admission, including internal HDR inputs, without a separate permission. Not whole-image saturation or model strength; 0 is not universally identical to the old Conservative mode.",
-                "0：不采用 NR 新增色彩，仍保留 NR 明暗与细节修改；1：请求完整采用 NR 色彩，仍受现有置信度、色域等保护，不保证等于模型原图。默认 0.5。调整即采用原颜色优先的许可，包含游戏内部 HDR 输入，不再另开 HDR 调色许可。不是全画面饱和度或模型强度；0 不保证在所有路线都等同旧保守颜色。"));
+            SettingsTooltip(ui("0 keeps the game colour; 1 requests the full NR colour change, subject to safety limits. This is not whole-image saturation. Editing adopts the newer colour range, including internal HDR inputs.",
+                "0 保留游戏颜色，1 请求完整 NR 色彩，仍受安全限制。不是全图饱和度；调整后采用新版色彩范围，也包括游戏内部 HDR。"));
             if(!next.colour_range_control)SettingsNote(ui("Saved legacy colour behaviour retained; this is its requested amount. Editing this slider adopts the new colour range.","已保留旧颜色规则；当前数值为旧请求量。调整此滑条后改用新的色彩范围。"));
             DrawUnifiedColourState(next,current.generation,has_pending||changed);
-            SettingsSection(ui("Processing order","处理顺序"));
+            SettingsSection(ui("Processing order","增强位置"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
             SettingsSection(ui("Workload","工作量"));
 #if NR_HAS_DETAIL_STABILITY
@@ -90,7 +93,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ? ui("Pre-SR request","前置请求") : edit_target==nr_precision_ui::Target::Post
         ? ui("Post-SR request","后置请求") : ui("Compatibility request","兼容请求");
     ImGui::TextDisabled(ui("Editing: %s","正在设置：%s"),request_name);
-    const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "整链工作比例"),
+    const bool scale_changed=SettingsSliderFloat(ui("Chain working scale", "NR 工作比例"),
         "##nr-processing-precision", &precision, nr_precision_ui::MinimumPercent(edit_target), 100.0f,"%.0f%%");
     if (scale_edit.Finish(precision,ImGui::IsItemActivated(),scale_changed,
             ImGui::IsItemActive(),ImGui::IsItemDeactivatedAfterEdit())) {
@@ -120,7 +123,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     SettingsTooltip(ui(
         "Sets 50-100% before upscaling, or 25-100% after upscaling and in Compatibility, once for all layers. Automatic fallback does not change this saved request. RR and FG-redirected compatibility use the Post-SR request. Applied on release; game resolution stays unchanged.",
-        "前置支持 50–100%，后置与兼容支持 25–100%；所有层共用且仅乘一次。自动降级不切换保存字段；RR 与 FG 重定向兼容模式使用后置请求。松手应用，游戏分辨率不变，实际路线和尺寸单独显示。"));
+        "前置 50–100%，后置及兼容 25–100%。所有层共用；松手应用。游戏分辨率不变，游戏 RR 后增强使用后置比例。"));
     if (scale_edit.conflict)
         SettingsNote(ui("The scale edit was not applied: its target or settings changed, or the request was unavailable. Release and adjust the current value again.",
             "比例编辑未应用：编辑目标或设置已变化，或请求暂不可用。请松手后按当前值重新调整。"));
@@ -135,7 +138,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (observed_base_w&&observed_base_h&&observed_work_w&&observed_work_h)
         ImGui::TextDisabled(ui("Last NR: base %u x %u -> model %u x %u (each layer)",
-            "最近运行：基准 %u × %u → 模型 %u × %u（每层）"),
+            "最近尺寸：%u × %u → %u × %u"),
             observed_base_w,observed_base_h,observed_work_w,observed_work_h);
     else SettingsNote(ui("Model dimensions appear after NR runs.","NR 运行后显示实际模型尺寸。"));
     if (scale_target==nr_precision_ui::Target::Before &&
@@ -149,14 +152,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             DrawUniformLayerCount(next,changed,apply_discrete_edit);
             SettingsSection(ui("Final effect","最终效果"));
             float strength=ActiveTransferStrength(next);
-            if(SettingsSliderFloat(ui("Final extra enhancement","最终额外增强"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
+            if(SettingsSliderFloat(ui("Final extra enhancement","最终效果强度"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
             SettingsTooltip(ui("Scales final brightness/detail edits, not model strength. 1 keeps the model result's base amount.","调整最终明暗和细节修改量，不是模型强度；1 保留模型原量。"));
-            if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting scope or component gains are active; inspect Lighting.","旧版光影范围或分项倍率正在生效，详见光影页。"));
+            if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting scope or component gains are active; inspect Lighting.","旧光影组合开启：见光影页。"));
             if(next.low_grid_edit_field||next.low_grid_color_edit_field||next.independent_chroma_composition||next.colour_scaled_proxy_mode||next.colour_edge_recovery||!next.color_protection||!next.high_strength_protection)
-                SettingsNote(ui("Custom composition or safeguard settings are active; inspect Developer.","自定义合成或保护设置正在生效，详见开发者页。"));
+                SettingsNote(ui("Custom composition or safeguard settings are active; inspect Developer.","画质实验开启：见开发者页。"));
             DrawUniformLayerControls(next,changed,apply_discrete_edit);
             ImGui::Separator();
-            if(ImGui::Button(ui("Restore default picture","恢复默认画质"))){
+            if(ImGui::Button(ui("Restore picture###Restore default picture","恢复推荐画质###恢复默认画质"))){
                 RestoreRecommendedPictureSettings(next);
                 next.processing_start=nr_processing::Start::Before;
                 next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);
@@ -165,7 +168,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
             SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, AI colour range 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
-                "恢复前置、1层、100%工作比例、模型1.5、皮肤0.4、最终增强1、AI色彩范围0.5、光照/边缘保护0及画质实验默认；保留总开关、快捷键与兼容设置。"));
+                "恢复推荐画质参数与实验默认值；保留总开关、快捷键和兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

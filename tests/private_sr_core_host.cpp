@@ -175,6 +175,34 @@ int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();Initial
     const unsigned gx=odd?2:0,gy=odd?1:0,tx=odd?3:0,ty=odd?2:0;const bool numeric=odd||mode==L"numeric"||mode==L"quarter"||mode==L"full";
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=true;g_config.temporal_backend=0;
     g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
+    if(mode==L"budget-preflight"){
+        constexpr unsigned full=3840,high=2160;
+        auto* queue=FindOrCreateLifecycleQueueLocked(h.queue);Require(queue&&queue->fence,"real WARP Core queue");
+        context.instance_id=1;context.frames_seen=1;
+        const auto plan=nr_private_sr_budget::Query(h.device,full,high,full,high);
+        Require(plan.valid&&plan.required>(768ull<<20),"WARP 4K real allocation layout exceeds private cap");
+        const nr_private_sr_status::BudgetKey key{reinterpret_cast<UINT64>(h.device),reinterpret_cast<UINT64>(&parent),
+            queue->identity,feature.generation,g_config_generation.load(),full,high,full,high,2u};
+        const auto owned=h.owned.size();
+        Require(!nr_post_product::CreateOwner(context,h.device,&parent,feature,queue,full,high,full,high,key),
+            "actual CreateOwner refuses before private resources or NGX");
+        const auto retry=context.private_sr_budget_retry;
+        Require(retry.valid&&retry.permanent&&retry.key==key&&retry.reason==nr_private_sr_status::State::BudgetCap&&
+            retry.required==plan.required&&retry.available==(768ull<<20)&&!context.private_sr&&
+            nr_private_sr_status::bytes.load()==0&&nr_private_sr_status::peak.load()==0&&
+            nr_private_sr_status::retired.load()==0&&nr_private_sr_status::creations.load()==0&&h.owned.size()==owned,
+            "fixed-cap refusal leaves no private texture, owner or model");
+        nr_post_product::RefuseBudget(context,retry);
+        Require(nr_private_sr_status::state.load()==nr_private_sr_status::State::BudgetCap&&
+            nr_private_sr_status::state_configuration.load()==g_config_generation.load()&&
+            nr_private_sr_status::budget_instance.load()==context.instance_id&&
+            nr_private_sr_status::budget_feature_generation.load()==feature.generation&&
+            nr_private_sr_status::budget_required.load()==plan.required,
+            "current-instance budget diagnostics match exact failed key");
+        std::printf("PASS actual Core WARP 4K preflight required=%llu available=%llu planes=0 privateCreate=0 checks=%u; no NGX/game\n",
+            (unsigned long long)plan.required,(unsigned long long)(768ull<<20),checks);
+        return 0;
+    }
     auto* depth=h.Plane(rw+gx,rh+gy,DXGI_FORMAT_R32_FLOAT,false);auto* motion=h.Plane(rw+gx,rh+gy,DXGI_FORMAT_R32G32_FLOAT,false);
     auto* base=h.Plane(ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,false);auto* final=h.Plane(ow+tx,oh+ty,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
     Fixture fixture{h,h.Plane(ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,false)};

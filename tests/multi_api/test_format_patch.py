@@ -91,7 +91,7 @@ class Patches(unittest.TestCase):
         # Beta 10 shares its headroom reader with auxiliary layers and logs
         # detailed storage transitions; shader/codec math remains unchanged.
         # Format and colour shader code are unchanged.
-        self.assertEqual(digest,'ba275c972173de130127d173b3234e57f778afd7')
+        self.assertEqual(digest,'b87b5dacb735e448bc4747ecfc30111383a1c980')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

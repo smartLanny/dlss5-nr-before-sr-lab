@@ -25,8 +25,8 @@ class UiRefreshContract(unittest.TestCase):
     def test_rr_protection_forces_effective_post_without_a_toggle(self):
         self.assertIn("IsRayReconstructionRouteObserved()", self.ui)
         self.assertIn("DrawPostRouteStatus()", self.ui)
-        self.assertIn("NR 未生效", self.post)
-        self.assertIn("正在等待新的 RR 评估", self.post)
+        self.assertIn("游戏 RR 后增强未生效", self.post)
+        self.assertIn("游戏 RR 后增强：等待新画面", self.post)
         self.assertNotIn("Use RR -> NR when Ray Reconstruction is active", self.post)
 
     def test_feedback_is_one_button_and_leaves_clipboard_to_present(self):
@@ -61,8 +61,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('kSettingsOverlayName[] = "装机宅DLSS 5"', self.ui)
         self.assertIn('"交流群（二群）：392308850"', self.ui)
         self.assertIn('CollapsingHeader(ui("Developer options", "开发者选项"))', self.ui)
-        self.assertIn('SettingsSection(ui("About and links", "作者与链接"));', self.ui)
-        self.assertNotIn('CollapsingHeader(ui("About and links", "作者与链接"))', self.ui)
+        self.assertIn('CollapsingHeader(ui("About###nr-about", "关于###nr-about"))', self.ui)
+        self.assertNotIn('SettingsSection(ui("About and links", "作者与链接"))', self.ui)
         self.assertIn('CollapsingHeader(ui("Light adjustment", "光影微调"))', self.ui)
         self.assertIn('CollapsingHeader(ui("Algorithm comparisons", "算法对照"))', self.ui)
         self.assertIn('CollapsingHeader(ui("Picture safeguards", "画质保护（高级）"))', self.ui)
@@ -131,7 +131,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertEqual(self.ui.count("nr_f8::RequestCore();"), 1)
 
     def test_labels_separate_overall_effect_from_tone_follow(self):
-        self.assertIn('ui("Extra enhancement", "额外增强")', self.ui)
+        self.assertIn('ui("Effect strength", "效果强度")', self.ui)
         self.assertIn('ui("AI colour amount", "AI 色彩强度")', self.ui)
         self.assertIn("amplify its final brightness and detail changes", self.ui)
         self.assertIn("Controls only NR hue and saturation follow", self.ui)
@@ -150,7 +150,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f)', control)
         self.assertIn('next.transfer_strength = next.post_transfer_strength = effect_strength;', control)
         self.assertNotIn('NR_HAS_DETAIL_STABILITY', control)
-        self.assertIn('1 = 原量（默认）。', control)
+        self.assertIn('1 为原量', control)
 
     def test_face_controls_use_each_layer_and_reset_keeps_composition(self):
         self.assertIn('auto model=nr_layers::Read(next,i);', self.layers)
@@ -222,8 +222,8 @@ class UiRefreshContract(unittest.TestCase):
         picture = self.ui[picture_start:experiment_start]
         markers = [
             'ui("Enable (F6)", "启用（F6）")',
-            'ui("Restore default picture settings", "一键恢复默认画质")',
-            'ui("Processing mode", "处理模式")',
+            'ui("Restore picture###Restore default picture settings", "恢复推荐画质###一键恢复默认画质")',
+            'ui("Processing mode", "增强位置")',
             '"##nr-processing-precision"',
             'DrawUniformLayerControls(next,changed,apply_discrete_edit);',
             '"##nr-strength-amplification"',

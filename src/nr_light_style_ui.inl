@@ -15,7 +15,7 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     (void)before_sr;
     SettingsNote(ui("Adjust the AI's added light and dark changes; 100% keeps their original amount.",
         "调节 AI 新增的明暗变化；100% 为原量。"));
-    SettingsField(ui("Scope of brightening and darkening", "增亮、压暗的作用范围"));
+    SettingsField(ui("Scope of brightening and darkening", "光影范围"));
 
     const unsigned modes[]={nr_light_style::WholeLightDark,nr_light_style::DetailLayers};
     const char *mode_labels[]={ui("All light/dark###light-mode-option","全部亮暗变化###light-mode-option"),
@@ -82,8 +82,8 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     }
     ImGui::PopID();
     SettingsNote(next.light_preset==nr_light_style::Custom
-        ? ui("Custom: values or colour were edited.","自定义：本组数值或颜色已手动调整。")
-        : ui("Candidate preset; game quality is still being validated.","候选预设，游戏画质仍在验证。"));
+        ? ui("Custom: values or colour were edited.","当前：自定义")
+        : ui("Candidate preset; game quality is still being validated.","预设画质待验证。"));
     SettingsTooltip(ui("Presets keep the selected light control mode and change only this group's five coefficients and AI colour amount. Original effect and Less glow keep the current colour; Natural uses 80%. Model, processing route and other experiments stay as requested.",
         "预设保留所选光影模式，只改本组五项系数与 AI 色彩强度。“原样效果”和“减少辉光”保留当前颜色，“自然耐看”设为 80%；模型、处理方式和其他实验开关仍使用原设置。"));
 
@@ -103,14 +103,14 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         "仅撤销最近提交的本组快照；后续配置发生变化后失效，避免覆盖新设置。"));
     if (next.light_preview!=0) {
         ImGui::TextWrapped("%s",ui("Diagnostic preview is active for this process only. It is not the final picture.",
-            "当前为诊断预览，仅本次运行有效，显示的不是最终画面。"));
+            "诊断预览中：非最终画面。"));
         if (ImGui::Button(ui("Exit preview###light-preview-off","退出预览###light-preview-off"))) {
             next.light_preview=0; changed=true; apply_discrete_edit=true;
         }
     }
-    if (ImGui::CollapsingHeader(ui("Advanced light controls###light-advanced","光影高级选项###light-advanced"))) {
+    if (ImGui::CollapsingHeader(ui("Advanced light controls###light-advanced","高级光影###light-advanced"))) {
         SettingsNote(ui("100% keeps the model's original change in that part; 0% removes it; above 100% strengthens it. The game's original lighting is retained. These are not whole-picture brightness controls.",
-            "100% 保留模型原有的这部分改动，0% 去掉这部分，超过 100% 会增强。保留游戏原有光照，不是全画面亮度调节。"));
+            "100% 为原量；0% 去掉 AI 的这部分改动。"));
         if (next.light_glow==1.f)
             SettingsNote(ui("Glow suppression is at 100%, removing the model's added broad brightening. The brightening slider therefore has no visible effect for now.",
                 "辉光抑制已为 100%，模型新增的大范围提亮已去掉，因此提亮滑块暂时看不出变化。"));
