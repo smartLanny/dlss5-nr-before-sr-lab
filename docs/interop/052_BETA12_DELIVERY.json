@@ -1,0 +1,85 @@
+{
+  "schema": "beta12-local-delivery-v1",
+  "version": "0.5.2-beta.12",
+  "source_commit": "dd911da4cc422e26b3584be66bb8016193e7642a",
+  "packaging_source_commit": "dd911da4cc422e26b3584be66bb8016193e7642a",
+  "created_utc": "2026-09-29T10:18:33.710961+00:00",
+  "status": "installed-local-candidate",
+  "game": "Neverness To Everness",
+  "artifacts": {
+    "canonical": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-canonical-dd911da4-r1\\shell-receipt.json",
+      "sha256": "7d00ea88454e9d51ec25396c5e5cd1406cfcc3294ddf73c2867c9b8f29dde163"
+    },
+    "core_warp": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-private-core-dd911da4-r1\\validation.json",
+      "sha256": "7602beb690566ca59a70cdc25fef86ed448c278f2b8b8191d456f0c430e5c87f"
+    },
+    "hardware": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-hardware-dd911da4-r1\\validation.json",
+      "sha256": "aede96d0e5d9ca960e630c35735fc2e6aa319481cfda59c9de202dce0c2ea8c5"
+    },
+    "bilingual_packages": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-ota-dd911da4-r1\\validation.json",
+      "sha256": "2c50551a448938aaaa1000c992d314151e6eb40dd78e5d3466745aa5b785e34a"
+    },
+    "installation": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-nte-install-dd911da4-r1\\installation.json",
+      "sha256": "e17fe7c69e8ea742a86b9d045186c140e8177a31edbb540c516696c652dd30f3"
+    },
+    "independent": {
+      "path": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-independent-dd911da4-r1\\independent-validation-complete.json",
+      "sha256": "1964cfe07d6c21a05c7f89f55ba7078160eb49ee8146d519e55122df265e40d8"
+    }
+  },
+  "packages": [
+    {
+      "language": "zh-CN",
+      "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta12-ota-dd911da4-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.12-zh-CN-Core-OTA.zip",
+      "archive_sha256": "161533101e3b93385ca8c2334fafa7ccc9651a4f156278f535b245ae44e3e9f3",
+      "core_sha256": "1eb2b2c67c7d62f4f05a239da89f41372f7d57a51e072cfcced748417a151356",
+      "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    },
+    {
+      "language": "en",
+      "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta12-ota-dd911da4-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.12-en-Core-OTA.zip",
+      "archive_sha256": "6396f1f0b0d3750888c0bfc9fb707e1cc1e104ff6e2e848c4a5fae9d605f7899",
+      "core_sha256": "848abb3bf57679b1e2a63a913f851215e8afb58accd68b3509553da7d6cc2497",
+      "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    }
+  ],
+  "installed_core": "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\HT\\Binaries\\Win64\\nr-before-sr.zh-CN.addon64",
+  "installed_core_sha256": "1eb2b2c67c7d62f4f05a239da89f41372f7d57a51e072cfcced748417a151356",
+  "rollback_core": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-nte-install-dd911da4-r1\\rollback\\nr-before-sr.zh-CN.addon64",
+  "rollback_core_sha256": "e77e99c038a37b1746f34ace7173fc70af7df9812a48a6a610b73db12c7a56fe",
+  "rollback_zip": "D:\\ChatGPT\\DLSS5\\evidence\\beta12-nte-install-dd911da4-r1\\rollback.zip",
+  "rollback_zip_sha256": "19e2584f515b08b660deaa833a542d11806d48d851ccbbaa3f294121396f9cab",
+  "same_volume_rollback": "E:\\DLSS5-Core-rollback\\Beta12-dd911da4-20260929T101742Z",
+  "new_experiments": {
+    "default": 0,
+    "options": [
+      "off",
+      "guided-four-tap",
+      "local-edit-denoise"
+    ],
+    "quality_gate_passed": false,
+    "manual_experiment_authorized": true
+  },
+  "d13_comparison": {
+    "status": "prepared-not-measured",
+    "root": "D:\\ChatGPT\\DLSS5\\evidence\\d13-comparison-20260929-r1",
+    "layers": [
+      1,
+      2
+    ],
+    "common_baseline": "native SR, post NR, matched actual work grids; experiments and frame generation off"
+  },
+  "game_acceptance": false,
+  "esc_transition_fixed": false,
+  "whole_frame_cost_accepted": false,
+  "games_started": false,
+  "pushed": false,
+  "merged_main": false,
+  "online_ota_published": false,
+  "manager_defaults_changed": false
+}
