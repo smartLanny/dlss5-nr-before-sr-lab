@@ -31,7 +31,6 @@ REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
 REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 REQUIRED_ANCESTORS += ('10d624098d8cd062e7eacd7aa54274669ea641a2', 'd7a6def43a58ea6c4b26c553547429a8ef88b735')
 INTEGRATION_CORE_PINS = {
-    'src/nr_private_sr_budget.h': 'a284d3f657491ca62ff668010ca38faf38271336',
     'src/nr_residency_policy.h': '168f34a3484be936f64e2c3e60f82bf1456c8873',
     'src/nr_pipeline_cache.h': '364fac2ddcb773a3669f7ec18f25d87e22e90895',
     'src/nr_f8_types.h': '4f435ff7a95c1516ee8ee54700dedae123cd2129',
