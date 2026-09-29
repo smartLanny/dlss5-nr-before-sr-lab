@@ -57,6 +57,7 @@ def main():
 #include "nr_colour_preferences.h"
 #include "nr_colour_restore_policy.h"
 #include "nr_colour_edge_policy.h"
+#include "nr_spatial_experiment_policy.h"
 #include "nr_generic_residual.h"
 #include "nr_light_style.h"
 enum class NrJitterMode { Legacy=0,GameInputPixel=1 };

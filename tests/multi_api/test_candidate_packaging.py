@@ -236,10 +236,50 @@ class Packaging(unittest.TestCase):
     def test_reconstruction_ui_suffix_retains_current_and_new_gates(self):
         self.check_reconstruction_suffix('beta0.5-dline21-unified10-reconstruction1-ui1')
 
+    def guide_fixture(self):
+        self.manifest['colour_edge']['version']='0.5.2-beta.1'
+        for name in ('nr_f8_types.h','nr_f8_stream.inl'):
+            (self.stage/'core/src'/name).write_text('synthetic '+name)
+        receipt={'success':True,'generated_core':True,'source_compile_verified':True,
+                 'actual_capture_json_verified':True,'gpu_verified':False,'ngx_verified':False,'game_verified':False,
+                 'source_sha256':digest(self.stage/'core/src/nr_before_sr.cpp'),
+                 'capture_types_sha256':digest(self.stage/'core/src/nr_f8_types.h'),
+                 'capture_writer_sha256':digest(self.stage/'core/src/nr_f8_stream.inl'),
+                 'actual_function_and_negative_controls':[
+                    {'name':'production','passed':True,'exit_code':0,'expected_failure':None},
+                    {'name':'missing-empty-grid-guard','passed':True,'exit_code':1,'expected_failure':'empty grid rejects before any resource lookup'},
+                    {'name':'missing-converted-scale-guard','passed':True,'exit_code':1,'expected_failure':'non-finite converted motion scale rejects before opaque NGX'},
+                    {'name':'storage-confused-with-measurement-grid','passed':True,'exit_code':1,'expected_failure':'MV.Scale remains render-referenced even for full-resolution storage'}]}
+        p=self.build/'unified8-checks/guide-domain/validation.json';p.parent.mkdir(parents=True)
+        p.write_text(json.dumps(receipt));return p,receipt
+
+    def test_short_version_retains_all_reconstruction_gates(self):
+        self.check_reconstruction_suffix('0.5.2-beta.1')
+
+    def test_guide_delivery_requires_actual_source_and_controls(self):
+        self.inbox_fixture();path,receipt=self.guide_fixture()
+        for field in ('success','generated_core','source_compile_verified','actual_capture_json_verified',
+                      'source_sha256','capture_types_sha256','capture_writer_sha256'):
+            with self.subTest(field=field):
+                broken=dict(receipt);broken[field]='0'*64 if field.endswith('sha256') else False
+                path.write_text(json.dumps(broken));run=self.run_package()
+                self.assertNotEqual(run.returncode,0)
+                self.assertIn('Guide-domain exact-source checks are incomplete',run.stdout+run.stderr)
+        for index in range(4):
+            broken=json.loads(json.dumps(receipt));broken['actual_function_and_negative_controls'][index]['exit_code']=42
+            path.write_text(json.dumps(broken));run=self.run_package()
+            self.assertNotEqual(run.returncode,0)
+            self.assertIn('Guide-domain positive/negative execution evidence is incomplete',run.stdout+run.stderr)
+        path.unlink();run=self.run_package()
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('Guide-domain exact-source checks are missing',run.stdout+run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
     def check_reconstruction_suffix(self, version):
         extra_path, extra = self.inbox_fixture()
         self.manifest['colour_edge']['version'] = version
         self.manifest['reconstruction'] = {'version':version,'source_commit':self.commit}
+        if version=='0.5.2-beta.1':self.guide_fixture()
         for field in ('temporal_entries', 'auxiliary', 'native_output', 'source_sha256'):
             bad = dict(extra)
             bad[field] = '0'*64 if field == 'source_sha256' else False

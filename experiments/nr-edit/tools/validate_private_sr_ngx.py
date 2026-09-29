@@ -3,10 +3,12 @@
 Copies explicit existing dependencies into a private fresh test directory. No
 game changes, downloaded vendor runtime, mock inference or driver modifications.
 """
-import argparse,hashlib,json,shutil,subprocess
+import argparse,hashlib,json,shutil,subprocess,sys
 from pathlib import Path
 
 PACKAGE=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PACKAGE.parents[1]/'scripts'))
+from temporal_test_objects import objects_for
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -37,6 +39,10 @@ def main():
     shutil.copy2(a.sr_runtime.resolve(strict=True),out/'nvngx_dlss.dll')
     objects=[core/'build/obj'/n for n in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o',
         'nr_face_detector.o','nr_face_worker.o','nr_edit_dx12.o','nr_deferred_dx12.o','nr_rr_dx12.o']]
+    optional=objects_for(core/'src/nr_before_sr.cpp')
+    # The product module owns nr_edit_dx12; do not also link the legacy copy.
+    optional_names={p.name for p in optional}
+    objects=[p for p in objects if p.name not in optional_names]+optional
     flags=['-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1',
         '-DNR_PRIVATE_SR_CORE="'+(core/'src/nr_before_sr.cpp').as_posix()+'"','-ffunction-sections','-fdata-sections',
         '-I'+str(core/'build'),'-I'+str(core/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui'),

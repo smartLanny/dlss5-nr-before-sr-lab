@@ -190,7 +190,7 @@ class SourcePatch(unittest.TestCase):
         self.assertNotIn('Use RR -> NR when Ray Reconstruction is active',ui)
         self.assertIn('IsRayReconstructionRouteObserved()',ui)
         self.assertNotIn('g_config.mode =',ui)
-        self.assertIn('No recent RR-post attempt',ui)
+        self.assertIn('No recent RR attempt; counts are historical.',ui)
     def test_settings_do_not_enable_before_reading_ini(self):
         s=(ROOT/'src/interop/nr_post_settings.inl').read_text()
         self.assertIn('ready{false}',s)

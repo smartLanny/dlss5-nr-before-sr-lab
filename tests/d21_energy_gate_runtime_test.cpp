@@ -101,6 +101,10 @@ int main() {
     host_tick=120;R::ObserveEnergyPause(a,100,3,true,true,10);
     Check(R::EnergyGateBlocks(a)&&!R::EnergyGateBlocks(b));
     const auto paused=Feedback();Contains(paused,"energyGate.state=paused-recorded");
+    Contains(paused,"energyGate.event.1=atMs:120,transition:1,history:");
+    Check(R::energy_gate_event_count==1);
+    const auto event_before_snapshot=R::energy_gate_event_count;
+    (void)Feedback();Check(R::energy_gate_event_count==event_before_snapshot);
     Contains(paused,"recorded=active:1,streams:1,explicit:1,heuristic:0,confirming:0");
     Contains(paused,"blockedChecks counts rejected scheduling checks");
     const auto selection=g_config.processing_selection;
@@ -133,6 +137,12 @@ int main() {
         Check(!R::EnergyGateBlocks(a)&&g_history_generation==before+i+1);
     }
     stop=true;observer.join();
+    R::EnergyGateSnapshot timeline{};
+    Check(R::TrySnapshotEnergyGateStatus(timeline)&&timeline.event_count>timeline.events.size());
+    const auto& latest=timeline.events[(timeline.event_count-1)%timeline.events.size()];
+    Check(latest.sequence==timeline.event_count&&latest.transition==3&&latest.history==g_history_generation.load());
+    for(unsigned long long i=timeline.event_count-timeline.events.size();i<timeline.event_count;++i)
+        Check(timeline.events[i%timeline.events.size()].sequence==i+1);
     host_tick=10000;R::ObserveEnergyPause(a,100,3,true,true,400);
     host_tick=10020;R::ObserveEnergyPause(a,100,3,true,true,400);
     const auto retired=g_history_generation.load();

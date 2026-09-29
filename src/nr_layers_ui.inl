@@ -23,9 +23,9 @@ void NrLayerField(const char* label,bool table) {
 }
 void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();
-    SettingsSection(zh?"每层模型参数":"Model parameters per layer");
+    SettingsSection(zh?"模型与层数":"Model parameters per layer");
     SettingsTooltip(zh?"各层同一工作尺寸；松手或提交输入后应用。减少层数会保留后续层设置。":"All layers share one work size; apply on release or input commit. Reducing layers retains their settings.");
-    if(next.nr_uniform_migrated)SettingsNote(zh?"旧辅助层比例已归档；统一尺寸改变了辅助层工作量，当前为自定义。":"Legacy auxiliary scales are archived. Uniform sizing changes their workload; this is a custom configuration.");
+    if(next.nr_uniform_migrated)SettingsNote(zh?"当前层数设置为自定义。":"Legacy auxiliary scales are archived. Uniform sizing changes their workload; this is a custom configuration.");
     const auto count=nr_layers::Active(next.nr_layers);
     for(unsigned i=0;i<count;++i) {
         ImGui::PushID(static_cast<int>(i));
@@ -67,7 +67,7 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
         NrLayerField(zh?"局部色调":"Local tone",table);
         edited|=ImGui::SliderFloat("##tone",&model.local_tone,0.f,2.f,"%.2f");
         SettingsTooltip(zh?"本层模型的局部色调参数；不是最终 AI 色彩采用量，也不是全画面饱和度。":"Local tone passed to this layer; not final AI colour amount or global saturation.");
-        NrLayerField(zh?"原生皮肤遮罩":"Native skin mask",table);
+        NrLayerField(zh?"皮肤保护":"Native skin mask",table);
         if(ImGui::Checkbox("##native-mask",&model.auto_mask)) {
             if(model.auto_mask&&model.skin_structure<0.f)model.skin_structure=nr_layers::Model{}.skin_structure;
             edited=true;discrete=true;
@@ -77,7 +77,7 @@ void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
         ImGui::BeginDisabled(!model.auto_mask);
         edited|=ImGui::SliderFloat("##skin",&model.skin_structure,model.auto_mask?0.f:-1.f,2.f,"%.2f");
         ImGui::EndDisabled();
-        NrLayerField(zh?"文字/UI保护":"Text / UI protection",table);
+        NrLayerField(zh?"文字保护":"Text / UI protection",table);
         if(ImGui::Checkbox("##ui-correction",&model.ui_correction)){edited=true;discrete=true;}
         if(table)ImGui::EndTable();
         if(ImGui::Button(zh?"重置本层":"Reset this layer")){model={};edited=true;discrete=true;}

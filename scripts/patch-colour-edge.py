@@ -7,7 +7,10 @@ lifetime code are not replaced. Validate all output before writing the stage.
 from __future__ import annotations
 from pathlib import Path
 
-VERSION = 'beta0.5-dline21-unified10-reconstruction1-ui1'
+VERSION = '0.5.2-beta.2'
+DISPLAY_VERSION = '0.5.2 Beta 2'
+PACKAGE_VERSION = '0.5.2-Beta-2'
+PE_VERSION = '0.5.2.2'
 INPUTS = ('scripts/patch-colour-edge.py', 'src/nr_colour_edge.hlsli', 'src/nr_colour_edge_policy.h',
           'src/nr_quality_recipe.h', 'src/nr_quality_ui.inl','src/nr_hotkeys.h','src/nr_colour_preferences.h',
           'src/nr_unified_settings.inl', 'src/nr_unified_pages.inl')
@@ -108,8 +111,17 @@ def patch_runtime(text: str, shader: str, helpers) -> str:
             'asuint(float4(edgeCaptureN, 1.0))','capture N')
     text=edit(text,'void WriteCombinedV2(',capture)
     for name in ('kAddonVersion','kBuildIdentity'):
+        value = DISPLAY_VERSION if name == 'kAddonVersion' else VERSION
         text=once(text,f'constexpr const char *{name} = "beta0.5-dline21-colour4";',
-            f'constexpr const char *{name} = "{VERSION}";','edge identity')
+            f'constexpr const char *{name} = "{value}";','edge identity')
+    # ReShade reads NAME before drawing the overlay. Keep its visible identity
+    # in sync with the panel, feedback and PE resource, including attribution.
+    for old,new in (
+        ('DLSS 5 NR Perfect Chain beta0.5-dline21-uniform3 (Chinese UI) | Bilibili UID 941799',
+         f'DLSS 5 {DISPLAY_VERSION} (Chinese UI) | Bilibili UID 941799'),
+        ('DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-uniform3 | Bilibili UID 941799',
+         f'DLSS 5 {DISPLAY_VERSION} (English UI) | Bilibili UID 941799')):
+        text=once(text,old,new,'ReShade add-on display identity')
     for k,v in saved.items():
         if body(text,k)!=v: raise ValueError('Edge changed invariant: '+k)
     return text
@@ -140,6 +152,26 @@ def patch_light_group(text, helpers):
         'collapse secondary artistic controls without changing preferences')
 
 
+def patch_product_file(text: str, path: str) -> str:
+    """Change only final product identity; intermediate source pins stay frozen."""
+    if path not in ('src/nr_before_sr.rc','scripts/build.ps1'):
+        raise ValueError('Unknown product identity input: '+path)
+    expected=4 if path.endswith('.rc') else 2
+    old='beta0.5-dline21-uniform3'
+    if text.count(old)!=expected:
+        raise ValueError('Review final identity anchors: '+path)
+    text=text.replace(old,VERSION)
+    if path.endswith('.rc'):
+        for old,new,count in (
+            ('FILEVERSION 0,5,1,26','FILEVERSION '+PE_VERSION.replace('.',','),1),
+            ('PRODUCTVERSION 0,5,1,26','PRODUCTVERSION '+PE_VERSION.replace('.',','),1),
+            ('0.5.1 dline21-uniform3 beta',DISPLAY_VERSION,2)):
+            if text.count(old)!=count:raise ValueError('Review PE identity anchor: '+old)
+            text=text.replace(old,new)
+    if 'dline21-uniform3' in text:raise ValueError('Stale final product identity')
+    return text
+
+
 def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     shader=inputs['src/nr_colour_edge.hlsli'].decode('utf-8')
     def policy(s):
@@ -166,7 +198,6 @@ def apply(stage: Path, inputs: dict[str,bytes], helpers) -> None:
     # Intermediate overlays intentionally retain their historical identities.
     for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
         text=(stage/'core'/path).read_text(encoding='utf-8-sig')
-        if 'dline21-uniform3' not in text: raise ValueError('Unexpected staged identity: '+path)
-        updates[path]=text.replace('dline21-uniform3',VERSION.removeprefix('beta0.5-'))
+        updates[path]=patch_product_file(text,path)
     for p,s in updates.items(): (stage/'core'/p).write_text(s,encoding='utf-8',newline='\n')
     for p in INPUTS[1:]: (stage/'core'/p).write_bytes(inputs[p])

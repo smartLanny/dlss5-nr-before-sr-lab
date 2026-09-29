@@ -86,8 +86,12 @@ class Patches(unittest.TestCase):
         # every character (including a BOM if present); only EOL is canonical.
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8').encode('utf-8')
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        # Reviewed 0.5.1 same-carrier retirement admission; format/colour code unchanged.
-        self.assertEqual(digest,'32bfacf33c88ede6436ecb6aa26003f739aa23c9')
+        # Beta 8 moves native temporal guide validation to the recorded
+        # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
+        # Beta 10 shares its headroom reader with auxiliary layers and logs
+        # detailed storage transitions; shader/codec math remains unchanged.
+        # Format and colour shader code are unchanged.
+        self.assertEqual(digest,'b87b5dacb735e448bc4747ecfc30111383a1c980')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

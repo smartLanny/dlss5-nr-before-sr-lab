@@ -41,11 +41,18 @@ class EdgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=staged_source();cls.new=edge.patch_runtime(cls.old,shader,m3)
     def test_actual_base_identity(self):
-        # The 0.5.1 inbox candidate adds same-carrier retired-allocation admission.
-        # Reviewed c27f7fe3 -> 32bfacf3: only the release/admission helper and its
-        # call change; colour shader bodies, resources and contracts are unchanged.
+        # Beta 8 moves native temporal guide validation to the recorded
+        # lifecycle token; Beta 9 adds a cold Feature18 commit-pressure guard.
+        # Beta 10 shares its headroom reader with auxiliary layers and logs
+        # detailed storage transitions; shader/codec math remains unchanged.
+        # The codec shader and colour/reconstruction math
+        # are unchanged; the semantic checks below still guard this baseline.
+        # Guide-domain follow-up to Reconstruction1: reviewed 32bfacf3 -> df3b6dfb.
+        # Only invalid guide guards, immutable capture metadata and bypass naming
+        # changed. The full kCodecShader string and GPU/resource contracts match.
+        # docs/interop/GUIDE_DOMAIN_AUDIT_20260925.md records the scoped evidence.
         # Keep this exact source pin AND the generated semantic assertions below.
-        for p,sha in [('src/nr_before_sr.cpp','32bfacf33c88ede6436ecb6aa26003f739aa23c9'),
+        for p,sha in [('src/nr_before_sr.cpp','b87b5dacb735e448bc4747ecfc30111383a1c980'),
                       ('scripts/patch-colour-stage.py','7236bb5adeb9e6991254ac0e1735121b750bb009'),
                       ('src/nr_colour_stage_reference.hlsli','49f529e973ba3e22dfaa0981f43a942652050eb6')]:
             self.assertEqual(blob(REPO/p),sha,'Baseline changed; review before rebasing: '+p)

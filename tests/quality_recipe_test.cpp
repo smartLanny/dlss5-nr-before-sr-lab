@@ -33,6 +33,7 @@ std::string clicked; int selected=0; std::string notes;
 bool UseChineseUi(){return chinese;}
 void SettingsField(const char*){}
 void SettingsTooltip(const char*){}
+void SettingsHelp(const char*){}
 void SettingsNote(const char* s){notes+=s;notes+='\n';}
 const char* NrColorPolicyStatusText(NrColorPolicyStatus,bool){return "status";}
 const char* NrColorReasonName(int){return "reason";}

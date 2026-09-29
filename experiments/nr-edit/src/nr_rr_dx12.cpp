@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include "nr_rr_dx12.hpp"
+#include "nr_rr_admission.hpp"
 #include <cmath>
 #include <new>
 namespace nr_rr_dx12 {
@@ -41,23 +42,12 @@ Context* Create(ID3D12Device* device,nr_private_sr::Shape shape,const std::array
     *reserved=c->bytes;return c;
 }
 bool Valid(const Context& c,const Input& i){const auto& s=c.shape;const auto& k=i.constants;
-    if(!i.recording||i.recording.device!=s.device||i.recording.queue!=s.queue||!i.source||!i.view||!i.configuration||!i.color_domain||
-       !i.scene_linear_verified||!i.normalized_guides_verified||!i.ordered_queue_verified||
+    if(AdmitScalars(i,s)!=Admission::Accepted||
        !Plane(i.edited,s.render_width,s.render_height)||!Plane(i.original,s.render_width,s.render_height)||
        !Plane(i.motion_pixels,s.render_width,s.render_height)||!Plane(i.hardware_depth,s.render_width,s.render_height)||
        !Plane(i.clean_output,s.output_width,s.output_height)||i.clean_output.format!=10||
-       (i.clean_output.resource->GetDesc().Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&i.clean_output.resource->GetDesc().Format!=DXGI_FORMAT_R16G16B16A16_TYPELESS)||
-       k.render_size[0]!=s.render_width||k.render_size[1]!=s.render_height||k.output_size[0]!=s.output_width||k.output_size[1]!=s.output_height||
-       !k.frame_pair_valid||k.force_identity||!std::isfinite(k.input_pre_exposure)||k.input_pre_exposure<=1e-6||
-       !std::isfinite(k.output_pre_exposure)||k.output_pre_exposure<=1e-6||
-       !std::isfinite(k.new_sample_rate)||k.new_sample_rate<=0||k.new_sample_rate>1||
-       !std::isfinite(k.depth_absolute_tolerance)||k.depth_absolute_tolerance<0||
-       !std::isfinite(k.depth_relative_tolerance)||k.depth_relative_tolerance<0||
-       !std::isfinite(k.static_motion_tolerance_pixels)||k.static_motion_tolerance_pixels<0)return false;
+       (i.clean_output.resource->GetDesc().Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&i.clean_output.resource->GetDesc().Format!=DXGI_FORMAT_R16G16B16A16_TYPELESS))return false;
     if(k.explicit_previous_depth_verified&&!Plane(i.explicit_previous_depth,s.render_width,s.render_height))return false;
-    if(!k.camera_mapping_verified&&!k.explicit_previous_depth_verified&&!i.allow_spatial_only)return false;
-    for(float v:k.current_projection_ab)if(!std::isfinite(v))return false;
-    if(k.camera_mapping_verified)for(float v:k.current_clip_to_previous_clip)if(!std::isfinite(v))return false;
     return true;
 }
 bool Same(const Input& a,const Input& b){return a.recording==b.recording&&a.source==b.source&&a.view==b.view&&

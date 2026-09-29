@@ -38,7 +38,7 @@ def assemble(source):
         'float ReadConfiguredTransferStrength(')]
     parts = {
         'JITTER_ENUM': definition(source, 'enum class NrJitterMode', True),
-        'CHAIN_CONFIG': definition(source, 'struct ChainConfig', True),
+        'CHAIN_CONFIG': definition(source, 'struct ChainConfig {', True),
         'PROCESSING_RUNTIME': (ROOT / 'src/nr_processing_runtime.inl').read_text(encoding='utf-8-sig'),
         'HELPERS': '\n\n'.join(helpers),
         'POLICY_RUNTIME': (ROOT / 'src/nr_config_policy_runtime.inl').read_text(encoding='utf-8-sig'),
@@ -46,6 +46,8 @@ def assemble(source):
         'SAME_CONFIG': definition(source, 'bool SameConfig('),
         'SAME_HISTORY': definition(source, 'bool SameHistoryConfig('),
         'ACTIVE_TRANSFER': definition(source, 'float ActiveTransferStrength('),
+        'LAYER_FUNCTIONS': ''.join(definition(source, name) for name in (
+            'void AdvanceLayerEpochs(', 'void ReadUniformLayers(', 'bool SaveUniformLayers(')),
         'RELOAD_PREFIX': reload[:reload.index('    const bool shortfuse_loaded =')],
         'RELOAD_PUBLISH': reload[publish_start:publish_end],
         'SAVE_CONFIG': definition(source, 'bool SaveConfig('),

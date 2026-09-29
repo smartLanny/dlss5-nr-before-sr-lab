@@ -93,7 +93,7 @@ def main():
             save();raise SystemExit(result.returncode)
         exe = output / ("aux-core-" + str(precompiled) + ".exe")
         result = run([compiler, *common, define, "-std=c++20", "-static", "-Wl,--gc-sections", wrapper, dual, *objects, "-o", exe,
-                      "-lkernel32", "-luser32", "-ld3d12", "-ldxgi", "-ldxguid", "-lole32", "-luuid", "-ld3dcompiler", "-lshell32"],
+                      "-lkernel32", "-luser32", "-ld3d12", "-ldxgi", "-ldxguid", "-lole32", "-luuid", "-ld3dcompiler", "-lshell32", "-lbcrypt"],
                      "compile-core-" + str(precompiled))
         if result.returncode:
             save();raise SystemExit(result.returncode)

@@ -10,6 +10,10 @@ struct NativeMotion {
     unsigned x=0,y=0,width=0,height=0;
     float scale_x=0,scale_y=0; // Current-to-previous displacement, in output pixels.
     bool phase_proven=false;
+    ID3D12Resource* depth=nullptr; // Same zero-origin N grid/surface as resource.
+    D3D12_RESOURCE_STATES depth_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    Source depth_source{};
+    bool depth_phase_proven=false;
 };
 struct RecordedInputs {
     Frame frame{}; // source_time uses monotonic microseconds at the Core boundary.
@@ -25,6 +29,9 @@ struct RecordedInputs {
     NativeMotion native{};
 };
 enum class RecordResult { Disabled, Unavailable, Duplicate, Busy, Recorded, Faulted };
+enum class RecordRefusal { None, FrameContract, DeviceList, OriginalResource,
+    CandidateResource, NativeGuide, TypedCandidate, Snapshot, HistoryPlan,
+    AmdOwner, AmdBusy, AmdFrame, AmdContinuity, AmdSnapshot, AmdFault };
 struct TemporalStats {
     Id recorded=0,submitted=0,cancelled=0,seeded=0,bytes=0;
     Id pending_token=0;
@@ -32,11 +39,13 @@ struct TemporalStats {
     bool faulted=false;
     Id snapshot_bytes=0,inplace_recorded=0,snapshot_recorded=0;
     bool inplace_available=false; // Availability/recording are not GPU completion.
+    Id gpu_configuration=0,gpu_owner=0; // Completed recording identity, never current global configuration.
+    Id gpu_frames=0,gpu_tested=0,gpu_adopted=0,gpu_rejected=0,gpu_warmup=0,gpu_depth_rejected=0;
     bool snapshot_refused=false; // Allocation/budget refusal; current NR is retained.
 };
 
 // One serialized Core context; all work and final consumers use the proven
-// constructor queue. No production Execute/Signal/Wait/Map occurs here.
+// constructor queue. No production Execute/Signal/Wait occurs here. Completed GPU statistics use nonblocking readback only after their exact fence.
 // Recorded is NOT submitted/adopted/completed. Core supplies the actual last
 // consumer's fence only after its Execute+Signal hook succeeds.
 class RecordedTemporal {
@@ -48,6 +57,7 @@ public:
     RecordedTemporal& operator=(const RecordedTemporal&)=delete;
     bool initialized() const noexcept;
     const char* status() const noexcept;
+    RecordRefusal record_refusal() const noexcept; // Last record attempt; diagnostic only.
     bool can_record() const noexcept;
     // All of this instance's recordings must be non-replayable and its final
     // consumers complete. Unrelated NR recordings do not own these resources.

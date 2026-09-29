@@ -24,7 +24,7 @@ class QualityTests(unittest.TestCase):
     def test_ui_warnings_visible_while_experiments_collapsed(self):
         s=(ROOT/'src/nr_quality_ui.inl').read_text(encoding='utf-8')
         cut=s.index('ImGui::CollapsingHeader(')
-        for term in ('owner tests reported added contour halos','ZERO-EDIT TEST ACTIVE','N2 NOT applied','99% / 100% colour discontinuity'):
+        for term in ('RGB recovery is active: owner tests reported added contour halos', 'ZERO-EDIT TEST ACTIVE', 'N2 NOT applied', 'The 99% / 100% colour difference remains unresolved'):
             self.assertLess(s.index(term),cut)
         for term in ('next.colour_restore_mode = recovery;', 'next.colour_edge_recovery = edge;', 'next.colour_neutral_probe = neutralProbe;'):
             self.assertGreater(s.index(term),cut)

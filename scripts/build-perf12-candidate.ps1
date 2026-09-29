@@ -16,11 +16,20 @@ $Root = Split-Path -Parent $PSScriptRoot
 if ($QualitySuccessor) {
     # The final generator owns identity. A new successor must not compile under
     # one version while its receipt, file names and test ZIPs retain another.
-    $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
-    $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
-    if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
-    $CandidateVersion = $VersionMatch.Groups[1].Value
-    $LeafVersion = $VersionMatch.Groups[2].Value
+    $PrivateVersionPath = Join-Path $PSScriptRoot 'patch-private-sr.py'
+    if (Test-Path -LiteralPath $PrivateVersionPath -PathType Leaf) {
+        $VersionSource = Get-Content -LiteralPath $PrivateVersionPath -Raw
+        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION\s*=\s*'((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-beta\.[1-9][0-9]*)'\r?$")
+        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final private SR product identity.' }
+        $CandidateVersion = $VersionMatch.Groups[1].Value
+        $LeafVersion = $CandidateVersion
+    } else {
+        $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
+        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(0\.5\.2-beta\.[1-9][0-9]*|beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
+        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
+        $CandidateVersion = $VersionMatch.Groups[1].Value
+        $LeafVersion = if ($VersionMatch.Groups[2].Success) { $VersionMatch.Groups[2].Value } else { $CandidateVersion }
+    }
 } else {
     $LeafVersion = 'perf12'
     $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
@@ -161,12 +170,17 @@ foreach ($Key in $PSBoundParameters.Keys) {
 & (Join-Path $PSScriptRoot 'build-multi-api-candidate.ps1') @CanonicalArgs
 if ($LASTEXITCODE -ne 0) { throw 'Canonical candidate build failed.' }
 $Manifest = Get-Content -LiteralPath (Join-Path $Output 'source/source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($Manifest.source_commit -ne $Head -or $(if ($QualitySuccessor) { $Manifest.colour_lab.version } else { $Manifest.integration.version }) -ne $CandidateVersion) {
+$GeneratedVersion = if ($QualitySuccessor -and $Manifest.PSObject.Properties['private_residual_sr']) {
+    if ($Manifest.private_residual_sr.source_commit -ne $Head) { throw 'Private SR source identity differs from the candidate.' }
+    $Manifest.private_residual_sr.version
+} elseif ($QualitySuccessor) { $Manifest.colour_lab.version } else { $Manifest.integration.version }
+if ($Manifest.source_commit -ne $Head -or $GeneratedVersion -ne $CandidateVersion) {
     throw 'Generated identity does not match the perf12 source HEAD.'
 }
 $ValidationPath = Join-Path $Output 'validation.json'
 $Validation = Get-Content -LiteralPath $ValidationPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if (-not $Validation.source_verified -or -not $Validation.compile_verified -or -not $Validation.warp_verified) {
+if ($Validation.source_commit -ne $Head -or $Validation.candidate -ne $CandidateVersion -or
+    -not $Validation.source_verified -or -not $Validation.compile_verified -or -not $Validation.warp_verified) {
     throw 'Canonical source/compile/WARP evidence is incomplete.'
 }
 # Run the changed descriptor registry through the whole exact staged Core, and
@@ -179,6 +193,10 @@ $Build = Join-Path $Output 'source/core/build'
 $Addons = @(Get-ChildItem -LiteralPath $Build -Filter '*.addon64' -File)
 $Maps = @(Get-ChildItem -LiteralPath (Join-Path $Build 'obj') -Filter '*.map' -File)
 if ($Addons.Count -ne 2 -or $Maps.Count -lt 2) { throw 'Expected two ordinary language builds and exact linker maps.' }
+if (@($Addons | Where-Object Name -Match '\.en\.addon64$').Count -ne 1) { throw 'Expected exactly one English and one Chinese Core.' }
+$ShortIdentity = $CandidateVersion -match '^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'
+$PackagePrefix = if ($ShortIdentity) { 'DLSS5-Core-' } else { 'DLSS5-D21-' }
+$ReadmeIdentity = if ($ShortIdentity) { 'Core ' + $CandidateVersion } else { 'D21 ' + $LeafVersion }
 $PrivateSymbols = Join-Path $Output 'PRIVATE-SYMBOLS'
 New-Item -ItemType Directory -Path $PrivateSymbols | Out-Null
 foreach ($Map in $Maps) { Copy-Item -LiteralPath $Map.FullName -Destination $PrivateSymbols }
@@ -192,7 +210,7 @@ foreach ($Addon in $Addons) {
     Copy-Item -LiteralPath $Addon.FullName -Destination $Target
     $Hash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash.ToLowerInvariant()
     $Note = @(
-        ('D21 ' + $LeafVersion + ' - owner game-test candidate, NOT a game-verified release.')
+        ($ReadmeIdentity + ' - owner game-test candidate, NOT a game-verified release.')
         ('Source: ' + $Head)
         ('SHA256: ' + $Hash)
         'Exit the game. Keep only ONE Core add-on; move the old Core outside all add-on search folders.'
@@ -201,10 +219,10 @@ foreach ($Addon in $Addons) {
         'Use identical scene/settings. Compare frame times and synchronized GPU data, not total CPU percentage alone.'
         'Any bypass, missing effect, flicker or crash: roll back and upload F8 TXT plus the Core log with this build identity.'
         'Safe bypass is not a passing performance test. Do not enable a debug layer or verbose per-setter logging for timing.'
-        'Retain the old D21lock package for rollback. PRIVATE-SYMBOLS is not a game payload.'
+        $(if ($ShortIdentity) { 'Retain the previous tested Core package for rollback. PRIVATE-SYMBOLS is not a game payload.' } else { 'Retain the old D21lock package for rollback. PRIVATE-SYMBOLS is not a game payload.' })
     ) -join "`r`n"
     [IO.File]::WriteAllText((Join-Path $Folder 'READ-FIRST.txt'), $Note, (New-Object Text.UTF8Encoding($false)))
-    $Zip = Join-Path $Output ('DLSS5-D21-' + $LeafVersion + '-' + $Language + '-test.zip')
+    $Zip = Join-Path $Output ($PackagePrefix + $LeafVersion + '-' + $Language + '-test.zip')
     Compress-Archive -Path (Join-Path $Folder '*') -DestinationPath $Zip
     $Rows += [ordered]@{ language=$Language; file=$Leaf; sha256=$Hash; source_commit=$Head
         archive=(Split-Path -Leaf $Zip); archive_sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant() }

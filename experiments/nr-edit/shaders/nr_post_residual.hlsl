@@ -14,7 +14,22 @@ RWTexture2D<float4> CarrierOut:register(u0);
 RWTexture2D<float4> TailOut:register(u1);
 RWTexture2D<float4> Target:register(u2);
 bool Valid(){return PairValid&&all(FullSize>0)&&all(WorkSize>0)&&all(WorkSize<=FullSize)&&
-    all(WorkSize*4>=FullSize)&&isfinite(CarrierRange)&&CarrierRange>1e-6&&CarrierRange<=1e6;}
+    all(WorkSize>=max(uint2(1,1),FullSize/4))&&isfinite(CarrierRange)&&CarrierRange>1e-6&&CarrierRange<=1e6;}
+void EncodePostResidualCarrier(float3 delta,bool valid,float range,out float4 carrier,out float4 tail){
+    // Post-private-SR only: preserve the old range-4 tail-only contract for
+    // each channel that the established encoder would round to neutral.
+    // RR/deferred continue to use the unchanged shared encoder.
+    EncodeResidualCarrier(delta,valid,range,carrier,tail);
+    if(!valid||range>=4)return;
+    float3 oldEncoded=.5+.5*clamp(delta,-4,4)/4;
+    float3 oldStored=float3(NearestCarrierHalf(oldEncoded.x),
+                            NearestCarrierHalf(oldEncoded.y),NearestCarrierHalf(oldEncoded.z));
+    carrier.x=oldStored.x==.5?.5:carrier.x;
+    carrier.y=oldStored.y==.5?.5:carrier.y;
+    carrier.z=oldStored.z==.5?.5:carrier.z;
+    float3 represented=(2*carrier.rgb-1)*range;
+    tail=float4(delta-represented,any(represented!=0)?2:1);
+}
 [numthreads(8,8,1)]
 void ExtractCS(uint3 id:SV_DispatchThreadID){
     if(any(id.xy>=WorkSize))return;
@@ -39,13 +54,21 @@ void ExtractCS(uint3 id:SV_DispatchThreadID){
     }
     float3 delta=sum/max(weight,1);
     valid=valid&&weight>0&&all(isfinite(delta));
-    float4 carrier,tail;EncodeResidualCarrier(delta,valid,CarrierRange,carrier,tail);
+    float4 carrier,tail;EncodePostResidualCarrier(delta,valid,CarrierRange,carrier,tail);
     CarrierOut[id.xy]=carrier;TailOut[id.xy]=tail;
 }
 [numthreads(8,8,1)]
 void ComposeCS(uint3 id:SV_DispatchThreadID){
     if(any(id.xy>=FullSize)||!Valid()||!ReconstructionSucceeded)return;
     float4 b=Base.Load(int3(id.xy+BaseOrigin,0));
+    // Target already contains this same pixel's Z. Preserve exact untouched
+    // source pixels, including B alpha, before private SR can import bias.
+    // Candidate is not bound as an SRV during Compose.
+    float4 z=Target[id.xy+TargetOrigin];
+    if(all(isfinite(b))&&all(z.rgb==b.rgb)){
+        Target[id.xy+TargetOrigin]=b;
+        return;
+    }
     float3 carrier=Reconstructed.Load(int3(id.xy,0)).rgb;
     if(!all(isfinite(b))||!all(isfinite(carrier)))return;
     // Exact half-pixel phase. Float multiply/divide can turn a mathematical

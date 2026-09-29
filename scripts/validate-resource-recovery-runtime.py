@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from temporal_test_objects import objects_for
 import re
 import subprocess
 
@@ -166,7 +167,7 @@ def main() -> None:
             print((result.stdout + result.stderr)[-16000:])
         return result
 
-    objects = []
+    objects = list(map(str,objects_for(source)))
     # nr_before_sr.cpp includes the public dual spatial header, but the D3D12
     # implementation is a separate production translation unit.  Include the
     # captured implementation whenever the frozen source tree contains it so

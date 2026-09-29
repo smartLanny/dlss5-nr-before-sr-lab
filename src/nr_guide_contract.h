@@ -29,9 +29,17 @@ struct NrGuideSignature {
 
 inline bool SameNrGuideStorageContract(const NrGuideSignature &a,
                                        const NrGuideSignature &b) {
+    // Both original float SceneColor formats are encoded into the same FP16
+    // proxy bound as DLSSNR.Color. Keep their mapping identity distinct below
+    // so a format transition still requests a temporal Reset.
+    constexpr unsigned int kFp16 = 10; // DXGI_FORMAT_R16G16B16A16_FLOAT
+    constexpr unsigned int kR11Float = 26; // DXGI_FORMAT_R11G11B10_FLOAT
+    const bool same_model_color_storage = a.color_format == b.color_format ||
+        ((a.color_format == kFp16 || a.color_format == kR11Float) &&
+         (b.color_format == kFp16 || b.color_format == kR11Float));
     return a.depth_format == b.depth_format &&
            a.motion_format == b.motion_format &&
-           a.color_format == b.color_format &&
+           same_model_color_storage &&
            a.motion_bound_width == b.motion_bound_width &&
            a.motion_bound_height == b.motion_bound_height &&
            a.normalized_create_flags == b.normalized_create_flags &&
@@ -42,6 +50,7 @@ inline bool SameNrGuideStorageContract(const NrGuideSignature &a,
 inline bool SameNrGuideMappingContract(const NrGuideSignature &a,
                                        const NrGuideSignature &b) {
     return SameNrGuideStorageContract(a, b) &&
+           a.color_format == b.color_format &&
            a.depth_physical_width == b.depth_physical_width &&
            a.depth_physical_height == b.depth_physical_height &&
            a.motion_physical_width == b.motion_physical_width &&

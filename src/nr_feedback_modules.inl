@@ -75,6 +75,13 @@ void FingerprintRuntimeFiles(FeedbackSession &s, const CoreSession &session) {
         if (okay && read == size) hash.Finish(digest);
         FeedbackAppend(s, "runtimeFile.%u.sha256=%s\nruntimeFile.%u.status=%s\n", i, digest, i,
             digest[0] ? "loaded-path-file-hashed" : "read-failed-or-time-budget");
+        if(i==1){
+            const char* variant=!std::strcmp(digest,"6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8")?
+                "candidate-RTX20-30-plain-fp16":
+                !std::strcmp(digest,"a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa")?
+                "candidate-RTX40-50-Kio-1.0.6":digest[0]?"other-runtime":"identity-unavailable";
+            FeedbackAppend(s,"runtimeFile.%u.candidateVariant=%s\nruntimeFile.%u.variantMeaning=full on-disk loaded-path hash match only; not GPU-family compatibility, inference or game acceptance\n",i,variant,i);
+        }
     }
     FeedbackAppend(s, "runtimeFiles.hashMeaning=on-disk bytes at loaded path, not in-memory patch verification\n"
         "runtimeFiles.route=addon calls signed NR exports through nrchain; internal driver dispatch remains unobserved\n");

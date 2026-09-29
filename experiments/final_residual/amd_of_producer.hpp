@@ -5,6 +5,7 @@
 
 namespace nr::final_residual {
 enum class Submit { Rejected, Duplicate, Busy, Submitted, Faulted, Recorded };
+enum class AmdRecordRefusal { None, Owner, Busy, Frame, Continuity, Snapshot, Fault };
 struct GpuFlow {
     FlowReceipt receipt{};
     Id token=0;
@@ -24,6 +25,19 @@ struct RecordedFlow {
     unsigned flow_width=0,flow_height=0,frames_since_reset=0;
     bool reset=false;
 };
+
+// Application content IDs may skip numbers between presented frames. A gap is
+// continuous only when the caller identifies the exact snapshot we actually own.
+inline bool AmdOwnedSourceContinues(const Frame& current,const Frame& previous,
+    const Plan& plan,Id generation) noexcept {
+    return previous.valid()&&!current.scene_reset&&plan.reference==previous.source&&
+        same_stream(current.source,previous.source)&&
+        current.source.sequence>previous.source.sequence&&
+        (current.previous_source.valid()?current.previous_source==previous.source:
+         current.source.sequence==previous.source.sequence+1)&&
+        current.source_time>previous.source_time&&current.contract==previous.contract&&
+        plan.history_generation==generation;
+}
 
 // Standalone actual FFX1.1.4 producer; no Core/ExternalProvider/NGX dependency.
 // One serialized owner and one outstanding result. The caller's DIRECT queue
@@ -56,6 +70,7 @@ public:
     bool can_record() const noexcept;
     Submit record(const Frame&,const Plan&,ID3D12GraphicsCommandList*,ID3D12Resource*,
         D3D12_RESOURCE_STATES snapshot_state,RecordedFlow&) noexcept;
+    AmdRecordRefusal record_refusal() const noexcept; // Last borrowed recording only; diagnostic, not a GPU receipt.
     bool commit_recording(Id token,ID3D12Fence* last_reader,Id value) noexcept;
     bool retire_replayed_recording(ID3D12Fence* last_reader,Id value) noexcept;
     bool cancel_recording(Id token) noexcept;

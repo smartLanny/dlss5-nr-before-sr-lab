@@ -57,10 +57,12 @@ Footprint Bilinear(unsigned x,unsigned y,unsigned w,unsigned height,unsigned nw,
     const float fx=float(ax-ix*dx)/dx,fy=float(ay-iy*dy)/dy;Footprint f{};
     for(int j=0;j<2;++j)for(int i=0;i<2;++i){const auto k=j*2+i;f.x[k]=std::clamp(ix+i,0,int(nw)-1);f.y[k]=std::clamp(iy+j,0,int(nh)-1);f.w[k]=(i?fx:1-fx)*(j?fy:1-fy);}return f;
 }
-void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target){
+void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target,
+              unsigned w=129,unsigned height=97,bool floor_quarter=false,float forced_range=0){
     using namespace nr_edit_dx12;using namespace nr_post_residual_dx12;ResourceOwner owner;
-    constexpr unsigned w=129,height=97,aw=140,ah=109;
-    const unsigned nw=(w*percent+99)/100,nh=(height*percent+99)/100;
+    const unsigned aw=w+11,ah=height+12;
+    const unsigned nw=floor_quarter?w/4:(w*percent+99)/100;
+    const unsigned nh=floor_quarter?height/4:(height*percent+99)/100;
     const Rect br{3,5,w,height},zr{6,2,w,height},tr=alias_target?zr:Rect{4,4,w,height};
     const Pixel sentinel{.4375f,.4375f,.4375f,.75f};
     std::vector<Pixel> b(aw*ah,sentinel),z(aw*ah,sentinel),target(aw*ah,sentinel);
@@ -68,14 +70,15 @@ void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target){
         Pixel base{.25f+float(x%4)/16,.5f,.75f-float(y%4)/16,.5f},candidate=base;candidate[3]=.75f;
         for(unsigned c=0;c<3;++c){
             float d=kind==0?0:kind==1?1.f/1024:kind==2?-1.f/2048:
-                kind==3?float(int((x+3*y+c)%7)-3)/32:kind==4?.1875f:.0625f;
+                kind==3?float(int((x+3*y+c)%7)-3)/32:kind==4?.1875f:
+                kind==10?.75f:kind==11?-.75f:.0625f;
             candidate[c]=Round(base[c]+d);
         }
         if((kind==5||kind==6)&&x==w/2&&y==height/2)base[0]=kind==5?std::numeric_limits<float>::quiet_NaN():std::numeric_limits<float>::infinity();
         if((kind==8||kind==9)&&x==w/2&&y==height/2)candidate[0]=kind==8?std::numeric_limits<float>::quiet_NaN():std::numeric_limits<float>::infinity();
         b[(y+br.y)*aw+x+br.x]=base;z[(y+zr.y)*aw+x+zr.x]=candidate;target[(y+tr.y)*aw+x+tr.x]=candidate;
     }
-    const float range=kind==4?.125f:4;
+    const float range=forced_range>0?forced_range:kind==4?.125f:4;
     std::vector<Pixel> expectedCarrier(nw*nh),expectedTail(nw*nh);
     for(unsigned y=0;y<nh;++y)for(unsigned x=0;x<nw;++x){
         const unsigned lx=x*w,hx=(x+1)*w,ly=y*height,hy=(y+1)*height;
@@ -88,6 +91,7 @@ void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target){
         }
         Pixel carrier{.5f,.5f,.5f,1},tail{};bool support=false;
         if(valid){for(unsigned c=0;c<3;++c){float d=float(sum[c]/total);carrier[c]=Round(.5f+.5f*std::clamp(d,-range,range)/range);
+            if(range<4&&Round(.5f+.5f*std::clamp(d,-4.f,4.f)/4.f)==.5f)carrier[c]=.5f;
             float represented=(2*carrier[c]-1)*range;tail[c]=d-represented;support|=represented!=0;}tail[3]=support?2.f:1.f;}
         expectedCarrier[y*nw+x]=carrier;expectedTail[y*nw+x]=tail;
     }
@@ -135,7 +139,10 @@ void Scenario(Harness& h,unsigned percent,unsigned kind,bool alias_target){
             for(unsigned c=0;c<4;++c)valid&=std::isfinite(base[c]);for(unsigned c=0;c<3;++c)valid&=std::isfinite(u[c]);
             for(unsigned k=0;k<4;++k){const auto& v=expectedTail[f.y[k]*nw+f.x[k]];if(f.w[k]>0){valid&=v[3]>=.5f;support|=v[3]>=1.5f;}
                 for(unsigned c=0;c<3;++c)t[c]+=v[c]*f.w[k];total+=f.w[k];}
-            if(valid){for(unsigned c=0;c<3;++c)expected[c]=Round(base[c]+(support?(2*std::clamp(u[c],0.f,1.f)-1)*range:0)+t[c]/total);expected[3]=base[3];}
+            if(valid){
+                if(expected[0]==base[0]&&expected[1]==base[1]&&expected[2]==base[2])expected=base;
+                else {for(unsigned c=0;c<3;++c)expected[c]=Round(base[c]+(support?(2*std::clamp(u[c],0.f,1.f)-1)*range:0)+t[c]/total);expected[3]=base[3];}
+            }
         }
         for(unsigned c=0;c<4;++c)Near(gotTarget[y*aw+x][c],expected[c],kind==3||kind==4?0.00048828125f:0,"B plus once / untouched atlas",x,y,c);
     }
@@ -146,5 +153,10 @@ int wmain(int argc,wchar_t** argv){try{
     Require(argc==2||(argc==3&&std::wstring(argv[2])==L"--nvidia"),"usage: post_residual_gpu <shaders> [--nvidia]");
     Harness h(std::filesystem::path(argv[1]),argc==3);
     for(unsigned percent:{25u,33u,50u,75u,99u,100u})for(unsigned kind=0;kind<10;++kind)Scenario(h,percent,kind,kind%2==0);
-    std::cout<<"PASS post-final-residual "<<(argc==3?"NVIDIA":"WARP")<<" cases=60 checks="<<checks<<"; analytic reconstruction, no NR/private SR/game claim\n";return 0;
+    Scenario(h,25,3,false,257,193,true);
+    for(float range:{1.f,.25f})for(unsigned kind:{0u,1u,2u,10u,11u}){
+        Scenario(h,50,kind,kind%2==0,129,97,false,range);
+        Scenario(h,25,kind,false,257,193,true,range);
+    }
+    std::cout<<"PASS post-final-residual "<<(argc==3?"NVIDIA":"WARP")<<" cases=81 checks="<<checks<<"; range 1/0.25 zero/tiny/clipping and odd floor-quarter strict references; no NR/private SR/game claim\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

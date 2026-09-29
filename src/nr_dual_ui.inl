@@ -17,9 +17,9 @@ const char *UiStateText(nr_dual_status_runtime::UiState value, bool zh) {
     case UiState::Preparing:
         return zh ? "二次 AI：准备中" : "Second AI: preparing";
     case UiState::Active:
-        return zh ? "二次 AI：生效" : "Second AI: active";
+        return zh ? "二次 AI：正在处理" : "Second AI: processing";
     case UiState::Intermittent:
-        return zh ? "二次 AI：间歇生效" : "Second AI: intermittent adoption";
+        return zh ? "二次 AI：部分处理" : "Second AI: partial processing";
     case UiState::NotYetApplied:
         return zh ? "二次 AI：暂未生效" : "Second AI: not yet applied";
     case UiState::Failed:
@@ -39,7 +39,7 @@ void DrawDetailsUi(bool requested=true, bool has_pending=false) {
     if(!requested)return;
     const auto snapshot = nr_dual_status_runtime::SnapshotUi();
     if (has_pending && snapshot.state != nr_dual_status_runtime::UiState::Failed) {
-        ImGui::TextDisabled("%s", zh ? "设置待应用：暂不显示上一配置的二次 NR 诊断。" :
+        ImGui::TextDisabled("%s", zh ? "准备中：等待新设置。" :
             "Settings pending: the previous dual NR observation is hidden until the request applies.");
         return;
     }

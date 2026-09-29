@@ -94,8 +94,11 @@ int wmain(int argc,wchar_t** argv){
     using namespace host_ngx;namespace present=nr_compat_present_runtime;
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
-        Check(argc==4||(argc==5&&std::wcscmp(argv[4],L"--preset-zero")==0),"usage: host directory passes percent [--preset-zero]");
-        const bool preset_zero=argc==5;
+        Check(argc==4||argc==5,"usage: host directory passes percent [--preset-zero|--temporal-adaptive|--temporal-low-frequency]");
+        const bool preset_zero=argc==5&&std::wcscmp(argv[4],L"--preset-zero")==0;
+        const bool temporal=argc==5&&(std::wcscmp(argv[4],L"--temporal-adaptive")==0||std::wcscmp(argv[4],L"--temporal-low-frequency")==0);
+        Check(argc==4||preset_zero||temporal,"known host option");
+        const bool low_frequency=temporal&&std::wcscmp(argv[4],L"--temporal-low-frequency")==0;
         const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
         Check(passes>=1&&passes<=5&&(scale==25||scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
@@ -145,11 +148,38 @@ int wmain(int argc,wchar_t** argv){
         for(unsigned i=0;i<passes;++i){const auto& model=c->layers[i].context;
             Check(model.width==c->work.width&&model.height==c->work.height,"every model uses the common work raster");
             Check(model.tuning_signature_initialized&&SameNrTuningSignature(model.tuning_signature,c->layer_tuning[i]),"production model receives its independent tuning");}
+        if(temporal){
+            // These negatives reach the actual consumer with no recorded work.
+            auto& f=c->flights[0];g_config.temporal_backend=0;
+            Check(present::RecordTemporal(*c,f)&&!c->temporal,"off adds no temporal resource");
+            g_config.temporal_backend=1;
+            Check(present::RecordTemporal(*c,f)&&nr_temporal_status::state.load()==19&&!c->temporal,"Present declines unproven native motion");
+            g_config.temporal_backend=2;g_config.temporal_scope=1;
+            Check(present::RecordTemporal(*c,f)&&nr_temporal_status::state.load()==18&&!c->temporal,"Present declines later-layer scope");
+            g_config.temporal_scope=0;c->encoding=nr_compat_present::Encoding::Unknown;
+            Check(present::RecordTemporal(*c,f)&&nr_temporal_status::state.load()==10&&!c->temporal,"Present declines unknown color");
+            c->encoding=nr_compat_present::Encoding::Srgb;
+            nr_source_runtime::present_lease={};
+            Check(present::RecordTemporal(*c,f)&&nr_temporal_status::state.load()==22&&!c->temporal,"missing exact source does not launch flow");
+            g_config.temporal_mode=low_frequency?1:0;
+        }
         unsigned adopted=0,changed_frames=0;bool capture_requested=false;
-        for(unsigned attempt=1;attempt<=24&&adopted<4;++attempt){
+        const unsigned target=temporal?32:4;
+        for(unsigned attempt=1;attempt<=target+20&&adopted<target;++attempt){
             if(adopted==2&&!capture_requested){Check(present::nr_present_capture::RequestCapture(),"real Present capture request");capture_requested=true;}
             io.Fill();const auto done=present::Collect(*c);Check(done!=UINT64_MAX,"private Collect no device failure");const int slot=c->timeline.Free(done);Check(slot>=0,"free private flight");
             auto& f=c->flights[slot];Hr(ID3D12CommandAllocator_Reset(f.allocator),"reset private allocator");Hr(ID3D12GraphicsCommandList_Reset(f.list,f.allocator,nullptr),"reset private list");
+#if NR_HAS_TEMPORAL_RUNTIME
+            present::EndTemporalRecording(*c,f);
+#endif
+            if(temporal){
+                // Controlled receipt for the exact artificial color just uploaded.
+                // This validates the production consumer, not game source discovery.
+                auto& receipt=nr_source_runtime::present_lease;receipt={};
+                receipt.source={41,51,attempt*3ull};receipt.source_id=receipt.source.sequence;
+                receipt.role=nr_source_frame::Role::Application;receipt.color_only=true;
+                receipt.color_lineage_proven=true;receipt.output_width=Io::width;receipt.output_height=Io::height;
+            }
             std::array<unsigned,5> before_evaluations{};std::array<bool,5> had_handle{};
             for(unsigned i=0;i<passes;++i){before_evaluations[i]=c->layers[i].context.evaluations;had_handle[i]=c->layers[i].context.nr_handle!=nullptr;}
             bool ok=false;if(!c->layers[0].context.nr_handle)ok=present::Bootstrap(*c,slot,attempt);
@@ -167,7 +197,20 @@ int wmain(int argc,wchar_t** argv){
             const unsigned changed=io.Read();std::printf("readback frame=%u changed=%u\n",attempt,changed);
             if(used){++adopted;changed_frames+=changed!=0;}
         }
-        Check(adopted==4&&changed_frames==4,"four actual adopted NVIDIA outputs differ from original");
+        Check(adopted==target&&changed_frames==target,"all actual adopted NVIDIA outputs differ from original");
+        if(temporal){
+            Check(c->temporal&&nr_temporal_status::recorded.load()>=target&&nr_temporal_status::submitted.load()>=target,
+                "actual Present consumer records and submits temporal work");
+            Check(!c->temporal->releasable(),"completed GPU still retains live recording references");
+            const auto gpu=c->temporal->stats();
+            Check(gpu.gpu_configuration==g_config_generation.load()&&gpu.gpu_owner==c->generation,
+                "Present GPU decisions belong to the submitted configuration and owner");
+            Check(gpu.gpu_frames>0&&gpu.gpu_tested>0&&gpu.gpu_adopted>0,
+                "Present actually adopts sampled history after optical-flow warmup");
+            std::printf("TEMPORAL mode=%u recorded=%llu submitted=%llu retainedBytes=%llu sampledTested=%llu sampledAdopted=%llu sampledRejected=%llu; actual consumer, controlled source receipt\n",
+                g_config.temporal_mode,nr_temporal_status::recorded.load(),nr_temporal_status::submitted.load(),gpu.bytes,
+                gpu.gpu_tested,gpu.gpu_adopted,gpu.gpu_rejected);
+        }
         const auto capture_deadline=GetTickCount64()+10000;
         while((nr_dual_capture::workers.load()||present::nr_present_capture::status.load()==1)&&GetTickCount64()<capture_deadline){present::nr_present_capture::Collect();Sleep(2);}
         Check(capture_requested&&present::nr_present_capture::status.load()==2&&present::nr_present_capture::remaining_exports.load()==0,

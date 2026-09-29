@@ -1,0 +1,1691 @@
+{
+  "schema": "private-residual-sr-core-candidate-v1",
+  "candidate": "0.5.2-beta.3",
+  "build_source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+  "packaging_source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+  "documentation_and_harness_commits_do_not_relabel_binaries": true,
+  "main_base": "b2990b120337cdd8026f83a1bd369f3708b78fbe",
+  "default_enabled": false,
+  "local_delivery_only": true,
+  "limits": [
+    "D3D12, verified direct queue, single GPU, native Feature1 post, FP16 SDR",
+    "known finite original jitter exactly zero; non-jittered vectors",
+    "RR/Present/HDR/FG and residual-stabilizer conflict refused",
+    "game quality, stability, performance and real Feature18 multi-layer inference not validated",
+    "no new denoising algorithm or <=3% overhead claim",
+    "D3D12 debug layer unavailable; hosted CI not run"
+  ],
+  "artifacts": [
+    {
+      "language": "en",
+      "file": "nr-before-sr.0.5.2-beta.3.en.addon64",
+      "sha256": "ccc035263b822fd445aa0b82cac7673936fc46b2be38cb8cc575d63952b081b8",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "archive": "DLSS5-Core-0.5.2-beta.3-en-test.zip",
+      "archive_sha256": "c26e22a092082908f5c57b27c43cbafc53f537c01f38636128d3173cabee5f11",
+      "payload_bytes": 17656832,
+      "archive_bytes": 2454186,
+      "archive_entries": [
+        "nr-before-sr.0.5.2-beta.3.en.addon64",
+        "READ-FIRST.txt"
+      ],
+      "archive_payload_verified": true
+    },
+    {
+      "language": "zh-CN",
+      "file": "nr-before-sr.0.5.2-beta.3.zh-CN.addon64",
+      "sha256": "a3909d22a508da5e3adfb897409dbc082985d417232adac27c75c0917a9fa3eb",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "archive": "DLSS5-Core-0.5.2-beta.3-zh-CN-test.zip",
+      "archive_sha256": "6c0219d06f0c8a015e3ebb1f0274a5547fcf0e631523b146762a42b0949138ba",
+      "payload_bytes": 17740288,
+      "archive_bytes": 2485325,
+      "archive_entries": [
+        "nr-before-sr.0.5.2-beta.3.zh-CN.addon64",
+        "READ-FIRST.txt"
+      ],
+      "archive_payload_verified": true
+    }
+  ],
+  "canonical": {
+    "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+    "candidate": "0.5.2-beta.3",
+    "generated_source": true,
+    "bridge_commit": "28aed4099b0fe1c207b20b5fee5364c0773c25c2",
+    "reshade_commit": "4a50d1eddace85734871d91792ff214f13f66c01",
+    "directxmath_commit": "28929ac6f3c1649a7641741b689ebecccb17aa8d",
+    "compiler": "clang version 23.1.0 (https://github.com/llvm/llvm-project.git ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)\r\nTarget: x86_64-w64-windows-gnu\r\nThread model: posix\r\nInstalledDir: <dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin\r\nConfiguration file: <dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-windows-gnu.cfg",
+    "powershell": "7.6.5",
+    "source_verified": true,
+    "compile_verified": true,
+    "warp_verified": true,
+    "nrchain_reused": true,
+    "full_face_backend": true,
+    "quality_successor": true,
+    "game_runtime_verified": false,
+    "nvidia_feature18_verified": false,
+    "completed_utc": "2026-09-27T07:12:01.3224191Z",
+    "checks": [
+      "multi_api Python source + actual Windows source-identity compile/run",
+      "native_bridge Python exact-source transformations",
+      "settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate",
+      "carrier completion: staged production state machine, WARP fence, real access-violation propagation",
+      "runtime load Windows fixture: file-absent vs dependency-missing under restricted LoadLibraryExW",
+      "multi_api/format_access",
+      "multi_api/format_adapter",
+      "multi_api/post_policy",
+      "multi_api/rr_post_runtime",
+      "multi_api/post_settings",
+      "multi_api/motion_access",
+      "multi_api/exposure_access",
+      "native_bridge/history",
+      "native_bridge/forward",
+      "native_bridge/render_scale",
+      "native_bridge/mirror_rect",
+      "native_bridge/ngx_parameter_abi",
+      "staged feedback policy: feedback_text_test",
+      "staged feedback policy: single_text_policy_test",
+      "NGX ABI historical-layout negative control rejected at first wrong slot",
+      "all actual staged production HLSL compute entries",
+      "multi_api/format_view_warp",
+      "native_bridge/baseline_warp",
+      "post scaled-work WARP: 60 actual EncodeCS/CombineCS scenarios including 25 percent plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input",
+      "actual staged colour defaults and independent model-only reset: 2805 checks",
+      "actual staged RR Release hooks: 54 scenarios and historical leak negative control",
+      "validate-picture-budget.py",
+      "validate-color-policy.py",
+      "validate-command-creation.py",
+      "validate-reset-notification-gap.py",
+      "validate-core-feedback.py",
+      "validate-feedback-hotkeys.py",
+      "validate-f8-controller.py",
+      "validate-recommended-picture.py",
+      "F7 512 ROI production shader/ring/fence/stream/ZIP WARP: 3 ROI frames plus overview",
+      "native command state, observed blend history, 64KiB worker and stack gate",
+      "command-state WARP including actual blend restore and wrong-blend negative control",
+      "0.5 research: validate-beta05-boost.py",
+      "0.5 research: validate-layered-composite.py",
+      "0.5 research: validate-050-stability.py",
+      "0.5 research: validate-bug-sweep.py",
+      "0.5 frozen picture serialization negative control",
+      "0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 60-root ABI and independent negative controls",
+      "actual staged bilingual core LLVM static analysis: zero diagnostics; exact-source nrchain verified from signed SDK build receipt",
+      "staged bilingual core compilation/link + exact-source verified nrchain reuse",
+      "staged carrier compilation + Windows version resource + link"
+    ],
+    "binaries": [
+      {
+        "file": "DLSS5-AI-Rendering-Upscaling-0.5.2-beta.3-@野生的装机宅-Bilibili.en.addon64",
+        "sha256": "ccc035263b822fd445aa0b82cac7673936fc46b2be38cb8cc575d63952b081b8"
+      },
+      {
+        "file": "DLSS5-AI渲染超分版-0.5.2-beta.3-@野生的装机宅-Bilibili.addon64",
+        "sha256": "a3909d22a508da5e3adfb897409dbc082985d417232adac27c75c0917a9fa3eb"
+      },
+      {
+        "file": "nrchain_nvngx.dll",
+        "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+      },
+      {
+        "file": "dlss5-native-carrier-045-dx11-compat.addon64",
+        "sha256": "f154c6b139e5fa5a0fbd2821138d71c4c69caf6dcdb2d971775b76cb08dfe18d"
+      }
+    ]
+  },
+  "extended": {
+    "passed": true,
+    "source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+    "acceptance": true,
+    "restoration_negative": true,
+    "temporal_entries": true,
+    "auxiliary": true,
+    "native_output": true,
+    "game": false,
+    "nvidia_inference": false,
+    "hosted_ci": false
+  },
+  "reconstruction": {
+    "passed": true,
+    "source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+    "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+    "math_receipt": "<candidate>.reconstruction-checks/math/validation.json",
+    "ui_receipt": "<candidate>.reconstruction-checks/ui/validation.json",
+    "warp_receipt": "<candidate>/reconstruction-checks/warp/validation.json",
+    "runtime_controls": true,
+    "defaults_unchanged": true,
+    "user_facing_controls": true,
+    "game": false,
+    "nvidia_inference": false
+  },
+  "unified_build": {
+    "exit_code": 0,
+    "log": "private-sr-unified-4f5ce993-r2.log",
+    "log_sha256": "354523cc52d7b279fe93e3ae07da6174d377a2d60bfc2157535a3a6fafb891b8",
+    "log_file_time_span_seconds": 1239.3168622,
+    "duration_scope": "log filesystem timestamp span, not a dedicated benchmark timer",
+    "entry": "scripts/build-unified-candidate.ps1",
+    "entry_arguments": {
+      "UpstreamRoot": "<dependencies>/dlss5-carrier",
+      "ToolchainRoot": "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64",
+      "ReShadeSourceRoot": "<dependencies>/reshade-source",
+      "DirectXMathRoot": "<dependencies>/DirectXMath",
+      "OutputRoot": "<candidate>",
+      "FaceRuntimeRoot": "<dependencies>/face-resources/onnxruntime-win-x64-1.23.2",
+      "NrchainReuseRoot": "<verified-beta1>/source/core/build",
+      "CodecCacheRoot": "<verified-beta1>/source/core/build",
+      "FfxSdkRoot": "<dependencies>/FidelityFX-SDK-v1.1.4",
+      "FfxCacheRoot": "<dependencies>/evidence/unified6-amd-sdk-aligned-r1",
+      "AllowMissingDebugLayer": true
+    }
+  },
+  "dependencies": {
+    "compiler": "llvm-mingw-20260826-ucrt-x86_64; clang 23.1.0 ea7d852a70e8bdfaf601d6626a760f9771b2c4b4",
+    "bridge_commit": "28aed4099b0fe1c207b20b5fee5364c0773c25c2",
+    "reshade_commit": "4a50d1eddace85734871d91792ff214f13f66c01",
+    "directxmath_commit": "28929ac6f3c1649a7641741b689ebecccb17aa8d",
+    "onnxruntime": "win-x64-1.23.2",
+    "ffx_sdk": "v1.1.4",
+    "ffx_build_receipt_sha256": "94d6b882cd1bc4507c2d89c51825c3bc954d8877373f615b2e4aa54500c8b29c"
+  },
+  "private_module": {
+    "schema": "private-sr-module-v2",
+    "passed": true,
+    "objects": [
+      "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+      "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+      "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+      "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+      "<candidate>/source/core/build/obj/private-sr/artifacts.o"
+    ],
+    "source_sha256": {
+      "experiments/nr-edit/shaders/nr_deferred_edit.hlsl": "2f1b6b2f122348984bdf0f5f0dad901e30ce6553698e6bcc82f58837c0248a0c",
+      "experiments/nr-edit/shaders/nr_edit_carrier.hlsli": "df24c40eb84800b83d1b8b75d5e341621ae59e25b6a24e45e6146fb2a7aecde6",
+      "experiments/nr-edit/shaders/nr_edit_scalar.hlsli": "f7a2a4011c7463d10e23d7b3ab7065fbca3543dc895bd961b9243f5e592b2455",
+      "experiments/nr-edit/shaders/nr_normalize_guides.hlsl": "34a192d94dac64ba67697387071d5cbab8c6259c23e6f70743c971dd0f9b86cd",
+      "experiments/nr-edit/shaders/nr_post_residual.hlsl": "bc0832ffb27d42e118484f8e39fe20908cf1f9c11b6ee82e32636a00696e29bb",
+      "experiments/nr-edit/shaders/nr_rr_edit.hlsl": "2400d612a4477943bbc7bc228fcb5eac4dbe98a149540bbd9daa07f182fab174",
+      "experiments/nr-edit/src/nr_edit_dx12.cpp": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+      "experiments/nr-edit/src/nr_edit_dx12.hpp": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+      "experiments/nr-edit/src/nr_post_private_sr_dx12.cpp": "f02d92a909c678dcfa3556be2e0421bf43fed8bdfb5394a8a1fc4ab2d158c431",
+      "experiments/nr-edit/src/nr_post_private_sr_dx12.hpp": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+      "experiments/nr-edit/src/nr_post_residual_dx12.cpp": "13704f16ea3f17bb489fe7949b0d5411fecd0a08eb5f0cf1c358836c7f820af1",
+      "experiments/nr-edit/src/nr_post_residual_dx12.hpp": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504",
+      "experiments/nr-edit/src/nr_private_sr_runtime.hpp": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419",
+      "experiments/nr-edit/tools/compile_edit_artifacts.py": "69cde702a6ed428fbf7ee3d2aafb1930b311a85797cbb65c83d0d3a0e52d46d4",
+      "experiments/nr-edit/tools/compile_edit_shader.cpp": "cd0ed85814a2e341f83513b8f4631397f95bc61e77556267517875ffa04a20ee",
+      "src/nr_guide_contract.h": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b",
+      "src/nr_private_sr_artifacts.h": "572f74f8be02dc15b167a53bf4f95ddf5f3434a3aed6fa6a26aace878613738d",
+      "src/nr_private_sr_guides.cpp": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+      "src/nr_private_sr_guides.h": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+      "src/private_sr/nr_edit_dx12.hpp": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+      "src/private_sr/nr_post_private_sr_dx12.hpp": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+      "src/private_sr/nr_post_residual_dx12.hpp": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504",
+      "src/private_sr/nr_private_sr_runtime.hpp": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419"
+    },
+    "commands": [
+      {
+        "name": "compiler-identity",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "--version"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/compiler-identity.log",
+        "log_sha256": "bb8e7fc8795c77caf80f7097f71acf3160b41af7782039d431259316f1b4f1a7"
+      },
+      {
+        "name": "compiler-target",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-dumpmachine"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/compiler-target.log",
+        "log_sha256": "a4e673868f15b37fa45e94974249c44f327ffc25fecca811bca21a6e29071287"
+      },
+      {
+        "name": "build-shader-compiler",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-static",
+          "-municode",
+          "<candidate>/source/core/experiments/nr-edit/tools/compile_edit_shader.cpp",
+          "-ld3dcompiler",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/compile-edit-shader.exe"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-shader-compiler.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "build-shaders",
+        "command": [
+          "python",
+          "<candidate>/source/core/experiments/nr-edit/tools/compile_edit_artifacts.py",
+          "--compiler",
+          "<candidate>/source/core/build/obj/private-sr/compile-edit-shader.exe",
+          "--source",
+          "<candidate>/source/core/experiments/nr-edit/shaders",
+          "--output",
+          "<candidate>/source/core/build/obj/private-sr/bytecode"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-shaders.log",
+        "log_sha256": "2a76cb865bb5e60340e91e5744a329df79ca7bc4a4b7531d7787f2596210a070"
+      },
+      {
+        "name": "build-nr_edit_dx12",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          "<candidate>/source/core/src/private_sr",
+          "-I",
+          "<candidate>/source/core/experiments/nr-edit/src",
+          "-I",
+          "<candidate>/source/core/src",
+          "-I",
+          "<candidate>/source/core/build/obj/private-sr/bytecode",
+          "-c",
+          "<candidate>/source/core/experiments/nr-edit/src/nr_edit_dx12.cpp",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-nr_edit_dx12.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "build-nr_post_residual_dx12",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          "<candidate>/source/core/src/private_sr",
+          "-I",
+          "<candidate>/source/core/experiments/nr-edit/src",
+          "-I",
+          "<candidate>/source/core/src",
+          "-I",
+          "<candidate>/source/core/build/obj/private-sr/bytecode",
+          "-c",
+          "<candidate>/source/core/experiments/nr-edit/src/nr_post_residual_dx12.cpp",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-nr_post_residual_dx12.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "build-nr_post_private_sr_dx12",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          "<candidate>/source/core/src/private_sr",
+          "-I",
+          "<candidate>/source/core/experiments/nr-edit/src",
+          "-I",
+          "<candidate>/source/core/src",
+          "-I",
+          "<candidate>/source/core/build/obj/private-sr/bytecode",
+          "-c",
+          "<candidate>/source/core/experiments/nr-edit/src/nr_post_private_sr_dx12.cpp",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-nr_post_private_sr_dx12.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "build-nr_private_sr_guides",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          "<candidate>/source/core/src/private_sr",
+          "-I",
+          "<candidate>/source/core/experiments/nr-edit/src",
+          "-I",
+          "<candidate>/source/core/src",
+          "-I",
+          "<candidate>/source/core/build/obj/private-sr/bytecode",
+          "-c",
+          "<candidate>/source/core/src/nr_private_sr_guides.cpp",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-nr_private_sr_guides.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "build-artifacts",
+        "command": [
+          "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+          "-std=c++20",
+          "-O2",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-I",
+          "<candidate>/source/core/src/private_sr",
+          "-I",
+          "<candidate>/source/core/experiments/nr-edit/src",
+          "-I",
+          "<candidate>/source/core/src",
+          "-I",
+          "<candidate>/source/core/build/obj/private-sr/bytecode",
+          "-c",
+          "<candidate>/source/core/build/obj/private-sr/artifacts.cpp",
+          "-o",
+          "<candidate>/source/core/build/obj/private-sr/artifacts.o"
+        ],
+        "exit": 0,
+        "log": "<candidate>/source/core/build/obj/private-sr/build-artifacts.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "gpu_execution": "not-run",
+    "root": "<candidate>/source/core",
+    "compiler": "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+    "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+    "builder_sha256": "41f00969b14215596ad483ea918392c3d4064037c84cc6ba991c61b61652ac4f",
+    "compiler_target": "x86_64-w64-windows-gnu",
+    "header": "<candidate>/source/core/build/obj/private-sr/bytecode/nr_edit_binaries.hpp",
+    "header_sha256": "4c0840c96f760005d846a541fa15a58276ed1cd12e163e2206d154147716ad74",
+    "shaders": {
+      "rr_guides": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/rr_guides.cso",
+        "sha256": "cc4ae76d97cc562ed3fc0d6a8ae7f67886ba02e51290b9d21f545b9647c61ec4",
+        "entry": "PrepareGuidesCS"
+      },
+      "rr_accumulate": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/rr_accumulate.cso",
+        "sha256": "661daadc3778ad284f3af9b6ec70bab3a1b6a4a3a6a96621bc5aaf1730cd2e8b",
+        "entry": "AccumulateCS"
+      },
+      "rr_compose": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/rr_compose.cso",
+        "sha256": "51894f47d2596c04ba5eddbb2d4c53e7c55203110dd121a1a0545ec87d83e3e0",
+        "entry": "ComposeCS"
+      },
+      "deferred_encode": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/deferred_encode.cso",
+        "sha256": "b82f54096d10a49e0059b4a9da5d905290c8d964b6a95cf25bb8dfc52bfdc7c4",
+        "entry": "EncodeCS"
+      },
+      "deferred_compose": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/deferred_compose.cso",
+        "sha256": "9438b05dbe57081d422b906bccf9a207de75ebe0a186babd80cc2d380bb98179",
+        "entry": "ComposeCS"
+      },
+      "normalize": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/normalize.cso",
+        "sha256": "68c871ffed4e2afde37fd494f1a194a04383d00d48eee54b013399bf10292d22",
+        "entry": "NormalizeGuidesCS"
+      },
+      "post_extract": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/post_extract.cso",
+        "sha256": "a6d7c806884622292fe8641b3214ccb7f5ad06da4ec94c385599ac7884cdf305",
+        "entry": "ExtractCS"
+      },
+      "post_compose": {
+        "path": "<candidate>/source/core/build/obj/private-sr/bytecode/post_compose.cso",
+        "sha256": "44fdb809a148ec37b4144e30324abd263e8a7a8b4b60f0cd61edf621febbe290",
+        "entry": "ComposeCS"
+      }
+    },
+    "shader_manifest": "<candidate>/source/core/build/obj/private-sr/bytecode/edit-shader-manifest.json",
+    "shader_manifest_sha256": "98bb595b951d7db9196ae958c415e74658f79597bec34c10beb2c1d23be2a780",
+    "generated_source_sha256": {
+      "<candidate>/source/core/build/obj/private-sr/artifacts.cpp": "02446ca6cb1a8d04d271286812725e79dcf24522518c7bc71aae36d85cb9aa5c"
+    },
+    "object_sha256": {
+      "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+      "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+      "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+      "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+      "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+    }
+  },
+  "validation_runs": {
+    "guide_cpu_warp": {
+      "receipt_name": "private-sr-guides-final-4f5ce993/validation.json",
+      "receipt_sha256": "0b6e6a1b77339e51be89995f85e275b3c3e5272a02d349fbf12651c6bd2b7cf6",
+      "scope": "known zero-jitter native Feature1 guide capture; CPU and WARP only",
+      "commands": [
+        {
+          "name": "build-cpu",
+          "command": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O2",
+            "-static",
+            "<repo>/tests/nr_private_sr_guides_cpu.cpp",
+            "-o",
+            "<evidence>/private-sr-guides-final-4f5ce993/cpu.exe"
+          ],
+          "exit_code": 0
+        },
+        {
+          "name": "cpu",
+          "command": [
+            "<evidence>/private-sr-guides-final-4f5ce993/cpu.exe"
+          ],
+          "exit_code": 0
+        },
+        {
+          "name": "build-shader-compiler",
+          "command": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O2",
+            "-static",
+            "-municode",
+            "<repo>/experiments/nr-edit/tools/compile_edit_shader.cpp",
+            "-ld3dcompiler",
+            "-o",
+            "<evidence>/private-sr-guides-final-4f5ce993/shader-compiler.exe"
+          ],
+          "exit_code": 0
+        },
+        {
+          "name": "compile-shaders",
+          "command": [
+            "python",
+            "<repo>/experiments/nr-edit/tools/compile_edit_artifacts.py",
+            "--compiler",
+            "<evidence>/private-sr-guides-final-4f5ce993/shader-compiler.exe",
+            "--source",
+            "<repo>/experiments/nr-edit/shaders",
+            "--output",
+            "<evidence>/private-sr-guides-final-4f5ce993/shaders"
+          ],
+          "exit_code": 0
+        },
+        {
+          "name": "build-warp",
+          "command": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O2",
+            "-static",
+            "-municode",
+            "-I<repo>/experiments/nr-edit/src",
+            "<repo>/tests/nr_private_sr_guides_warp.cpp",
+            "<repo>/src/nr_private_sr_guides.cpp",
+            "<repo>/experiments/nr-edit/src/nr_edit_dx12.cpp",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-ld3dcompiler",
+            "-lole32",
+            "-luuid",
+            "-o",
+            "<evidence>/private-sr-guides-final-4f5ce993/warp.exe"
+          ],
+          "exit_code": 0
+        },
+        {
+          "name": "warp",
+          "command": [
+            "<evidence>/private-sr-guides-final-4f5ce993/warp.exe",
+            "<evidence>/private-sr-guides-final-4f5ce993/shaders"
+          ],
+          "exit_code": 0
+        }
+      ],
+      "result": "passed",
+      "game": "not-run",
+      "model": "not-run",
+      "source_hashes": {
+        "src/nr_private_sr_guides.h": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+        "src/nr_private_sr_guides.cpp": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+        "tests/nr_private_sr_guides_cpu.cpp": "3414ab5bf5ae502bb333614f4d64ff9c4df7cb1bc6f128402a6590c790d586a8",
+        "tests/nr_private_sr_guides_warp.cpp": "4838258d40736a2f339df4f447a3577b34d8a88b150954abe1a6fc1248b913f4",
+        "experiments/nr-edit/src/nr_edit_dx12.cpp": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+        "experiments/nr-edit/shaders/nr_normalize_guides.hlsl": "4bffff0f049b9bacee38dec935831d96d299a4c78c4ba9a90626a3c32602e1da"
+      }
+    },
+    "core_warp": {
+      "receipt_name": "private-sr-core-warp-final-4f5ce993-r3/validation.json",
+      "receipt_sha256": "3b11c4cda8119fc5be3edcaeb61f5a19c55d70bc5b9a696600435418d4685db2",
+      "schema": "actual-core-warp-fixture-v1",
+      "result": "passed",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "generated_source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+      "manifest_sha256": "c160b5c738da34a56eed7b34c7aa9b7956b22c7c1b218747ea18a30a48505fe3",
+      "fixture_sha256": "0d82a1a9a364b8c3b930a241092703e4c0ab390813b71829713c1890dd9912f1",
+      "host_helpers_sha256": "f9bf4f43b35addef53cac5b24131dbdfffdf14e61b06582dca79dd4c70d89a48",
+      "wrapper_sha256": "f2e45ef9eee4f5fb20c5beb5e52c9a5be47a8daa3cac8fe5bdf5313fc89b2b56",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "commands": [
+        {
+          "name": "compile",
+          "args": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O1",
+            "-DNDEBUG",
+            "-DUNICODE",
+            "-D_UNICODE",
+            "-D_WIN64",
+            "-DNR_FACE_BACKEND=1",
+            "-DNR_CODEC_PRECOMPILED=1",
+            "-DNR_AUX_PRECOMPILED=1",
+            "-DNR_AUX_TIMING=1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-static",
+            "-municode",
+            "-Wl,--gc-sections",
+            "-I<candidate>/source/core/build",
+            "-I<candidate>/source/core/third_party/minhook/include",
+            "-I<dependencies>/reshade-source/include",
+            "-I<dependencies>/reshade-source/deps/imgui",
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/host.cpp",
+            "<candidate>/source/core/build/obj/buffer.o",
+            "<candidate>/source/core/build/obj/hook.o",
+            "<candidate>/source/core/build/obj/trampoline.o",
+            "<candidate>/source/core/build/obj/hde64.o",
+            "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o",
+            "<candidate>/source/core/build/obj/nr_face_detector.o",
+            "<candidate>/source/core/build/obj/nr_face_worker.o",
+            "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o",
+            "<candidate>/source/core/build/obj/temporal/amd_of_producer.o",
+            "<candidate>/source/core/build/obj/temporal/recorded_temporal.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+            "<candidate>/source/core/build/obj/private-sr/artifacts.o",
+            "-o",
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "-lkernel32",
+            "-luser32",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-lole32",
+            "-luuid",
+            "-ld3dcompiler",
+            "-lshell32",
+            "-lbcrypt"
+          ],
+          "exit": 0,
+          "seconds": 11.64000000001397
+        },
+        {
+          "name": "warp-neutral",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "neutral"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "name": "warp-numeric",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "numeric"
+          ],
+          "exit": 0,
+          "seconds": 0.125
+        },
+        {
+          "name": "warp-odd",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "odd"
+          ],
+          "exit": 0,
+          "seconds": 0.06299999996554106
+        },
+        {
+          "name": "warp-quarter",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "quarter"
+          ],
+          "exit": 0,
+          "seconds": 0.062000000034458935
+        },
+        {
+          "name": "warp-full",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "full"
+          ],
+          "exit": 0,
+          "seconds": 0.06299999996554106
+        },
+        {
+          "name": "warp-guide-only",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "guide-only"
+          ],
+          "exit": 0,
+          "seconds": 0.062000000034458935
+        },
+        {
+          "name": "warp-reset-fail",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "reset-fail"
+          ],
+          "exit": 0,
+          "seconds": 0.0470000000204891
+        },
+        {
+          "name": "warp-discard",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "discard"
+          ],
+          "exit": 0,
+          "seconds": 0.0470000000204891
+        },
+        {
+          "name": "warp-duplicate",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "duplicate"
+          ],
+          "exit": 0,
+          "seconds": 0.0470000000204891
+        },
+        {
+          "name": "warp-pending",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "pending"
+          ],
+          "exit": 0,
+          "seconds": 0.062000000034458935
+        },
+        {
+          "name": "warp-off",
+          "args": [
+            "<evidence>/private-sr-core-warp-final-4f5ce993-r3/core-warp.exe",
+            "off"
+          ],
+          "exit": 0,
+          "seconds": 0.06299999996554106
+        }
+      ],
+      "linked_objects": {
+        "<candidate>/source/core/build/obj/buffer.o": "f80fe92db20b4c7513759615af0b8bfa2b23274f100c3f3679136f2dc495b186",
+        "<candidate>/source/core/build/obj/hook.o": "de4d9c14ca745c9df310d079a151739dc8fa7a368f8baab67f9cd524b2d4642e",
+        "<candidate>/source/core/build/obj/trampoline.o": "384ab23480e3c96ed964b9a9666e90dc5d0695d5b8094076e090d3defc2dac43",
+        "<candidate>/source/core/build/obj/hde64.o": "dd9d195ea588f21ae3e5faba410959c1079fd0f957afd7192279043a389ff41c",
+        "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o": "4bdc441b8e0d77da8f71d14c92ab5cba481bfe597d0e1cb9bac1617236da49ef",
+        "<candidate>/source/core/build/obj/nr_face_detector.o": "87ca2a603690a27d1a27542e4ba4889f12a973f9885754716f952585dda2a7ad",
+        "<candidate>/source/core/build/obj/nr_face_worker.o": "94676708f8c0aa21695b1819b9a5d4ad6bdac56fdd2c6fd17f22886d0ed108a4",
+        "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o": "448a0a03625fc3aef625d46550df91ce596da7a1cffefe1bc548f47d34aa6637",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o": "b2b08290f86875f77cced719fab6be39d0cff7f57d241956ae7677fe5818665a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o": "6e44778a345999c2bbed5810e95edc619f1825195a3b658dc45cb82a488755fb",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o": "26c5617efb161c0b16ac4cebac534b2c99737ce99ae3e758953218cb7b1940bc",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o": "6783084baa80fe173cdbbf82c6ed61cdc7e7d2b7917036da4419261186c5421e",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o": "f0e020c226839ae704540ac8ec551648aced652b8ccc05f4a9e6af8d224e4f0a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o": "733fc663f11bd21e9030e7485129f6c3fe3f634874892a22757d19a126d364d5",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o": "d2f167e4afddae98b5f9a05467a1d5aa86a1798d0446eea2e6876978e57be876",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o": "e4f880b8d1d0531af7336684413da7de508793693a62c015c8de93256720e3f1",
+        "<candidate>/source/core/build/obj/temporal/amd_of_producer.o": "7e583fe919e0e61aa881dd418908c2c4b1461b79abbc7dbeb2214b928774ae13",
+        "<candidate>/source/core/build/obj/temporal/recorded_temporal.o": "3c0912af943a2e59a62874848bcca9a5407f90612c4a4f6084a76ac02d1d002b",
+        "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+        "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+        "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+      },
+      "game": false,
+      "feature18": false,
+      "scope": "Controlled API output and unchanged Core callbacks; does not validate CreateOwner export resolution, native metadata, real NGX, actual multi-layer scheduler, or games.",
+      "final_once_source_structure": {
+        "scope": "Static actual Core call order only; fixture constructs aggregate Z, no Feature18 multi-layer inference",
+        "finish_call_count": 1,
+        "ordered": true,
+        "lines": {
+          "dual_run": 12678,
+          "final_combine": 12694,
+          "result_uav": 12699,
+          "private_finish": 12703
+        }
+      },
+      "model": "controlled fixture API, not NGX",
+      "adapter": "WARP",
+      "metrics": [],
+      "captures_sha256": {},
+      "binary_sha256": "d8bb2df77ac49b3b4bc5ced3bbbf94a16839bb287cf9405438289c22be701be2"
+    },
+    "core_hardware": {
+      "receipt_name": "private-sr-core-hardware-final-4f5ce993-r2/validation.json",
+      "receipt_sha256": "96f400f3697966d3a43b24eeb198f0409531db95af37de3c5082d04622017ee7",
+      "schema": "actual-core-warp-fixture-v1",
+      "result": "passed",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "generated_source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+      "manifest_sha256": "c160b5c738da34a56eed7b34c7aa9b7956b22c7c1b218747ea18a30a48505fe3",
+      "fixture_sha256": "0d82a1a9a364b8c3b930a241092703e4c0ab390813b71829713c1890dd9912f1",
+      "host_helpers_sha256": "f9bf4f43b35addef53cac5b24131dbdfffdf14e61b06582dca79dd4c70d89a48",
+      "wrapper_sha256": "552810bbe54730ff875519eb95f0e25ae958d8919c755ccf3ea078395cd3fab1",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "commands": [
+        {
+          "name": "compile",
+          "args": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O1",
+            "-DNDEBUG",
+            "-DUNICODE",
+            "-D_UNICODE",
+            "-D_WIN64",
+            "-DNR_FACE_BACKEND=1",
+            "-DNR_CODEC_PRECOMPILED=1",
+            "-DNR_AUX_PRECOMPILED=1",
+            "-DNR_AUX_TIMING=1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-static",
+            "-municode",
+            "-Wl,--gc-sections",
+            "-I<candidate>/source/core/build",
+            "-I<candidate>/source/core/third_party/minhook/include",
+            "-I<dependencies>/reshade-source/include",
+            "-I<dependencies>/reshade-source/deps/imgui",
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/host.cpp",
+            "<candidate>/source/core/build/obj/buffer.o",
+            "<candidate>/source/core/build/obj/hook.o",
+            "<candidate>/source/core/build/obj/trampoline.o",
+            "<candidate>/source/core/build/obj/hde64.o",
+            "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o",
+            "<candidate>/source/core/build/obj/nr_face_detector.o",
+            "<candidate>/source/core/build/obj/nr_face_worker.o",
+            "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o",
+            "<candidate>/source/core/build/obj/temporal/amd_of_producer.o",
+            "<candidate>/source/core/build/obj/temporal/recorded_temporal.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+            "<candidate>/source/core/build/obj/private-sr/artifacts.o",
+            "-o",
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "-lkernel32",
+            "-luser32",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-lole32",
+            "-luuid",
+            "-ld3dcompiler",
+            "-lshell32",
+            "-lbcrypt"
+          ],
+          "exit": 0,
+          "seconds": 11.73499999998603
+        },
+        {
+          "name": "warp-neutral",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "neutral"
+          ],
+          "exit": 0,
+          "seconds": 0.43700000003445894
+        },
+        {
+          "name": "warp-numeric",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "numeric"
+          ],
+          "exit": 0,
+          "seconds": 0.31299999996554106
+        },
+        {
+          "name": "warp-odd",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "odd"
+          ],
+          "exit": 0,
+          "seconds": 0.26500000001396984
+        },
+        {
+          "name": "warp-quarter",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "quarter"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "name": "warp-full",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "full"
+          ],
+          "exit": 0,
+          "seconds": 0.26599999994505197
+        },
+        {
+          "name": "warp-guide-only",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "guide-only"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "name": "warp-reset-fail",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "reset-fail"
+          ],
+          "exit": 0,
+          "seconds": 0.23400000005494803
+        },
+        {
+          "name": "warp-discard",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "discard"
+          ],
+          "exit": 0,
+          "seconds": 0.26599999994505197
+        },
+        {
+          "name": "warp-duplicate",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "duplicate"
+          ],
+          "exit": 0,
+          "seconds": 0.23400000005494803
+        },
+        {
+          "name": "warp-pending",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "pending"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "name": "warp-off",
+          "args": [
+            "<evidence>/private-sr-core-hardware-final-4f5ce993-r2/core-warp.exe",
+            "off"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        }
+      ],
+      "linked_objects": {
+        "<candidate>/source/core/build/obj/buffer.o": "f80fe92db20b4c7513759615af0b8bfa2b23274f100c3f3679136f2dc495b186",
+        "<candidate>/source/core/build/obj/hook.o": "de4d9c14ca745c9df310d079a151739dc8fa7a368f8baab67f9cd524b2d4642e",
+        "<candidate>/source/core/build/obj/trampoline.o": "384ab23480e3c96ed964b9a9666e90dc5d0695d5b8094076e090d3defc2dac43",
+        "<candidate>/source/core/build/obj/hde64.o": "dd9d195ea588f21ae3e5faba410959c1079fd0f957afd7192279043a389ff41c",
+        "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o": "4bdc441b8e0d77da8f71d14c92ab5cba481bfe597d0e1cb9bac1617236da49ef",
+        "<candidate>/source/core/build/obj/nr_face_detector.o": "87ca2a603690a27d1a27542e4ba4889f12a973f9885754716f952585dda2a7ad",
+        "<candidate>/source/core/build/obj/nr_face_worker.o": "94676708f8c0aa21695b1819b9a5d4ad6bdac56fdd2c6fd17f22886d0ed108a4",
+        "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o": "448a0a03625fc3aef625d46550df91ce596da7a1cffefe1bc548f47d34aa6637",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o": "b2b08290f86875f77cced719fab6be39d0cff7f57d241956ae7677fe5818665a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o": "6e44778a345999c2bbed5810e95edc619f1825195a3b658dc45cb82a488755fb",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o": "26c5617efb161c0b16ac4cebac534b2c99737ce99ae3e758953218cb7b1940bc",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o": "6783084baa80fe173cdbbf82c6ed61cdc7e7d2b7917036da4419261186c5421e",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o": "f0e020c226839ae704540ac8ec551648aced652b8ccc05f4a9e6af8d224e4f0a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o": "733fc663f11bd21e9030e7485129f6c3fe3f634874892a22757d19a126d364d5",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o": "d2f167e4afddae98b5f9a05467a1d5aa86a1798d0446eea2e6876978e57be876",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o": "e4f880b8d1d0531af7336684413da7de508793693a62c015c8de93256720e3f1",
+        "<candidate>/source/core/build/obj/temporal/amd_of_producer.o": "7e583fe919e0e61aa881dd418908c2c4b1461b79abbc7dbeb2214b928774ae13",
+        "<candidate>/source/core/build/obj/temporal/recorded_temporal.o": "3c0912af943a2e59a62874848bcca9a5407f90612c4a4f6084a76ac02d1d002b",
+        "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+        "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+        "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+      },
+      "game": false,
+      "feature18": false,
+      "scope": "Controlled API output and unchanged Core callbacks; does not validate CreateOwner export resolution, native metadata, real NGX, actual multi-layer scheduler, or games.",
+      "final_once_source_structure": {
+        "scope": "Static actual Core call order only; fixture constructs aggregate Z, no Feature18 multi-layer inference",
+        "finish_call_count": 1,
+        "ordered": true,
+        "lines": {
+          "dual_run": 12678,
+          "final_combine": 12694,
+          "result_uav": 12699,
+          "private_finish": 12703
+        }
+      },
+      "model": "controlled fixture API, not NGX",
+      "adapter": "NVIDIA hardware",
+      "metrics": [],
+      "captures_sha256": {},
+      "binary_sha256": "2b551dcdff71c427aa4537b40e6e8222ca584cc6707b24ff89782bb71b371ff7"
+    },
+    "core_real_feature1": {
+      "receipt_name": "private-sr-product-real-final-4f5ce993-r1/validation.json",
+      "receipt_sha256": "dd1882a54f6b954a917585eafc381a367e8f1cf4b4b46f7fb0f4871c1fe37c72",
+      "schema": "actual-product-private-sr-v1",
+      "result": "passed",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "generated_source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+      "manifest_sha256": "c160b5c738da34a56eed7b34c7aa9b7956b22c7c1b218747ea18a30a48505fe3",
+      "fixture_sha256": "71f23728b2a690349ff0744d64add3b7fdc1f73552a802466c59bce98936a774",
+      "host_helpers_sha256": "f9bf4f43b35addef53cac5b24131dbdfffdf14e61b06582dca79dd4c70d89a48",
+      "wrapper_sha256": "30890d3ea989ca065efd28deda385196c0c4d5fd9ab4b1da509f1fcb5b2bbcea",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "commands": [
+        {
+          "name": "compile",
+          "args": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe",
+            "-std=c++20",
+            "-O1",
+            "-DNDEBUG",
+            "-DUNICODE",
+            "-D_UNICODE",
+            "-D_WIN64",
+            "-DNR_FACE_BACKEND=1",
+            "-DNR_CODEC_PRECOMPILED=1",
+            "-DNR_AUX_PRECOMPILED=1",
+            "-DNR_AUX_TIMING=1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-static",
+            "-municode",
+            "-Wl,--gc-sections",
+            "-I<candidate>/source/core/build",
+            "-I<candidate>/source/core/third_party/minhook/include",
+            "-I<dependencies>/reshade-source/include",
+            "-I<dependencies>/reshade-source/deps/imgui",
+            "<evidence>/private-sr-product-real-final-4f5ce993-r1/host.cpp",
+            "<candidate>/source/core/build/obj/buffer.o",
+            "<candidate>/source/core/build/obj/hook.o",
+            "<candidate>/source/core/build/obj/trampoline.o",
+            "<candidate>/source/core/build/obj/hde64.o",
+            "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o",
+            "<candidate>/source/core/build/obj/nr_face_detector.o",
+            "<candidate>/source/core/build/obj/nr_face_worker.o",
+            "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o",
+            "<candidate>/source/core/build/obj/temporal/amd_of_producer.o",
+            "<candidate>/source/core/build/obj/temporal/recorded_temporal.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+            "<candidate>/source/core/build/obj/private-sr/artifacts.o",
+            "-o",
+            "<evidence>/private-sr-product-real-final-4f5ce993-r1/product-real.exe",
+            "-lkernel32",
+            "-luser32",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-lole32",
+            "-luuid",
+            "-ld3dcompiler",
+            "-lshell32",
+            "-lbcrypt"
+          ],
+          "exit": 0,
+          "seconds": 12.21799999999348
+        },
+        {
+          "name": "real-feature1",
+          "args": [
+            "<evidence>/private-sr-product-real-final-4f5ce993-r1/product-real.exe",
+            "<evidence>/private-sr-product-real-final-4f5ce993-r1/nrchain_nvngx.dll"
+          ],
+          "exit": 0,
+          "seconds": 1.437999999965541
+        }
+      ],
+      "linked_objects": {
+        "<candidate>/source/core/build/obj/buffer.o": "f80fe92db20b4c7513759615af0b8bfa2b23274f100c3f3679136f2dc495b186",
+        "<candidate>/source/core/build/obj/hook.o": "de4d9c14ca745c9df310d079a151739dc8fa7a368f8baab67f9cd524b2d4642e",
+        "<candidate>/source/core/build/obj/trampoline.o": "384ab23480e3c96ed964b9a9666e90dc5d0695d5b8094076e090d3defc2dac43",
+        "<candidate>/source/core/build/obj/hde64.o": "dd9d195ea588f21ae3e5faba410959c1079fd0f957afd7192279043a389ff41c",
+        "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o": "4bdc441b8e0d77da8f71d14c92ab5cba481bfe597d0e1cb9bac1617236da49ef",
+        "<candidate>/source/core/build/obj/nr_face_detector.o": "87ca2a603690a27d1a27542e4ba4889f12a973f9885754716f952585dda2a7ad",
+        "<candidate>/source/core/build/obj/nr_face_worker.o": "94676708f8c0aa21695b1819b9a5d4ad6bdac56fdd2c6fd17f22886d0ed108a4",
+        "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o": "448a0a03625fc3aef625d46550df91ce596da7a1cffefe1bc548f47d34aa6637",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o": "b2b08290f86875f77cced719fab6be39d0cff7f57d241956ae7677fe5818665a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o": "6e44778a345999c2bbed5810e95edc619f1825195a3b658dc45cb82a488755fb",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o": "26c5617efb161c0b16ac4cebac534b2c99737ce99ae3e758953218cb7b1940bc",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o": "6783084baa80fe173cdbbf82c6ed61cdc7e7d2b7917036da4419261186c5421e",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o": "f0e020c226839ae704540ac8ec551648aced652b8ccc05f4a9e6af8d224e4f0a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o": "733fc663f11bd21e9030e7485129f6c3fe3f634874892a22757d19a126d364d5",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o": "d2f167e4afddae98b5f9a05467a1d5aa86a1798d0446eea2e6876978e57be876",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o": "e4f880b8d1d0531af7336684413da7de508793693a62c015c8de93256720e3f1",
+        "<candidate>/source/core/build/obj/temporal/amd_of_producer.o": "7e583fe919e0e61aa881dd418908c2c4b1461b79abbc7dbeb2214b928774ae13",
+        "<candidate>/source/core/build/obj/temporal/recorded_temporal.o": "3c0912af943a2e59a62874848bcca9a5407f90612c4a4f6084a76ac02d1d002b",
+        "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+        "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+        "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+      },
+      "game": false,
+      "feature18": false,
+      "timing": "CPU recording includes native SR; GPU timestamps isolate guide and private SR. Six small static host frames, not a game benchmark.",
+      "runtime_sha256": {
+        "nrchain_nvngx.dll": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+        "nvngx_dlss.dll": "22c4660249da5b352cde0ce4d95178c3761223dd6ac096d0b88e5c03d7a5cdd1"
+      },
+      "metrics": [
+        {
+          "frame": 0,
+          "cpu_record_ms": 42.1125,
+          "cpu_submit_ms": 1.9372,
+          "cpu_retire_ms": 0.3409,
+          "gpu_guides_ms": 0.005792,
+          "gpu_private_sr_ms": 0.032896,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "frame": 1,
+          "cpu_record_ms": 0.3908,
+          "cpu_submit_ms": 0.0717,
+          "cpu_retire_ms": 0.2541,
+          "gpu_guides_ms": 0.003616,
+          "gpu_private_sr_ms": 0.131744,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "frame": 2,
+          "cpu_record_ms": 0.2097,
+          "cpu_submit_ms": 0.0431,
+          "cpu_retire_ms": 0.2334,
+          "gpu_guides_ms": 0.003584,
+          "gpu_private_sr_ms": 0.11152,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "frame": 3,
+          "cpu_record_ms": 0.1878,
+          "cpu_submit_ms": 0.0411,
+          "cpu_retire_ms": 0.4387,
+          "gpu_guides_ms": 0.003552,
+          "gpu_private_sr_ms": 0.109984,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "frame": 4,
+          "cpu_record_ms": 0.194,
+          "cpu_submit_ms": 0.0477,
+          "cpu_retire_ms": 0.2253,
+          "gpu_guides_ms": 0.00352,
+          "gpu_private_sr_ms": 0.11152,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "frame": 5,
+          "cpu_record_ms": 0.1814,
+          "cpu_submit_ms": 0.0385,
+          "cpu_retire_ms": 0.1957,
+          "gpu_guides_ms": 0.003616,
+          "gpu_private_sr_ms": 0.110208,
+          "plane_bytes": 12779520,
+          "dxgi_local_usage": 256405504
+        },
+        {
+          "peak_plane_bytes": 12779520,
+          "dxgi_before": 78553088,
+          "dxgi_after": 240480256
+        }
+      ],
+      "captures_sha256": {
+        "actual-core-native-base.fp16": "c0372bf990ff8f9e21720797e4b04b22f68afbba1bcb51910b0f919334e32aa2",
+        "actual-core-neutral.fp16": "c0372bf990ff8f9e21720797e4b04b22f68afbba1bcb51910b0f919334e32aa2"
+      },
+      "binary_sha256": "c837a72d07de423034c01fa4fd044cea06017e524eb8ecae7103a9be31a593f4"
+    },
+    "core_order_signal_warp": {
+      "receipt_name": "private-sr-core-order-signal-warp-4f5ce993-r4/validation.json",
+      "receipt_sha256": "3fe0caeeb902dae4b50c99c7e04d75bb1ed21db389ff37589c52eb8e927b5fff",
+      "schema": "actual-core-warp-fixture-v1",
+      "result": "passed",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "generated_source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+      "manifest_sha256": "c160b5c738da34a56eed7b34c7aa9b7956b22c7c1b218747ea18a30a48505fe3",
+      "fixture_sha256": "a8e46b0c0dace45210e7b24ac3523d1d0c91490743d3896378d2d83e400d9801",
+      "host_helpers_sha256": "f9bf4f43b35addef53cac5b24131dbdfffdf14e61b06582dca79dd4c70d89a48",
+      "wrapper_sha256": "4deae79ea6311f035bbf438e2e4ff691d9a41451bb9eec0d14eb904348f9f1b2",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "commands": [
+        {
+          "name": "compile",
+          "args": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O1",
+            "-DNDEBUG",
+            "-DUNICODE",
+            "-D_UNICODE",
+            "-D_WIN64",
+            "-DNR_FACE_BACKEND=1",
+            "-DNR_CODEC_PRECOMPILED=1",
+            "-DNR_AUX_PRECOMPILED=1",
+            "-DNR_AUX_TIMING=1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-static",
+            "-municode",
+            "-Wl,--gc-sections",
+            "-I<candidate>/source/core/build",
+            "-I<candidate>/source/core/third_party/minhook/include",
+            "-I<dependencies>/reshade-source/include",
+            "-I<dependencies>/reshade-source/deps/imgui",
+            "<evidence>/private-sr-core-order-signal-warp-4f5ce993-r4/host.cpp",
+            "<candidate>/source/core/build/obj/buffer.o",
+            "<candidate>/source/core/build/obj/hook.o",
+            "<candidate>/source/core/build/obj/trampoline.o",
+            "<candidate>/source/core/build/obj/hde64.o",
+            "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o",
+            "<candidate>/source/core/build/obj/nr_face_detector.o",
+            "<candidate>/source/core/build/obj/nr_face_worker.o",
+            "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o",
+            "<candidate>/source/core/build/obj/temporal/amd_of_producer.o",
+            "<candidate>/source/core/build/obj/temporal/recorded_temporal.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+            "<candidate>/source/core/build/obj/private-sr/artifacts.o",
+            "-o",
+            "<evidence>/private-sr-core-order-signal-warp-4f5ce993-r4/core-warp.exe",
+            "-lkernel32",
+            "-luser32",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-lole32",
+            "-luuid",
+            "-ld3dcompiler",
+            "-lshell32",
+            "-lbcrypt"
+          ],
+          "exit": 0,
+          "seconds": 11.703000000095926
+        },
+        {
+          "name": "warp-order",
+          "args": [
+            "<evidence>/private-sr-core-order-signal-warp-4f5ce993-r4/core-warp.exe",
+            "order"
+          ],
+          "exit": 0,
+          "seconds": 0.25
+        },
+        {
+          "name": "warp-signal-fail",
+          "args": [
+            "<evidence>/private-sr-core-order-signal-warp-4f5ce993-r4/core-warp.exe",
+            "signal-fail"
+          ],
+          "exit": 0,
+          "seconds": 0.125
+        }
+      ],
+      "linked_objects": {
+        "<candidate>/source/core/build/obj/buffer.o": "f80fe92db20b4c7513759615af0b8bfa2b23274f100c3f3679136f2dc495b186",
+        "<candidate>/source/core/build/obj/hook.o": "de4d9c14ca745c9df310d079a151739dc8fa7a368f8baab67f9cd524b2d4642e",
+        "<candidate>/source/core/build/obj/trampoline.o": "384ab23480e3c96ed964b9a9666e90dc5d0695d5b8094076e090d3defc2dac43",
+        "<candidate>/source/core/build/obj/hde64.o": "dd9d195ea588f21ae3e5faba410959c1079fd0f957afd7192279043a389ff41c",
+        "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o": "4bdc441b8e0d77da8f71d14c92ab5cba481bfe597d0e1cb9bac1617236da49ef",
+        "<candidate>/source/core/build/obj/nr_face_detector.o": "87ca2a603690a27d1a27542e4ba4889f12a973f9885754716f952585dda2a7ad",
+        "<candidate>/source/core/build/obj/nr_face_worker.o": "94676708f8c0aa21695b1819b9a5d4ad6bdac56fdd2c6fd17f22886d0ed108a4",
+        "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o": "448a0a03625fc3aef625d46550df91ce596da7a1cffefe1bc548f47d34aa6637",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o": "b2b08290f86875f77cced719fab6be39d0cff7f57d241956ae7677fe5818665a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o": "6e44778a345999c2bbed5810e95edc619f1825195a3b658dc45cb82a488755fb",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o": "26c5617efb161c0b16ac4cebac534b2c99737ce99ae3e758953218cb7b1940bc",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o": "6783084baa80fe173cdbbf82c6ed61cdc7e7d2b7917036da4419261186c5421e",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o": "f0e020c226839ae704540ac8ec551648aced652b8ccc05f4a9e6af8d224e4f0a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o": "733fc663f11bd21e9030e7485129f6c3fe3f634874892a22757d19a126d364d5",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o": "d2f167e4afddae98b5f9a05467a1d5aa86a1798d0446eea2e6876978e57be876",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o": "e4f880b8d1d0531af7336684413da7de508793693a62c015c8de93256720e3f1",
+        "<candidate>/source/core/build/obj/temporal/amd_of_producer.o": "7e583fe919e0e61aa881dd418908c2c4b1461b79abbc7dbeb2214b928774ae13",
+        "<candidate>/source/core/build/obj/temporal/recorded_temporal.o": "3c0912af943a2e59a62874848bcca9a5407f90612c4a4f6084a76ac02d1d002b",
+        "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+        "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+        "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+      },
+      "game": false,
+      "feature18": false,
+      "scope": "Controlled API output and unchanged Core callbacks; does not validate CreateOwner export resolution, native metadata, real NGX, actual multi-layer scheduler, or games.",
+      "final_once_source_structure": {
+        "scope": "Static actual Core call order only; fixture constructs aggregate Z, no Feature18 multi-layer inference",
+        "finish_call_count": 1,
+        "ordered": true,
+        "lines": {
+          "dual_run": 12678,
+          "final_combine": 12694,
+          "result_uav": 12699,
+          "private_finish": 12703
+        }
+      },
+      "model": "controlled fixture API, not NGX",
+      "adapter": "WARP",
+      "captures_sha256": {},
+      "binary_sha256": "f5538446e51ba0f35903df900d3a66e539a0f5c576b4d2ea6bd6f4cdcbacb844"
+    },
+    "core_order_signal_hardware": {
+      "receipt_name": "private-sr-core-order-signal-hardware-4f5ce993-r1/validation.json",
+      "receipt_sha256": "61848e8901b70e835f750573d0903abacce4d21582c119dbb8e359cfaf584051",
+      "schema": "actual-core-warp-fixture-v1",
+      "result": "passed",
+      "source_commit": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+      "generated_source_sha256": "0e81ca1c5cd607c324a19843ab6da9528c469dfe95bb366357202943f89f62aa",
+      "manifest_sha256": "c160b5c738da34a56eed7b34c7aa9b7956b22c7c1b218747ea18a30a48505fe3",
+      "fixture_sha256": "a8e46b0c0dace45210e7b24ac3523d1d0c91490743d3896378d2d83e400d9801",
+      "host_helpers_sha256": "f9bf4f43b35addef53cac5b24131dbdfffdf14e61b06582dca79dd4c70d89a48",
+      "wrapper_sha256": "772500cc923d162ab85ea99ec6a4319b9d0a80eda3c3bc643175bfaa8cc7224d",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "commands": [
+        {
+          "name": "compile",
+          "args": [
+            "<dependencies>/llvm-mingw/llvm-mingw-20260826-ucrt-x86_64/bin/clang++.exe",
+            "-std=c++20",
+            "-O1",
+            "-DNDEBUG",
+            "-DUNICODE",
+            "-D_UNICODE",
+            "-D_WIN64",
+            "-DNR_FACE_BACKEND=1",
+            "-DNR_CODEC_PRECOMPILED=1",
+            "-DNR_AUX_PRECOMPILED=1",
+            "-DNR_AUX_TIMING=1",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-static",
+            "-municode",
+            "-Wl,--gc-sections",
+            "-I<candidate>/source/core/build",
+            "-I<candidate>/source/core/third_party/minhook/include",
+            "-I<dependencies>/reshade-source/include",
+            "-I<dependencies>/reshade-source/deps/imgui",
+            "<evidence>/private-sr-core-order-signal-hardware-4f5ce993-r1/host.cpp",
+            "<candidate>/source/core/build/obj/buffer.o",
+            "<candidate>/source/core/build/obj/hook.o",
+            "<candidate>/source/core/build/obj/trampoline.o",
+            "<candidate>/source/core/build/obj/hde64.o",
+            "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o",
+            "<candidate>/source/core/build/obj/nr_face_detector.o",
+            "<candidate>/source/core/build/obj/nr_face_worker.o",
+            "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o",
+            "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o",
+            "<candidate>/source/core/build/obj/temporal/amd_of_producer.o",
+            "<candidate>/source/core/build/obj/temporal/recorded_temporal.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o",
+            "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o",
+            "<candidate>/source/core/build/obj/private-sr/artifacts.o",
+            "-o",
+            "<evidence>/private-sr-core-order-signal-hardware-4f5ce993-r1/core-warp.exe",
+            "-lkernel32",
+            "-luser32",
+            "-ld3d12",
+            "-ldxgi",
+            "-ldxguid",
+            "-lole32",
+            "-luuid",
+            "-ld3dcompiler",
+            "-lshell32",
+            "-lbcrypt"
+          ],
+          "exit": 0,
+          "seconds": 11.71799999999348
+        },
+        {
+          "name": "warp-order",
+          "args": [
+            "<evidence>/private-sr-core-order-signal-hardware-4f5ce993-r1/core-warp.exe",
+            "order"
+          ],
+          "exit": 0,
+          "seconds": 0.43799999996554106
+        },
+        {
+          "name": "warp-signal-fail",
+          "args": [
+            "<evidence>/private-sr-core-order-signal-hardware-4f5ce993-r1/core-warp.exe",
+            "signal-fail"
+          ],
+          "exit": 0,
+          "seconds": 0.31200000003445894
+        }
+      ],
+      "linked_objects": {
+        "<candidate>/source/core/build/obj/buffer.o": "f80fe92db20b4c7513759615af0b8bfa2b23274f100c3f3679136f2dc495b186",
+        "<candidate>/source/core/build/obj/hook.o": "de4d9c14ca745c9df310d079a151739dc8fa7a368f8baab67f9cd524b2d4642e",
+        "<candidate>/source/core/build/obj/trampoline.o": "384ab23480e3c96ed964b9a9666e90dc5d0695d5b8094076e090d3defc2dac43",
+        "<candidate>/source/core/build/obj/hde64.o": "dd9d195ea588f21ae3e5faba410959c1079fd0f957afd7192279043a389ff41c",
+        "<candidate>/source/core/build/obj/nr_dual_spatial_d3d12.o": "4bdc441b8e0d77da8f71d14c92ab5cba481bfe597d0e1cb9bac1617236da49ef",
+        "<candidate>/source/core/build/obj/nr_face_detector.o": "87ca2a603690a27d1a27542e4ba4889f12a973f9885754716f952585dda2a7ad",
+        "<candidate>/source/core/build/obj/nr_face_worker.o": "94676708f8c0aa21695b1819b9a5d4ad6bdac56fdd2c6fd17f22886d0ed108a4",
+        "<candidate>/source/core/build/obj/nr_aux_shader_runtime.o": "448a0a03625fc3aef625d46550df91ce596da7a1cffefe1bc548f47d34aa6637",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow.o": "b2b08290f86875f77cced719fab6be39d0cff7f57d241956ae7677fe5818665a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_dx12_no_pix.o": "6e44778a345999c2bbed5810e95edc619f1825195a3b658dc45cb82a488755fb",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_shader_blobs.o": "26c5617efb161c0b16ac4cebac534b2c99737ce99ae3e758953218cb7b1940bc",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_opticalflow_shaderblobs.o": "6783084baa80fe173cdbbf82c6ed61cdc7e7d2b7917036da4419261186c5421e",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_assert.o": "f0e020c226839ae704540ac8ec551648aced652b8ccc05f4a9e6af8d224e4f0a",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_message.o": "733fc663f11bd21e9030e7485129f6c3fe3f634874892a22757d19a126d364d5",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_object_management.o": "d2f167e4afddae98b5f9a05467a1d5aa86a1798d0446eea2e6876978e57be876",
+        "<dependencies>/evidence/unified6-amd-sdk-aligned-r1/ffx_breadcrumbs_list.o": "e4f880b8d1d0531af7336684413da7de508793693a62c015c8de93256720e3f1",
+        "<candidate>/source/core/build/obj/temporal/amd_of_producer.o": "7e583fe919e0e61aa881dd418908c2c4b1461b79abbc7dbeb2214b928774ae13",
+        "<candidate>/source/core/build/obj/temporal/recorded_temporal.o": "3c0912af943a2e59a62874848bcca9a5407f90612c4a4f6084a76ac02d1d002b",
+        "<candidate>/source/core/build/obj/private-sr/nr_edit_dx12.o": "434370bc920c6ce116448e8832e6bf462acd7957ce5f9dd03abd8310caaab9f4",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_residual_dx12.o": "db22bd1d81d50c33d332e65cc8d3f899658ebdb7057043b37e8567269cae29b1",
+        "<candidate>/source/core/build/obj/private-sr/nr_post_private_sr_dx12.o": "83b05b19b6c0472f7b250274320319fe7055b5d679dcc60cf04582eea54b3cb9",
+        "<candidate>/source/core/build/obj/private-sr/nr_private_sr_guides.o": "4bddab77ee76ab1860fc52fc5aaab69f0eb4a1d95bb55c125fb1f1d02693bb48",
+        "<candidate>/source/core/build/obj/private-sr/artifacts.o": "9b015772db763dc5f9f01eb350ed05cb38e731a1066714ab1407ea792a879eae"
+      },
+      "game": false,
+      "feature18": false,
+      "scope": "Controlled API output and unchanged Core callbacks; does not validate CreateOwner export resolution, native metadata, real NGX, actual multi-layer scheduler, or games.",
+      "final_once_source_structure": {
+        "scope": "Static actual Core call order only; fixture constructs aggregate Z, no Feature18 multi-layer inference",
+        "finish_call_count": 1,
+        "ordered": true,
+        "lines": {
+          "dual_run": 12678,
+          "final_combine": 12694,
+          "result_uav": 12699,
+          "private_finish": 12703
+        }
+      },
+      "model": "controlled fixture API, not NGX",
+      "adapter": "NVIDIA hardware",
+      "captures_sha256": {},
+      "binary_sha256": "e0159c9a2df75f7af18645c413f68c0818bf7f9fcb05477f9189359dfa8182b3"
+    }
+  },
+  "gpu": "NVIDIA GeForce RTX 5090 D",
+  "driver": "32.0.16.1692",
+  "guide_source_and_python_tests": {
+    "timestamp": "2026-09-27T07:08:24.797009+00:00",
+    "worktree_head": "4f5ce993c6341e4649496cc618d105ef77a7d538",
+    "candidate": "<candidate>/source/core",
+    "tests": [
+      {
+        "name": "test_optional_core_objects.py",
+        "command": [
+          "python",
+          "<repo>/tests/test_optional_core_objects.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "log": "<evidence>/private-sr-guides-final-4f5ce993/test_optional_core_objects.py.log",
+        "source_sha256": "6a4d09f0deec7d385edfc545b2a34c5704f8cc54918be308df0939570d27a390"
+      },
+      {
+        "name": "test_private_candidate_identity.py",
+        "command": [
+          "python",
+          "<repo>/tests/test_private_candidate_identity.py",
+          "-v"
+        ],
+        "exit_code": 0,
+        "log": "<evidence>/private-sr-guides-final-4f5ce993/test_private_candidate_identity.py.log",
+        "source_sha256": "556846fc80956f798262ae8167c5d135216fffb0303f06256629675fed918de4"
+      }
+    ],
+    "guide_source_comparison": [
+      {
+        "path": "src/nr_private_sr_guides.h",
+        "worktree_sha256": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+        "candidate_sha256": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+        "matches": true,
+        "worktree_lf_sha256": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+        "candidate_lf_sha256": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc",
+        "lf_content_matches": true,
+        "difference": "none",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "cc07d4a5d812eae5b781d4338438af7f3f26041ac4cd832df84fb34e973e27dc"
+      },
+      {
+        "path": "src/nr_private_sr_guides.cpp",
+        "worktree_sha256": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+        "candidate_sha256": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+        "matches": true,
+        "worktree_lf_sha256": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+        "candidate_lf_sha256": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d",
+        "lf_content_matches": true,
+        "difference": "none",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "74b50fc51437768fd09cd19966dd444daca45a2c44c9fae39b01500f7d83612d"
+      },
+      {
+        "path": "src/nr_guide_contract.h",
+        "worktree_sha256": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b",
+        "candidate_sha256": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b",
+        "matches": true,
+        "worktree_lf_sha256": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b",
+        "candidate_lf_sha256": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b",
+        "lf_content_matches": true,
+        "difference": "none",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "6feecbb4517c614e107277e14472901792cbf514db67094bcf94fbc20d545b5b"
+      },
+      {
+        "path": "experiments/nr-edit/src/nr_edit_dx12.cpp",
+        "worktree_sha256": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+        "candidate_sha256": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+        "matches": true,
+        "worktree_lf_sha256": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+        "candidate_lf_sha256": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698",
+        "lf_content_matches": true,
+        "difference": "none",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "94b7aa984b0a8dc72e1199e85cc502e6809d7445dc91b9f08e84790fc3cff698"
+      },
+      {
+        "path": "experiments/nr-edit/src/nr_edit_dx12.hpp",
+        "worktree_sha256": "f99cec9a5fc0aec622f6478b15d13a4be03e39634e6bb7989affd686cb8bd558",
+        "candidate_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "matches": false,
+        "worktree_lf_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "candidate_lf_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b"
+      },
+      {
+        "path": "experiments/nr-edit/shaders/nr_normalize_guides.hlsl",
+        "worktree_sha256": "4bffff0f049b9bacee38dec935831d96d299a4c78c4ba9a90626a3c32602e1da",
+        "candidate_sha256": "34a192d94dac64ba67697387071d5cbab8c6259c23e6f70743c971dd0f9b86cd",
+        "matches": false,
+        "worktree_lf_sha256": "34a192d94dac64ba67697387071d5cbab8c6259c23e6f70743c971dd0f9b86cd",
+        "candidate_lf_sha256": "34a192d94dac64ba67697387071d5cbab8c6259c23e6f70743c971dd0f9b86cd",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "34a192d94dac64ba67697387071d5cbab8c6259c23e6f70743c971dd0f9b86cd"
+      },
+      {
+        "path": "experiments/nr-edit/shaders/nr_edit_scalar.hlsli",
+        "worktree_sha256": "7c873a1f997905808cad25f58191f7c986aa06e82f965a4664e2bf34a9bd3162",
+        "candidate_sha256": "f7a2a4011c7463d10e23d7b3ab7065fbca3543dc895bd961b9243f5e592b2455",
+        "matches": false,
+        "worktree_lf_sha256": "f7a2a4011c7463d10e23d7b3ab7065fbca3543dc895bd961b9243f5e592b2455",
+        "candidate_lf_sha256": "f7a2a4011c7463d10e23d7b3ab7065fbca3543dc895bd961b9243f5e592b2455",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "f7a2a4011c7463d10e23d7b3ab7065fbca3543dc895bd961b9243f5e592b2455"
+      },
+      {
+        "path": "experiments/nr-edit/src/nr_private_sr_runtime.hpp",
+        "worktree_sha256": "41d71f639c8c81113458962a0c9367236db8dc72e14b58781621f472a67d73c8",
+        "candidate_sha256": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419",
+        "matches": false,
+        "worktree_lf_sha256": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419",
+        "candidate_lf_sha256": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "f19ab384275b780be7d308a1a8e783ed592afbdb7e7b38dbb5321d0947553419"
+      }
+    ],
+    "mirror_headers": [
+      {
+        "source": "<repo>/experiments/nr-edit/src/nr_edit_dx12.hpp",
+        "candidate": "<candidate>/source/core/src/private_sr/nr_edit_dx12.hpp",
+        "source_sha256": "f99cec9a5fc0aec622f6478b15d13a4be03e39634e6bb7989affd686cb8bd558",
+        "candidate_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "matches": false,
+        "worktree_lf_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "candidate_lf_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "8204fd85a8bade3c3c81bb6e4cf551c109d5086bc872274e9e2e8c093896540b"
+      },
+      {
+        "source": "<repo>/experiments/nr-edit/src/nr_post_residual_dx12.hpp",
+        "candidate": "<candidate>/source/core/src/private_sr/nr_post_residual_dx12.hpp",
+        "source_sha256": "79e57d7d5f7056bf7e6db7badb3185df6982c30abd6ce7f578f2ea3d131dba4c",
+        "candidate_sha256": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504",
+        "matches": false,
+        "worktree_lf_sha256": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504",
+        "candidate_lf_sha256": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504",
+        "lf_content_matches": true,
+        "difference": "CRLF-to-LF only",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "0884d1f34bd34e5c42b847f7848a380fbfe6510973ce65f86882f59f1361d504"
+      },
+      {
+        "source": "<repo>/experiments/nr-edit/src/nr_post_private_sr_dx12.hpp",
+        "candidate": "<candidate>/source/core/src/private_sr/nr_post_private_sr_dx12.hpp",
+        "source_sha256": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+        "candidate_sha256": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+        "matches": true,
+        "worktree_lf_sha256": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+        "candidate_lf_sha256": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc",
+        "lf_content_matches": true,
+        "difference": "none",
+        "candidate_matches_committed_blob": true,
+        "committed_blob_sha256": "bec1fd54b8e181641e36bbd689c08d96099c4bef47e943ec13ec6ed89dfb89dc"
+      }
+    ],
+    "scope": "CPU/WARP guide production and Python identity/link gates only; no model/game acceptance",
+    "fresh_validation_hashes_still_match": true,
+    "source_correspondence_passed": true,
+    "result": "passed",
+    "line_endings_note": "Worktree CRLF versus generated candidate LF is recorded separately; raw hash mismatches are not labeled byte-identical."
+  },
+  "real_feature1_scope": {
+    "native_feature": 1,
+    "private_creates": 1,
+    "private_evaluates": 5,
+    "core_submissions": 6,
+    "retirements": 1,
+    "R": [
+      320,
+      192
+    ],
+    "N": [
+      320,
+      192
+    ],
+    "O": [
+      640,
+      384
+    ],
+    "jitter": [
+      0,
+      0
+    ],
+    "frames": 6,
+    "same_frame_neutral_byte_oracle": true,
+    "cpu_record_includes_native_sr_and_copies": true,
+    "gpu_queries_isolate_guides_and_private_finish": true,
+    "plane_bytes_exclude_opaque_ngx": true,
+    "dxgi_usage_includes_host_resources_and_ngx_caches": true
+  }
+}

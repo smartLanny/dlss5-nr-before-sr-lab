@@ -29,10 +29,12 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     native_output_patch=load('native_output_patch',core/'scripts/patch-native-output-capture.py')
     acceptance_patch=load('acceptance_patch',core/'scripts/patch-acceptance.py')
     reconstruction_patch=load('reconstruction_patch',core/'scripts/patch-reconstruction.py')
+    private_sr_patch=load('private_sr_patch',core/'scripts/patch-private-sr.py')
+    spatial_patch=load('spatial_patch',core/'scripts/patch-spatial-experiment.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+private_sr_patch.INPUTS+spatial_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -66,10 +68,13 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         check('test_user_controls.py',stage)
         reconstruction_patch.apply(stage,inputs,m3)
         check('test_reconstruction_runtime.py',stage)
+        private_sr_patch.apply(stage,inputs,m3)
+        spatial_patch.apply(stage,inputs,m3)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
-            'version':edge_patch.VERSION,'display_version':'0.5.1-Beta-Reconstruction1-UI1','source_commit':source,'base_commit':BASE,
+            'version':edge_patch.VERSION,'display_version':edge_patch.PACKAGE_VERSION,
+            'core_pe_version':edge_patch.PE_VERSION,'source_commit':source,'base_commit':BASE,
             'default_mode':1,'default_colour_strength':0.5,'default_colour_range':0.5,'priority_colour_strength':0.5,'conservative_colour_strength':1.0,'default_restore_mode':0,'default_input_curve':0,
             'raw_reference_before_aesthetics':True,'neutral_probe_persisted':False,
             'default_edge_recovery':0,'edge_flag':16777216,
@@ -97,19 +102,43 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         manifest['files']=base.file_hashes(stage)
         manifest['temporal']={'default_enabled':False,'backends':['native-prepared-MV','AMD-FFX-1.1.4'],
             'scopes':['whole-chain','later-layers-composed-anchor'],
+            'modes':['adaptive','low-frequency'],'default_mode':0,'spatial_filter_product':False,
             'production_routes':{'DX12 Feature1 post-SR SDR':['native','AMD'],
                 'DX12 Feature1 pre-SR explicit SDR whole-chain':['AMD'],
                 'DX12 proven RR post SDR':['AMD'],
-                'DX12 declared-linear-HDR pre-SR whole/post-SR/post-RR; same-frame PreExposure':['AMD']},
-            'not_connected':['unknown-or-PQ-HDR','HDR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
-            'cpu_readback_wait':False,'history_half_life_ms':60,'reliability':0.65,'maximum_gap_ms':250,
+                'DX12 Present SDR exact content lineage single swapchain whole chain':['AMD'],
+                'DX12 declared-linear-HDR pre-SR whole/post-RR; same-frame PreExposure':['AMD'],
+                'DX12 post-SR declared-linear-HDR; same-frame PreExposure and native snapshot proof':['native','AMD']},
+            'not_connected':['unknown-or-PQ-HDR','RR-native-MV','pre-native-MV','pre-later-layers','NVOF'],
+            'cpu_readback_wait':False,'history_half_life_ms':60,'global_history_weight_scale':0.65,'per_pixel_optical_flow_confidence':False,'maximum_gap_ms':250,
             'requires_exact_owner_queue':True,'adoption':'actual Core Execute/Signal receipt','game_verified':False}
         manifest['acceptance']={'transient_only':True,'ini_writes':False,'model_switching':False,
-            'captures_after_measurement':True,'manual_game_settings':['RR','HDR','FG'],
+            'captures_after_measurement':True,'captures_after_measurement_scope':'existing timed programs only',
+            'manual_game_settings':['SR','RR','HDR','FG'],
+            'screenshot_program':{'groups':9,'shots_per_group':3,'capture_only':True,
+                'performance_measurement':False,'exact_same_frame_pairing':False,
+                'source':'ReShade encoded screenshot callback with exact session/group/shot token',
+                'route':'temporary native After; unsupported groups explicit',
+                'history_adoption_checked':True,'restore_on_cancel':True,
+                'viewer':'local bilingual dual selection and zoom'},
             'frame_timing':'ReShade callback intervals, not generated FPS','game_verified':False}
         manifest['native_output_capture']={'optional':True,'schema':'native-output-v1',
             'old_nrf_unchanged':True,'same_call_required':True,'known_state_required':True,
             'missing_is_explicit':True,'game_verified':False}
+        manifest['private_residual_sr']={'version':private_sr_patch.VERSION,'default_enabled':False,
+            'source_commit':source,'producer':'same-source final B/Z with all NR layers',
+            'route':'D3D12 native Feature1 or Feature13 post, same-output-value FP16 SDR or proven HDR/AutoExposure, no FG',
+            'native_jitter':'original render-pixel projection offset, jointly point-sampled low-resolution depth/MV; not NR jitter option',
+            'positive_contract':'Flags75 and dynamic nonzero native jitter with low-resolution non-jittered MV',
+            'declined':['Present','FG','multi-GPU','unproven-source-or-domain','jittered-MV','nonzero-jitter-high-resolution-MV','external-stabilizer-conflict'],
+            'initialization_domain':'observed successful original Init or original native Create; exact device/module/epoch/generation; shutdown invalidates; no second Init',
+            'lifetime':'successful Execute/Signal plus exact recording release',
+            'runtime_verified':False,'game_verified':False}
+        manifest['spatial_experiments']={'default_mode':0,'modes':{'1':'Beta8 FP32 area delta plus B-guided four taps',
+            '2':'same-frame full-resolution B-guided 3x3 signed-delta mean'},
+            'route':'post-native SR/RR FP16 same-frame B/Z only','private_sr_temporal_conflict':True,
+            'baseline_groups_forced_off':9,'submitted_is_quality_proof':False,
+            'runtime_verified':False,'game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         if json.loads(mf.read_text(encoding='utf-8'))['files']!=base.file_hashes(stage):
             raise ValueError('Edge stage hash mismatch')

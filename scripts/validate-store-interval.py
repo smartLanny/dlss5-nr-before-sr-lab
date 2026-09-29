@@ -4,6 +4,7 @@
 No D3D device, GPU execution, NGX, game, or source-function extraction.
 """
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -46,7 +47,7 @@ def main():
         (out/(name+'.log')).write_text(result.stdout+result.stderr,encoding='utf-8')
         if result.returncode:print((result.stdout+result.stderr)[-10000:])
         return result
-    objects=[]
+    objects=list(map(str,objects_for(source)))
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o')
         result=run([str(cc),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)

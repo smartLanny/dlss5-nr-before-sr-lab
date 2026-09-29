@@ -6,6 +6,7 @@ The only API seams are missing or fixed-width Win32 performance clocks, selected
 in a fresh process before the production timing frequency cache initializes.
 """
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -175,7 +176,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
             raise RuntimeError(name + ' failed')
         return result
 
-    objects = []
+    objects = list(map(str,objects_for(source/'src/nr_before_sr.cpp')))
     # The complete Core references the dual spatial API from nr_before_sr.cpp,
     # while its D3D12 implementation is deliberately a separate production
     # translation unit.  Link that captured implementation when present so

@@ -1,0 +1,216 @@
+{
+  "schema": "dlss5-beta13-delivery-v1",
+  "date": "2026-09-29",
+  "version": "0.5.2-beta.13",
+  "product_source_commit": "cd8ba7009d333f7b03c463dc4237a913f9913081",
+  "branch": "feat/309-post-private-sr",
+  "pull_request": 313,
+  "document_identity": "Use this document Git commit; later documentation does not rename the product source.",
+  "changes_from_beta12": [
+    "shorter bilingual feature explanations with hover details",
+    "visible status and counters retained",
+    "version identity only"
+  ],
+  "render_algorithm_or_default_or_abi_change": false,
+  "binaries": [
+    {
+      "language": "en",
+      "sha256": "6264bc14269431478053ef55e153e87344b836b1dff6d6f18db904c97e584032"
+    },
+    {
+      "language": "zh-CN",
+      "sha256": "46dc1cd9e4a9a5542230219ec2dfcd8bc39889e94b8e922c636792d745b40d64"
+    }
+  ],
+  "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+  "canonical": {
+    "status": "passed",
+    "actual_shell_exit_code": 0,
+    "elapsed_seconds": 1386.656,
+    "receipt_sha256": "07dd335a760b7d611facf190f894b1d608a39e73a3c8c20bb0e5bfd9d723e76e",
+    "generated_source_manifest_sha256": "6d15f8ee05ebee620c7d418f1566e9db6670e5918e1f46f293206f8d26a7f6a0",
+    "source_clean_before_and_after": true,
+    "scope": "Full build-unified-candidate.ps1: bilingual compile/static analysis, CPU/WARP, lifecycle/admission/negative controls. Hardware NGX is recorded separately.",
+    "debug_layer_verified": false,
+    "allow_missing_debug_layer_used": true
+  },
+  "controlled_ngx": {
+    "status": "passed",
+    "adapter": "local RTX 5090 D",
+    "frames_per_case": 4,
+    "receipt_sha256": "712b011f6292e8eb3735af13235abb4e4b56559b412a311381422ad73f59c9a2",
+    "game": false,
+    "variants": [
+      {
+        "id": "RTX20-30",
+        "runtime_sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8",
+        "status": "passed",
+        "actual_exit_code": 0,
+        "compile_exit_code": 0,
+        "cases": [
+          {
+            "name": "sr-control-spatial",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "55099efc90dbb2d7f39722a41679da6e9a389b976096fdabc781bf22b3f08f98"
+          },
+          {
+            "name": "rr-spatial-layers1-p50",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "ab6a073d5b47fc12e5ed1123512ebdff16db3b91deaaa057632519d77daf7938"
+          },
+          {
+            "name": "rr-spatial-layers3-p50",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "14c489e65585581076be66318e89db7d934058de64b9adbcc4bcafb4af220f17"
+          }
+        ]
+      },
+      {
+        "id": "RTX40-50",
+        "runtime_sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa",
+        "status": "passed",
+        "actual_exit_code": 0,
+        "compile_exit_code": 0,
+        "cases": [
+          {
+            "name": "sr-control-spatial",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "e136f36fb49e2a53a16ed18fe150bcecd60211b5d805177ac8b2354e6803f1bd"
+          },
+          {
+            "name": "rr-spatial-layers1-p50",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "a7151c38ddd1ba936c99e8fd06addaa0f8c23a69a18611178eb9f6e8604d8a60"
+          },
+          {
+            "name": "rr-spatial-layers3-p50",
+            "status": "passed",
+            "actual_exit_code": 0,
+            "receipt_sha256": "e0d8f4a925d6214c03a02adb1bfff0577dcc61301c992cea5d8792197f52d04d"
+          }
+        ]
+      }
+    ]
+  },
+  "new_pc_handoff": {
+    "fresh_github_source_checkout_smoke": "passed",
+    "dependency_restore": "passed at a different local path",
+    "real_ffx_consumer": "passed with previous Beta12 generated temporal source; not a new-PC Beta13 full build",
+    "fresh_physical_pc_full_build": "not performed",
+    "ffx_objects_recompiled": false,
+    "private_devinputs_sha256": "ba1a309703c2bbb3cc7aea4c5a50a1ebce93dd123381dd52c14ca1af5ebd7211",
+    "raw_game_materials_migrated": false
+  },
+  "release": {
+    "repository": "smartLanny/dlss5-nr-before-sr-lab",
+    "repository_visibility": "private",
+    "draft_url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases",
+    "draft_tag": "dev-handoff-20260929-beta13",
+    "public_ota_published": false,
+    "manager_defaults_changed": false,
+    "main_merged": false
+  },
+  "assets": [
+    {
+      "name": "DLSS5-0.5.2-beta.13-RTX20-30.zip",
+      "sha256": "e2994429b4433fc484a4aa59cc34dc4f7b3eb715ca29e9b341abdaab5bade29f",
+      "bytes": 153481194,
+      "audience": "RTX20-30",
+      "availability": "private-draft-release"
+    },
+    {
+      "name": "DLSS5-0.5.2-beta.13-RTX40-50.zip",
+      "sha256": "fed1aa879c498955cf5b044aa1e2475da679003444c3737921de596fd6c56c2e",
+      "bytes": 128847877,
+      "audience": "RTX40-50",
+      "availability": "private-draft-release"
+    },
+    {
+      "name": "PRIVATE-DLSS5-DevInputs-20260929-r2.zip",
+      "sha256": "ba1a309703c2bbb3cc7aea4c5a50a1ebce93dd123381dd52c14ca1af5ebd7211",
+      "bytes": 6520421,
+      "audience": "repository owner only",
+      "availability": "private-draft-release"
+    },
+    {
+      "name": "PRIVATE-Beta13-DebugAndReports-20260929.zip",
+      "sha256": "dc8546e51ba05aa33722724347db01f8b362a9f5c34e5d4d3ae43f875d4388a0",
+      "bytes": 649246,
+      "audience": "repository owner only",
+      "availability": "local-only-pending-explicit-upload-approval"
+    }
+  ],
+  "package_layout": {
+    "default": "Chinese Core in install/",
+    "english": "languages/English-Core.zip; manual replacement only",
+    "face_assets": "install/nr_face/ (seven files)",
+    "core_count_outside_inner_zip": 1,
+    "nr_runtime_count": 1,
+    "settings_or_native_sr_rr_included": false,
+    "private_debug_data_in_user_packages": false
+  },
+  "independent_review": {
+    "frozen_source_diff": "b24b2a09..cd8ba700",
+    "p0_p1_p2_findings": 0,
+    "source_review_receipt_sha256": "8bbf5329b920305e73fc6191a1582ba6043be1f18ec4178098a669daf738fbbb",
+    "package_receipt_sha256": "9e6c18545cd5e47651b7d1ccbf8700597bf31f4352851a45374bfa2255705d78",
+    "package_result": "passed",
+    "packages": [
+      {
+        "id": "RTX20-30",
+        "zip_sha256": "e2994429b4433fc484a4aa59cc34dc4f7b3eb715ca29e9b341abdaab5bade29f",
+        "default_core_sha256": "46dc1cd9e4a9a5542230219ec2dfcd8bc39889e94b8e922c636792d745b40d64",
+        "english_core_sha256": "6264bc14269431478053ef55e153e87344b836b1dff6d6f18db904c97e584032",
+        "runtime_sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8",
+        "face_assets": 7,
+        "pe_zh": {
+          "ProductVersion": "0.5.2 Beta 13",
+          "FileVersion": "0.5.2 Beta 13",
+          "FileDescription": "DLSS 5 AI渲染完美链路 0.5.2-beta.13"
+        },
+        "pe_en": {
+          "ProductVersion": "0.5.2 Beta 13",
+          "FileVersion": "0.5.2 Beta 13",
+          "FileDescription": "DLSS 5 AI Rendering Perfect Chain 0.5.2-beta.13"
+        },
+        "status": "passed"
+      },
+      {
+        "id": "RTX40-50",
+        "zip_sha256": "fed1aa879c498955cf5b044aa1e2475da679003444c3737921de596fd6c56c2e",
+        "default_core_sha256": "46dc1cd9e4a9a5542230219ec2dfcd8bc39889e94b8e922c636792d745b40d64",
+        "english_core_sha256": "6264bc14269431478053ef55e153e87344b836b1dff6d6f18db904c97e584032",
+        "runtime_sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa",
+        "face_assets": 7,
+        "pe_zh": {
+          "ProductVersion": "0.5.2 Beta 13",
+          "FileVersion": "0.5.2 Beta 13",
+          "FileDescription": "DLSS 5 AI渲染完美链路 0.5.2-beta.13"
+        },
+        "pe_en": {
+          "ProductVersion": "0.5.2 Beta 13",
+          "FileVersion": "0.5.2 Beta 13",
+          "FileDescription": "DLSS 5 AI Rendering Perfect Chain 0.5.2-beta.13"
+        },
+        "status": "passed"
+      }
+    ]
+  },
+  "boundaries": {
+    "beta13_game_tested": false,
+    "beta13_installed_into_game": false,
+    "rtx20_30_physical_hardware_tested": false,
+    "universal_private_sr_quality_pass": false,
+    "new_spatial_quality_gate_pass": false,
+    "temporal_game_history_and_quality_pass": false,
+    "whole_game_frame_added_cost_lte_3_percent_proven": false,
+    "long_run_oom_root_cause_fixed": false,
+    "esc_transition_nr_loss_fixed": false
+  },
+  "known_issues_document": "../handoff/BETA13_KNOWN_ISSUES.zh-CN.md"
+}

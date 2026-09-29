@@ -34,17 +34,28 @@ NgxResult Evaluate(void*,ID3D12GraphicsCommandList*l,const void*,const void*raw,
 HRESULT STDMETHODCALLTYPE Reset(ID3D12GraphicsCommandList*l,ID3D12CommandAllocator*a,ID3D12PipelineState*p){return ID3D12GraphicsCommandList_Reset(l,a,p);}
 void Run(const char* scenario){
     const std::string choice=scenario;const bool pre=choice.rfind("pre",0)==0;
+    const bool sr_post=choice.rfind("sr-",0)==0;
+    const bool bad_jitter=choice=="sr-native-bad-jitter";
     const bool off=choice.find("off")!=std::string::npos,hdr=choice.find("hdr")!=std::string::npos;
     const bool native=choice.find("native")!=std::string::npos,later=choice.find("later")!=std::string::npos;
     const bool scaled=choice.find("scale")!=std::string::npos;
-    const bool reject=native||(pre&&later);
+    const bool reject=(native&&!sr_post)||(pre&&later)||bad_jitter;
     const bool packed=choice.find("r11")!=std::string::npos;
     queue_test::Fixture f;device=f.device;g_original_command_list_reset[0]=Reset;
+    queue_test::List list(f);
+    if(sr_post){
+        CommandStateMetaContract meta{};meta.device_identity=g_next_command_device_identity.fetch_add(1);
+        Hr(ID3D12Device_SetPrivateData(f.device,kCommandStateMetaContract,sizeof(meta),&meta),"native-SR entry device identity");
+        CommandCreationInfo creation{};creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
+        Check(RegisterCreatedCommandStateList(list.native,meta,creation),"native-SR entry list identity");
+        Check(MH_Initialize()==MH_OK,"native command-state hook initialization");
+        Check(InstallNativeCommandStateHooks(list.native),"actual native command-state observer hooks");
+    }
     g_config=ChainConfig{};g_config.enabled=true;g_config.mode=pre?2:1;
     g_config.processing_start=pre?nr_processing::Start::Before:nr_processing::Start::After;g_config.processing_selection=1;
     g_config.transfer_strength=g_config.post_transfer_strength=1;g_config.color_strength=.7f;g_config.warmup_after_create=0;
     g_config.suppress_reset_frame=false; // Explicit fixture setting; exercise the compositor on the cold frame.
-    g_config.preserve_lighting=false;g_config.lighting_lock=0;g_config.temporal_backend=off?0:native?1:2;g_config.temporal_scope=later?1:0;
+    g_config.preserve_lighting=false;g_config.lighting_lock=0;g_config.temporal_backend=off?0:native?1:2;g_config.temporal_scope=later?1:0;g_config.temporal_mode=choice.find("low")!=std::string::npos?1:0;
     if(later){nr_layers::Migrate(g_config.nr_layers,2,nr_layers::Primary(g_config));NormalizeConfig(g_config);}
     if(scaled){g_config.work_mode=5;g_config.custom_work_scale=.75f;}
     nr_processing_runtime::Reconcile();g_nr_api.initialized=true;g_nr_api.allocate=Allocate;g_nr_api.destroy=Destroy;
@@ -62,13 +73,13 @@ void Run(const char* scenario){
         Transition(init.native,color,cs,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(init.native,depth,ds,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Transition(init.native,motion,ms,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);post_output_test::Submit(f,init);}
     const auto original=post_output_test::ReadTexture(f,color,cs);
-    NgxHandle handle{501};FeatureRecord feature{};feature.handle=&handle;feature.feature_id=pre?1:13;feature.generation=551;
+    NgxHandle handle{501};FeatureRecord feature{};feature.handle=&handle;feature.feature_id=(pre||sr_post)?1:13;feature.generation=551;
     feature.width=feature.out_width=w;feature.height=feature.out_height=h;feature.create_flags_known=true;feature.create_contract_known=true;feature.create_flags=hdr?1:0;feature.rr_depth_type=1;
     Parameters params;SetResource(&params,"Color",color);SetResource(&params,"Output",output);SetResource(&params,"Depth",depth);SetResource(&params,"MotionVectors",motion);
     SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Width",w);SetUInt(&params,"DLSS.Render.Subrect.Dimensions.Height",h);
-    SetFloat(&params,"MV.Scale.X",1);SetFloat(&params,"MV.Scale.Y",1);SetFloat(&params,"Jitter.Offset.X",0);SetFloat(&params,"Jitter.Offset.Y",0);
+    SetFloat(&params,"MV.Scale.X",1);SetFloat(&params,"MV.Scale.Y",1);SetFloat(&params,"Jitter.Offset.X",bad_jitter?.75f:0.f);SetFloat(&params,"Jitter.Offset.Y",0);
     SetFloat(&params,"DLSS.Pre.Exposure",1);SetFloat(&params,"DLSS.Exposure.Scale",1);SetInt(&params,"Reset",0);
-    queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
+    list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
     NrContext* context=nullptr;NrSlot* slot=nullptr;unsigned expected_recordings=0;
     const unsigned frames=off||reject?1:9;
     for(unsigned frame=1;frame<=frames;++frame){
@@ -81,7 +92,20 @@ void Run(const char* scenario){
             ID3D12Resource* replacement=nullptr;GetResource(&params,"Color",&replacement);Check(replacement==slot->result,"native SR receives temporal candidate");RestoreSubstitution(sub);
         }else{auto sub=PrepareAfterSr(list.native,&handle,&params,feature);
             if(!sub.active)std::printf("post declined temporal=%s\n",nr_temporal_status::Name(nr_temporal_status::state.load()));
-            Check(sub.active,"actual RR post preparation");slot=sub.slot;context=sub.context;
+            Check(sub.active,"actual post-SR/RR preparation");slot=sub.slot;context=sub.context;
+            if(sr_post&&!bad_jitter){
+                unsigned long long lifetime=0;
+                const bool owned=ReadLifecycleToken(list.native,lifetime);
+                std::printf("native-SR snapshot: frame=%u token=%llu owned=%u prepared=%u recorded=%u receipt=%u slotToken=%llu bytes=%llu temporal=%s\n",
+                    frame,lifetime,owned?1u:0u,slot->temporal_guide_prepared?1u:0u,slot->temporal_guide_recorded?1u:0u,
+                    sub.temporal_motion_snapshot?1u:0u,slot->temporal_snapshot_recording,slot->temporal_guide_bytes,
+                    nr_temporal_status::Name(nr_temporal_status::state.load()));
+                Check(owned&&lifetime&&slot->temporal_snapshot_recording==lifetime&&
+                    slot->temporal_guide_recorded&&sub.temporal_motion_snapshot,
+                    "fresh native-SR list gains real NR lifecycle token before guide recording");
+            }
+            if(bad_jitter)Check(!sub.temporal_motion_snapshot&&!slot->temporal_depth&&!slot->temporal_motion&&
+                slot->temporal_guide_bytes==0,"unsupported jitter rejects guide before snapshot resource allocation");
             // Construct the successful native RR output on the borrowed list.
             model_views.push_back(std::make_unique<post_output_test::ClearViews>(device));const float b[]={.25f,.375f,.5f,1};model_views.back()->Clear(device,list.native,output,0,b);
             const bool finished=FinishAfterSr(list.native,&params,feature,sub);
@@ -115,6 +139,13 @@ void Run(const char* scenario){
         if(frame==frames){auto state=slot->result_state;Check(post_output_test::ReadTexture(f,slot->result,state)!=original,"nonzero NR candidate survives actual consumer");}
         ID3D12CommandAllocator*a=nullptr;Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,(void**)&a),"completed next allocator");
         Hr(ProcessCommandListReset(0,list.native,a,nullptr),"actual completed native Reset");ReleaseCom(a);model_views.clear();
+        if(sr_post&&!bad_jitter){unsigned long long lifetime=0;
+            const bool was_recorded=slot->temporal_guide_recorded;
+            slot->temporal_guide_recorded=false;
+            const bool replay=RecordNativeTemporalGuideSnapshot(list.native,*slot);
+            slot->temporal_guide_recorded=was_recorded;
+            Check(!ReadLifecycleToken(list.native,lifetime)&&!replay,
+                "reset list without lifecycle token cannot replay prepared native-SR guide snapshot");}
     }
     list.Close();g_config.temporal_backend=0;nr_temporal::Maintain(*context);
     if(!off&&!reject)Check(expected_recordings==(later?7u:8u),"bounded staircase converges to every eligible source frame");

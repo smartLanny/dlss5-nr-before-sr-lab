@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile full frozen Core and compare its diagnostic quantization to typed WARP stores."""
 from pathlib import Path
+from temporal_test_objects import objects_for
 import argparse
 import hashlib
 import json
@@ -40,7 +41,7 @@ def main():
         (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
         if r.returncode:print((r.stdout+r.stderr)[-12000:])
         return r
-    objects=[]
+    objects=list(map(str,objects_for(source)))
     # The Core includes the dual spatial public header, while its D3D12
     # implementation is intentionally a separate production translation unit.
     # Compile and link the captured implementation when the source snapshot

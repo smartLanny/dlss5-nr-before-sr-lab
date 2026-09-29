@@ -1,5 +1,7 @@
 # 后置最终残差：GPU 传输基础
 
+> 历史实验合同：本文描述该传输模块最初验证范围，不代表最新 Core 接线状态。当前进度见 [Beta 4 功能矩阵](../../docs/interop/052_BETA4_UNIFIED_ACCEPTANCE.md)。Beta 4 将普通 25% 的整数向下取整纳入下界，仍拒绝实际低于 floor(O/4) 的工作网格。
+
 这是独立实验中的两个实际 GPU 入口和 DX12 包装层，尚未接入 Core 的
 `FinishAfterSr`，也没有新增私有 SR 开关、NGX 调用、深度或 MV 资源。
 

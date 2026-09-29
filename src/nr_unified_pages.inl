@@ -1,6 +1,7 @@
 // Flat product pages. All picture edits join DrawSettings' single transaction.
 const char* NrUi(const char* en,const char* zh){return UseChineseUi()?zh:en;}
-bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned count) {
+bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned count,
+              const char* const* tooltips=nullptr) {
     bool edited=false;ImGui::PushID(id);
     const float width=std::max(1.f,(SettingsContentWidth()-(count-1)*ImGui::GetStyle().ItemSpacing.x)/count);
     for(unsigned i=0;i<count;++i){
@@ -8,7 +9,9 @@ bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned 
         const bool selected=value==i;
         if(selected)ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
         if(ImGui::Button(labels[i],ImVec2(width,0))&&!selected){value=i;edited=true;}
-        if(selected)ImGui::PopStyleColor();ImGui::PopID();
+        if(selected)ImGui::PopStyleColor();
+        if(tooltips)SettingsTooltip(tooltips[i]);
+        ImGui::PopID();
     }
     ImGui::PopID();return edited;
 }
@@ -18,11 +21,12 @@ bool NrCombo(const char* label,const char* id,int& value,const char* options) {
 void DrawUnifiedColourState(const ChainConfig& next,unsigned generation,bool pending) {
     const auto sample=SnapshotColorPolicy();
     if(pending||sample.config_generation!=generation||sample.status!=NrColorPolicyStatus::Current){
-        SettingsNote(pending?NrUi("Waiting for these settings to be used.","等待采用当前设置。"):NrColorPolicyStatusText(sample.status,UseChineseUi()));return;
+        SettingsNote(pending?NrUi("Preparing: waiting for new settings.","准备中：等待新设置。"):NrColorPolicyStatusText(sample.status,UseChineseUi()));return;
     }
-    ImGui::TextWrapped(NrUi("AI colour: request %.2f / recorded %.2f","AI 色彩：请求 %.2f／已录制 %.2f"),
-        next.color_strength,sample.policy.effective_color_strength);
-    if(!sample.policy.color_allowed)SettingsNote(NrUi("Colour is limited by the current input or saved legacy permission; requested strength is not the applied amount.","当前输入或旧版许可限制了颜色采用，请求强度不等于实际采用量。"));
+    SettingsNote(NrUi("AI colour: recent processing recorded.","AI 色彩：有近期处理记录。"));
+    char colour_hint[128]{};std::snprintf(colour_hint,sizeof(colour_hint),NrUi("Requested %.2f; recorded coefficient %.2f. This does not prove visible colour.","请求 %.2f；录制系数 %.2f。不代表画面已呈现可见色彩。"),next.color_strength,sample.policy.effective_color_strength);
+    SettingsHelp(colour_hint);
+    if(!sample.policy.color_allowed)SettingsNote(NrUi("Colour is limited by the current input or saved legacy permission; requested strength is not the applied amount.","AI 色彩未生效：当前受限。"));
 }
 void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     nr_light_style::UndoState& undo,bool has_pending,bool& pending_undo,bool& changed,bool& discrete) {
@@ -44,7 +48,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
         if(LightStylePercent(NrUi("Broad brightening","大范围增亮"),"##daily-broad-bright",broad,2.f)){
             nr_unified_ui::SetBroadBright(next,broad);manual=true;
         }
-        SettingsTooltip(NrUi("One effective multiplier combines old broad brightening and glow suppression. 100% keeps the broad edit; 0 removes it. Viewing preserves old values; editing replaces the two factors with this amount. No halo detector is used.","将原大范围增亮与辉光抑制合为实际倍率：100% 保留，0% 去掉大范围增亮。只打开菜单不改旧值；调节后用此倍率代替两项乘积。不识别真实光晕。"));
+        SettingsTooltip(NrUi("One effective multiplier combines old broad brightening and glow suppression. 100% keeps the broad edit; 0 removes it. Viewing preserves old values; editing replaces the two factors with this amount. No halo detector is used.","100% 保留大范围增亮，0% 去掉。打开菜单不改旧值；调节后合并原有两个数值。不识别真实光晕。"));
         manual|=LightStylePercent(NrUi("Broad darkening","大范围压暗"),"##daily-broad-dark",next.light_dark,2.f);
         SettingsTooltip(NrUi("Additional multiplier for broad NR darkening. In whole-light scope it follows Darkening; fine edits keep their existing amount.","单独调整大范围的 NR 压暗；全部亮暗范围下还受上方压暗强度影响，细小修改不受此额外倍率影响。"));
         if(manual){nr_light_style::MarkCustom(next);changed=true;}
@@ -63,8 +67,8 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
         SettingsNote(status==3?NrUi("Basis: image edges, depth and specular guidance.","依据：图像边缘、深度与镜面导引。"):
             status==2?NrUi("Basis: image edges and depth; no specular guide.","依据：图像边缘与深度；无镜面导引。"):
             status==1?NrUi("Basis: image edges; engine guides unavailable.","依据：图像边缘；引擎导引不可用。"):
-            status==4?NrUi("Region resources unavailable; original composition retained.","分区资源不可用，保留原合成。"):
-            NrUi("Waiting for a supported frame; guide availability is unknown.","等待可用帧，导引状态尚未确认。"));
+            status==4?NrUi("Region resources unavailable; original composition retained.","未生效：分区资源不可用。"):
+            NrUi("Waiting for a supported frame; guide availability is unknown.","准备中：等待可用画面。"));
         const char* names[]={NrUi("Broad brightening","大范围增亮"),NrUi("Fine brightening","细节增亮"),
             NrUi("Broad darkening","大范围压暗"),NrUi("Fine darkening","细节压暗"),NrUi("Specular region","镜面区域")};
         if(ImGui::BeginTable("light-regions",3,ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_BordersInnerH)){
@@ -79,21 +83,23 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
                 ImGui::EndDisabled();ImGui::PopID();
             }ImGui::EndTable();
         }
-        if(status!=3)SettingsNote(NrUi("Specular controls are unavailable without a verified specular guide.","未取得可信镜面导引，镜面控件暂不可用。"));
+        if(status!=3)SettingsNote(NrUi("Specular controls are unavailable without a verified specular guide.","镜面调节未生效：缺少导引。"));
         ImGui::BeginDisabled(colour_disabled);
         changed|=LightStylePercent(NrUi("Colour-only edits","纯颜色改动"),"##region-pure",next.region_gains[10],4.f);ImGui::EndDisabled();
-        if(colour_disabled)SettingsNote(NrUi("AI colour is zero or disallowed; regional colour controls are inactive.","AI 色彩为零或被策略限制，区域颜色调节暂不生效。"));
-        SettingsNote(NrUi("These are guided regions of NR edits, not all of the game's independent lighting layers.","这里划分 NR 修改区域，并非取得游戏全部独立光照层。"));
+        if(colour_disabled)SettingsNote(NrUi("AI colour is zero or disallowed; regional colour controls are inactive.","区域颜色未生效：AI 色彩受限。"));
+        SettingsHelp(NrUi("These are regions of NR changes, not independent game lighting layers.","这里只区分 NR 改动区域，不是游戏的独立光照层。"));
     }else{
         const char* names[]={NrUi("Total edit gain","总改动倍率"),NrUi("Brightening edits","增亮修改"),NrUi("Darkening edits","压暗修改"),NrUi("Saturation edits","饱和度修改"),NrUi("Lightness edits","明度修改")};
         for(unsigned i=0;i<5;++i){ImGui::PushID(static_cast<int>(i));changed|=SettingsSliderFloat(names[i],"##edit-gain",&next.generic_gains[i],i?0.f:1.f,2.f,"%.2fx");ImGui::PopID();}
-        SettingsNote(NrUi("Saturation edits scale only the change added by NR, not whole-image saturation. All 1x preserves the current edit.","饱和度修改只调节 NR 新增颜色变化，不是全画面饱和度。全部 1 倍保留当前修改。"));
+        SettingsNote(NrUi("Only NR-added colour changes.","只调整 NR 新增颜色。"));
+        SettingsHelp(NrUi("This scales NR's added colour, not whole-image saturation. All 1x preserves the current edit.",
+            "仅缩放 NR 新增的颜色变化，不改变全画面饱和度；全部设为 1 倍会保留当前修改。"));
     }
     // Legacy algorithms remain visible only while requested, in the same page
     // as the controls with which they can combine. No hidden cross-page gain.
     if(nr_unified_ui::LegacyLightActive(next)) {
         SettingsSection(NrUi("Saved legacy lighting combination","已保存的旧版光影组合"));
-        SettingsNote(NrUi("Additional legacy settings are enabled. Values are retained until you explicitly leave this combination.","旧版设置仍开启，可能与当前方式叠加；退出前保留原值和效果。"));
+        SettingsNote(NrUi("Additional legacy settings are enabled. Values are retained until you explicitly leave this combination.","旧光影组合仍开启。"));
         if(next.light_control_mode==nr_light_style::DetailLayers){
             SettingsNote(method==0?NrUi("Ordinary sliders currently affect fine edits only.","普通亮暗的主滑条当前只影响细节。"):
                 NrUi("Saved fine-only scope is inactive in this method.","保存的仅细节范围不参与当前方式。"));
@@ -110,7 +116,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
             changed|=SettingsSliderFloat(NrUi("Legacy darkening multiplier","旧分项压暗倍率"),"##component-dark",&next.layer_shadow,0.f,2.f,"%.2fx");
             SettingsTooltip(NrUi("Multiplies both broad and fine negative edits after the old split. Additional limits still apply.","在旧分解基础上同时放大大范围与细节压暗，最终仍受适用保护和上限约束。"));
             ImGui::EndDisabled();
-            if(!supported)SettingsNote(NrUi("Legacy component gains are not used by this route; their values are retained.","当前路线不采用旧分项倍率，保存值保留。"));
+            if(!supported)SettingsNote(NrUi("Legacy component gains are not used by this route; their values are retained.","旧倍率未生效：当前路线不支持。"));
         }
         if(ImGui::Button(NrUi("Use only unified lighting","只使用统一光影控制"))){
             nr_unified_ui::UseUnifiedLight(next);changed=true;discrete=true;
@@ -132,7 +138,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     ImGui::BeginDisabled(!before_sr);
     changed|=SettingsSliderFloat(NrUi("Edge protection","边缘保护"),"##edge-protection",&next.edge_guard,0.f,1.f,"%.2f");ImGui::EndDisabled();
     SettingsTooltip(NrUi("Attenuates edits near source edges; not a halo-removal filter.","减弱原图边缘附近的修改，不是抗光晕滤镜。"));
-    if(!before_sr)SettingsNote(NrUi("Edge protection is supported on the pre-SR route; its saved value is retained.","当前路线不采用前置边缘保护，保存值仍保留。"));
+    if(!before_sr)SettingsNote(NrUi("Edge protection is supported on the pre-SR route; its saved value is retained.","边缘保护未生效：仅支持前置。"));
     const auto sample=SnapshotColorPolicy();
     const auto reason=sample.policy.color_reason;
     const bool hdr_mapping=sample.config_generation==generation&&sample.status==NrColorPolicyStatus::Current&&
@@ -140,7 +146,7 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
     ImGui::BeginDisabled(!hdr_mapping);float white=1.f/next.proxy_scale;
     if(SettingsSliderFloat(NrUi("Reference white","参考白亮度"),"##reference-white",&white,.5f,4.f,"%.2fx")){next.proxy_scale=1.f/white;changed=true;}ImGui::EndDisabled();
     SettingsTooltip(NrUi("Changes the HDR input seen by NR through the existing ProxyScale, once. Does not change display brightness or external HDR plugins.","通过现有 ProxyScale 一次调整模型所见 HDR 输入，不改显示器或外部 HDR 插件。"));
-    if(!hdr_mapping)SettingsNote(NrUi("No current matching HDR-mapped input is confirmed; reference white is unavailable.","尚无当前配置采用 HDR 映射的记录，参考白暂不可编辑。"));
+    if(!hdr_mapping)SettingsNote(NrUi("No current matching HDR-mapped input is confirmed; reference white is unavailable.","参考白未生效：HDR 映射待确认。"));
     if(ImGui::Button(NrUi("Reset current light method","重置当前光影方式"))){nr_unified_ui::ResetLightMethod(next);changed=true;discrete=true;}
     SettingsTooltip(NrUi("Resets only this method's gains and preview; keeps AI colour, common safeguards, reference white and the other methods.","仅重置当前方式的倍率并退出预览；保留 AI 色彩、公共保护、参考白及其他方式。"));
     int preview=static_cast<int>(method==1?next.region_preview:next.light_preview);
@@ -155,38 +161,65 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
 
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
 #include "nr_temporal_ui.inl"
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+#include "nr_private_sr_ui.inl"
+#endif
 #endif
 void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {
     SettingsSection(NrUi("Colour comparisons","颜色对照"));
-    int curve=next.colour_input_curve==1?1:0;
-    if(NrCombo(NrUi("Model input","模型输入"),"##experiment-input",curve,NrUi("D21 input\0N2 (experimental)\0","D21 原输入\0N2（实验）\0"))){next.colour_input_curve=curve;changed=true;discrete=true;}
-    int restore=nr_colour_restore::Normalize(next.colour_restore_mode);
-    if(NrCombo(NrUi("Recovery","恢复方式"),"##experiment-restore",restore,NrUi("D21 composition\0Protected RGB (halo reports)\0Raw RGB (diagnostic)\0","D21 合成\0受保护 RGB（有亮边反馈）\0原始 RGB（诊断）\0"))){next.colour_restore_mode=restore;changed=true;discrete=true;}
-    SettingsNote(NrUi("N2 changes model input/history. RGB changes recovery and has halo reports; neither is a proven replacement for the baseline.","N2 改变模型输入与历史；RGB 改变恢复方式且有亮边反馈。两者均是独立对照。"));
+    SettingsField(NrUi("Model input","模型输入"));
+    unsigned curve=next.colour_input_curve==1?1u:0u;
+    const char* input_labels[]={NrUi("Original","原输入"),NrUi("N2 (test)","N2（实验）")};
+    const char* input_tips[]={
+        NrUi("Uses the original D21 input mapping. Switching input mapping resets model history; it does not change the recovery choice.",
+             "使用原有 D21 模型输入映射。切换输入映射会重置模型历史，不会联动恢复方式。"),
+        NrUi("Uses the experimental N2 input mapping and resets model history. For comparison; it is not a verified quality upgrade.",
+             "改用实验性的 N2 输入映射，并重置模型历史。用于对照，尚未证明画质更好。")};
+    if(NrChoice("##experiment-input",curve,input_labels,2,input_tips)){
+        next.colour_input_curve=static_cast<int>(curve);changed=true;discrete=true;
+    }
+    SettingsField(NrUi("Recovery","恢复方式"));
+    unsigned restore=static_cast<unsigned>(nr_colour_restore::Normalize(next.colour_restore_mode));
+    const char* recovery_labels[]={NrUi("Default","默认合成"),NrUi("Protected RGB","保护 RGB"),NrUi("Raw RGB","原始 RGB")};
+    const char* recovery_tips[]={
+        NrUi("Uses the original D21 output composition. Keeps the selected model input and its history.",
+             "使用原有 D21 输出合成方式，保留所选模型输入及其历史。"),
+        NrUi("Compares protected RGB recovery. Halo regressions have been reported; this is not a recommended upgrade. Does not change model input/history.",
+             "对照带保护的 RGB 恢复。已有亮边回归反馈，不代表推荐升级；不改变模型输入及其历史。"),
+        NrUi("Diagnostic raw RGB recovery bypasses artistic attenuation, while GPU safety remains active. Not the normal final picture; it does not change model input/history.",
+             "诊断用原始 RGB 恢复，绕过审美衰减，仍保留 GPU 安全检查。不代表正常最终画面；不改变模型输入及其历史。")};
+    if(NrChoice("##experiment-restore",restore,recovery_labels,3,recovery_tips)){
+        next.colour_restore_mode=static_cast<int>(restore);changed=true;discrete=true;
+    }
     DrawUnifiedColourState(next,generation,pending||changed);
     const auto sample=SnapshotColorPolicy();
     if(!pending&&!changed&&sample.config_generation==generation&&sample.status==NrColorPolicyStatus::Current){
         ImGui::TextWrapped(NrUi("Recorded: %s / %s","已录制：%s／%s"),nr_colour_restore::CurveName(sample.policy.recorded_input_curve),nr_colour_restore::Name(sample.policy.recorded_restore_mode));
-        if(next.colour_input_curve!=sample.policy.recorded_input_curve)SettingsNote(NrUi("The selected input curve was not applied to the recorded frame.","所选输入曲线未用于最近记录的帧。"));
+        if(next.colour_input_curve!=sample.policy.recorded_input_curve)SettingsNote(NrUi("The selected input curve was not applied to the recorded frame.","输入曲线未生效：本帧未采用。"));
     }
     nr_face_runtime::DrawUi(next,changed);
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
     DrawTemporalOptions(next,changed,discrete);
 #endif
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    DrawPrivateResidualSr(next,changed,discrete);
+#endif
     DrawEnergyGateOptions();
-    SettingsSection(NrUi("RR compatibility candidate","RR 兼容候选"));
+    SettingsSection(NrUi("RR compatibility candidate","游戏 RR 后增强"));
     bool missing=nr_post_settings::missing_projection.load(std::memory_order_acquire);
-    if(ImGui::Checkbox(NrUi("Try post NR without a camera projection","RR 缺投影时尝试后置 NR"),&missing))
+    if(ImGui::Checkbox(NrUi("Try NR after RR###Try post NR without a camera projection","RR 后缺投影时尝试 NR###RR 缺投影时尝试后置 NR"),&missing))
         nr_post_settings::RequestMissingProjection(missing);
     if(nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire))
-        SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验设置未能保存；本次会话保留请求，请查看 F8。"));
-    SettingsTooltip(NrUi("On for new settings; saved choices are retained. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
-        "新配置默认开启，旧保存值保留。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
-    ImGui::TextWrapped(NrUi("Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Save F8 to verify NR adoption.",
-        "最近投影输入：%s。转换／占位录制次数：%llu／%llu。是否真正采用 NR 请查看 F8。"),
+        SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验未保存：本次仍使用。"));
+    SettingsTooltip(NrUi("Try NR when camera projection is missing. Resets NR history each frame and may flicker. Unsupported inputs keep native RR; your saved choice is retained.",
+        "缺少相机投影时尝试 NR；每帧重置历史，可能增加闪烁。输入不支持时保留原生 RR，沿用已保存的开关。"));
+    ImGui::TextWrapped(NrUi("Projection: %s. Conversion / placeholder recordings: %llu / %llu.",
+        "投影：%s。转换／占位录制：%llu／%llu。"),
         nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
         g_rr_depth_conversions.load(std::memory_order_relaxed),
         nr_rr_depth::observations.placeholder_recorded.load(std::memory_order_relaxed));
+    SettingsTooltip(NrUi("Recording counts do not prove NR use. Check F8 for adoption details.",
+        "计数只表示录制次数，实际是否采用 NR 请查看 F8。"));
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
@@ -201,7 +234,7 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     int filter=static_cast<int>(next.nr_input_filter);
     if(NrCombo(NrUi("Input filter","输入滤波"),"##input-filter",filter,NrUi("Exact Area\0Lanczos-2 AA (experimental)\0","精确面积\0Lanczos-2 抗混叠（实验）\0"))){next.nr_input_filter=static_cast<unsigned>(filter);changed=true;discrete=true;}
     ImGui::EndDisabled();
-    if(!before_sr)SettingsNote(NrUi("Input filtering applies only before SR; value retained.","输入滤波仅用于前置，保存值保留。"));
+    if(!before_sr)SettingsNote(NrUi("Input filtering applies only before SR; value retained.","输入滤波未生效：仅支持前置。"));
     int curve=static_cast<int>(next.proxy_curve);
     if(NrCombo(NrUi("HDR mapping","HDR 映射"),"##hdr-map",curve,NrUi("Legacy shoulder\0Hybrid\0Reversible (experimental)\0","柔和压缩\0混合压缩\0可逆压缩（实验）\0"))){next.proxy_curve=static_cast<unsigned>(curve);changed=true;discrete=true;}
     changed|=ImGui::Checkbox(NrUi("Highlight mapping","高光映射"),&next.experimental_peak_shoulder);
@@ -232,7 +265,7 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     int edge=nr_colour_edge::Normalize(next.colour_edge_recovery);
     if(NrCombo(NrUi("Low-resolution RGB sampling","低分 RGB 恢复取样"),"##paired-edge",edge,NrUi("Standard interpolation (D21)\0Edge-guided pair (experimental)\0","普通插值（D21）\0边缘引导配对（实验）\0"))){next.colour_edge_recovery=edge;changed=true;discrete=true;}
     SettingsTooltip(NrUi("D21 interpolates nearby samples. The experiment uses identical nonnegative source-guided weights for model input/output to reduce cross-edge mixing; it may weaken edits. This is not dual-NR HDR or temporal denoising; equal-size input keeps ordinary sampling.","D21 使用附近像素插值；实验按原图为模型输入和输出使用相同非负权重，尝试减少跨边缘混色，也可能减弱增强。不是双层 HDR 开关或时域防闪；同尺寸时保留普通取样。"));
-    if(edge&&next.colour_restore_mode==0&&!next.colour_neutral_probe)SettingsNote(NrUi("D21 composition does not use paired recovery.","D21 合成不采用配对恢复。"));
+    if(edge&&next.colour_restore_mode==0&&!next.colour_neutral_probe)SettingsNote(NrUi("D21 composition does not use paired recovery.","配对恢复未生效：D21 合成。"));
     changed|=ImGui::Checkbox(NrUi("Independent chroma","独立色度"),&next.independent_chroma_composition);
     changed|=ImGui::Checkbox(NrUi("Low-grid luminance field","低分亮度场"),&next.low_grid_edit_field);
     changed|=ImGui::Checkbox(NrUi("Low-grid colour field","低分颜色场"),&next.low_grid_color_edit_field);
@@ -241,7 +274,7 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     if(!catmull)SettingsNote(NrUi("Catmull-Rom requires the luminance field, colour field off and AI colour zero.","Catmull-Rom 需亮度场开启、颜色场关闭且 AI 色彩为零。"));
     changed|=ImGui::Checkbox(NrUi("N=P zero-edit diagnostic","N=P 零修改诊断"),&next.colour_neutral_probe);
     changed|=ImGui::Checkbox(NrUi("Run NR but discard its result","运行 NR 但丢弃结果"),&next.identity_use_original);
-    SettingsNote(NrUi("These are recovery experiments. A neutral diagnostic is not a quality/performance comparison; low-grid paths can add passes and storage.","这些是恢复实验。零修改诊断不能作为画质或性能对照；低分场可能增加处理和存储。"));
+    SettingsNote(NrUi("These are recovery experiments. A neutral diagnostic is not a quality/performance comparison; low-grid paths can add passes and storage.","恢复实验仍待画质验证。"));
     SettingsSection(NrUi("Safeguards","保护边界"));
     changed|=ImGui::Checkbox(NrUi("Limit extra enhancement","额外增强软限制"),&next.high_strength_protection);
     SettingsTooltip(NrUi("Soft-limits extra luminance amplification above the base amount; legacy composition also limits extra chroma. It does not guarantee that multi-layer NR at 1x cannot be oversaturated. Existing numeric/gamut safety remains.","软限制超过原量的额外明暗放大，旧合成也限制额外颜色放大；不保证最终增强为 1 时多层本身不会过艳。数值与色域安全仍保留。"));
@@ -305,7 +338,9 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     SettingsSection(NrUi("Detailed captures","深度采集"));
     ImGui::BeginDisabled(busy||StageCaptureStatus()==1u||StageCaptureStatus()==2u);
     if(ImGui::Button(NrUi("Capture centre model stages","采集中央区域模型阶段")))nr_f8::RequestWithOptions({});ImGui::EndDisabled();
-    SettingsNote(NrUi("Captures S/P/real N/E in the centre region with a paired report; resets/warms history. Pre-SR E is not the native SR output. Compatibility input captures available current-path layers instead.","采集中央区域原图、P、真实N和E并附报告，会重置/预热历史。前置E不是原生SR输出；兼容入口改为采集当前路径可用的各层。"));
+    SettingsNote(NrUi("Captures centre model stages; affects history and timing.","采集中央模型阶段；会影响历史和计时。"));
+    SettingsHelp(NrUi("Captures S/P/real N/E with a report and resets/warms history. Pre-SR E is not native SR output; compatibility captures available current-path layers.",
+        "采集中央原图、P、真实 N、E 和报告，并重置／预热历史。前置 E 不是原生 SR 输出；兼容入口采集当前路径可用层。"));
     nr_replay::DrawUi();DrawFaceDiagnosticControls(runtime,config);
     SettingsSection(NrUi("Runtime information","详细运行信息"));
     ImGui::PushTextWrapPos(0.f);

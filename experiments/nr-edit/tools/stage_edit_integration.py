@@ -12,7 +12,7 @@ private=importlib.util.module_from_spec(sp);sp.loader.exec_module(private)
 once,definition,span=private.once,private.definition,private.span
 OVERLAY=[
  'src/nr_private_sr_runtime.hpp','src/nr_private_sr_core_adapter.inl','src/nr_private_image_core.inl',
- 'src/nr_edit_dx12.hpp','src/nr_edit_dx12.cpp','src/nr_rr_dx12.hpp','src/nr_rr_dx12.cpp',
+ 'src/nr_edit_dx12.hpp','src/nr_edit_dx12.cpp','src/nr_rr_dx12.hpp','src/nr_rr_dx12.cpp','src/nr_rr_admission.hpp',
  'src/nr_deferred_dx12.hpp','src/nr_deferred_dx12.cpp','src/nr_edit_flow.hpp','src/nr_edit_adapters.hpp',
  'src/nr_post_residual_dx12.hpp','src/nr_post_residual_dx12.cpp',
  'src/nr_edit_policy.hpp','src/nr_edit_forward.inl','src/nr_edit_core_runtime.inl','src/nr_edit_settings_ui.inl',

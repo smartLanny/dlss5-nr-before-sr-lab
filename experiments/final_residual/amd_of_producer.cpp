@@ -94,6 +94,8 @@ struct AmdOfProducer::Impl {
     unsigned w=0,h=0,fw=0,fh=0,age=0;Id value=0,count=0,last_token=0,generation=0,bytes=0;
     bool created=false,ready=false,fault=false,unpublished=false,held=false;
     std::string message="not initialized";
+    AmdRecordRefusal record_refusal=AmdRecordRefusal::None;
+    const char* record_message=nullptr;
     void init(ID3D12Device* d,ID3D12CommandQueue* q,unsigned width,unsigned height,unsigned percent){
         require(d&&same_device(q,d)&&q->GetDesc().Type==D3D12_COMMAND_LIST_TYPE_DIRECT,"same-device DIRECT queue required");
         require((percent==50||percent==100)&&width&&height&&width<=4096&&height<=4096,"explicit 100/50 and bounded extent required");
@@ -182,7 +184,8 @@ RetirementStats AmdOfProducer::collect_retired()noexcept{
     return stats;
 }
 bool AmdOfProducer::initialized()const noexcept{return p_->ready&&!p_->fault;}
-const char* AmdOfProducer::status()const noexcept{return p_->message.c_str();}
+const char* AmdOfProducer::status()const noexcept{return p_->record_message?p_->record_message:p_->message.c_str();}
+AmdRecordRefusal AmdOfProducer::record_refusal()const noexcept{return p_->record_refusal;}
 Id AmdOfProducer::dispatch_count()const noexcept{return p_->count;}
 Id AmdOfProducer::gpu_allocation_bytes()const noexcept{return p_->bytes;}
 bool AmdOfProducer::can_record()const noexcept {
@@ -196,25 +199,23 @@ bool AmdOfProducer::can_record()const noexcept {
 Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsCommandList* l,
     ID3D12Resource* snapshot,D3D12_RESOURCE_STATES snapshot_state,RecordedFlow& out)noexcept {
     out={};auto& p=*p_;
-    if(!p.borrowed||p.retiring||p.fault||!p.ready)return Submit::Faulted;
-    if(!can_record())return Submit::Busy;
+    p.record_refusal=AmdRecordRefusal::None;p.record_message=nullptr;
+    if(!p.borrowed||p.retiring||p.fault||!p.ready){p.record_refusal=AmdRecordRefusal::Owner;p.record_message="borrowed OF owner unavailable";return Submit::Faulted;}
+    if(!can_record()){p.record_refusal=AmdRecordRefusal::Busy;p.record_message="borrowed OF recording or fenced slot busy";return Submit::Busy;}
     if(!f.valid()||!plan.work()||!plan.history_generation||plan.token<=p.last_token||
        f.contract.backend!=Backend::AmdOpticalFlow||f.contract.width!=p.w||f.contract.height!=p.h||
        !same_device(l,p.device.Get())||l->GetType()!=D3D12_COMMAND_LIST_TYPE_DIRECT||
-       !same_device(snapshot,p.device.Get()))return Submit::Rejected;
+        !same_device(snapshot,p.device.Get())){p.record_refusal=AmdRecordRefusal::Frame;p.record_message="borrowed OF frame, token, extent, device or list contract rejected";return Submit::Rejected;}
     if(f.contract.color_domain==kResidualLinearScene&&
-       (!std::isfinite(f.source_to_scene)||f.source_to_scene<1.f/1024.f||f.source_to_scene>1024.f))return Submit::Rejected;
+        (!std::isfinite(f.source_to_scene)||f.source_to_scene<1.f/1024.f||f.source_to_scene>1024.f)){p.record_refusal=AmdRecordRefusal::Frame;p.record_message="borrowed OF scene exposure contract rejected";return Submit::Rejected;}
     const bool reset=plan.action==Action::ResetBoth;
-    if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return Submit::Rejected;}
-    else if(!p.previous.valid()||f.scene_reset||!(plan.reference==p.previous.source)||
-        !same_stream(f.source,p.previous.source)||f.source.sequence!=p.previous.source.sequence+1||
-        f.source_time<=p.previous.source_time||!(f.contract==p.previous.contract)||
-        plan.history_generation!=p.generation)return Submit::Rejected;
+    if(reset){if(plan.reference.valid()||plan.history_generation<p.generation){p.record_refusal=AmdRecordRefusal::Continuity;p.record_message="borrowed OF reset reference or generation rejected";return Submit::Rejected;}}
+    else if(!AmdOwnedSourceContinues(f,p.previous,plan,p.generation)){p.record_refusal=AmdRecordRefusal::Continuity;p.record_message="borrowed OF previous source continuity rejected";return Submit::Rejected;}
     const auto d=snapshot->GetDesc();
     if(d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.Width<p.w||d.Height<p.h||
        (d.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&d.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT&&
         !(f.contract.color_domain==kResidualLinearScene&&d.Format==DXGI_FORMAT_R11G11B10_FLOAT))||
-       d.MipLevels!=1||d.DepthOrArraySize!=1||d.SampleDesc.Count!=1)return Submit::Rejected;
+        d.MipLevels!=1||d.DepthOrArraySize!=1||d.SampleDesc.Count!=1){p.record_refusal=AmdRecordRefusal::Snapshot;p.record_message="borrowed OF source snapshot format, extent or subresource rejected";return Submit::Rejected;}
     auto& slot=p.borrowed_slots[p.borrowed_next];
     try {
         slot.source=snapshot;slot.preparation.bind(p.device.Get(),snapshot,p.input.Get());
@@ -236,7 +237,7 @@ Submit AmdOfProducer::record(const Frame& f,const Plan& plan,ID3D12GraphicsComma
         p.previous=f;p.age=reset?0:p.age<UINT_MAX?p.age+1:UINT_MAX;p.recording_failed=false;
         out={f.source,plan.reference,plan.token,plan.history_generation,p.raw.Get(),p.scd.Get(),p.fw,p.fh,p.age,reset};
         return Submit::Recorded; // No Execute, Signal or completion receipt.
-    } catch(const std::exception& e){p.poison(e.what());return Submit::Faulted;}
+    } catch(const std::exception& e){p.record_refusal=AmdRecordRefusal::Fault;p.poison(e.what());return Submit::Faulted;}
 }
 bool AmdOfProducer::commit_recording(Id token,ID3D12Fence* fence,Id value)noexcept {
     auto& p=*p_;
@@ -275,8 +276,7 @@ Submit AmdOfProducer::dispatch(const Frame& f,const Plan& plan,ID3D12Resource* s
     if(p.previous.source.valid()&&same_stream(f.source,p.previous.source)&&f.source.sequence<p.previous.source.sequence)return Submit::Rejected;
     const bool reset=plan.action==Action::ResetBoth;
     if(reset){if(plan.reference.valid()||plan.history_generation<p.generation)return Submit::Rejected;}
-    else if(!p.previous.valid()||f.scene_reset||!(plan.reference==p.previous.source)||!same_stream(f.source,p.previous.source)||
-        f.source.sequence!=p.previous.source.sequence+1||f.source_time<=p.previous.source_time||!(f.contract==p.previous.contract)||plan.history_generation!=p.generation)return Submit::Rejected;
+    else if(!AmdOwnedSourceContinues(f,p.previous,plan,p.generation))return Submit::Rejected;
     auto desc=snapshot->GetDesc();
     if(desc.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||desc.Width!=p.w||desc.Height!=p.h||desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM||
        desc.MipLevels!=1||desc.DepthOrArraySize!=1||desc.SampleDesc.Count!=1||p.value>=UINT64_MAX-1)return Submit::Rejected;

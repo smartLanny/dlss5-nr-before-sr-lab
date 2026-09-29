@@ -1,0 +1,279 @@
+{
+  "schema": "dlss5-unified-candidate-delivery/v4",
+  "candidate": "0.5.2-beta.7",
+  "pe_version": "0.5.2.7",
+  "source_commit": "80dcc99952b9cdd277d9780b292a2a169a5ff83f",
+  "packaging_source_commit": "80dcc99952b9cdd277d9780b292a2a169a5ff83f",
+  "draft_pr": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/313",
+  "d21_comparison_source": "cbfb33919696a2840ed5154c91abaea56228b661",
+  "generated_cpp": {
+    "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/source/core/src/nr_before_sr.cpp",
+    "bytes": 880110,
+    "sha256": "60beac081b04372fd0ebb1607db95dfd324c40c0230b3d9e14f43d5e093be981"
+  },
+  "payload": [
+    {
+      "language": "zh-CN",
+      "core": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/TEST-zh-CN/nr-before-sr.0.5.2-beta.7.zh-CN.addon64",
+        "bytes": 18126848,
+        "sha256": "bb06ec8a571ab2aae6331c0f9f4352d17940433cbaf4d468ef0052a7eb5da9a8"
+      },
+      "ota": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-acceptance-80dcc999-20260928-r1/OTA-zh-CN/DLSS5-0.5.2-beta.7-zh-CN-Core-OTA.zip",
+        "bytes": 2611782,
+        "sha256": "ab20a0bbfbc724b72948090e8e16e5dea0a40d3c981919622b72f8e4aff9b6da"
+      },
+      "package_receipt": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-acceptance-80dcc999-20260928-r1/OTA-zh-CN/package-receipt.json",
+        "bytes": 2021,
+        "sha256": "5ebaea2fdc68730fdc42f03031fd86ae1e6f78bb084dbc45048b205afeac639d"
+      }
+    },
+    {
+      "language": "en",
+      "core": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/TEST-en/nr-before-sr.0.5.2-beta.7.en.addon64",
+        "bytes": 18039808,
+        "sha256": "2d7f6c4aa55b43fce33a8e1e9daa8b1aebb222cde86d737c4a4bde6f4cf8e82e"
+      },
+      "ota": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-acceptance-80dcc999-20260928-r1/OTA-en/DLSS5-0.5.2-beta.7-en-Core-OTA.zip",
+        "bytes": 2577339,
+        "sha256": "7ffc98146a1aa076cf1a9b6b6e53f134b9f6dfcdc4e3cfe58383a0b7e19f6c6e"
+      },
+      "package_receipt": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-acceptance-80dcc999-20260928-r1/OTA-en/package-receipt.json",
+        "bytes": 2012,
+        "sha256": "f98da3469a7750465382025b2432eb6d5489570fd61d1942ed7a68f3b6f4deb6"
+      }
+    }
+  ],
+  "shared_bridge": {
+    "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/source/core/build/nrchain_nvngx.dll",
+    "bytes": 222720,
+    "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+  },
+  "software_validation": {
+    "path": "%DLSS5_PRIVATE%/evidence/beta7-software-validation-80dcc999.json",
+    "bytes": 7800,
+    "sha256": "9b2871752b33605ec143832980ef5320cb964d788dcce68508033f8262db0d7f"
+  },
+  "evidence": {
+    "canonical_run": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-canonical-80dcc999-r1.json",
+      "bytes": 360,
+      "sha256": "aad3c334ba54defc3d0930fbf99e9b491ee9d2e8f5fa0aa7e3f3dc5c9c61d37c"
+    },
+    "canonical": {
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/validation.json",
+      "bytes": 4540,
+      "sha256": "48c20e7525f5154f46802e1b7423c966a2064027b6487570f9d8ee925cee6fb3"
+    },
+    "source_manifest": {
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/source/source-manifest.json",
+      "bytes": 89839,
+      "sha256": "4963a250d3be9fb8128267e2efb2916090fe3f1f970cfbd998016f90bb013978"
+    },
+    "candidate": {
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/0.5.2-BETA.7-CANDIDATE.json",
+      "bytes": 3021,
+      "sha256": "4833a370d1e2efe736dec3ea18a7400d1d3a9c249c400eccd65d87644a43db04"
+    },
+    "unified": {
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/unified8-checks/validation.json",
+      "bytes": 827,
+      "sha256": "7933bd12a0472cc68a75277b64d0a5d27830cc02d289d8a399bfad0dd9fff738"
+    },
+    "reconstruction": {
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/reconstruction-checks/validation.json",
+      "bytes": 728,
+      "sha256": "7f59658b9b2e22c76f684e5fdc21bf58b006578d57f036828c0a3a5da789ef01"
+    },
+    "manager_parser": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-ota-final-manager-80dcc999-r1/validation.json",
+      "bytes": 1835,
+      "sha256": "2ecbabfadc678ac4b25ba362e0e54c416e3c5ddebf72687839fb7e059e884238"
+    },
+    "controlled_hair_comparison": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-private-sr-quality-20260928/hair-comparison-r1.json",
+      "bytes": 10661,
+      "sha256": "c755104a1c7f2e7155f4e5e82d80eb85f95a510d2013e259c59060257536ac62"
+    },
+    "canonical_log": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-canonical-80dcc999-r1.log",
+      "bytes": 248753,
+      "sha256": "b22521874b1b4b6d909fc198474802a1b1afb6b911e6c0e75b2331e3206acdbf"
+    }
+  },
+  "checks": [
+    {
+      "name": "private-sr-warp-contract",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta7-unified-80dcc999-20260928-r1/unified8-checks/private-sr-quality-warp/validation.json",
+        "bytes": 17005,
+        "sha256": "34147fdf8c71332072ae5ae0dc721986748274fa983b1dd7c7ccf06cdf6d1e4e"
+      },
+      "scope": "Generated private module: 81 strict residual cases, same-range tiny, odd grid, support and controlled hair capture; WARP, no NVIDIA inference.",
+      "exact_core": true
+    },
+    {
+      "name": "core-warp",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/core-warp/validation.json",
+        "bytes": 17898,
+        "sha256": "b22a42418bb4dc3c9a56ed6091ff49c44fcf36316ac5a17782ddd3135e3ed819"
+      },
+      "scope": "17 actual generated Core modes; real WARP and controlled private API, not NVIDIA inference or a game.",
+      "exact_core": true
+    },
+    {
+      "name": "core-hardware",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/core-hardware/validation.json",
+        "bytes": 12297,
+        "sha256": "8eeea618f24b28c5fe7112bcc96dc6aa31c5b1ab3b9084a7659c8374a60104ae"
+      },
+      "scope": "Four actual Core controlled GPU modes: HDR/jitter, RR/jitter, domain, off; not real model quality.",
+      "exact_core": true
+    },
+    {
+      "name": "native-rr-matrix",
+      "receipt": {
+        "path": "%DLSS5_ARCHIVE%/evidence/beta7-final-post-rr-80dcc999-r1/validation.json",
+        "bytes": 825864,
+        "sha256": "c9d29b881c9293edace2de150ce51acf177223b337566fa775e72b213fc7a28e"
+      },
+      "scope": "Real Feature13/native RR, Feature18, private Feature1, ordinary recovery, AMDOF whole/later and expected native-MV rejection. Synthetic scene, partial GPU cost, no game verdict.",
+      "exact_core": true
+    },
+    {
+      "name": "native-sr-odd-pair",
+      "receipt": {
+        "path": "%DLSS5_ARCHIVE%/evidence/beta7-final-sr-odd-80dcc999-r1/validation.json",
+        "bytes": 8772,
+        "sha256": "9791c655d14b04f761f203e9178ae1a1dd2068b525fb4ac856673091e5ac184f"
+      },
+      "scope": "Real native SR plus two Feature18 layers at 25% odd dimensions, spatial/private controls; causal pairing only when raw B/Z match.",
+      "exact_core": true
+    },
+    {
+      "name": "controlled-private-feature1-quality",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-private-sr-quality-20260928/exactcore-80-hair-real-r1/validation.json",
+        "bytes": 14882,
+        "sha256": "72076c40e9646ef64e87a99a6d8f9d5b51328c22cb553fea64f97ed4b0b7d935"
+      },
+      "scope": "Final generated private-module source/bytecode with real Feature1, exact tiny and 16 fixed B/Z/guide/reset frames; strict byte-identical analysis reuse permitted.",
+      "exact_core": true
+    },
+    {
+      "name": "temporal-hardware-sequence",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/temporal-hardware/result.json",
+        "bytes": 386456,
+        "sha256": "326f870c6ab9aa3830896be6efdab0a9dd234c42cf696561290fa62351195365"
+      },
+      "scope": "672 actual generated temporal frames, native MV/AMDOF adaptive/low and whole/later, including dark/motion/disocclusion/cut/reflection/HUD; injected model noise, not game NGX quality.",
+      "exact_core": true
+    },
+    {
+      "name": "product-4k",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/product-4k/validation.json",
+        "bytes": 39871,
+        "sha256": "de1eca795be525aa482f6033f638790a19d6fe2ff2c3b832746a9b444072c688"
+      },
+      "scope": "Real native RR->one NR layer at 50%->PostRr AMDOF through actual 4K product Prepare/Record/adoption/retirement; 768MiB cap, 32 outputs, sampled GPU decisions and partial timing.",
+      "exact_core": true
+    },
+    {
+      "name": "reshade-native-sr",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/reshade-sr/validation.json",
+        "bytes": 18972,
+        "sha256": "81682837cca9e4664f44cfe3a465bd28fa7c8c549294b97198bd2a5c2cb58b21"
+      },
+      "scope": "Actual ReShade proxy with generated Core private Feature1, zero NR layers and synthetic B/Z; no game or complete multilayer proxy test.",
+      "exact_core": true
+    },
+    {
+      "name": "reshade-native-rr",
+      "receipt": {
+        "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/reshade-rr/validation.json",
+        "bytes": 18976,
+        "sha256": "fb56bc4e4d98283c0f87724baafbe5d60838573879ce60bca386d2733d6c2349"
+      },
+      "scope": "Actual ReShade proxy with native RR and generated Core private Feature1, zero NR layers; no game or complete multilayer proxy test.",
+      "exact_core": true
+    }
+  ],
+  "controlled_private_sr_improvement": true,
+  "temporal_full_quality_pass": false,
+  "game_acceptance": "pending-maintainer",
+  "whole_frame_added_cost_le_3_percent": "not-established; maintainer test required",
+  "game_started_or_tested": false,
+  "online_ota_published": false,
+  "main_merged": false,
+  "manager_default_changed": false,
+  "manager_ui_tested": false,
+  "deployment": {
+    "status": "passed",
+    "game": "Neverness To Everness / 异环",
+    "game_directory": "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\HT\\Binaries\\Win64",
+    "receipt": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-private-sr-quality-20260928/nte-deploy/installation-20260928-094125.json",
+      "bytes": 3944,
+      "sha256": "17e51c52e3957a339b4aa99f8a2a4e43b0aea757bd80248c14f80afb92525f79"
+    },
+    "installed_core": {
+      "path": "E:/Neverness To Everness/Client/WindowsNoEditor/HT/Binaries/Win64/nr-before-sr.zh-CN.addon64",
+      "bytes": 18126848,
+      "sha256": "bb06ec8a571ab2aae6331c0f9f4352d17940433cbaf4d468ef0052a7eb5da9a8"
+    },
+    "rollback_core": {
+      "path": "%USERPROFILE%/Documents/ChatGPT/DLSS5/evidence/beta7-private-sr-quality-20260928/nte-deploy/rollback-20260928-094125/nr-before-sr.zh-CN.addon64",
+      "bytes": 18001408,
+      "sha256": "fffcae611a6efef37f6c838255e3bc3df4c315f826b91425dc9bff156ab7736e"
+    },
+    "rollback_instructions": {
+      "path": "%USERPROFILE%/Documents/ChatGPT/DLSS5/evidence/beta7-private-sr-quality-20260928/nte-deploy/rollback-20260928-094125/ROLLBACK.txt",
+      "bytes": 556,
+      "sha256": "2cb0c403b14615f8759b2b213f689c2181b8d9c1de7ae6243b4c99ddfbbb7345"
+    },
+    "single_core": true,
+    "configuration_and_runtimes_preserved": true,
+    "game_started_or_tested": false
+  },
+  "limitations": [
+    "Private SR improves controlled dark/text/hair evidence over Beta 6; ordinary recovery remains better on some fine-line/hair metrics.",
+    "Continuous-frame denoising helps static/panning cases; revealed regions/reflections show no general benefit and moving-line center contrast has a small negative bias.",
+    "Temporal GPU adoption counters sample one actual pixel decision per 8x8 tile, not every output pixel.",
+    "RR matrix uses synthetic real NGX; its smooth-gradient last frame cannot establish game detail, noise or ghosting quality.",
+    "GPU intervals are partial scopes, not a whole-plugin or whole-game-frame total. Cross-run SR controls with differing raw B/Z are not causal paired comparisons.",
+    "ReShade controlled host evidence uses zero NR layers; real multilayer Feature18 is tested separately on native interfaces.",
+    "Native MV after native RR remains explicitly rejected; no private Feature13 RR, cross-RR edit transport or NVOF was enabled."
+  ],
+  "final_reports": {
+    "final_hardware_matrix_summary": {
+      "path": "%DLSS5_ARCHIVE%/evidence/beta7-final-post-rr-80dcc999-r1/summary.json",
+      "bytes": 5996,
+      "sha256": "3bce9696741523fd6d18cf008c0d8e851a9f6c75ff3217591e9392c649c22e3a"
+    },
+    "final_component_costs": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-offline-host-analysis-80-r1/final_cost_and_scope.md",
+      "bytes": 2911,
+      "sha256": "1f9841d69228983df7c38ef33eebd3b0a3634d731c7e8bca91ba305182b020e4"
+    },
+    "final_temporal_summary": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/summary.md",
+      "bytes": 3891,
+      "sha256": "720fafe7e592d15420c0d0223963833b8001d26d7c5258994f3f82b609747c3a"
+    },
+    "final_temporal_visual_review": {
+      "path": "%DLSS5_PRIVATE%/evidence/beta7-final-validation-80-r1/temporal-hardware/review.md",
+      "bytes": 3420,
+      "sha256": "885a60d6302964eef5bc252976417568f5f9c833f850ae01dbfa53613b7200da"
+    }
+  }
+}

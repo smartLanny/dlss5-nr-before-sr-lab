@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$UpstreamRoot,
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
@@ -164,6 +164,21 @@ try {
     $CarrierRoot = Join-Path $Stage 'carrier/src'
     $CarrierResource = Join-Path $Output 'carrier-version.o'
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $ProductVersion = if ($QualitySuccessor -and $Manifest.PSObject.Properties['private_residual_sr']) {
+        if ($Manifest.private_residual_sr.source_commit -ne $Manifest.source_commit) { throw 'Private SR manifest source identity mismatch.' }
+        $Manifest.private_residual_sr.version
+    } elseif ($QualitySuccessor) { $Manifest.colour_lab.version } else { $Manifest.integration.version }
+    $CoreSource = Get-Content -LiteralPath (Join-Path $Stage 'core/src/nr_before_sr.cpp') -Raw -Encoding UTF8
+    $CoreVersionMatch = [regex]::Match($CoreSource, 'kAddonVersion\s*=\s*"([^"]+)"')
+    # The overlay uses a readable label; archive and PE identities retain the
+    # machine version. Both must name exactly the same candidate.
+    $DisplayVersion = $ProductVersion
+    if ($ProductVersion -match '^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$') {
+        $DisplayVersion = "$($Matches[1]) Beta $($Matches[2])"
+    }
+    if (-not $CoreVersionMatch.Success -or $CoreVersionMatch.Groups[1].Value -notin @($ProductVersion, $DisplayVersion)) {
+        throw 'Generated Core and final manifest product identities differ.'
+    }
     $CarrierLeaf = $Manifest.integration.carrier_filename
     if ([IO.Path]::GetFileName($CarrierLeaf) -ne $CarrierLeaf -or $CarrierLeaf -notmatch '^dlss5-native-carrier-[a-z0-9-]+\.addon64$') { throw 'Invalid staged carrier filename.' }
     $Carrier = Join-Path $Output $CarrierLeaf
@@ -180,11 +195,22 @@ try {
     $CoreBuild = Join-Path $Stage 'core/build'
     $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*.addon64')
     if ($Addons.Count -ne 2) { throw 'Exactly two language artifacts are required.' }
+    if (@($Addons | Where-Object Name -Match '\.en\.addon64$').Count -ne 1) { throw 'Exactly one English and one Chinese Core are required.' }
+    foreach ($Addon in $Addons) {
+        if (-not $Addon.Name.Contains($ProductVersion)) { throw 'Core artifact name does not contain the final product identity.' }
+        if ($ProductVersion -match '^([0-9]+)\.([0-9]+)\.([0-9]+)-beta\.([0-9]+)$') {
+            $Version = $Addon.VersionInfo
+            if ($Version.FileMajorPart -ne [int]$Matches[1] -or $Version.FileMinorPart -ne [int]$Matches[2] -or
+                $Version.FileBuildPart -ne [int]$Matches[3] -or $Version.FilePrivatePart -ne [int]$Matches[4]) {
+                throw 'Core PE version does not match the final short product identity.'
+            }
+        }
+    }
     $Binaries = @($Addons.FullName) + @((Join-Path $CoreBuild 'nrchain_nvngx.dll'), $Carrier)
     $Hashes = @($Binaries | ForEach-Object { [ordered]@{ file=[IO.Path]::GetFileName($_); sha256=(Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant() } })
     $CompilerVersion = (& $Cxx --version | Out-String).Trim()
     $Evidence = [ordered]@{
-        source_commit=$Manifest.source_commit; generated_source=$true
+        source_commit=$Manifest.source_commit; candidate=$ProductVersion; generated_source=$true
         bridge_commit='28aed4099b0fe1c207b20b5fee5364c0773c25c2'
         reshade_commit='4a50d1eddace85734871d91792ff214f13f66c01'
         directxmath_commit='28929ac6f3c1649a7641741b689ebecccb17aa8d'

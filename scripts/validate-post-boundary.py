@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from temporal_test_objects import objects_for
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,7 +64,7 @@ int main(){}
     if args.sdk_header:
         sdk = args.sdk_header.resolve(strict=True)
         run([str(compiler), '-std=c++20', '-fms-extensions', '-fsyntax-only', '-I'+str(sdk.parent), str(abi)], 'compile-independent-sdk-abi')
-    objects=[]
+    objects=list(map(str,objects_for(source)))
     # The staged Core keeps the dual spatial backend in a separate production
     # translation unit.  Link the exact sibling source used by this wrapper.
     spatial_source=source.parent/'nr_dual_spatial_d3d12.cpp'

@@ -53,7 +53,7 @@ class UnifiedUi(unittest.TestCase):
         self.assertTrue('nr_colour_preferences::SetRange(next,next.color_strength)' in self.settings)
         self.assertNotIn('NrChoice("colour-policy"',self.settings)
         self.assertGreater(self.settings.index('##final-colour'),self.settings.index('ImGui::BeginTabBar('))
-        self.assertLess(self.settings.index('DLSS 5  0.5.1 Beta'),self.settings.index('ImGui::BeginTabBar('))
+        self.assertLess(self.settings.index('ImGui::TextWrapped("DLSS 5  %s",kAddonVersion)'),self.settings.index('ImGui::BeginTabBar('))
         self.assertFalse('&next.allow_unverified_hdr_color' in self.settings)
         self.assertEqual(self.pages.count('nr_f8::RequestCore();'),1)
         self.assertNotIn('RequestStageCapture();',self.pages)
@@ -75,6 +75,15 @@ class UnifiedUi(unittest.TestCase):
         self.assertFalse('face_preview' in requested)
         self.assertTrue('next.face_preview=0' in face)
 
+    def test_temporal_modes_and_private_sr_boundary_are_explicit(self):
+        temporal = (self.root/'src/nr_temporal_ui.inl').read_text(encoding='utf-8')
+        private_sr = (self.root/'src/nr_private_sr_ui.inl').read_text(encoding='utf-8')
+        self.assertIn('next.temporal_mode==0',temporal)
+        self.assertIn('next.temporal_mode==1',temporal)
+        self.assertIn('A submitted frame is not proof of history adoption',temporal)
+        self.assertIn('It needs proven D3D12, colour and motion inputs',private_sr)
+        self.assertIn('Present, FG and multiple GPUs are unsupported',private_sr)
+
     def test_final_export_uses_successor_once(self):
         if GENERATED is None:
             self.skipTest('real complete export checked by the generator')
@@ -84,9 +93,20 @@ class UnifiedUi(unittest.TestCase):
         self.assertEqual(self.settings.count('void DrawSettings('),1)
         core = (GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
         version = re.search(r'kAddonVersion\s*=\s*"([^"]+)"',core).group(1)
+        identity = re.search(r'kBuildIdentity\s*=\s*"([^"]+)"',core).group(1)
+        resource = (GENERATED/'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
+        self.assertIn(version,resource)
         for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
             payload_identity = (GENERATED/path).read_text(encoding='utf-8-sig')
-            self.assertIn(version,payload_identity)
+            self.assertIn(identity,payload_identity)
+        identity_source = (ROOT/'scripts/patch-colour-edge.py').read_text(encoding='utf-8')
+        self.assertEqual(identity,re.search(r"^VERSION = '([^']+)'",identity_source,re.M).group(1))
+        self.assertEqual(version,re.search(r"^DISPLAY_VERSION = '([^']+)'",identity_source,re.M).group(1))
+        addon_names = re.findall(r'const char \*NAME =\s*"([^"]+)"',core)
+        self.assertEqual(len(addon_names),2)
+        for name in addon_names:
+            self.assertIn(version,name)
+            self.assertNotIn('dline21-uniform3',name)
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
             # Exported files are canonical Git blobs, not CRLF working-tree bytes.
             frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)

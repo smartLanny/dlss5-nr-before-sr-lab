@@ -1,0 +1,250 @@
+{
+  "schema": "dlss5-unified-candidate-delivery/v4",
+  "candidate": "0.5.2-beta.10",
+  "pe_version": "0.5.2 Beta 10",
+  "source_commit": "d9c7b16dd353b9a4c11a8defa1092810071fc07d",
+  "packaging_source_commit": "d9c7b16dd353b9a4c11a8defa1092810071fc07d",
+  "documentation_identity": "Delivery documentation is a later local docs-only commit; compiled code and packaged changelogs remain at source_commit.",
+  "draft_pr": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/313",
+  "generated_cpp": {
+    "path": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-unified-d9c7b16d-20260929-r1\\source\\core\\src\\nr_before_sr.cpp",
+    "sha256": "635b1f72d77deb41e83e496938b59e4475d2790cb881d69f0b5f9fe4f0ec1ce0"
+  },
+  "payload": [
+    {
+      "language": "zh-CN",
+      "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-acceptance-d9c7b16d-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.10-zh-CN-Core-OTA.zip",
+      "archive_sha256": "1a7aa561fdc5476712ed5bc0242da57d3181f9e76c14848b95345deae271bde5",
+      "core_sha256": "e77e99c038a37b1746f34ace7173fc70af7df9812a48a6a610b73db12c7a56fe",
+      "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    },
+    {
+      "language": "en",
+      "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-acceptance-d9c7b16d-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.10-en-Core-OTA.zip",
+      "archive_sha256": "962571a3e84d6893bc8b8c5ae2f7657b97d6dea44fbec3cf569cff05874c6349",
+      "core_sha256": "a949cfc86ec1bd36da134d54bce75c3b75509752fc1fd8a564c08a2ed69498d6",
+      "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
+    }
+  ],
+  "evidence": {
+    "canonical": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-canonical-d9c7b16d-r1\\shell-receipt.json",
+      "sha256": "c58c207c30cc5ff3743402438862dc06d7f039f2b6d15b09e21912f11f8a5c0e"
+    },
+    "canonical_validation": {
+      "path": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-unified-d9c7b16d-20260929-r1\\validation.json",
+      "sha256": "a800fc319dae6559b63ff739b7b23b76efc90e132bec5e99b40108bba7e8187b"
+    },
+    "source_manifest": {
+      "path": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-unified-d9c7b16d-20260929-r1\\source\\source-manifest.json",
+      "sha256": "1d5fe7e9a21efdeb35d5d26c1cddc99579ef4baed8335f3441f697842bbd6be8"
+    },
+    "hardware": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\validation.json",
+      "sha256": "65f05c93c02250f15e87e90f6045d3157f7205ee0d4d5c6fdc4e4722b13ccc95"
+    },
+    "packaging": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-packaging-d9c7b16d-r1\\validation.json",
+      "sha256": "c78e0e9a2f114b2c1cba2eb565cd26641912ab92ed8b6b6df9e515f33cde119a"
+    },
+    "installed_bytes_independent_check": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-nte-install-d9c7b16d-r1\\root-verification.json",
+      "sha256": "e58fb6624a51b518e6475f55a69793ebfc7360bcf54753aa6f01203249e4bb68"
+    },
+    "failed_canonical_1bcb249d": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-canonical-1bcb249d-r1\\shell-receipt.json",
+      "sha256": "6e5346ea9186561db1c1a8b8214dc5f13756936c974d806ee17b295b05704208"
+    },
+    "RESULT.zh-CN.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\RESULT.zh-CN.md",
+      "sha256": "2f3f84001abc70b6fbd60717b62872c8d769837242193ce0df202e8130528744"
+    },
+    "log-diagnosis.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\log-diagnosis.md",
+      "sha256": "abd2c7c87869ba91a64ac1c2e93d13b3b347ff9bcb085031fd345da4b9a0e6c5"
+    },
+    "sessions.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\sessions.md",
+      "sha256": "dc5ee50a188b1d7dc82bc75333d8ae8c7e404fe71a0769d121a0d2e8e2838dee"
+    },
+    "esc-diagnosis.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\esc-diagnosis.md",
+      "sha256": "3a5dde5bf01539fd6868c20cc4e0a4065552610b03e7163d3d219a0b16ec8674"
+    },
+    "image-review.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\image-review.md",
+      "sha256": "a94b0e28662d66992419723132f5e0332b224edfb1591462bd9f6d107170a9e2"
+    },
+    "local-timing-summary.json": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\local-timing-summary.json",
+      "sha256": "8c326d1dfbcbd61ce5f136b81508fbc2be4bd2f04295c77ee817c4fcfda855b0"
+    },
+    "focused-regression.md": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta9-loss-20260929\\focused-regression.md",
+      "sha256": "ff57b45b7cc0dff6e6d72e584bb88cf6b3e2d8a728e35c3be4334640f895e41a"
+    }
+  },
+  "deployment": {
+    "game": "Neverness To Everness",
+    "status": "passed",
+    "receipt": {
+      "path": "%DLSS5_PRIVATE%\\evidence\\beta10-nte-install-d9c7b16d-r1\\installation.json",
+      "sha256": "2239d80c71b97efa6757ff54009a4506da3cfd3cac987bb5975a2d89e8a775b3"
+    },
+    "installed_core": "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\HT\\Binaries\\Win64\\nr-before-sr.zh-CN.addon64",
+    "installed_core_sha256": "e77e99c038a37b1746f34ace7173fc70af7df9812a48a6a610b73db12c7a56fe",
+    "preserved_file_count": 7,
+    "preserved_files_unchanged": true,
+    "rollback_core": "%DLSS5_PRIVATE%\\evidence\\beta10-nte-install-d9c7b16d-r1\\rollback\\nr-before-sr.zh-CN.addon64",
+    "rollback_core_sha256": "7f375c71bd705c5b1102e89403cc2afee140a0f852ee437945dec14f733e76d5",
+    "rollback_zip": "%DLSS5_PRIVATE%\\evidence\\beta10-nte-install-d9c7b16d-r1\\rollback.zip",
+    "rollback_zip_sha256": "fc1b8dac6fcb44c337baa3a0ca999c5d9bec66e459f0b87c57534b184408032e",
+    "atomic_backup": "E:\\DLSS5-Core-rollback\\Beta10-d9c7b16d-20260928T212602Z\\nr-before-sr.zh-CN.addon64.previous",
+    "atomic_backup_sha256": "7f375c71bd705c5b1102e89403cc2afee140a0f852ee437945dec14f733e76d5",
+    "game_started": false
+  },
+  "acceptance": {
+    "canonical_bilingual_full_backend": "passed",
+    "cpu_warp": "passed",
+    "actual_manager_parser": "passed",
+    "manager_ui_tested": false,
+    "minimal_hardware": {
+      "schema": "beta10-minimal-hardware-v1",
+      "source_commit": "d9c7b16dd353b9a4c11a8defa1092810071fc07d",
+      "status": "passed",
+      "result": "passed",
+      "game": false,
+      "started_utc": "2026-09-28T21:24:36.075626+00:00",
+      "canonical_receipt": "%DLSS5_PRIVATE%\\evidence\\beta10-canonical-d9c7b16d-r1\\shell-receipt.json",
+      "preflight_receipt": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\preflight.json",
+      "generated_core": "%DLSS5_PRIVATE%\\deliveries\\052-beta10-unified-d9c7b16d-20260929-r1\\source\\core",
+      "steps": [
+        {
+          "name": "product-compile",
+          "case": null,
+          "frames": null,
+          "command": [
+            "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "%DLSS5_ARCHIVE%\\post-private-sr-309\\scripts\\validate-private-sr-product-real.py",
+            "--core",
+            "%DLSS5_PRIVATE%\\deliveries\\052-beta10-unified-d9c7b16d-20260929-r1\\source\\core",
+            "--compiler",
+            "D:\\agent-tools\\llvm-mingw\\llvm-mingw-20260826-ucrt-x86_64\\bin\\x86_64-w64-mingw32-clang++.exe",
+            "--reshade",
+            "D:\\agent-tools\\reshade-source",
+            "--sr-runtime",
+            "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\Engine\\Plugins\\Runtime\\Nvidia\\DLSS\\Binaries\\ThirdParty\\Win64\\nvngx_dlss.dll",
+            "--nr-runtime",
+            "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\HT\\Binaries\\Win64\\nvngx_dlssnr.dll",
+            "--rr-runtime",
+            "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\Engine\\Plugins\\Runtime\\Nvidia\\DLSS\\Binaries\\ThirdParty\\Win64\\nvngx_dlssd.dll",
+            "--output",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile",
+            "--compile-only"
+          ],
+          "started_utc": "2026-09-28T21:24:36.075626+00:00",
+          "ended_utc": "2026-09-28T21:24:49.768898+00:00",
+          "exit_code": 0,
+          "log": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile.shell.log",
+          "log_sha256": "3969a60792723a43234033a5320118a1bfdb57a94756e3b0ec09ba51d3f3d40b",
+          "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile\\validation.json",
+          "child_result": "passed",
+          "status": "passed"
+        },
+        {
+          "name": "rr-spatial-layers3-p50",
+          "case": "rr-spatial-layers3-p50",
+          "frames": 4,
+          "command": [
+            "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "%DLSS5_ARCHIVE%\\post-private-sr-309\\scripts\\validate-post-rr-matrix.py",
+            "--compiled",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile",
+            "--output",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-spatial-layers3-p50",
+            "--frames",
+            "4",
+            "--case",
+            "rr-spatial-layers3-p50"
+          ],
+          "started_utc": "2026-09-28T21:24:49.772476+00:00",
+          "ended_utc": "2026-09-28T21:24:53.906950+00:00",
+          "exit_code": 0,
+          "log": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-spatial-layers3-p50.shell.log",
+          "log_sha256": "17301134794c6b51d22fbb6e211708e5dbabaf22df7076c4c35e7563ddbaf854",
+          "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-spatial-layers3-p50\\validation.json",
+          "child_result": "passed",
+          "status": "passed"
+        },
+        {
+          "name": "sr-control-spatial",
+          "case": "sr-control-spatial",
+          "frames": 4,
+          "command": [
+            "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "%DLSS5_ARCHIVE%\\post-private-sr-309\\scripts\\validate-post-rr-matrix.py",
+            "--compiled",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile",
+            "--output",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\sr-control-spatial",
+            "--frames",
+            "4",
+            "--case",
+            "sr-control-spatial"
+          ],
+          "started_utc": "2026-09-28T21:24:53.911038+00:00",
+          "ended_utc": "2026-09-28T21:24:57.025836+00:00",
+          "exit_code": 0,
+          "log": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\sr-control-spatial.shell.log",
+          "log_sha256": "76594033a99f7187099a54a69c1e7c589d8c19a6025e58cea72ec4962fd7f9f7",
+          "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\sr-control-spatial\\validation.json",
+          "child_result": "passed",
+          "status": "passed"
+        },
+        {
+          "name": "rr-private-layers1-p50",
+          "case": "rr-private-layers1-p50",
+          "frames": 4,
+          "command": [
+            "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "%DLSS5_ARCHIVE%\\post-private-sr-309\\scripts\\validate-post-rr-matrix.py",
+            "--compiled",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\product-compile",
+            "--output",
+            "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-private-layers1-p50",
+            "--frames",
+            "4",
+            "--case",
+            "rr-private-layers1-p50"
+          ],
+          "started_utc": "2026-09-28T21:24:57.029411+00:00",
+          "ended_utc": "2026-09-28T21:25:00.453567+00:00",
+          "exit_code": 0,
+          "log": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-private-layers1-p50.shell.log",
+          "log_sha256": "1a1d5d29ce37d6ca1757c92a867e406d3508efc302ca36fffbf78a7da7f8db46",
+          "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta10-hardware-d9c7b16d-r1\\rr-private-layers1-p50\\validation.json",
+          "child_result": "passed",
+          "status": "passed"
+        }
+      ],
+      "boundary": "Artificial-input real NGX host checks only. Three four-frame cases establish selected lifecycles, not game behavior, image quality, flicker, frame cost, or low-commit guard behavior. No five-model coldstart or game run.",
+      "ended_utc": "2026-09-28T21:25:00.457123+00:00"
+    },
+    "game_stability": "pending-maintainer",
+    "esc_transition": "unresolved-game-verification-required",
+    "secondary_recovery_test": "Create callback boundary only; no recovered synthetic GPU frame claim",
+    "temporal_game_adoption": false,
+    "private_sr_general_quality_gate": false,
+    "whole_game_frame_cost_gate": false,
+    "debug_layer_available": false
+  },
+  "not_performed": [
+    "game launch",
+    "main merge",
+    "remote push",
+    "online OTA publication",
+    "Manager default update",
+    "runtime DLL replacement",
+    "saved-setting rewrite"
+  ]
+}

@@ -86,11 +86,20 @@ class Lockperf2Workflow(unittest.TestCase):
 
     def test_exact_product_parser_accepts_bounded_ui_revision(self):
         text = read('scripts/build-perf12-candidate.ps1')
-        pattern = re.search(r'\$VersionMatch = \[regex\]::Match\(\$VersionSource, "([^"]+)"\)', text).group(1)
-        current = read('scripts/patch-colour-edge.py')
-        actual = re.search(pattern, current)
-        self.assertIsNotNone(actual)
-        self.assertEqual(actual.group(1), 'beta0.5-dline21-unified10-reconstruction1-ui1')
+        # The quality successor reads patch-private-sr.py when it exists and
+        # falls back to patch-colour-edge.py; check each pattern on its own source.
+        private, pattern = re.findall(r'\$VersionMatch = \[regex\]::Match\(\$VersionSource, "([^"]+)"\)', text)[:2]
+        self.assertLess(text.index("'patch-private-sr.py'"), text.index("'patch-colour-edge.py'"))
+        for source, rx in (('scripts/patch-private-sr.py', private), ('scripts/patch-colour-edge.py', pattern)):
+            current = read(source)
+            declared = re.search(r"(?m)^VERSION\s*=\s*'([^']+)'", current).group(1)
+            actual = re.search(rx, current)
+            self.assertIsNotNone(actual, source)
+            self.assertEqual(actual.group(1), declared, source)
+        for value in ('0.5.2-beta.1','0.5.2-beta.12'):
+            self.assertEqual(re.search(pattern, "VERSION = '"+value+"'\n").group(1),value)
+        for value in ('0.5.2-beta.0','0.5.2-beta.01','0.5.2-beta.1/extra','../0.5.2-beta.1'):
+            self.assertIsNone(re.search(pattern, "VERSION = '"+value+"'\n"))
         for leaf in ('unified10', 'unified10-inbox1', 'unified10-reconstruction1', 'unified10-reconstruction1-ui1'):
             match = re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n")
             self.assertIsNotNone(match)

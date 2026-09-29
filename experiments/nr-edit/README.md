@@ -1,4 +1,13 @@
-# Unified5 private SR continuation — isolated, not the base Core
+# Private residual SR experiments — not the shipped game Core
+
+## Owned post-NR Feature1 continuation (2026-09-26)
+
+[Owned post-private-SR backend](POST_PRIVATE_SR.md) connects the existing post
+transport to its own private Feature1 evaluation and exact recording/fence
+retirement. Its validator separates API fixtures from real NVIDIA Feature1.
+The current game Core still needs the final B/Z/guide producer and callback
+integration; this library is not an enabled OTA feature. The older sections
+below retain their own test scopes rather than inheriting the new results.
 
 ## Post-reconstruction final-residual transport foundation
 

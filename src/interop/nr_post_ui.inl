@@ -1,5 +1,6 @@
 // This include precedes nr_settings_ui.inl in the generated translation unit.
 void SettingsTooltip(const char *text);
+void SettingsNote(const char *text);
 
 // Explicit picture reset commits front preferences and post precision under
 // the same lock. A capture starting meanwhile cannot snapshot half a reset:
@@ -45,8 +46,8 @@ void DrawPostRouteStatus() {
     auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const auto snapshot = SnapshotColorPolicy();
     if (snapshot.status == NrColorPolicyStatus::Current && snapshot.mode == 1) {
-        ImGui::TextWrapped("%s", ui("RR is active; NR has recently processed its output.",
-            "光线重建（RR）已开启；NR 最近已在它之后处理画面。"));
+        ImGui::TextWrapped("%s", ui("After game RR: recent NR processing recorded.",
+            "游戏 RR 后增强：最近有处理记录。"));
         return;
     }
     const auto tick = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
@@ -55,16 +56,16 @@ void DrawPostRouteStatus() {
     const int depth = nr_post_settings::last_rr_depth_type.load(std::memory_order_acquire);
     if (recent && depth != 1 && snapshot.status == NrColorPolicyStatus::Bypassed) {
         ImGui::TextWrapped("%s", depth == 0 ? ui(
-            "RR is active, but NR is not processing: the current depth conversion could not be admitted. Native RR is retained; save an F8 report.",
-            "光线重建（RR）已开启，但 NR 未生效：当前深度转换未满足条件。已保留游戏原生 RR，请按 F8 收集反馈。") : ui(
-            "RR is active, but NR is not processing: the game's depth format is unknown. Native RR is retained.",
-            "光线重建（RR）已开启，但暂未确认游戏的深度格式，NR 未生效。已保留游戏原生 RR。"));
+            "After game RR: NR not applied; depth unavailable.",
+            "游戏 RR 后增强未生效：深度不适用。") : ui(
+            "After game RR: NR not applied; depth unverified.",
+            "游戏 RR 后增强未生效：深度未确认。"));
     } else if (snapshot.status == NrColorPolicyStatus::Bypassed) {
-        ImGui::TextWrapped("%s", ui("RR is selected, but NR is currently bypassed. Save an F8 report if this persists.",
-            "已选择兼容光线重建的处理方式，但 NR 当前未参与画面处理。持续无效时请按 F8。"));
+        ImGui::TextWrapped("%s", ui("After game RR: NR not applied.",
+            "游戏 RR 后增强未生效。"));
     } else {
-        ImGui::TextWrapped("%s", ui("RR selects NR after reconstruction. Waiting for recent NR processing; this is not an enabled-result claim.",
-            "检测到光线重建，NR 将在它之后处理；正在等待新的处理记录，当前尚不能确认 NR 生效。"));
+        ImGui::TextWrapped("%s", ui("After game RR: preparing; awaiting NR record.",
+            "游戏 RR 后增强：准备中，等待处理记录。"));
     }
 }
 
@@ -103,27 +104,27 @@ void DrawPostResolutionControl() {
 void DrawPostCompatibility() {
     const bool zh=UseChineseUi();
     auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
-    ImGui::SeparatorText(ui("Post-SR / RR compatibility", "SR / RR 后置兼容"));
+    ImGui::SeparatorText(ui("After game SR / RR", "游戏 SR / RR 后增强"));
     if(IsRayReconstructionRouteObserved()) {
         const auto at=nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
         const auto now=GetTickCount64();
         const bool recent=at && now>=at && now-at<=2000;
         ImGui::TextWrapped("%s",recent ? ui(
-            "Ray Reconstruction protection is active: SR/RR -> NR is automatic; NR -> SR is unavailable.",
-            "光线重建保护中，强制后置 NR：当前为 SR/RR → NR，NR → SR 暂不可选。") : ui(
-            "Ray Reconstruction protection is active; NR -> SR stays unavailable while a new RR evaluation is awaited.",
-            "光线重建保护中，NR → SR 保持禁用；正在等待新的 RR 评估。"));
-        ImGui::Text(ui("Cumulative RR attempts / NR recordings: %llu / %llu | last stage %d",
-                       "累计 RR 尝试 / NR 录制：%llu / %llu | 最近阶段 %d"),
-            nr_post_settings::rr_attempts.load(),nr_post_settings::rr_recorded.load(),
-            nr_post_settings::last_rr_stage.load());
-        if(!recent)
-            ImGui::TextDisabled("%s",ui("No recent RR-post attempt; above counts are historical.",
-                "暂无近期 RR 后置尝试；上方计数是历史累计值。"));
+            "After game RR: this enhancement position is selected automatically.",
+            "游戏 RR 后增强：自动选择此位置。") : ui(
+            "After game RR: waiting for a new picture.",
+            "游戏 RR 后增强：等待新画面。"));
+        if(ImGui::CollapsingHeader(ui("RR diagnostics###rr-post-details","RR 诊断详情###rr-post-details"))) {
+            ImGui::Text(ui("Cumulative RR attempts / NR recordings: %llu / %llu | last stage %d",
+                           "累计 RR 尝试 / NR 录制：%llu / %llu | 最近阶段 %d"),
+                nr_post_settings::rr_attempts.load(),nr_post_settings::rr_recorded.load(),
+                nr_post_settings::last_rr_stage.load());
+            if(!recent) SettingsNote(ui("No recent RR attempt; counts are historical.","暂无近期 RR 尝试；计数为历史累计。"));
+        }
     }
     if(nr_post_settings::persistence_failed.load())
         ImGui::TextWrapped("%s",ui("Save failed; these requests are session-only.","保存失败，请求仅在本进程生效。"));
     SettingsTooltip(ui(
-        "RR post-NR is automatic. Recording is not proof of GPU completion or a visible change; use F8 if the route remains bypassed.",
-        "RR 后置 NR 自动选择。录制不代表 GPU 完成或画面生效；持续旁路时请生成 F8 TXT。"));
+        "Enhancement runs after game RR. Sending NR into game RR is not available. A recording does not prove a visible result; use F8 if bypass persists.",
+        "这里是在游戏 RR 后增强；先增强再交给游戏 RR 尚未提供。处理记录不代表画面已生效；持续无效请按 F8。"));
 }

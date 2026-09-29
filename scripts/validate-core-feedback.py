@@ -814,7 +814,7 @@ def production_values():
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
         'ACTIVITY': definition(legacy, 'void FeedbackAppendCommandShadingRate(') + '\n' + definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
-        'CHAIN': definition(source, 'struct ChainConfig', True),
+        'CHAIN': definition(source, 'struct ChainConfig {', True),
         'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
         'MEMORY_SNAPSHOT': definition(source, 'struct NrContextMemorySnapshot {', True),
         'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),

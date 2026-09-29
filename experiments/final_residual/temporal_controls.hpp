@@ -5,6 +5,7 @@
 namespace nr::final_residual {
 enum class Scope : unsigned { WholeChain, LaterLayers };
 enum class Validation : unsigned { Basic065, Legacy };
+enum class Mode : unsigned { Adaptive=0, LowFrequency=1 };
 struct Settings {
     bool enabled=false;
     Scope scope=Scope::WholeChain;
@@ -12,8 +13,10 @@ struct Settings {
     float reliability=0.65f, half_life_ms=60.0f;
     float color_tolerance=0.035f;
     double maximum_gap_ms=250.0;
+    Mode mode=Mode::Adaptive;
     bool valid() const noexcept {
-        return (scope==Scope::WholeChain||scope==Scope::LaterLayers)&&
+        return (mode==Mode::Adaptive||mode==Mode::LowFrequency)&&
+            (scope==Scope::WholeChain||scope==Scope::LaterLayers)&&
             (validation==Validation::Basic065||validation==Validation::Legacy)&&
             std::isfinite(reliability)&&reliability>0&&reliability<=1&&
             std::isfinite(half_life_ms)&&half_life_ms>0&&half_life_ms<=250&&

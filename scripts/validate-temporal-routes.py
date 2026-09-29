@@ -9,9 +9,12 @@ def main():
     for n in ('compiler','reshade','source','output'):p.add_argument('--'+n,type=Path,required=True)
     p.add_argument('--compile-only',action='store_true')
     p.add_argument('--codec-cache',type=Path,help='Exact source-keyed published shader cache; every payload hash is verified.')
-    p.add_argument('--case',default='all',choices=('all','pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native'))
-    a=p.parse_args();out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    source=a.source.resolve();snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
+    p.add_argument('--case',default='all',choices=('all','pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','sr-native','sr-native-bad-jitter','rr','rr-later','rr-off','rr-hdr','rr-native','rr-low','rr-later-low'))
+    a=p.parse_args();source=a.source.resolve()
+    if source.name!='nr_before_sr.cpp' or source.parent.name!='src' or source.parent.parent.name!='core' or not source.is_file():
+        raise ValueError('--source must identify a generated Core src/nr_before_sr.cpp file')
+    out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
+    snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl';fixture=ROOT/'tests/temporal_routes_gpu.inl'
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n}\n'
     old='    Check(WaitForSingleObject(event, 5000) == WAIT_OBJECT_0, "exact fence completed");'
@@ -49,10 +52,10 @@ def main():
     for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
         obj=out/(Path(rel).stem+'.o');run([cc,*flags,'-c',ROOT/'third_party/minhook/src'/rel,'-o',obj],'compile-'+obj.stem);objects.append(obj)
     spatial=snapshot/'nr_dual_spatial_d3d12.cpp';obj=out/'spatial.o';run([cxx,*flags,'-std=c++20','-c',spatial,'-o',obj],'compile-spatial');objects.append(obj)
-    exe=out/'temporal-routes.exe';run([cxx,*flags,'-std=c++20','-static','-Wl,--gc-sections',cpp,*objects,'-o',exe,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
+    exe=out/'temporal-routes.exe';run([cxx,*flags,'-std=c++20','-static','-Wl,--gc-sections',cpp,*objects,'-o',exe,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-core')
     record['binary_sha256']=sha(exe)
     if not a.compile_only:
-        cases=('pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','rr','rr-later','rr-off','rr-hdr','rr-native') if a.case=='all' else (a.case,)
+        cases=('pre','pre-scale','pre-off','pre-hdr','pre-hdr-r11','pre-native','pre-later','sr-native','sr-native-bad-jitter','rr','rr-later','rr-off','rr-hdr','rr-native','rr-low','rr-later-low') if a.case=='all' else (a.case,)
         for case in cases:
             r=run([exe,case],'run-'+case);print(r.stdout);record['cases'].append({'name':case,'passed':True})
     record['passed']=True;record['compile_only']=a.compile_only;save()

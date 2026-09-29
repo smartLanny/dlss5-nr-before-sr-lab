@@ -404,6 +404,7 @@ enum class BypassReason : int {
     ExposureTextureUnverified,
     RayReconstructionGuard,
     RuntimeRejected,
+    CommitHeadroomPressure,
     ShortFuseOwnsNr,
     GenericRenoDxConflict,
     LifecycleIsolation,
@@ -418,6 +419,7 @@ enum class BypassReason : int {
     QueueRetirementTimeout,
     ExternalNrOwner,
     ContextReleasePending,
+    GuideContractInvalid,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -511,6 +513,7 @@ const char *BypassReasonName(BypassReason reason) {
         return "exposure-texture-unverified";
     case BypassReason::RayReconstructionGuard: return "rr-safe-bypass";
     case BypassReason::RuntimeRejected: return "runtime-rejected";
+    case BypassReason::CommitHeadroomPressure: return "commit-headroom-pressure";
     case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
     case BypassReason::ExternalNrOwner: return "external-feature18-owner";
     case BypassReason::GenericRenoDxConflict:
@@ -531,6 +534,7 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::CodecUnavailable: return "codec-unavailable";
     case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
     case BypassReason::ContextReleasePending: return "context-release-pending";
+    case BypassReason::GuideContractInvalid: return "guide-contract-invalid";
     default: return "unknown";
     }
 }
@@ -892,6 +896,8 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 #include "nr_replay_format.h"
 
 struct ChainConfig;
+#include "nr_residency_policy.h"
+void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change);
 void DrawPerformanceRouteNotice(const ChainConfig&);
 
 struct ChainConfig {
@@ -1922,6 +1928,8 @@ void ReloadConfig(bool force = false) {
 
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
+    ReconcileNrResidencyLocked(nr_layers::Active(g_config.nr_layers), nr_layers::Active(next.nr_layers),
+        next.processing_start!=g_config.processing_start);
     AdvanceLayerEpochs(next,g_config);
     g_config = next;
     nr_processing_runtime::Reconcile();
@@ -2176,6 +2184,11 @@ bool ApplyConfig(ChainConfig next, const char *source,
     persisted_next.face_preview=g_config.face_preview;
     const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
+    // F8 owns temporary configurations. Only committed user changes request
+    // allocator compaction; F6 with the same layer selection retains cache.
+    if (persist_to_ini)
+        ReconcileNrResidencyLocked(nr_layers::Active(g_config.nr_layers), nr_layers::Active(next.nr_layers),
+            next.processing_start!=g_config.processing_start);
     AdvanceLayerEpochs(next,g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
@@ -4947,6 +4960,8 @@ bool EnsureFaceCodec() {
     return true;
 }
 
+#include "nr_pipeline_cache.h"
+
 bool EnsureCodec(ID3D12Device *device) {
     if (g_codec.device == device && g_codec.root != nullptr) return true;
     if (g_codec.failed || device == nullptr || g_codec.device != nullptr) return false;
@@ -4999,6 +5014,11 @@ bool EnsureCodec(ID3D12Device *device) {
         device, 0, serialized->lpVtbl->GetBufferPointer(serialized),
         serialized->lpVtbl->GetBufferSize(serialized), IID_ID3D12RootSignature,
         reinterpret_cast<void **>(&g_codec.root));
+    nr_pipeline_cache::Session pipeline_cache;
+    if (SUCCEEDED(hr))
+        pipeline_cache.Initialize(device, serialized->lpVtbl->GetBufferPointer(serialized),
+            serialized->lpVtbl->GetBufferSize(serialized),
+            GetPrivateProfileIntW(L"NRBeforeSR", L"PipelineCache", 1, g_ini_path)!=0);
     ReleaseCom(serialized);
     if (FAILED(hr)) {
         Log("CreateRootSignature failed: 0x%08X", static_cast<unsigned int>(hr));
@@ -5026,47 +5046,46 @@ bool EnsureCodec(ID3D12Device *device) {
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline = {};
     pipeline.pRootSignature = g_codec.root;
+    const auto create_pipeline=[&](const char* entry, ID3D12PipelineState** output) {
+        LARGE_INTEGER begin{},end{},frequency{};
+        QueryPerformanceCounter(&begin);
+        const auto result=pipeline_cache.Create(device,pipeline,output);
+        QueryPerformanceCounter(&end);QueryPerformanceFrequency(&frequency);
+        const double ms=frequency.QuadPart>0?1000.0*static_cast<double>(end.QuadPart-begin.QuadPart)/static_cast<double>(frequency.QuadPart):0.0;
+        Log("[nr-pso-cache] entry=%s enabled=%d hit=%d rejected=%d written=%d bytes=%llu cpuMs=%.3f hr=0x%08X; disk-only pipeline preparation, not NR inference or GPU completion.",
+            entry,result.enabled?1:0,result.hit?1:0,result.rejected?1:0,result.written?1:0,
+            static_cast<unsigned long long>(result.bytes),ms,static_cast<unsigned>(result.hr));
+        return result.hr;
+    };
     pipeline.CS.pShaderBytecode = encode->lpVtbl->GetBufferPointer(encode);
     pipeline.CS.BytecodeLength = encode->lpVtbl->GetBufferSize(encode);
-    hr = ID3D12Device_CreateComputePipelineState(
-        device, &pipeline, IID_ID3D12PipelineState,
-        reinterpret_cast<void **>(&g_codec.encode));
+    hr = create_pipeline("EncodeCS", &g_codec.encode);
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = combine->lpVtbl->GetBufferPointer(combine);
         pipeline.CS.BytecodeLength = combine->lpVtbl->GetBufferSize(combine);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.combine));
+        hr = create_pipeline("CombineCS", &g_codec.combine);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = encode_v2->lpVtbl->GetBufferPointer(encode_v2);
         pipeline.CS.BytecodeLength = encode_v2->lpVtbl->GetBufferSize(encode_v2);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.encode_v2));
+        hr = create_pipeline("EncodeV2CS", &g_codec.encode_v2);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = combine_v2->lpVtbl->GetBufferPointer(combine_v2);
         pipeline.CS.BytecodeLength = combine_v2->lpVtbl->GetBufferSize(combine_v2);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.combine_v2));
+        hr = create_pipeline("CombineV2CS", &g_codec.combine_v2);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = copy->lpVtbl->GetBufferPointer(copy);
         pipeline.CS.BytecodeLength = copy->lpVtbl->GetBufferSize(copy);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.copy));
+        hr = create_pipeline("CopyCS", &g_codec.copy);
     }
     if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode =
             motion_resample->lpVtbl->GetBufferPointer(motion_resample);
         pipeline.CS.BytecodeLength =
             motion_resample->lpVtbl->GetBufferSize(motion_resample);
-        hr = ID3D12Device_CreateComputePipelineState(
-            device, &pipeline, IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.motion_resample));
+        hr = create_pipeline("ResampleMotionCS", &g_codec.motion_resample);
     }
     ReleaseCom(encode);
     ReleaseCom(combine);
@@ -5086,9 +5105,7 @@ bool EnsureCodec(ID3D12Device *device) {
     if (probe) {
         pipeline.CS.pShaderBytecode = probe->lpVtbl->GetBufferPointer(probe);
         pipeline.CS.BytecodeLength = probe->lpVtbl->GetBufferSize(probe);
-        const HRESULT probe_hr = ID3D12Device_CreateComputePipelineState(
-            device,&pipeline,IID_ID3D12PipelineState,
-            reinterpret_cast<void **>(&g_codec.post_store_probe));
+        const HRESULT probe_hr = create_pipeline("ProbePostStoreCS", &g_codec.post_store_probe);
         if (FAILED(probe_hr)) Log("Post-store probe unavailable: 0x%08X",probe_hr);
         ReleaseCom(probe);
     }
@@ -5323,6 +5340,22 @@ struct NrSlot {
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
+    // Independent same-source native temporal guides. Never rebound as NR model guides.
+    ID3D12Resource *temporal_depth=nullptr,*temporal_motion=nullptr;
+    ID3D12Resource *temporal_depth_input=nullptr,*temporal_motion_input=nullptr;
+    ID3D12DescriptorHeap* temporal_guide_heap=nullptr;
+    ID3D12RootSignature* temporal_guide_root=nullptr;
+    ID3D12PipelineState* temporal_guide_pso=nullptr;
+    D3D12_RESOURCE_STATES temporal_depth_state=D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_STATES temporal_motion_state=D3D12_RESOURCE_STATE_COMMON;
+    nr_source_frame::Source temporal_snapshot_source{};
+    unsigned long long temporal_snapshot_recording=0,temporal_guide_bytes=0;
+    unsigned temporal_width=0,temporal_height=0,temporal_guide_constants[20]{};
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    nr_private_sr_guides::Input temporal_guide_input{};
+#endif
+    bool temporal_guide_prepared=false,temporal_guide_recorded=false;
+
     ID3D12Resource *rr_depth = nullptr, *rr_depth_source = nullptr;
     ID3D12DescriptorHeap *rr_depth_heap = nullptr;
     D3D12_RESOURCE_STATES rr_depth_state = D3D12_RESOURCE_STATE_COMMON;
@@ -5531,6 +5564,8 @@ struct NrContext {
     unsigned int create_failures = 0;
     unsigned int frames_seen = 0;
     unsigned int next_create_retry_frame = 0;
+    unsigned int dual_commit_retry_primary_frame = 0;
+    unsigned int dual_commit_retry_config_generation = 0;
     int bound_create_flags = 0;
     int bound_perf_quality = 5;
     bool create_variant_selected = false;
@@ -5572,6 +5607,17 @@ struct NrContext {
 
 #include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
+
+bool g_nr_residency_drain_pending=false; // Existing g_chain_cs; not a completion proof.
+void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change) {
+    const unsigned marked=nr_residency::RetireForCompaction(
+        g_contexts, std::size(g_contexts), previous_active, requested_active, explicit_route_change);
+    if (marked) {
+        g_nr_residency_drain_pending=true;
+        Log("[nr-residency] explicit layers %u->%u routeChanged=%d; retiring %u old NR contexts before rebuilding the selected chain. Drain all owned instances to permit allocator compaction; exact recording/binding/fence proofs and quarantine remain required. Ordinary F6 cache is retained; persistent waiting: collect F8 and upload BUG feedback.",
+            previous_active, requested_active, explicit_route_change?1:0, marked);
+    }
+}
 
 #include "nr_jitter_status.inl"
 
@@ -5771,7 +5817,7 @@ constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
 constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
 
 unsigned long long ExtraSlotBytes(const NrSlot &slot) {
-    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes;
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes + slot.region_bytes + slot.temporal_guide_bytes;
 }
 
 bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
@@ -5824,6 +5870,9 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
+    ReleaseCom(slot.temporal_depth);ReleaseCom(slot.temporal_motion);
+    ReleaseCom(slot.temporal_depth_input);ReleaseCom(slot.temporal_motion_input);
+    ReleaseCom(slot.temporal_guide_heap);ReleaseCom(slot.temporal_guide_pso);ReleaseCom(slot.temporal_guide_root);
     ReleaseCom(slot.rr_depth);
     ReleaseCom(slot.rr_depth_source);
     ReleaseCom(slot.rr_depth_heap);
@@ -6367,7 +6416,15 @@ bool DeferNrCreationForReleaseLocked(const NgxHandle* requested_handle) {
             context.sr_handle==requested_handle && context.retired;
     bool pending=g_nr_context_releases_in_progress.load(std::memory_order_acquire)!=0;
     for(const auto& context:g_pending_destroy_contexts)pending|=context.sr_handle!=nullptr;
-    if(!retired_in_scope&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
+    bool residency_drain=false;
+    if (g_nr_residency_drain_pending) {
+        for (const auto& context:g_contexts) residency_drain|=context.sr_handle!=nullptr;
+        if (!residency_drain && !pending && !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+            g_nr_residency_drain_pending=false;
+            Log("[nr-residency] all old owned NR contexts released; selected-chain Create may resume. Disk PSO/API cache retained; no GPU-completion shortcut.");
+        }
+    }
+    if(!retired_in_scope&&!residency_drain&&!pending&&!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))return false;
     // Keep native SR/RR and the saved route. A transient release is not a reason
     // to create yet another model at Present, or to block the CPU on a GPU fence.
     nr_processing_runtime::BlockSource();
@@ -7638,13 +7695,21 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 !SameNrGuideStorageContract(context.guide_storage_signature,
                                             requested_guides)) {
                 context.retired = true;
+                const auto& previous=context.guide_storage_signature;
                 Log("NR dimensions/guide storage changed: handle=%p mode=%d "
-                    "extent=%ux%u->%ux%u flags=%d->%d; retiring temporal "
-                    "history after its exact GPU fence.",
+                    "extent=%ux%u->%ux%u flags=%d->%d "
+                    "formats(depth/motion/color)=%u/%u/%u->%u/%u/%u "
+                    "motionBound=%ux%u->%ux%u placeholder=%d->%d resample=%d->%d; "
+                    "retiring temporal history after its exact GPU fence.",
                     static_cast<const void *>(sr_handle), mode,
                     context.width, context.height, width, height,
-                    context.guide_storage_signature.normalized_create_flags,
-                    requested_guides.normalized_create_flags);
+                    previous.normalized_create_flags,requested_guides.normalized_create_flags,
+                    previous.depth_format,previous.motion_format,previous.color_format,
+                    requested_guides.depth_format,requested_guides.motion_format,requested_guides.color_format,
+                    previous.motion_bound_width,previous.motion_bound_height,
+                    requested_guides.motion_bound_width,requested_guides.motion_bound_height,
+                    previous.rr_depth_placeholder?1:0,requested_guides.rr_depth_placeholder?1:0,
+                    previous.resample_motion?1:0,requested_guides.resample_motion?1:0);
                 continue;
             }
             if (context.codec_color_mode_initialized &&
@@ -8703,6 +8768,39 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
         return selected;
     }
     if (empty != nullptr) {
+        // Do not grow eight full-resolution texture sets merely because a
+        // game rotates resource addresses. Prefer the same safe rebinding
+        // already used by a full pool, provided no owned allocation changes.
+        // Exact external/motion matches above remain the first choice.
+        auto* reusable=nr_residency::OldestReusable(context.slots, std::size(context.slots),
+            [&](const NrSlot& slot) {
+                if (!slot.key || !slot.heap || !CanMutateSlotLocked(slot)) return false;
+                if (post_sr)
+                    return slot.owns_source && !slot.owns_result && slot.snapshots_native_output &&
+                        slot.result_format==desc.Format && slot.result_srv_format==current_view.typed.Format &&
+                        slot.result_uav_format==static_cast<DXGI_FORMAT>(current_view.plan.uav);
+                if (slot.owns_source || !slot.owns_result || !slot.result ||
+                    slot.codec_color_mode!=pre_sr_color_mode ||
+                    slot.source_srv_format!=current_view.typed.Format) return false;
+                const auto result_desc=ID3D12Resource_GetDesc(slot.result);
+                return result_desc.Width==desc.Width && result_desc.Height==desc.Height;
+            });
+        if (reusable) {
+            CollectSlotDeltaStatsLocked(context, *reusable);
+            NrRecoveryRetireSlot(*reusable, CanMutateSlotLocked(*reusable));
+            // Rebind retains its independent binding-packet proof; a refused
+            // reuse falls back to the old empty-slot path, not a CPU/GPU wait.
+            if (RebindSlotExternal(device, external, post_sr, exposure, *reusable,
+                    pre_sr_color_mode, feature_create_flags, context.feature_generation, semantic_contract)) {
+                reusable->last_used_serial=serial;
+                NrRecoveryAdoptSlot(*reusable, recovery_token, post_sr);
+                ++context.slot_recycles;
+                if (context.slot_recycles<=3 || context.slot_recycles%600==0)
+                    Log("[nr-residency] reused idle owned textures before pool growth: count=%u mode=%d extent=%ux%u; no NR feature/history sharing, exact retirement required.",
+                        context.slot_recycles, context.mode, context.width, context.height);
+                return reusable;
+            }
+        }
         if (!CreateSlot(device, external, context.width, context.height,
                         post_sr, exposure, *empty, pre_sr_color_mode,
                         feature_create_flags, context.feature_generation, semantic_contract)) {
@@ -9774,6 +9872,18 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
                             ID3D12Resource *color, unsigned int color_x,
                             unsigned int color_y, CodecColorMode color_mode,
                             NrGuideBinding &binding) {
+    // Reject incomplete grids before selecting a context or recording commands.
+    // A zero NR axis must not become a zero motion scale accepted by NGX.
+    if (!width || !height || !guide_width || !guide_height) {
+        SetBypassReason(BypassReason::GuideContractInvalid);
+        static std::atomic<unsigned int> rejected_empty_grids{0};
+        const auto rejected = rejected_empty_grids.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (rejected <= 3 || (rejected % 600) == 0)
+            Log("NR guide grid rejected: render=%ux%u work=%ux%u; "
+                "native output retained. Press F8 and submit BUG feedback.",
+                guide_width, guide_height, width, height);
+        return false;
+    }
     if (!GetResource(sr_params, "MotionVectors", &binding.motion) ||
         binding.motion == nullptr ||
         !GetResource(sr_params, "Depth", &binding.depth) ||
@@ -9875,16 +9985,46 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     if (!binding.valid_motion_scale_x) s.motion_scale_x = 1.0f;
     if (!binding.valid_motion_scale_y) s.motion_scale_y = 1.0f;
 
-    // The game's MV.Scale converts stored vectors into the game's DLSS source
-    // texel space. Mode 2 may use a smaller Feature 18 source, so convert those
-    // displacements into NR working-raster texels after spatially resampling
-    // the vector field. Reference mode remains exactly 1:1.
+    // NGX MV.Scale converts stored vectors to render-input pixels. NVIDIA's
+    // Streamline sl.dlss sets MV.Scale from mvecScale * renderWidth/Height,
+    // independently of the MV texture's storage resolution. A high-resolution
+    // motion atlas is therefore NOT permission to substitute Output width.
+    // Spatial resampling preserves values; this is the single value-unit
+    // conversion to NR working pixels. The post generator applies it to mode 1
+    // too; the historical base mode 1 remains unchanged. See the guide audit.
     const float source_to_work_x = mode == 2 && guide_width != 0
         ? static_cast<float>(width) / guide_width : 1.0f;
     const float source_to_work_y = mode == 2 && guide_height != 0
         ? static_cast<float>(height) / guide_height : 1.0f;
     s.motion_scale_x *= source_to_work_x;
     s.motion_scale_y *= source_to_work_y;
+    // Checking only the raw inputs above is insufficient: finite game scales
+    // can overflow when post-NR N exceeds render R. Never submit an Inf/zero
+    // displacement scale to the opaque runtime or commit it as guide history.
+    if (!std::isfinite(s.motion_scale_x) || !std::isfinite(s.motion_scale_y) ||
+        s.motion_scale_x == 0.0f || s.motion_scale_y == 0.0f) {
+        SetBypassReason(BypassReason::GuideContractInvalid);
+        static std::atomic<unsigned int> rejected_scaled_motion{0};
+        const auto rejected = rejected_scaled_motion.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (rejected <= 3 || (rejected % 600) == 0)
+            Log("NR converted MV scale rejected: render=%ux%u work=%ux%u "
+                "raw=%.9g,%.9g converted=%.9g,%.9g; native output retained. "
+                "Press F8 and submit BUG feedback.", guide_width, guide_height,
+                width, height, static_cast<double>(capture.game_mv_x),
+                static_cast<double>(capture.game_mv_y),
+                static_cast<double>(s.motion_scale_x), static_cast<double>(s.motion_scale_y));
+        return false;
+    }
+    capture.guide_domain_known = true;
+    capture.game_mv_low_resolution = (feature.create_flags & 2) != 0;
+    capture.mv_fallback_x = !binding.valid_motion_scale_x;
+    capture.mv_fallback_y = !binding.valid_motion_scale_y;
+    capture.render_width = guide_width; capture.render_height = guide_height;
+    capture.work_width = width; capture.work_height = height;
+    capture.mv_source_width = s.motion_source_width;
+    capture.mv_source_height = s.motion_source_height;
+    capture.mv_source_x = s.motion_x; capture.mv_source_y = s.motion_y;
+    capture.mv_to_work_x = source_to_work_x; capture.mv_to_work_y = source_to_work_y;
 
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)
@@ -10256,6 +10396,48 @@ void LogNrCreateMemory(const char* phase,const NrContext& context,NgxResult resu
         static_cast<unsigned long long>(perf.CommitPeak)*perf.PageSize);
 }
 
+#if defined(NR_CREATE_COMMIT_TEST)
+// Only test builds may replace the operating-system reading; production always
+// uses GlobalMemoryStatusEx at the actual new-model creation boundary.
+std::atomic<int> g_nr_create_commit_test_valid{-1};
+std::atomic<unsigned long long> g_nr_create_commit_test_available{0};
+std::atomic<unsigned long long> g_nr_create_commit_test_queries{0};
+#endif
+std::atomic<unsigned long long> g_nr_create_commit_pressure_declines{0};
+// A severe-pressure admission floor, not an estimate of opaque NGX allocation.
+constexpr unsigned long long kMinimumNrCreateAvailableCommitBytes=1ull<<30;
+struct NrCreateCommitHeadroom {bool valid=false;unsigned long long available=0;};
+NrCreateCommitHeadroom ReadNrCreateCommitHeadroom() {
+#if defined(NR_CREATE_COMMIT_TEST)
+    g_nr_create_commit_test_queries.fetch_add(1,std::memory_order_relaxed);
+#endif
+    MEMORYSTATUSEX system{};system.dwLength=sizeof(system);
+    bool valid=GlobalMemoryStatusEx(&system)!=FALSE;
+    unsigned long long available=valid?system.ullAvailPageFile:0;
+#if defined(NR_CREATE_COMMIT_TEST)
+    const int test_valid=g_nr_create_commit_test_valid.load(std::memory_order_relaxed);
+    if(test_valid>=0){valid=test_valid!=0;available=g_nr_create_commit_test_available.load(std::memory_order_relaxed);}
+#endif
+    return {valid,available};
+}
+bool DeferNrCreateForCommitPressure(NrContext& context) {
+    const auto [valid,available]=ReadNrCreateCommitHeadroom();
+    if(!valid){
+        static std::atomic<unsigned> unavailable{0};
+        const auto count=unavailable.fetch_add(1,std::memory_order_relaxed)+1;
+        if(count<=3||count%600==0)Log("[nr-create-commit] valid=0 admission=unchanged count=%u; no zero-as-OOM inference.",count);
+        return false;
+    }
+    if(available>=kMinimumNrCreateAvailableCommitBytes)return false;
+    context.next_create_retry_frame=context.frames_seen+300;
+    SetBypassReason(BypassReason::CommitHeadroomPressure);
+    const auto count=g_nr_create_commit_pressure_declines.fetch_add(1,std::memory_order_relaxed)+1;
+    if(count<=3||count%600==0)
+        Log("[nr-create-commit] valid=1 processAvailableCommitBytes=%llu floorBytes=%llu admission=deferred count=%llu; native SR/RR retained; retry after 300 frames or setting change. This floor does not predict opaque NR allocation.",
+            available,kMinimumNrCreateAvailableCommitBytes,count);
+    return true;
+}
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
@@ -10367,6 +10549,142 @@ nr_face_capture_geometry::OutputMapping ResolveFaceCaptureOutput(
         return {};
     return {width, height, true};
 }
+
+
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+// Only the baked normalization shader/admission are reused. No private NGX API,
+// model, owner, history, or additional initialization is created for temporal NR.
+bool PrepareNativeTemporalGuideSnapshot(ID3D12Device* device,ID3D12GraphicsCommandList* list,
+    NrSlot& slot,const NrGuideBinding& guides,const FeatureRecord& feature,const NgxParams* params,
+    unsigned nw,unsigned nh,unsigned ow,unsigned oh) {
+    if(!g_config.enabled||g_config.temporal_backend!=1||feature.feature_id!=1||!device||ID3D12Device_GetNodeCount(device)!=1||!list||!params||!guides.depth||!guides.motion||
+       guides.depth==guides.motion||!CanMutateSlotLocked(slot))return false;
+    slot.temporal_guide_prepared=slot.temporal_guide_recorded=false;
+    const auto source=nr_source_runtime::CurrentSource();
+    const auto identity=SnapshotPostBoundaryList(list);CommandListQueueMarker marker{};
+    if(!source||!identity.known||identity.address!=reinterpret_cast<unsigned long long>(list)||identity.reset==UINT64_MAX||
+       !ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
+       marker.stable_submissions<kRequiredStableQueueSubmissions||!marker.identity||
+       ID3D12GraphicsCommandList_GetType(list)!=D3D12_COMMAND_LIST_TYPE_DIRECT)return false;
+    nr_private_sr_guides::Input input{};input.enabled=true;input.reset=true;
+    input.source=input.snapshot_source={source.stream,source.epoch,source.sequence};
+    input.recording=input.snapshot_recording={reinterpret_cast<unsigned long long>(device),marker.identity,
+        reinterpret_cast<unsigned long long>(list),0,identity.reset+1};
+    input.signature=guides.signature;input.native_feature=unsigned(feature.feature_id);
+    input.native_flags=unsigned(feature.create_flags);input.native_flags_known=feature.create_flags_known;
+    input.read_boundary_snapshot=true;input.render_width=guides.signature.depth_width;input.render_height=guides.signature.depth_height;
+    input.work_width=nw;input.work_height=nh;input.output_width=ow;input.output_height=oh;
+    input.original_motion_scale_known=GetFloat(params,"MV.Scale.X",&input.original_motion_scale_x)&&GetFloat(params,"MV.Scale.Y",&input.original_motion_scale_y);
+    input.original_jitter_known=GetFloat(params,"Jitter.Offset.X",&input.original_jitter_x)&&GetFloat(params,"Jitter.Offset.Y",&input.original_jitter_y);
+    input.raster_convention=nr_private_sr_guides::RasterConvention::NgxViewportOffset;
+    if(!nr_private_sr_guides::PrepareScalars(input))return false;
+    unsigned depth_state=0,motion_state=0;
+    if(!nr_source_runtime::PrivateSrInputReadState(list,guides.depth,depth_state)||
+       !nr_source_runtime::PrivateSrInputReadState(list,guides.motion,motion_state))return false;
+    unsigned typed_depth=guides.signature.depth_format;
+    if(typed_depth==DXGI_FORMAT_R32_TYPELESS)typed_depth=DXGI_FORMAT_R32_FLOAT;
+    if(typed_depth==DXGI_FORMAT_R16_TYPELESS)typed_depth=DXGI_FORMAT_R16_UNORM;
+    if(typed_depth==DXGI_FORMAT_R24G8_TYPELESS)typed_depth=DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    if(typed_depth==DXGI_FORMAT_R32G8X24_TYPELESS)typed_depth=DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+    if(typed_depth!=41&&typed_depth!=54&&typed_depth!=46&&typed_depth!=21&&typed_depth!=56)return false;
+    if(guides.signature.motion_format!=16&&guides.signature.motion_format!=34)return false;
+    for(auto* resource:{guides.depth,guides.motion}){
+        const auto d=ID3D12Resource_GetDesc(resource);ID3D12Device* actual=nullptr;
+        const bool same=SUCCEEDED(ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void**>(&actual)))&&
+            actual&&IsSameRrDepthDevice(device,actual);ReleaseCom(actual);
+        if(!same||d.Dimension!=D3D12_RESOURCE_DIMENSION_TEXTURE2D||d.DepthOrArraySize!=1||d.SampleDesc.Count!=1||
+           !d.MipLevels||(d.Flags&D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))return false;
+    }
+    const auto dd=ID3D12Resource_GetDesc(guides.depth),md=ID3D12Resource_GetDesc(guides.motion);
+    if(unsigned(dd.Format)!=guides.signature.depth_format||unsigned(md.Format)!=guides.signature.motion_format||
+       dd.Width!=guides.signature.depth_physical_width||dd.Height!=guides.signature.depth_physical_height||
+       md.Width!=guides.signature.motion_physical_width||md.Height!=guides.signature.motion_physical_height)return false;
+    if(!slot.temporal_guide_root){
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0};
+        ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,2,0,0,2};
+        D3D12_ROOT_PARAMETER parameters[2]{};parameters[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable={2,ranges};parameters[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants={0,0,20};D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=parameters;
+        ID3DBlob *blob=nullptr,*errors=nullptr;auto hr=D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&errors);ReleaseCom(errors);
+        if(SUCCEEDED(hr))hr=ID3D12Device_CreateRootSignature(device,0,ID3D10Blob_GetBufferPointer(blob),ID3D10Blob_GetBufferSize(blob),
+            IID_ID3D12RootSignature,reinterpret_cast<void**>(&slot.temporal_guide_root));ReleaseCom(blob);if(FAILED(hr))return false;
+    }
+    if(!slot.temporal_guide_pso){
+        const auto code=nr_private_sr_artifacts::Kernels()[unsigned(nr_edit_dx12::Kernel::NormalizeGuides)];
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=slot.temporal_guide_root;desc.CS={code.data,code.bytes};
+        if(!code.data||!code.bytes||FAILED(ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+            reinterpret_cast<void**>(&slot.temporal_guide_pso))))return false;
+    }
+    if(!slot.temporal_guide_heap){D3D12_DESCRIPTOR_HEAP_DESC desc{};desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors=4;desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if(FAILED(ID3D12Device_CreateDescriptorHeap(device,&desc,IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&slot.temporal_guide_heap))))return false;}
+    if(!slot.temporal_depth||!slot.temporal_motion||slot.temporal_width!=nw||slot.temporal_height!=nh){
+        D3D12_RESOURCE_DESC desc[2]{};for(unsigned i=0;i<2;++i){auto& d=desc[i];d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            d.Width=nw;d.Height=nh;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
+            d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;d.Format=i?DXGI_FORMAT_R32G32_FLOAT:DXGI_FORMAT_R32_FLOAT;}
+        const auto da=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc[0]);
+        const auto ma=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc[1]);
+        if(!da.SizeInBytes||!ma.SizeInBytes||da.SizeInBytes>UINT64_MAX-ma.SizeInBytes)return false;
+        const auto bytes=da.SizeInBytes+ma.SizeInBytes;if(!FitsExtraResourcePeak(slot,bytes))return false;
+        ID3D12Resource *depth=nullptr,*motion=nullptr;
+        if(!CreateTexture(device,nw,nh,L"NRChain.TemporalNativeDepth",&depth,DXGI_FORMAT_R32_FLOAT)||
+           !CreateTexture(device,nw,nh,L"NRChain.TemporalNativeMotion",&motion,DXGI_FORMAT_R32G32_FLOAT)){
+            ReleaseCom(depth);ReleaseCom(motion);return false;}
+        g_extra_allocated_bytes+=bytes;ReleaseCom(slot.temporal_depth);ReleaseCom(slot.temporal_motion);
+        g_extra_allocated_bytes-=slot.temporal_guide_bytes;slot.temporal_guide_bytes=bytes;
+        slot.temporal_depth=depth;slot.temporal_motion=motion;slot.temporal_width=nw;slot.temporal_height=nh;
+        slot.temporal_depth_state=slot.temporal_motion_state=D3D12_RESOURCE_STATE_COMMON;
+    }
+    const auto stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.temporal_guide_heap);
+    for(unsigned i=0;i<2;++i){D3D12_SHADER_RESOURCE_VIEW_DESC d{};d.Format=DXGI_FORMAT(i?guides.signature.motion_format:typed_depth);
+        d.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;d.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;d.Texture2D.MipLevels=1;
+        ID3D12Device_CreateShaderResourceView(device,i?guides.motion:guides.depth,&d,cpu);cpu.ptr+=stride;}
+    for(unsigned i=0;i<2;++i){D3D12_UNORDERED_ACCESS_VIEW_DESC d{};d.Format=i?DXGI_FORMAT_R32G32_FLOAT:DXGI_FORMAT_R32_FLOAT;
+        d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;ID3D12Device_CreateUnorderedAccessView(device,i?slot.temporal_motion:slot.temporal_depth,nullptr,&d,cpu);cpu.ptr+=stride;}
+    ID3D12Resource_AddRef(guides.depth);ID3D12Resource_AddRef(guides.motion);
+    ReleaseCom(slot.temporal_depth_input);ReleaseCom(slot.temporal_motion_input);
+    slot.temporal_depth_input=guides.depth;slot.temporal_motion_input=guides.motion;
+    slot.temporal_guide_input=input;slot.temporal_snapshot_source=source;
+    slot.temporal_snapshot_recording=0;slot.temporal_guide_prepared=true;return true;
+}
+bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& slot){
+    if(!g_config.enabled||!g_config.temporal_backend||!slot.temporal_guide_prepared||slot.temporal_guide_recorded||!list)return false;
+    unsigned long long token=0;const auto source=nr_source_runtime::CurrentSource();
+    if(!source||!ReadLifecycleToken(list,token)||!token||
+       source.stream!=slot.temporal_snapshot_source.stream||source.epoch!=slot.temporal_snapshot_source.epoch||
+       source.sequence!=slot.temporal_snapshot_source.sequence)return false;
+    const auto identity=SnapshotPostBoundaryList(list);CommandListQueueMarker marker{};
+    const auto& expected=slot.temporal_guide_input.recording;
+    if(!identity.known||identity.address!=reinterpret_cast<unsigned long long>(list)||
+       expected.list!=reinterpret_cast<unsigned long long>(list)||identity.reset==UINT64_MAX||
+       identity.reset+1!=expected.reset||!ReadLastSubmissionQueueMarker(list,marker)||marker.flags||
+       marker.stable_submissions<kRequiredStableQueueSubmissions||marker.identity!=expected.queue)return false;
+    const auto* owner=FindLifecycleCommandListLocked(token);
+    bool owns_slot=false;
+    if(owner&&!owner->detached)for(unsigned i=0;i<owner->slot_count;++i)if(owner->slots[i]==&slot){owns_slot=true;break;}
+    if(!owns_slot)return false;
+    auto input=slot.temporal_guide_input;
+    input.recording.lifetime=input.snapshot_recording.lifetime=token;
+    const auto plan=nr_private_sr_guides::Prepare(input);if(!plan)return false;
+    unsigned ds=0,ms=0;if(!nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_depth_input,ds)||
+       !nr_source_runtime::PrivateSrInputReadState(list,slot.temporal_motion_input,ms))return false;
+    std::memcpy(slot.temporal_guide_constants,&plan.constants,sizeof(plan.constants));
+    slot.temporal_snapshot_recording=token;
+    Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12DescriptorHeap* heaps[]={slot.temporal_guide_heap};ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,heaps);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(list,slot.temporal_guide_root);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.temporal_guide_heap));
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,20,slot.temporal_guide_constants,0);
+    ID3D12GraphicsCommandList_SetPipelineState(list,slot.temporal_guide_pso);
+    ID3D12GraphicsCommandList_Dispatch(list,(slot.temporal_width+7)/8,(slot.temporal_height+7)/8,1);
+    UavBarrier(list,slot.temporal_depth);UavBarrier(list,slot.temporal_motion);
+    Transition(list,slot.temporal_depth,slot.temporal_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Transition(list,slot.temporal_motion,slot.temporal_motion_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    slot.temporal_guide_recorded=true;return true;
+}
+#endif
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
@@ -10831,6 +11149,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (first) {
+        if (DeferNrCreateForCommitPressure(*context)) return substitution;
         void *handle = nullptr;
         const NgxResult created = CreateSignedNrFeature(
             command_list, *context, feature, &handle);
@@ -11337,7 +11656,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     nr_regions::Prepare(device,*slot,sr_params,guides,context->width,context->height,feature.feature_id==13,
         post_sr_color_mode==CodecColorMode::ModelEncodedValueDomain);
-    if (!EnsureRrDepthSlot(device,*slot,guides)) {
+    // Like auxiliary layers, keep same-shape depth planes queue-ordered and
+    // seal per-recording descriptors below. Actual allocation/resize still
+    // requires the original slot and binding retirement checks.
+    if (!EnsureRrDepthSlot(device,*slot,guides,true)) {
         g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         ReleaseCom(device);return substitution;
@@ -11353,7 +11675,20 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
-    nr_regions::Seal(device,command_list,*context,*slot);
+    nr_binding::DescriptorSet rr_depth_bindings{};
+    if(guides.signature.linear_depth) {
+        rr_depth_bindings.Srv(0,guides.depth,static_cast<DXGI_FORMAT>(guides.signature.depth_format));
+        rr_depth_bindings.Uav(1,slot->rr_depth,DXGI_FORMAT_R32_FLOAT);
+    }
+    const bool primary_bindings_ready=nr_regions::Seal(device,command_list,*context,*slot,&rr_depth_bindings);
+    // Region-only failure may retain the existing ordinary composition fallback.
+    // A depth conversion must never fall back to an unsealed mutable heap.
+    if(guides.signature.linear_depth && !primary_bindings_ready) {
+        RejectRrDepth(RrDepthReject::DispatchBinding);
+        g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        ReleaseCom(device);return substitution;
+    }
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
@@ -11551,6 +11886,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (first) {
+        if (DeferNrCreateForCommitPressure(context)) {
+            PreservePostSrOnFailure(command_list, substitution);
+            return false;
+        }
         void *handle = nullptr;
         const NgxResult created = CreateSignedNrFeature(
             command_list, context, feature, &handle);
@@ -14578,6 +14917,35 @@ void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
 void ServiceFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
 void CleanupFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
 
+// A time anchor for the reported Esc transition. Reads ReShade's cached input
+// only for this foreground game window; never consumes keys, changes settings,
+// opens a capture, or waits for the GPU. Existing lifecycle logs carry the cause.
+// Called under screenshot_hotkey_lock; three observations per press at most.
+void ObserveMenuTransition(reshade::api::effect_runtime* runtime, ULONGLONG now_ms) {
+    static ULONGLONG started=0,last_press=0;
+    static unsigned phase=3;
+    const bool pressed=runtime->is_key_pressed(VK_ESCAPE);
+    if(!pressed&&phase>=3)return;
+    const HWND window=static_cast<HWND>(runtime->get_hwnd());
+    const HWND foreground=GetForegroundWindow();
+    if(!window||!foreground||GetAncestor(window,GA_ROOT)!=GetAncestor(foreground,GA_ROOT))return;
+    if(pressed&&now_ms-last_press>=250) {
+        started=last_press=now_ms;phase=0;
+    }
+    if(phase>=3)return;
+    const ULONGLONG elapsed=now_ms-started;
+    if((phase==1&&elapsed<500)||(phase==2&&elapsed<1500))return;
+    Log("[menu-transition] input=Esc observation=%u elapsedMs=%llu config=%u history=%u "
+        "bypass=%s carrierFeature=%d nrSuccess=%llu transferSubmitted=%llu rrEvaluations=%llu "
+        "NR=%ux%u output=%ux%u; key-time anchor only, not proof of menu state or final pixels.",
+        phase,elapsed,g_config_generation.load(),g_history_generation.load(),
+        BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())),
+        g_last_carrier_feature.load(),g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load(),
+        g_rr_passthrough_evaluations.load(),g_last_nr_width.load(),g_last_nr_height.load(),
+        g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
+    ++phase;
+}
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
     ServiceFaceDiagnosticSelection(runtime);
@@ -14597,6 +14965,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
         (screenshot_key_is_down && !screenshot_key_was_down);
     const ULONGLONG now_ms = GetTickCount64();
+    ObserveMenuTransition(runtime,now_ms);
 
     static bool feedback_key_was_down = false;
     static bool feedback_key_loaded=false;

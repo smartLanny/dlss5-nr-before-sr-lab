@@ -94,7 +94,7 @@ int main() {
 }
 '''
 harness = harness.replace("BUILD_IDENTITY", re.search(r'constexpr const char \*kBuildIdentity = [^;]+;', source).group(0))
-harness = harness.replace("CHAIN_CONFIG", definition(source, "struct ChainConfig", True))
+harness = harness.replace("CHAIN_CONFIG", definition(source, "struct ChainConfig {", True))
 harness = harness.replace("FINITE_OR", definition(source, "float FiniteOr("))
 harness = harness.replace("FORMATTER", definition(source, "bool FormatScreenshotPostfix("))
 with tempfile.TemporaryDirectory(prefix="nr-screenshot-label-") as temporary:

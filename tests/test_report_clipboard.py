@@ -17,7 +17,8 @@ class ReportClipboardTests(unittest.TestCase):
             self.skipTest("C++ compiler is required")
         source = (ROOT / "src/nr_before_sr.cpp").read_text(encoding="utf-8")
         start = source.index("bool CopyReportPathToClipboard(")
-        end = source.index("void OnReShadePresent(", start)
+        # Keep the clipboard seam bounded before the independent Esc observer.
+        end = source.index("void ObserveMenuTransition(", start)
         seam = source[start:end]
         harness = r'''
 #include <cassert>

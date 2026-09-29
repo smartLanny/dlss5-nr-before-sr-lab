@@ -31,36 +31,36 @@ void DrawEnergyGateOptions() {
         const bool guessed = status.cause == nr_energy_gate::Cause::Heuristic;
         ImGui::TextWrapped("%s", guessed ? ui(
             "Power saver active (heuristic): NR for the matching picture is paused; resources are retained.",
-            "省电已生效（猜测）：对应画面的 NR 已暂停，资源保持。") : ui(
+            "省电中：猜测暂停 NR。") : ui(
             "Power saver active (explicit game signal): NR for the matching picture is paused; resources are retained.",
-            "省电已生效（游戏明确信号）：对应画面的 NR 已暂停，资源保持。"));
+            "省电中：游戏已暂停 NR。"));
         if (guessed) SettingsNote(ui(
             "This is a speculative pause. If gameplay is still moving or the guess is wrong, press F8 and submit the report.",
-            "这是猜测性暂停。如果游戏仍在正常运行或判断错误，请按 F8 生成报告并反馈。"));
+            "误暂停时请按 F8 反馈。"));
     } else if (status.recently_resumed) {
-        SettingsNote(ui("NR resumed; history reset requested.", "NR 已恢复；已请求重置历史。"));
+        SettingsNote(ui("NR resumed; history reset requested.", "NR 已恢复。"));
     } else if (!status.conservative && !status.heuristic) {
         SettingsNote(ui("Power saving is off.", "省电已关闭。"));
     } else if (status.explicit_samples) {
-        SettingsNote(ui("Confirming the game's pause signal; NR is still running.", "正在确认游戏暂停信号；NR 仍在运行。"));
+        SettingsNote(ui("Confirming the game's pause signal; NR is still running.", "准备中：NR 继续运行。"));
     } else if (status.heuristic && status.guess_samples) {
-        ImGui::TextWrapped(zh ? "猜测候选：FG 源帧停滞 %u/4，等待 300 ms 确认。" :
+        ImGui::TextWrapped(zh ? "准备中：等待暂停确认（%u/4）。" :
             "Heuristic candidate: FG source stalled %u/4 observations; waiting for 300 ms confirmation.",
             status.guess_samples);
     } else if (status.conservative || status.heuristic) {
         ImGui::TextWrapped("%s", status.last_signal==1?ui(
             "Last game signal says rendering continues; NR remains on even in a menu. Heuristic pause cannot override it.",
-            "最近游戏信号仍为继续渲染，菜单中 NR 也会继续；猜测省电不会覆盖这个信号。"):
-            status.last_signal==4?ui("Pause observation has no proven picture ownership; NR remains on.","暂停观察尚未关联到可信画面来源，NR 继续运行。"):
-            !status.observations?ui("No FG pause observation while enabled. This does not detect menus or the ReShade overlay by appearance.","开启后尚未收到 FG 暂停观察；此功能不会根据外观识别游戏菜单或 ReShade 面板。"):
+            "NR 正在运行：游戏仍在渲染。"):
+            status.last_signal==4?ui("Pause observation has no proven picture ownership; NR remains on.","NR 正在运行：暂停来源未确认。"):
+            !status.observations?ui("No FG pause observation while enabled. This does not detect menus or the ReShade overlay by appearance.","NR 正在运行：尚无暂停信号。"):
             ui(
             "Waiting for usable pause evidence; NR is still running. Enabling this option alone does not save power.",
-            "等待可用暂停信号；NR 仍在运行。开启选项本身不代表已经节能。"));
+            "NR 正在运行：等待暂停信号。"));
     }
     if (status.persistence_failed)
         SettingsNote(ui(
             "The last power-saver change is active for this session but could not be saved. Check that the plugin folder is writable.",
-            "上一次省电选项修改已用于本次运行，但保存失败。请检查插件目录是否可写。"));
+            "省电设置未保存：请检查插件目录。"));
 }
 
 
@@ -102,10 +102,10 @@ void DrawCompatibilityFallbackNotice(const CompatibilityFallbackSnapshot &status
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     ImGui::TextWrapped("%s", status.recorded ? ui(
-        "Automatic compatibility route: SR -> NR. Recent NR processing was recorded.",
-        "已自动使用兼容后置：SR → NR；最近已记录到 NR 处理。") : ui(
-        "Trying the automatic compatibility route: SR -> NR. NR processing is not yet confirmed.",
-        "正在尝试兼容后置：SR → NR；暂未确认 NR 开始处理。"));
+        "After game SR: recent NR processing recorded.",
+        "已切到游戏 SR 后增强：有处理记录。") : ui(
+        "After game SR: preparing; NR unconfirmed.",
+        "游戏 SR 后增强：准备中。"));
     const char *cause = nullptr;
     switch (status.cause) {
     case 1:
@@ -133,8 +133,7 @@ void DrawCompatibilityFallbackNotice(const CompatibilityFallbackSnapshot &status
             "当前游戏前置画面尚不满足 NR 兼容条件。");
         break;
     }
-    ImGui::TextWrapped(ui("Reason: %s", "原因：%s"), cause);
-    SettingsNote(ui(
-        "Your pre-SR preference is retained. Please save an F8 report to help improve compatibility.",
-        "已保留你选择的前置设置；请按 F8 生成报告，帮助改善兼容性。"));
+    char hint[256]{};std::snprintf(hint,sizeof(hint),ui("Reason: %s. Saved position retained; save F8 if this persists.",
+        "原因：%s。所选位置已保留；持续无效请按 F8。"),cause);
+    SettingsTooltip(hint);
 }

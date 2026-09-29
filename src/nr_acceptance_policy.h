@@ -3,18 +3,36 @@
 
 // Session-only comparison policy. A successful recording is not a quality verdict.
 namespace nr_acceptance_policy {
-enum class Program : unsigned { Current, Colour, Temporal };
+enum class Program : unsigned { Current, Colour, Temporal, PrivateSr, LowFrequency, Screenshots };
 enum class Phase : unsigned { Warmup, Measure, Report, Capture, Complete };
-struct Step { const char* name; unsigned percent; int colour; int backend; unsigned scope; bool capture; };
-inline unsigned Count(Program p) { return p==Program::Current?1u:p==Program::Colour?6u:5u; }
+enum class ScreenshotPhase : unsigned { Warmup, Measure, Capture };
+constexpr unsigned kScreenshotWarmupSamples=180,kScreenshotGpuSamples=600;
+constexpr std::uint64_t kScreenshotWarmupTimeoutMs=20000,kScreenshotMeasureTimeoutMs=60000;
+struct Step { const char* name; unsigned percent; int colour; int backend; unsigned scope; bool capture; int private_sr=-1,temporal_mode=-1; };
+inline unsigned Count(Program p) { return p==Program::Current?1u:p==Program::Colour?6u:p==Program::Temporal?5u:p==Program::PrivateSr?3u:p==Program::Screenshots?9u:2u; }
 inline Step Get(Program p,unsigned i,bool before) {
+    if(p==Program::Screenshots){
+        static constexpr Step shots[]={{"native-no-NR",100,-1,0,0,false,0,0},
+            {"NR100-spatial",100,-1,0,0,false,0,0},{"NR50-spatial",50,-1,0,0,false,0,0},
+            {"NR50-private-SR",50,-1,0,0,false,1,0},{"NR25-spatial",25,-1,0,0,false,0,0},
+            {"NR25-private-SR",25,-1,0,0,false,1,0},{"NR50-native-motion",50,-1,1,0,false,0,0},
+            {"NR50-AMDOF",50,-1,2,0,false,0,0},{"NR50-AMDOF-low-frequency",50,-1,2,0,false,0,1}};
+        return shots[i<9?i:0];
+    }
     if(p==Program::Current)return {"current",0,-1,-1,0,false};
     if(p==Program::Colour){
         static constexpr Step values[]={{"scale-100",100,-1,0,0,true},{"scale-99",99,-1,0,0,true},
             {"scale-low",0,-1,0,0,true},{"colour-0",0,0,0,0,false},
-            {"colour-0.7",0,7,0,0,false},{"colour-1",0,10,0,0,false}};
+            {"colour-0.5",0,5,0,0,false},{"colour-1",0,10,0,0,false}};
         auto s=values[i<6?i:0];if(i==2)s.percent=before?50:25;return s;
     }
+    if(p==Program::PrivateSr){
+        const unsigned low=before?50u:25u;
+        if(i==0)return {"low-spatial-recovery",low,-1,0,0,false,0};
+        if(i==1)return {"low-private-residual-sr",low,-1,0,0,false,1};
+        return {"high-spatial-recovery",100,-1,0,0,false,0};
+    }
+    if(p==Program::LowFrequency)return i==0?Step{"ordinary-accumulation",0,-1,2,0,false,0,0}:Step{"low-frequency-reconstruction",0,-1,2,0,false,0,1};
     static constexpr Step values[]={{"temporal-off",0,-1,0,0,false},
         {"native-whole",0,-1,1,0,false},{"amd-whole",0,-1,2,0,false},
         {"native-later",0,-1,1,1,false},{"amd-later",0,-1,2,1,false}};

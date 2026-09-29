@@ -63,7 +63,7 @@ enum class NrJitterMode : int { Legacy = 0, GameInputPixel = 1 };
 
 def config_code() -> str:
     return "\n".join([
-        definition(source, "struct ChainConfig", True),
+        definition(source, "struct ChainConfig {", True),
         "ChainConfig g_config;",
         definition(source, "float FiniteOr("),
         definition(source, "void NormalizeConfig("),
@@ -131,7 +131,9 @@ int main() {
 
     def test_face_controls_round_trip(self) -> None:
         layer_ui=source_path.with_name("nr_layers_ui.inl").read_text(encoding="utf-8-sig")
-        start=layer_ui.index('        NrLayerField(zh?"原生皮肤遮罩":"Native skin mask"')
+        # Locate the production control by its stable ID and field, not translated copy.
+        control_at=layer_ui.index('ImGui::Checkbox("##native-mask",&model.auto_mask)')
+        start=layer_ui.rindex('        NrLayerField(',0,control_at)
         end=layer_ui.index('        ImGui::EndDisabled();',start)+len('        ImGui::EndDisabled();')
         controls=layer_ui[start:end]
         self.run_cpp("face-ui", config_code() + r'''

@@ -4,31 +4,46 @@ void DrawTemporalOptions(ChainConfig& next,bool& changed,bool& discrete){
     const char* modes[]={ui("Off","关闭"),ui("Native motion","原生运动"),"AMDOF"};
     for(unsigned i=0;i<3;++i){if(i)ImGui::SameLine();ImGui::PushID(int(i));
         if(ImGui::RadioButton(modes[i],next.temporal_backend==i)){next.temporal_backend=i;changed=discrete=true;}ImGui::PopID();}
+    SettingsHelp(ui("Motion aligns earlier NR edits; it does not denoise by itself. AMDOF also supports enhancement after successful game RR. Private SR and stabilization cannot run together.",
+        "运动数据用于对齐旧画面，本身不降噪。AMDOF 也支持在成功的游戏 RR 后增强。私有 SR 与防闪不能同时使用。"));
     ImGui::BeginDisabled(next.temporal_backend==0);
     if(ImGui::RadioButton(ui("Whole chain","整链"),next.temporal_scope==0)){next.temporal_scope=0;changed=discrete=true;}
     ImGui::SameLine();if(ImGui::RadioButton(ui("Later layers","后续层"),next.temporal_scope==1)){next.temporal_scope=1;changed=discrete=true;}
     ImGui::EndDisabled();
-    SettingsNote(ui("AMDOF supports native SR before/after NR and successful RR followed by NR. SDR and declared linear HDR with valid exposure are supported. Pre-SR uses whole-chain scope. Other inputs retain the current NR result.",
-        "AMDOF 支持原生 SR 前后增强及成功 RR 后增强；可处理 SDR 和曝光有效的线性 HDR。前置限整链范围，其余输入保留当前 NR 结果。"));
-    SettingsNote(ui("Native motion currently requires a proven post-SR SDR snapshot. HDR uses AMDOF here. The flow guide is compressed; HDR highlights and signed edits remain linear. This does not replace model guides or remove existing ghosts.",
-        "原生运动目前需后置 SR 的 SDR 安全快照；HDR 请选 AMDOF。只压缩光流识别用画面，HDR 高光和修改量保持线性；不替换模型导引，也不保证消除已有拖影。"));
-    if(next.temporal_scope&&next.nr_passes<2)SettingsNote(ui("Later-layer scope is unavailable with one layer; the selection is retained.","仅一层时后续层范围不可用，保留所选范围。"));
+    ImGui::BeginDisabled(next.temporal_backend==0);
+    if(ImGui::RadioButton(ui("Normal accumulation","普通累积"),next.temporal_mode==0)){next.temporal_mode=0;changed=discrete=true;}
+    ImGui::SameLine();
+    if(ImGui::RadioButton(ui("Low-frequency reconstruction###Low-frequency reconstruction","低频时域###低频时域重建"),next.temporal_mode==1)){next.temporal_mode=1;changed=discrete=true;}
+    ImGui::EndDisabled();
+    SettingsHelp(ui("Low-frequency mode stabilizes broad edits while retaining current fine detail. Native motion needs a verified post-SR picture; game RR and Present use AMDOF. These options do not guarantee ghost removal.",
+        "低频模式稳定大范围改动，保留当前帧细节。原生运动需要已确认的游戏 SR 后画面；游戏 RR 后和 Present 使用 AMDOF。不保证消除拖影。"));
+    if(next.temporal_scope&&next.nr_passes<2)SettingsNote(ui("Not applied: later layers need at least two layers.","未生效：后续层需要至少两层。"));
     if(next.temporal_backend){
         const auto state=nr_temporal_status::state.load();const auto tick=nr_temporal_status::last_tick.load();
-        if(state==8&&GetTickCount64()-tick<2000)SettingsNote(ui("Stabilization was submitted for a recent source frame. Check F8 for adoption counts.","最近源帧已提交防闪处理；F8 可查看实际采用次数。"));
-        else if(state==9)SettingsNote(ui("Recording fault: resources quarantined. Save F8 and restart after disabling the experiment.","录制异常，资源已隔离。保存 F8，关闭实验后重启。"));
-        else if(state==6)SettingsNote(ui("Waiting for a recording/resource slot; current NR result retained.","等待录制／资源槽，保留当前 NR 结果。"));
-        else if(state==3)SettingsNote(ui("Creation budget or resource retirement unavailable; current NR result retained.","创建预算或资源退休条件不足，保留当前 NR 结果。"));
-        else if(state==5)SettingsNote(ui("Native motion source, units or sampling phase could not be proven. AMDOF is a separate manual choice.","尚不能确认原生运动来源、单位或采样相位。可手动另选 AMDOF。"));
-        else if(state==15)SettingsNote(ui("The current source did not provide motion vectors.","当前来源未提供运动向量。"));
-        else if(state==16)SettingsNote(ui("Native motion was provided, but its units are invalid or unverified.","已提供原生运动，但单位无效或未确认。"));
-        else if(state==17)SettingsNote(ui("Native motion exists, but a safe snapshot was not prepared; NR continues without stabilization.","原生运动存在，但尚未取得安全快照；继续 NR，暂不执行防闪。"));
-        else if(state==18)SettingsNote(ui("Pre-SR later-layer anchor is not proven; choose whole chain to use the supported AMDOF route.","前置后续层锚点尚未确认；整链范围才支持此 AMDOF 路线。"));
-        else if(state==19)SettingsNote(ui("Native motion phase is not proven on this route. AMDOF is a separate manual choice.","此路线尚不能确认原生运动相位；AMDOF 是独立的手动选项。"));
-        else if(state==20)SettingsNote(ui("Snapshot allocation was refused; the current NR result is retained without stabilization. Save and upload F8 feedback.","防闪快照分配被拒绝；保留当前 NR 结果，暂不防闪。请保存并上传 F8 反馈。"));
-        else if(state==10)SettingsNote(ui("The source encoding, same-frame exposure or native route is unverified. Keep the current NR result; F8 records the reason.","来源编码、同帧曝光或原生路线尚未确认，保留当前 NR 结果；F8 可查看原因。"));
-        else if(state==12)SettingsNote(ui("Current candidate format or active snapshot does not match the temporal consumer; NR result retained.","当前候选格式或有效区域快照不满足防闪输入约定，保留 NR 结果。"));
-        else if(state==13)SettingsNote(ui("Repeated source frame; no additional flow or history work.","重复源帧，不追加光流或历史工作。"));
-        else SettingsNote(ui("Waiting for the supported route and source/queue evidence; selection alone does not mean stabilization is running.","等待支持的路线及来源／队列证据；选择功能不代表已经执行防闪。"));
+        if(next.private_residual_sr)SettingsNote(ui("Not applied: turn off private SR first.","未生效：请先关闭私有 SR。"));
+        else if(state==8&&GetTickCount64()-tick<2000)SettingsNote(ui("Processing submitted; image adoption unverified.","已提交处理；画面采用待确认。"));
+        else if(state==9)SettingsNote(ui("Not applied: recording fault. Save F8 and restart.","未生效：处理异常。保存 F8 后重启。"));
+        else if(state==6||state==3)SettingsNote(ui("Preparing: waiting for resources.","准备中：等待资源。"));
+        else if(state==5||state==16||state==19)SettingsNote(ui("Not applied: motion data unverified.","未生效：运动数据未确认。"));
+        else if(state==15)SettingsNote(ui("Not applied: no motion data.","未生效：缺少运动数据。"));
+        else if(state==17||state==20)SettingsNote(ui("Not applied: picture copy unavailable.","未生效：画面快照不可用。"));
+        else if(state==18)SettingsNote(ui("Not applied: select Whole chain for this route.","未生效：此路线请选择整链。"));
+        else if(state==10)SettingsNote(ui("Not applied: picture source or exposure unverified.","未生效：画面来源或曝光未确认。"));
+        else if(state==12)SettingsNote(ui("Not applied: picture format unavailable.","未生效：画面格式不适用。"));
+        else if(state==13)SettingsNote(ui("Preparing: waiting for a new game frame.","准备中：等待新的游戏画面。"));
+        else SettingsNote(ui("Preparing: waiting for a supported route.","准备中：等待可用路线。"));
+        SettingsHelp(ui("A submitted frame is not proof of history adoption. F8 has the exact source, queue and reason.",
+            "已提交不代表采用历史；F8 可查看来源、队列和具体原因。"));
+        if(ImGui::CollapsingHeader(ui("History adoption details###temporal-adoption","历史采用详情###temporal-adoption"))) {
+            const auto gpu_config=nr_temporal_status::gpu_config.load();
+            const auto gpu_instance=nr_temporal_status::gpu_instance.load();
+            if(gpu_config==g_config_generation.load()&&gpu_instance&&nr_temporal_status::gpu_frames.load())
+                ImGui::Text(ui("GPU history samples (owner %llu): tested %llu, adopted %llu, rejected %llu",
+                    "GPU 历史抽样（实例 %llu）：检测 %llu、采用 %llu、拒绝 %llu"),gpu_instance,
+                    nr_temporal_status::gpu_tested.load(),nr_temporal_status::gpu_adopted.load(),nr_temporal_status::gpu_rejected.load());
+            else SettingsNote(ui("No matching GPU adoption samples yet.","暂无当前设置的 GPU 采用抽样。"));
+            SettingsHelp(ui("One decision per 8x8 pixels after GPU completion; this is not a final image quality verdict.",
+                "GPU 完成后每 8×8 像素抽样一次；不代表最终画质。"));
+        }
     }
 }

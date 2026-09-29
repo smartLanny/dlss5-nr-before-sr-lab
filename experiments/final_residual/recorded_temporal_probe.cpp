@@ -43,7 +43,7 @@ void native_pixels(Host& host,Scope scope,bool hdr=false){
         const unsigned mw=69,mh=53;std::vector<float> mv(mw*mh*2,99.f);
         for(unsigned y=1;y<50;++y)for(unsigned x=2;x<67;++x){mv[(y*mw+x)*2]=-2;mv[(y*mw+x)*2+1]=-1;}
         auto motion=upload_pixels(host,mw,mh,DXGI_FORMAT_R32G32_FLOAT,8,mv.data());
-        RecordedInputs in;in.settings.enabled=true;in.settings.scope=scope;in.layers=scope==Scope::LaterLayers?5:1;
+        RecordedInputs in;in.settings.enabled=true;in.settings.validation=Validation::Legacy;in.settings.scope=scope;in.layers=scope==Scope::LaterLayers?5:1;
         in.frame={{9+unsigned(scope),1,seq},{1,1,1,w,h,Backend::NativeMotion,scope,{0,0,w,h,1,1}},timestamp,seq==6};
         if(hdr){in.frame.contract.color_domain=kResidualLinearScene;in.frame.source_to_scene=1/exposure;}
         in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -71,7 +71,7 @@ void native_pixels(Host& host,Scope scope,bool hdr=false){
         host.execute();check(owner.submitted(host.done.Get(),host.value),"actual host Execute+Signal adoption");
         check(owner.record(host.list.Get(),in)==RecordResult::Duplicate,"FG duplicate does not advance history");
         const auto pixels=host.readback(z.Get(),8);const bool use=seq>1&&seq!=5&&seq!=6;
-        const float weight=std::exp2(-float(dt)/39000.f);
+        const float weight=.5f; // Explicit legacy fixed-weight oracle.
         for(unsigned y=0;y<th;++y)for(unsigned x=0;x<tw;++x){const bool inside=x>=3&&x<w+3&&y>=2&&y<h+2;
             for(unsigned c=0;c<3;++c){float expected=.875f;
                 if(inside){const auto p=(y-2)*w+x-3;float r=current[p*3+c];
@@ -106,13 +106,13 @@ void amd_pixels(Host& host,bool hdr=false,bool packed=false){
         auto b=packed?upload_pixels(host,w,source_height,DXGI_FORMAT_R11G11B10_FLOAT,4,packed_data.data()):
             upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,base.data());
         auto z=upload_pixels(host,w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,8,target.data(),true);
-        RecordedInputs in;in.settings.enabled=true;in.frame=frame_for(seq,33);in.frame.source_time=seq*16000;
+        RecordedInputs in;in.settings.enabled=true;in.settings.validation=Validation::Legacy;in.frame=frame_for(seq,33);in.frame.source_time=seq*16000;
         if(hdr){in.frame.contract.color_domain=kResidualLinearScene;in.frame.source_to_scene=1/exposure;}
         in.original=b.Get();in.original_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         in.candidate=z.Get();in.candidate_format=DXGI_FORMAT_R16G16B16A16_FLOAT;in.candidate_state=D3D12_RESOURCE_STATE_COPY_SOURCE;
         host.begin();check(owner.record(host.list.Get(),in)==RecordResult::Recorded,owner.status());
         host.execute();check(owner.submitted(host.done.Get(),host.value),"AMD recorded last-consumer submission");
-        auto pixels=host.readback(z.Get(),8);const bool use=seq>=7&&seq<=11;const float weight=std::exp2(-16.f/39.f);
+        auto pixels=host.readback(z.Get(),8);const bool use=seq>=7&&seq<=11;const float weight=.5f; // Explicit legacy fixed-weight oracle.
         unsigned matched=0,total=0;std::vector<float> next(w*h*3);
         for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){auto p=y*w+x;bool ok=true;
             for(unsigned c=0;c<3;++c){const float bvalue=unhalf(reinterpret_cast<unsigned char*>(&base[p*4+c]));
@@ -258,7 +258,8 @@ void finite_pixels(Host& host,bool hdr=false){
     }
 }
 }
-int main(){try{std::setvbuf(stdout,nullptr,_IONBF,0);policy_checks();Host host;native_pixels(host,Scope::WholeChain);native_pixels(host,Scope::LaterLayers);
+#include "recorded_temporal_quality_probe.inl"
+int main(){try{std::setvbuf(stdout,nullptr,_IONBF,0);policy_checks();Host host;quality_invariants(host);native_pixels(host,Scope::WholeChain);native_pixels(host,Scope::LaterLayers);
     amd_pixels(host);native_pixels(host,Scope::WholeChain,true);native_pixels(host,Scope::LaterLayers,true);amd_pixels(host,true);amd_pixels(host,true,true);cancel_and_budget(host);recording_leases(host);replay_retirement(host);finite_pixels(host);finite_pixels(host,true);host.validate_debug();
     std::printf("PASS recorded Core seam checks=%u; GPU tests, no game claim\n",checks);return 0;
 }catch(const std::exception& e){std::printf("FAIL %s checks=%u\n",e.what(),checks);return 1;}}

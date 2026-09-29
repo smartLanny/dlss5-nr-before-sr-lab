@@ -7,11 +7,11 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     ImGui::PushID("nr-colour-lab-m3b");
     ImGui::Separator();
-    SettingsField(ui("Colour / structure recovery [M3b experiment]", "画质对比：颜色与结构恢复 [M3b 实验]"));
+    SettingsField(ui("Colour / structure recovery [M3b experiment]", "颜色与结构实验"));
     int mode = static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));
     if (ImGui::Combo(ui("Colour policy###colour-lab-mode", "颜色策略###colour-lab-mode"), &mode,
         ui("Legacy: original configured policy\0Colour priority [experimental]\0Conservative: limit unverified HDR\0",
-           "旧版：保留原配置策略\0颜色优先 [实验]\0保守限制：未验证 HDR 仅明暗\0"))) {
+           "原设置\0颜色优先（实验）\0保守 HDR\0"))) {
         next.colour_lab_mode = mode;
         changed = true;
         apply_discrete_edit = true;
@@ -22,7 +22,7 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
     int recovery = nr_colour_restore::Normalize(next.colour_restore_mode);
     if (ImGui::Combo(ui("Recovery###colour-restore", "恢复算法###colour-restore"), &recovery,
         ui("D21 baseline composition\0Matched RGB + D21 protections\0Raw model RGB edit reference [diagnostic]\0",
-           "D21 基线合成\0匹配 RGB + D21 保护\0原始模型 RGB 修改参考 [诊断]\0"))) {
+           "D21 基准\0RGB 恢复\0原始 RGB（诊断）\0"))) {
         next.colour_restore_mode = recovery;
         changed = true;
         apply_discrete_edit = true;
@@ -45,7 +45,7 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
     int inputCurve = nr_colour_restore::Normalize(next.colour_input_curve);
     if (ImGui::Combo(ui("HDR input curve###colour-input-curve", "HDR 输入曲线###colour-input-curve"), &inputCurve,
         ui("D21 input unchanged\0Paired N2 HDR [experimental; resets NR history]\0",
-           "保留 D21 原输入\0成对 N2 HDR [实验；重建 NR 历史]\0"))) {
+           "D21 原输入\0N2 HDR（实验）\0"))) {
         next.colour_input_curve = inputCurve;
         changed = true;
         apply_discrete_edit = true;
@@ -56,7 +56,7 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
     int scaledPrep = nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
     if (ImGui::Combo(ui("Sub-native NR input###colour-scaled-proxy", "低于 100% 的 NR 输入###colour-scaled-proxy"), &scaledPrep,
         ui("D21: scale source, then encode\0Proxy-first exact-area [99/100 diagnostic]\0",
-           "D21：先缩放场景，再编码\0先编码 Proxy，再精确缩放 [99/100 诊断]\0"))) {
+           "先缩放\0先编码（诊断）\0"))) {
         next.colour_scaled_proxy_mode = scaledPrep;
         changed = true;
         apply_discrete_edit = true;
@@ -87,15 +87,15 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
     // A pending UI edit must not label the preceding dispatch as its result.
     if (changed || has_pending || sample.config_generation != generation) {
         SettingsNote(ui("Candidate selected; waiting for the normal settings transaction and a matching composition sample.",
-            "已选择候选，等待设置提交与对应合成记录。"));
+            "准备中：等待处理记录。"));
     } else if (sample.status != NrColorPolicyStatus::Current) {
         SettingsNote(NrColorPolicyStatusText(sample.status, zh));
         if (sample.status == NrColorPolicyStatus::Bypassed)
             SettingsNote(ui("The native path is retained. Collect F8 and submit a BUG before changing compatibility settings.",
-                "游戏原链路已保留。请先按 F8 收集并提交 BUG，再调整兼容选项。"));
+                "未生效：保留游戏原画面。"));
     } else {
         ImGui::TextWrapped(ui("Recent recorded combine: requested colour %.2f; effective coefficient %.2f.",
-                             "最近录制的合成：请求色彩 %.2f；实际系数 %.2f。"),
+                             "色彩记录：请求 %.2f／录制 %.2f"),
             sample.policy.requested_color_strength, sample.policy.effective_color_strength);
         ImGui::TextWrapped("%s: %s", ui("Reason", "原因"), NrColorReasonName(sample.policy.color_reason));
         ImGui::TextWrapped("%s: %s", ui("Recorded recovery", "已录制恢复算法"),
@@ -119,7 +119,7 @@ void DrawColourLabControls(ChainConfig &next, unsigned generation,
                 ? ui("Source reference: post-SR/RR EncodeCS", "原图参考：后置 SR/RR EncodeCS")
                 : ui("Source reference: pre-SR EncodeV2CS", "原图参考：前置 EncodeV2CS"));
         SettingsNote(ui("Recorded constants are not proof of GPU completion, presentation or a visible colour difference.",
-            "这是已录制常量，不代表 GPU 已完成、已呈现或模型一定产生了可见色彩差异。"));
+            "仅处理记录，画质尚未验证。"));
     }
     ImGui::Separator();
     ImGui::PopID();

@@ -1,0 +1,125 @@
+// Appended to the shared WARP/ReShade environment by validate-primary-rr-depth.py.
+// Ensure/Seal calls below are copied from the real primary PrepareAfterSr.
+bool PreparePrimary(ID3D12Device* device, ID3D12GraphicsCommandList* command_list,
+                    NrContext& owner, NrSlot& image, const NrGuideBinding& guides) {
+    auto* context=&owner; auto* slot=&image; NgxParams params{};
+    nr_regions::Prepare(device,*slot,&params,guides,32,24,true,false);
+    if(!@ENSURE_CALL@) return false;
+    @DEPTH_PLAN@
+    return @SEAL_CALL@;
+}
+ID3D12Resource* CopyDepth(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrSlot& slot) {
+    const auto desc=ID3D12Resource_GetDesc(slot.rr_depth);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0;
+    device->lpVtbl->GetCopyableFootprints(device,&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
+    D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;
+    d.Height=d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES hp{};hp.Type=D3D12_HEAP_TYPE_READBACK;ID3D12Resource* read=nullptr;
+    HR(ID3D12Device_CreateCommittedResource(device,&hp,D3D12_HEAP_FLAG_NONE,&d,
+        D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void**>(&read)),"depth readback allocation");
+    Transition(list,slot.rr_depth,slot.rr_depth_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION dst{};dst.pResource=read;dst.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;dst.PlacedFootprint=footprint;
+    D3D12_TEXTURE_COPY_LOCATION src{};src.pResource=slot.rr_depth;src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    ID3D12GraphicsCommandList_CopyTextureRegion(list,&dst,0,0,0,&src,nullptr);
+    Transition(list,slot.rr_depth,slot.rr_depth_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    return read;
+}
+int main() {
+    setvbuf(stdout,nullptr,_IONBF,0);setvbuf(stderr,nullptr,_IONBF,0);
+    std::printf("Primary RR depth: real ReShade/WARP; no NGX; no game\n");
+    IDXGIFactory4* factory=nullptr;IDXGIAdapter* warp=nullptr;ID3D12Device *proxy=nullptr,*device=nullptr;
+    HR(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
+    HR(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&warp)),"WARP");
+    HR(D3D12CreateDevice(reinterpret_cast<IUnknown*>(warp),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void**>(&proxy)),"device");
+    IUnknown* unwrapped=nullptr;
+    HR(proxy->lpVtbl->QueryInterface(proxy,kRrDepthUnwrappedObject,reinterpret_cast<void**>(&unwrapped)),"unwrap");
+    HR(unwrapped->lpVtbl->QueryInterface(unwrapped,IID_ID3D12Device,reinterpret_cast<void**>(&device)),"native device");ReleaseCom(unwrapped);
+    Check(proxy!=device&&IsSameRrDepthDevice(proxy,device),"real proxy/native identity");
+    g_codec.device=device;g_codec.descriptor_size=ID3D12Device_GetDescriptorHandleIncrementSize(device,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    QueueFixture queue{};D3D12_COMMAND_QUEUE_DESC qd{};
+    HR(ID3D12Device_CreateCommandQueue(device,&qd,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue.queue)),"queue");
+    HR(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&queue.fence)),"fence");
+    ID3D12Fence* gate=nullptr;HR(ID3D12Device_CreateFence(device,0,D3D12_FENCE_FLAG_NONE,IID_ID3D12Fence,reinterpret_cast<void**>(&gate)),"gate");
+    std::array<ID3D12Resource*,9> inputs{};
+    for(unsigned i=0;i<inputs.size();++i) {
+        std::vector<float> values(32*24,i?4.f:2.f);
+        inputs[i]=UploadTexture(queue,device,32,24,DXGI_FORMAT_R32_FLOAT,4,Bytes(values));
+    }
+    LifecycleQueue lifecycle{queue.queue,queue.fence,7001};auto& context=g_contexts[0];NrSlot slot{};
+    NrGuideBinding guides{};guides.signature.linear_depth=true;guides.signature.depth_width=32;guides.signature.depth_height=24;
+    guides.depth=inputs[0];
+    // A second queue with withheld completion produces actual pending fences,
+    // not a manufactured elapsed-frame or fake completion predicate.
+    HR(ID3D12CommandQueue_Wait(queue.queue,gate,1),"hold actual queue");
+    std::vector<Recording> recordings;std::vector<ID3D12Resource*> readbacks;
+    NrBindingPacket *first=nullptr,*second=nullptr;unsigned long long fence=0;
+    auto record=[&](unsigned input,bool dispatch) {
+        auto r=MakeRecording(device);SetStableMarker(r.list,7001);guides.depth=inputs[input];
+        const bool prepared=PreparePrimary(device,r.list,context,slot,guides);
+        if(!prepared) {gate->lpVtbl->Signal(gate,1);if(fence)WaitFence(queue.fence,fence,10000,"failed run drain");}
+        Check(prepared,"same-queue in-flight primary RR preparation must not require mutable descriptors");
+        auto* packet=slot.compose_binding;
+        if(recordings.size()==1)Check(packet&&packet->heaps[nr_binding::Depth]&&packet->heaps[nr_binding::Consumer],
+            "region-OFF primary has immutable Depth AND codec Consumer binding");
+        if(input==0&&recordings.empty())first=packet;
+        if(recordings.size()==1){second=packet;Check(second!=first,"rotating depth receives separate packet");}
+        if(recordings.size()==2)Check(packet==first,"A/B/A reuses immutable A packet");
+        Check(RecordNrUseLocked(r.list,context,slot),"main plane recording lease");
+        if(dispatch){Check(DispatchRrDepth(r.list,slot,guides),"production depth dispatch");readbacks.push_back(CopyDepth(device,r.list,slot));}
+        HR(ID3D12GraphicsCommandList_Close(r.list),"close");fence=Submit(queue,r);
+        if(packet)Commit(context,*packet,lifecycle,fence);
+        else {context.pending_recording_token=0;context.last_submission_queue=&lifecycle;context.completion_fence_value=fence;}
+        slot.last_submission_queue=&lifecycle;slot.completion_fence_value=fence;
+        recordings.push_back(r);
+    };
+    record(0,true);
+    Check(!CanMutateSlotLocked(slot)&&ID3D12Fence_GetCompletedValue(queue.fence)<fence,"actual pending slot before second primary");
+    record(1,true);record(0,true);
+    Check(first->plan.heaps[nr_binding::Depth].views[0].resource==inputs[0]&&
+          second->plan.heaps[nr_binding::Depth].views[0].resource==inputs[1],"old Depth descriptors retain original sources");
+    std::printf("QUEUED: A/B/A recorded with old heap sources preserved; regions OFF\n");
+    auto* plane=slot.rr_depth;const auto bytes=g_extra_allocated_bytes;
+    auto resized=guides;resized.signature.depth_width=31;
+    Check(!EnsureRrDepthSlot(device,slot,resized,true)&&g_rr_depth_last_reject==RrDepthReject::SlotBusy,
+          "in-flight depth resize remains rejected");
+    Check(slot.rr_depth==plane&&g_extra_allocated_bytes==bytes,"resize refusal does not replace or allocate");
+    for(unsigned kind=0;kind<2;++kind){
+        auto r=MakeRecording(device);if(kind)SetStableMarker(r.list,8002);
+        Check(!PreparePrimary(device,r.list,context,slot,guides),"unknown/foreign queue stays rejected");
+        HR(ID3D12GraphicsCommandList_Close(r.list),"negative close");ReleaseCom(r.list);ReleaseCom(r.allocator);
+    }
+    for(unsigned i=2;i<8;++i)record(i,false);
+    auto overflow=MakeRecording(device);SetStableMarker(overflow.list,7001);guides.depth=inputs[8];
+    Check(!PreparePrimary(device,overflow.list,context,slot,guides)&&
+          nr_regions::binding_reason==nr_binding::Refusal::InFlightCapacity,"ninth live Depth plan remains bounded");
+    HR(ID3D12GraphicsCommandList_Close(overflow.list),"overflow close");ReleaseCom(overflow.list);ReleaseCom(overflow.allocator);
+    std::printf("NEGATIVES: resize, unknown queue, foreign queue, eight-packet capacity retained\n");
+    HR(gate->lpVtbl->Signal(gate,1),"release gate");WaitFence(queue.fence,fence,30000,"exact completion");
+    const float expected[]{.75f,.875f,.75f};
+    for(unsigned i=0;i<readbacks.size();++i){void* mapped=nullptr;D3D12_RANGE range{0,4};
+        HR(ID3D12Resource_Map(readbacks[i],0,&range,&mapped),"sample map");const float value=*static_cast<float*>(mapped);
+        D3D12_RANGE empty{};ID3D12Resource_Unmap(readbacks[i],0,&empty);
+        Check(std::fabs(value-expected[i])<1e-6f,"queued source-specific depth shader result");
+        std::printf("PIXEL %u: %.6f\n",i,value);ReleaseCom(readbacks[i]);}
+    ResetFixtureLeases(context);slot.recording_command_lists=0;
+    Check(CanMutateSlotLocked(slot),"exact completion plus reset permits replacement");
+    Check(EnsureRrDepthSlot(device,slot,resized,true)&&ID3D12Resource_GetDesc(slot.rr_depth).Width==31,"retired resize recovers");
+    Check(EnsureRrDepthSlot(device,slot,guides,true),"restore original guide shape");
+    // Optional regions and Depth must coexist in one packet, not two pools.
+    Check(CreateTexture(device,32,24,L"proxy",&slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT),"proxy");
+    Check(CreateTexture(device,32,24,L"neural",&slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT),"neural");
+    g_config.region_enabled=true;auto region=MakeRecording(device);SetStableMarker(region.list,7001);
+    Check(PreparePrimary(device,region.list,context,slot,guides),"region ON primary seal");
+    Check(slot.compose_binding&&slot.compose_binding->heaps[nr_binding::Depth]&&
+          slot.compose_binding->heaps[nr_binding::Region]&&slot.compose_binding->heaps[nr_binding::Consumer],"region/depth/consumer share one lease");
+    HR(ID3D12GraphicsCommandList_Close(region.list),"region close");fence=Submit(queue,region);Commit(context,*slot.compose_binding,lifecycle,fence);
+    WaitFence(queue.fence,fence,10000,"region completion");ResetFixtureLeases(context);
+    Check(CanDestroyBindingsLocked(context),"bindings retire after exact fence");DestroyBindings(context);
+    for(auto& r:recordings){ReleaseCom(r.list);ReleaseCom(r.allocator);}ReleaseCom(region.list);ReleaseCom(region.allocator);
+    ReleaseCom(slot.rr_depth_source);ReleaseCom(slot.rr_depth);ReleaseCom(slot.rr_depth_heap);
+    for(auto*& r:slot.region_inputs)ReleaseCom(r);ReleaseCom(slot.region_guide);ReleaseCom(slot.region_field);ReleaseCom(slot.proxy);ReleaseCom(slot.neural);
+    for(auto*& r:inputs)ReleaseCom(r);ReleaseCom(g_codec.rr_depth_pipeline);ReleaseCom(g_codec.rr_depth_root);
+    ReleaseCom(nr_regions::snapshot);ReleaseCom(nr_regions::build);ReleaseCom(nr_regions::root);ReleaseCom(nr_regions::owner);
+    ReleaseCom(gate);ReleaseCom(queue.fence);ReleaseCom(queue.queue);ReleaseCom(device);ReleaseCom(proxy);ReleaseCom(warp);ReleaseCom(factory);
+    std::printf("PASS primary RR depth: queued shader A/B/A, immutable leases, region OFF/ON, refusal and retirement\n");return 0;
+}
