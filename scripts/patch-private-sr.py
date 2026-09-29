@@ -1,6 +1,6 @@
 """Product post-final private SR; applied after the complete quality generator."""
 from pathlib import Path
-VERSION = '0.5.2-beta.11'
+VERSION = '0.5.2-beta.12'
 LOCAL=('src/nr_private_sr_guides.h','src/nr_private_sr_guides.cpp','src/nr_private_sr_status.h','src/nr_private_sr_budget.h',
        'src/nr_private_sr_product.inl','src/nr_private_sr_ui.inl','src/nr_private_sr_artifacts.h',
        'src/nr_private_sr_call_list.inl')
@@ -15,14 +15,14 @@ def patch_product_identity(s,path):
         raise ValueError('private SR unknown identity file: '+path)
     if '0.5.2-beta.2' not in s or VERSION in s:
         raise ValueError('private SR expected preceding Beta 2 identity: '+path)
-    s=s.replace('0.5.2-beta.2',VERSION).replace('0.5.2 Beta 2','0.5.2 Beta 11')
+    s=s.replace('0.5.2-beta.2',VERSION).replace('0.5.2 Beta 2','0.5.2 Beta 12')
     if path.endswith('.rc'):
         for field in ('FILEVERSION','PRODUCTVERSION'):
             old=field+' 0,5,2,2'
             if s.count(old)!=1:raise ValueError('private SR expected one Beta 2 '+field)
-            s=s.replace(old,field+' 0,5,2,11')
+            s=s.replace(old,field+' 0,5,2,12')
         for field in ('FileVersion','ProductVersion'):
-            if s.count('VALUE "'+field+'", "0.5.2 Beta 11\\0"')!=1:
+            if s.count('VALUE "'+field+'", "0.5.2 Beta 12\\0"')!=1:
                 raise ValueError('private SR missing exact final '+field)
     return s
 

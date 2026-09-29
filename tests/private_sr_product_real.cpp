@@ -181,13 +181,19 @@ PlaneCapture CapturePlane(Host& h,const char* name,ID3D12Resource* resource,D3D1
     ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);
     h.Barrier(resource,D3D12_RESOURCE_STATE_COPY_SOURCE,state);return c;
 }
-void SaveCaptures(const std::vector<PlaneCapture>& captures,nr_private_sr::Source source,nr_private_sr::Recording recording,unsigned frame,bool rr,bool private_sr,unsigned temporal_case){
+void SaveCaptures(const std::vector<PlaneCapture>& captures,nr_private_sr::Source source,nr_private_sr::Recording recording,unsigned frame,bool rr,bool private_sr,unsigned temporal_case,unsigned spatial_mode){
     std::ofstream manifest("actual-core-same-frame.json");Require(bool(manifest),"capture identity file");
     manifest<<"{\"schema\":\"actual-core-same-frame-v1\",\"frame\":"<<frame<<",\"source_stream\":"<<source.stream
         <<",\"source_epoch\":"<<source.epoch<<",\"source_sequence\":"<<source.sequence
         <<",\"recording_lifetime\":"<<recording.lifetime<<",\"queue\":"<<recording.queue
         <<",\"native_feature\":"<<(rr?13:1)<<",\"private_sr\":"<<(private_sr?"true":"false")
         <<",\"temporal_case\":"<<temporal_case
+        <<",\"spatial_mode\":"<<spatial_mode
+        <<",\"spatial_algorithm\":\""<<(spatial_mode==1?"area-guided":spatial_mode==2?"local-delta":"off")<<"\""
+        <<",\"spatial_requested\":"<<nr_spatial_experiment::status.requested.load()
+        <<",\"spatial_recorded\":"<<nr_spatial_experiment::status.recorded.load()
+        <<",\"spatial_submitted\":"<<nr_spatial_experiment::status.submitted.load()
+        <<",\"spatial_discarded\":"<<nr_spatial_experiment::status.discarded.load()
         <<",\"exact_fence_completed\":true,\"capture_excluded_from_cost\":true,\"planes\":[";
     for(unsigned i=0;i<captures.size();++i){const auto& c=captures[i];char* mapped=nullptr;
         Hr(ID3D12Resource_Map(c.readback,0,nullptr,(void**)&mapped),"completed same-frame capture map");
@@ -235,10 +241,12 @@ struct GuideOnly {
 
 // 0=off, 1=PostRr AMDOF, 2=PostRr AMDOF low-frequency,
 // 3=PostRr native-MV contract refusal, 4/5=PostRr AMDOF later low-frequency/adaptive.
-int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case){
+int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case,unsigned spatial_mode){
     Require(temporal_case<=5&&(!temporal_case||(rr&&nr_layers_count&&!private_sr))&&
         ((temporal_case!=4&&temporal_case!=5)||nr_layers_count>=2),
         "PostRr temporal requires real RR, at least one real NR layer, and private SR OFF");
+    Require(spatial_mode<=2&&(!spatial_mode||(nr_layers_count&&!private_sr&&!temporal_case)),
+        "spatial post-final experiment requires real NR, private SR OFF and temporal OFF");
 #if defined(NR_TEST_RESHADE_RUNTIME)
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);AddVectoredExceptionHandler(1,DiagnosticException);
 #endif
@@ -296,6 +304,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
 #endif
     if(nr_layers_count)Require(EnsureCodec(h.device)&&EnsureNrApi(h.device),"real codec/NR initialization before private capture");
     g_codec.device=h.device;g_config.enabled=true;g_enabled_fast.store(true);g_config.private_residual_sr=private_sr;
+    g_config.spatial_experiment_mode=spatial_mode;if(spatial_mode)g_config.mode=1;
     g_config.temporal_backend=temporal_case==3?1:temporal_case?2:0;
     g_config.temporal_scope=(temporal_case==4||temporal_case==5)?1:0;g_config.temporal_mode=(temporal_case==2||temporal_case==4)?1:0;
     g_config.nr_passes=nr_layers_count>1?2:1;g_config.nr_full_reference=nr_layers_count>2;
@@ -363,6 +372,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     }
     auto& slot=context.slots[0];slot.source=base;slot.result=final;slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;slot.snapshots_native_output=true;
+    slot.owns_source=true;slot.owns_result=false;
+    slot.source_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     slot.result_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     slot.codec_color_mode=PostSrCodecColorMode(ClassifyPostSrStorage(
         ID3D12Resource_GetDesc(native).Format,feature.create_flags));
@@ -399,6 +410,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
             Require(NrPrivateOriginalCallList(h.list)==native_list,"production private call resolves live original interface");
             nr_source_runtime::EvaluateScope source(h.list,parent,params,feature);
             Require(bool(nr_source_runtime::CurrentSource()),"actual native source producer");
+            nr_spatial_experiment::PrepareForPost(context,slot,ow,oh,0,0);
             Require(RecordNrUseLocked(h.list,context,slot),"Core resource recording lease");
             if(frame==0&&private_sr){
                 const auto capture_test=[&](const FeatureRecord& f,const NrGuideBinding& g){return nr_post_product::Capture(h.list,h.device,context,parent,params,f,g,
@@ -515,6 +527,10 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,4);
             if(capture_frame&&(temporal_case==1||temporal_case==2||temporal_case==4||temporal_case==5))
                 captures.push_back(CapturePlane(h,"same-frame-temporal.fp16",final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+            if(final_z)Require(nr_spatial_experiment::Finish(h.list,context,slot,feature,ow,oh,0,0),
+                "actual Core spatial Finish after complete final Z");
+            if(final_z&&spatial_mode)Require(slot.spatial_token==context.pending_recording_token&&slot.spatial_token,
+                "spatial output records against exact product lifecycle token");
             if(final_z&&private_sr)Require(nr_post_product::Finish(h.list,context,slot,feature,capture,ow,oh,0,0),"original product Finish once after complete final Z");
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,5);
             if(capture_frame){
@@ -533,7 +549,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         Require(!g_lifecycle_tracking_uncertain.load()&&context.completion_fence_value,"actual Core Execute/Signal receipt");
         const double submit_ms=Millis(submit);standalone_guides.Submitted(queue);Complete(h,queue);chain.SubmittedAndWait(h);
         if(temporal_case==1||temporal_case==2||temporal_case==4||temporal_case==5)nr_temporal::CollectGpuStats(context);
-        if(!captures.empty())SaveCaptures(captures,capture_source,capture_recording,frame,rr,private_sr,temporal_case);
+        if(!captures.empty())SaveCaptures(captures,capture_source,capture_recording,frame,rr,private_sr,temporal_case,spatial_mode);
         UINT64* stamps=nullptr;Hr(ID3D12Resource_Map(timing_readback,0,nullptr,(void**)&stamps),"completed timing readback");
         for(unsigned n=1;n<6;++n)Require(stamps[n]>=stamps[n-1],"ordered GPU timestamps");
         const double guide_ms=double(stamps[1]-stamps[0])*1000/frequency,private_ms=double(stamps[5]-stamps[4])*1000/frequency;
@@ -560,6 +576,9 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     if(temporal_case==3)Require(!temporal_recorded&&!nr_temporal_status::recorded.load()&&
         !nr_temporal_status::submitted.load()&&!context.temporal,
         "rejected PostRr native MV creates no temporal owner or GPU work");
+    Require(nr_spatial_experiment::status.recorded.load()==(spatial_mode?produced:0)&&
+        nr_spatial_experiment::status.submitted.load()==(spatial_mode?produced:0)&&
+        !slot.spatial_token,"spatial post-final work submits once per produced Z, off submits none");
     if(private_sr)Require(nr_private_sr_status::creations.load()==1&&nr_private_sr_status::captures.load()==frame&&nr_private_sr_status::composed.load()==requested_frames-1&&nr_private_sr_status::adopted.load()==requested_frames-1,"distinct creation/record/submit counts");
     else Require(!context.private_sr&&!nr_private_sr_status::creations.load()&&!nr_private_sr_status::captures.load()&&!nr_private_sr_status::composed.load()&&!nr_private_sr_status::adopted.load(),"spatial-only control performs no private SR work");
     if(!nr_layers_count&&!rr)h.Pixels(final,.5f,L"actual-core-neutral.fp16",.04);
@@ -599,6 +618,8 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     auto shutdown=reinterpret_cast<NgxResult(*)(ID3D12Device*)>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_Shutdown1"));
     Require(shutdown!=nullptr,"real device Shutdown export");Ngx(shutdown(native_device),"actual original device Shutdown");
     Require(nr_private_sr_core::DomainEpoch(h.device,ngx)==0,"Shutdown invalidated original domain");
+    nr_spatial_experiment::ReleaseSlot(slot);
+    Require(!nr_spatial_experiment::status.resident_bytes.load(),"spatial product owner retired after exact fences");
     g_codec.device=nullptr;slot.source=slot.result=nullptr;
 #if defined(NR_TEST_RESHADE_RUNTIME)
     // All product and NR fences/recordings are retired before proxy release.
@@ -607,5 +628,5 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     std::printf("PASS actual generated Core native=%u realNRLayers=%u percent=%u checks=%u privateCreate=%u privateEvaluate=%u submit=%u retire=1; artificial scene, no game\n",rr?13:1,nr_layers_count,percent,checks,unsigned(private_sr),private_sr?requested_frames-1:0,frame);return 0;
 }
 }
-int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>9)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0,argc>=9?std::wcstoul(argv[8],nullptr,10):0);}
+int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>10)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0,argc>=9?std::wcstoul(argv[8],nullptr,10):0,argc>=10?std::wcstoul(argv[9],nullptr,10):0);}
 catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);ExitProcess(1);}}

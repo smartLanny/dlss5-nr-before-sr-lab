@@ -16,6 +16,7 @@ def main():
     p.add_argument('--percent',type=int,choices=(25,50,100),default=50)
     p.add_argument('--native-rr',action='store_true')
     p.add_argument('--private-sr-off',action='store_true',help='Isolated native/ordinary NR control; performs no private Feature1 work')
+    p.add_argument('--spatial-mode',type=int,choices=(0,1,2),default=0,help='Post-final B/Z spatial experiment: 0 off, 1 guided four-tap area delta, 2 local 3x3 B-guided mean')
     p.add_argument('--temporal',choices=('off','amd-of','amd-of-low','native-mv-refusal','amd-of-low-later','amd-of-later'),default='off',
                    help='Actual PostRr Core temporal route; private SR must be off')
     p.add_argument('--odd',action='store_true',help='Add one pixel to each native render/output dimension; N uses floor percent')
@@ -27,6 +28,8 @@ def main():
     if a.native_rr and not a.rr_runtime:p.error('--native-rr requires explicit --rr-runtime')
     if a.temporal!='off' and (not a.native_rr or not a.layers or not a.private_sr_off):
         p.error('--temporal requires --native-rr, --layers >= 1, and --private-sr-off')
+    if a.spatial_mode and (not a.private_sr_off or a.temporal!='off'):
+        p.error('--spatial-mode requires --private-sr-off and --temporal off')
     if a.temporal in ('amd-of-low-later','amd-of-later') and a.layers<2:
         p.error('later-layer temporal requires at least two real NR layers')
     temporal_case={'off':0,'amd-of':1,'amd-of-low':2,'native-mv-refusal':3,'amd-of-low-later':4,'amd-of-later':5}[a.temporal]
@@ -50,7 +53,7 @@ def main():
         'linked_objects':{str(o):sha(o) for o in objects},'game':False,'feature18':bool(a.layers),'nr_layers':a.layers,'frames':a.frames,'percent':a.percent,'native_feature':13 if a.native_rr else 1,
         'native_render_extent':[x+int(a.odd) for x in ([1280,720] if a.native_rr else [320,192])],
         'native_output_extent':[x+int(a.odd) for x in ([1920,1080] if a.native_rr else [640,384])],
-        'temporal_case':a.temporal,
+        'temporal_case':a.temporal,'spatial_mode':a.spatial_mode,
         'timing':'CPU recording includes native SR; GPU timestamps isolate guides, complete NR-chain work (including codec and final Z copy), and private SR; none is a complete game frame. Synthetic native frames plus optional real 1-5 layer Feature18; not a game benchmark.'}
     def save(): (out/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     def run(name,args,timeout):
@@ -73,7 +76,7 @@ def main():
         result=run('compile',[a.compiler,*flags,wrapper,*objects,'-o',out/'product-real.exe','-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],240)
         if not result and not a.compile_only:
             report['gpu_execution']='running';save()
-            result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd),int(not a.private_sr_off),temporal_case],240)
+            result=run('real-feature1',[out/'product-real.exe',out/'nrchain_nvngx.dll',a.layers,a.percent,int(a.native_rr),a.frames,int(a.odd),int(not a.private_sr_off),temporal_case,a.spatial_mode],240)
             report['gpu_execution']='passed' if not result else 'failed'
         report['result']='passed' if not result else 'failed'
         if (out/'real-feature1.log').is_file():

@@ -670,21 +670,26 @@ void Run(){
     // owner to enable NR first, and must restore every transient route field.
     ChainConfig off=SnapshotConfig();off.enabled=false;off.mode=0;
     off.processing_start=nr_processing::Start::Before;
+    off.spatial_experiment_mode=2; // Saved new experiment must not contaminate nine existing baselines.
     ApplyConfig(off,"screenshot fixture",false);off=SnapshotConfig();
     const auto original_route=nr_processing_runtime::session;
     const auto original_post=nr_post_settings::Read();
     Sleep(2);Check(nr_acceptance::Start(runtime,nr_acceptance_policy::Program::Screenshots,false),"NR-off Before screenshot session starts");
-    Check(!g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_acceptance::session->count==9,"native baseline temporarily routes After with NR off");
+    Check(!g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_acceptance::session->count==9&&
+        g_config.spatial_experiment_mode==0,"native baseline temporarily routes After with both NR and spatial experiment off");
     Check(!nr_acceptance::PerformanceActive(),"native no-NR baseline has no plugin GPU instrumentation");
     AcquireSRWLockExclusive(&nr_acceptance::lock);AcquireSRWLockExclusive(&nr_f8::g_control);
     auto& pictures=*nr_acceptance::session;
     pictures.index=1;nr_acceptance::StartGroup(pictures);
     Check(nr_acceptance::PerformanceActive(),"NR screenshot group enables session-only GPU timestamps");
-    Check(g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_post_settings::Read().percent==100,"next group enables NR and full post precision");
+    Check(g_config.enabled&&g_config.processing_start==nr_processing::Start::After&&nr_post_settings::Read().percent==100&&
+        g_config.spatial_experiment_mode==0,"next group enables NR and full post precision without spatial experiment");
     pictures.index=3;nr_acceptance::StartGroup(pictures);
-    Check(g_config.private_residual_sr&&nr_post_settings::Read().percent==50&&g_config.nr_passes==off.nr_passes,"private-SR shot changes only route/precision/backend");
+    Check(g_config.private_residual_sr&&nr_post_settings::Read().percent==50&&g_config.nr_passes==off.nr_passes&&
+        g_config.spatial_experiment_mode==0,"private-SR shot changes only route/precision/backend");
     pictures.index=8;nr_acceptance::StartGroup(pictures);
-    Check(g_config.temporal_backend==2&&g_config.temporal_mode==1&&nr_post_settings::Read().percent==50,"AMDOF low-frequency shot uses same model/layers");
+    Check(g_config.temporal_backend==2&&g_config.temporal_mode==1&&nr_post_settings::Read().percent==50&&
+        g_config.spatial_experiment_mode==0,"AMDOF low-frequency shot uses same model/layers");
     auto& temporal_picture=pictures.groups[8];
     temporal_picture.screenshot_phase=nr_acceptance_policy::ScreenshotPhase::Capture;
     const auto saved_owner=g_applied_nr_identity.instance_id;
@@ -863,7 +868,8 @@ void Run(){
             "cancelled pre-Prepare group preserves observed entry diagnostic and partial status");
     }
     Check(!nr_acceptance::PerformanceActive(),"cancel disables diagnostic GPU instrumentation");
-    Check(nr_acceptance::SameRequested(off,SnapshotConfig())&&nr_processing_runtime::session.Current()==original_route.Current()&&
+    Check(nr_acceptance::SameRequested(off,SnapshotConfig())&&SnapshotConfig().spatial_experiment_mode==2&&
+        nr_processing_runtime::session.Current()==original_route.Current()&&
         nr_post_settings::Read().percent==original_post.percent,"screenshot cancel restores NR-off Before and post precision");
     nr_acceptance::ScreenshotReceipt(runtime,absolute,1920,1080);
     Check(!nr_acceptance::Active(),"late screenshot cannot revive cancelled session");

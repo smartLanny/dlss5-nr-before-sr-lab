@@ -103,6 +103,21 @@ void Fill(Host& h,ID3D12Resource* texture,D3D12_RESOURCE_STATES state,float valu
     from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=fp;
     ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,0,0,0,&from,nullptr);h.Barrier(texture,D3D12_RESOURCE_STATE_COPY_DEST,state);h.Submit();h.Wait();
 }
+void SpatialSetPixel(Host& h,ID3D12Resource* texture,D3D12_RESOURCE_STATES state,
+                     unsigned x,unsigned y,const unsigned short (&rgba)[4]){
+    const auto d=ID3D12Resource_GetDesc(texture);Require(x<d.Width&&y<d.Height,"spatial fixture pixel in bounds");
+    auto* upload=h.Buffer(256,D3D12_HEAP_TYPE_UPLOAD);char* mapped=nullptr;
+    Hr(ID3D12Resource_Map(upload,0,nullptr,(void**)&mapped),"spatial pixel upload map");
+    std::memset(mapped,0,256);std::memcpy(mapped,rgba,8);ID3D12Resource_Unmap(upload,0,nullptr);
+    D3D12_TEXTURE_COPY_LOCATION to{},from{};to.pResource=texture;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    from.PlacedFootprint.Footprint.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    from.PlacedFootprint.Footprint.Width=from.PlacedFootprint.Footprint.Height=from.PlacedFootprint.Footprint.Depth=1;
+    from.PlacedFootprint.Footprint.RowPitch=256;
+    h.Begin();h.Barrier(texture,state,D3D12_RESOURCE_STATE_COPY_DEST);
+    ID3D12GraphicsCommandList_CopyTextureRegion(h.list,&to,x,y,0,&from,nullptr);
+    h.Barrier(texture,D3D12_RESOURCE_STATE_COPY_DEST,state);h.Submit();h.Wait();
+}
 void Pixels(const std::vector<char>& bytes,float expected,unsigned width,unsigned origin_x,unsigned origin_y){
     Require(!bytes.empty(),"nonempty complete readback");
     for(size_t i=0;i<bytes.size();i+=2){unsigned short p=0;std::memcpy(&p,bytes.data()+i,2);unsigned e=(p>>10)&31,m=p&1023;
@@ -167,7 +182,99 @@ int DomainCase(){
     std::printf("PASS controlled actual Core RR-only domain/TLS/Shutdown checks=%u; no NVIDIA NGX inference\n",checks);
     std::fflush(nullptr);ExitProcess(0);
 }
-int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();InitializeCriticalSection(&g_chain_cs);Host h;Register(h);Params parameters;auto* params=&parameters.base;
+int SpatialCase(const std::wstring& selected){
+    InitializeCriticalSection(&g_chain_cs);Host h;Register(h);
+    Require(EnsureCodec(h.device),"actual Core codec initialized on WARP");
+    g_config.enabled=true;g_config.mode=1;g_config.private_residual_sr=false;g_config.temporal_backend=0;
+    g_config.processing_start=nr_processing::Start::After;nr_processing_runtime::Reconcile();
+    constexpr unsigned width=63,height=47,nw=15,nh=11;
+    auto* base=h.Plane(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,false,.5f);
+    auto* z0=h.Plane(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true,.625f);
+    auto* z1=h.Plane(width,height,DXGI_FORMAT_R16G16B16A16_FLOAT,true,.375f);
+    auto* queue=FindOrCreateLifecycleQueueLocked(h.queue);Require(queue&&queue->fence,"spatial exact Core queue");
+    auto& c=context;c.instance_id=19;c.feature_generation=7;c.mode=1;c.width=nw;c.height=nh;
+    auto& slot=c.slots[0];slot.source=base;slot.result=z0;slot.owns_source=true;slot.owns_result=false;
+    slot.source_format=slot.result_format=slot.result_uav_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    slot.result_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;slot.snapshots_native_output=true;
+    NgxHandle parent{};FeatureRecord feature{};feature.feature_id=selected==L"spatial-rr"?13:1;
+    feature.generation=7;feature.create_flags=75;feature.create_flags_known=true;
+    Params parameters;
+    const unsigned modes[]={1,1,1,2,0,1,1,2,1};
+    const float values[]={.625f,.375f,.375f,.625f,.625f,.5f,.5f+1.f/1024.f,.5f-1.f/2048.f,.625f};
+    for(unsigned frame=0;frame<9;++frame){
+        const bool invalid_base=frame==1;
+        auto* target=frame==2?z1:z0;slot.result=target;
+        Fill(h,target,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,values[frame]);
+        if(frame==8){
+            const unsigned short half_alpha[]={0x3800,0x3800,0x3800,0x3800};
+            const unsigned short invalid_neighbor[]={0x7e00,0x7e00,0x7e00,0x3c00};
+            const unsigned short hdr_b[]={0x4000,0x4000,0x4000,0x3800};
+            const unsigned short hdr_z[]={0x4040,0x4040,0x4040,0x3c00};
+            SpatialSetPixel(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,10,23,half_alpha);
+            SpatialSetPixel(h,target,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,14,23,invalid_neighbor);
+            SpatialSetPixel(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,0,0,hdr_b);
+            SpatialSetPixel(h,target,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,0,0,hdr_z);
+        }
+        Hr(ProcessCommandListReset(0,h.list,h.allocator,nullptr),"spatial actual Core begin Reset");h.released=false;
+        g_config.spatial_experiment_mode=modes[frame];
+        const auto recorded_before=nr_spatial_experiment::status.recorded.load();
+        const auto submitted_before=nr_spatial_experiment::status.submitted.load();
+        nr_spatial_experiment::PrepareForPost(c,slot,width,height,invalid_base?width:0,0);
+        if(modes[frame]){
+            Require(slot.spatial_heap&&slot.spatial_scratch&&slot.spatial_bound_result==target,
+                "spatial Prepare binds current B/Z before first Core resource use");
+            Require((modes[frame]==1)==bool(slot.spatial_low_b&&slot.spatial_low_delta),
+                "only guided area mode owns two FP32 low planes");
+        }else Require(!slot.spatial_heap&&!slot.spatial_scratch&&!slot.spatial_bytes,
+            "off releases spatial-owned resources after completed Reset and fence");
+        {NrPostBoundaryAliasScope original_call(h.list);
+            nr_source_runtime::EvaluateScope source(h.list,&parent,&parameters.base,feature);
+            Require(bool(nr_source_runtime::CurrentSource()),"spatial actual source scope");
+            Require(RecordNrUseLocked(h.list,c,slot),"spatial actual Core recording lease");
+            Require(nr_spatial_experiment::Finish(h.list,c,slot,feature,width,height,0,0),
+                "spatial actual post-final Finish");
+            if(modes[frame]&&!invalid_base)Require(nr_spatial_experiment::status.recorded.load()==recorded_before+1&&
+                slot.spatial_token==c.pending_recording_token&&slot.spatial_token,
+                "spatial GPU recording and exact Core token");
+            else Require(nr_spatial_experiment::status.recorded.load()==recorded_before,
+                "off or rejected current-frame admission records no spatial GPU work");
+            source.Finish(1);}
+        Hr(ID3D12GraphicsCommandList_Close(h.list),"spatial recording close");
+        ID3D12CommandList* lists[]={(ID3D12CommandList*)h.list};
+        ProcessSubmittedCommandLists(0,h.queue,1,lists);Complete(h,queue);
+        Require(nr_spatial_experiment::status.submitted.load()==submitted_before+unsigned(modes[frame]!=0&&!invalid_base),
+            "spatial submitted count belongs to actual Core Execute/Signal");
+        ResetAndClose(h);Require(!slot.spatial_token&&CanMutateSlotLocked(slot),
+            "spatial exact fence and recording Reset permit next binding");
+        const auto pixels=Bytes(h,target,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if(frame!=8)Pixels(pixels,values[frame],width,0,0);
+        else {
+            auto at=[&](unsigned x,unsigned y,unsigned channel){unsigned short v=0;
+                std::memcpy(&v,pixels.data()+(size_t(y)*width+x)*8+channel*2,2);return v;};
+            for(unsigned channel=0;channel<3;++channel){
+                Require(at(10,23,channel)==0x3900,"zero-weight invalid area neighbor leaves valid exact-phase RGB");
+                Require((at(14,23,channel)&0x7c00)==0x7c00,"invalid source pixel retains Z fallback");
+                Require((at(0,0,channel)&0x7c00)!=0x7c00&&at(0,0,channel)>=0x4000,
+                    "HDR boundary stays finite and at least B");
+            }
+            Require(at(10,23,3)==0x3800&&at(0,0,3)==0x3800,
+                "valid spatial output uses B alpha at exact phase and HDR boundary");
+            Require(at(14,23,3)==0x3c00&&at(width-1,height-1,0)==0x3900,
+                "invalid fallback keeps Z alpha and far boundary unchanged");
+        }
+        std::printf("SPATIAL frame=%u mode=%u tokenSubmitted=%llu resident=%llu resultRotated=%u\n",
+            frame,modes[frame],nr_spatial_experiment::status.submitted.load(),
+            nr_spatial_experiment::status.resident_bytes.load(),unsigned(target==z1));
+    }
+    g_config.spatial_experiment_mode=0;nr_spatial_experiment::PrepareForPost(c,slot,width,height,0,0);
+    Require(!nr_spatial_experiment::status.resident_bytes.load(),
+        "spatial owned resources retired after exact fence and Reset");
+    g_codec.device=nullptr;slot.source=slot.result=nullptr;
+    std::printf("PASS actual generated Core spatial WARP mode-switch/rotation/submit/retire checks=%u; no NGX/game\n",checks);
+    return 0;
+}
+int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();if(mode==L"spatial-sr"||mode==L"spatial-rr")return SpatialCase(mode);InitializeCriticalSection(&g_chain_cs);Host h;Register(h);Params parameters;auto* params=&parameters.base;
     NgxHandle parent{};FeatureRecord feature{};feature.feature_id=1;feature.generation=1;feature.create_flags=2;feature.create_flags_known=true;
     const bool hdr=mode==L"hdr-jitter"||mode==L"rr-jitter";
     if(hdr){feature.create_flags=75;feature.feature_id=mode==L"rr-jitter"?13:1;}

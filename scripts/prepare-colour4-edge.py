@@ -30,10 +30,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
     acceptance_patch=load('acceptance_patch',core/'scripts/patch-acceptance.py')
     reconstruction_patch=load('reconstruction_patch',core/'scripts/patch-reconstruction.py')
     private_sr_patch=load('private_sr_patch',core/'scripts/patch-private-sr.py')
+    spatial_patch=load('spatial_patch',core/'scripts/patch-spatial-experiment.py')
     for commit in (previous.BASE,colour4.COLOUR3,colour4.SOURCE_GATES,BASE):
         if not base.is_ancestor(core,commit): raise ValueError('Missing reviewed ancestor: '+commit)
     inputs={}
-    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+private_sr_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
+    paths=previous.INPUTS+stage_patch.INPUTS+colour4.EXTRA_INPUTS+edge_patch.INPUTS+EXTRA+temporal_patch.INPUTS+native_output_patch.INPUTS+acceptance_patch.INPUTS+reconstruction_patch.INPUTS+private_sr_patch.INPUTS+spatial_patch.INPUTS+('tests/test_reconstruction_runtime.py',)
     for path in paths:
         data=base.git(core,'show','HEAD:'+path)
         if (core/path).is_symlink() or base.git(core,'hash-object',path).strip()!=base.git(core,'rev-parse','HEAD:'+path).strip():
@@ -68,6 +69,7 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
         reconstruction_patch.apply(stage,inputs,m3)
         check('test_reconstruction_runtime.py',stage)
         private_sr_patch.apply(stage,inputs,m3)
+        spatial_patch.apply(stage,inputs,m3)
         mf=stage/'source-manifest.json'
         manifest=json.loads(mf.read_text(encoding='utf-8'))
         manifest['colour_lab']={
@@ -131,6 +133,11 @@ def prepare(core: Path,upstream: Path,output: Path) -> None:
             'declined':['Present','FG','multi-GPU','unproven-source-or-domain','jittered-MV','nonzero-jitter-high-resolution-MV','external-stabilizer-conflict'],
             'initialization_domain':'observed successful original Init or original native Create; exact device/module/epoch/generation; shutdown invalidates; no second Init',
             'lifetime':'successful Execute/Signal plus exact recording release',
+            'runtime_verified':False,'game_verified':False}
+        manifest['spatial_experiments']={'default_mode':0,'modes':{'1':'Beta8 FP32 area delta plus B-guided four taps',
+            '2':'same-frame full-resolution B-guided 3x3 signed-delta mean'},
+            'route':'post-native SR/RR FP16 same-frame B/Z only','private_sr_temporal_conflict':True,
+            'baseline_groups_forced_off':9,'submitted_is_quality_proof':False,
             'runtime_verified':False,'game_verified':False}
         mf.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         if json.loads(mf.read_text(encoding='utf-8'))['files']!=base.file_hashes(stage):
