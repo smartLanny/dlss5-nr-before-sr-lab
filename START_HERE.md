@@ -1,8 +1,8 @@
 # 新电脑与下一位开发 Agent 从这里开始
 
-这条分支保存本轮最新 Core。候选版本 **0.5.2 Beta 13**，产品编译源码 **`cd8ba7009d333f7b03c463dc4237a913f9913081`**；后续交接文档提交不改变二进制身份。
+本页原为 Beta 13 的新机交接入口，Beta 13 已于 2026-09-29 合入 main。版本 **0.5.2 Beta 13**，产品编译源码 **`cd8ba7009d333f7b03c463dc4237a913f9913081`**；后续交接文档提交不改变二进制身份。
 
-- 开发分支：`feat/309-post-private-sr`，现有 PR **#313**。`main` 仍为独立集成基线，没有替换默认版本。
+- 原开发分支 `feat/309-post-private-sr`（PR #313）已合入 main。新任务从最新 main 开短期分支。
 - [完整新机说明](docs/handoff/BETA13_NEW_PC.zh-CN.md)：依赖、恢复、构建、验证和证据入口。
 - [已知问题与后续优先级](docs/handoff/BETA13_KNOWN_ISSUES.zh-CN.md)：哪些已实现，哪些只是实验，哪些仍失败。
 - [包与验证身份](docs/interop/052_BETA13_DELIVERY.json)：产品 SHA、组件哈希、实际检查范围。
@@ -10,7 +10,7 @@
 
 ```powershell
 gh auth login
-gh repo clone smartLanny/dlss5-nr-before-sr-lab dlss5-core -- --branch feat/309-post-private-sr
+gh repo clone smartLanny/dlss5-nr-before-sr-lab dlss5-core -- --branch main
 cd dlss5-core
 git cat-file -t cd8ba7009d333f7b03c463dc4237a913f9913081
 gh release download dev-handoff-20260929-beta13 --repo smartLanny/dlss5-nr-before-sr-lab --dir ..\dlss5-handoff
@@ -20,4 +20,4 @@ gh release download dev-handoff-20260929-beta13 --repo smartLanny/dlss5-nr-befor
 
 给接续 Agent：先读 `AGENTS.md`、本页、`docs/interop/CURRENT_STATUS.md` 和上述已知问题。Beta13 只收尾功能说明，状态和计数仍直接显示；不要把它描述为新算法、Esc 或显存问题已修复。Beta12 已加入的两个空间实验保留手动选择，默认关闭，质量门仍未通过；普通恢复仍是建议基线。
 
-截至交接核查，#308、#313、#316、#318、#319 都仍打开。#318 的 RR 绑定和 #319 的驻留/管线缓存相关修复已由 `5934209a` 移植进本分支，不要盲目重复 cherry-pick。新改动继续走可审查的任务分支；是否合并 main、发布公开 OTA、调整 Manager 默认版本，由维护者另行决定。不启动或控制游戏；实机测试由维护者安排。
+#313 合入后，#308、#316（整条分支已在历史中）与 #318、#319（修复已由 `5934209a` 移植）已关闭，不要重复 cherry-pick。新改动走可审查的任务分支和 PR；main 整合由 Claude 维护会话负责（见 #311），公开发布和 Manager 默认版本由维护者决定。不启动或控制游戏；实机测试由维护者安排。
