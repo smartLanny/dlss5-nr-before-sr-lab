@@ -211,17 +211,15 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         nr_post_settings::RequestMissingProjection(missing);
     if(nr_post_settings::missing_projection_save_failed.load(std::memory_order_acquire))
         SettingsNote(NrUi("Could not save the RR experiment. The session keeps your request; check F8.","RR 实验未保存：本次仍使用。"));
-    SettingsTooltip(NrUi("On for new settings; saved choices are retained. Only when the current camera matrix is absent: keeps native RR, uses marked unknown depth and resets NR every frame. Flicker/detail and game support remain unverified. Other safety checks still apply; unreadable or unsupported matrices remain bypassed.",
-        "新配置默认开启，旧保存值保留。仅在当前投影矩阵缺失时尝试：保留原生 RR，使用标记为未知的占位深度，NR 每帧重置历史。可能影响稳定性和细节，游戏效果待验证；其他安全检查不变，不可读或不支持的矩阵仍旁路。"));
-    SettingsNote(NrUi("NR use after RR is unverified; check F8.","RR 后 NR 是否采用待确认，详见 F8。"));
-    char rr_detail[256]{};
-    std::snprintf(rr_detail,sizeof(rr_detail),NrUi(
-        "Latest projection input: %s. Recorded conversion / placeholder passes: %llu / %llu. Recording does not prove NR use.",
-        "最近投影输入：%s。转换／占位录制次数：%llu／%llu。录制不代表 NR 已采用。"),
+    SettingsTooltip(NrUi("Try NR when camera projection is missing. Resets NR history each frame and may flicker. Unsupported inputs keep native RR; your saved choice is retained.",
+        "缺少相机投影时尝试 NR；每帧重置历史，可能增加闪烁。输入不支持时保留原生 RR，沿用已保存的开关。"));
+    ImGui::TextWrapped(NrUi("Projection: %s. Conversion / placeholder recordings: %llu / %llu.",
+        "投影：%s。转换／占位录制：%llu／%llu。"),
         nr_rr_depth::Name(nr_rr_depth::observations.input.load(std::memory_order_relaxed)),
         g_rr_depth_conversions.load(std::memory_order_relaxed),
         nr_rr_depth::observations.placeholder_recorded.load(std::memory_order_relaxed));
-    SettingsHelp(rr_detail);
+    SettingsTooltip(NrUi("Recording counts do not prove NR use. Check F8 for adoption details.",
+        "计数只表示录制次数，实际是否采用 NR 请查看 F8。"));
 }
 
 void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
