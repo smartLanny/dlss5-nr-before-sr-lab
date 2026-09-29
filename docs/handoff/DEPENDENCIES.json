@@ -1,0 +1,169 @@
+{
+  "schema": "dlss5-new-pc-dependency-inventory-v1",
+  "as_of": "2026-09-29",
+  "repository": {
+    "url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab.git",
+    "visibility": "private",
+    "branch": "feat/309-post-private-sr",
+    "beta13_product_source": "cd8ba7009d333f7b03c463dc4237a913f9913081",
+    "source_available_on_github": true,
+    "document_identity": "Read the current checkout commit.",
+    "private_asset_draft_url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/untagged-b7267b556524d8e2733a"
+  },
+  "dependencies": [
+    {
+      "id": "upstream-carrier",
+      "url": "https://github.com/NIGos/dlss5-bridge",
+      "commit": "28aed4099b0fe1c207b20b5fee5364c0773c25c2",
+      "gate": "scripts/build-multi-api-candidate.ps1 Assert-Commit"
+    },
+    {
+      "id": "reshade",
+      "url": "https://github.com/crosire/reshade",
+      "commit": "4a50d1eddace85734871d91792ff214f13f66c01",
+      "gate": "scripts/build-multi-api-candidate.ps1 Assert-Commit"
+    },
+    {
+      "id": "directxmath",
+      "url": "https://github.com/microsoft/DirectXMath",
+      "commit": "28929ac6f3c1649a7641741b689ebecccb17aa8d",
+      "gate": "scripts/build-multi-api-candidate.ps1 Assert-Commit"
+    },
+    {
+      "id": "fidelityfx-sdk",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55",
+      "commit": "c6efa6bf7f2027b3ec94f28578bb5965eabb9e55",
+      "version": "1.1.4",
+      "license_sha256": "c93d509cd69d50698796c9c3274247352736ef122a3197ace2010f0978e21aa6"
+    },
+    {
+      "id": "fidelityfx-object-cache",
+      "acquisition": "private draft release attachment after review, then relocation without recompilation",
+      "receipt_original_sha256": "94d6b882cd1bc4507c2d89c51825c3bc954d8877373f615b2e4aa54500c8b29c",
+      "object_count": 8,
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+      "gate": "scripts/build-temporal-module.py",
+      "rebuild_recipe_in_repo": false
+    },
+    {
+      "id": "ngx-sdk",
+      "url": "https://github.com/NVIDIA/DLSS/tree/a291cc7d2cc642a51566f3dfd5376f635cd1b284",
+      "commit": "a291cc7d2cc642a51566f3dfd5376f635cd1b284",
+      "gate": "scripts/build-nrchain.ps1 fixed header/library/license hashes"
+    },
+    {
+      "id": "llvm-mingw",
+      "url": "https://github.com/mstorsjo/llvm-mingw/releases/tag/20260826",
+      "version": "20260826-ucrt-x86_64 / clang 23.1.0",
+      "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690"
+    },
+    {
+      "id": "onnx-runtime",
+      "url": "https://github.com/microsoft/onnxruntime/releases/tag/v1.23.2",
+      "version": "1.23.2 CPU Windows x64",
+      "archive_sha256_local": "0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd",
+      "header_sha256": "820cc6c379d259045d96dcce9d30f2505fdb31ba526e294a283083d015914466",
+      "runtime_dll_sha256": "dec964ab1ee36cc9b0ae247d13b376627992fc57dec0454354017ab8fd84f1ea"
+    },
+    {
+      "id": "yunet-model",
+      "url": "https://github.com/opencv/opencv_zoo/tree/47534e27/models/face_detection_yunet",
+      "original_sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "prepared_sha256": "b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1",
+      "preparer": "scripts/prepare-face-model.py, onnx 1.19.1",
+      "requires_git_lfs": true
+    },
+    {
+      "id": "minhook",
+      "availability": "tracked under third_party/minhook in core Git checkout"
+    },
+    {
+      "id": "msvc-windows-sdk",
+      "availability": "new machine install prerequisite for cold nrchain build",
+      "version_pin": "not located; validate SDK output receipt"
+    }
+  ],
+  "products": {
+    "version": "0.5.2-beta.13",
+    "source_commit": "cd8ba7009d333f7b03c463dc4237a913f9913081",
+    "binaries": [
+      {
+        "language": "en",
+        "sha256": "6264bc14269431478053ef55e153e87344b836b1dff6d6f18db904c97e584032"
+      },
+      {
+        "language": "zh-CN",
+        "sha256": "46dc1cd9e4a9a5542230219ec2dfcd8bc39889e94b8e922c636792d745b40d64"
+      }
+    ],
+    "nrchain_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+    "assets": [
+      {
+        "name": "DLSS5-0.5.2-beta.13-RTX20-30.zip",
+        "sha256": "e2994429b4433fc484a4aa59cc34dc4f7b3eb715ca29e9b341abdaab5bade29f",
+        "bytes": 153481194,
+        "audience": "RTX20-30",
+        "availability": "private-draft-release"
+      },
+      {
+        "name": "DLSS5-0.5.2-beta.13-RTX40-50.zip",
+        "sha256": "fed1aa879c498955cf5b044aa1e2475da679003444c3737921de596fd6c56c2e",
+        "bytes": 128847877,
+        "audience": "RTX40-50",
+        "availability": "private-draft-release"
+      },
+      {
+        "name": "PRIVATE-DLSS5-DevInputs-20260929-r2.zip",
+        "sha256": "ba1a309703c2bbb3cc7aea4c5a50a1ebce93dd123381dd52c14ca1af5ebd7211",
+        "bytes": 6520421,
+        "audience": "repository owner only",
+        "availability": "private-draft-release"
+      },
+      {
+        "name": "PRIVATE-Beta13-DebugAndReports-20260929.zip",
+        "sha256": "dc8546e51ba05aa33722724347db01f8b362a9f5c34e5d4d3ae43f875d4388a0",
+        "bytes": 649246,
+        "audience": "repository owner only",
+        "availability": "local-only-pending-explicit-upload-approval"
+      }
+    ],
+    "canonical_status": "passed"
+  },
+  "beta13_generated_core": {
+    "source_commit": "cd8ba7009d333f7b03c463dc4237a913f9913081",
+    "core_zh_sha256": "46dc1cd9e4a9a5542230219ec2dfcd8bc39889e94b8e922c636792d745b40d64",
+    "core_en_sha256": "6264bc14269431478053ef55e153e87344b836b1dff6d6f18db904c97e584032",
+    "private_symbols_zip": "PRIVATE-Beta13-DebugAndReports-20260929.zip",
+    "private_symbols_zip_sha256": "dc8546e51ba05aa33722724347db01f8b362a9f5c34e5d4d3ae43f875d4388a0",
+    "hardware_and_game_scope": "not inferred from canonical"
+  },
+  "nr_runtimes": [
+    {
+      "label": "RTX20-30",
+      "file": "nvngx_dlssnr.dll",
+      "version": "310.8.0.0",
+      "bytes": 309671536,
+      "sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8",
+      "asset": "DLSS5-0.5.2-beta.13-RTX20-30.zip",
+      "scope": "Third-party NR variant; controlled RTX5090D tests only, not universal GPU/game acceptance."
+    },
+    {
+      "label": "RTX40-50",
+      "file": "nvngx_dlssnr.dll",
+      "version": "310.8.0.0",
+      "bytes": 165844992,
+      "sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa",
+      "asset": "DLSS5-0.5.2-beta.13-RTX40-50.zip",
+      "scope": "Third-party NR variant; controlled RTX5090D tests only, not universal GPU/game acceptance."
+    }
+  ],
+  "private_exclusions": [
+    "raw F8",
+    "raw game telemetry",
+    "screenshots",
+    "game INI",
+    "private keys",
+    "local absolute paths in public instructions"
+  ],
+  "validation_boundary": "Fresh GitHub source smoke and local alternate-path dependency migration were performed. No full build on a second physical PC. FFX object migration is not recompilation."
+}
