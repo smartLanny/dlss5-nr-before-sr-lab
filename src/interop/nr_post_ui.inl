@@ -1,5 +1,6 @@
 // This include precedes nr_settings_ui.inl in the generated translation unit.
 void SettingsTooltip(const char *text);
+void SettingsNote(const char *text);
 
 // Explicit picture reset commits front preferences and post precision under
 // the same lock. A capture starting meanwhile cannot snapshot half a reset:
