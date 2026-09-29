@@ -55,7 +55,7 @@
 
 672 帧人工对照中，静止/平移噪声改善 16/16 项、细线误差改善 10/16 项、暗部 8/8 项，切镜重置精确 8/8 项；完整画质门 full_quality_pass=false。672 帧对照保留无累积、原生 MV、AMDOF、自适应/低频以及静止、平移、运动、显露、切镜、反射和 HUD。通过的是功能与拒绝合同；拒绝旧帧后的当前噪声、显露/反射质量局限仍在，不宣称全面时域质量通过。采用计数仍是全组观察，不代表采样点级历史采用绑定。局部时间戳不能当作整游戏帧成本。
 
-完整回执：[硬件](G:/DLSS5-evidence/beta8-final-9febbc68-r2/validation.json)、[Feature1](G:/DLSS5-evidence/beta8-final-feature1-9febbc68-r1/validation.json)、[旧包比较](G:/DLSS5-evidence/beta8-final-feature1-9febbc68-r1/compare-beta7-80.json)、[安装](F:/ChatGPT/DLSS5/evidence/beta8-nte-observed-installed-9febbc68-r1/observed-installed-actor-unverified.json)。实际命令、源/对象/运行库哈希在回执和交付清单中。
+完整回执：[硬件](G:/DLSS5-evidence/beta8-final-9febbc68-r2/validation.json)、[Feature1](G:/DLSS5-evidence/beta8-final-feature1-9febbc68-r1/validation.json)、[旧包比较](G:/DLSS5-evidence/beta8-final-feature1-9febbc68-r1/compare-beta7-80.json)、[安装](%DLSS5_ARCHIVE%/evidence/beta8-nte-observed-installed-9febbc68-r1/observed-installed-actor-unverified.json)。实际命令、源/对象/运行库哈希在回执和交付清单中。
 
 ### 保留的失败与边界
 

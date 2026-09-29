@@ -44,9 +44,9 @@ Beta4 的完整准入、生命周期、实验与缺口仍见[统一矩阵](052_B
 
 [中文 D21 更新说明](052_BETA5_CHANGELOG.zh-CN.md) / [English changelog](052_BETA5_CHANGELOG.en.md)。比较起点是 `cbfb33919696a2840ed5154c91abaea56228b661` 的 D21 初版，不是更晚的 D21 Perf/unified，也不是旧实体 OTA 包重新验真。
 
-本地包：`D:/ChatGPT/DLSS5/deliveries/052-beta5-acceptance-20260927`，中英文 OTA 二选一。中文 ZIP SHA256 `8134524b30b1025069c589b0321a770f85d853855a31c79292ea86164db10b2f`；英文 ZIP `3fe0850afab70afecd6b8abecaa4b8d577d8592d4ee054c0039a05115d3eb408`。
+本地包：`%DLSS5_PRIVATE%/deliveries/052-beta5-acceptance-20260927`，中英文 OTA 二选一。中文 ZIP SHA256 `8134524b30b1025069c589b0321a770f85d853855a31c79292ea86164db10b2f`；英文 ZIP `3fe0850afab70afecd6b8abecaa4b8d577d8592d4ee054c0039a05115d3eb408`。
 
-异环安装与回退由 [独立回执](D:/ChatGPT/DLSS5/evidence/052-beta5-nte-install-20260927/installation-receipt.json) 记录。保留 Beta4 备份和旧候选，INI、已有 NR 库及原生 SR/RR 不改；6sol 不启动或操作游戏。旧 D21 辅助层比例迁移到统一主工作网格，参数/层数保留但工作量可能增加；新功能默认关闭不覆盖保存选择。
+异环安装与回退由 [独立回执](%DLSS5_PRIVATE%/evidence/052-beta5-nte-install-20260927/installation-receipt.json) 记录。保留 Beta4 备份和旧候选，INI、已有 NR 库及原生 SR/RR 不改；6sol 不启动或操作游戏。旧 D21 辅助层比例迁移到统一主工作网格，参数/层数保留但工作量可能增加；新功能默认关闭不覆盖保存选择。
 
 #315 的 20/30 `6dac1b40…` 与 40/50 Kio `a2d16f9f…` 仍分别保留，完整哈希在交付清单。Beta5 真实 NGX 短测使用 Kio 库；另一组的九场证据仍属于 Beta4，不宣称两组在所有真实硬件已重新实测。
 

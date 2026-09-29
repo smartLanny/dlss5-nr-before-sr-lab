@@ -8,7 +8,7 @@
 
 初始转储阶段尚未证明是谁造成对象内部指针无效（后续受控复现见下文）；minidump缺少heap/vtable与原转发槽页。重点鉴别NGX初始化域和实际命令列表的ReShade包装层是否匹配，不能把问题直接归给截图保存API、混版、显存不足或已证明的游戏/驱动缺陷。
 
-证据仅在本地：`D:/ChatGPT/DLSS5/evidence/beta5-nte-comparison-crash-20260927/capture-manifest.json`（17份原字节文件：CrashContext、minidump、日志、配置与9张图）；`D:/ChatGPT/DLSS5/evidence/beta5-nte-comparison-diagnosis-20260927/`（符号、反汇编、寄存器/栈与边界说明）。原始用户ID、转储和截图不提交Git或发布。
+证据仅在本地：`%DLSS5_PRIVATE%/evidence/beta5-nte-comparison-crash-20260927/capture-manifest.json`（17份原字节文件：CrashContext、minidump、日志、配置与9张图）；`%DLSS5_PRIVATE%/evidence/beta5-nte-comparison-diagnosis-20260927/`（符号、反汇编、寄存器/栈与边界说明）。原始用户ID、转储和截图不提交Git或发布。
 
 游戏已退出。当前INI的PrivateResidualSR=0；用户游戏会话后的INI与安装前不同，因此保留当前文件，不用部署旧备份覆盖用户此后设置。Beta4回退包仍可用，尚未实际回退。Beta5 OTA保留原哈希作为故障证据，未在线发布。
 
@@ -18,13 +18,13 @@
 
 删除 Create 参数中的资源绑定未能消除故障，未采用该猜测修改。仅按物理设备判同不足以证明命令列表与 descriptor heap 的接口域兼容。修正保留原初始化、录制、提交与退休合同；仅私有 NGX 调用转换 heap，普通调用不查询或改写。QI 返回引用持续到转发及状态记录结束后释放。
 
-后继版本为 Beta6，完整 Core + ReShade 创建、推理和回收及统一构建仍需完成后才能交付。Beta5 的所有二进制和 OTA 哈希保留，不覆盖。窄回归证据：`D:/ChatGPT/DLSS5/evidence/private-descriptor-heaps-exact-hook-r2/validation.json`；受控机制证据：`D:/ChatGPT/DLSS5/evidence/beta5-proxy-domain-host-r4/validation.json`。这些本地测试均非游戏验收。
+后继版本为 Beta6，完整 Core + ReShade 创建、推理和回收及统一构建仍需完成后才能交付。Beta5 的所有二进制和 OTA 哈希保留，不覆盖。窄回归证据：`%DLSS5_PRIVATE%/evidence/private-descriptor-heaps-exact-hook-r2/validation.json`；受控机制证据：`%DLSS5_PRIVATE%/evidence/beta5-proxy-domain-host-r4/validation.json`。这些本地测试均非游戏验收。
 
 ### 完整推理对照后的修正
 
 完整 Core + 同版 ReShade 的受控检查证明：只解包 descriptor heap 后，首次 Create 成功，但下一帧私有 Evaluate 仍访问冲突；因此该中间改法没有进入交付。ReShade 同时拥有包装 heap 和虚拟 CPU descriptor 句柄，不能只转换一部分接口协议。
 
-仅将私有原始 NGX Create/Evaluate 的命令列表改回当前已验证的原始入口接口，其余 Core 资源、采集、合成、raw 录制与提交/退休不变，受控对照完成1次创建、5次推理、6次提交和1次退休，689650项检查、退休资源0、原始Shutdown成功。该对照替换过测试转发器，属于方案证据；产品完成后仍需用未替换出口的真实生成 Core 复验。证据 `D:/ChatGPT/DLSS5/evidence/beta6-reshade-core-proxyforward-r1/result.json`。
+仅将私有原始 NGX Create/Evaluate 的命令列表改回当前已验证的原始入口接口，其余 Core 资源、采集、合成、raw 录制与提交/退休不变，受控对照完成1次创建、5次推理、6次提交和1次退休，689650项检查、退休资源0、原始Shutdown成功。该对照替换过测试转发器，属于方案证据；产品完成后仍需用未替换出口的真实生成 Core 复验。证据 `%DLSS5_PRIVATE%/evidence/beta6-reshade-core-proxyforward-r1/result.json`。
 
 最终接线复用已有原始调用 AliasScope：核对当前epoch、native地址、token、Reset序号和device身份，且原始接口的QI必须指向同一个raw列表；只在当前调用内借用，不跨帧缓存。Create/Evaluate每次调用前重验，无有效alias时无论raw或proxy均拒绝并保留Z，不使用GetDevice兜底。首次仅heap归一化代码撤下，历史提交和失败记录保留。
 

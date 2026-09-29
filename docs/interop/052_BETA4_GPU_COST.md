@@ -14,7 +14,7 @@
 | SR / 3 | 640×384 / 320×192 | 0.178176 / 0.223040 | 0.005984 / 0.012960 | 6.219872 / 7.437408 | 12.25 MiB → 0 B |
 | RR / 5 | 1920×1080 / 960×540 | 0.343040 / 0.346560 | 0.013504 / 0.014112 | 11.229632 / 11.264416 | 114.06 MiB → 0 B |
 
-首次创建与首次推理 GPU 区段、产品内部 median/P95、逐帧 CPU 录制/提交/退休耗时及 DXGI 局部使用峰值/回落，均见[原始回执](D:/ChatGPT/DLSS5/evidence/beta4-final-private-cost-r1/validation.json)。这些创建 GPU 区段不等于 CPU NGX Create 的单独耗时。自有 planes 退休为零不表示 NGX/驱动缓存已经全部释放；DXGI 口径与自有资源口径分别保留。
+首次创建与首次推理 GPU 区段、产品内部 median/P95、逐帧 CPU 录制/提交/退休耗时及 DXGI 局部使用峰值/回落，均见[原始回执](%DLSS5_PRIVATE%/evidence/beta4-final-private-cost-r1/validation.json)。这些创建 GPU 区段不等于 CPU NGX Create 的单独耗时。自有 planes 退休为零不表示 NGX/驱动缓存已经全部释放；DXGI 口径与自有资源口径分别保留。
 
 ## 时域方案：完整 4K 原始结果
 

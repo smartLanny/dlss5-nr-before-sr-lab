@@ -6,7 +6,7 @@
 
 ## 当前后续：Beta 12 手动空间实验与 D13 对照
 
-维护者选择保留合理但画质未过门的默认关闭手动实验。真实 B/Z 四点引导恢复与局部修改量抑噪已实现、验证并随 Beta 12 安装；普通恢复仍为建议基线。本批实际 shader 同帧对照有去噪收益，但 NR 新增细线与近零修改保留均未达原门槛，不能称推荐或全面降噪。安全与生命周期受控验证通过，不等于游戏采用和画质验收。见 [空间结果](D:/ChatGPT/DLSS5/evidence/beta12-prep-20260929/SPATIAL_RESULTS.zh-CN.md)。
+维护者选择保留合理但画质未过门的默认关闭手动实验。真实 B/Z 四点引导恢复与局部修改量抑噪已实现、验证并随 Beta 12 安装；普通恢复仍为建议基线。本批实际 shader 同帧对照有去噪收益，但 NR 新增细线与近零修改保留均未达原门槛，不能称推荐或全面降噪。安全与生命周期受控验证通过，不等于游戏采用和画质验收。见 [空间结果](%DLSS5_PRIVATE%/evidence/beta12-prep-20260929/SPATIAL_RESULTS.zh-CN.md)。
 
 D13 使用已核验原始普通基线 Core/链；共同单层/双层、同实际 NR 网格/路线、同游戏设置，仍需同一外部工具采集进程显存和帧时间。目前工具已备妥、实机差值未测，不能给显存节省或整帧新增成本 ≤3% 结论。Esc 动画仍待同步实机归因，NR→私有 RR 未实现。见 [本批验收](052_BETA12_ACCEPTANCE.md)。
 
@@ -65,7 +65,7 @@ GPT-6 Sol 按原像素局部审核，并抽查每组后两张图：
 - 预算 CPU 边界、WARP 分配查询、准入日志 CPU 并发检查接入统一构建。这些早期独立检查现已闭环到最终 Beta 7 生成 Core、真实 GPU/NGX 和 4K 产品链路；游戏复验仍由维护者完成。
 - 跨原生 RR 实验的既有录制入口提取共享标量准入合同，17 项 CPU 检查通过。它没有创建私有 Feature13，也不证明材质导引或游戏路线已接通。未完成的 Feature13 宿主草稿移入本地研究证据，不纳入产品。
 
-源码提交：时域修正 `953e9d38`；跨原生 RR 实验合同 `8c1f0470`。新增统一检查的独立复制头验证为 6/6 编译/运行通过，见 [检查回执](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks-static/validation.json)；该暂存头夹具不是完整生成 Core。首轮日志测试因缺动态运行库失败，改静态链接后通过，原 [失败回执](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks/validation.json)保留；[缺失暂存头负例](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/missing-input-control/validation.json)按预期拒绝。
+源码提交：时域修正 `953e9d38`；跨原生 RR 实验合同 `8c1f0470`。新增统一检查的独立复制头验证为 6/6 编译/运行通过，见 [检查回执](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks-static/validation.json)；该暂存头夹具不是完整生成 Core。首轮日志测试因缺动态运行库失败，改静态链接后通过，原 [失败回执](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/checks/validation.json)保留；[缺失暂存头负例](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/temporal-integrated-gate-r1/missing-input-control/validation.json)按预期拒绝。
 
 ## 方向判断：保留私有 SR，移出近期私有 RR
 
@@ -122,7 +122,7 @@ Esc/切镜恢复、UI/地图省电、Present 受限来源、真实暗部多层�
 
 ## 本地证据入口
 
-- [保全清单及 SHA-256](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/preserved-r1/inventory-verified.json)：42 个文件，514,850,982 字节；原图和原日志保持本地。
-- [分组/时间/恢复/采用摘要](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/evaluation-summary.json)、[Sol 画质报告与精确区域](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/gpt6-sol-image-review.md)。
-- [私有 SR 传输分析](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/assessment.md)、[CPU 参考](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/cpu-transport.json)。
-- [预算 CPU/WARP 查询](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-budget-gate-r1/validation.json)、[独立时域模块编译](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/temporal-module-budget-r1/module.json)、[跨 RR 标量合同](D:/ChatGPT/DLSS5/evidence/beta6-nte-evaluation-20260928/rr-admission-cpu-r2/validation.json)。
+- [保全清单及 SHA-256](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/preserved-r1/inventory-verified.json)：42 个文件，514,850,982 字节；原图和原日志保持本地。
+- [分组/时间/恢复/采用摘要](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/evaluation-summary.json)、[Sol 画质报告与精确区域](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/gpt6-sol-image-review.md)。
+- [私有 SR 传输分析](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/assessment.md)、[CPU 参考](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/private-sr-transport-analysis/cpu-transport.json)。
+- [预算 CPU/WARP 查询](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/temporal-budget-gate-r1/validation.json)、[独立时域模块编译](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/temporal-module-budget-r1/module.json)、[跨 RR 标量合同](%DLSS5_PRIVATE%/evidence/beta6-nte-evaluation-20260928/rr-admission-cpu-r2/validation.json)。

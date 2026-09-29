@@ -1,6 +1,6 @@
 # Beta 4 手动检查 / Manual checks
 
-异环已部署 **0.5.2 Beta 4 中文 Core＋Kio 40/50 NR**，保留原 INI，未启动游戏。[完整身份](D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/DELIVERY.json)。异环已由 6sol 部署中文 Core 与 Kio 40/50 NR 库；[安装回执](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/installation-receipt.json)确认唯一 Core、配置原字节和原生 SR/RR 不变，未启动游戏。[回退包](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/rollback.zip)及[使用说明](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/README-rollback.md)位于搜索目录外，回退脚本 VerifyOnly 已通过。
+异环已部署 **0.5.2 Beta 4 中文 Core＋Kio 40/50 NR**，保留原 INI，未启动游戏。[完整身份](%DLSS5_PRIVATE%/deliveries/052-beta4-acceptance-20260927/DELIVERY.json)。异环已由 6sol 部署中文 Core 与 Kio 40/50 NR 库；[安装回执](%DLSS5_PRIVATE%/evidence/052-beta4-nte-install-20260927/installation-receipt.json)确认唯一 Core、配置原字节和原生 SR/RR 不变，未启动游戏。[回退包](%DLSS5_PRIVATE%/evidence/052-beta4-nte-install-20260927/rollback.zip)及[使用说明](%DLSS5_PRIVATE%/evidence/052-beta4-nte-install-20260927/README-rollback.md)位于搜索目录外，回退脚本 VerifyOnly 已通过。
 
 ## 中文
 
@@ -18,4 +18,4 @@
 4. Separately compare lower-scale NR plus private SR against higher-scale ordinary post-NR for quality and cost. Keep the NR workload fixed for incremental-cost on/off comparisons. Inspect dark regions, text/fine lines, moving objects, disocclusion, cuts, reflections/HUD and low-resolution multilayer cases. Capture comparison images manually; measure performance in a separate interval. Record absolute ms, median/P95 and memory. Controlled 4K cost has multiple peaks; the full-game-frame ≤3% target remains unverified.
 5. Test both normal completion and cancellation: plugin settings must restore without changing game settings. Turning a feature off must stop its work; retirement requires real completion and ended recordings. Save F8/screenshots and use the verified rollback path if needed.
 
-Deployment: Beta 4 Chinese Core and the Kio RTX40/50 NR runtime are installed in Neverness to Everness; the original INI is preserved. No game was launched. [Rollback instructions](D:/ChatGPT/DLSS5/evidence/052-beta4-nte-install-20260927/README-rollback.md) describe the verified original backup location. The script preserves later INI changes unless `-RestoreIni` is explicitly selected.
+Deployment: Beta 4 Chinese Core and the Kio RTX40/50 NR runtime are installed in Neverness to Everness; the original INI is preserved. No game was launched. [Rollback instructions](%DLSS5_PRIVATE%/evidence/052-beta4-nte-install-20260927/README-rollback.md) describe the verified original backup location. The script preserves later INI changes unless `-RestoreIni` is explicitly selected.

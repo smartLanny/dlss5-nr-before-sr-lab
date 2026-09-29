@@ -7,7 +7,7 @@
   "main_integrated": "b2990b120337cdd8026f83a1bd369f3708b78fbe",
   "d21_comparison_source": "cbfb33919696a2840ed5154c91abaea56228b661",
   "generated_cpp": {
-    "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/src/nr_before_sr.cpp",
+    "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/src/nr_before_sr.cpp",
     "bytes": 877988,
     "sha256": "e7db8fc1cb7d9ac35d67c6e62998a42946a2aef85afbacbf896797f8f184cafd"
   },
@@ -15,17 +15,17 @@
     {
       "language": "zh-CN",
       "core": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-zh-CN/nr-before-sr.0.5.2-beta.6.zh-CN.addon64",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-zh-CN/nr-before-sr.0.5.2-beta.6.zh-CN.addon64",
         "bytes": 18001408,
         "sha256": "fffcae611a6efef37f6c838255e3bc3df4c315f826b91425dc9bff156ab7736e"
       },
       "ota": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/DLSS5-0.5.2-beta.6-zh-CN-Core-OTA.zip",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/DLSS5-0.5.2-beta.6-zh-CN-Core-OTA.zip",
         "bytes": 2603374,
         "sha256": "d2c301ebe6c373a00aba1b6740e717d9d3453661c6be436ec75f3e6a2d353eb4"
       },
       "package_receipt": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/package-receipt.json",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-acceptance-20260928/OTA-zh-CN/package-receipt.json",
         "bytes": 2009,
         "sha256": "4491e7474feb5679ea505f0e8c7a6aa21ad20c7ae562c9e3f2b2ad9d6e650830"
       }
@@ -33,24 +33,24 @@
     {
       "language": "en",
       "core": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-en/nr-before-sr.0.5.2-beta.6.en.addon64",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/TEST-en/nr-before-sr.0.5.2-beta.6.en.addon64",
         "bytes": 17914368,
         "sha256": "e2529fa9cd7ce5cf3b607c4080b8baa4ca8fa55e4aedaf4528fa6b63eaee7971"
       },
       "ota": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-en/DLSS5-0.5.2-beta.6-en-Core-OTA.zip",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-acceptance-20260928/OTA-en/DLSS5-0.5.2-beta.6-en-Core-OTA.zip",
         "bytes": 2570304,
         "sha256": "e7c536f9ad9a4bda1f2e8fa77b915cafa913f2e77e8ce1ef4a4d59227c65c630"
       },
       "package_receipt": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-acceptance-20260928/OTA-en/package-receipt.json",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-acceptance-20260928/OTA-en/package-receipt.json",
         "bytes": 2000,
         "sha256": "84f24d7c7070a9f6568b382a454b20101409cb0c4c3d41cf67970c7b5b1e5b83"
       }
     }
   ],
   "shared_bridge": {
-    "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/build/nrchain_nvngx.dll",
+    "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/core/build/nrchain_nvngx.dll",
     "bytes": 222720,
     "sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
   },
@@ -58,7 +58,7 @@
     {
       "group": "RTX20-30",
       "file": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/runtime-RTX20-30/nvngx_dlssnr.dll",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta4-acceptance-20260927/runtime-RTX20-30/nvngx_dlssnr.dll",
         "bytes": 309671536,
         "sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8"
       },
@@ -68,7 +68,7 @@
     {
       "group": "RTX40-50",
       "file": {
-        "path": "D:/ChatGPT/DLSS5/deliveries/052-beta4-acceptance-20260927/runtime-RTX40-50/nvngx_dlssnr.dll",
+        "path": "%DLSS5_PRIVATE%/deliveries/052-beta4-acceptance-20260927/runtime-RTX40-50/nvngx_dlssnr.dll",
         "bytes": 165844992,
         "sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
       },
@@ -77,63 +77,63 @@
     }
   ],
   "software_validation": {
-    "path": "D:/ChatGPT/DLSS5/evidence/beta6-software-validation.json",
+    "path": "%DLSS5_PRIVATE%/evidence/beta6-software-validation.json",
     "bytes": 22176,
     "sha256": "434f0d23028d3a3aeea2ce62cad1bd4adfa12747a5b664b4997c81dfd54a0aa0"
   },
   "evidence": {
     "canonical_run": {
-      "path": "D:/ChatGPT/DLSS5/evidence/beta6-canonical-run.json",
+      "path": "%DLSS5_PRIVATE%/evidence/beta6-canonical-run.json",
       "bytes": 295,
       "sha256": "597d004fb933fbcfe009eca369cbfc8ab9e8b38cd684a46c6434ae49726c048c"
     },
     "canonical": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/validation.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/validation.json",
       "bytes": 4540,
       "sha256": "3c85a1be2d1c9d5d9a5780ac843547f304fa01b5138057716ddee77b8739e11f"
     },
     "source_manifest": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/source-manifest.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/source/source-manifest.json",
       "bytes": 89379,
       "sha256": "8914ef8e4dd1b385c5affdeb1b6656bc82a103587ce1e5b09bfb2a470b1d932d"
     },
     "candidate": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/0.5.2-BETA.6-CANDIDATE.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/0.5.2-BETA.6-CANDIDATE.json",
       "bytes": 3021,
       "sha256": "39cc847c35b2f78d9a8e790211aeff7b9c73d11ea461e3c702617585f5e1264b"
     },
     "unified": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/unified8-checks/validation.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/unified8-checks/validation.json",
       "bytes": 316,
       "sha256": "9c330cdee557d5d2bd3c52625b5592d0fa08f7c83acb406a96314107f760bc92"
     },
     "reconstruction": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1/reconstruction-checks/validation.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1/reconstruction-checks/validation.json",
       "bytes": 728,
       "sha256": "6f66d092ea37d50393cb834471acc2fb25f5e1e52b88ebdf1737cf56fbb982d3"
     },
     "gpu_summary": {
-      "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-gpu-summary.json",
+      "path": "%DLSS5_PRIVATE%/evidence/beta6-final-gpu-summary.json",
       "bytes": 1002,
       "sha256": "d157dcba620bfd3a43885711a1c24330e4625f5551375d8a390c9140bc39e739"
     },
     "reshade_summary": {
-      "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-summary.json",
+      "path": "%DLSS5_PRIVATE%/evidence/beta6-final-reshade-summary.json",
       "bytes": 7229,
       "sha256": "fe7fded0834ab4d0aa426135df1b31f60282cf998eb1d0557641128ea4c71f37"
     },
     "manager_parser": {
-      "path": "D:/ChatGPT/DLSS5/evidence/beta6-ota-final-manager-r1/validation.json",
+      "path": "%DLSS5_PRIVATE%/evidence/beta6-ota-final-manager-r1/validation.json",
       "bytes": 1811,
       "sha256": "bcfba1f83e4c93d29eae0972ca70a0d96f90241822751cebf7041a501cf31092"
     },
     "private_call_list": {
-      "path": "D:/ChatGPT/DLSS5/deliveries/052-beta6-unified-e7407a39-20260928-r1.private-call-list-checks/validation.json",
+      "path": "%DLSS5_PRIVATE%/deliveries/052-beta6-unified-e7407a39-20260928-r1.private-call-list-checks/validation.json",
       "bytes": 1332,
       "sha256": "01f21c7aac42a9dc8b4d4fc61700da9902c37e87c87d174acfc0f5c4a4e2bbad"
     },
     "canonical_build_log": {
-      "path": "D:/ChatGPT/DLSS5/evidence/beta6-canonical-build-e7407a39-r1.log",
+      "path": "%DLSS5_PRIVATE%/evidence/beta6-canonical-build-e7407a39-r1.log",
       "bytes": 241193,
       "sha256": "449cbeec8a32957e7f082a3a6a5556a779bcebc84c2c27712e2a3f28a155f979"
     }
@@ -143,7 +143,7 @@
       "group": "final-core",
       "name": "warp",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-warp-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-warp-r1/validation.json",
         "bytes": 17506,
         "sha256": "09a43323a79b07a42cf4ffc46f84e5efca86902aaf61641e1d5389749d7e9821"
       },
@@ -155,7 +155,7 @@
       "group": "final-core",
       "name": "hardware",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-hardware-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-hardware-r1/validation.json",
         "bytes": 12145,
         "sha256": "9495473974094ed1de3210daa1de9336419e0c0a53d0651b124b387a17df3942"
       },
@@ -167,7 +167,7 @@
       "group": "final-core",
       "name": "real-sr",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-real-sr-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-real-sr-r1/validation.json",
         "bytes": 14090,
         "sha256": "ea4275dcc56902a09e3f6ec693360df1d8b2ea6103be9043fa9127da31193756"
       },
@@ -303,7 +303,7 @@
       "group": "final-core",
       "name": "real-rr",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-real-rr-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-real-rr-r1/validation.json",
         "bytes": 15582,
         "sha256": "4b31a3e02eb51e2172f9eeb719aa6a8e2c7abe3e6b887b2ff48ae0219c9d4dec"
       },
@@ -479,7 +479,7 @@
       "group": "final-core-reshade",
       "name": "reshade-sr",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-sr-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-reshade-sr-r1/validation.json",
         "bytes": 13424,
         "sha256": "6ee86a761b1614543a4e2ebe8bf5f72cd4bcb65a43634842c531bff2944f369d"
       },
@@ -589,7 +589,7 @@
       "group": "final-core-reshade",
       "name": "reshade-rr",
       "receipt": {
-        "path": "D:/ChatGPT/DLSS5/evidence/beta6-final-reshade-rr-r1/validation.json",
+        "path": "%DLSS5_PRIVATE%/evidence/beta6-final-reshade-rr-r1/validation.json",
         "bytes": 13426,
         "sha256": "07c970c22b8b03eb1938cc22b35490dfe23035e356eab4b6efc8d056547dc7f2"
       },
@@ -705,19 +705,19 @@
   "deployment": {
     "status": "deployed-by-6sol-no-game-operation",
     "receipt": {
-      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/installation-receipt.json",
+      "path": "%DLSS5_PRIVATE%/evidence/052-beta6-nte-install-20260928/installation-receipt.json",
       "bytes": 1925,
       "sha256": "22be0cf0543f0a186685ed7155751933d06ac38b160e4b66a1b78c7cc8e4f9c5"
     },
     "rollback": {
-      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/rollback-portable.zip",
+      "path": "%DLSS5_PRIVATE%/evidence/052-beta6-nte-install-20260928/rollback-portable.zip",
       "bytes": 2528818,
       "sha256": "5e612e6d2d7be7d7cb55cc9b6674d842ea3e8c9e214639763c8fd9b3298fd98d"
     },
     "ini_preserved": true,
     "game_started_or_tested": false,
     "rollback_validation": {
-      "path": "D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/portable-rollback-receipt.json",
+      "path": "%DLSS5_PRIVATE%/evidence/052-beta6-nte-install-20260928/portable-rollback-receipt.json",
       "bytes": 1082,
       "sha256": "3e8565d41aeca179689c9c8e71a584162867209ed2264c7d914c46e49f4ab975"
     }

@@ -8,7 +8,7 @@
 
 - 保留普通恢复、旧均衡/精细及暗部彩点保护的身份，不将旧算法改名充当新增降噪。
 - 新增两个互斥空间选项：真实同源 B/Z 的有符号修改量四点引导恢复，以及局部修改量抑噪。都默认关闭，不引入历史或私有 NGX 推理。
-- 本批真实空间 shader 的同帧 WARP 画质对照显示去噪收益，但在仅由 NR 新增的无噪声细线样例中，引导恢复与局部抑噪的修改积分分别只保留 25.65% / 45.57%；近零修改分别保留 18.25% / 36.71%。原 98% 细线及 95%–105% 有效修改保留门均未通过。按维护者要求仍提供默认关闭的手动选项，不升级为推荐；普通恢复仍是建议基线。详见 [空间结果](D:/ChatGPT/DLSS5/evidence/beta12-prep-20260929/SPATIAL_RESULTS.zh-CN.md)。Beta 8 的 58.85% 是旧实验独立身份，不替代本批测量。
+- 本批真实空间 shader 的同帧 WARP 画质对照显示去噪收益，但在仅由 NR 新增的无噪声细线样例中，引导恢复与局部抑噪的修改积分分别只保留 25.65% / 45.57%；近零修改分别保留 18.25% / 36.71%。原 98% 细线及 95%–105% 有效修改保留门均未通过。按维护者要求仍提供默认关闭的手动选项，不升级为推荐；普通恢复仍是建议基线。详见 [空间结果](%DLSS5_PRIVATE%/evidence/beta12-prep-20260929/SPATIAL_RESULTS.zh-CN.md)。Beta 8 的 58.85% 是旧实验独立身份，不替代本批测量。
 - 新模式与私有 SR、外部历史互斥；来源或路线不支持时保留请求、回退原 Z 并给出原因。关闭状态不增加处理 pass 或资源分配；不声称新增代码完全没有 CPU/分支成本。
 - 保留同像素零修改、原始 alpha、处理区域外内容、无效输入回退和精确奇数网格合同；B/Z 读写使用受完成 fence 约束的安全资源。
 - 既有九组仍是原有对照，不偷偷加入新算法；新实验由独立配置/会话记录辨识。运行、提交、GPU 完成和画质有效分别记录。
@@ -23,8 +23,8 @@
 
 ## 验证与交付
 
-[canonical shell 收据](D:/ChatGPT/DLSS5/evidence/beta12-canonical-dd911da4-r1/shell-receipt.json) 为 passed / 实际 exit 0，生成源码清单 SHA-256 为 `7d6d833d98bf29bd401e3c7fd44d386ac14d572d83d41f3063f75645d0b86cf0`。[完整 Core/WARP 回执](D:/ChatGPT/DLSS5/evidence/beta12-private-core-dd911da4-r1/validation.json)为 20/20 模式通过，包含两种空间实验的数值、关闭、切换和生命周期检查。七项[真实 NGX 硬件短测](D:/ChatGPT/DLSS5/evidence/beta12-hardware-dd911da4-r1/validation.json)均为四帧、实际 exit 0：原有 SR/RR/私有 SR 三例与空间模式 1/2 × 原生 SR/RR 四例。它们证明受控人工输入下的创建、录制、提交与完成，不证明游戏画质、Esc、显存节省或整帧成本；四帧不足以判断稳定性能。
+[canonical shell 收据](%DLSS5_PRIVATE%/evidence/beta12-canonical-dd911da4-r1/shell-receipt.json) 为 passed / 实际 exit 0，生成源码清单 SHA-256 为 `7d6d833d98bf29bd401e3c7fd44d386ac14d572d83d41f3063f75645d0b86cf0`。[完整 Core/WARP 回执](%DLSS5_PRIVATE%/evidence/beta12-private-core-dd911da4-r1/validation.json)为 20/20 模式通过，包含两种空间实验的数值、关闭、切换和生命周期检查。七项[真实 NGX 硬件短测](%DLSS5_PRIVATE%/evidence/beta12-hardware-dd911da4-r1/validation.json)均为四帧、实际 exit 0：原有 SR/RR/私有 SR 三例与空间模式 1/2 × 原生 SR/RR 四例。它们证明受控人工输入下的创建、录制、提交与完成，不证明游戏画质、Esc、显存节省或整帧成本；四帧不足以判断稳定性能。
 
-[双语本地包](D:/ChatGPT/DLSS5/evidence/beta12-ota-dd911da4-r1/validation.json)通过真实 Manager 解析；[独立完整核查](D:/ChatGPT/DLSS5/evidence/beta12-independent-dd911da4-r1/independent-validation-complete.json)七项通过。[异环安装回执](D:/ChatGPT/DLSS5/evidence/beta12-nte-install-dd911da4-r1/installation.json)为 passed：中文 Core SHA-256 `1eb2b2c67c7d62f4f05a239da89f41372f7d57a51e072cfcced748417a151356`，保留配置和运行库、旧 Core 回退及单一搜索位置；未启动游戏。包未在线发布、未合 main、未改 Manager 默认版本。Esc 仍待同步游戏证据；NR→私有 RR 未实现。D13 对照工具已备妥，实机显存和帧时间差尚未测得，不能宣称整帧新增成本 ≤3%。
+[双语本地包](%DLSS5_PRIVATE%/evidence/beta12-ota-dd911da4-r1/validation.json)通过真实 Manager 解析；[独立完整核查](%DLSS5_PRIVATE%/evidence/beta12-independent-dd911da4-r1/independent-validation-complete.json)七项通过。[异环安装回执](%DLSS5_PRIVATE%/evidence/beta12-nte-install-dd911da4-r1/installation.json)为 passed：中文 Core SHA-256 `1eb2b2c67c7d62f4f05a239da89f41372f7d57a51e072cfcced748417a151356`，保留配置和运行库、旧 Core 回退及单一搜索位置；未启动游戏。包未在线发布、未合 main、未改 Manager 默认版本。Esc 仍待同步游戏证据；NR→私有 RR 未实现。D13 对照工具已备妥，实机显存和帧时间差尚未测得，不能宣称整帧新增成本 ≤3%。
 
-首轮源码 `9c8bb025` 的完整构建因默认值抽取测试缺少真实空间 policy 头文件而退出 1；[原失败收据](D:/ChatGPT/DLSS5/evidence/beta12-canonical-9c8bb025-r1/shell-receipt.json)保留。`dd911da4` 补齐测试依赖后从头构建通过，该失败不混记为 GPU 执行或画质失败。额外旧配置策略探针不属于本次 canonical 链，未纳入通过项。
+首轮源码 `9c8bb025` 的完整构建因默认值抽取测试缺少真实空间 policy 头文件而退出 1；[原失败收据](%DLSS5_PRIVATE%/evidence/beta12-canonical-9c8bb025-r1/shell-receipt.json)保留。`dd911da4` 补齐测试依赖后从头构建通过，该失败不混记为 GPU 执行或画质失败。额外旧配置策略探针不属于本次 canonical 链，未纳入通过项。

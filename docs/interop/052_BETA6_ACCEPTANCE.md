@@ -22,7 +22,7 @@ Beta5 在异环第4组“50% NR＋私有SR”首次 Feature1 Create 读取0xC。
 
 **未通过的组合夹具保留：** 把整个Feature18链放到ReShade代理录制的尝试造成另一方向的接口混用，不能合并前两项结果宣称“ReShade＋多层NR＋私有SR”已验证。游戏全链稳定性仍需维护者复测。
 
-最终各命令、夹具/生成源码哈希、运行库身份及计时/显存原始记录见[完整交付清单](052_BETA6_DELIVERY.json)与 [本地软件回执](D:/ChatGPT/DLSS5/evidence/beta6-software-validation.json)。短检查的 `timing_samples=0`，median/P95的0是尚无有效稳定样本，不是零开销；峰值平面账目与DXGI总显存分别保留，退休平面0不代表驱动总显存回到0。
+最终各命令、夹具/生成源码哈希、运行库身份及计时/显存原始记录见[完整交付清单](052_BETA6_DELIVERY.json)与 [本地软件回执](%DLSS5_PRIVATE%/evidence/beta6-software-validation.json)。短检查的 `timing_samples=0`，median/P95的0是尚无有效稳定样本，不是零开销；峰值平面账目与DXGI总显存分别保留，退休平面0不代表驱动总显存回到0。
 
 ## 交付身份
 
@@ -33,7 +33,7 @@ Beta5 在异环第4组“50% NR＋私有SR”首次 Feature1 Create 读取0xC。
 
 nrchain SHA256 `1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2`。20/30运行库 `6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8`，40/50 Kio v1.0.6 `a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa`；Core OTA不包含运行库，不覆盖INI。
 
-[安装回执](D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/installation-receipt.json)确认原文件与配置；[回退包](D:/ChatGPT/DLSS5/evidence/052-beta6-nte-install-20260928/rollback-portable.zip)恢复部署前Beta5原字节，Beta5仍有已知第4组崩溃，不称稳定版。旧Beta4和其他候选继续保留，也不冒充完整游戏验收。
+[安装回执](%DLSS5_PRIVATE%/evidence/052-beta6-nte-install-20260928/installation-receipt.json)确认原文件与配置；[回退包](%DLSS5_PRIVATE%/evidence/052-beta6-nte-install-20260928/rollback-portable.zip)恢复部署前Beta5原字节，Beta5仍有已知第4组崩溃，不称稳定版。旧Beta4和其他候选继续保留，也不冒充完整游戏验收。
 
 ## 下一步
 

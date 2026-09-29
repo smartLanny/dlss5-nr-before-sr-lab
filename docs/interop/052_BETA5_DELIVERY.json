@@ -12,10 +12,10 @@
     "zh-CN": "8134524b30b1025069c589b0321a770f85d853855a31c79292ea86164db10b2f",
     "en": "3fe0850afab70afecd6b8abecaa4b8d577d8592d4ee054c0039a05115d3eb408"
   },
-  "software_evidence": "D:/ChatGPT/DLSS5/evidence/beta5-final-gpu-summary.json",
-  "game_evidence": "D:/ChatGPT/DLSS5/evidence/beta5-nte-comparison-crash-20260927/capture-manifest.json",
+  "software_evidence": "%DLSS5_PRIVATE%/evidence/beta5-final-gpu-summary.json",
+  "game_evidence": "%DLSS5_PRIVATE%/evidence/beta5-nte-comparison-crash-20260927/capture-manifest.json",
   "failure_document": "052_BETA5_NTE_FAILURE.md",
-  "original_build": "D:/ChatGPT/DLSS5/deliveries/052-beta5-unified-de8d5ab8-20260927-r1",
-  "original_delivery": "D:/ChatGPT/DLSS5/deliveries/052-beta5-acceptance-20260927",
+  "original_build": "%DLSS5_PRIVATE%/deliveries/052-beta5-unified-de8d5ab8-20260927-r1",
+  "original_delivery": "%DLSS5_PRIVATE%/deliveries/052-beta5-acceptance-20260927",
   "scope": "Preserved identities and failure index; not a successful delivery receipt. Private raw crash/capture files are not committed."
 }

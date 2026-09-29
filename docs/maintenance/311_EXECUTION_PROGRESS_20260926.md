@@ -40,7 +40,7 @@ UI1/Inbox1 回退，不自动安装、不换包、不改 Manager pin。以下9/2
 - 后续 `13d1cca7443754190003c96ff5b333d3c376e9ca` 只更新说明，没有换包。
 - 中文 Core SHA256：`2b0a6a36843b8dc4f7cc0dfb6c10af6e917270215f95a1588a0a4ed333858da7`。
 - 中文 ZIP SHA256：`ec9b83e550e3030ff368b8bd0a3bbb12ad14bcab2a8f133be03fdc1603d27e09`。
-- Windows 本地包：`F:\ChatGPT\DLSS5\deliveries\052-beta1-c382bd19-20260926-ota`。
+- Windows 本地包：`%DLSS5_ARCHIVE%\deliveries\052-beta1-c382bd19-20260926-ota`。
 
 此包修空尺寸与 N/R 换算后的 MV 数值边界，并增加可选 guideDomain 采集回执。
 26 个 codec 与 UI1 相同，不是新增去黑点算法，不包含私有残差 SR/RR。

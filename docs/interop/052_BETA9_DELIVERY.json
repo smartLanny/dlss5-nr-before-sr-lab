@@ -8,20 +8,20 @@
   "draft_pr": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/313",
   "d21_comparison_source": "cbfb33919696a2840ed5154c91abaea56228b661",
   "generated_cpp": {
-    "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\source\\core\\src\\nr_before_sr.cpp",
+    "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\source\\core\\src\\nr_before_sr.cpp",
     "sha256": "ae3fed5be2341e097a02ffe6d179f03fb34708184e9b4f1d38f65a253df86167"
   },
   "payload": [
     {
       "language": "zh-CN",
-      "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta9-acceptance-86518955-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.9-zh-CN-Core-OTA.zip",
+      "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta9-acceptance-86518955-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.9-zh-CN-Core-OTA.zip",
       "archive_sha256": "cb91a9bb6cc777d68caae573ac57c66565e19d6b6c0c54e86aaa0d863f7fb8d0",
       "core_sha256": "7f375c71bd705c5b1102e89403cc2afee140a0f852ee437945dec14f733e76d5",
       "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
     },
     {
       "language": "en",
-      "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta9-acceptance-86518955-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.9-en-Core-OTA.zip",
+      "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta9-acceptance-86518955-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.9-en-Core-OTA.zip",
       "archive_sha256": "92fd682eaf7718c59c8038d4798779c59bd559bfa7be20660922f5fed53c266d",
       "core_sha256": "0eb26aadf62c7917114c0b6b7ecfc8636b995f49a297f8e785524213bcc25325",
       "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
@@ -33,51 +33,51 @@
   },
   "evidence": {
     "canonical": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-86518955-r1\\shell-receipt.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-86518955-r1\\shell-receipt.json",
       "sha256": "d83dfb135e72902c388862cff27f188d315001faffe99c2245acf055a3ddfab6"
     },
     "canonical_validation": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\validation.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\validation.json",
       "sha256": "a620019920eb8a7a2c100bf8c19c3c54ff28e9c8642bbc7727cb0d679826a552"
     },
     "source_manifest": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\source\\source-manifest.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\deliveries\\052-beta9-unified-86518955-20260929-r1\\source\\source-manifest.json",
       "sha256": "645a9e1811d64474790280073344497dcc9f8cd2945003b6e08646f317bcf8b2"
     },
     "hardware": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\validation.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\validation.json",
       "sha256": "0a61ac820cec340e6a346c92dcfa4618b7da6c425a34603b6c4ace789907c822"
     },
     "packaging": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-packaging-86518955-r1\\validation.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-packaging-86518955-r1\\validation.json",
       "sha256": "e9a9e34ac7e697b7a12b2d523ac2fc443b424c8a79584bf8edab1094793d81f7"
     },
     "runtime_review": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\runtime.md",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\runtime.md",
       "sha256": "e4e8c6a86436a96b4b93d87e03ac6894294ea6ccf4b5be3047649a92c1688bd5"
     },
     "functional_review": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\functional.md",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\functional.md",
       "sha256": "705277574e48fb80c474e8ca48d8329b0aab14e08fde92393a55fc7b3cc79c3c"
     },
     "review_disposition": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\disposition.md",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-review-5934209a\\disposition.md",
       "sha256": "089b2c315f72c16fea852a8cf87289535d426a11d866116eda3ecdaeb7287bd5"
     },
     "beta8_game_feedback": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-new-feedback-20260929-r1\\review.md",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-new-feedback-20260929-r1\\review.md",
       "sha256": "4857bdf2a01184aeabe1938645fc49033e0c092ac97f111730c1b9388298d0f1"
     },
     "beta8_four_roi_review": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-new-feedback-20260929-r1\\rr-image-review.md",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-new-feedback-20260929-r1\\rr-image-review.md",
       "sha256": "1063935eac4691aef9eefedc6e7e6370ab28e830fb736626e9d43d18e82f6c14"
     },
     "failed_canonical_5934209a": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-5934209a-r1\\shell-receipt.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-5934209a-r1\\shell-receipt.json",
       "sha256": "01845e3819e2b1622ad6db71298a408ddf56190e7cf48fd6dd7d73c70533e033"
     },
     "failed_canonical_11ce16ec": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-11ce16ec-r1\\shell-receipt.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-canonical-11ce16ec-r1\\shell-receipt.json",
       "sha256": "02ed5fc4953497c98eea3f540f17de13e01571eeca2d9343a2b83b3f3fb95986"
     }
   },
@@ -86,7 +86,7 @@
     "status": "passed",
     "mode": "Deploy",
     "receipt": {
-      "path": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\installation.json",
+      "path": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\installation.json",
       "sha256": "b120017effbd2f75fb41d796087b34c2dacdd0fe02cd480db791229cfd507937"
     },
     "installed_core": "E:\\Neverness To Everness\\Client\\WindowsNoEditor\\HT\\Binaries\\Win64\\nr-before-sr.zh-CN.addon64",
@@ -94,9 +94,9 @@
     "installed_at_utc": "2026-09-28T19:29:17.5669007Z",
     "preserved_file_count": 7,
     "preserved_files_unchanged": true,
-    "rollback_core": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\rollback\\nr-before-sr.zh-CN.addon64",
+    "rollback_core": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\rollback\\nr-before-sr.zh-CN.addon64",
     "rollback_core_sha256": "dd14c59ebb02dd21626abdb8d3f988bb293dc65e454e1010344598b38fe5ca00",
-    "rollback_zip": "C:\\Users\\PC\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\rollback.zip",
+    "rollback_zip": "%USERPROFILE%\\Documents\\ChatGPT\\DLSS5\\evidence\\beta9-nte-install-86518955-r1\\rollback.zip",
     "rollback_zip_sha256": "d01b228d100f53994b64d5b9dffb0764d98af0674188c0886339ed26ff1db3b8",
     "atomic_backup": "E:\\DLSS5-Core-rollback\\Beta9-86518955-20260928T192916Z\\nr-before-sr.zh-CN.addon64.previous",
     "atomic_backup_sha256": "dd14c59ebb02dd21626abdb8d3f988bb293dc65e454e1010344598b38fe5ca00",
@@ -116,7 +116,7 @@
         "case": null,
         "frames": null,
         "scope": "Final generated Core full-host compile and link only",
-        "evidence_path": "D:\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\product-compile\\validation.json"
+        "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta9-hardware-86518955-r1\\product-compile\\validation.json"
       },
       {
         "name": "rr_spatial",
@@ -126,7 +126,7 @@
         "case": "rr-spatial-layers1-p50",
         "frames": 4,
         "scope": "Real Feature13 RR -> NR Create/Evaluate/Release",
-        "evidence_path": "D:\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\rr-spatial\\validation.json"
+        "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta9-hardware-86518955-r1\\rr-spatial\\validation.json"
       },
       {
         "name": "sr_spatial",
@@ -136,7 +136,7 @@
         "case": "sr-control-spatial",
         "frames": 4,
         "scope": "Real Feature1 SR -> NR Create/Evaluate/Release",
-        "evidence_path": "D:\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\sr-spatial\\validation.json"
+        "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta9-hardware-86518955-r1\\sr-spatial\\validation.json"
       },
       {
         "name": "rr_private",
@@ -146,7 +146,7 @@
         "case": "rr-private-layers1-p50",
         "frames": 4,
         "scope": "Real Feature13 RR -> NR -> private Feature1 Create/Evaluate/Release",
-        "evidence_path": "D:\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\rr-private\\validation.json"
+        "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta9-hardware-86518955-r1\\rr-private\\validation.json"
       },
       {
         "name": "coldstart_five",
@@ -156,7 +156,7 @@
         "case": null,
         "frames": null,
         "scope": "Real five-model NR Create/Release and compact-cycle; no Evaluate",
-        "evidence_path": "D:\\ChatGPT\\DLSS5\\evidence\\beta9-hardware-86518955-r1\\coldstart-five\\validation.json"
+        "evidence_path": "%DLSS5_PRIVATE%\\evidence\\beta9-hardware-86518955-r1\\coldstart-five\\validation.json"
       }
     ],
     "game_verified": false,

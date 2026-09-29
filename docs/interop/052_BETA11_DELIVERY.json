@@ -4,21 +4,21 @@
   "product_source_commit": "1329c116f0108621d342214c466f6f41c1a305bd",
   "documentation_only_update_changes_product_source_or_package": false,
   "canonical": {
-    "receipt": "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-1329c116-r1\\shell-receipt.json",
+    "receipt": "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-1329c116-r1\\shell-receipt.json",
     "status": "passed",
     "actual_shell_exit_code": 0,
     "generated_source_manifest_sha256": "adf7b1b1416a3d722be2ba6cc760347491d936a805c0fa48b4ae60e09dcb3ce6",
-    "build": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta11-unified-1329c116-20260929-r1"
+    "build": "%DLSS5_PRIVATE%\\deliveries\\052-beta11-unified-1329c116-20260929-r1"
   },
   "prior_failed_canonical_receipts": [
-    "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-32f08a68-r1\\shell-receipt.json",
-    "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-cd636d21-r1\\shell-receipt.json",
-    "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-cf1e39e6-r1\\shell-receipt.json",
-    "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-66c08474-r1\\shell-receipt.json",
-    "D:\\ChatGPT\\DLSS5\\evidence\\beta11-canonical-a8927fff-r1\\shell-receipt.json"
+    "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-32f08a68-r1\\shell-receipt.json",
+    "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-cd636d21-r1\\shell-receipt.json",
+    "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-cf1e39e6-r1\\shell-receipt.json",
+    "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-66c08474-r1\\shell-receipt.json",
+    "%DLSS5_PRIVATE%\\evidence\\beta11-canonical-a8927fff-r1\\shell-receipt.json"
   ],
   "private_core_controlled_modes": {
-    "receipt": "D:\\ChatGPT\\DLSS5\\evidence\\beta11-private-core-1329c116-r1\\validation.json",
+    "receipt": "%DLSS5_PRIVATE%\\evidence\\beta11-private-core-1329c116-r1\\validation.json",
     "status": "passed",
     "mode_count": 18,
     "budget_preflight": {
@@ -30,21 +30,21 @@
     }
   },
   "local_bilingual_ota": {
-    "receipt": "D:\\ChatGPT\\DLSS5\\evidence\\beta11-ota-1329c116-r1\\validation.json",
+    "receipt": "%DLSS5_PRIVATE%\\evidence\\beta11-ota-1329c116-r1\\validation.json",
     "status": "passed",
     "reviewed_manager_source_commit": "70af75c1e9398dd3e7363b7816942c9b3d4ed35a",
     "manager_ui_tested": false,
     "packages": [
       {
         "language": "zh-CN",
-        "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta11-ota-1329c116-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.11-zh-CN-Core-OTA.zip",
+        "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta11-ota-1329c116-20260929-r1\\OTA-zh-CN\\DLSS5-0.5.2-beta.11-zh-CN-Core-OTA.zip",
         "archive_sha256": "c0e1f44b874fc9b03c9a44b02cb20cbd652c90e3f42c8d95af7532b10e82b30b",
         "core_sha256": "5494a29f7e8737d8f0424d222603aed596b8e2b90d56b42106dc6131139d98ef",
         "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
       },
       {
         "language": "en",
-        "archive": "D:\\ChatGPT\\DLSS5\\deliveries\\052-beta11-ota-1329c116-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.11-en-Core-OTA.zip",
+        "archive": "%DLSS5_PRIVATE%\\deliveries\\052-beta11-ota-1329c116-20260929-r1\\OTA-en\\DLSS5-0.5.2-beta.11-en-Core-OTA.zip",
         "archive_sha256": "c6a2f051ac8c7ba747bff6041797874438faef0cbed2a16e29aa387672e55911",
         "core_sha256": "889cb72c1030fd1583f90b463a5b3bdece2048527974452446ff492bc35d4e1c",
         "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2"
@@ -52,7 +52,7 @@
     ]
   },
   "independent_artifact_audit": {
-    "receipt": "D:\\ChatGPT\\DLSS5\\evidence\\beta11-independent-1329c116-r1\\independent-validation.json",
+    "receipt": "%DLSS5_PRIVATE%\\evidence\\beta11-independent-1329c116-r1\\independent-validation.json",
     "status": "passed-artifacts"
   },
   "canonical_acceptance_memory_export": {
@@ -70,7 +70,7 @@
     "name": "Neverness To Everness",
     "installed_identity": "Beta10",
     "installed_core_sha256": "e77e99c038a37b1746f34ace7173fc70af7df9812a48a6a610b73db12c7a56fe",
-    "pending_game_exit_receipt": "D:\\ChatGPT\\DLSS5\\evidence\\beta11-prep-20260929\\pending-game-exit.json",
+    "pending_game_exit_receipt": "%DLSS5_PRIVATE%\\evidence\\beta11-prep-20260929\\pending-game-exit.json",
     "hardware_status": "not-run/game-running",
     "installation_status": "not-run/game-running",
     "beta11_deployed": false,
