@@ -69,7 +69,7 @@ python "$inputs\restore-face-inputs.py" --source $inputs `
   -OutputRoot 'C:\dev\dlss5-build\candidate-001' -AllowMissingDebugLayer
 ```
 
-输出目录必须不存在，源码须干净。不要给已生成的旧 Core 改名冒充新版本。`CodecCacheRoot` 只是加速项，上述新机命令省略它，生成所需对象。
+输出目录必须不存在，源码须干净。若要重建本次发包源码，先在独立检出中切到产品提交 `cd8ba7009d333f7b03c463dc4237a913f9913081`；若在含交接文档的分支新 HEAD 上构建，记录实际新 HEAD，不把它称作旧包的原始构建身份。不要给已生成的旧 Core 改名冒充新版本。`CodecCacheRoot` 只是加速项，上述新机命令省略它，生成所需对象。
 
 FFX 恢复只迁移八个预编译对象：原始 `build.json` 原样保存为 `build.original.json`，派生回执只改对象路径，另记 `relocation.json`。它核对固定 SDK、干净状态、编译器、许可证和八个对象，不伪装成新机从头编译 FFX。开发附件还保留修改后的 backend 文件、shader 与原始编译命令；完整从源码重建这份 SDK 缓存的自动脚本仍可后续完善。
 
