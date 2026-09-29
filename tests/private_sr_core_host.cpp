@@ -200,11 +200,12 @@ int SpatialCase(const std::wstring& selected){
     NgxHandle parent{};FeatureRecord feature{};feature.feature_id=selected==L"spatial-rr"?13:1;
     feature.generation=7;feature.create_flags=75;feature.create_flags_known=true;
     Params parameters;
-    const unsigned modes[]={1,1,1,2,0,1,1,2,1};
-    const float values[]={.625f,.375f,.375f,.625f,.625f,.5f,.5f+1.f/1024.f,.5f-1.f/2048.f,.625f};
-    for(unsigned frame=0;frame<9;++frame){
+    const unsigned modes[]={1,1,1,2,0,1,1,2,1,1,2};
+    const float values[]={.625f,.375f,.375f,.625f,.625f,.5f,.5f+1.f/1024.f,.5f-1.f/2048.f,.625f,.625f,.625f};
+    for(unsigned frame=0;frame<11;++frame){
         const bool invalid_base=frame==1;
         auto* target=frame==2?z1:z0;slot.result=target;
+        if(frame==9)Fill(h,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,.5f);
         Fill(h,target,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,values[frame]);
         if(frame==8){
             const unsigned short half_alpha[]={0x3800,0x3800,0x3800,0x3800};
@@ -218,6 +219,10 @@ int SpatialCase(const std::wstring& selected){
         }
         Hr(ProcessCommandListReset(0,h.list,h.allocator,nullptr),"spatial actual Core begin Reset");h.released=false;
         g_config.spatial_experiment_mode=modes[frame];
+        // Saved mode may be compatibility/disabled while this already-created
+        // context is an actual post-final NR owner with valid owned B/Z.
+        g_config.mode=frame==9?2:frame==10?0:1;
+        Require(c.mode==1,"spatial active context remains the true post-final route");
         const auto recorded_before=nr_spatial_experiment::status.recorded.load();
         const auto submitted_before=nr_spatial_experiment::status.submitted.load();
         nr_spatial_experiment::PrepareForPost(c,slot,width,height,invalid_base?width:0,0);
@@ -263,11 +268,11 @@ int SpatialCase(const std::wstring& selected){
             Require(at(14,23,3)==0x3c00&&at(width-1,height-1,0)==0x3900,
                 "invalid fallback keeps Z alpha and far boundary unchanged");
         }
-        std::printf("SPATIAL frame=%u mode=%u tokenSubmitted=%llu resident=%llu resultRotated=%u\n",
-            frame,modes[frame],nr_spatial_experiment::status.submitted.load(),
+        std::printf("SPATIAL frame=%u spatial=%u savedNrMode=%u actualContextMode=%u tokenSubmitted=%llu resident=%llu resultRotated=%u\n",
+            frame,modes[frame],g_config.mode,c.mode,nr_spatial_experiment::status.submitted.load(),
             nr_spatial_experiment::status.resident_bytes.load(),unsigned(target==z1));
     }
-    g_config.spatial_experiment_mode=0;nr_spatial_experiment::PrepareForPost(c,slot,width,height,0,0);
+    g_config.mode=1;g_config.spatial_experiment_mode=0;nr_spatial_experiment::PrepareForPost(c,slot,width,height,0,0);
     Require(!nr_spatial_experiment::status.resident_bytes.load(),
         "spatial owned resources retired after exact fence and Reset");
     g_codec.device=nullptr;slot.source=slot.result=nullptr;

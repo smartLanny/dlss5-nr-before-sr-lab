@@ -184,7 +184,7 @@ void PrepareForPost(NrContext& context,NrSlot& slot,unsigned width,unsigned heig
         if(slot.spatial_heap&&CanMutateSlotLocked(slot))ReleaseSlot(slot);
         Say(Reason::Conflict,mode);return;
     }
-    if(g_config.mode!=1||!slot.owns_source||slot.owns_result){
+    if(context.mode!=1||!slot.owns_source||slot.owns_result){
         if(slot.spatial_heap&&CanMutateSlotLocked(slot))ReleaseSlot(slot);
         Say(Reason::WaitingRoute,mode);return;
     }
