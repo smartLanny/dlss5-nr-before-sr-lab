@@ -109,7 +109,7 @@
   "release": {
     "repository": "smartLanny/dlss5-nr-before-sr-lab",
     "repository_visibility": "private",
-    "draft_url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/untagged-b7267b556524d8e2733a",
+    "draft_url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases",
     "draft_tag": "dev-handoff-20260929-beta13",
     "public_ota_published": false,
     "manager_defaults_changed": false,
