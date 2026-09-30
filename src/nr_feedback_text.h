@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdint>
 #include <deque>
+#include <initializer_list>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -198,6 +199,112 @@ inline bool UiActivityMetadataNumber(std::string_view line, std::size_t begin, s
     }
     return found && at==line.size();
 }
+inline bool DiagnosticMetadataNumber(std::string_view line,std::size_t begin,std::size_t end) {
+    // Only complete, source-written menu/ledger records may carry decimal
+    // counters that resemble pointers. Unknown keys or malformed records keep
+    // the ordinary address heuristic, including for an otherwise valid field.
+    const auto equal=line.find('=');
+    if(equal==std::string_view::npos || begin<=equal || begin>=end || end>line.size() ||
+       !CanonicalUnsigned(line.substr(begin,end-begin)))return false;
+    const auto key=line.substr(0,equal);
+    struct Cursor {
+        std::string_view line;
+        std::size_t at,begin,end;
+        bool found=false;
+        bool Literal(std::string_view value) {
+            if(line.substr(at,value.size())!=value)return false;
+            at+=value.size();return true;
+        }
+        bool Number(std::uint64_t maximum=UINT64_MAX,bool nonzero=false) {
+            const auto first=at;
+            while(at<line.size() && line[at]>='0' && line[at]<='9')++at;
+            std::uint64_t value=0;
+            if(!CanonicalUnsigned(line.substr(first,at-first),&value) || value>maximum || (nonzero && !value))return false;
+            found|=first==begin && at==end;
+            return true;
+        }
+        bool Boolean(){return Number(1);}
+        bool MaybeNumber(std::uint64_t maximum=UINT64_MAX) {
+            return Literal("unknown") || Number(maximum);
+        }
+        bool Extent() {
+            return Literal("unknown") || (Number(UINT32_MAX,true) && Literal("x") && Number(UINT32_MAX,true));
+        }
+        bool Done() const {return at==line.size() && found;}
+    } c{line,equal+1,begin,end};
+    const auto one_of=[](std::string_view value,std::initializer_list<std::string_view> choices){
+        for(const auto choice:choices)if(value==choice)return true;
+        return false;
+    };
+    if(key=="menuTrace.windowStartMs" || key=="menuTrace.windowDeadlineMs")
+        return c.Number() && c.Done();
+    constexpr std::string_view event_prefix="menuTrace.event.";
+    if(key.substr(0,event_prefix.size())==event_prefix) {
+        auto suffix=key.substr(event_prefix.size());
+        const auto dot=suffix.find('.');
+        const auto index_text=suffix.substr(0,dot);
+        std::uint64_t index=0;
+        if(!CanonicalUnsigned(index_text,&index) || index>=64)return false;
+        if(dot!=std::string_view::npos) {
+            suffix.remove_prefix(dot+1);
+            return (suffix=="lastMs" ? c.Number() :
+                    suffix=="coalescedCount" ? c.Number(UINT32_MAX) : false) && c.Done();
+        }
+        if(!c.Literal("ms:") || !c.Number() || !c.Literal(" kind:"))return false;
+        constexpr std::string_view kinds[]={"esc","first","change","resource-rotation","create-succeeded",
+            "create-failed","retire","reset-requested","evaluate-failed","bypass","guide-rejected"};
+        bool kind_found=false;
+        for(const auto kind:kinds) {
+            if(c.line.substr(c.at,kind.size())==kind &&
+               c.line.substr(c.at+kind.size(),3)==" R:") {
+                c.at+=kind.size();kind_found=true;break;
+            }
+        }
+        if(!kind_found || !c.Literal(" R:") || !c.Extent() ||
+           !c.Literal(" N:") || !c.Extent() || !c.Literal(" O:") || !c.Extent() ||
+           !c.Literal(" feature:") || !c.MaybeNumber(UINT32_MAX) ||
+           !c.Literal(" featureGen:") || !c.MaybeNumber() ||
+           !c.Literal(" instance:") || !c.MaybeNumber() ||
+           !c.Literal(" layer:") || !c.MaybeNumber(UINT32_MAX) ||
+           !c.Literal(" route:") || !c.MaybeNumber(UINT32_MAX) ||
+           !c.Literal(" config:") || !c.MaybeNumber(UINT32_MAX) ||
+           !c.Literal(" history:") || !c.MaybeNumber(UINT32_MAX) ||
+           !c.Literal(" sourceStream:") || !c.MaybeNumber() ||
+           !c.Literal(" sourceEpoch:") || !c.MaybeNumber() ||
+           !c.Literal(" sourceFrame:") || !c.MaybeNumber() ||
+           !c.Literal(" frameMask:") || !c.Number(UINT32_MAX) ||
+           !c.Literal(" storageMask:") || !c.Number(UINT32_MAX) ||
+           !c.Literal(" mappingMask:") || !c.Number(UINT32_MAX) ||
+           !c.Literal(" resourceMask:") || !c.Number(UINT32_MAX) ||
+           !c.Literal(" reason:") || !c.Number(UINT32_MAX) ||
+           !c.Literal(" reset:") || !c.Boolean())return false;
+        return c.Done();
+    }
+    std::string_view allocation;
+    if(key.substr(0,17)=="start.allocation.")allocation=key.substr(17);
+    else if(key.substr(0,15)=="end.allocation.")allocation=key.substr(15);
+    else return false;
+    if(one_of(allocation,{"sampleStartedTickMs","sampleFinishedTickMs","knownBytesLowerBound"}))
+        return c.Number() && c.Done();
+    const auto category_end=allocation.find('.');
+    if(category_end==std::string_view::npos)return false;
+    const auto category=allocation.substr(0,category_end);
+    if(!one_of(category,{"coreSlot","experiment","capture","dual","privateSR","temporal","pool","compat","fg"}))return false;
+    allocation.remove_prefix(category_end+1);
+    const auto phase_end=allocation.find('.');
+    const auto phase=allocation.substr(0,phase_end);
+    if(!one_of(phase,{"live","retired","pending","destroying"}))return false;
+    if(phase_end!=std::string_view::npos) {
+        allocation.remove_prefix(phase_end+1);
+        if(allocation.substr(0,5)!="heap.")return false;
+        allocation.remove_prefix(5);
+        if(!one_of(allocation,{"default","readback","upload","other"}))return false;
+    }
+    return c.Literal("bytes:") && c.Number() &&
+        c.Literal(",resources:") && c.Number(UINT32_MAX) &&
+        c.Literal(",unknownGroups:") && c.Number(UINT32_MAX) &&
+        c.Literal(",overflow:") && c.Boolean() && c.Done();
+}
 inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
@@ -229,6 +336,7 @@ inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = f
             if (typed_metadata && UiActivityMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && BoundaryMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
+            if (typed_metadata && DiagnosticMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;
     }

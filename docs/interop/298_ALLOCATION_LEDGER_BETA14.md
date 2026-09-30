@@ -4,6 +4,8 @@
 
 这项改动给 F8 的 `start` 和 `end` 元数据增加插件自建 D3D12 资源分类账。它用于先观察分配归属和生命周期，再判断是否值得优化；不改变渲染、资源创建或释放、配额、槽数和已保存设置，也不承诺显存下降。
 
+账本每次最宽输出限于 25 KiB；共享元数据上限为 288 KiB、最终 TXT 上限为 480 KiB，为前后两次账本、另一路有界 Esc 记录和六路既有日志摘要留出空间。扩大的是 F8 采集时的 CPU 文字缓冲，普通帧不执行新增查询，也不新增 GPU 分配。合法长计数只在完整已知字段格式内保留；原始日志的地址、路径和敏感字段仍遮蔽。
+
 每个资源通过自身的 D3D12 device 和创建节点查询 `GetResourceAllocationInfo.SizeInBytes`。结果是该资源的**分配尺寸**，不是已驻留字节、显卡物理占用、DXGI 整个进程的增量或预算。查询失败、零或无效尺寸记为未知。借用的游戏输入、输出、曝光和导引资源不计入；同一资源指针的多个引用只计一次。只有两条 F8 worker 在开始和结束时采样；发起 F8 的 UI/事件及普通帧不执行资源查询。`sampleStartedTickMs` 与 `sampleFinishedTickMs` 是每次实际采样区间的单调时钟刻度。当前枚举的 Core、兼容 Present 和 FG 所有者在 Core 所有者锁内读取；采样释放 Core 锁后，才持反馈锁追加报告，与仍在写入的观察线程串行。其他模块的计数在另一时刻读取，F8 不等待 GPU fence。
 
 `allocation.<类别>.<生命周期>` 给出所有堆类型的合计字节、资源数、未知组数及溢出标记。`heap.default`、`heap.readback`、`heap.upload`、`heap.other` 是同一合计的细分，**不能再与合计相加**。只输出非空的堆行；缺失的堆行四项均为零，类别/生命周期合计行始终输出。`knownBytesLowerBound` 只将每个类别/生命周期的已知字节加一次。`complete=0` 表示仍有未枚举的所有者，不能将下界视为插件总占用；`overflow=1` 可能是数值/计数饱和，或有界去重表耗尽，此时不能把下界当完整计量。
@@ -23,6 +25,8 @@
 ## English
 
 This change adds a ledger for Core-created D3D12 resources to the F8 `start` and `end` metadata. It records ownership and lifetime before considering optimization. It does not change rendering, allocation or release behavior, budgets, slot counts, or saved settings, and makes no memory-reduction promise.
+
+The widest ledger fits within 25 KiB per snapshot. Shared metadata is bounded to 288 KiB and final TXT to 480 KiB, allowing both snapshots, separately bounded Esc records, and six existing log summaries to coexist. Only F8 collection CPU text storage grows; no normal-frame query or GPU allocation is added. Long counters are retained only within complete known field grammars; addresses, paths and sensitive fields in raw logs remain redacted.
 
 Each resource is queried through its own D3D12 device and creation node with `GetResourceAllocationInfo.SizeInBytes`. This is an **allocation size**, not resident bytes, physical VRAM use, a DXGI process-usage delta, or a budget. Failed, zero, and invalid results are unknown. Borrowed game input, output, exposure, and guide resources are excluded; repeated references to the same resource pointer are counted once. Only the two F8 workers sample at start and end; the initiating UI/event and normal frames do not query resources. `sampleStartedTickMs` and `sampleFinishedTickMs` identify each actual sampling interval on a monotonic clock. Core, compat Present, and FG owners are sampled under the Core owner lock. After sampling releases that lock, report text is appended under the feedback lock, serialized with any still-running observer. Other module counters are sampled at separate moments, and F8 does not wait for GPU fences.
 

@@ -1,4 +1,5 @@
 #pragma once
+#define NR_ALLOCATION_LEDGER_ENABLED 1
 #include <array>
 #include <cstdio>
 #include <cstdint>
