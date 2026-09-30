@@ -278,6 +278,9 @@ constexpr unsigned long long kDualTotalBudget=1024ull<<20;
 bool OtherNrOwnerActive(){return false;}
 DUAL_SNAPSHOT
 ENERGY_FEEDBACK
+// The coordinator fixture has no D3D owner table; the dedicated allocation
+// gate exercises the production measurement and F8 formatter on WARP.
+void NrAppendAllocationLedger(FeedbackSession&,const char*){}
 ACTIVITY
 RELEVANT
 STRENGTH

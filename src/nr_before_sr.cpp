@@ -16127,6 +16127,8 @@ DWORD WINAPI HookWorker(void *) {
 #include "nr_compatibility_runtime.inl"
 #include "nr_runtime_identity.inl"
 namespace nr_acceptance { void Screenshot(reshade::api::effect_runtime*,const char*); }
+struct FeedbackSession;
+void NrAppendAllocationLedger(FeedbackSession&,const char*);
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_feedback_core.inl"
@@ -17113,6 +17115,7 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 }
 #include "nr_fg_consumer.inl"
 #include "nr_fg_capture.inl"
+#include "nr_allocation_ledger_runtime.inl"
 #include "interop/nr_external_provider_consumer.inl"
 #include "interop/nr_dx11_deployment.inl"
 #include "interop/nr_render_control.inl"

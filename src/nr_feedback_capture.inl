@@ -1237,6 +1237,7 @@ void FeedbackAddLogBeside(nr_bundle::Job &job, const wchar_t *module_path,
 DWORD WINAPI FeedbackWorker(void *parameter) {
     const auto &module_identity = EnsureRuntimeIdentityOnWorker();
     auto *s = static_cast<FeedbackSession *>(parameter);
+    NrAppendAllocationLedger(*s,"start");
     bool pending_cancelled = false;
     // A timeout freezes the file list; late GPU exports remain in the ordinary
     // stage directory and can never be mistaken for a different request.
@@ -1305,6 +1306,7 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
         g_generic_renodx_conflict.load(std::memory_order_relaxed)
             ? "remove it and restart" : "none");
     FeedbackAppendActivity(*s, "end");
+    NrAppendAllocationLedger(*s,"end");
     // FeedbackAppend always preserves these final 256 bytes, even on overflow.
     const int summary_bytes = std::snprintf(s->report + s->report_used,
         sizeof(s->report) - s->report_used,

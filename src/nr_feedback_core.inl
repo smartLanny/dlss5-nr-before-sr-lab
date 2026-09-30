@@ -412,6 +412,7 @@ DWORD WINAPI Worker(void *opaque) {
     bool complete = false;
     nr_feedback_report::Output text;
     try {
+        NrAppendAllocationLedger(s,"start");
         const auto memory_start=nr_process_memory::Read(session->adapter_luid,session->adapter_known);
         // Bounded CPU observation interval, independent of Present/NR/GPU.
         for (unsigned i = 0; i < 15 && !g_cancel.load(); ++i) Sleep(50);
@@ -420,6 +421,7 @@ DWORD WINAPI Worker(void *opaque) {
         g_feedback_status.store(2, std::memory_order_release);
         ReleaseSRWLockExclusive(&g_feedback_lock);
         FeedbackAppendActivity(s, "end");
+        NrAppendAllocationLedger(s,"end");
         // Only append after detaching the shared parameter observer above.
         AppendProcessMemory(s,"start",memory_start);
         AppendProcessMemory(s,"end",nr_process_memory::Read(session->adapter_luid,session->adapter_known));
