@@ -12,9 +12,10 @@ import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shutil
 import subprocess
 import tarfile
-import tempfile
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
@@ -164,9 +165,13 @@ def prepare(core: Path, upstream: Path, output: Path, *,
         raise ValueError('Commit reviewed source changes first')
     layout = json.loads(git(core, 'show', revision + ':' + LAYOUT) if snapshot is None else snapshot[LAYOUT])
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='nr-direct-source-', dir=output.parent) as temporary:
-        stage = Path(temporary) / 'stage'
-        stage.mkdir()
+    # A Windows TemporaryDirectory creates an owner-only ACL. Renaming its
+    # child into the published export retains that ACL and hides CI artifacts
+    # from the maintainer. Create a unique sibling with the output parent's
+    # normal inherited permissions, then publish with the same atomic rename.
+    stage = output.parent / ('nr-direct-source-' + uuid.uuid4().hex)
+    stage.mkdir()
+    try:
         stage_inputs(core, revision, layout, stage / 'core', snapshot)
         stage_carrier(core, upstream, stage, layout, snapshot, revision)
         metadata = dict(layout['manifest_metadata'])
@@ -187,6 +192,11 @@ def prepare(core: Path, upstream: Path, output: Path, *,
         if output.exists():
             raise ValueError('Output appeared during export')
         stage.rename(output)
+    finally:
+        if stage.exists():
+            if stage.is_symlink() or stage.resolve().parent != output.parent.resolve():
+                raise ValueError('Refusing cleanup outside the source export parent')
+            shutil.rmtree(stage)
 
 
 def main() -> None:
