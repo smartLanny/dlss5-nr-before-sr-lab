@@ -1,13 +1,13 @@
 {
   "schema": "dlss5-direct-source-layout-v1",
   "product": {
-    "version": "0.5.2-beta.13",
-    "display_version": "0.5.2 Beta 13",
+    "version": "0.5.2-beta.14",
+    "display_version": "0.5.2 Beta 14",
     "pe_version": [
       0,
       5,
       2,
-      13
+      14
     ]
   },
   "core_build_inputs": [
