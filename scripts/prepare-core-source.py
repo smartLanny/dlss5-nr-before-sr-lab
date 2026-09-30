@@ -36,8 +36,12 @@ def file_hashes(root: Path) -> dict[str, str]:
     return result
 
 
-def export(root: Path, revision: str, paths: list[str], destination: Path) -> None:
-    data = git(root, 'archive', revision, *paths)
+def export(root: Path, revision: str, paths: list[str], destination: Path, *, carrier: bool = False) -> None:
+    # Preserve the original Windows carrier archive convention independently
+    # of the runner account's global Git configuration. Core has its own
+    # checked-in newline attributes, including the inherited mixed files.
+    config = ('-c', 'core.autocrlf=true') if carrier else ()
+    data = git(root, *config, 'archive', revision, *paths)
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:
         for member in archive.getmembers():
             name = PurePosixPath(member.name)
@@ -57,14 +61,19 @@ def export(root: Path, revision: str, paths: list[str], destination: Path) -> No
 def stage_inputs(core: Path, revision: str, layout: dict, destination: Path,
                  snapshot: dict[str, bytes] | None = None) -> None:
     if snapshot is None:
-        entries = git(core, 'ls-tree', '-r', '-z', revision, '--', 'src', 'config', 'third_party')
+        entries = git(core, 'ls-tree', '-r', '-z', revision, '--',
+                      'src', 'config', 'third_party', 'scripts', 'experiments/nr-edit')
         names = []
+        kinds = {}
+        blobs = {}
         for entry in entries.rstrip(b'\0').split(b'\0'):
             kind, name = entry.split(b'\t', 1)
-            mode, object_type, _ = kind.split()
-            if mode not in (b'100644', b'100755') or object_type != b'blob':
-                raise ValueError('Non-regular Core source: ' + name.decode())
-            names.append(name.decode())
+            mode, object_type, blob = kind.split()
+            decoded = name.decode()
+            kinds[decoded] = (mode, object_type)
+            blobs[decoded] = blob
+            if decoded.split('/')[0] in ('src', 'config', 'third_party'):
+                names.append(decoded)
     else:
         names = [n for n in snapshot if n.split('/')[0] in ('src', 'config', 'third_party')]
     # The vendor diff is an exporter input, not a Core compiler input.
@@ -74,14 +83,45 @@ def stage_inputs(core: Path, revision: str, layout: dict, destination: Path,
         p = PurePosixPath(name)
         if p.is_absolute() or '..' in p.parts or p.parts[0] not in ('src', 'config', 'third_party', 'scripts', 'experiments'):
             raise ValueError('Unexpected Core input: ' + name)
-        target = destination / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(git(core, 'show', revision + ':' + name) if snapshot is None else snapshot[name])
+        if snapshot is None:
+            mode, object_type = kinds.get(name, (b'', b''))
+            if mode not in (b'100644', b'100755') or object_type != b'blob':
+                raise ValueError('Non-regular Core source: ' + name)
+        else:
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(snapshot[name])
+    if snapshot is None:
+        # cat-file reads committed blobs verbatim. git archive can apply eol
+        # attributes, which would silently change mixed newline source bytes.
+        names = sorted(set(names))
+        if not names:
+            raise ValueError('No committed Core inputs')
+        data = subprocess.run(
+            ['git', '-C', str(core), 'cat-file', '--batch'],
+            input=b'\n'.join(blobs[name] for name in names) + b'\n',
+            check=True, capture_output=True).stdout
+        offset = 0
+        for name in names:
+            end = data.index(b'\n', offset)
+            object_id, object_type, size = data[offset:end].split()
+            if object_id != blobs[name] or object_type != b'blob':
+                raise ValueError('Unexpected Git compiler input: ' + name)
+            size = int(size)
+            start = end + 1
+            if start + size >= len(data) or data[start + size:start + size + 1] != b'\n':
+                raise ValueError('Truncated Git compiler input: ' + name)
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data[start:start + size])
+            offset = start + size + 1
+        if offset != len(data):
+            raise ValueError('Unexpected trailing Git source data')
 
 
 def stage_carrier(core: Path, upstream: Path, stage: Path, layout: dict,
                   snapshot: dict[str, bytes] | None = None, revision: str = 'HEAD') -> None:
-    export(upstream, UPSTREAM, ['src', 'LICENSE'], stage / 'carrier')
+    export(upstream, UPSTREAM, ['src', 'LICENSE'], stage / 'carrier', carrier=True)
     patch_name = layout['carrier_overlay']['patch_file']
     patch = git(core, 'show', revision + ':' + patch_name) if snapshot is None else snapshot[patch_name]
     # Limit the external overlay to the two reviewed integration files.
@@ -90,6 +130,10 @@ def stage_carrier(core: Path, upstream: Path, stage: Path, layout: dict,
                 b'--- a/src/dlss5-bridge.cpp', b'+++ b/src/dlss5-bridge.cpp']
     if headers != expected:
         raise ValueError('Unexpected carrier integration diff paths')
+    # The two transformed files were LF in the original generated carrier.
+    # Take their exact Git preimages, without a platform newline conversion.
+    for name in ('src/bridge.inc', 'src/dlss5-bridge.cpp'):
+        (stage / 'carrier' / name).write_bytes(git(upstream, 'show', UPSTREAM + ':' + name))
     for args in (['--check'], []):
         result = subprocess.run(['git', '-c', 'core.autocrlf=false', '-c', 'core.eol=lf',
                                  'apply', '--whitespace=nowarn', *args, '-'],
@@ -128,10 +172,12 @@ def prepare(core: Path, upstream: Path, output: Path, *,
         metadata = dict(layout['manifest_metadata'])
         metadata.update({'schema': 'dlss5-direct-source-v1', 'source_commit': revision,
                          'source_dirty': snapshot is not None, 'source_transforms': False,
+                         'carrier_commit': UPSTREAM,
                          'source_layout_sha256': hashlib.sha256(
                              git(core, 'show', revision + ':' + LAYOUT) if snapshot is None else snapshot[LAYOUT]).hexdigest()})
         for section in ('integration', 'colour_lab', 'reconstruction', 'private_residual_sr'):
             metadata[section]['source_commit'] = revision
+        metadata['integration']['bridge_commit'] = UPSTREAM
         metadata['files'] = file_hashes(stage)
         (stage / 'source-manifest.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n',
                                                    encoding='utf-8', newline='\n')

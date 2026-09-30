@@ -43,5 +43,5 @@ filter and `--verbose` to print failing output. In a cloud or shallow clone run
 `git fetch --unshallow --tags origin` first; archive tests need full history.
 
 This does not replace the canonical Windows build
-(`scripts/build-unified-candidate.ps1`), which compiles the generated Core and
+(`scripts/build-unified-candidate.ps1`), which compiles the committed Core source and
 runs CPU, WARP and packaging gates.
