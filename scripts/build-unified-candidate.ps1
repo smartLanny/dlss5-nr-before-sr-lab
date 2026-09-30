@@ -38,6 +38,8 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
+& python (Join-Path $PSScriptRoot 'validate-diagnostic-metadata.py') --compiler $Cxx --output ($OutputRoot + '.diagnostic-metadata-checks')
+if ($LASTEXITCODE) { throw 'Diagnostic metadata numeric preservation and privacy gate failed.' }
 & python (Join-Path $PSScriptRoot 'validate-menu-trace.py') --compiler $Cxx --output ($OutputRoot + '.menu-trace-checks')
 if ($LASTEXITCODE) { throw 'Esc menu trace bounded CPU evidence gate failed.' }
 $GuideStorageProbe=$OutputRoot + '.guide-storage-contract.exe'

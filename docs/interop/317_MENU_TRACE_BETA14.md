@@ -28,6 +28,9 @@ priority. `eventCount`, `eventOutputCount` and `eventOmitted` distinguish retain
 events from serialized detail. Ring overflow remains a separate field. Capacity
 or staging-memory failures have explicit status markers when the marker fits.
 A complete report does not imply complete event coverage.
+The shared F8 metadata buffer is bounded to 288 KiB; the final TXT is bounded to
+480 KiB so metadata can coexist with six existing bounded log summaries. These
+are CPU buffers used for collection, not GPU allocations or normal-frame queries.
 
 ## Owner check
 
@@ -60,6 +63,8 @@ F8 的 Esc 文字单独限额 24 KiB，并为之后的身份与状态字段保�
 变化。`eventCount`、`eventOutputCount`、`eventOmitted` 分别说明环内事件总数、
 输出数量和省略数量，环溢出另列。容量不足或临时内存不足会在可用空间内明确
 标记。报告写完不代表所有事件细节都已输出。
+共享元数据缓冲上限为 288 KiB，最终 TXT 上限为 480 KiB，为六路既有日志摘要
+保留空间。这些是采集时的 CPU 文字缓冲，不增加 GPU 分配或普通帧资源查询。
 
 画面处理规则保持原样。尺寸滞回暂未加入；只有观察到与故障一致的变化后，才
 评估该候选，且须默认关闭。此 PR 不关闭 #317，不新增画质或帧率改善结论。
