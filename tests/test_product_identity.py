@@ -11,13 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 class ProductIdentity(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.product = json.loads((ROOT / 'scripts/core-source-layout.json').read_text(encoding='utf-8'))['product']
+        cls.layout = json.loads((ROOT / 'scripts/core-source-layout.json').read_text(encoding='utf-8'))
+        cls.product = cls.layout['product']
         cls.core = (ROOT / 'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
         cls.resource = (ROOT / 'src/nr_before_sr.rc').read_text(encoding='utf-8-sig')
         cls.build = (ROOT / 'scripts/build.ps1').read_text(encoding='utf-8-sig')
 
     def test_version_fields_agree(self):
         version = self.product['version']
+        # Canonical packaging selects this final section, not the historical
+        # integration/colour versions retained in the same manifest.
+        self.assertEqual(self.layout['manifest_metadata']['private_residual_sr']['version'], version)
         display = self.product['display_version']
         pe = ','.join(map(str, self.product['pe_version']))
         self.assertRegex(version, r'^0\.5\.2-beta\.[1-9][0-9]*$')
