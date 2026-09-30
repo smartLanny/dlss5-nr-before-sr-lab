@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HEADER = ROOT / "src/nr_allocation_ledger.h"
 TEST = ROOT / "tests/allocation_ledger_test.cpp"
 LOCK_TEST = ROOT / "tests/allocation_ledger_append_lock_test.cpp.in"
+SPATIAL_SOURCE = ROOT / "src/nr_dual_spatial_d3d12.cpp"
 
 
 def check_worker_routing():
@@ -27,6 +28,16 @@ def check_worker_routing():
         raise RuntimeError("allocation query must run only at start/end of both F8 workers")
 
 
+def check_spatial_routing():
+    runtime = (ROOT / "src/nr_allocation_ledger_runtime.inl").read_text(encoding="utf-8")
+    core = runtime[runtime.index("void CoreSlot("):runtime.index("void CoreContext(")]
+    compat = runtime[runtime.index("void CompatContext("):runtime.index("Snapshot Sample()")]
+    if (core.count("ForEachOwnedSpatialResource(surfaces") != 1 or
+        compat.count("ForEachOwnedSpatialResource(surfaces") != 1 or
+        "ledger.Unknown(category,Phase::Live,Heap::Default)" in compat):
+        raise RuntimeError("actual Core and compat spatial owner routes must use the measured helper")
+
+
 def run(args, *, good=True):
     result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True)
     if (result.returncode == 0) != good:
@@ -36,9 +47,10 @@ def run(args, *, good=True):
     return result
 
 
-def build(compiler, include, exe):
+def build(compiler, include, exe, spatial_source=SPATIAL_SOURCE):
     run([compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-static",
-         f"-I{include}", str(TEST), "-o", str(exe), "-ld3d12", "-ldxgi", "-ldxguid"])
+         f"-I{include}", f"-I{HEADER.parent}", str(TEST), str(spatial_source), "-o", str(exe),
+         "-ld3d12", "-ldxgi", "-ldxguid", "-ld3dcompiler"])
 
 
 def check_append_lock(compiler, out):
@@ -73,6 +85,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     check_worker_routing()
+    check_spatial_routing()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     exe = out / "allocation-ledger.exe"
@@ -101,6 +114,8 @@ def main():
         "detached-quarantine": ("if(!uncertain)return;\n        result_.detached_quarantined_unknown=true;",
                                 "if(uncertain)return;\n        result_.detached_quarantined_unknown=true;"),
         "sample-ticks": ("allocation.sampleStartedTickMs=", "allocation.sampleTickMs="),
+        "owned-valid": ("if(surfaces.owns_low_valid)visit(surfaces.low_valid);",
+                        "if(false)visit(surfaces.low_valid);"),
     }
     receipts = [success.stdout.rstrip()]
     for name, (before, after) in controls.items():
@@ -115,8 +130,20 @@ def main():
         if "FAIL " not in rejected.stderr:
             raise RuntimeError(f"control {name} failed for an unrelated reason: {rejected.stderr}")
         receipts.append(f"{name}: {rejected.stderr.strip()}")
+    spatial_source = SPATIAL_SOURCE.read_text(encoding="utf-8")
+    owned = "s->plan.primary, s->plan.secondary, s->domain,s->delta,s->valid!=nullptr};"
+    if spatial_source.count(owned) != 1:
+        raise RuntimeError("real SpatialSlot ownership flag source changed")
+    altered = out / "spatial-ownership-control.cpp"
+    altered.write_text(spatial_source.replace(owned, owned.replace("s->valid!=nullptr", "false")), encoding="utf-8")
+    altered_exe = out / "spatial-ownership-control.exe"
+    build(args.compiler, HEADER.parent, altered_exe, altered)
+    rejected = run([str(altered_exe), "--warp"], good=False)
+    if "FAIL real MatchedResidual must own" not in rejected.stderr:
+        raise RuntimeError("real SpatialSlot ownership control failed for an unrelated reason")
+    receipts.append(f"real-spatial-ownership: {rejected.stderr.strip()}")
     (out / "controls.txt").write_text("\n".join(receipts) + "\n", encoding="utf-8")
-    print("allocation ledger: CPU, WARP, worker routing, serialized production append, ten mutation controls PASS")
+    print("allocation ledger: CPU, real spatial WARP, Core/compat routing, serialized append, twelve mutation controls PASS")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <limits>
 #include <d3d12.h>
+#include "nr_dual_spatial_d3d12.hpp"
 
 // F8-only accounting of allocations made by Core. These are D3D12 allocation
 // sizes, not residency, DXGI process usage, or opaque model/PSO memory.
@@ -72,6 +73,15 @@ inline Measurement Measure(ID3D12Resource* resource) noexcept {
     }
     ID3D12Device_Release(device);
     return result;
+}
+template<class Visit>
+void ForEachOwnedSpatialResource(const nr_dual::dx12::Surfaces& surfaces,Visit&& visit) {
+    // The primary and a cumulative successor's low_valid are AddRefs of
+    // another owner's resource. A reduced slot owns its own low input/valid.
+    if(surfaces.input!=surfaces.primary)visit(surfaces.input);
+    visit(surfaces.output);
+    if(surfaces.owns_low_valid)visit(surfaces.low_valid);
+    visit(surfaces.low_delta);
 }
 class Builder {
     static constexpr unsigned kSeen=2048;

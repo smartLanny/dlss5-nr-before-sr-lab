@@ -36,12 +36,9 @@ void CoreSlot(Builder& ledger,const NrSlot& slot,Phase phase,bool auxiliary) {
     // bound inputs are references into other owners; never register aliases.
     if(slot.dual_spatial){
         const auto surfaces=nr_dual::dx12::GetSurfaces(slot.dual_spatial);
-        if(surfaces.input!=surfaces.primary)ledger.Resource(Category::Dual,phase,surfaces.input);
-        ledger.Resource(Category::Dual,phase,surfaces.output);
-        ledger.Resource(Category::Dual,phase,surfaces.low_delta);
-        // low_valid can be borrowed from a residual base belonging to another
-        // spatial slot. Its owner is opaque at this boundary.
-        if(surfaces.low_valid)ledger.Unknown(Category::Dual,phase,Heap::Default);
+        ForEachOwnedSpatialResource(surfaces,[&](ID3D12Resource* resource){
+            ledger.Resource(Category::Dual,phase,resource);
+        });
     }
 }
 void CoreContext(Builder& ledger,const NrContext& context,Phase phase) {
@@ -62,7 +59,12 @@ void CompatContext(Builder& ledger,const nr_compat_present_runtime::Context& con
     for(unsigned i=0;i<context.passes&&i<nr_compat_present_runtime::kPassLimit;++i){
         const auto& layer=context.layers[i];
         if(layer.context.nr_handle)ledger.Model(i,Phase::Live);
-        if(layer.spatial)ledger.Unknown(category,Phase::Live,Heap::Default);
+        if(layer.spatial){
+            const auto surfaces=nr_dual::dx12::GetSurfaces(layer.spatial);
+            ForEachOwnedSpatialResource(surfaces,[&](ID3D12Resource* resource){
+                ledger.Resource(category,Phase::Live,resource);
+            });
+        }
     }
 #if NR_HAS_TEMPORAL_RUNTIME
     if(context.temporal)ledger.Unknown(Category::Temporal,Phase::Live,Heap::Default);

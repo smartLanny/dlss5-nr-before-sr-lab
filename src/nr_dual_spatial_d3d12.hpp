@@ -30,6 +30,7 @@ struct Surfaces {
     Extent primary_extent{}, secondary_extent{};
     ModelDomain domain = ModelDomain::DirectValue;
     ID3D12Resource* low_delta = nullptr; // FP32 matched residual + validity at N2 only
+    bool owns_low_valid = false;          // true for this slot's valid; false for a retained residual base
 };
 
 // CPU allocation/compilation only, not a hot-path operation. Source is embedded
