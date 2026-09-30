@@ -54,4 +54,54 @@ int main() {
     auto before=a,after=a;before.work_w=1280;after.work_w=1200;
     t.ContractChange(13030,before,after,g,changed);
     split=t.Copy(13030);assert(split.events[3].frame_mask==Work && split.events[3].storage_mask==MotionBound);
+
+    // A legal double-buffered source rotates every 16 ms. It must not evict
+    // earlier Create/Retire/Reset evidence or turn source-frame growth into a
+    // false contract event. Another route receives its own first rotation.
+    Trace rotations;
+    Frame primary=a;primary.carrier_key=42;primary.route=2;primary.layer=0;
+    primary.source_known=true;primary.source_stream=7;primary.source_epoch=9;primary.source_frame=1;
+    rotations.Mark(20000);
+    rotations.Observe(20001,primary,g,{10,20,30});
+    rotations.Note(20002,Kind::Create,primary);
+    rotations.Note(20003,Kind::Retire,primary,3);
+    rotations.Note(20004,Kind::Reset,primary,5);
+    for(unsigned i=0;i<100;++i){
+        primary.source_frame=i+2;
+        const bool alternate=(i&1)==0;
+        rotations.Observe(20016+16*i,primary,g,{alternate?11u:10u,alternate?21u:20u,30});
+    }
+    auto rotated=rotations.Copy(21600);
+    assert(rotated.observations==101 && rotated.resource_rotations==100 &&
+           rotated.resource_rotation_union_mask==(DepthResource|MotionResource));
+    assert(rotated.count==6 && rotated.overflow==0 && rotated.creates==1&&rotated.retires==1&&rotated.resets==1);
+    assert(rotated.events[2].kind==Kind::Create && rotated.events[3].kind==Kind::Retire &&
+           rotated.events[4].kind==Kind::Reset && rotated.events[5].kind==Kind::ResourceRotation);
+    assert(rotated.events[5].coalesced_count==100 &&
+           rotated.events[5].resource_mask==(DepthResource|MotionResource) &&
+           rotated.events[5].ms==20016 && rotated.events[5].last_ms==21600);
+    for(unsigned i=0;i<rotated.count;++i)assert(rotated.events[i].frame_mask==0);
+    Frame post=primary;post.route=1;post.source_frame=1;
+    rotations.Observe(21616,post,g,{40,50,60});
+    post.source_frame=2;rotations.Observe(21632,post,g,{41,50,60});
+    rotated=rotations.Copy(21632);
+    assert(rotated.count==8 && rotated.events[6].kind==Kind::First &&
+           rotated.events[7].kind==Kind::ResourceRotation &&
+           rotated.events[7].coalesced_count==1 && rotated.events[7].resource_mask==DepthResource &&
+           rotated.events[5].coalesced_count==100 && rotated.overflow==0);
+    Frame other_source=primary;other_source.source_stream=8;other_source.source_frame=1;
+    rotations.Observe(21648,other_source,g,{70,80,90});
+    other_source.source_frame=2;rotations.Observe(21664,other_source,g,{71,80,90});
+    rotated=rotations.Copy(21664);
+    assert(rotated.count==10 && rotated.events[8].kind==Kind::First &&
+           rotated.events[9].kind==Kind::ResourceRotation &&
+           rotated.events[9].coalesced_count==1 && rotated.events[5].coalesced_count==100);
+    rotations.Mark(24000);
+    rotations.Observe(24001,primary,g,{10,20,30});
+    rotations.Observe(24016,primary,g,{11,20,30});
+    const auto next=rotations.Copy(24016);
+    const auto prior=rotations.CopyHistory(24016);
+    assert(next.count==3 && next.events[2].kind==Kind::ResourceRotation && next.events[2].coalesced_count==1);
+    assert(prior.count==2 && prior.windows[0].events[5].coalesced_count==100 &&
+           prior.windows[0].overflow==0);
 }

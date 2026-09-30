@@ -13,6 +13,13 @@ observed; a future candidate must remain off by default pending game acceptance.
 The package identity is `0.5.2-beta.14`. Released Beta 13 artifacts keep their old
 names and identities. CPU/WARP and successful calls do not prove displayed NR
 pixels or game acceptance. Evidence gaps and dropped records must stay explicit.
+Within each Esc window, the first pointer-only resource rotation for each
+carrier/route/layer/source-stream identity gets one event. Later pointer-only rotations update
+that event's count, last time and union resource mask; the window also reports
+the full rotation count. Frame, guide storage/mapping and lifecycle changes
+remain separate events. Repeated pointer-only rotations do not consume more
+ring capacity; genuine new events can still overflow, and an evicted rotation
+still contributes to the window total.
 
 ## Owner check
 
@@ -35,6 +42,10 @@ a claim that #317 has been fixed.
 本轮先补齐 Esc 过渡的证据：两次离散采样之间发生的短暂变化，也应进入同一次
 F8 本地文字报告。记录需要分清输入与模型尺寸、导引存储和映射、资源轮换、
 模型创建/退休及历史 Reset；资源指针轮换不能自动当成重建原因。
+同一 Esc 窗口内，每条 carrier/路线/层/来源流仅保留首个纯资源指针轮换事件；后续
+纯轮换合并到该事件的次数、末次时间和资源字段掩码，并保留窗口总次数。
+尺寸、导引存储/映射及生命周期变化仍逐项记录；只有实际新增事件会占用
+有界环并产生真实溢出。轮换事件若被其他事件覆盖，窗口总次数仍保留。
 
 画面处理规则保持原样。尺寸滞回暂未加入；只有观察到与故障一致的变化后，才
 评估该候选，且须默认关闭。此 PR 不关闭 #317，不新增画质或帧率改善结论。

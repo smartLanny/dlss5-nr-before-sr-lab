@@ -414,15 +414,16 @@ void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& tra
         "menuTrace.observations=%u\nmenuTrace.hasGuideFrame=%d\nmenuTrace.evaluations=%u\nmenuTrace.evaluateSucceeded=%u\nmenuTrace.evaluateFailed=%u\n"
         "menuTrace.createSucceeded=%u\nmenuTrace.createFailed=%u\nmenuTrace.retiresObserved=%u\nmenuTrace.resetsRequested=%u\n"
         "menuTrace.resetEvaluateSucceeded=%u\nmenuTrace.resetEvaluateFailed=%u\nmenuTrace.bypassTransitions=%u\n"
-        "menuTrace.guideRejected=%u\nmenuTrace.resourceRotations=%u\nmenuTrace.eventCount=%u\nmenuTrace.eventOverflow=%u\n"
+        "menuTrace.guideRejected=%u\nmenuTrace.resourceRotations=%u\nmenuTrace.resourceRotationMaskUnion=%u\nmenuTrace.eventCount=%u\nmenuTrace.eventOverflow=%u\n"
         "menuTrace.frameMask=1:R,2:N,4:O,8:featureGeneration,16:instance,32:layerRoute,64:configHistory,128:sourceIdentity\n"
         "menuTrace.storageMask=1:depthFormat,2:motionFormat,4:colorStorage,8:motionBound,16:createFlags,32:depthPlaceholder,64:motionResample\n"
         "menuTrace.mappingMask=1:colorFormat,2:depthPhysical,4:motionPhysical,8:colorPhysical,16:depthActive,32:motionSource,64:depthOrigin,128:motionOrigin,256:colorOrigin,512:motionScale,1024:depthDirection,2048:depthProjection\n"
-        "menuTrace.resourceMask=1:depth,2:motion,4:color; pointer rotation is not a storage change\n",
+        "menuTrace.resourceMask=1:depth,2:motion,4:color; pointer rotation is not a storage change\n"
+        "menuTrace.resourceRotationRule=first pure pointer rotation per stream/window retained; later pure rotations coalesced in count, union mask and lastMs; contract and lifecycle events remain separate\n",
         trace.started,trace.deadline,trace.presses,trace.repeated_presses,trace.observations,trace.has_frame?1:0,
         trace.evaluations,trace.successful,trace.failed,trace.creates,trace.create_failed,trace.retires,
         trace.resets,trace.reset_success,trace.reset_rejected,trace.bypasses,
-        trace.guide_rejected,trace.resource_rotations,trace.count,trace.overflow);
+        trace.guide_rejected,trace.resource_rotations,trace.resource_rotation_union_mask,trace.count,trace.overflow);
     static constexpr const char* names[]={"esc","first","change","resource-rotation","create-succeeded","create-failed","retire","reset-requested","evaluate-failed","bypass","guide-rejected"};
     for(unsigned i=0;i<trace.count;++i) {
         const auto& e=trace.events[i];const auto& f=e.frame;
@@ -436,6 +437,9 @@ void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& tra
             known(f.observed,f.config).c_str(),known(f.observed,f.history).c_str(),known(f.source_known,f.source_stream).c_str(),
             known(f.source_known,f.source_epoch).c_str(),known(f.source_known,f.source_frame).c_str(),e.frame_mask,e.storage_mask,
             e.mapping_mask,e.resource_mask,e.reason,e.reset?1:0);
+        if(e.kind==nr_menu_trace::Kind::ResourceRotation)
+            FeedbackAppend(s,"menuTrace.event.%u.coalescedCount=%u\nmenuTrace.event.%u.lastMs=%llu\n",
+                i,e.coalesced_count,i,e.last_ms);
         if(e.storage_mask || (e.frame_mask & nr_menu_trace::Work))
             FeedbackAppend(s,"menuTrace.event.%u.contractBeforeAfter=N:%ux%u->%ux%u depthFormat:%u->%u motionFormat:%u->%u colorFormat:%u->%u motionBound:%ux%u->%ux%u createFlags:%d->%d placeholder:%d->%d resample:%d->%d\n",
                 i,e.previous_work_w,e.previous_work_h,f.work_w,f.work_h,

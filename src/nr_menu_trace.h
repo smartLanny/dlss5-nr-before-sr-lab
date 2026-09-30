@@ -46,6 +46,8 @@ struct Event {
     bool reset=false;
     unsigned previous_work_w=0,previous_work_h=0;
     NrGuideSignature guide_before{},guide_after{};
+    unsigned coalesced_count=0;
+    std::uint64_t last_ms=0;
 };
 struct Snapshot {
     bool marked=false,expired=false,has_frame=false;
@@ -53,6 +55,7 @@ struct Snapshot {
     unsigned presses=0,repeated_presses=0,observations=0,evaluations=0,successful=0,failed=0;
     unsigned creates=0,create_failed=0,retires=0,resets=0,reset_success=0,reset_rejected=0;
     unsigned bypasses=0,guide_rejected=0,resource_rotations=0,overflow=0;
+    std::uint32_t resource_rotation_union_mask=0;
     unsigned count=0;
     Event events[kCapacity]{};
 };
@@ -103,7 +106,7 @@ class Trace {
     Snapshot state_{};
     Snapshot previous_[2]{};
     unsigned previous_count_=0;
-    struct Baseline { Frame frame{}; NrGuideSignature guide{}; Resources resources{}; bool valid=false; };
+    struct Baseline { Frame frame{}; NrGuideSignature guide{}; Resources resources{}; bool valid=false,rotation_logged=false; };
     Baseline baselines_[16]{};
     unsigned head_=0;
     void Push(Event e) {
@@ -116,7 +119,8 @@ class Trace {
     }
     static bool SameStream(const Frame& a,const Frame& b) {
         return a.carrier_key==b.carrier_key && a.feature_generation==b.feature_generation &&
-            a.route==b.route && a.layer==b.layer;
+            a.route==b.route && a.layer==b.layer &&
+            a.source_stream==b.source_stream && a.source_epoch==b.source_epoch;
     }
     static void Order(Snapshot& value,unsigned head) {
         Snapshot copy=value;
@@ -146,7 +150,7 @@ public:
             }
             state_={}; state_.marked=true;state_.started=now;
             state_.deadline=now+kWindowMs;state_.presses=1;
-            for(auto& baseline:baselines_)baseline.valid=false;
+            for(auto& baseline:baselines_){baseline.valid=false;baseline.rotation_logged=false;}
             head_=0;
         }
         Push({Kind::Esc,now});
@@ -162,14 +166,34 @@ public:
         if(!baseline)for(auto& slot:baselines_)if(!slot.valid){baseline=&slot;break;}
         if(!baseline)baseline=&baselines_[0]; // bounded stream table; evicted stream starts as First
         const bool known=baseline->valid&&SameStream(baseline->frame,f);
+        if(!known)baseline->rotation_logged=false;
         const auto fm=known?FrameMask(baseline->frame,f):0;
         const auto sm=known?StorageMask(baseline->guide,g):0;
         const auto mm=known?MappingMask(baseline->guide,g):0;
         const auto rm=known?ResourceMask(baseline->resources,r):0;
-        if(rm)++state_.resource_rotations;
-        if(!known||fm||sm||mm||rm)Push({!known?Kind::First:(fm||sm||mm)?Kind::Change:Kind::ResourceRotation,
+        if(rm){++state_.resource_rotations;state_.resource_rotation_union_mask|=rm;}
+        if(!known||fm||sm||mm)Push({!known?Kind::First:Kind::Change,
             now,f,fm,sm,mm,rm,0,false,known?baseline->frame.work_w:0,known?baseline->frame.work_h:0,
             known?baseline->guide:NrGuideSignature{},g});
+        else if(rm){
+            // One ring event per stream/window. Ordinary double-buffer rotation
+            // updates its summary and cannot evict earlier lifecycle evidence.
+            if(!baseline->rotation_logged){
+                Push({Kind::ResourceRotation,now,f,0,0,0,rm,0,false,
+                    baseline->frame.work_w,baseline->frame.work_h,baseline->guide,g,1,now});
+                baseline->rotation_logged=true;
+            } else {
+                for(unsigned i=0;i<state_.count;++i){
+                    auto& event=state_.events[(head_+i)%kCapacity];
+                    if(event.kind==Kind::ResourceRotation&&SameStream(event.frame,f)){
+                        ++event.coalesced_count;event.resource_mask|=rm;event.last_ms=now;
+                        break;
+                    }
+                }
+                // If genuine non-rotation overflow evicted the first event,
+                // the global count/union and overflow remain explicit.
+            }
+        }
         baseline->frame=f;baseline->guide=g;baseline->resources=r;baseline->valid=true;
         state_.has_frame=true;
     }
