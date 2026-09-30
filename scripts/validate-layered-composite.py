@@ -100,7 +100,8 @@ std::printf("production layer normalization: %u cases passed\n",checks);}
             cpp.write_text(code,encoding='utf-8')
             subprocess.run([args.compiler,'-std=c++20','-O2','-Wall','-Wextra','-Werror',str(cpp),'-o',str(exe)],check=True)
             subprocess.run([str(exe)],check=True)
-    ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+    ui=(ROOT/'src/nr_unified_pages.inl').read_text(encoding='utf-8')
+    picture_reset=(ROOT/'src/nr_recommended_picture.inl').read_text(encoding='utf-8')
     ini=(ROOT/'config/nr_before_sr.ini').read_text(encoding='utf-8')
     stream=(ROOT/'src/nr_f8_stream.inl').read_text(encoding='utf-8')
     history=definition(source,'bool SameHistoryConfig(')
@@ -120,7 +121,7 @@ std::printf("production layer normalization: %u cases passed\n",checks);}
         assert field not in mode1
     assert 'layered_enhancement' in config and 'layered_enhancement' not in history
     assert 'LayeredEnhancement=0' in ini and 'bool layered_enhancement = false;' in source
-    assert '((v2_combine && g_config.layered_enhancement) ? 2048u : 0u)' in source
+    assert '((v2_combine && frame_config.layered_enhancement) ? 2048u : 0u)' in source
     assert 'kCodecRootConstantCount = 60;' in source
     assert 'kCodecSrvCount = 13;' in source and 'kCodecUavCount = 8;' in source
     assert 'layerMean = localMean;' in combine
@@ -130,8 +131,8 @@ std::printf("production layer normalization: %u cases passed\n",checks);}
     assert 'if (boostProtectionEnabled && lumaStrength > 1.0)' in combine
     assert 'TransferStrength * ColorStrength * confidence' in combine
     assert 'FrameConfidence <= 0.000001' in combine
-    assert 'Reset only these layers' in ui
-    assert 'next.layered_enhancement = false;' in ui
+    assert 'if(next.layered_enhancement){' in ui and 'ImGui::BeginDisabled(!supported);' in ui
+    assert 'next.layered_enhancement = false;' in picture_reset
     print('Layer config / pre-post route / independent colour / history / ABI / capture integration passed.')
 
 if __name__=='__main__':main()

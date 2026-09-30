@@ -48,6 +48,13 @@ PREAMBLE = r'''
 #include "nr_dual_pass.hpp"
 #include "nr_layer_config.h"
 #include "nr_processing_route.h"
+#if __has_include("nr_colour_preferences.h")
+#include "nr_colour_preferences.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_edge_policy.h"
+#include "nr_spatial_experiment_policy.h"
+#include "nr_hotkeys.h"
+#endif
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
     ++checks;
