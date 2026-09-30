@@ -10970,6 +10970,7 @@ struct NrGuideBinding {
     int game_reset = 0;
 };
 
+#if defined(NR_MENU_TRACE_ENABLED)
 void MenuObserveGuide(const FeatureRecord& feature,int route,unsigned render_w,unsigned render_h,
     unsigned work_w,unsigned work_h,unsigned output_w,unsigned output_h,
     const NrGuideBinding& guides,ID3D12Resource* color,const NrContext* context) {
@@ -10983,6 +10984,7 @@ void MenuObserveGuide(const FeatureRecord& feature,int route,unsigned render_w,u
          reinterpret_cast<std::uintptr_t>(guides.motion),
          reinterpret_cast<std::uintptr_t>(color)});
 }
+#endif
 
 // Jitter is expressed in source pixels by the game's SR call. The signed NR
 // feature receives work-grid pixels, so scale each axis independently. A

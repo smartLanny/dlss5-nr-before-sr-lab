@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import runpy
 
 ROOT=Path(__file__).resolve().parents[1]
 def main() -> int:
@@ -29,6 +30,22 @@ def run(compiler: str,out: Path) -> int:
     if os.name=='nt':cmd.insert(5,'-static')
     subprocess.run(cmd,cwd=ROOT,check=True)
     subprocess.run([str(out)],cwd=ROOT,check=True)
-    print('PASS: bounded Esc trace, A-B-A, guide contract, pointer rotation, outcomes, expiry, overflow, concurrent snapshot')
+    extract_function=runpy.run_path(str(ROOT/'scripts/validate-feedback-capture.py'))['extract_function']
+    feedback=(ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
+    core=(ROOT/'src/nr_feedback_core.inl').read_text(encoding='utf-8-sig')
+    generated=(ROOT/'tests/menu_trace_formatter_test.cpp.in').read_text(encoding='utf-8')
+    generated=generated.replace('// @PRODUCTION_FEEDBACK_APPEND@',extract_function(feedback,'void FeedbackAppend('))
+    generated=generated.replace('// @PRODUCTION_MENU_FORMATTERS@','\n\n'.join(
+        extract_function(core,name) for name in (
+            'void AppendMenuTraceWindow(', 'void AppendMenuTraceBounded(', 'void AppendMenuTrace(')))
+    cpp=out.with_name('menu-trace-formatter.cpp')
+    cpp.write_text(generated,encoding='utf-8')
+    formatter=out.with_name('menu-trace-formatter.exe')
+    formatter_cmd=[compiler,'-std=c++20','-O0','-Wall','-Wextra','-Werror','-pthread',
+                   '-I'+str(ROOT/'src'),str(cpp),'-o',str(formatter)]
+    if os.name=='nt':formatter_cmd.insert(5,'-static')
+    subprocess.run(formatter_cmd,cwd=ROOT,check=True)
+    subprocess.run([str(formatter)],cwd=ROOT,check=True)
+    print('PASS: bounded Esc trace, rotation coalescing, production formatter capacity and tail')
     return 0
 if __name__=='__main__':raise SystemExit(main())

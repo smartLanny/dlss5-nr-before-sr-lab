@@ -3,6 +3,7 @@
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
 #include "nr_feedback_single_text.h"
+#include <new>
 #include "interop/nr_deployment_names.h"
 namespace nr_core_feedback {
 #define NR_HAS_CORE_TEXT_REPORT 1
@@ -404,7 +405,7 @@ void AppendProcessMemory(FeedbackSession& s,const char* phase,const nr_process_m
     };
     segment("local",m.local_result,m.local);segment("nonlocal",m.nonlocal_result,m.nonlocal);
 }
-void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& trace,unsigned window_index) {
+void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& trace,unsigned window_index,unsigned event_limit) {
     FeedbackAppend(s,"menuTrace.windowBegin=%u\n",window_index);
     FeedbackAppend(s,"menuTrace.status=%s\nmenuTrace.coverage=primary pre/post NR guide resolution and Evaluate; context lifecycle may include auxiliary; compatibility Present/FG and displayed pixels unobserved\n"
         "menuTrace.displayAdoption=unknown\nmenuTrace.finalPixels=unknown\nmenuTrace.gpuCompletion=unknown\n",
@@ -424,8 +425,29 @@ void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& tra
         trace.evaluations,trace.successful,trace.failed,trace.creates,trace.create_failed,trace.retires,
         trace.resets,trace.reset_success,trace.reset_rejected,trace.bypasses,
         trace.guide_rejected,trace.resource_rotations,trace.resource_rotation_union_mask,trace.count,trace.overflow);
+    bool selected[nr_menu_trace::kCapacity]{};
+    unsigned output_count=0;
+    const auto select=[&](unsigned i){if(!selected[i] && output_count<event_limit){selected[i]=true;++output_count;}};
+    // Keep the opening press and contract/lifecycle evidence before ordinary
+    // first observations and pointer rotations. Ring overflow remains separate.
+    if(trace.count)select(0);
+    for(unsigned i=0;i<trace.count;++i) {
+        const auto kind=trace.events[i].kind;
+        if(kind==nr_menu_trace::Kind::Change || kind==nr_menu_trace::Kind::Create ||
+           kind==nr_menu_trace::Kind::CreateFailed || kind==nr_menu_trace::Kind::Retire ||
+           kind==nr_menu_trace::Kind::Reset || kind==nr_menu_trace::Kind::EvaluateFailed)select(i);
+    }
+    for(unsigned i=0;i<trace.count;++i) {
+        const auto kind=trace.events[i].kind;
+        if(kind==nr_menu_trace::Kind::Bypass || kind==nr_menu_trace::Kind::GuideRejected)select(i);
+    }
+    for(unsigned i=0;i<trace.count;++i)select(i);
+    FeedbackAppend(s,"menuTrace.eventOutputCount=%u\nmenuTrace.eventOmitted=%u\n"
+        "menuTrace.eventOutputRule=opening press, then contract/lifecycle, then bypass/rejection, then earliest remaining; original event indices retained\n",
+        output_count,trace.count-output_count);
     static constexpr const char* names[]={"esc","first","change","resource-rotation","create-succeeded","create-failed","retire","reset-requested","evaluate-failed","bypass","guide-rejected"};
     for(unsigned i=0;i<trace.count;++i) {
+        if(!selected[i])continue;
         const auto& e=trace.events[i];const auto& f=e.frame;
         const auto known=[](bool present,unsigned long long v){return present?std::to_string(v):std::string("unknown");};
         const auto extent=[&](unsigned w,unsigned h){return w&&h?std::to_string(w)+"x"+std::to_string(h):std::string("unknown");};
@@ -454,10 +476,47 @@ void AppendMenuTraceWindow(FeedbackSession& s,const nr_menu_trace::Snapshot& tra
     }
     FeedbackAppend(s,"menuTrace.windowEnd=%u\n",window_index);
 }
-void AppendMenuTrace(FeedbackSession& s,const nr_menu_trace::History& history) {
+void AppendMenuTraceBounded(FeedbackSession& s,const nr_menu_trace::History& history,unsigned event_limit) {
     FeedbackAppend(s,"menuTrace.windowCount=%u\n",history.count);
-    if(!history.count) { nr_menu_trace::Snapshot empty{};AppendMenuTraceWindow(s,empty,0);return; }
-    for(unsigned i=0;i<history.count;++i)AppendMenuTraceWindow(s,history.windows[i],i);
+    if(!history.count) { nr_menu_trace::Snapshot empty{};AppendMenuTraceWindow(s,empty,0,event_limit);return; }
+    for(unsigned i=0;i<history.count;++i)AppendMenuTraceWindow(s,history.windows[i],i,event_limit);
+}
+void AppendMenuTrace(FeedbackSession& s,const nr_menu_trace::History& history) {
+    // Format off the live report, then copy only if both the trace allowance
+    // and the later worker metadata allowance fit. Never let diagnostic detail
+    // consume the artifact identity, status, or required final-status reserve.
+    constexpr std::size_t kTraceBytes=24u*1024u;
+    constexpr std::size_t kPostTraceReserve=32u*1024u;
+    const auto available=sizeof(s.report)>s.report_used+kPostTraceReserve
+        ?sizeof(s.report)-s.report_used-kPostTraceReserve:0;
+    const auto budget=std::min(kTraceBytes,available);
+    const char* unavailable="omitted-report-capacity";
+    if(budget) {
+        std::unique_ptr<FeedbackSession> staged(new(std::nothrow) FeedbackSession());
+        if(staged) {
+            for(unsigned event_limit=8;;--event_limit) {
+                staged->report_used=0;staged->report[0]=0;staged->report_truncated=false;
+                AppendMenuTraceBounded(*staged,history,event_limit);
+                if(!staged->report_truncated && staged->report_used<budget) {
+                    FeedbackAppend(s,"%s",staged->report);
+                    return;
+                }
+                if(!event_limit)break;
+            }
+        } else {
+            unavailable="unavailable-memory";
+        }
+    }
+    // A near-full report may have no room even for window summaries. This
+    // omission is explicit whenever the small marker fits the same reserve.
+    unsigned omitted_count=0;
+    for(unsigned i=0;i<history.count;++i)omitted_count+=history.windows[i].count;
+    char marker[128]{};
+    const int marker_bytes=std::snprintf(marker,sizeof(marker),
+        "menuTrace.windowCount=%u\nmenuTrace.eventOmitted=%u\nmenuTrace.status=%s\n",
+        history.count,omitted_count,unavailable);
+    if(marker_bytes>0 && static_cast<std::size_t>(marker_bytes)<available)
+        FeedbackAppend(s,"%s",marker);
 }
 DWORD WINAPI Worker(void *opaque) {
     auto *session = static_cast<CoreSession *>(opaque);
