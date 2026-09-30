@@ -21,6 +21,14 @@ remain separate events. Repeated pointer-only rotations do not consume more
 ring capacity; genuine new events can still overflow, and an evicted rotation
 still contributes to the window total.
 
+F8 trace text has a separate 24 KiB allowance and leaves 32 KiB for later worker
+metadata. It emits at most eight detailed events per window, reducing that number
+when space is tight; the opening press and contract/lifecycle records take
+priority. `eventCount`, `eventOutputCount` and `eventOmitted` distinguish retained
+events from serialized detail. Ring overflow remains a separate field. Capacity
+or staging-memory failures have explicit status markers when the marker fits.
+A complete report does not imply complete event coverage.
+
 ## Owner check
 
 1. Keep the same scene, native SR/RR mode, layers and settings. Leave experiments
@@ -46,6 +54,12 @@ F8 本地文字报告。记录需要分清输入与模型尺寸、导引存储�
 纯轮换合并到该事件的次数、末次时间和资源字段掩码，并保留窗口总次数。
 尺寸、导引存储/映射及生命周期变化仍逐项记录；只有实际新增事件会占用
 有界环并产生真实溢出。轮换事件若被其他事件覆盖，窗口总次数仍保留。
+
+F8 的 Esc 文字单独限额 24 KiB，并为之后的身份与状态字段保留 32 KiB。
+每窗最多输出八条详细事件，空间不足时减少；优先保留首次按键和合同/生命周期
+变化。`eventCount`、`eventOutputCount`、`eventOmitted` 分别说明环内事件总数、
+输出数量和省略数量，环溢出另列。容量不足或临时内存不足会在可用空间内明确
+标记。报告写完不代表所有事件细节都已输出。
 
 画面处理规则保持原样。尺寸滞回暂未加入；只有观察到与故障一致的变化后，才
 评估该候选，且须默认关闭。此 PR 不关闭 #317，不新增画质或帧率改善结论。
