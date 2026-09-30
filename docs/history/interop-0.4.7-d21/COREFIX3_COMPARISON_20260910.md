@@ -53,4 +53,4 @@
 
 交付必须绑定最终冻结源码、全组装验证、双语二进制及实际菜单检查。分支组件测试不替代最终构建。性能、输入响应、真实 NVIDIA 和两个游戏的最终显示仍需各自独立证据；本批不据加载、NR 次数、提交或 WARP 通过关闭游戏缺陷，也不自动合入主分支或发布稳定版。
 
-[中文对照步骤](../testing/CORE_047BETA_COREFIX3_ACCEPTANCE.zh-CN.md) · [English test guide](../testing/CORE_047BETA_COREFIX3_ACCEPTANCE.en.md)
+[中文对照步骤](../../testing/CORE_047BETA_COREFIX3_ACCEPTANCE.zh-CN.md) · [English test guide](../../testing/CORE_047BETA_COREFIX3_ACCEPTANCE.en.md)

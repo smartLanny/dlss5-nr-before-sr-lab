@@ -59,4 +59,4 @@ UI与ABI14项通过。旧前置214/后置130、组合13及RR深度8组WARP回归
 桥接逐字节保留，安装后独立核对唯一Core及哈希；D6备份和回退预检通过。
 本版没有启动游戏或运行真实NR模型；交付后等待维护者固定画面执行九组对照。
 
-[使用说明](../testing/DLINE7_CORE_ACCEPTANCE.zh-CN.md)。
+[使用说明](../../testing/DLINE7_CORE_ACCEPTANCE.zh-CN.md)。

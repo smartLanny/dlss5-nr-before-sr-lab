@@ -36,7 +36,7 @@ UI 单项 92 条及反向对照通过。两组件合并中间源的完整 F8 七
 
 版本文字为 `0.4.7beta-corefix.4`，Core 数字 PE 版本为 `0.4.7.9`。源码清单 SHA-256 为 `fc4a1b6fef1df71aebf0191fca8e69e6d9fe40af817cefa562c3113b97a17d12`，最终验证日志 SHA-256 为 `4217681bf99186700ea8bd423604ef9f5a34266880f367a6cf14cb0d4543f903`。发布源码可追加交接文档，运行产物仍以该冻结提交和字节身份为准。
 
-[中文复测操作](../testing/CORE_047BETA_COREFIX4_ACCEPTANCE.zh-CN.md) · [English instructions](../testing/CORE_047BETA_COREFIX4_ACCEPTANCE.en.md)。
+[中文复测操作](../../testing/CORE_047BETA_COREFIX4_ACCEPTANCE.zh-CN.md) · [English instructions](../../testing/CORE_047BETA_COREFIX4_ACCEPTANCE.en.md)。
 
 ## 菜单、打包与部署
 

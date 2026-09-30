@@ -90,8 +90,8 @@ untrusted global fallbacks.
 Use the confirmed Manager external-runtime deployment entry, preserve settings
 and dependencies, and replace only the backed-up language Core where possible.
 The next game check is one ZZZ POST scene for about 30 seconds, one F8 report,
-and whether sustained effect and flicker changed. See the [Chinese guide](../testing/CORE_047BETA_COREFIX8_ACCEPTANCE.zh-CN.md)
-or [English guide](../testing/CORE_047BETA_COREFIX8_ACCEPTANCE.en.md).
+and whether sustained effect and flicker changed. See the [Chinese guide](../../testing/CORE_047BETA_COREFIX8_ACCEPTANCE.zh-CN.md)
+or [English guide](../../testing/CORE_047BETA_COREFIX8_ACCEPTANCE.en.md).
 
 The session's exact 15 invalidating calls are not identified by the old report.
 The source defect is proven; final visual repair remains unverified. Death

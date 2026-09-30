@@ -44,6 +44,6 @@ Manager 提交 `62444444adfcabc7748e9ef37cb7d1b4b4f1dc79`，基线 `c66f227c`：
 
 先在相同场景比较正常与暂停自动采样。只有闪烁随采样改变才加入“仅状态切换、不读取”的分支；无关时才继续补齐 RTV 目标、清除范围和提交数组位置，跟踪描述符复制／复用／失效。当前未提前加入任一推测性分支。
 
-地平线 6 的阴影拖影、车灯溢色仍为口头反馈，未取得固定场景材料。按 [复现说明](../testing/FH6_VISUAL_REPRO_20260910.zh-CN.md) 保留报告人环境，区分 Original／空间恢复后的 Neural／Composite。额外增强 2.0 仅在原强度未知时作为标注的测试起点，未宣称画质修复。
+地平线 6 的阴影拖影、车灯溢色仍为口头反馈，未取得固定场景材料。按 [复现说明](../../testing/FH6_VISUAL_REPRO_20260910.zh-CN.md) 保留报告人环境，区分 Original／空间恢复后的 Neural／Composite。额外增强 2.0 仅在原强度未知时作为标注的测试起点，未宣称画质修复。
 
-操作说明：[中文](../testing/CORE_047BETA_COREFIX2_ACCEPTANCE.zh-CN.md)／[English](../testing/CORE_047BETA_COREFIX2_ACCEPTANCE.en.md)。本候选不自动合入 main／release，不发布稳定版。
+操作说明：[中文](../../testing/CORE_047BETA_COREFIX2_ACCEPTANCE.zh-CN.md)／[English](../../testing/CORE_047BETA_COREFIX2_ACCEPTANCE.en.md)。本候选不自动合入 main／release，不发布稳定版。

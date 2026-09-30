@@ -71,4 +71,4 @@ both recorded routes retired through completed fences on normal exit. This remai
 The owner also reported dev16 testing passed after the route-block/defaults update.
 Both installed Core copies match `d38400472424cc52883a154e0995a4ddd552ab3d90afa4aa5ccf19693c34e8af`
 and the framework identity is unchanged. No new per-route counters or performance
-measurements were supplied with that report; see the [dev16 record](DEV16_ROUTES_DEFAULTS_20260909.md).
+measurements were supplied with that report; see the [dev16 record](../history/interop-0.4.7-d21/DEV16_ROUTES_DEFAULTS_20260909.md).

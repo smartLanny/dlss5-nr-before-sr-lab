@@ -7,7 +7,7 @@ line, but one persistent skip after a route switch remains unexplained and open.
 D14 carries that limitation forward. Its 110 local CPU/WARP gates and bilingual
 build passed at `1cabf797a24256f1b40f5653a0dcdda9f3f97c14`; NVIDIA inference,
 in-game compatibility and whole-frame performance remain unverified for D14.
-See the [integration record](interop/DLINE14_COREFIX8_INTEGRATION_20260911.md).
+See the [integration record](history/interop-0.4.7-d21/DLINE14_COREFIX8_INTEGRATION_20260911.md).
 
 ## NTE face control: known defect, investigation paused (2026-09-08)
 
@@ -18,7 +18,7 @@ CP2077 reportedly responds to the same control. The game/model/integration cause
 is unresolved; this is not a proven 0.5 regression. Investigation and face-specific
 retest requests are paused. Post-route face darkening is recorded separately;
 earlier residual/lighting fixes do not establish that face adjustment is fixed.
-See [dev10 handoff](interop/DEV10_FULLSCREEN_20260908.md).
+See [dev10 handoff](history/interop-0.4.7-d21/DEV10_FULLSCREEN_20260908.md).
 
 dev10 F7 uses original-resolution display screenshots. A complete capture means
 the requested screenshots and records were saved, not that NR or face segmentation

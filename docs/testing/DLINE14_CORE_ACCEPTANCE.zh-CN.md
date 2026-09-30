@@ -17,4 +17,4 @@ PE 版本为 `0.5.1.14`。这份结果尚不包含 NVIDIA 推理、实际游戏�
 维护者确认的是来源 0.4.7 Corefix.8 的后置成功运行；一次切换后的持续跳过仍未定位。
 本批不自动替换游戏文件，也不更新之前的 D13 OTA。
 完整来源、依赖检查及验证边界见
-[集成记录](../interop/DLINE14_COREFIX8_INTEGRATION_20260911.md)。
+[集成记录](../history/interop-0.4.7-d21/DLINE14_COREFIX8_INTEGRATION_20260911.md)。

@@ -72,7 +72,7 @@ GPU receipt 仅在槽位未观察到或已被容量淘汰时可以缺失；当�
 
 首轮中文在 189 帧、已生成 5 张截图时因报告按钮点击失败而 exit 4，英文未运行。状态切换后的布局移动使私有测试脚本的点击释放坐标失配；仅修正该脚本的按住重定位及后续释放后完成一次双语重跑。原失败完整保留，生产 Core 与冻结构建未改，不能据此宣称修复了 Core 菜单故障。
 
-Corefix.6 复测聚焦绝区零：一次关闭再开启 NR、保持约 30 秒并采集一份 F8；见[中文指南](../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.zh-CN.md)和[English guide](../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.en.md)。
+Corefix.6 复测聚焦绝区零：一次关闭再开启 NR、保持约 30 秒并采集一份 F8；见[中文指南](../../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.zh-CN.md)和[English guide](../../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.en.md)。
 
 死亡搁浅 Corefix.5 仍无持续效果且偶有闪烁；2040 点完整 store match 只证明一次采样窗口的存储比较，不证明 Present 或最终显示。本轮不部署死亡搁浅 Core，也不要求重复四阶段测试。
 
