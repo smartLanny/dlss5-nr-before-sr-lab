@@ -32,3 +32,16 @@ reviewable, and fail-closed.
 - Test master-off, Mode 1, Mode 2, feature-creation failure, and RR pass-through.
 - Document any unresolved resource-state or GPU-lifetime assumption.
 - Run the repository scan described in `docs/REPOSITORY_AUDIT.md`.
+
+## Quick tests (any OS)
+
+`python3 scripts/run-portable-tests.py` runs every `tests/**/test_*.py` with a
+host C++ compiler (`CXX`, else `clang++`/`g++`) and prints PASS / FAIL / SKIP.
+A SKIP names what is missing (Windows, an optional module such as `numpy`, or a
+prerequisite produced by another script) and is not a pass. Use `-k <text>` to
+filter and `--verbose` to print failing output. In a cloud or shallow clone run
+`git fetch --unshallow --tags origin` first; archive tests need full history.
+
+This does not replace the canonical Windows build
+(`scripts/build-unified-candidate.ps1`), which compiles the generated Core and
+runs CPU, WARP and packaging gates.
