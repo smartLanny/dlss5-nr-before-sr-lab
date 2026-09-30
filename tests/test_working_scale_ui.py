@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -196,7 +197,14 @@ int main(){
     std::puts("Production working-scale widget + overlay footer: fallback, drag/release, RR/FG, external config/revision, locked race and rejection passed");
 }
 '''
-    compiler = Path(os.environ['NR_LLVM_BIN']) / 'clang++.exe'
+    # The canonical Windows build sets NR_LLVM_BIN; elsewhere use a host C++ compiler.
+    if os.environ.get('NR_LLVM_BIN'):
+        compiler = Path(os.environ['NR_LLVM_BIN']) / 'clang++.exe'
+    else:
+        found = shutil.which(os.environ.get('CXX') or 'clang++')
+        if not found:
+            raise SystemExit('Set NR_LLVM_BIN (Windows) or CXX/clang++ on PATH')
+        compiler = Path(found)
     with tempfile.TemporaryDirectory(prefix='nr-working-scale-') as directory:
         work = Path(directory)
         cpp, exe = work / 'fixture.cpp', work / 'fixture.exe'

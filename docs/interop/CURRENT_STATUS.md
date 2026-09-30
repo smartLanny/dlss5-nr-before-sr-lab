@@ -52,6 +52,16 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
   开 PR，不直接合并 main、不关闭他人 PR、不打发布 tag。
 - **维护者：** 游戏验收、发布与 Manager 默认版本的最终决定。
 
+## 下一步（按顺序）
+
+1. **#321：** 把 16 个 `patch-*.py` 生成步骤折叠回 `src/`，退役写死的源码哈希；以 Beta 13 生成源码的 manifest 哈希证明产品不变。需要 Windows。
+2. **#317：** Esc / UI 场景丢 NR。先取一份带 Esc 时间标记的 F8，候选修复是工作尺寸滞回。
+3. **#298：** 显存。先在 F8 加插件自有分配的分类账本，再做降档和复用。
+
+**待本机执行（云端会话推不了 tag、删不了分支，命令见 #311）：** 推送 `v0.5.2-beta.13`，
+删除已并入 main 的 `feat/309-post-private-sr`、`codex/051-guide-domain-audit-20260925`、
+`codex/acceptance-dev-followup-20260927`，以及先打 archive tag 的 `codex/317-…`、`codex/293-298-…`。
+
 ## 从哪里开始
 
 - [新电脑接续与依赖](../../START_HERE.md)
@@ -62,6 +72,8 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 
 ## 验证口径
 
+任何系统上都可以先跑 `python3 scripts/run-portable-tests.py`（说明见 `CONTRIBUTING.md`）；
+它不替代 Windows canonical 构建。
 源码审查、编译、CPU、WARP、硬件 shader、NGX 推理、托管 CI 和游戏验收分别记录；
 跳过、失败、取消、未启动都不是通过。托管 CI 仍需 `ENABLE_HOSTED_CI=true`，目前未启用。
 持续旁路必须请求 F8/日志反馈，旁路带来的高帧率不是优化。
@@ -71,3 +83,5 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 - Beta 1–13 各版验收、交付与回退：`docs/interop/052_BETA*_*.md/json`，保留原身份。
 - 合入前的完整状态页：[CURRENT_STATUS.pre-integration.md](../history/beta13-integration-20260929/CURRENT_STATUS.pre-integration.md)
 - 主线归位前的规则、README 和状态：[pre-mainline-20260926](../history/pre-mainline-20260926/)
+- 0.3/0.4 与早期 0.5 文档、0.4.7beta corefix / dev / dline / D21 逐版记录：见 [docs/history](../history/README.md)
+- 旧发布线脚本：[scripts/archive](../../scripts/archive/README.md)

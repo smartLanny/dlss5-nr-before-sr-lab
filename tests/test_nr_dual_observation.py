@@ -175,10 +175,13 @@ FACE_HARNESS = r'''
 #include <string>
 #include <stdexcept>
 #include <unordered_map>
+#include "nr_layer_config.h"
 
 enum class NrJitterMode : int { Legacy = 0, GameInputPixel = 1 };
 TUNING_TYPE
 struct ChainConfig {
+    // Mirrors production: layer 0 uses the primary keys, 1-4 use nr_layers.
+    nr_layers::Auxiliary nr_layers{};
     float intensity = 1.2f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
@@ -701,7 +704,8 @@ def source_checks(core: str, dual_runtime: str, dual_pass: str,
     bind = definition(core, "bool BindNrParameters(")
     create = definition(core, "NgxResult CreateSignedNrFeature(")
 
-    assert "NrTuningSignature requested_tuning = CurrentNrTuningSignature();" in find_create
+    # Per-layer tuning: each of the 1-5 layers requests its own signature.
+    assert "NrTuningSignature requested_tuning = CurrentNrTuningSignature(layer_index);" in find_create
     assert "empty->tuning_signature = requested_tuning;" in find_create
     assert "layer_index" in find_create and "parent_instance" in find_create
 

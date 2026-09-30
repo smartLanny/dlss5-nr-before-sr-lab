@@ -32,7 +32,9 @@ def _compiler() -> Path:
         path = Path(candidate)
         resolved = path if path.is_file() else shutil.which(candidate)
         if resolved:
-            return Path(resolved).resolve()
+            # Keep the invoked name: clang++ is often a symlink to clang and
+            # selects C++ mode from argv[0], so resolving it would link as C.
+            return Path(resolved).absolute()
     raise RuntimeError(
         "No C++ compiler found; set RR_DEPTH_TEST_CXX to clang++ or g++."
     )

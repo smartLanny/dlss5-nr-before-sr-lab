@@ -76,7 +76,7 @@ Reproduce with `scripts/validate-050-acceptance.ps1`, passing explicit fixed
 upstream/toolchain/ReShade/baseline paths, a new OutputRoot, and RunWarp. ReShade
 headers remain at API18 `4a50d1e`; the existing tested game runtime does not need
 upgrading for this Core. BL3's separate Luma API20 requirement is unrelated.
-[Owner test instructions](../testing/DEV9_CORE_ACCEPTANCE.zh-CN.md).
+[Owner test instructions](../../testing/DEV9_CORE_ACCEPTANCE.zh-CN.md).
 
 ## Owner-confirmed regression reference and controlled comparison
 

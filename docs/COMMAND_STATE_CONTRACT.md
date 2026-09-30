@@ -137,7 +137,7 @@ These API contracts are verified. The subsequent RE9 run passed both active
 NR orders and normal exit; its first 16 signature diagnostics contain only
 types 0 and 1. The actual signature that blocked BFF therefore remains
 unidentified and is not inferred from the API support change. See the
-[live acceptance record](RE9_COMMAND_STATE_INVESTIGATION.md#local-acceptance-addendum-candidate-2869).
+[live acceptance record](history/0.3-0.4-and-early-0.5/RE9_COMMAND_STATE_INVESTIGATION.md#local-acceptance-addendum-candidate-2869).
 
 Sources: [DXR indirect signatures](https://microsoft.github.io/DirectX-Specs/d3d/Raytracing.html#createcommandsignature),
 [mesh shaders](https://microsoft.github.io/DirectX-Specs/d3d/MeshShader.html),

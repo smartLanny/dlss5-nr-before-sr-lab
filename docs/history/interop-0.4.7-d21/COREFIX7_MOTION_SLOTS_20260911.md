@@ -61,8 +61,8 @@ PRE 与最终组装的 POST 都传入本次 resample 所需 Motion。非 resampl
 
 只安排当前绝区零 POST 原场景约 30 秒、一份 F8，并反馈 NR 是否持续可见、
 闪烁是否持续及格式提示是否返回。保留 HoYoShade、INI、ReShade、运行库和画质，
-优先只更换 Core。[中文复测指南](../testing/CORE_047BETA_COREFIX7_ACCEPTANCE.zh-CN.md)／
-[English guide](../testing/CORE_047BETA_COREFIX7_ACCEPTANCE.en.md)。
+优先只更换 Core。[中文复测指南](../../testing/CORE_047BETA_COREFIX7_ACCEPTANCE.zh-CN.md)／
+[English guide](../../testing/CORE_047BETA_COREFIX7_ACCEPTANCE.en.md)。
 
 死亡搁浅既有无持续效果和偶闪保持开放，本轮不要求其重复四阶段复测。
 #2/#205/#203 不据本地通过关闭；不自动合并 main/release、改 tag 或发布稳定版。

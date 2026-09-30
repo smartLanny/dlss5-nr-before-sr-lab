@@ -76,7 +76,7 @@ No carrier, replacement INI, SDK, model, raw logs or private local path is shipp
 
 This scope is **D3D12 Core-only manual acceptance, not Manager OTA**. A's new
 DX11 carrier is still independent. Default Manager Core is unchanged.
-See [maintainer guide](../testing/DEV8_CORE_ACCEPTANCE.zh-CN.md).
+See [maintainer guide](../../testing/DEV8_CORE_ACCEPTANCE.zh-CN.md).
 
 Source/compile/WARP are verified for this slice. NVIDIA NR, real game quality,
 HDR/temporal stability, measured median/P95/P99 GPU cost and the 5% limit remain

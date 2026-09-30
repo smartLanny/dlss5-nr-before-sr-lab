@@ -7,7 +7,7 @@
 
 ## 输入证据与判断
 
-已读 #254、#226、[异环先例](DEV12_MULTIGAME_20260909.md)和维护者
+已读 #254、#226、[异环先例](../history/interop-0.4.7-d21/DEV12_MULTIGAME_20260909.md)和维护者
 9 月 20 日的修前 F8（D21 223fix2 / 4080 SUPER）。私人原件留在证据区。
 `current-projection`、`rr-safe-bypass`、`nrSuccess=0` 重现；
 `projection.state=1` 表示本次参数查询没有可复制的矩阵，

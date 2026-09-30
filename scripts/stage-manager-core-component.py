@@ -2,6 +2,7 @@
 """Make a complete Core component from verified language packages, not a standalone runtime installer."""
 from __future__ import annotations
 import argparse
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -39,6 +40,18 @@ def file_hashes(rows):
         result[name] = row['sha256']
     return result
 
+def is_reparse_point(path):
+    # Path.is_junction() is Python 3.12+. On older interpreters check the
+    # Windows reparse-point attribute directly so junctions are still refused.
+    method = getattr(path, 'is_junction', None)
+    if method is not None:
+        return method()
+    try:
+        attributes = getattr(os.lstat(path), 'st_file_attributes', 0)
+    except FileNotFoundError:
+        return False
+    return bool(attributes & 0x400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
 def child(root, name):
     relative = Path(name)
     if not name or relative.is_absolute() or '\\' in name or ':' in name or '..' in relative.parts:
@@ -47,7 +60,7 @@ def child(root, name):
     for path in (file, *file.parents):
         if path == root.parent:
             break
-        if path.is_symlink() or path.is_junction():
+        if path.is_symlink() or is_reparse_point(path):
             raise ValueError('Reparse point in component input')
     if not file.resolve().is_relative_to(root.resolve()):
         raise ValueError('Component input escapes root')
