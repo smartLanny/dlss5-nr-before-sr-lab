@@ -599,11 +599,13 @@ void SetBypassReason(BypassReason reason) {
     NrRouteBypass(static_cast<BypassReason>(next));
 #endif
     if (previous == next) return;
+#if defined(NR_MENU_TRACE_ENABLED)
     if (g_menu_trace.Armed()) {
         const auto now=GetTickCount64();
         if (g_menu_trace.Active(now))
             g_menu_trace.Note(now,nr_menu_trace::Kind::Bypass,{},static_cast<unsigned>(next));
     }
+#endif
     const unsigned long long transition =
         g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
     // The overlay always shows the current reason. The file log records early
