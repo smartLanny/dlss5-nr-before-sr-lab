@@ -39,6 +39,9 @@
 - Windows verification is primary. Hosted checks remain opt-in through the one
   PR entry and `ENABLE_HOSTED_CI=true`; the owner has not enabled paid CI.
   Do not add automatic push checks or retry a billing-blocked job.
+- The maintainer's runner (`runs-on: [self-hosted, Windows, X64, dlss5-build]`)
+  is gated by `ENABLE_SELF_HOSTED_CI`; its canonical build runs only on manual
+  dispatch or the `full-build` PR label. See `docs/maintenance/SELF_HOSTED_RUNNER.md`.
 
 ## Evidence and delivery
 

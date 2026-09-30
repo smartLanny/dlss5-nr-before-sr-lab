@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # Maintainer runner used by pull-request-validation.yml (self-hosted jobs).
+  labels:
+    - dlss5-build
