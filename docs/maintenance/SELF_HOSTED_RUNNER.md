@@ -50,8 +50,9 @@ No machine path is stored in the workflow.
 The values match the arguments in `docs/handoff/BETA13_NEW_PC.zh-CN.md`.
 Check a machine without building: `./scripts/ci/run-self-hosted-build.ps1 -CheckInputsOnly`.
 
-After a successful build the three newest `ci-*` output folders are kept and
-older ones are deleted; a failed build deletes nothing. The log prints the SHA-256
+After a successful build the current run and the two newest earlier runs are
+kept; older runs are deleted together with their `ci-<run>-<attempt>.*-checks`
+gate folders. A failed build deletes nothing. The log prints the SHA-256
 of `source/source-manifest.json` and `validation.json`.
 
 ## Boundaries
