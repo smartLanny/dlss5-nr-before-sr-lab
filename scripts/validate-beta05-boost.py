@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument('--compiler', default='g++')
     args = parser.parse_args()
     source = (ROOT / 'src/nr_before_sr.cpp').read_text(encoding='utf-8')
-    ui = (ROOT / 'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+    ui = (ROOT / 'src/nr_unified_pages.inl').read_text(encoding='utf-8')
     ini = (ROOT / 'config/nr_before_sr.ini').read_text(encoding='utf-8')
     match = re.search(r'// V3_BOOST_SCALAR_BEGIN\n(.*?)// V3_BOOST_SCALAR_END', source, re.S)
     require(match is not None, 'Production boost scalar helper missing')
@@ -31,7 +31,7 @@ def main() -> None:
         'a.high_strength_protection == b.high_strength_protection',
         'L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path',
         'WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0)',
-        '((v2_combine && g_config.high_strength_protection) ? 1024u : 0u)',
+        '((v2_combine && frame_config.high_strength_protection) ? 1024u : 0u)',
         'const bool protectBoost = boostProtectionEnabled &&\n        TransferStrength > 1.0;',
         'budget = max(baseLog, min(logLimit, sdrHeadroom));',
         'poweredChromaLog = baseChroma * scale;',
@@ -44,7 +44,7 @@ def main() -> None:
     require(history is not None, 'History comparator missing')
     require('high_strength_protection' not in history.group(1), 'Composition knob must not reset NR history')
     require('&next.high_strength_protection' in ui and
-            'optional shared post candidate' in ui,
+            'Soft-limits extra luminance amplification' in ui,
             'pre/post high-strength UI A/B switch missing')
     require('HighStrengthProtection=1' in ini, 'Beta default and persistent key missing')
     shader = source[source.index('const char kCodecShader'):source.index('ID3DBlob *CompileCodecShader')]

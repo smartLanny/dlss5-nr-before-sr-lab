@@ -48,6 +48,15 @@ HARNESS = r'''
 #include "nr_diagnostic_bundle.inl"
 #include "nr_dual_observation.hpp"
 #include "nr_layer_config.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_preferences.h"
+#include "nr_spatial_experiment_policy.h"
+#include "nr_private_sr_status.h"
+#include "nr_reset_observation.h"
+#include "nr_temporal_status.h"
+#include "nr_reconstruction_policy.h"
+#include "nr_rr_projection_source.h"
+#include "interop/nr_post_compat.h"
 #include "nr_compatibility_verdict.h"
 #include "nr_processing_route.h"
 #include "nr_layer_config.h"
@@ -87,15 +96,23 @@ CRITICAL_SECTION g_chain_cs;
 SRWLOCK g_feedback_lock=SRWLOCK_INIT;
 std::atomic<bool> g_feedback_requested{false};
 std::atomic<unsigned> g_feedback_status{0},g_config_generation{7},g_feedback_swap_format{10},g_feedback_swap_color_space{1};
+SPATIAL_STATUS
+TEMPORAL_MEMORY
+POST_SEAMS
 FeedbackSession *g_feedback_session=nullptr;
 wchar_t g_feedback_last_zip[1024]={},g_log_path[1024]={};
 const char *kSourceCommit="0123456789abcdef0123456789abcdef01234567", *kBuildIdentity="core-test-only";
 const bool kSourceDirty=false,kChineseUi=false;
 struct IdentityResult {char sha256[65]="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";const char *status="synthetic-file-hash";};
 const IdentityResult &EnsureRuntimeIdentityOnWorker(){static IdentityResult identity;return identity;}
-struct ColorPolicy {float requested_color_strength=0,effective_color_strength=0;int color_reason=0;};
-struct ColorSnapshot {int status=0;ColorPolicy policy{};};
+enum class NrColorPolicyStatus : unsigned {NoFrame,Current,Inactive,Pending,Bypassed,ContractChanged,Stale};
+struct ColorPolicy {float requested_color_strength=0,effective_color_strength=0;int color_reason=0;
+    int recorded_reconstruction_mode=0;bool recorded_near_black_guard=false;
+    nr_reconstruction::Reason reconstruction_reason=nr_reconstruction::Reason::Off;
+    nr_reconstruction::Reason near_black_reason=nr_reconstruction::Reason::Off;};
+struct ColorSnapshot {NrColorPolicyStatus status=NrColorPolicyStatus::NoFrame;unsigned config_generation=0;ColorPolicy policy{};};
 ColorSnapshot SnapshotColorPolicy(){return {};}
+const char *NrColorPolicyStatusName(NrColorPolicyStatus){return "no-frame";}
 const char *NrColorPolicyStatusName(int){return "unavailable";}
 const char *NrColorReasonName(int){return "unknown";}
 APPEND
@@ -202,6 +219,7 @@ struct DescriptorRegistryFixture {DescriptorCountersFixture SnapshotCounters() c
 DescriptorRegistryFixture g_nr_descriptors;
 namespace nr_processing_runtime {
 nr_processing::Start fixture_effective=nr_processing::Start::Before;
+std::atomic<unsigned> effective{unsigned(nr_processing::Start::Before)};
 nr_processing::Start Effective(){return fixture_effective;}
 bool TrySnapshot(nr_processing::Snapshot& out){out={};out.current=fixture_effective;return true;}
 }
@@ -358,6 +376,7 @@ int main(int argc,char **argv) {
         // Synthetic snapshot values test the real serialization body only.
         // They are never interpreted as GPU/NGX evidence from this harness.
         nr_processing_runtime::fixture_effective=nr_processing::Start::Present;
+        nr_processing_runtime::effective.store(unsigned(nr_processing::Start::Present));
         fixture_memory.live_auxiliary=2;fixture_memory.retired_auxiliary=1;
         fixture_memory.pending_auxiliary=1;fixture_memory.quarantined=1;
         fixture_memory.live_slots=2;fixture_memory.retired_slots=1;fixture_memory.pending_slots=1;
@@ -426,6 +445,7 @@ int main(int argc,char **argv) {
         nr_dual_runtime::fixture_full={};nr_compat_present_runtime::fixture_present={};
         nr_dual_runtime::fixture_full_busy=nr_compat_present_runtime::fixture_present_busy=false;
         nr_processing_runtime::fixture_effective=nr_processing::Start::Before;
+        nr_processing_runtime::effective.store(unsigned(nr_processing::Start::Before));
         fixture_memory={};
         nr_fg_runtime::attempts=0;nr_fg_runtime::recorded=0;nr_fg_runtime::adopted=0;
         nr_compat_present_runtime::fixture_capture_status[0]=nr_compat_present_runtime::fixture_capture_status[1]=0;
@@ -807,6 +827,10 @@ def production_values():
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
     energy = (ROOT/'src/nr_source_frame_runtime.inl').read_text(encoding='utf-8-sig')
+    spatial = (ROOT/'src/nr_spatial_experiment_runtime.inl').read_text(encoding='utf-8-sig')
+    temporal = (ROOT/'src/nr_temporal_runtime.inl').read_text(encoding='utf-8-sig')
+    post = (ROOT/'src/interop/nr_post_settings.inl').read_text(encoding='utf-8-sig')
+    rr_adapter = (ROOT/'src/nr_rr_depth_adapter.inl').read_text(encoding='utf-8-sig')
     values = {
         'LEGACY_REQUEST': definition(legacy, 'bool RequestFeedbackBundle('),
         'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
@@ -815,6 +839,19 @@ def production_values():
         'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
         'ACTIVITY': definition(legacy, 'void FeedbackAppendCommandShadingRate(') + '\n' + definition(legacy, 'void FeedbackAppendNgxLifecycle(') + '\n' + definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig {', True),
+        'SPATIAL_STATUS': spatial[spatial.index('namespace nr_spatial_experiment {'):spatial.index('bool EnsurePipelines(')] + '\n}',
+        'TEMPORAL_MEMORY': 'namespace nr_temporal {\n' + definition(temporal, 'struct Memory', True) + '\nMemory SnapshotMemory() { return {}; }\n}',
+        'POST_SEAMS': '\n'.join((
+            post[post.index('namespace nr_post_settings {'):post.index('bool Reject(')] + '\n}',
+            rr_adapter[rr_adapter.index('std::atomic<unsigned long long> g_rr_depth_conversions'):rr_adapter.index('bool RejectRrDepth(')],
+            'bool IsCompatibilityPostObserved() { return false; }',
+            'int EffectivePictureMode(int requested) { return requested; }',
+            'std::atomic<unsigned long long> g_compat_fallback_attempts{0},g_compat_fallback_recorded{0};',
+            'std::atomic<int> g_compat_fallback_reason{0};std::atomic<unsigned> g_compat_fallback_cause{0};',
+            'std::atomic<UINT64> g_native_command_records{0},g_native_command_retirements{0},g_native_command_record_failures{0};',
+            'std::atomic<unsigned long long> g_all_evaluations{0},g_rr_guarded_sr_evaluations{0};',
+            'namespace nr_acceptance { bool Active() { return false; } }',
+        )),
         'FULL_SNAPSHOT': definition((ROOT/'src/nr_full_runtime.inl').read_text(encoding='utf-8-sig'), 'struct FullSnapshot', True),
         'MEMORY_SNAPSHOT': definition(source, 'struct NrContextMemorySnapshot {', True),
         'FG_FEEDBACK': definition((ROOT/'src/nr_fg_consumer.inl').read_text(encoding='utf-8-sig'), 'void AppendFeedback(FeedbackSession&'),

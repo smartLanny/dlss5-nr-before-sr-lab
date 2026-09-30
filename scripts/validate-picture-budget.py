@@ -29,7 +29,10 @@ def main():
 #include <limits>
 #include <initializer_list>
 #include "nr_precision_ui.h"
-struct Config {float transfer_strength=1.0f;} g_config;
+#include "nr_colour_preferences.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_reconstruction_policy.h"
+struct Config {float transfer_strength=1.0f;int colour_lab_mode=0;} g_config;
 float ActiveTransferStrength(const Config &c){return c.transfer_strength;}
 enum class CodecColorMode {Automatic,LinearSdr,SrgbEncodedSdr,ModelEncodedValueDomain,PqEncodedHdr};
 POLICY
@@ -91,17 +94,15 @@ int main(){
             print('Historical unbudgeted colour assignment rejected by exact oracle.')
         elif result.returncode:
             raise SystemExit(result.returncode)
-    ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
+    ui=(ROOT/'src/nr_unified_settings.inl').read_text(encoding='utf-8-sig')
     start=ui.index('ImGui::BeginTabItem(ui("Picture###nr-picture"')
-    capture=ui.index('if (collecting) ImGui::BeginDisabled();',start)
-    mode=ui.index('"Processing mode"',start)
+    capture=ui.index('ImGui::BeginDisabled(collecting);',start)
+    mode=ui.index('"Processing order"',start)
     precision=ui.index('"##nr-processing-precision"',mode)
     model=ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);',precision)
-    end=ui.index('// END PRIMARY MODEL CONTROLS',model)
-    advanced=ui.index('"Picture safeguards"',end)
-    amp=ui.index('"Maximum luminance ratio"',advanced)
-    unlock=ui.index('if (collecting) ImGui::EndDisabled();',amp)
-    assert start<capture<mode<precision<model<end<advanced<amp<unlock
+    reset=ui.index('RestoreRecommendedPictureSettings(next);',model)
+    unlock=ui.index('ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();',reset)
+    assert start<capture<mode<precision<model<reset<unlock
     assert ui.count('DrawUniformLayerControls(next,changed,apply_discrete_edit);')==1
     assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
     print('Real controls grouped under the same capture lock and configuration transaction.')

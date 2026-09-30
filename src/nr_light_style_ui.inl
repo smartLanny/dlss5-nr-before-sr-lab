@@ -1,3 +1,4 @@
+#include "nr_colour_lab_ui.inl"
 // Every edit joins the existing pending overlay transaction. Presets never
 // call ApplyConfig independently or write another group's preferences.
 bool LightStylePercent(const char *label,const char *id,float &value,float maximum) {
@@ -13,6 +14,16 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn) { return zh?cn:en; };
     (void)before_sr;
+
+    if (next.light_preview != 0u) {
+        SettingsNote(ui("Lighting diagnostic preview is active, not the final picture.",
+            "光影诊断预览仍在运行，当前不是最终画面。"));
+        if (ImGui::Button(ui("Exit lighting preview###quality-preview-off", "退出光影预览###quality-preview-off"))) {
+            next.light_preview = 0u; changed = true; apply_discrete_edit = true;
+        }
+    }
+    if (!ImGui::CollapsingHeader(ui("Advanced lighting controls###quality-lighting",
+                                  "进阶光影调节（保留原设置）###quality-lighting"))) return;
     SettingsNote(ui("Adjust the AI's added light and dark changes; 100% keeps their original amount.",
         "调节 AI 新增的明暗变化；100% 为原量。"));
     SettingsField(ui("Scope of brightening and darkening", "光影范围"));

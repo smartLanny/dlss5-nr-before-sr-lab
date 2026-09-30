@@ -3,7 +3,7 @@
 
 This is a convenience entry for Linux, cloud agents and a future hosted job.
 It does not replace scripts/build-unified-candidate.ps1: the canonical Windows
-build still runs its own gates with the generated Core. A SKIP always names the
+build still runs its own gates with the production Core. A SKIP always names the
 missing platform, module or prerequisite; it is never counted as a pass.
 """
 from __future__ import annotations
@@ -69,7 +69,11 @@ def main() -> int:
     args = parser.parse_args()
 
     (ROOT / 'build').mkdir(exist_ok=True)
-    tests = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / 'tests').rglob('test_*.py'))
+    tests = sorted(
+        p.relative_to(ROOT).as_posix()
+        for p in (ROOT / 'tests').rglob('test_*.py')
+        if 'archive' not in p.relative_to(ROOT / 'tests').parts
+    )
     if args.pattern:
         tests = [t for t in tests if args.pattern in t]
     env = environment()

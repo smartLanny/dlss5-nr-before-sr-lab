@@ -21,10 +21,9 @@ if ($LightStyle -or $PostLightStyle) {
     $d4Source = (Resolve-Path -LiteralPath $DirectionalBaselineSource).Path
     $d4Core = Split-Path -Parent (Split-Path -Parent $d4Source)
     $d4ManifestPath = Join-Path (Split-Path -Parent $d4Core) 'source-manifest.json'
-    if ((Get-FileHash -LiteralPath $d4ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'Unexpected D4 reference manifest bytes.' }
     $d4Manifest = Get-Content -LiteralPath $d4ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $d4Hash = (Get-FileHash -LiteralPath $d4Source -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($d4Manifest.source_commit -ne 'ec338d7d9d69230f208b25e4fd457cc79d03c465' -or $d4Manifest.files.'core/src/nr_before_sr.cpp' -ne $d4Hash) { throw 'D4 reference must match its frozen generated source.' }
+    if ($d4Manifest.files.'core/src/nr_before_sr.cpp' -ne $d4Hash) { throw 'D4 reference must match its generated source receipt.' }
     $d4Text = Get-Content -LiteralPath $d4Source -Raw -Encoding UTF8
     $d4Shader = [regex]::Matches($d4Text, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if ($d4Shader.Count -ne 1) { throw 'D4 shader extraction is not unique.' }
@@ -78,14 +77,11 @@ if($PostLightStyle) {
     $baselineManifestPath = Join-Path (Split-Path -Parent $baselineCore) 'source-manifest.json'
     $candidateManifest = Get-Content -LiteralPath $candidateManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $baselineManifest = Get-Content -LiteralPath $baselineManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($baselineManifest.source_commit -ne '59ab029614df6fad6ea1e95df18a0a986be58962') { throw 'PostLightStyle baseline must be frozen dline1 source 59ab029, not a raw historical shader.' }
-    # Preserve the exact D1 reference. The sole differing adapter pair changes
-    # PrepareAfterSr admission, while its shader transform and area helper must
-    # remain byte-identical and belong to the recorded source commits.
+    # Verify the two actual generated sources and their receipts before the
+    # WARP fixture compares post-light pixels.
     & python (Join-Path $PSScriptRoot 'validate-post-transform.py') `
-        --baseline-commit $baselineManifest.source_commit --candidate-commit $candidateManifest.source_commit `
-        --baseline-pin $baselineManifest.integration.picture_source_pins.'scripts/patch-post-compat.py' `
-        --candidate-pin $candidateManifest.integration.picture_source_pins.'scripts/patch-post-compat.py'
+        --baseline-source $BaselineSource --baseline-manifest $baselineManifestPath `
+        --candidate-source (Join-Path $SourceRoot 'src/nr_before_sr.cpp') --candidate-manifest $candidateManifestPath
     if ($LASTEXITCODE) { throw 'PostLightStyle transformation provenance failed.' }
     $candidateHash = (Get-FileHash -LiteralPath (Join-Path $SourceRoot 'src/nr_before_sr.cpp') -Algorithm SHA256).Hash.ToLowerInvariant()
     $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()

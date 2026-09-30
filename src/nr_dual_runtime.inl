@@ -318,6 +318,11 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
     ++aux.evaluations;
     aux.successful_evaluations_since_reset=aux.diagnostic_warmup_reset?1:aux.successful_evaluations_since_reset+1;
     aux.reset_retry_pending=false;
+    const auto observed_source=nr_source_runtime::CurrentSource();
+    nr_reset_observation::counters.Observe({aux.instance_id,aux.feature_generation,aux.evaluations,
+        aux.layer_index,aux.width,aux.height,aux.diagnostic_reset_reasons,
+        aux.successful_evaluations_since_reset,aux.last_source_to_canonical,aux.observed_delayed_exposure_reset,
+        observed_source.stream,observed_source.epoch,observed_source.sequence,aux.config_generation,aux.history_generation});
     aux.dual_history.CommitSuccess(key,primary.evaluations);
     second_evaluations.fetch_add(1);last_primary_instance.store(primary.instance_id);last_second_instance.store(aux.instance_id);last_parent_evaluation.store(primary.evaluations);
     observation.evaluated=true;prepared.evaluated=true;

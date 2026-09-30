@@ -27,16 +27,18 @@ present_source = (root / "src/nr_compat_present_models.inl").read_text(encoding=
 present_policy = present_source.split("void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {", 1)[1].split("    CodecConstants k{};", 1)[0]
 assert 'auto* shader=combine?g_codec.combine_v2:g_codec.encode_v2;' in present_source
 assert 'if(independent_chroma)k.passthrough|=4096u;' in present_source
-route = source[source.index("    const bool independent_chroma = g_config.independent_chroma_composition"):]
-route = route[:route.index("    const auto probe_policy =")]
-dispatch = source[source.index("    NrColorPolicy color_policy = ResolveNrColorPolicy("):]
-if "    nr_f8_gpu::ArmResult" in dispatch:
-    # Extract both actual policy/publication ranges around the separately tested GPU path.
-    tail = dispatch[dispatch.index("    const unsigned int codec_flags = base_codec_flags"):]
-    dispatch = dispatch[:dispatch.index("    nr_f8_gpu::ArmResult")] + tail[:tail.index("    if (capture_stages) {")]
-else:
-    dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
-if "g_config.color_protection" not in dispatch:
+route = source[source.index("    const bool independent_chroma = frame_config.independent_chroma_composition"):]
+route = route[:route.index("    const auto restore_encoding =")]
+policy = source[source.index("    NrColorPolicy color_policy = ResolveNrColorPolicy("):]
+policy = policy[:policy.index("    color_policy.requested_restore_mode =")]
+flags = source[source.index("    const unsigned int base_codec_flags = source_flags | edge_flags |") :]
+flags = flags[:flags.index("    nr_f8_gpu::ArmResult")]
+publication = source[source.index("    const unsigned int codec_flags = base_codec_flags |") :]
+publication = publication[:publication.index("    if (capture_stages) {")]
+effective_start = source.index("    const float effective_color_strength =")
+effective = source[effective_start:source.index(";", effective_start) + 1] + "\n"
+dispatch = policy + effective + flags + publication
+if "frame_config.color_protection" not in dispatch:
     raise AssertionError("production dispatch does not pass ColorProtection to the colour budget")
 if args.negative_control:
     consumer = "nr_color_amplification::ChromaConsumer::GainIndependent"
@@ -45,6 +47,9 @@ if args.negative_control:
     assert present_policy.count(consumer) == 1, "Present consumer marker changed"
     present_policy = present_policy.replace(consumer, "nr_color_amplification::ChromaConsumer::GainCoupled")
 ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
+lab_ui_source = (root / "src/nr_colour_lab_ui.inl").read_text(encoding="utf-8")
+permission_ui = lab_ui_source[lab_ui_source.index("        int mode = static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));"):]
+permission_ui = permission_ui[:permission_ui.index("        int recovery =")]
 ui_function = definition(ui_source, "void DrawColorControls(")
 ui_block = ui_function[ui_function.index("{") + 1:ui_function.rindex("}")]
 
@@ -58,6 +63,11 @@ harness = r'''
 #include "nr_light_style.h"
 #include "nr_generic_residual.h"
 #include "nr_dual_pass.hpp"
+#include "nr_colour_preferences.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_stage_policy.h"
+#include "nr_colour_edge_policy.h"
+#include "nr_reconstruction_policy.h"
 enum DXGI_FORMAT { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R16G16B16A16_FLOAT,
                    DXGI_FORMAT_R11G11B10_FLOAT };
 struct ID3D12Resource {};
@@ -70,6 +80,9 @@ struct Config {
     bool high_strength_protection=true, color_protection=true, layered_enhancement=false;
     bool low_grid_edit_field=false, catmull_edit_restore=false;
     bool independent_chroma_composition=false, low_grid_color_edit_field=false;
+    int colour_lab_mode=0, colour_restore_mode=0, colour_input_curve=0;
+    int colour_scaled_proxy_mode=0, colour_edge_recovery=0, reconstruction_mode=0;
+    bool colour_neutral_probe=false, near_black_chroma_guard=false;
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
@@ -105,6 +118,8 @@ struct Slot {
     DXGI_FORMAT result_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     NrColorPolicy diagnostic_color_policy{};
     bool edit_field_recorded=false, edit_horizontal_recorded=false, lanczos_recorded=false;
+    nr_colour_restore::EncodingReceipt colour_restore_encoding{};
+    unsigned long long last_used_serial=0;
     float diagnostic_color_strength=-1;
     bool diagnostic_preserve_lighting=true;
 };
@@ -112,8 +127,14 @@ struct { void* combine=reinterpret_cast<void*>(1); void* combine_v2=reinterpret_
 struct { unsigned long long frame_id=99; } g_applied_nr_identity;
 unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_contract,
                         bool hdr_input,CodecColorMode color_mode,bool capture_delta) {
+    const Config& frame_config=g_config;
     ROUTE
-    const unsigned source_flags=0;
+    const auto restore_encoding=nr_colour_restore::Encoding::Unknown;
+    const unsigned colour_stage_flags=0,colour_restore_flags=0,edge_flags=0;
+    const bool colour_restore=false;
+    const unsigned prepared_input_curve=0,prepared_scaled_proxy_mode=0;
+    const bool light_style_active=false;
+    unsigned source_flags=0;
     const bool f8_armed=false;
     // This CPU seam tests colour policy; actual post-store sampling and its
     // unused-target negative control run against production D3D12 below it.
@@ -122,7 +143,6 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const unsigned store_format_flags=0;
     // This fixture isolates colour admission; light wiring is exercised by
     // its production scalar/dispatch GPU tests with the full ChainConfig.
-    const bool light_style_active=false;
     DISPATCH
     return codec_flags;
 }
@@ -143,6 +163,10 @@ namespace ImGui {
     bool Checkbox(const char*,bool* value) {
         lighting_disabled=disabled;
         if(try_edits && !disabled) { *value=!*value; return true; }
+        return false;
+    }
+    bool Combo(const char*,int* value,const char*) {
+        if(try_edits && !disabled) { *value=1; return true; }
         return false;
     }
     template<class... A> void TextDisabled(const char* fmt,A... args) {
@@ -435,17 +459,18 @@ int main() {
     ImGui::try_edits=true;
     check(DrawRegionColourStatus(next,false,changed) && !changed && !next.allow_unverified_hdr_color &&
           slot.diagnostic_color_strength==0,"region status does not implicitly grant HDR permission");
-    // The explicit permission now lives in Developer options; execute that
-    // actual production checkbox, then verify pending and committed policy.
+    // Execute the production developer policy selector. Colour priority grants
+    // HDR admission without mutating the saved legacy permission bit.
+    bool apply_discrete_edit=false;
     HDR_PERMISSION_UI
-    check(changed && next.allow_unverified_hdr_color &&
+    check(changed && apply_discrete_edit && next.colour_lab_mode==1 && !next.allow_unverified_hdr_color &&
           !DrawRegionColourStatus(next,true,changed) && slot.diagnostic_color_strength==0,
-          "explicit developer opt-in is pending until committed composition");
+          "developer colour-priority selection is pending until committed composition");
     ImGui::try_edits=false; g_config=next; ++g_config_generation;
     DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
     changed=false; ImGui::text.clear();
-    check(!DrawRegionColourStatus(next,false,changed) && slot.diagnostic_color_strength==1 &&
-          ImGui::text.find("experimental HDR permission")!=std::string::npos,"committed opt-in enables actual colour coefficient");
+    check(!DrawRegionColourStatus(next,false,changed) && slot.diagnostic_color_strength==1,
+          "committed colour priority enables actual colour coefficient");
     next.color_strength=0;
     check(DrawRegionColourStatus(next,false,changed),"zero global colour disables region colours even with HDR opt-in");
     next=g_config; g_recorded_color_policy.policy.color_allowed=false; clock_ms+=3000; ImGui::text.clear();
@@ -458,7 +483,7 @@ int main() {
 for marker, replacement in {
     "ROUTE": route,
     "PRESENT_POLICY": present_policy,
-    "HDR_PERMISSION_UI": next(line.strip() for line in ui_source.splitlines() if 'changed |= ImGui::Checkbox(ui("Allow experimental HDR colour"' in line),
+    "HDR_PERMISSION_UI": permission_ui,
     "COLOR_CONTRACT": definition(source, "struct ColorContract {", True),
     "UNITY_EXPOSURE": definition(source, "bool IsUnityExposureContract("),
     "CODEC_ENUM": definition(source, "enum class CodecColorMode", True),

@@ -13,27 +13,11 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
-if ($QualitySuccessor) {
-    # The final generator owns identity. A new successor must not compile under
-    # one version while its receipt, file names and test ZIPs retain another.
-    $PrivateVersionPath = Join-Path $PSScriptRoot 'patch-private-sr.py'
-    if (Test-Path -LiteralPath $PrivateVersionPath -PathType Leaf) {
-        $VersionSource = Get-Content -LiteralPath $PrivateVersionPath -Raw
-        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION\s*=\s*'((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-beta\.[1-9][0-9]*)'\r?$")
-        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final private SR product identity.' }
-        $CandidateVersion = $VersionMatch.Groups[1].Value
-        $LeafVersion = $CandidateVersion
-    } else {
-        $VersionSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'patch-colour-edge.py') -Raw
-        $VersionMatch = [regex]::Match($VersionSource, "(?m)^VERSION = '(0\.5\.2-beta\.[1-9][0-9]*|beta0\.5-dline21-(unified[0-9]+(?:-[a-z0-9]+)?(?:-ui[0-9]+)?))'\r?$")
-        if (-not $VersionMatch.Success) { throw 'Cannot resolve exact final unified product identity.' }
-        $CandidateVersion = $VersionMatch.Groups[1].Value
-        $LeafVersion = if ($VersionMatch.Groups[2].Success) { $VersionMatch.Groups[2].Value } else { $CandidateVersion }
-    }
-} else {
-    $LeafVersion = 'perf12'
-    $CandidateVersion = 'beta0.5-dline21-' + $LeafVersion
-}
+$SourceLayout = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'core-source-layout.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$CandidateVersion = $SourceLayout.product.version
+if ($CandidateVersion -notmatch '^0\.5\.2-beta\.[1-9][0-9]*$') { throw 'Invalid committed product identity.' }
+$LeafVersion = $CandidateVersion
+
 if ($QualitySuccessor -and [string]::IsNullOrWhiteSpace($FaceRuntimeRoot)) { throw 'Unified candidate requires the complete face backend; supply FaceRuntimeRoot.' }
 $Output = [IO.Path]::GetFullPath($OutputRoot)
 $Gate = $Output + '.lockperf-checks'
@@ -108,7 +92,7 @@ if ($QualitySuccessor) {
     if ($LASTEXITCODE) { throw 'Selected working-scale UI transaction checks failed.' }
     & python (Join-Path $Root 'tests/test_unified_ui.py') -v
     if ($LASTEXITCODE) { throw 'Final flat UI contract checks failed.' }
-    & python (Join-Path $Root 'tests/test_quality_panel.py') -v
+    & python (Join-Path $Root 'tests/test_folded_source_contracts.py') -v
     if ($LASTEXITCODE) { throw 'Quality policy and UI checks failed.' }
     foreach ($MathTest in @('run_colour_restore_math.py','run_colour_stage_math.py','run_colour_edge_math.py','run_quality_recipe.py')) {
         & python (Join-Path $Root "tests/$MathTest") --compiler $Cxx

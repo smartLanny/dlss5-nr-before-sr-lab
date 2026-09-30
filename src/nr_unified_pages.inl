@@ -163,9 +163,13 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
 #include "nr_temporal_ui.inl"
 #if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
 #include "nr_private_sr_ui.inl"
+#include "nr_spatial_experiment_ui.inl"
 #endif
 #endif
+#include "nr_reconstruction_ui.inl"
 void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,bool& changed,bool& discrete) {
+    DrawReconstructionControls(next,generation,pending,changed,discrete);
+    DrawSpatialExperiment(next,changed,discrete);
     SettingsSection(NrUi("Colour comparisons","颜色对照"));
     SettingsField(NrUi("Model input","模型输入"));
     unsigned curve=next.colour_input_curve==1?1u:0u;

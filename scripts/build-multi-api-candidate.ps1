@@ -34,7 +34,7 @@ foreach ($File in @($Cxx, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'
     if (-not (Test-Path -LiteralPath $File)) { throw "Missing build input: $File" }
 }
 $Stage = Join-Path $Output 'source'
-$Generator = if ($QualitySuccessor) { 'prepare-colour4-edge.py' } else { 'prepare-multi-api-beta.py' }
+$Generator = 'prepare-core-source.py'
 & python (Join-Path $PSScriptRoot $Generator) --core $Root --upstream $Upstream --output $Stage
 if ($LASTEXITCODE) { throw 'Full source staging failed.' }
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
@@ -57,9 +57,9 @@ try {
     & python -m unittest discover -s tests/multi_api -v
     if ($LASTEXITCODE) { throw 'Multi-API host/source tests failed.' }
     $Checks.Add('multi_api Python source + actual Windows source-identity compile/run')
-    & python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
-    if ($LASTEXITCODE) { throw 'Native bridge transformations failed.' }
-    $Checks.Add('native_bridge Python exact-source transformations')
+    & python -m unittest tests.test_direct_source_export -v
+    if ($LASTEXITCODE) { throw 'Committed-source and pinned-carrier export contracts failed.' }
+    $Checks.Add('committed-source export and pinned-carrier integration contracts with negative controls')
     & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
     if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
     $Checks.Add('settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')

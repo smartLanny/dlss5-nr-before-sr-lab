@@ -53,6 +53,7 @@ def main():
 #include <cstring>
 #include <cmath>
 #include <cstdint>
+#include <atomic>
 #include <string>
 using ULONGLONG = unsigned long long;
 using DWORD = unsigned long;
@@ -65,6 +66,10 @@ enum class NrJitterMode {Legacy,GameInputPixel};
     code += '#include "' + (ROOT/'src/nr_feedback_limits.h').as_posix() + '"\n'
     code += '#include "' + (ROOT/'src/nr_processing_route.h').as_posix() + '"\n'
     code += '#include "' + (ROOT/'src/nr_layer_config.h').as_posix() + '"\n'
+    code += '#include "' + (ROOT/'src/nr_colour_preferences.h').as_posix() + '"\n'
+    code += '#include "' + (ROOT/'src/nr_colour_restore_policy.h').as_posix() + '"\n'
+    code += 'namespace nr_processing_runtime { std::atomic<unsigned> effective{static_cast<unsigned>(nr_processing::Start::After)}; }\n'
+    code += 'std::atomic<int> g_last_carrier_feature{1};\n'
     code += definition(cpp, 'struct ChainConfig {', True) + '\n'
     code += definition(legacy, 'struct FeedbackSession', True) + '\n'
     code += definition(legacy, 'void FeedbackAppend(') + '\n' + helper + '\n'

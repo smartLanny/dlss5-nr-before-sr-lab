@@ -42,6 +42,8 @@ PRELUDE = r'''
 #include "nr_processing_route.h"
 #include "nr_layer_config.h"
 #include "nr_compat_present_policy.hpp"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_preferences.h"
 struct ImVec2 { float x, y; ImVec2(float a=0, float b=0) : x(a), y(b) {} };
 struct ImVec4 { float x=0,y=0,z=0,w=1; };
 enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen, ImGuiHoveredFlags_AllowWhenBlockedByActiveItem, ImGuiMouseButton_Left, ImGuiTableFlags_SizingStretchProp, ImGuiTableColumnFlags_WidthFixed, ImGuiTableColumnFlags_WidthStretch };

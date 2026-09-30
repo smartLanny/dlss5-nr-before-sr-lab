@@ -127,7 +127,8 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--compiler',default=os.environ.get('CXX','c++'));a=p.parse_args()
     source=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     state=(ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
-    ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
+    # The shipped overlay transaction lives in the five-page UI include.
+    ui=(ROOT/'src/nr_unified_settings.inl').read_text(encoding='utf-8-sig')
     fields={'AUTO':definition(state,'bool CanAutoRestorePristineNull('),'RESTORE':definition(state,'bool CanRestoreNativeCommandState('),
         'SNAP_STRUCT':definition(source,'struct OverlayConfigSnapshot',True),'SNAPSHOT':definition(source,'OverlayConfigSnapshot SnapshotOverlayConfig('),
         'RESULT':definition(source,'enum class OverlayApplyResult',True),'APPLY':definition(source,'OverlayApplyResult ApplyOverlayConfig(')}

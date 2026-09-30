@@ -10,10 +10,9 @@ s=(a.source or root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
 start=s.index('    NgxParams *params = context.params;',s.index('bool BindNrParameters('))
 end=s.index('    if (!context.guide_contract_logged',start)
 prefix=s[start:end]
-post=(root/'scripts/patch-post-compat.py').read_text(encoding='utf-8-sig')
-post_start=post.index('    guides.jitter.known = true;')
-post_end=post.index('    NrContext *context = FindOrCreateContext(',post_start)
-post_zero=post[post_start:post_end]
+post_start=s.index('    guides.jitter.known = true;')
+post_end=s.index('    NrContext *context = FindOrCreateContext(',post_start)
+post_zero=s[post_start:post_end]
 h=r'''
 #include <atomic>
 #include <cstdio>

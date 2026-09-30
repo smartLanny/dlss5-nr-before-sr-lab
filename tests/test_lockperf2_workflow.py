@@ -4,6 +4,7 @@ Regression: the old next/0.5 entry selected the old dev4 raw build instead of th
 pinned D21 generator, bypassing the newly added hotpath gates and package label.
 """
 from pathlib import Path
+import json
 import re
 import subprocess
 import unittest
@@ -84,28 +85,14 @@ class Lockperf2Workflow(unittest.TestCase):
         self.assertNotIn('Copy-Item build/nr_before_sr.ini', text)
         self.assertIn('exact linker maps', text)
 
-    def test_exact_product_parser_accepts_bounded_ui_revision(self):
+    def test_candidate_version_comes_from_source_layout(self):
         text = read('scripts/build-perf12-candidate.ps1')
-        # The quality successor reads patch-private-sr.py when it exists and
-        # falls back to patch-colour-edge.py; check each pattern on its own source.
-        private, pattern = re.findall(r'\$VersionMatch = \[regex\]::Match\(\$VersionSource, "([^"]+)"\)', text)[:2]
-        self.assertLess(text.index("'patch-private-sr.py'"), text.index("'patch-colour-edge.py'"))
-        for source, rx in (('scripts/patch-private-sr.py', private), ('scripts/patch-colour-edge.py', pattern)):
-            current = read(source)
-            declared = re.search(r"(?m)^VERSION\s*=\s*'([^']+)'", current).group(1)
-            actual = re.search(rx, current)
-            self.assertIsNotNone(actual, source)
-            self.assertEqual(actual.group(1), declared, source)
-        for value in ('0.5.2-beta.1','0.5.2-beta.12'):
-            self.assertEqual(re.search(pattern, "VERSION = '"+value+"'\n").group(1),value)
-        for value in ('0.5.2-beta.0','0.5.2-beta.01','0.5.2-beta.1/extra','../0.5.2-beta.1'):
-            self.assertIsNone(re.search(pattern, "VERSION = '"+value+"'\n"))
-        for leaf in ('unified10', 'unified10-inbox1', 'unified10-reconstruction1', 'unified10-reconstruction1-ui1'):
-            match = re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n")
-            self.assertIsNotNone(match)
-            self.assertEqual(match.group(2), leaf)
-        for leaf in ('unified10-reconstruction1-uiX', 'unified10-reconstruction1-ui1-extra', '../unified10', 'unified10/a'):
-            self.assertIsNone(re.search(pattern, "VERSION = 'beta0.5-dline21-" + leaf + "'\n"))
+        product = json.loads(read('scripts/core-source-layout.json'))['product']
+        version = product['version']
+        self.assertRegex(version, r'^0\.5\.2-beta\.[1-9][0-9]*$')
+        self.assertIn('core-source-layout.json', text)
+        self.assertNotIn('patch-private-sr.py', text)
+        self.assertNotIn('patch-colour-edge.py', text)
 
     def test_legacy_command_cannot_label_new_code_as_lockperf1(self):
         text = read('scripts/build-lockperf1-candidate.ps1')

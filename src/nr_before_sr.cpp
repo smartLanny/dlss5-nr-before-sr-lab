@@ -5,6 +5,7 @@
 #define WIDL_C_INLINE_WRAPPERS
 
 #include <windows.h>
+#include "nr_native_output_capture.h"
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <tlhelp32.h>
@@ -26,6 +27,12 @@
 #include <memory>
 #include <type_traits>
 #include "nr_layer_config.h"
+#include "nr_colour_lab_policy.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_stage_policy.h"
+#include "nr_colour_edge_policy.h"
+#include "nr_reconstruction_policy.h"
+#include "nr_quality_recipe.h"
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -33,6 +40,7 @@
 #include "nr_imgui_abi.h"
 
 #include "MinHook.h"
+#include "interop/nr_deployment_names.h"
 #include "interop/nr_format_access.h"
 #include "nr_native_format.h"
 #include "nr_descriptor_provenance.h"
@@ -42,8 +50,14 @@
 #define NR_HAS_ROUTE_COMPATIBILITY 1
 #include "nr_compatibility_verdict.h"
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1
+#define NR_NATIVE_FORMAT_STAGED 1
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
+#define NR_HAS_PRIVATE_RESIDUAL_SR 1
+#include "nr_private_sr_guides.h"
+#include "private_sr/nr_post_private_sr_dx12.hpp"
+#include "nr_private_sr_status.h"
+#include "nr_private_sr_artifacts.h"
 #include "nr_motion_slot_selection.h"
 #include "nr_rr_depth_projection.h"
 #include "nr_rr_projection_source.h"
@@ -52,6 +66,12 @@
 #include "nr_feedback_ticket.h"
 #include "nr_process_memory.h"
 #include "nr_shortcut_edge.h"
+#include "nr_hotkeys.h"
+#include "nr_colour_preferences.h"
+#define NR_HAS_TEMPORAL_RUNTIME 1
+#include "nr_temporal_status.h"
+#include "nr_process_memory.h"
+#include "temporal/recorded_temporal.hpp"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
 #include "nr_face_capture_geometry.h"
@@ -87,10 +107,14 @@
 
 namespace {
 
+#include "nr_spatial_experiment_policy.h"
 #include "nr_source_frame_forward.inl"
 #include "nr_runtime_timing.inl"
 #include "nr_ui_activity_runtime.inl"
 #include "nr_submitted_fence_wait.inl"
+void NrRenderControlPoll();
+void NrDx11DeploymentPoll(bool force);
+bool NrDx11DeploymentBlocked();
 #include "nr_diagnostic_bundle.inl"
 
 #define NR_HAS_DETAIL_STABILITY 1
@@ -99,11 +123,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline21-uniform3";
+constexpr const char *kAddonVersion = "0.5.2 Beta 13";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline21-uniform3";
+constexpr const char *kBuildIdentity = "0.5.2-beta.13";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -601,6 +625,7 @@ struct FeatureRecord {
     unsigned int out_width = 0;
     unsigned int out_height = 0;
     int create_flags = 0;
+    int rr_depth_type = -1; // 0 linear, 1 hardware
     int perf_quality = 0;
     NgxLayer layer = NgxLayer::Unspecified;
     NgxOwner owner = NgxOwner::Game;
@@ -780,7 +805,7 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
     FeatureRecord record = {};
     record.handle = handle;
     record.feature_id = feature_id;
-    if (feature_id == 1) {
+    if (feature_id == 1 || feature_id == 13) {
         record.generation =
             g_feature_generation.fetch_add(1, std::memory_order_relaxed);
         if (record.generation == 0) {
@@ -793,6 +818,12 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
     const bool known_out_width = GetUInt(params, "OutWidth", &record.out_width);
     const bool known_out_height = GetUInt(params, "OutHeight", &record.out_height);
     GetInt(params, "DLSS.Feature.Create.Flags", &record.create_flags);
+    if (feature_id == 13) {
+        unsigned int depth_type = 0;
+        if (GetUInt(params, "DLSS.Use.HW.Depth", &depth_type))
+            record.rr_depth_type = static_cast<int>(depth_type);
+        else GetInt(params, "DLSS.Use.HW.Depth", &record.rr_depth_type);
+    }
     GetInt(params, "PerfQualityValue", &record.perf_quality);
     int flags_proof = 0, quality_proof = 0;
     record.create_contract_known = known_width && known_height && known_out_width && known_out_height &&
@@ -901,6 +932,22 @@ void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_act
 void DrawPerformanceRouteNotice(const ChainConfig&);
 
 struct ChainConfig {
+    unsigned spatial_experiment_mode=0;
+    bool private_residual_sr=false;
+    int reconstruction_mode = 0;
+    bool near_black_chroma_guard = false;
+    unsigned temporal_backend=0,temporal_scope=0,temporal_mode=0;
+    bool temporal_legacy=false;
+    unsigned master_virtual_key=117, image_virtual_key=118, feedback_virtual_key=119;
+    bool colour_range_control=true;
+    float colour_priority_strength=nr_colour_preferences::PriorityDefault;
+    float colour_conservative_strength=nr_colour_preferences::ConservativeDefault;
+    int colour_edge_recovery = 0; // Output-only opt-in.
+    bool colour_neutral_probe = false; // Session only: never persisted.
+    int colour_restore_mode = nr_colour_restore::kDefaultMode; // Output only.
+    int colour_input_curve = nr_colour_restore::kDefaultInputCurve; // History-sensitive.
+    int colour_scaled_proxy_mode = nr_colour_restore::kDefaultScaledProxyMode; // History-sensitive pre-SR scaling.
+    int colour_lab_mode = 1; // Composition only.
     bool enabled = false;
     int mode = 2;
     nr_processing::Start processing_start=nr_processing::Start::Before;
@@ -959,7 +1006,7 @@ struct ChainConfig {
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
     bool suppress_reset_frame = true;
-    float color_strength = 1.0f;
+    float color_strength = nr_colour_preferences::RangeDefault;
     float max_luma_ratio = 2.0f;
     bool preserve_lighting = false;
     float proxy_scale = 1.0f;
@@ -1298,19 +1345,10 @@ bool IsPqDisplayExposureContract(const ColorContract &contract) {
     return IsUnityExposureContract(contract);
 }
 
+#include "interop/nr_exposure_access_d3d12.inl"
+
 bool IsExposureTextureFormat(DXGI_FORMAT format) {
-    switch (format) {
-    case DXGI_FORMAT_R32_FLOAT:
-    case DXGI_FORMAT_R32G32_FLOAT:
-    case DXGI_FORMAT_R32G32B32_FLOAT:
-    case DXGI_FORMAT_R32G32B32A32_FLOAT:
-    case DXGI_FORMAT_R16_FLOAT:
-    case DXGI_FORMAT_R16G16_FLOAT:
-    case DXGI_FORMAT_R16G16B16A16_FLOAT:
-        return true;
-    default:
-        return false;
-    }
+    return NrExposureReadFormat(format) != DXGI_FORMAT_UNKNOWN;
 }
 
 bool SupportsExposureTextureContract(ID3D12Device *device,
@@ -1324,28 +1362,21 @@ bool SupportsExposureTextureContract(ID3D12Device *device,
     // symmetric. Unknown dimensions or typed-load support still fail closed.
     if ((feature.create_flags & 1) == 0 ||
         contract.exposure_texture == nullptr) {
+        const auto unused_desc = contract.exposure_texture
+            ? ID3D12Resource_GetDesc(contract.exposure_texture) : D3D12_RESOURCE_DESC{};
+        NrRecordExposureSemantic(device, contract.exposure_texture, unused_desc, feature, mode, false, {});
         g_unverified_exposure_texture_bypass.store(false,
                                                     std::memory_order_relaxed);
         return true;
     }
     const D3D12_RESOURCE_DESC desc =
         ID3D12Resource_GetDesc(contract.exposure_texture);
-    D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
-    support.Format = desc.Format;
-    const bool supported = device != nullptr &&
-        desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-        desc.Width == 1 && desc.Height == 1 && desc.DepthOrArraySize == 1 &&
-        desc.MipLevels >= 1 && desc.SampleDesc.Count == 1 &&
-        (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == 0 &&
-        IsExposureTextureFormat(desc.Format) &&
-        SUCCEEDED(ID3D12Device_CheckFeatureSupport(
-            device, D3D12_FEATURE_FORMAT_SUPPORT, &support,
-            sizeof(support))) &&
-        (support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0 &&
-        (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) != 0;
-    // Formats outside the DirectSR exposure-scale family would require a
-    // separate, engine-specific decode contract. Do not bind an unsupported
-    // descriptor even in diagnostic identity mode.
+    const auto access = NrResolveExposureAccess(device, desc);
+    const bool supported = access.allowed();
+    NrRecordExposureSemantic(device, contract.exposure_texture, desc, feature, mode, true, access);
+    // Only the reviewed typed reads are admitted. R8_UNORM returns the
+    // normalized exposure red channel; no integer/typeless reinterpretation.
+    // Do not bind an unsupported descriptor even in identity mode.
     const bool blocked = !supported;
     g_unverified_exposure_texture_bypass.store(blocked,
                                                 std::memory_order_relaxed);
@@ -1361,6 +1392,12 @@ bool SupportsExposureTextureContract(ID3D12Device *device,
                 static_cast<unsigned long long>(desc.Width), desc.Height,
                 static_cast<unsigned int>(desc.Format),
                 static_cast<unsigned int>(desc.Flags), count);
+            Log("Exposure view=%u reason=%s capabilityQueryAttempted=%d capabilityResult=0x%08X; "
+                "collect F8 TXT and upload BUG feedback.",
+                static_cast<unsigned int>(access.view),
+                NrExposureAccessReasonName(access.reason),
+                access.query_attempted ? 1 : 0,
+                static_cast<unsigned int>(access.query_result));
         }
     } else if (supported) {
         static unsigned int accepted_contracts = 0;
@@ -1391,7 +1428,7 @@ float FiniteOr(float value, float fallback) {
 }
 
 bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
-    return a.enabled == b.enabled && a.mode == b.mode &&
+    return a.colour_input_curve == b.colour_input_curve && a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode && a.enabled == b.enabled && a.mode == b.mode &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
            a.compat_percent==b.compat_percent &&
            a.work_mode == b.work_mode &&
@@ -1553,6 +1590,16 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 #include "nr_config_policy_runtime.inl"
 
 void NormalizeConfig(ChainConfig &config) {
+    config.reconstruction_mode=(config.reconstruction_mode==1 || config.reconstruction_mode==2)?config.reconstruction_mode:0;
+    if(config.temporal_backend>2u)config.temporal_backend=0;
+    if(config.temporal_scope>1u)config.temporal_scope=0;
+    if(config.temporal_mode>1u)config.temporal_mode=0;
+    nr_hotkeys::Normalize(config);
+    nr_colour_preferences::Remember(config);
+    config.colour_edge_recovery = nr_colour_edge::Normalize(config.colour_edge_recovery);
+    config.colour_restore_mode = nr_colour_restore::Normalize(config.colour_restore_mode);
+    config.colour_input_curve = nr_colour_restore::Normalize(config.colour_input_curve);
+    config.colour_scaled_proxy_mode = nr_colour_restore::NormalizeScaledProxy(config.colour_scaled_proxy_mode);
     config.retry_original_on_sr_failure=false;
     if(!nr_processing::Valid(config.processing_start))config.processing_start=nr_processing::FromLegacy(config.mode);
     config.compat_percent=std::clamp(config.compat_percent,25u,100u);
@@ -1607,6 +1654,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.skin_structure = std::clamp(
         FiniteOr(config.skin_structure, minimum_skin_structure),
         minimum_skin_structure, 2.0f);
+    config.spatial_experiment_mode=nr_spatial_experiment::Normalize(config.spatial_experiment_mode);
     config.style = std::min(config.style, 2u);
     for(auto& layer:config.nr_layers)nr_layers::Normalize(layer);
     const unsigned active_layers=nr_layers::Active(config.nr_layers);
@@ -1622,7 +1670,11 @@ void NormalizeConfig(ChainConfig &config) {
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
-    return a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
+    return a.spatial_experiment_mode==b.spatial_experiment_mode && a.private_residual_sr==b.private_residual_sr && a.reconstruction_mode==b.reconstruction_mode && a.near_black_chroma_guard==b.near_black_chroma_guard && a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_mode==b.temporal_mode && a.temporal_legacy==b.temporal_legacy && a.master_virtual_key==b.master_virtual_key && a.image_virtual_key==b.image_virtual_key &&
+           a.feedback_virtual_key==b.feedback_virtual_key &&
+           a.colour_range_control==b.colour_range_control &&
+           a.colour_priority_strength==b.colour_priority_strength &&
+           a.colour_conservative_strength==b.colour_conservative_strength && a.colour_edge_recovery == b.colour_edge_recovery && a.colour_neutral_probe == b.colour_neutral_probe && a.colour_restore_mode == b.colour_restore_mode && a.colour_input_curve == b.colour_input_curve && a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode && a.colour_lab_mode == b.colour_lab_mode && a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
            a.enabled == b.enabled &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
            a.compat_percent==b.compat_percent && a.nr_full_reference==b.nr_full_reference && a.nr_full_passes==b.nr_full_passes &&
@@ -1703,6 +1755,16 @@ void ReloadConfig(bool force = false) {
     const bool new_work_file = IsNewWorkConfigFile();
     const auto work_request = ReadWorkRequest(new_work_file);
     ChainConfig next = {};
+    next.colour_neutral_probe = g_config.colour_neutral_probe;
+    next.spatial_experiment_mode=static_cast<unsigned>(GetPrivateProfileIntW(L"NRBeforeSR",L"SpatialExperimentMode",0,g_ini_path));
+    next.private_residual_sr=GetPrivateProfileIntW(L"NRBeforeSR",L"PrivateResidualSR",0,g_ini_path)!=0;
+    next.temporal_backend=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualStabilizer",0,g_ini_path);
+    next.temporal_scope=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualStabilizerScope",0,g_ini_path);
+    next.temporal_mode=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualTemporalMode",0,g_ini_path);
+    next.temporal_legacy=GetPrivateProfileIntW(L"NRBeforeSR",L"ResidualLegacyWeight",0,g_ini_path)!=0;
+    next.master_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"MasterVirtualKey",117,g_ini_path);
+    next.image_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"ImageVirtualKey",118,g_ini_path);
+    next.feedback_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"FeedbackVirtualKey",119,g_ini_path);
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 1, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
@@ -1840,9 +1902,34 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
     next.allow_unverified_hdr_color = GetPrivateProfileIntW(
         L"NRBeforeSR", L"AllowUnverifiedHdrColor", 0, g_ini_path) != 0;
+    next.colour_lab_mode = static_cast<int>(nr_colour_lab::Normalize(
+        GetPrivateProfileIntW(L"NRBeforeSR", L"ColourLabMode",
+            nr_colour_lab::kDefaultMode, g_ini_path)));
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
-    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);
+    next.colour_input_curve = nr_colour_restore::Normalize(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ColourInputCurve", nr_colour_restore::kDefaultInputCurve, g_ini_path));
+    next.colour_restore_mode = nr_colour_restore::Normalize(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ColourRestoreMode", nr_colour_restore::kDefaultMode, g_ini_path));
+    next.colour_scaled_proxy_mode = nr_colour_restore::NormalizeScaledProxy(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ColourScaledProxyMode", nr_colour_restore::kDefaultScaledProxyMode, g_ini_path));
+    next.reconstruction_mode=nr_reconstruction::Normalize(GetPrivateProfileIntW(L"NRBeforeSR",L"ReconstructionMode",0,g_ini_path));
+    next.near_black_chroma_guard=GetPrivateProfileIntW(L"NRBeforeSR",L"NearBlackChromaGuard",0,g_ini_path)!=0;
+    next.colour_edge_recovery = nr_colour_edge::Normalize(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ColourEdgeRecovery", 0, g_ini_path));
+    // Preserve a pre-policy INI's explicit legacy permission, including OFF.
+    wchar_t saved_mode[32]{},saved_permission[32]{};
+    GetPrivateProfileStringW(L"NRBeforeSR",L"ColourLabMode",L"",saved_mode,32,g_ini_path);
+    GetPrivateProfileStringW(L"NRBeforeSR",L"AllowUnverifiedHdrColor",L"",saved_permission,32,g_ini_path);
+    if(!saved_mode[0] && saved_permission[0])next.colour_lab_mode=0;
+    nr_colour_preferences::Load(next,ReadIniFloat(L"ColorStrength",std::nanf("")),
+        ReadIniFloat(L"ColourPriorityStrength",std::nanf("")),
+        ReadIniFloat(L"ColourConservativeStrength",std::nanf("")));
+    const bool legacy_colour=saved_mode[0]||saved_permission[0]||
+        std::isfinite(ReadIniFloat(L"ColorStrength",std::nanf("")))||
+        std::isfinite(ReadIniFloat(L"ColourPriorityStrength",std::nanf("")))||
+        std::isfinite(ReadIniFloat(L"ColourConservativeStrength",std::nanf("")));
+    nr_colour_preferences::LoadRange(next,ReadIniFloat(L"AIColorRange",std::nanf("")),legacy_colour);
     next.light_preset_color = ReadIniFloat(L"LightPresetColor", next.color_strength);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
@@ -1932,6 +2019,7 @@ void ReloadConfig(bool force = false) {
         next.processing_start!=g_config.processing_start);
     AdvanceLayerEpochs(next,g_config);
     g_config = next;
+    nr_hotkeys::Publish(g_config);
     nr_processing_runtime::Reconcile();
     g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
@@ -2069,14 +2157,35 @@ bool SaveConfig(const ChainConfig &config) {
     record_light(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
     record_light(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
     record_light(WriteIniFloat(L"ColorStrength", config.color_strength));
+    record_write(WriteIniFloat(L"ColourPriorityStrength",config.colour_priority_strength));
+    record_write(WriteIniInt(L"SpatialExperimentMode",config.spatial_experiment_mode));
+    record_write(WriteIniInt(L"PrivateResidualSR",config.private_residual_sr?1:0));
+    record_write(WriteIniInt(L"ResidualStabilizer",config.temporal_backend));
+    record_write(WriteIniInt(L"ResidualStabilizerScope",config.temporal_scope));
+    record_write(WriteIniInt(L"ResidualTemporalMode",config.temporal_mode));
+    record_write(WriteIniInt(L"ResidualLegacyWeight",config.temporal_legacy?1:0));
+    record_write(WriteIniFloat(L"ColourConservativeStrength",config.colour_conservative_strength));
+    record_write(config.colour_range_control?WriteIniFloat(L"AIColorRange",config.color_strength):
+        WritePrivateProfileStringW(L"NRBeforeSR",L"AIColorRange",nullptr,g_ini_path)!=FALSE);
+    record_write(WriteIniInt(L"MasterVirtualKey",config.master_virtual_key));
+    record_write(WriteIniInt(L"ImageVirtualKey",config.image_virtual_key));
+    record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));
     if (light_saved) record_write(WriteIniInt(L"LightStyleVersion",static_cast<int>(config.light_style_version)));
     // END LIGHT STYLE SAVE
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"ColorProtection", config.color_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
+    record_write(WriteIniInt(L"ColourInputCurve", nr_colour_restore::Normalize(config.colour_input_curve)));
+    record_write(WriteIniInt(L"ColourRestoreMode", nr_colour_restore::Normalize(config.colour_restore_mode)));
+    record_write(WriteIniInt(L"ColourScaledProxyMode", nr_colour_restore::NormalizeScaledProxy(config.colour_scaled_proxy_mode)));
+    record_write(WriteIniInt(L"ColourEdgeRecovery", config.colour_edge_recovery));
+    record_write(WriteIniInt(L"ReconstructionMode",nr_reconstruction::Normalize(config.reconstruction_mode)));
+    record_write(WriteIniInt(L"NearBlackChromaGuard",config.near_black_chroma_guard?1:0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
     record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
                              config.allow_unverified_hdr_color ? 1 : 0));
+    record_write(WriteIniInt(L"ColourLabMode",
+        static_cast<int>(nr_colour_lab::Normalize(config.colour_lab_mode))));
     record_write(WriteIniInt(L"SuppressResetFrame",
                              config.suppress_reset_frame ? 1 : 0));
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
@@ -2179,10 +2288,11 @@ bool ApplyConfig(ChainConfig next, const char *source,
         return false;
     }
     ChainConfig persisted_next=next;
+    persisted_next.colour_neutral_probe=g_config.colour_neutral_probe;
     persisted_next.region_preview=g_config.region_preview;
     persisted_next.light_preview=g_config.light_preview;
     persisted_next.face_preview=g_config.face_preview;
-    const bool preview_only=(next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
+    const bool preview_only=(next.colour_neutral_probe!=g_config.colour_neutral_probe || next.region_preview!=g_config.region_preview || next.light_preview!=g_config.light_preview || next.face_preview!=g_config.face_preview) && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
     // F8 owns temporary configurations. Only committed user changes request
     // allocator compaction; F6 with the same layer selection retains cache.
@@ -2192,6 +2302,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     AdvanceLayerEpochs(next,g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
+    nr_hotkeys::Publish(g_config);
     nr_processing_runtime::Reconcile();
     g_config_read_tick = GetTickCount64();
     g_next_config_poll_tick.store(g_config_read_tick + 500,
@@ -2316,7 +2427,7 @@ bool SamePerfSignature(const PerfSignature &a, const PerfSignature &b) {
 
 const char *PerfStageName(const PerfSignature &signature) {
     if (signature.other_nr_owner) return "D-other-NR-owner";
-    if (signature.rr_bypass) return "A1-native-RR-bypass";
+    if (signature.rr_bypass) return "A1-RR-owner-observed";
     if (!signature.enabled) return "A-SR-only";
     if (signature.mode == 1) return "B-post-SR-NR";
     if (signature.identity) return "B1-NR-original-Color";
@@ -2921,10 +3032,33 @@ float3 RationalPeakShoulder(float3 display) {
     return display * RationalPeakShoulderScale(peak);
 }
 
+// Optional paired HDR preparation. Expanded before the existing HDR encoders.
+// The default keeps each D21 encoder unchanged. Bounded SDR and unresolved
+// model-value domains never acquire an inferred HDR transfer function.
+#ifndef NR_COLOUR_PREPARE_HLSLI
+#define NR_COLOUR_PREPARE_HLSLI
+bool ColourLabN2Requested() {
+    return (Passthrough & 268435456u) != 0u &&
+        (Passthrough & (1u | 16u | 32u)) == 0u;
+}
+// NR_COLOUR_PREPARE_MATH_BEGIN
+float3 ColourLabN2Prepare(float3 scene) {
+    if (!all(isfinite(scene))) return float3(0.0f, 0.0f, 0.0f);
+    scene = max(scene, 0.0f);
+    float peak = max(scene.x, max(scene.y, scene.z));
+    // The current source preparation is bounded well below sqrt(FLT_MAX).
+    // Keep hostile/extreme input from forming infinity in peak*peak anyway.
+    if (peak > 1.0e18f) return float3(0.0f, 0.0f, 0.0f);
+    return scene * rsqrt(1.0f + peak * peak);
+}
+// NR_COLOUR_PREPARE_MATH_END
+#endif
+
 float3 HdrSourceToModelLinear(float3 source) {
     float colorScale = ResolveSourceToCanonical();
     float3 display = max(source, 0.0.xxx) *
         (max(ProxyScale, 0.001) * colorScale);
+    if (ColourLabN2Requested()) return ColourLabN2Prepare(display);
     if ((Passthrough & 256u) != 0u) return RationalPeakShoulder(display);
     float displayLuma = dot(display, kLuma);
     if (displayLuma > 0.75) {
@@ -2943,6 +3077,7 @@ float3 PqSourceToModelLinear(float3 source) {
     // and then use the same bounded, hue-preserving model contract as FP16.
     float3 display = PQToLinear(max(source, 0.0.xxx)) *
         (kPqToScrgbUnit * max(ProxyScale, 0.001));
+    if (ColourLabN2Requested()) return ColourLabN2Prepare(display);
     if ((Passthrough & 256u) != 0u) return RationalPeakShoulder(display);
     float displayLuma = dot(display, kLuma);
     if (displayLuma > 0.75) {
@@ -3070,6 +3205,8 @@ float3 ApplySelectedProxyCurve(float3 sceneLinear) {
     const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
     if (modelEncodedInput || linearSdrStorage || srgbSdrStorage)
         return saturate(sceneLinear);
+
+    if (ColourLabN2Requested()) return ColourLabN2Prepare(sceneLinear);
 
     if (ProxyCurve == 0u) {
         float luma = dot(sceneLinear, kLuma);
@@ -3593,6 +3730,52 @@ float3 FilterExactAreaV6(uint2 pixel) {
     return filteredValue;
 }
 
+// D21 colour-lab: optional encode-first scaling for sub-native NR.
+// Expanded immediately after FilterExactAreaV6. It changes no resources or
+// passes: the same exact-area footprint is averaged after per-tap model-proxy
+// preparation instead of averaging scene values before a nonlinear encode.
+#ifndef NR_SCALED_PROXY_PREPARE_HLSLI
+#define NR_SCALED_PROXY_PREPARE_HLSLI
+bool ColourLabProxyFirstScaleRequested() {
+    return (Passthrough & 67108864u) != 0u;
+}
+float3 ColourLabStoredProxyTap(int2 sourceCoord) {
+    const bool modelValueDomain = (Passthrough & 1u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    float3 stored = LoadSourceStoredV2(sourceCoord).rgb;
+    if (modelValueDomain || srgbSdrStorage)
+        return modelValueDomain ? saturate(stored) : stored;
+    float3 sourceLinear = LoadSourceLinearV2(sourceCoord);
+    float3 proxyLinear = EncodeProxyLinearV2(sourceLinear);
+    return LinearToSRGB(proxyLinear);
+}
+float3 ColourLabFilterPreparedProxyExactArea(uint2 pixel) {
+    float2 sourceStart = float2(pixel) *
+        float2(SourceWidth, SourceHeight) / float2(Width, Height);
+    float2 sourceEnd = float2(pixel + 1u) *
+        float2(SourceWidth, SourceHeight) / float2(Width, Height);
+    int2 first = int2(floor(sourceStart));
+    int2 last = int2(ceil(sourceEnd));
+    float3 total = 0.0.xxx;
+    float totalWeight = 0.0f;
+    [loop] for (int y = first.y; y < last.y; ++y) {
+        float wy = max(0.0f, min(sourceEnd.y, float(y + 1)) -
+                              max(sourceStart.y, float(y)));
+        [loop] for (int x = first.x; x < last.x; ++x) {
+            float wx = max(0.0f, min(sourceEnd.x, float(x + 1)) -
+                                  max(sourceStart.x, float(x)));
+            float w = wx * wy;
+            float3 sampleValue = ColourLabStoredProxyTap(int2(x, y));
+            if (!all(isfinite(sampleValue))) sampleValue = 0.0.xxx;
+            total += sampleValue * w;
+            totalWeight += w;
+        }
+    }
+    return total / max(totalWeight, 0.000001f);
+}
+#endif
+
+
 [numthreads(8, 8, 1)]
 void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -3609,6 +3792,14 @@ void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
         float4 exact = LoadSourceStoredV2(int2(tid.xy));
         if (!IsFiniteModelStoredV2(exact.rgb)) exact.rgb=0.0.xxx;
         ProxyOut[tid.xy] = float4(exact.rgb, 1.0);
+        return;
+    }
+
+    if (ColourLabProxyFirstScaleRequested() &&
+        (SourceWidth != Width || SourceHeight != Height)) {
+        float3 storedProxy = ColourLabFilterPreparedProxyExactArea(tid.xy);
+        if (!all(isfinite(storedProxy))) storedProxy = 0.0.xxx;
+        ProxyOut[tid.xy] = float4(storedProxy, 1.0);
         return;
     }
 
@@ -3705,11 +3896,42 @@ void LanczosVerticalCS(uint3 tid : SV_DispatchThreadID) {
     ProxyOut[tid.xy]=float4(saturate(stored),1.0);
 }
 
+// Area-filter resolved SR/RR colour before the existing Mode1 proxy mapping.
+// SourceWidth/Height describe O; Width/Height describe N. At N==O the original
+// EncodeCS load stays unchanged and never calls this helper.
+float4 LoadPostArea(uint2 pixel) {
+    float2 lo=float2(pixel)*float2(SourceWidth,SourceHeight)/float2(Width,Height);
+    float2 hi=float2(pixel+1u)*float2(SourceWidth,SourceHeight)/float2(Width,Height);
+    int2 first=int2(floor(lo)), last=int2(ceil(hi));
+    float4 total=0.0.xxxx;
+    float weight=0.0;
+    const bool encoded=(Passthrough&32u)!=0u;
+    const bool pq=(Passthrough&128u)!=0u;
+    [loop] for(int y=first.y;y<last.y;++y) {
+        float wy=max(0.0,min(hi.y,float(y+1))-max(lo.y,float(y)));
+        [loop] for(int x=first.x;x<last.x;++x) {
+            float wx=max(0.0,min(hi.x,float(x+1))-max(lo.x,float(x)));
+            float w=wx*wy;
+            float4 value=LoadSourceStoredV2(int2(x,y));
+            if(encoded) value.rgb=SRGBToLinear(value.rgb);
+            else if(pq) value.rgb=PQToLinear(value.rgb);
+            total+=value*w; weight+=w;
+        }
+    }
+    float4 filtered=total/max(weight,0.000001);
+    if(encoded) filtered.rgb=LinearToSRGB(filtered.rgb);
+    else if(pq) filtered.rgb=LinearToPQ(filtered.rgb);
+    // Only the opaque model input changes alpha. Combine restores native alpha.
+    filtered.a=1.0;
+    return filtered;
+}
+
 [numthreads(8, 8, 1)]
 void EncodeCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
     uint2 sourceCoord = tid.xy + uint2(SourceBaseX, SourceBaseY);
-    float4 source = OriginalColor.Load(int3(sourceCoord, 0));
+    float4 source = (SourceWidth == Width && SourceHeight == Height)
+        ? OriginalColor.Load(int3(sourceCoord, 0)) : LoadPostArea(tid.xy);
     float3 frame = max(source.rgb, 0.0.xxx);
     const bool modelEncodedInput = (Passthrough & 1u) != 0u;
     const bool linearSdrStorage = (Passthrough & 16u) != 0u;
@@ -3987,9 +4209,13 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(offset,
         asuint(OriginalColor.Load(int3(sourceCoord, 0))));
     StageCapture.Store4(planeBytes + offset,
-        asuint(ProxyColor.Load(int3(coord, 0))));
+        asuint((ModelWidth == Width && ModelHeight == Height)
+            ? ProxyColor.Load(int3(coord, 0))
+            : float4(SampleProxyStoredV2(float2(coord)+0.5),1.0)));
     StageCapture.Store4(planeBytes * 2u + offset,
-        asuint(LoadFinalNeuralStoredV2(int2(coord))));
+        asuint((ModelWidth == Width && ModelHeight == Height)
+            ? LoadFinalNeuralStoredV2(int2(coord))
+            : float4(SampleNeuralStoredV2(float2(coord)+0.5),1.0)));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
     if ((Passthrough & 512u) != 0u)
         StageCapture.Store4(planeBytes * 4u + offset,asuint(float4(1.0,512.0,0.0,0.0)));
@@ -4114,6 +4340,440 @@ float3 RegionPreviewV1(RegionSelectionV1 s){
 }
 // REGION_COMPOSITION_V1_END
 
+// D21 colour-lab: matched RGB edits with source-referenced preparation scale.
+// Expanded into the real codec string by patch-colour-restore.py. No new texture,
+// history, model invocation, root parameter, or GPU lifetime is introduced.
+// This is an independent implementation, not a copy of the RenoDX addon.
+#ifndef NR_COLOUR_RESTORE_HLSLI
+#define NR_COLOUR_RESTORE_HLSLI
+
+// These two bits are reserved by the colour-lab overlay, not by uniform3.
+// bit 30 selects this final consumer; bit 29 identifies the actual EncodeCS
+// preparation even when a saved experiment selects CombineV2CS after SR/RR.
+bool ColourLabRgbEnabled() { return (Passthrough & 1073741824u) != 0u; }
+bool ColourLabPostEncoding() { return (Passthrough & 536870912u) != 0u; }
+bool ColourLabRawEditRequested() { return (Passthrough & 134217728u) != 0u; }
+
+// NR_COLOUR_RESTORE_MATH_BEGIN
+// Pure production math. The host test compiles this exact section with a
+// minimal float3 adapter; it does not substitute a second algorithm.
+struct ColourLabRgbResult {
+    float3 rgb;
+    bool valid;
+};
+
+float ColourLabPeak(float3 value) { return max(value.x, max(value.y, value.z)); }
+float ColourLabAbsPeak(float3 value) {
+    return max(abs(value.x), max(abs(value.y), abs(value.z)));
+}
+
+// Existing lighting/detail/region/face controls produce a bounded relative
+// luminance edit. Convert their final edit to a gain on the matched RGB edit.
+// Equal raw/protected edits stay exactly 1x. A zero/sign-reversed edit cannot
+// generate a new luminance contribution. The caller
+// retains the existing model-delta zero gate; finite output is checked below.
+float ColourLabLumaGain(float rawRelative, float protectedRelative) {
+    if (!isfinite(rawRelative) || !isfinite(protectedRelative)) return 0.0f;
+    if (rawRelative == 0.0f || protectedRelative == 0.0f) return 0.0f;
+    if ((rawRelative < 0.0f) != (protectedRelative < 0.0f)) return 0.0f;
+    return protectedRelative / rawRelative;
+}
+
+// One scalar for an entire RGB vector: zero source channels must not force
+// every colour edit to zero. The cap is relative to the full source's peak,
+// not a per-channel source ratio. A user's MaxLumaRatio=1 still means no edit.
+float ColourLabChromaBudget(float3 edit, float sourcePeak, float targetLuma,
+                            float maxRatio) {
+    float peak = ColourLabAbsPeak(edit);
+    if (peak == 0.0f) return 1.0f;
+    float budget = max(sourcePeak, targetLuma) * max(maxRatio - 1.0f, 0.0f);
+    return min(1.0f, budget / peak);
+}
+
+// Preserve luminance while shrinking the chroma vector only when it leaves
+// the permitted gamut. In-gamut RGB is returned without a round trip. The
+// SDR ceiling is never applied to a scene-linear/PQ HDR preparation.
+float3 ColourLabGamut(float3 rgb, float luma, bool boundedSdr) {
+    float3 neutral = float3(luma, luma, luma);
+    float3 delta = rgb - neutral;
+    float scale = 1.0f;
+    [unroll] for (uint i = 0u; i < 3u; ++i) {
+        if (delta[i] < 0.0f) scale = min(scale, luma / -delta[i]);
+        else if (boundedSdr && delta[i] > 0.0f)
+            scale = min(scale, max(1.0f - luma, 0.0f) / delta[i]);
+    }
+    return scale >= 1.0f ? rgb : neutral + delta * max(scale, 0.0f);
+}
+
+ColourLabRgbResult ColourLabRestoreRgb(
+    float3 source, float3 prepared, float3 proxy, float3 neural,
+    float rawRelative, float protectedRelative, float colorStrength,
+    float confidence, float maxRatio, float regionColor,
+    float faceMask, float faceOriginalColor, bool faceExtraCap,
+    bool boundedSdr, bool rawEditReference) {
+    ColourLabRgbResult outValue;
+    outValue.rgb = source;
+    outValue.valid = false;
+    if (!all(isfinite(source)) || !all(isfinite(prepared)) ||
+        !all(isfinite(proxy)) || !all(isfinite(neural)) ||
+        any(source < 0.0f) || any(prepared < 0.0f) ||
+        !isfinite(rawRelative) || !isfinite(protectedRelative) ||
+        !isfinite(colorStrength) || !isfinite(confidence) ||
+        !isfinite(maxRatio) || !isfinite(regionColor) ||
+        !isfinite(faceMask) || !isfinite(faceOriginalColor)) return outValue;
+    outValue.valid = true;
+    float3 delta = neural - proxy; // Already decoded on the same paired grid.
+    float effectiveConfidence = rawEditReference ? 1.0f : saturate(confidence);
+    if (all(delta == 0.0f) || effectiveConfidence <= 0.0f) return outValue;
+    float sourceLuma = dot(source, kLuma);
+    float sourcePeak = ColourLabPeak(source);
+    float preparedPeak = ColourLabPeak(prepared);
+    if (sourceLuma <= 0.000001f || sourcePeak <= 0.000001f) return outValue;
+    if (preparedPeak <= 0.0f) { outValue.valid = false; return outValue; }
+
+    // Invert the SOURCE'S forward scale, never an inverse curve evaluated on
+    // the edited neural result. This also leaves full-source high frequencies
+    // intact when the proxy/model pair is reconstructed from a smaller grid.
+    float inverseSourceScale = sourcePeak / preparedPeak;
+    float3 sourceDelta = delta * inverseSourceScale;
+    float deltaLuma = dot(sourceDelta, kLuma);
+    // Diagnostic raw reference: answer whether the model already created the
+    // missing structure. Aesthetic luminance attenuation is bypassed, while
+    // finite/gamut/max-ratio and all GPU/resource safety stay intact.
+    float lumaGain = rawEditReference ? 1.0f
+                                      : ColourLabLumaGain(rawRelative, protectedRelative);
+    maxRatio = max(maxRatio, 1.0f);
+    float targetLuma = clamp(sourceLuma + deltaLuma * lumaGain,
+                             sourceLuma / maxRatio, sourceLuma * maxRatio);
+    if (boundedSdr) targetLuma = min(targetLuma, 1.0f);
+    float3 lumaOnly = targetLuma == sourceLuma ? source : source * (targetLuma / sourceLuma);
+    float3 result = lumaOnly;
+    float candidateLuma = sourceLuma + deltaLuma;
+    float colour = clamp(colorStrength, 0.0f, 2.0f) * effectiveConfidence;
+    if (rawEditReference) {
+        // Region and face attenuation are presentation choices, not validity
+        // checks. Bypass them only in this explicit diagnostic reference.
+        regionColor = 1.0f;
+        faceMask = 0.0f;
+        faceExtraCap = false;
+    }
+    if (colour > 0.0f && candidateLuma > 0.000001f) {
+        // A luminance-neutral vector. At neutral protection, T=C=1 and a
+        // representable in-gamut candidate this reconstructs source+delta/k.
+        // Nonzero T changes luminance, not the independent colour coefficient.
+        float3 candidate = source + sourceDelta;
+        float3 chroma = (candidate * (targetLuma / candidateLuma) - lumaOnly) * colour;
+        float3 sameNrChroma = chroma;
+        chroma *= max(regionColor, 0.0f);
+        faceMask = saturate(faceMask);
+        if (faceExtraCap && faceMask > 0.0f) {
+            float3 bounded = clamp(chroma, min(sameNrChroma, 0.0f), max(sameNrChroma, 0.0f));
+            chroma = lerp(chroma, bounded, faceMask);
+        }
+        chroma *= 1.0f - faceMask * saturate(faceOriginalColor);
+        chroma *= ColourLabChromaBudget(chroma, sourcePeak, targetLuma, maxRatio);
+        result += chroma;
+        // Per-component face-extra caps can alter the vector's luminance;
+        // restore the protected target just as the original consumers do.
+        float resultLuma = dot(result, kLuma);
+        if (resultLuma > 0.000001f) result *= targetLuma / resultLuma;
+        else result = lumaOnly;
+    }
+    result = ColourLabGamut(result, targetLuma, boundedSdr);
+    if (!all(isfinite(result))) { outValue.valid = false; return outValue; }
+    outValue.rgb = result;
+    return outValue;
+}
+// NR_COLOUR_RESTORE_MATH_END
+
+// Independent output-only reconstruction math. Thresholds are experimental in
+// the OWN decoded normalized preparation domain, not nits, PQ or RC10 constants.
+#ifndef NR_RECONSTRUCTION_MATH_HLSLI
+#define NR_RECONSTRUCTION_MATH_HLSLI
+// NR_RECONSTRUCTION_MATH_BEGIN
+float NrReconSmooth(float x) {
+    float t = saturate(x);
+    return t * t * (3.0f - 2.0f * t);
+}
+float NrReconChromaConfidence(float candidatePeak, float recoveryGain) {
+    // Both risks must be present. Dark candidates at modest recovery gains and
+    // adequately represented new colours remain completely untouched.
+    if (!isfinite(candidatePeak) || !isfinite(recoveryGain) ||
+        candidatePeak < 0.0f || recoveryGain <= 0.0f) return 1.0f;
+    const float black = 1.0f / 4096.0f;
+    const float reliable = 1.0f / 128.0f;
+    float signal = NrReconSmooth((candidatePeak - black) / (reliable - black));
+    float amplification = NrReconSmooth((log2(max(recoveryGain, 1.0f)) - 1.0f) * 0.5f);
+    return max(signal, 1.0f - amplification);
+}
+// Nonnegative cubic B-spline support. Only the paired edits are reconstructed;
+// original full-grid texture/alpha are never filtered or replaced by this kernel.
+float NrReconCubicWeight(float distance) {
+    float x = abs(distance);
+    if (x < 1.0f) return (4.0f + x*x*(3.0f*x - 6.0f)) / 6.0f;
+    if (x < 2.0f) { float t = 2.0f - x; return t*t*t / 6.0f; }
+    return 0.0f;
+}
+float3 NrReconPreserveColour(float3 source, float3 prepared, float3 proxy,
+    float3 neural, float3 result, bool boundedSdr, bool enabled) {
+    if (!enabled || all(neural == proxy) || all(result == source)) return result;
+    if (!all(isfinite(source)) || !all(isfinite(prepared)) ||
+        !all(isfinite(proxy)) || !all(isfinite(neural)) || !all(isfinite(result)) ||
+        any(source < 0.0f) || any(prepared < 0.0f) || any(result < 0.0f)) return result;
+    float sourcePeak = ColourLabPeak(source);
+    float preparedPeak = ColourLabPeak(prepared);
+    float sourceLuma = dot(source, kLuma);
+    float targetLuma = dot(result, kLuma);
+    if (sourcePeak <= 0.000001f || sourceLuma <= 0.000001f ||
+        preparedPeak <= 0.0f || preparedPeak > 1.0001f || targetLuma <= 0.0f) return result;
+    // Evaluate the additive candidate in the exact SOURCE preparation scale,
+    // matching ColourLabRestoreRgb without magnifying HDR values first.
+    float scale = preparedPeak / sourcePeak;
+    float3 candidate = source * scale + (neural - proxy);
+    float candidateLuma = dot(candidate, kLuma);
+    float targetPrepared = targetLuma * scale;
+    if (!all(isfinite(candidate)) || any(candidate < 0.0f) ||
+        !isfinite(candidateLuma) || !isfinite(targetPrepared) || targetPrepared <= 0.0f) return result;
+    float gain = targetPrepared / max(candidateLuma, 0.000000000001f);
+    float trust = NrReconChromaConfidence(ColourLabPeak(candidate), gain);
+    if (trust >= 1.0f) return result; // Credible new colours: exact old result.
+    float3 sourceAtNewLight = source * (targetLuma / sourceLuma);
+    // Keep the SAME already-selected new luminance. Gamut handling is necessary
+    // when scaling saturated SDR to a brighter target; never clamp RGB per channel.
+    sourceAtNewLight = ColourLabGamut(sourceAtNewLight, targetLuma, boundedSdr);
+    float3 stable = trust <= 0.0f ? sourceAtNewLight : lerp(sourceAtNewLight, result, trust);
+    return all(isfinite(stable)) ? stable : result;
+}
+// NR_RECONSTRUCTION_MATH_END
+bool NrReconChromaRequested() { return (RegionFlags & 1024u) != 0u; }
+#endif
+
+float3 ColourLabPreparedReference(float3 storedOriginal, float3 source) {
+    if ((Passthrough & (1u | 16u | 32u)) != 0u) return saturate(source);
+    if (!ColourLabPostEncoding()) return EncodeProxyLinearV2(source);
+    // Post may use CombineV2CS but its input was still prepared by EncodeCS.
+    return (Passthrough & 128u) != 0u
+        ? PqSourceToModelLinear(storedOriginal)
+        : HdrSourceToModelLinear(storedOriginal);
+}
+#endif
+
+// Colour4: an early, bounded reference consumer, BEFORE aesthetic processing.
+// The real NR output/history is never overwritten by the neutral instrument.
+#ifndef NR_COLOUR_STAGE_REFERENCE_HLSLI
+#define NR_COLOUR_STAGE_REFERENCE_HLSLI
+
+bool ColourStageNeutral() { return (Passthrough & 33554432u) != 0u; }
+
+// This loader is used by the copied *production neural sampling expression*
+// below. P still uses the independent production proxy sampler. Thus the
+// neutral test exercises their coordinate/clamp/decode/interpolation pairing,
+// not a shortcut assigning neural=proxy after sampling. It does NOT validate
+// writes to the real NeuralColor texture or NVIDIA inference.
+float3 ColourStageLoadNeural(int2 p) {
+    return ColourStageNeutral() ? LoadProxyLinearV2(p) : LoadNeuralLinearV2(p);
+}
+float3 ColourStageSampleNeural(float2 fullPixelCenter) {
+    float2 p = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(p));
+    float2 f = frac(p);
+    float3 a = lerp(ColourStageLoadNeural(base),
+                    ColourStageLoadNeural(base + int2(1, 0)), f.x);
+    float3 b = lerp(ColourStageLoadNeural(base + int2(0, 1)),
+                    ColourStageLoadNeural(base + int2(1, 1)), f.x);
+    return lerp(a, b, f.y);
+}
+
+// NR_COLOUR_STAGE_MATH_BEGIN
+ColourLabRgbResult ColourStageRestore(
+    float3 source, float3 prepared, float3 proxy, float3 neural,
+    bool inputValid, float transfer, float frameConfidence,
+    float colorStrength, float maxRatio) {
+    ColourLabRgbResult value;
+    value.rgb = source;
+    value.valid = false;
+    if (!inputValid || !isfinite(transfer) || !isfinite(frameConfidence) ||
+        !all(isfinite(source)) || !all(isfinite(prepared)) ||
+        !all(isfinite(proxy)) || !all(isfinite(neural))) return value;
+    // These are master/application-readiness gates, not aesthetic attenuation.
+    // Preserve the original exactly while disabled or not yet ready.
+    if (transfer <= 0.000001f || frameConfidence <= 0.000001f) {
+        value.valid = true;
+        return value;
+    }
+    return ColourLabRestoreRgb(source, prepared, proxy, neural,
+        0.0f, 0.0f, colorStrength, 1.0f, maxRatio, 1.0f,
+        0.0f, 0.0f, false, (Passthrough & (1u | 16u | 32u)) != 0u, true);
+}
+// NR_COLOUR_STAGE_MATH_END
+
+// Optional colour4 edge recovery. Positive, source-guided weights are
+// IDENTICAL for P and N. No new texture/pass; actual final-layer accessors stay.
+#ifndef NR_COLOUR_EDGE_HLSLI
+#define NR_COLOUR_EDGE_HLSLI
+bool ColourEdgeRequested() { return (Passthrough & 16777216u) != 0u; }
+
+// NR_COLOUR_PAIR_MATH_BEGIN
+struct ColourLabPair {
+    float3 proxy;
+    float3 neural;
+    float weight;
+    bool valid;
+};
+ColourLabPair ColourLabEmptyPair() {
+    ColourLabPair p;
+    p.proxy = float3(0.0f, 0.0f, 0.0f);
+    p.neural = p.proxy;
+    p.weight = 0.0f;
+    p.valid = true;
+    return p;
+}
+float ColourLabGuideWeight(float3 reference, float3 proxy) {
+    // Normalize first to avoid overflow for open-ended but finite HDR values.
+    float scale = max(max(ColourLabAbsPeak(reference), ColourLabAbsPeak(proxy)), 1.0f/4096.0f);
+    float distance = ColourLabAbsPeak(reference / scale - proxy / scale);
+    return 1.0f / (1.0f + 64.0f * distance * distance);
+}
+ColourLabPair ColourLabAddPair(ColourLabPair p, float3 reference,
+                               float3 proxy, float3 neural, float spatialWeight) {
+    if (!all(isfinite(reference)) || !all(isfinite(proxy)) || !all(isfinite(neural)) ||
+        !isfinite(spatialWeight) || spatialWeight < 0.0f) {
+        p.valid = false;
+        return p;
+    }
+    float weight = spatialWeight * ColourLabGuideWeight(reference, proxy);
+    p.proxy += proxy * weight;
+    p.neural += neural * weight;
+    p.weight += weight;
+    return p;
+}
+ColourLabPair ColourLabFinishPair(ColourLabPair p) {
+    if (!p.valid || !isfinite(p.weight) || p.weight <= 0.0f) {
+        p.valid = false;
+        return p;
+    }
+    p.proxy = p.proxy / p.weight;
+    p.neural = p.neural / p.weight;
+    p.valid = all(isfinite(p.proxy)) && all(isfinite(p.neural));
+    return p;
+}
+// NR_COLOUR_PAIR_MATH_END
+
+ColourLabPair ColourEdgeSamplePair(float2 center, float3 reference, bool neutral) {
+    ColourLabPair p = ColourLabEmptyPair();
+    // Keep original sampling expressions for the disabled and 100% cases.
+    if (!ColourEdgeRequested() || (Width == ModelWidth && Height == ModelHeight)) {
+        p.proxy = SampleProxyLinearV2(center);
+        p.neural = neutral ? ColourStageSampleNeural(center) : SampleNeuralLinearV2(center);
+        p.weight = 1.0f;
+        p.valid = all(isfinite(p.proxy)) && all(isfinite(p.neural));
+        return p;
+    }
+    float2 mapped = center * float2(ModelWidth, ModelHeight) /
+        float2(max(Width,1u), max(Height,1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    float2 f = frac(mapped);
+    [unroll] for (uint i=0u; i<4u; ++i) {
+        int2 offset = int2(i & 1u, i >> 1u);
+        float w = (offset.x != 0 ? f.x : 1.0-f.x) * (offset.y != 0 ? f.y : 1.0-f.y);
+        float3 neural = neutral ? ColourStageLoadNeural(base+offset) : LoadNeuralLinearV2(base+offset);
+        p = ColourLabAddPair(p, reference, LoadProxyLinearV2(base+offset), neural, w);
+    }
+    return ColourLabFinishPair(p);
+}
+#endif
+
+// Independent source-guided reconstruction of SAME weights applied to P and N.
+// The caller admits only mapped, reduced, same-call planes. No new resource.
+#ifndef NR_RECONSTRUCTION_SAMPLING_HLSLI
+#define NR_RECONSTRUCTION_SAMPLING_HLSLI
+uint NrReconMode() { return (RegionFlags >> 8u) & 3u; }
+bool NrReconScaled() {
+    uint mode=NrReconMode();
+    return (mode==1u||mode==2u)&&(Width!=ModelWidth||Height!=ModelHeight);
+}
+void NrReconSamplePair(float2 center,float3 reference,
+    out float3 proxy,out float3 neural,out bool valid) {
+    float3 sumP=0.0.xxx,sumN=0.0.xxx;
+    float sumW=0.0;
+    uint invalid=(!all(isfinite(reference))||any(reference<0.0))?1u:0u;
+    float2 mapped=center*float2(ModelWidth,ModelHeight)/
+        float2(max(Width,1u),max(Height,1u))-0.5;
+    int2 base=int2(floor(mapped));float2 phase=frac(mapped);
+    uint mode=NrReconMode();uint count=mode==2u?16u:4u;
+    // Scalar loop-carried state, no returned struct or early loop exits.
+    [loop] for(uint i=0u;i<count;++i) {
+        int2 offset=mode==2u?int2(int(i&3u)-1,int(i>>2u)-1):int2(i&1u,i>>1u);
+        float spatial=mode==2u
+            ?NrReconCubicWeight(float(offset.x)-phase.x)*NrReconCubicWeight(float(offset.y)-phase.y)
+            :(offset.x!=0?phase.x:1.0-phase.x)*(offset.y!=0?phase.y:1.0-phase.y);
+        [branch] if(spatial>0.0) {
+            int2 p=clamp(base+offset,int2(0,0),int2(max(ModelWidth,1u),max(ModelHeight,1u))-1);
+            float3 storedP=ProxyColor.Load(int3(p,0)).rgb;
+            float3 storedN=LoadFinalNeuralStoredV2(p).rgb;
+            float3 sampleP=(Passthrough&1u)!=0u?storedP:SRGBToLinear(storedP);
+            float3 sampleN=(Passthrough&1u)!=0u?storedN:SRGBToLinear(storedN);
+            bool sampleValid=IsFiniteModelStoredV2(storedP)&&IsFiniteModelStoredV2(storedN)&&
+                all(isfinite(sampleP))&&all(isfinite(sampleN));
+            [branch] if(sampleValid) {
+                float weight=spatial*ColourLabGuideWeight(reference,sampleP);
+                sumP+=sampleP*weight;sumN+=sampleN*weight;sumW+=weight;
+            } else invalid=1u;
+        }
+    }
+    valid=invalid==0u&&isfinite(sumW)&&sumW>0.0;
+    float denominator=valid?sumW:1.0;
+    proxy=sumP/denominator;neural=sumN/denominator;
+    valid=valid&&all(isfinite(proxy))&&all(isfinite(neural));
+}
+#endif
+
+struct ColourStagePixel {
+    float4 stored;
+    float3 proxy;
+    float3 neural;
+    bool invalid;
+    float relativeDelta;
+};
+ColourStagePixel ColourStageReference(uint2 pixel, float4 original, bool mapped) {
+    ColourStagePixel answer;
+    answer.stored = original;
+    answer.relativeDelta = 0.0f;
+    float2 center = float2(pixel) + 0.5;
+    float3 source = DecodeStoredForV2(original.rgb);
+    float3 prepared = ColourLabPreparedReference(original.rgb, source);
+    bool pairValid = true;
+    [branch] if (mapped && ColourEdgeRequested()) {
+        ColourLabPair pair = ColourEdgeSamplePair(center, prepared, ColourStageNeutral());
+        answer.proxy = pair.proxy;
+        answer.neural = pair.neural;
+        pairValid = pair.valid;
+    } else {
+    answer.proxy = mapped ? SampleProxyLinearV2(center) : LoadProxyLinearV2(int2(pixel));
+    answer.neural = mapped ? ColourStageSampleNeural(center) : ColourStageLoadNeural(int2(pixel));
+    }
+    // Even the synthetic probe must not turn malformed actual model data into
+    // a successful sample. Keep the real texture's strict finite footprint.
+    bool valid = mapped ? ModelNeighborhoodFiniteV2(center)
+        : IsFiniteModelStoredV2(LoadFinalNeuralStoredV2(int2(pixel)).rgb);
+    valid = valid && pairValid && IsFiniteModelStoredV2(original.rgb) &&
+        IsFiniteModelStoredV2(answer.proxy) && IsFiniteModelStoredV2(answer.neural) &&
+        all(abs(source) <= 65504.0.xxx) && !any(original.rgb < 0.0.xxx);
+    ColourLabRgbResult value = ColourStageRestore(source, prepared,
+        answer.proxy, answer.neural, valid, TransferStrength, FrameConfidence,
+        ColorStrength, MaxLumaRatio);
+    answer.invalid = !value.valid;
+    if (!value.valid || all(value.rgb == source)) return answer;
+    float3 stored = EncodeCompositionToStoredV2(value.rgb);
+    if (!IsFiniteModelStoredV2(stored)) { answer.invalid = true; return answer; }
+    answer.stored = float4(stored, original.a);
+    answer.relativeDelta = ColourLabAbsPeak(stored - original.rgb) /
+        max(ColourLabAbsPeak(original.rgb), 0.000001f);
+    return answer;
+}
+#endif
+
 [numthreads(8, 8, 1)]
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -4121,10 +4781,28 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     uint2 destinationCoord = tid.xy +
         uint2(DestinationBaseX, DestinationBaseY);
     float4 storedOriginal = OriginalColor.Load(int3(sourceCoord, 0));
-    float3 storedProxy = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 storedNeural = LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;
+    // Colour4: read the actual model result before Generic/face/region/preview
+    // can alter or discard it. The native resource/queue guards ran on the CPU.
+    if (ColourLabRgbEnabled() && ColourLabRawEditRequested()) {
+        ColourStagePixel reference = ColourStageReference(tid.xy, storedOriginal, false);
+        WriteCombined(tid.xy, destinationCoord, reference.stored);
+        if (reference.invalid)
+            RecordDiagnostics(tid.xy, 0.0.xxx, 0.0.xxx, 0.0.xxx, 0.0.xxx, 0.0, 0.0, true);
+        else
+            RecordDiagnostics(tid.xy, SourceToDiagnosticLinear(storedOriginal.rgb),
+                reference.proxy, reference.neural, SourceToDiagnosticLinear(reference.stored.rgb),
+                ColourLabAbsPeak(reference.neural - reference.proxy),
+                reference.relativeDelta, false);
+        return;
+    }
+    const bool scaled = ModelWidth != Width || ModelHeight != Height;
+    float3 storedProxy = scaled ? SampleProxyStoredV2(float2(tid.xy)+0.5)
+        : ProxyColor.Load(int3(tid.xy, 0)).rgb;
+    float3 storedNeural = scaled ? SampleNeuralStoredV2(float2(tid.xy)+0.5)
+        : LoadFinalNeuralStoredV2(int2(tid.xy)).rgb;
     storedNeural=ApplyGenericStoredV1(storedProxy,float4(storedNeural,1)).rgb;
-    bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&
+    bool finiteInputs = (!scaled || ModelNeighborhoodFiniteV2(float2(tid.xy)+0.5)) &&
+        all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(storedProxy == storedProxy) && all(storedNeural == storedNeural) &&
         all(abs(storedOriginal.rgb) <= 65504.0.xxx) &&
         all(abs(storedProxy) <= 65504.0.xxx) &&
@@ -4281,7 +4959,22 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     // result. This follows Feature 18 chroma without replacing game lighting
     // or treating a compressed proxy delta as an absolute HDR RGB delta.
     float3 result = lumaOnly;
-    if (ColorStrength > 0.000001) {
+    if (ColourLabRgbEnabled()) {
+        ColourLabRgbResult restored = ColourLabRestoreRgb(source, ColourLabPreparedReference(storedOriginal.rgb, source),
+            proxy, neural, dot(neural - proxy, kLuma) / proxyReference, lumaRatio - 1.0,
+            ColorStrength, transferConfidence * saturate(FrameConfidence), maxRatio, regionGain.y,
+            faceMask, FaceOriginalColor, (FaceOptions & 2u) != 0u,
+            (Passthrough & (1u | 16u | 32u)) != 0u,
+            ColourLabRawEditRequested());
+        if (any(storedOriginal.rgb < 0.0)) restored.valid = false;
+        if (!restored.valid || (!lightStylePreview && all(restored.rgb == source))) {
+            WriteCombined(tid.xy, destinationCoord, storedOriginal);
+            RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, !restored.valid);
+            return;
+        }
+        result = restored.rgb;
+    } else if (ColorStrength > 0.000001) {
         float3 channelReference = max(proxy, (1.0 / 1024.0).xxx);
         float3 relativeChannelDelta = (neural - proxy) / channelReference;
         float3 channelRatio = clamp(
@@ -4311,6 +5004,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         result = lerp(result, result * (boundedLuma / resultLuma),
                       transferConfidence);
     }
+    [branch] if (NrReconChromaRequested() && !lightStylePreview)
+        result=NrReconPreserveColour(source, ColourLabPreparedReference(storedOriginal.rgb,source),
+            proxy, neural, result, (Passthrough & (1u|16u|32u))!=0u, true);
     float3 sourceDomainResult =
         clamp(result / normalizer, -65504.0.xxx, 65504.0.xxx);
     if (modelEncodedInput)
@@ -4348,17 +5044,34 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 }
 
 
-void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
+void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result,
+    float3 capturedProxy, float3 capturedNeural, bool paired) {
     ResultOut[destinationCoord] = result;
     RecordPostStoreExpected(coord,result.rgb);
     uint planeBytes, offset;
     if (!CapturePixelAddress(coord, planeBytes, offset)) return;
+    float3 edgeCaptureP,edgeCaptureN;
+    [branch] if(paired) {
+        edgeCaptureP=(Passthrough&1u)!=0u?capturedProxy:LinearToSRGB(capturedProxy);
+        edgeCaptureN=(Passthrough&1u)!=0u?capturedNeural:LinearToSRGB(capturedNeural);
+    } else {
+    // Real N is kept even during the inherited synthetic N=P instrument.
+    edgeCaptureP = SampleProxyStoredV2(float2(coord)+0.5);
+    edgeCaptureN = SampleNeuralStoredV2(float2(coord)+0.5);
+    [branch] if (ColourEdgeRequested()) {
+        float3 fullSource = DecodeStoredForV2(LoadSourceStoredV2(int2(coord)).rgb);
+        ColourLabPair pair = ColourEdgeSamplePair(float2(coord)+0.5,
+            ColourLabPreparedReference(LoadSourceStoredV2(int2(coord)).rgb,fullSource), false);
+        edgeCaptureP = (Passthrough & 1u) != 0u ? pair.proxy : LinearToSRGB(pair.proxy);
+        edgeCaptureN = (Passthrough & 1u) != 0u ? pair.neural : LinearToSRGB(pair.neural);
+    }
+    }
     StageCapture.Store4(offset,
         asuint(LoadSourceStoredV2(int2(coord))));
     StageCapture.Store4(planeBytes + offset,
-        asuint(float4(SampleProxyStoredV2(float2(coord) + 0.5), 1.0)));
+        asuint(float4(edgeCaptureP, 1.0)));
     StageCapture.Store4(planeBytes * 2u + offset,
-        asuint(float4(SampleNeuralStoredV2(float2(coord) + 0.5), 1.0)));
+        asuint(float4(edgeCaptureN, 1.0)));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
     if ((Passthrough & 512u) != 0u) {
         float2 center=float2(coord)+0.5;
@@ -4383,6 +5096,10 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
             ResolveExposureScale(), ResolveSourceToCanonical(), PreExposure)));
     }
 }
+void WriteCombinedV2(uint2 coord,uint2 destinationCoord,float4 result) {
+    WriteCombinedV2(coord,destinationCoord,result,0.0.xxx,0.0.xxx,false);
+}
+
 
 // V3_BOOST_SCALAR_BEGIN
 // Preserve the one-times anchor. Only the extra edit approaches the remaining
@@ -4577,23 +5294,53 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     uint2 destinationCoord = tid.xy +
         uint2(DestinationBaseX, DestinationBaseY);
     float4 storedOriginal = LoadSourceStoredV2(int2(tid.xy));
+    // Colour4: read the actual model result before Generic/face/region/preview
+    // can alter or discard it. The native resource/queue guards ran on the CPU.
+    if (ColourLabRgbEnabled() && ColourLabRawEditRequested()) {
+        ColourStagePixel reference = ColourStageReference(tid.xy, storedOriginal, true);
+        WriteCombinedV2(tid.xy, destinationCoord, reference.stored);
+        if (reference.invalid)
+            RecordDiagnostics(tid.xy, 0.0.xxx, 0.0.xxx, 0.0.xxx, 0.0.xxx, 0.0, 0.0, true);
+        else
+            RecordDiagnostics(tid.xy, SourceToDiagnosticLinear(storedOriginal.rgb),
+                reference.proxy, reference.neural, SourceToDiagnosticLinear(reference.stored.rgb),
+                ColourLabAbsPeak(reference.neural - reference.proxy),
+                reference.relativeDelta, false);
+        return;
+    }
     float3 source = DecodeStoredForV2(storedOriginal.rgb);
     float2 center = float2(tid.xy) + 0.5;
-    float3 proxy = SampleProxyLinearV2(center);
-    float3 neural = SampleNeuralLinearV2(center);
+    float3 proxy, neural;
+    bool edgePairValid = true;
+    [branch] if (NrReconScaled()) {
+        NrReconSamplePair(center, ColourLabPreparedReference(storedOriginal.rgb,source),
+            proxy,neural,edgePairValid);
+    } else if (ColourEdgeRequested()) {
+        ColourLabPair pair = ColourEdgeSamplePair(center,
+            ColourLabPreparedReference(storedOriginal.rgb, source), false);
+        proxy = pair.proxy;
+        neural = pair.neural;
+        edgePairValid = pair.valid;
+    } else {
+        proxy = SampleProxyLinearV2(center);
+        neural = SampleNeuralLinearV2(center);
+    }
+    const float3 capturedProxy=proxy, capturedNeural=neural;
     [branch] if((RegionFlags&32u)!=0u && (RegionWideBrightLuma!=1 || RegionWideBrightColor!=1 || RegionFineBrightLuma!=1 || RegionFineBrightColor!=1 || RegionWideDarkLuma!=1)) {
         float3 pStored=(Passthrough&1u)!=0u?proxy:LinearToSRGB(proxy);
         float3 nStored=(Passthrough&1u)!=0u?neural:LinearToSRGB(neural);
         nStored=ApplyGenericStoredV1(pStored,float4(nStored,1)).rgb;
         neural=(Passthrough&1u)!=0u?nStored:SRGBToLinear(nStored);
     }
-    float3 fullProxy = EncodeProxyLinearV2(source);
+    float3 fullProxy = ColourLabRgbEnabled()
+        ? ColourLabPreparedReference(storedOriginal.rgb, source)
+        : EncodeProxyLinearV2(source);
     const bool independentChroma = (Passthrough & 4096u) != 0u;
     const bool lowGridColor = (Passthrough & 32768u) != 0u;
     const bool lightStyleActive = (Passthrough & 262144u) != 0u;
     const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
 
-    bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
+    bool finiteInputs = edgePairValid && ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(source == source) && all(proxy == proxy) && all(neural == neural) &&
         all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
@@ -4613,11 +5360,11 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
     if ((FaceOptions&4u)!=0u && finiteInputs && !unsupportedSignedSource) {
         float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
-        WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a));
+        WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a), capturedProxy, capturedNeural, NrReconScaled());
         return;
     }
     if (faceMask==1 && FaceOriginalLuma==1 && FaceOriginalColor==1) {
-        WriteCombinedV2(tid.xy,destinationCoord,storedOriginal);return;
+        WriteCombinedV2(tid.xy,destinationCoord,storedOriginal, capturedProxy, capturedNeural, NrReconScaled());return;
     }
     if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
@@ -4625,7 +5372,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         if ((lightStylePreview || (RegionFlags&14u)!=0u) && finiteInputs && !unsupportedSignedSource &&
             TransferStrength > 0.000001 && FrameConfidence > 0.000001)
             unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
-        WriteCombinedV2(tid.xy, destinationCoord, unchanged);
+        WriteCombinedV2(tid.xy, destinationCoord, unchanged, capturedProxy, capturedNeural, NrReconScaled());
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
             diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0,
             !finiteInputs);
@@ -4640,11 +5387,11 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
     RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,fullProxyLuma);
     float2 regionGain=RegionGainV1(regions);
-    if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a));return;}
+    if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a), capturedProxy, capturedNeural, NrReconScaled());return;}
     if ((Passthrough & 8192u) != 0u) {
         float2 edit = SampleRestoredEdit(center);
         if (edit.y != 1.0) {
-            WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+            WriteCombinedV2(tid.xy, destinationCoord, storedOriginal, capturedProxy, capturedNeural, NrReconScaled());
             RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                 diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, true);
             return;
@@ -4769,7 +5516,23 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
 
     float3 result = lumaOnly;
     bool candidateChromaApplied = false;
-    if (ColorStrength > 0.000001) {
+    if (ColourLabRgbEnabled()) {
+        ColourLabRgbResult restored = ColourLabRestoreRgb(source, fullProxy,
+            proxy, neural, exp2(rawModelLumaLog) - 1.0, exp2(poweredLog) - 1.0,
+            ColorStrength, confidence, maxRatio, regionGain.y,
+            faceMask, FaceOriginalColor, (FaceOptions & 2u) != 0u,
+            (Passthrough & (1u | 16u | 32u)) != 0u,
+            ColourLabRawEditRequested());
+        if (any(storedOriginal.rgb < 0.0)) restored.valid = false;
+        if (!restored.valid || (!lightStylePreview && all(restored.rgb == source))) {
+            WriteCombinedV2(tid.xy, destinationCoord, storedOriginal, capturedProxy, capturedNeural, NrReconScaled());
+            RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, !restored.valid);
+            return;
+        }
+        result = restored.rgb;
+        candidateChromaApplied = any(result != source);
+    } else if (ColorStrength > 0.000001) {
         float3 logRgbRatio = log2(
             max(neural, (1.0 / 4096.0).xxx) /
             max(proxy, (1.0 / 4096.0).xxx));
@@ -4843,7 +5606,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     }
     if (!lightStylePreview && (independentChroma || lowGridColor) && poweredLog == 0.0 &&
         !candidateChromaApplied) {
-        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal, capturedProxy, capturedNeural, NrReconScaled());
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
             diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, false);
         return;
@@ -4854,6 +5617,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         ? CompressBoundedTowardNeutral(result)
         : CompressNegativeTowardNeutral(result);
 
+    [branch] if (NrReconChromaRequested() && !lightStylePreview)
+        result=NrReconPreserveColour(source, ColourLabPreparedReference(storedOriginal.rgb,source),
+            proxy, neural, result, boundedSdrStorage, true);
     float3 storedResult = EncodeCompositionToStoredV2(result);
     if (!all(storedResult == storedResult) ||
         any(abs(storedResult) > 65504.0.xxx)) {
@@ -4871,7 +5637,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             storedResult = storedPreview;
     }
     WriteCombinedV2(tid.xy, destinationCoord,
-                    float4(storedResult, storedOriginal.a));
+                    float4(storedResult, storedOriginal.a), capturedProxy, capturedNeural, NrReconScaled());
     float originalMagnitude = max(
         max(abs(source.r), max(abs(source.g), abs(source.b))),
         1.0 / 1024.0);
@@ -4909,6 +5675,102 @@ void ResampleMotionCS(uint3 tid : SV_DispatchThreadID) {
     sourceCoord += uint2(MotionSourceBaseX, MotionSourceBaseY);
     MotionOut[tid.xy] = MotionSource.Load(int3(sourceCoord, 0));
 }
+// Beta12 opt-in same-frame signed-delta experiments. OriginalColor is B,
+// ProxyColor is Z, DualLowInput/Output are FP32 area B/delta. No history.
+float SpatialPeak(float3 v) { return max(max(abs(v.x),abs(v.y)),abs(v.z)); }
+float SpatialGuide(float3 a,float3 b) {
+    float scale=max(max(SpatialPeak(a),SpatialPeak(b)),1.0f/4096.0f);
+    float d=SpatialPeak(a/scale-b/scale);
+    return 1.0f/(1.0f+64.0f*d*d);
+}
+bool SpatialFinite(float3 v) { return all(isfinite(v)); }
+float4 SpatialB(uint2 p) { return OriginalColor.Load(int3(p,0)); }
+float4 SpatialZ(uint2 p) { return ProxyColor.Load(int3(p+uint2(SourceBaseX,SourceBaseY),0)); }
+
+// Exact integer-overlap area average, as in the Beta8 FP32 reference.
+[numthreads(8,8,1)]
+void SpatialAreaCS(uint3 tid:SV_DispatchThreadID) {
+    if(tid.x>=DualLowSize.x||tid.y>=DualLowSize.y)return;
+    uint2 lo=tid.xy*uint2(Width,Height);
+    uint2 hi=(tid.xy+1)*uint2(Width,Height);
+    uint2 first=lo/DualLowSize;
+    uint2 last=(hi+DualLowSize-1)/DualLowSize;
+    float3 bsum=0,dsum=0;float total=0;bool valid=true;
+    for(uint y=first.y;y<last.y;++y)for(uint x=first.x;x<last.x;++x){
+        uint wx=min(hi.x,(x+1)*DualLowSize.x)-max(lo.x,x*DualLowSize.x);
+        uint wy=min(hi.y,(y+1)*DualLowSize.y)-max(lo.y,y*DualLowSize.y);
+        float w=float(wx)*float(wy);
+        float3 b=SpatialB(uint2(x,y)).rgb,z=SpatialZ(uint2(x,y)).rgb;
+        valid=valid&&SpatialFinite(b)&&SpatialFinite(z);
+        bsum+=b*w;dsum+=(z-b)*w;total+=w;
+    }
+    if(!valid||!isfinite(total)||total<=0||!SpatialFinite(bsum)||!SpatialFinite(dsum)){
+        ColorEditFieldOut[tid.xy]=float4(0,0,0,-1);
+        LanczosIntermediateOut[tid.xy]=float4(0,0,0,-1);
+        return;
+    }
+    ColorEditFieldOut[tid.xy]=float4(bsum/total,1);
+    LanczosIntermediateOut[tid.xy]=float4(dsum/total,1);
+}
+
+// Four positive spatial taps with the original B-guided Beta8 weights.
+[numthreads(8,8,1)]
+void SpatialGuidedCS(uint3 tid:SV_DispatchThreadID){
+    if(tid.x>=Width||tid.y>=Height)return;
+    float4 b=SpatialB(tid.xy),z=SpatialZ(tid.xy);
+    float4 answer=z;
+    if(SpatialFinite(b.rgb)&&SpatialFinite(z.rgb)&&all(b.rgb==z.rgb))answer=b;
+    else if(SpatialFinite(b.rgb)&&SpatialFinite(z.rgb)){
+        // Exact Beta8 half-pixel integer phase, including 99% and odd extents.
+        uint2 numerator=(2u*tid.xy+1u)*DualLowSize+uint2(Width,Height);
+        uint2 denominator=2u*uint2(Width,Height);
+        int2 lo=int2(numerator/denominator)-1;
+        float2 fraction=float2(numerator%denominator)/float2(denominator);
+        float3 sum=0;float weight_sum=0;bool valid=true;
+        [unroll]for(uint j=0;j<2;++j)[unroll]for(uint i=0;i<2;++i){
+            float spatial=(i?fraction.x:1-fraction.x)*(j?fraction.y:1-fraction.y);
+            if(spatial==0)continue;
+            int2 q=clamp(int2(lo)+int2(i,j),int2(0,0),int2(DualLowSize)-1);
+            float4 lb=DualLowInput.Load(int3(q,0));
+            float4 ld=DualLowOutput.Load(int3(q,0));
+            valid=valid&&lb.a>0&&ld.a>0&&SpatialFinite(lb.rgb)&&SpatialFinite(ld.rgb);
+            float w=spatial*SpatialGuide(b.rgb,lb.rgb);
+            sum+=ld.rgb*w;weight_sum+=w;
+        }
+        if(valid&&isfinite(weight_sum)&&weight_sum>0){
+            float3 rgb=b.rgb+sum/weight_sum;
+            if(SpatialFinite(rgb)&&SpatialPeak(rgb)<=65504.0f)answer=float4(rgb,b.a);
+        }
+    }
+    ResultOut[tid.xy]=answer;
+}
+
+// Distinct mode B: full-resolution 3x3 B-guided local mean of signed delta.
+// Flat B gives a mean that suppresses isolated NR speckles; constant positive
+// or negative edits remain constant. It never reads previous frames.
+[numthreads(8,8,1)]
+void SpatialLocalCS(uint3 tid:SV_DispatchThreadID){
+    if(tid.x>=Width||tid.y>=Height)return;
+    float4 b=SpatialB(tid.xy),z=SpatialZ(tid.xy);
+    float4 answer=z;
+    if(SpatialFinite(b.rgb)&&SpatialFinite(z.rgb)&&all(b.rgb==z.rgb))answer=b;
+    else if(SpatialFinite(b.rgb)&&SpatialFinite(z.rgb)){
+        float3 sum=0;float weight_sum=0;bool valid=true;
+        [unroll]for(int j=-1;j<=1;++j)[unroll]for(int i=-1;i<=1;++i){
+            uint2 q=uint2(clamp(int(tid.x)+i,0,int(Width)-1),clamp(int(tid.y)+j,0,int(Height)-1));
+            float3 qb=SpatialB(q).rgb,qz=SpatialZ(q).rgb;
+            valid=valid&&SpatialFinite(qb)&&SpatialFinite(qz);
+            float w=SpatialGuide(b.rgb,qb)*(i==0&&j==0?1.0f:0.75f);
+            sum+=(qz-qb)*w;weight_sum+=w;
+        }
+        if(valid&&isfinite(weight_sum)&&weight_sum>0&&SpatialFinite(sum)){
+            float3 rgb=b.rgb+sum/weight_sum;
+            if(SpatialFinite(rgb)&&SpatialPeak(rgb)<=65504.0f)answer=float4(rgb,b.a);
+        }
+    }
+    ResultOut[tid.xy]=answer;
+}
+
 )HLSL";
 
 ID3DBlob *CompileCodecShader(const char *entry, bool face = false, int dual_domain = -1) {
@@ -5239,7 +6101,10 @@ void RawReady(FrameTicket, NrStageCaptureInfo, ID3D12Resource *, UINT64, bool);
 void Screenshot(reshade::api::effect_runtime *, const char *);
 }
 
+#define NR_HAS_NATIVE_OUTPUT_CAPTURE 1
+#include "nr_native_output_capture_state.inl"
 struct NrStageCapture {
+    NrNativeOutputCapture native_output{};
     ID3D12Resource *buffer = nullptr;
     ID3D12Resource *readback = nullptr;
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -5274,9 +6139,19 @@ struct NrContext;
 struct NrBindingPacket;
 struct NrBindingPool;
 struct NrSlot {
+    nr_colour_restore::EncodingReceipt colour_restore_encoding{};
     NrBindingPacket* region_binding=nullptr;
     NrBindingPacket* compose_binding=nullptr;
     NrBindingPacket* dual_binding=nullptr;
+    ID3D12QueryHeap* acceptance_time_heap=nullptr;
+    ID3D12Resource* acceptance_time_readback=nullptr;
+    LifecycleQueue* acceptance_time_queue=nullptr;
+    unsigned long long acceptance_time_token=0,acceptance_time_fence=0;
+    unsigned acceptance_time_mask=0,acceptance_time_generation=0,acceptance_time_history=0;
+    unsigned acceptance_time_work_width=0,acceptance_time_work_height=0,acceptance_time_output_width=0,acceptance_time_output_height=0;
+    nr_source_frame::Source acceptance_time_source{};
+    NrDiagnosticIdentity acceptance_time_identity{};
+    bool acceptance_time_prepared=false,acceptance_time_active=false,acceptance_time_pending=false,acceptance_time_visible=false,acceptance_time_private_composed=false,acceptance_time_temporal_recorded=false;
     ID3D12QueryHeap* dual_time_heap=nullptr;
     ID3D12Resource* dual_time_readback=nullptr;
     LifecycleQueue* dual_time_queue=nullptr;
@@ -5337,6 +6212,21 @@ struct NrSlot {
     unsigned long long lanczos_bytes = 0;
     bool lanczos_allocation_failed = false;
     bool lanczos_recorded = false;
+    ID3D12DescriptorHeap* spatial_heap=nullptr;
+    ID3D12PipelineState *spatial_area=nullptr,*spatial_guided=nullptr,*spatial_local=nullptr;
+    ID3D12Resource *spatial_scratch=nullptr,*spatial_low_b=nullptr,*spatial_low_delta=nullptr;
+    ID3D12Resource *spatial_bound_source=nullptr,*spatial_bound_result=nullptr;
+    D3D12_RESOURCE_STATES spatial_scratch_state=D3D12_RESOURCE_STATE_COMMON,
+        spatial_low_b_state=D3D12_RESOURCE_STATE_COMMON,spatial_low_delta_state=D3D12_RESOURCE_STATE_COMMON;
+    unsigned spatial_width=0,spatial_height=0,spatial_low_width=0,spatial_low_height=0;
+    unsigned spatial_configuration=0,spatial_retry_config=0;
+    unsigned long long spatial_token=0,spatial_bytes=0,spatial_retry_after_frame=0;
+    bool spatial_prepared=false;
+    unsigned spatial_prepared_config=0,spatial_prepared_mode=0;
+    unsigned spatial_prepared_width=0,spatial_prepared_height=0,
+        spatial_prepared_base_x=0,spatial_prepared_base_y=0;
+    unsigned long long spatial_prepared_feature=0;
+    ID3D12Resource *spatial_prepared_source=nullptr,*spatial_prepared_result=nullptr;
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
@@ -5510,7 +6400,17 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter;
 }
 
+#include "nr_reset_observation.h"
+namespace nr_post_product { struct Owner; }
 struct NrContext {
+    nr_post_product::Owner* private_sr=nullptr;
+    nr_private_sr_status::BudgetRetry private_sr_budget_retry{};
+    nr::final_residual::RecordedTemporal* temporal=nullptr;
+    unsigned temporal_key=0,temporal_width=0,temporal_height=0;
+    unsigned long long temporal_queue=0,temporal_token=0,temporal_retry_tick=0;
+    unsigned temporal_attempt_generation=0;
+    nr::final_residual::TemporalStats temporal_gpu_observed{};
+    bool observed_delayed_exposure_reset=false;
     NrBindingPool* binding_pool=nullptr;
     bool dual_last_visible=false;
     unsigned layer_index=0;
@@ -5637,10 +6537,18 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     identity.tuning = context.tuning_signature;
     // This slot cannot be reused until its exact submission fence completes.
     // Freeze the successful evaluation, including the effective Create tuning.
+    if(slot.acceptance_time_active||slot.acceptance_time_pending)slot.acceptance_time_identity=identity;
     if (slot.delta_stats_capture_armed)
         slot.diagnostic_identity = identity;
     if (slot.stage_capture.armed)
         slot.stage_capture.info.identity = identity;
+    const auto observed_source=nr_source_runtime::CurrentSource();
+    nr_reset_observation::counters.Observe({context.instance_id,context.feature_generation,
+        context.evaluations,context.layer_index,context.width,context.height,
+        context.diagnostic_reset_reasons,context.successful_evaluations_since_reset,
+        context.last_source_to_canonical,context.observed_delayed_exposure_reset,
+        observed_source.stream,observed_source.epoch,observed_source.sequence,
+        context.config_generation,context.history_generation});
     g_applied_nr_identity = identity;
     g_applied_nr_mode = context.mode;
 }
@@ -5841,11 +6749,20 @@ bool CanRetireDualSlot(void* user) {
 }
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
 constexpr unsigned long long kDualSlotBudget=256ull*1024*1024,kDualTotalBudget=1024ull*1024*1024;
+namespace nr_spatial_experiment {
+void ReleaseSlot(NrSlot&);
+void PrepareForPost(NrContext&,NrSlot&,unsigned,unsigned,unsigned,unsigned);
+void SweepIdle();
+void Submitted(NrContext&,unsigned long long);
+void Discarded(NrContext&,unsigned long long);
+}
 void DestroySlot(NrSlot &slot) {
+    nr_spatial_experiment::ReleaseSlot(slot);
     if(slot.dual_spatial && !nr_dual::dx12::DestroySpatialSlotAfterRetirement(slot.dual_spatial,CanRetireDualSlot,&slot))return;
     NrRecoveryRetireSlot(slot, IsSlotFenceCompleteLocked(slot));
     ForgetPostBoundary(reinterpret_cast<std::uint64_t>(slot.result));
     g_dual_allocated_bytes.fetch_sub(slot.dual_bytes);
+    ReleaseCom(slot.acceptance_time_heap);ReleaseCom(slot.acceptance_time_readback);
     ReleaseCom(slot.dual_time_heap);ReleaseCom(slot.dual_time_readback);
     ReleaseCom(slot.dual_consumer_heap);ReleaseCom(slot.dual_region_heap);
     for(auto& guide:slot.dual_guides)ReleaseCom(guide);
@@ -5881,12 +6798,18 @@ void DestroySlot(NrSlot &slot) {
     slot = {};
 }
 
+namespace nr_post_product {
+bool PrivateCall();bool Ready(const NrContext&);bool Destroy(NrContext&);void Maintain(NrContext&);
+void Submitted(NrContext&,unsigned long long,LifecycleQueue*,unsigned long long);
+void Discarded(NrContext&,unsigned long long);void Poison(NrContext&);
+}
 void DestroyContext(NrContext &context) {
     if (context.create_dependencies_quarantined ||
         context.lifecycle_dependencies_quarantined) {
         // Keep the complete unproven dependency closure until process exit.
         return;
     }
+    if(!nr_post_product::Destroy(context))return;
     {
         // Serialize returned-error handling with every other NR API call.
         // This is not an exception/AV recovery boundary: no opaque fault is caught.
@@ -5936,6 +6859,10 @@ void DestroyContext(NrContext &context) {
             }
             context.params = nullptr;
         }
+    }
+    if(context.temporal){
+        nr_temporal_status::bytes.fetch_sub(context.temporal->stats().bytes);
+        delete context.temporal;context.temporal=nullptr;
     }
     for(auto& guide:context.dual_create_guides)ReleaseCom(guide);
     DestroyBindings(context);
@@ -5987,12 +6914,38 @@ bool CanDestroyContextLocked(const NrContext &context) {
     for (const auto &slot : context.slots) {
         if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
     }
-    return CanDestroyBindingsLocked(context);
+    return CanDestroyBindingsLocked(context) && nr_post_product::Ready(context);
 }
 
+namespace nr_acceptance {bool Active(); bool PerformanceActive(); void ObserveNativeEntry(int,unsigned long long); void ObserveNativeSource(int,const nr_source_frame::Source&);}
+namespace nr_acceptance_gpu {
+enum class EntryRoute : unsigned { Sr, Rr };
+enum class PreReason : unsigned { Route, Lifecycle, Owner, Unavailable };
+struct EntryScope {
+    EntryRoute route;
+    PreReason reason=PreReason::Route;
+    EntryScope* previous=nullptr;
+    unsigned config=0;
+    bool active=false,reached=false;
+    explicit EntryScope(EntryRoute,bool enabled=true);
+    ~EntryScope();
+    void Decline(PreReason value){reason=value;}
+    void ReachPrepare();
+};
+void ReachPrepare();
+bool Prepare(ID3D12Device*,NrSlot&,ID3D12GraphicsCommandList*,unsigned,unsigned,unsigned,unsigned);
+bool Bind(ID3D12GraphicsCommandList*,NrSlot&);
+void DiscardPrepared(NrSlot&);
+void Abort(NrSlot&,const char*);
+void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned);
+void Finish(ID3D12GraphicsCommandList*,NrSlot&,bool);
+void Collect(NrSlot&);
+void DiscardUnsubmitted(unsigned long long);
+}
 namespace nr_dual_runtime {void CollectTiming(NrSlot&);}
 void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     nr_dual_runtime::CollectTiming(slot);
+    nr_acceptance_gpu::Collect(slot);
     CollectStageCaptureLocked(slot);
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
@@ -6345,12 +7298,15 @@ void RetireAuxiliaryDependenciesLocked() {
     if (changed) g_aux_parent_retirements.fetch_add(changed,std::memory_order_relaxed);
 }
 
+namespace nr_temporal { void Maintain(NrContext&); }
 void CollectRetiredContextsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     DrainNgxFeatureRetirementsLocked();
     RetireAuxiliaryDependenciesLocked();
     CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
+        nr_temporal::Maintain(context);
+        nr_post_product::Maintain(context);
         if (context.sr_handle != nullptr && context.retired &&
             CanDestroyContextLocked(context)) {
             bool bindings_retired=true;
@@ -6378,6 +7334,7 @@ void CollectRetiredContextsLocked() {
             context = {};
         }
     }
+    nr_spatial_experiment::SweepIdle();
 }
 
 void DrainPendingContextDestructions() {
@@ -6509,6 +7466,7 @@ bool QuarantineUnsubmittedLifecycleRecordLocked(
         if (record->contexts[i] != nullptr)
             record->contexts[i]->lifecycle_dependencies_quarantined = true;
     }
+    for(unsigned c=0;c<record->context_count;++c)if(record->contexts[c]){nr_spatial_experiment::Discarded(*record->contexts[c],token);nr_post_product::Discarded(*record->contexts[c],token);}
     Log("Command list %s discarded recorded Feature 18 work before its first "
         "native Execute (token=%llu contexts=%u slots=%u). The complete "
         "dependency closure is quarantined until process exit.",
@@ -7158,6 +8116,19 @@ void DetachLifecycleCommandListTokenLocked(
         }
         if (context->pending_recording_token == token)
             context->pending_recording_token = 0;
+        if(context->temporal){
+            if(context->temporal_token==token){
+                const bool never_submitted=record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof;
+                if(never_submitted && context->temporal->cancelled_unsubmitted()){
+                    context->temporal_token=0;nr_temporal_status::cancelled.fetch_add(1);
+                    nr_temporal_status::state.store(14);
+                }else{
+                    context->lifecycle_dependencies_quarantined=true;
+                    MarkLifecycleUncertain("temporal reset missing non-submission proof");nr_temporal_status::state.store(9);
+                }
+            }
+            context->temporal->end_recording(token);
+        }
         --context->recording_command_lists;
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
@@ -7597,6 +8568,7 @@ void QuarantineUnprovenSubmissionLocked(
         LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
         if (record == nullptr) continue;
         record->execution_attempted_without_proof = true;
+        for(unsigned c=0;c<record->context_count;++c)if(record->contexts[c]&&record->contexts[c]->private_sr)nr_post_product::Poison(*record->contexts[c]);
         for (unsigned int context_index = 0;
              context_index < record->context_count; ++context_index) {
             if (record->contexts[context_index] != nullptr)
@@ -7622,6 +8594,26 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         context->awaiting_fence_signal = false;
+        if(context->temporal){
+            const auto just_recorded=context->temporal_token;
+            for(unsigned r=0;r<batch.record_count;++r)if(batch.records[r] && batch.records[r]->token!=just_recorded){
+                if(!context->temporal->resubmitted(batch.records[r]->token,queue_state->fence,batch.fence_value)){
+                    context->lifecycle_dependencies_quarantined=true;
+                    MarkLifecycleUncertain("temporal replay completion receipt rejected");nr_temporal_status::state.store(9);
+                }
+            }
+            bool included=false;
+            for(unsigned r=0;r<batch.record_count;++r)included|=batch.records[r] && batch.records[r]->token==context->temporal_token;
+            if(included){
+                if(context->temporal->submitted(queue_state->fence,batch.fence_value,context->temporal_token)){
+                    context->temporal_token=0;nr_temporal_status::submitted.fetch_add(1);
+                    nr_temporal_status::last_tick.store(GetTickCount64());nr_temporal_status::state.store(8);
+                }else{
+                    context->lifecycle_dependencies_quarantined=true;
+                    MarkLifecycleUncertain("temporal last consumer submission receipt rejected");nr_temporal_status::state.store(9);
+                }
+            }
+        }
     }
     for (unsigned int i = 0; i < batch.slot_count; ++i) {
         NrSlot *slot = batch.slots[i];
@@ -7633,6 +8625,12 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         slot->awaiting_fence_signal = false;
+        if(slot->acceptance_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
+            const auto* record=batch.records[r];
+            if(record&&record->token==slot->acceptance_time_token){
+                slot->acceptance_time_queue=queue_state;slot->acceptance_time_fence=batch.fence_value;break;
+            }
+        }
         if(slot->dual_time_pending)for(unsigned r=0;r<batch.record_count;++r) {
             const auto* record=batch.records[r];
             if(record&&record->token==slot->dual_time_token) {
@@ -7646,6 +8644,9 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             MarkLifecycleUncertain("submission lifetime reference underflow");
             continue;
         }
+        for(unsigned c=0;c<record->context_count;++c)if(record->contexts[c])
+            {nr_post_product::Submitted(*record->contexts[c],record->token,queue_state,batch.fence_value);
+             nr_spatial_experiment::Submitted(*record->contexts[c],record->token);}
         --record->in_flight_submissions;
         if (record->detached && record->in_flight_submissions == 0)
             *record = {};
@@ -8074,6 +9075,7 @@ bool SupportsPostSrStorage(ID3D12Device *device,
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
 #include "nr_route_compatibility_runtime.inl"
 #endif
+#include "interop/nr_motion_access_d3d12.inl"
 #include "nr_codec_descriptors.inl"
 
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
@@ -8085,7 +9087,7 @@ void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
                kCodecExposureSrvIndex;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
     srv.Format = exposure != nullptr
-        ? ID3D12Resource_GetDesc(exposure).Format
+        ? NrExposureReadFormat(ID3D12Resource_GetDesc(exposure).Format)
         : DXGI_FORMAT_R32_FLOAT;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -8108,6 +9110,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     if (!external_view) return false;
     const NrFormatOwnViewScope own_views;
     slot.native_format_key = external_view.key;
+    // Validate before retaining or publishing any slot dependency.
+    if (exposure && !NrResolveExposureAccess(device, ID3D12Resource_GetDesc(exposure)).allowed())
+        return false;
     slot.key = external;
     if (exposure != nullptr) {
         ID3D12Resource_AddRef(exposure);
@@ -8141,7 +9146,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         // The NGX D3D12 contract presents it as UAV; pretending its prior state
         // was COMMON would make our first explicit barrier's StateBefore false.
         slot.result_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        if (!CreateTexture(device, width, height, L"NRChain.SRIntermediate",
+        if (external_desc.Width > UINT_MAX || !CreateTexture(device,
+                           static_cast<unsigned int>(external_desc.Width),
+                           external_desc.Height, L"NRChain.SRIntermediate",
                            &slot.source)) {
             DestroySlot(slot);
             return false;
@@ -8286,10 +9293,11 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
     if (device == nullptr || (!immutable && slot.heap == nullptr) || motion == nullptr ||
         width == 0 || height == 0) return false;
     const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
-    if ((motion_desc.Format != DXGI_FORMAT_R16G16_FLOAT &&
-         motion_desc.Format != DXGI_FORMAT_R32G32_FLOAT &&
-         motion_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT) ||
-        (motion_desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0) {
+    const DXGI_FORMAT motion_view = NrMotionReadFormat(motion_desc.Format);
+    if (motion_view == DXGI_FORMAT_UNKNOWN ||
+        (motion_desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0 ||
+        ((slot.motion_source != motion || slot.motion_proxy == nullptr) &&
+         !NrCanReadMotion(device,motion_desc))) {
         static unsigned int rejected_motion_sources = 0;
         ++rejected_motion_sources;
         if (rejected_motion_sources <= 3 ||
@@ -8336,7 +9344,7 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 3;
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-        srv.Format = motion_desc.Format;
+        srv.Format = motion_view;
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srv.Texture2D.MipLevels = 1;
@@ -8555,6 +9563,9 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
     if (!CanMutateSlotLocked(slot)) return false;
+    // Rejection must not replace references or partially rewrite a heap.
+    if (exposure && !NrResolveExposureAccess(device, ID3D12Resource_GetDesc(exposure)).allowed())
+        return false;
     if (!InvalidateSlotBindingsLocked(slot)) return false;
 
     const D3D12_RESOURCE_DESC external_desc =
@@ -8578,6 +9589,25 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
             slot.result_format != external_desc.Format)
             return false;
 
+        // Rotating post targets may change physical O while N remains in one
+        // model bucket. Rebuild only an already-retired slot's snapshot.
+        const auto old_snapshot = ID3D12Resource_GetDesc(slot.source);
+        ID3D12Resource *new_snapshot = nullptr;
+        if (old_snapshot.Width != external_desc.Width || old_snapshot.Height != external_desc.Height) {
+            if (external_desc.Width > UINT_MAX || !CreateTexture(device,
+                    static_cast<unsigned int>(external_desc.Width),external_desc.Height,
+                    L"NRChain.SRIntermediate",&new_snapshot)) return false;
+        }
+        if (new_snapshot) {
+            ReleaseCom(slot.source); slot.source = new_snapshot;
+            slot.source_state = D3D12_RESOURCE_STATE_COMMON;
+            D3D12_SHADER_RESOURCE_VIEW_DESC source_view{};
+            source_view.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            source_view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            source_view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            source_view.Texture2D.MipLevels = 1;
+            ID3D12Device_CreateShaderResourceView(device,slot.source,&source_view,cpu);
+        }
         ID3D12Resource_AddRef(external);
         ReleaseCom(slot.result);
         slot.key = external;
@@ -8608,6 +9638,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
             ID3D12Device_CreateShaderResourceView(
                 device, slot.result, &srv, snapshot_cpu);
         }
+        if (new_snapshot && slot.snapshot_heap) WritePostSrSnapshotDescriptors(device,slot);
         RebindExposureSource(device, exposure, slot);
         slot.last_submission_queue = nullptr;
         slot.completion_fence_value = 0;
@@ -8981,40 +10012,60 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int source_height = 0,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
-                   float frame_confidence = 1.0f) {
+                   float frame_confidence = 1.0f, int effective_mode = 0, ID3D12DescriptorHeap* primary_heap=nullptr) {
+    ChainConfig frame_config = g_config;
+    if (effective_mode != 0) frame_config.mode = effective_mode;
+
     // Support each compositor in its own edit domain. Existing shared-V2 post
     // remains a user's independent-colour choice; D never selects that route.
-    const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;
+    const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && frame_config.mode == 2;
     const bool light_style_post_supported = pipeline == g_codec.combine;
     const bool light_style_supported = light_style_pre_supported || light_style_post_supported;
-    const bool light_style_requested = g_config.light_broad != 1.0f ||
-        g_config.light_dark != 1.0f || g_config.light_reflection != 1.0f ||
-        g_config.light_structure != 1.0f || g_config.light_glow != 0.0f ||
-        g_config.light_preview != 0u;
-    const bool light_style_active = !g_config.generic_residual && !g_config.region_enabled && light_style_supported && light_style_requested;
+    const bool light_style_requested = frame_config.light_broad != 1.0f ||
+        frame_config.light_dark != 1.0f || frame_config.light_reflection != 1.0f ||
+        frame_config.light_structure != 1.0f || frame_config.light_glow != 0.0f ||
+        frame_config.light_preview != 0u;
+    const bool light_style_active = !frame_config.generic_residual && !frame_config.region_enabled && light_style_supported && light_style_requested;
     // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
     // the same candidate with its own source rectangle, colour policy/exposure
     // and work grid; it does not change the model input or guide semantics.
-    const bool independent_chroma = g_config.independent_chroma_composition &&
+    const bool independent_chroma = frame_config.independent_chroma_composition &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
-    const bool low_grid_color = g_config.low_grid_color_edit_field &&
+    const bool low_grid_color = frame_config.low_grid_color_edit_field &&
         slot.edit_field_recorded &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
-    const bool low_grid_luma = g_config.low_grid_edit_field && g_config.color_strength<=0.000001f && slot.edit_field_recorded;
+    const bool low_grid_luma = frame_config.low_grid_edit_field && frame_config.color_strength<=0.000001f && slot.edit_field_recorded;
     if (independent_chroma || low_grid_color || (low_grid_luma && pipeline==g_codec.combine)) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
+    const auto restore_encoding = slot.colour_restore_encoding.For(slot.last_used_serial);
+    const unsigned colour_stage_flags = nr_colour_stage::Flags(
+        frame_config.colour_neutral_probe, any_combine, restore_encoding);
+    const unsigned colour_restore_flags = colour_stage_flags | nr_colour_restore::Flags(
+        frame_config.colour_restore_mode, any_combine, restore_encoding);
+    const bool colour_restore = colour_restore_flags != 0u;
+    const bool edge_scaled = (model_width && model_width != width) || (model_height && model_height != height);
+    const unsigned edge_flags = nr_colour_edge::Flags(
+        frame_config.colour_edge_recovery, any_combine, colour_restore,
+        restore_encoding != nr_colour_restore::Encoding::Unknown, v2_combine, edge_scaled);
+    const bool scaled_proxy_work = source_width != 0u && source_height != 0u &&
+        (source_width != width || source_height != height);
+    const int prepared_scaled_proxy_mode = any_combine
+        ? (restore_encoding != nr_colour_restore::Encoding::Unknown
+            ? slot.colour_restore_encoding.scaled_proxy_mode : 0)
+        : nr_colour_restore::EffectiveScaledProxyMode(frame_config.colour_scaled_proxy_mode,
+            pipeline == g_codec.encode_v2, scaled_proxy_work);
     const auto probe_policy = NrProbePolicySnapshot();
-    const bool checkpoint_ready = any_combine &&
+    const bool checkpoint_ready = !primary_heap && any_combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
     const bool capture_delta = probe_policy.AutomaticSampling() && checkpoint_ready;
     const bool post_store_target = checkpoint_ready && slot.snapshots_native_output &&
-        g_config.mode == 1 && slot.snapshot_heap != nullptr && g_codec.post_store_probe != nullptr &&
+        frame_config.mode == 1 && slot.snapshot_heap != nullptr && g_codec.post_store_probe != nullptr &&
         ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
     const bool pre_store_target = checkpoint_ready && !slot.snapshots_native_output &&
-        slot.owns_result && g_config.mode == 2 && slot.pre_store_probe_heap != nullptr &&
+        slot.owns_result && frame_config.mode == 2 && slot.pre_store_probe_heap != nullptr &&
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT && g_codec.post_store_probe != nullptr &&
         ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
     const bool probe_post_store = capture_delta && post_store_target;
@@ -9029,46 +10080,79 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_flags = 128u;
     else if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         source_flags = 1u;
-    NrColorPolicy color_policy = ResolveNrColorPolicy(g_config.mode,
+    NrColorPolicy color_policy = ResolveNrColorPolicy(frame_config.mode,
         hdr_input, color_mode,
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
-        IsUnityExposureContract(color_contract), g_config.color_strength,
-        g_config.preserve_lighting);
+        IsUnityExposureContract(color_contract), frame_config.color_strength,
+        frame_config.preserve_lighting);
     if (any_combine)
-        ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
-    ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
-        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection,
-        v2_combine && (independent_chroma || low_grid_color)
+        ApplyLightingLockPolicy(color_policy, frame_config.mode, frame_config.lighting_lock);
+    ApplyRequestedUnverifiedHdrColor(color_policy, frame_config.allow_unverified_hdr_color,
+        frame_config.color_strength, ActiveTransferStrength(frame_config), frame_config.color_protection,
+        (colour_restore || (v2_combine && (independent_chroma || low_grid_color)))
             ? nr_color_amplification::ChromaConsumer::GainIndependent
             : nr_color_amplification::ChromaConsumer::GainCoupled);
+    color_policy.requested_restore_mode = nr_colour_restore::Normalize(frame_config.colour_restore_mode);
+    color_policy.recorded_restore_mode = colour_restore ? nr_colour_restore::Normalize(frame_config.colour_restore_mode) : 0;
+    color_policy.restore_post_encoding = colour_restore && restore_encoding == nr_colour_restore::Encoding::Post;
+    color_policy.restore_encoding_known = restore_encoding != nr_colour_restore::Encoding::Unknown;
+    color_policy.requested_input_curve = frame_config.colour_input_curve;
+    color_policy.recorded_input_curve = restore_encoding != nr_colour_restore::Encoding::Unknown ? slot.colour_restore_encoding.input_curve : 0;
+    color_policy.requested_scaled_proxy_mode = frame_config.colour_scaled_proxy_mode;
+    color_policy.recorded_scaled_proxy_mode = restore_encoding != nr_colour_restore::Encoding::Unknown ? slot.colour_restore_encoding.scaled_proxy_mode : 0;
+    color_policy.requested_neutral_probe = frame_config.colour_neutral_probe;
+    color_policy.recorded_neutral_probe = colour_stage_flags != 0u;
+    if (colour_stage_flags != 0u) color_policy.recorded_restore_mode = 2;
+    color_policy.requested_edge_recovery = frame_config.colour_edge_recovery;
+    color_policy.recorded_edge_recovery = edge_flags != 0u;
     const float effective_color_strength = color_policy.effective_color_strength;
-    const unsigned int base_codec_flags = source_flags |
+    const auto reconstruction=nr_reconstruction::Select(
+        frame_config.reconstruction_mode, frame_config.near_black_chroma_guard, any_combine,
+        restore_encoding != nr_colour_restore::Encoding::Unknown,
+        frame_config.colour_restore_mode==2 || frame_config.colour_neutral_probe,
+        v2_combine, edge_scaled, frame_config.colour_edge_recovery!=0,
+        frame_config.low_grid_edit_field || frame_config.low_grid_color_edit_field,
+        effective_color_strength>0.000001f,
+        frame_config.light_preview!=0 || frame_config.region_preview!=0 || frame_config.face_preview);
+    color_policy.requested_reconstruction_mode=frame_config.reconstruction_mode;
+    color_policy.recorded_reconstruction_mode=reconstruction.mode;
+    color_policy.reconstruction_reason=reconstruction.reconstruction;
+    color_policy.requested_near_black_guard=frame_config.near_black_chroma_guard;
+    color_policy.recorded_near_black_guard=reconstruction.chroma;
+    color_policy.near_black_reason=reconstruction.protection;
+    const int prepared_input_curve = any_combine
+        ? color_policy.recorded_input_curve
+        : nr_colour_restore::EffectiveInputCurve(frame_config.colour_input_curve, source_flags);
+    const unsigned int base_codec_flags = source_flags | edge_flags |
+        colour_restore_flags |
+        (prepared_input_curve == 1 ? nr_colour_restore::kInputCurveFlag : 0u) |
+        (prepared_scaled_proxy_mode == 1 ? nr_colour_restore::kProxyFirstScaleFlag : 0u) |
         (light_style_active ? 262144u : 0u) |
-        ((light_style_active && g_config.light_control_mode == 1u) ? 524288u : 0u) |
+        ((light_style_active && frame_config.light_control_mode == 1u) ? 524288u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
-          g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
-          g_config.color_strength<=0.000001f) ? 16384u : 0u) |
+          frame_config.low_grid_edit_field && frame_config.catmull_edit_restore &&
+          frame_config.color_strength<=0.000001f) ? 16384u : 0u) |
         ((v2_combine && slot.edit_field_recorded &&
-          ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
+          ((frame_config.low_grid_edit_field && frame_config.color_strength <= 0.000001f) ||
            low_grid_color)) ? 8192u : 0u) |
         (low_grid_color ? 32768u : 0u) |
-        ((g_config.mode == 2 && slot.lanczos_recorded) ? 65536u : 0u) |
+        ((frame_config.mode == 2 && slot.lanczos_recorded) ? 65536u : 0u) |
         (independent_chroma ? 4096u : 0u) |
-        ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
-        ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
+        ((v2_combine && frame_config.high_strength_protection) ? 1024u : 0u) |
+        ((v2_combine && frame_config.layered_enhancement) ? 2048u : 0u) |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
-        (UsePeakShoulder(color_mode, hdr_input, g_config.experimental_peak_shoulder) ? 256u : 0u);
+        (UsePeakShoulder(color_mode, hdr_input, frame_config.experimental_peak_shoulder) ? 256u : 0u);
     nr_f8_gpu::ArmResult f8_capture={};
     bool f8_armed=false;
     unsigned long long f8_token=0;
     NrStageCaptureInfo f8_info={};
-    if(any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token) &&
+    if(!primary_heap && any_combine && nr_f8::IsActive() && ReadLifecycleToken(command_list,f8_token) &&
        FindLifecycleCommandListLocked(f8_token)!=nullptr) {
         f8_info.identity=g_applied_nr_identity;f8_info.codec_flags=base_codec_flags|512u;
         f8_info.color_strength=effective_color_strength;
-        f8_info.feature_generation=g_pipeline_stats_generation.load();f8_info.mode=g_config.mode;
+        f8_info.feature_generation=g_pipeline_stats_generation.load();f8_info.mode=frame_config.mode;
         f8_info.source_width=width;f8_info.source_height=height;
         f8_info.model_width=model_width?model_width:width;f8_info.model_height=model_height?model_height:height;
         f8_info.source_base_x=source_base_x;f8_info.source_base_y=source_base_y;
@@ -9076,24 +10160,24 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.source_format=static_cast<unsigned>(slot.source_format);f8_info.result_format=static_cast<unsigned>(slot.result_format);
         f8_info.pre_exposure=color_contract.pre_exposure;f8_info.exposure_scale=color_contract.exposure_scale;
         f8_info.has_pre_exposure=color_contract.has_pre_exposure;f8_info.has_exposure_scale=color_contract.has_exposure_scale;
-        f8_info.proxy_scale=g_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(g_config);
-        f8_info.max_luma_ratio=g_config.max_luma_ratio;f8_info.work_mode=g_config.work_mode;
+        f8_info.proxy_scale=frame_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(frame_config);
+        f8_info.max_luma_ratio=frame_config.max_luma_ratio;f8_info.work_mode=frame_config.work_mode;
         f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
-        f8_info.lighting_lock=any_combine?g_config.lighting_lock:0.f;
-        f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
-        f8_info.layer_tone=v2_combine?g_config.layer_tone:1.f;
-        f8_info.layer_structure=v2_combine?g_config.layer_structure:1.f;
-        f8_info.layer_bright=v2_combine?g_config.layer_bright:1.f;
-        f8_info.layer_shadow=v2_combine?g_config.layer_shadow:1.f;
-        f8_info.light_broad=light_style_active?g_config.light_broad:1.f;
-        f8_info.light_dark=light_style_active?g_config.light_dark:1.f;
-        f8_info.light_reflection=light_style_active?g_config.light_reflection:1.f;
-        f8_info.light_structure=light_style_active?g_config.light_structure:1.f;
-        f8_info.light_glow=light_style_active?g_config.light_glow:0.f;
-        f8_info.light_preview=light_style_active?g_config.light_preview:0u;
+        f8_info.lighting_lock=any_combine?frame_config.lighting_lock:0.f;
+        f8_info.detail_stability=v2_combine?frame_config.detail_stability:0.f;f8_info.motion_requested=frame_config.motion_stability;
+        f8_info.layer_tone=v2_combine?frame_config.layer_tone:1.f;
+        f8_info.layer_structure=v2_combine?frame_config.layer_structure:1.f;
+        f8_info.layer_bright=v2_combine?frame_config.layer_bright:1.f;
+        f8_info.layer_shadow=v2_combine?frame_config.layer_shadow:1.f;
+        f8_info.light_broad=light_style_active?frame_config.light_broad:1.f;
+        f8_info.light_dark=light_style_active?frame_config.light_dark:1.f;
+        f8_info.light_reflection=light_style_active?frame_config.light_reflection:1.f;
+        f8_info.light_structure=light_style_active?frame_config.light_structure:1.f;
+        f8_info.light_glow=light_style_active?frame_config.light_glow:0.f;
+        f8_info.light_preview=light_style_active?frame_config.light_preview:0u;
         f8_info.light_control_mode=(base_codec_flags&524288u)!=0u?1u:0u;
         f8_info.light_supported=light_style_supported;
-        f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
+        f8_info.edge_guard=v2_combine?frame_config.edge_guard:0.f;f8_info.proxy_curve=frame_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
         nr_f8::FrameTicket ticket={};
         if(nr_f8::ReserveFrame(f8_info,slot.capture_params,ticket)) {
@@ -9115,7 +10199,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         nr_f8::RawReady(f8_capture.ticket,f8_info,nullptr,0,false);f8_armed=false;
     }
     ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:(slot.dual_selected&&slot.dual_binding?slot.dual_binding->heaps[nr_binding::Consumer]:(any_combine && slot.face_mask && slot.face_codec_heap?slot.face_codec_heap:(slot.compose_binding?slot.compose_binding->heaps[nr_binding::Consumer]:slot.heap)));
-    if (any_combine) {
+    if(primary_heap)selected_heap=primary_heap;
+    if (any_combine && !primary_heap) {
         // Recovery follows the exact table selected for this dispatch. Packet
         // plans count only after all views have been materialized and sealed.
         auto receipt = f8_armed ? slot.capture_descriptor_receipt :
@@ -9139,7 +10224,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
     const D3D12_GPU_DESCRIPTOR_HANDLE gpu = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(selected_heap);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list,0,gpu);
-    const bool capture_stages = !f8_armed && any_combine &&
+    const bool capture_stages = !primary_heap && !f8_armed && any_combine &&
         CanRecordStageCapture(slot.stage_capture);
     if (capture_stages) {
         Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
@@ -9181,7 +10266,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_recorded_color_policy.feature_generation =
             g_pipeline_stats_generation.load(std::memory_order_relaxed);
         g_recorded_color_policy.frame_id = g_applied_nr_identity.frame_id;
-        g_recorded_color_policy.mode = g_config.mode;
+        g_recorded_color_policy.mode = frame_config.mode;
         g_recorded_color_policy.recorded_tick_ms = GetTickCount64();
     }
     if (capture_stages) {
@@ -9195,11 +10280,11 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.codec_flags = codec_flags;
         info.model_width = model_width != 0 ? model_width : width;
         info.model_height = model_height != 0 ? model_height : height;
-        info.proxy_scale = g_config.proxy_scale;
-        info.transfer_strength = ActiveTransferStrength(g_config);
+        info.proxy_scale = frame_config.proxy_scale;
+        info.transfer_strength = ActiveTransferStrength(frame_config);
         info.color_strength = effective_color_strength;
-        info.max_luma_ratio = g_config.max_luma_ratio;
-        info.work_mode = g_config.work_mode;
+        info.max_luma_ratio = frame_config.max_luma_ratio;
+        info.work_mode = frame_config.work_mode;
         const unsigned int capture_model_width =
             model_width != 0 ? model_width : width;
         const unsigned int capture_model_height =
@@ -9207,22 +10292,22 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.work_linear_scale = std::min(
             static_cast<float>(capture_model_width) / std::max(width, 1u),
             static_cast<float>(capture_model_height) / std::max(height, 1u));
-        info.lighting_lock = v2_combine ? g_config.lighting_lock :
-            (g_config.preserve_lighting ? 1.0f : 0.0f);
-        info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
-        info.layer_tone = v2_combine ? g_config.layer_tone : 1.0f;
-        info.layer_structure = v2_combine ? g_config.layer_structure : 1.0f;
-        info.layer_bright = v2_combine ? g_config.layer_bright : 1.0f;
-        info.layer_shadow = v2_combine ? g_config.layer_shadow : 1.0f;
-        info.light_broad = light_style_active ? g_config.light_broad : 1.0f;
-        info.light_dark = light_style_active ? g_config.light_dark : 1.0f;
-        info.light_reflection = light_style_active ? g_config.light_reflection : 1.0f;
-        info.light_structure = light_style_active ? g_config.light_structure : 1.0f;
-        info.light_glow = light_style_active ? g_config.light_glow : 0.0f;
-        info.light_preview = light_style_active ? g_config.light_preview : 0u;
+        info.lighting_lock = v2_combine ? frame_config.lighting_lock :
+            (frame_config.preserve_lighting ? 1.0f : 0.0f);
+        info.edge_guard = v2_combine ? frame_config.edge_guard : 0.0f;
+        info.layer_tone = v2_combine ? frame_config.layer_tone : 1.0f;
+        info.layer_structure = v2_combine ? frame_config.layer_structure : 1.0f;
+        info.layer_bright = v2_combine ? frame_config.layer_bright : 1.0f;
+        info.layer_shadow = v2_combine ? frame_config.layer_shadow : 1.0f;
+        info.light_broad = light_style_active ? frame_config.light_broad : 1.0f;
+        info.light_dark = light_style_active ? frame_config.light_dark : 1.0f;
+        info.light_reflection = light_style_active ? frame_config.light_reflection : 1.0f;
+        info.light_structure = light_style_active ? frame_config.light_structure : 1.0f;
+        info.light_glow = light_style_active ? frame_config.light_glow : 0.0f;
+        info.light_preview = light_style_active ? frame_config.light_preview : 0u;
         info.light_control_mode = (codec_flags & 524288u) != 0u ? 1u : 0u;
         info.light_supported = light_style_supported;
-        info.proxy_curve = g_config.proxy_curve;
+        info.proxy_curve = frame_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
         info.exposure_scale = color_contract.exposure_scale;
@@ -9238,59 +10323,65 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const unsigned int resolved_model_height = model_height != 0
         ? model_height : height;
     CodecConstants constants = {
-        width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
+        width, height, frame_config.proxy_scale, ActiveTransferStrength(frame_config),
         color_contract.source_to_canonical, effective_color_strength,
-        g_config.max_luma_ratio, codec_flags,
+        frame_config.max_luma_ratio, codec_flags,
         source_base_x, source_base_y,
         destination_base_x, destination_base_y,
         0, 0, 0, 0, color_contract.pre_exposure,
         f8_armed ? f8_info.stride : capture_stages ? slot.stage_capture.info.stride : 0u,
         resolved_source_width, resolved_source_height,
         resolved_model_width, resolved_model_height,
-        any_combine ? g_config.lighting_lock : 0.0f,
-        v2_combine ? g_config.edge_guard : 0.0f,
-        g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
-        v2_combine ? g_config.detail_stability : 0.0f,
+        any_combine ? frame_config.lighting_lock : 0.0f,
+        v2_combine ? frame_config.edge_guard : 0.0f,
+        frame_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
+        v2_combine ? frame_config.detail_stability : 0.0f,
         f8_armed?f8_info.region_x:0u,f8_armed?f8_info.region_y:0u,
         f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u,
-        v2_combine ? g_config.layer_tone : 1.0f,
-        v2_combine ? g_config.layer_structure : 1.0f,
-        v2_combine ? g_config.layer_bright : 1.0f,
-        v2_combine ? g_config.layer_shadow : 1.0f,
-        light_style_active ? g_config.light_broad : 1.0f,
-        light_style_active ? g_config.light_dark : 1.0f,
-        light_style_active ? g_config.light_reflection : 1.0f,
-        light_style_active ? g_config.light_structure : 1.0f,
-        light_style_active ? g_config.light_glow : 0.0f,
-        light_style_active ? g_config.light_preview : 0u,
-        any_combine && slot.face_mask && g_config.face_protection
-            ? 1u | (g_config.face_protection && g_config.face_extra_cap?2u:0u) | (g_config.face_preview?4u:0u) : 0u,
-        g_config.face_protection?g_config.face_original_luma:0.f,
-        g_config.face_protection?g_config.face_original_color:0.f};
-    if(!g_config.generic_residual && any_combine && g_config.region_enabled && slot.region_recorded){
-        std::copy(g_config.region_gains,g_config.region_gains+11,constants.region_gains);
-        constants.region_flags=1u|(g_config.region_preview<<1)|((slot.region_constants[6]&16u)?16u:0u);
+        v2_combine ? frame_config.layer_tone : 1.0f,
+        v2_combine ? frame_config.layer_structure : 1.0f,
+        v2_combine ? frame_config.layer_bright : 1.0f,
+        v2_combine ? frame_config.layer_shadow : 1.0f,
+        light_style_active ? frame_config.light_broad : 1.0f,
+        light_style_active ? frame_config.light_dark : 1.0f,
+        light_style_active ? frame_config.light_reflection : 1.0f,
+        light_style_active ? frame_config.light_structure : 1.0f,
+        light_style_active ? frame_config.light_glow : 0.0f,
+        light_style_active ? frame_config.light_preview : 0u,
+        any_combine && slot.face_mask && frame_config.face_protection
+            ? 1u | (frame_config.face_protection && frame_config.face_extra_cap?2u:0u) | (frame_config.face_preview?4u:0u) : 0u,
+        frame_config.face_protection?frame_config.face_original_luma:0.f,
+        frame_config.face_protection?frame_config.face_original_color:0.f};
+    if(!frame_config.generic_residual && any_combine && frame_config.region_enabled && slot.region_recorded){
+        std::copy(frame_config.region_gains,frame_config.region_gains+11,constants.region_gains);
+        constants.region_flags=1u|(frame_config.region_preview<<1)|((slot.region_constants[6]&16u)?16u:0u);
     }
-    if(slot.dual_selected){constants.dual_low_width=slot.dual_low_width;constants.dual_low_height=slot.dual_low_height;constants.dual_residual=slot.dual_reduced?1u:0u;constants.dual_model_domain=slot.dual_model_domain;}
-    if(g_config.generic_residual){
+    if(!primary_heap&&slot.dual_selected){constants.dual_low_width=slot.dual_low_width;constants.dual_low_height=slot.dual_low_height;constants.dual_residual=slot.dual_reduced?1u:0u;constants.dual_model_domain=slot.dual_model_domain;}
+    if(frame_config.generic_residual){
         // Exclusive parameter bank: generic uses 5 floats, region uses 11.
-        std::copy(g_config.generic_gains,g_config.generic_gains+5,constants.region_gains);
+        std::copy(frame_config.generic_gains,frame_config.generic_gains+5,constants.region_gains);
         constants.region_flags=32u;
     }
-    if(any_combine)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
+    constants.region_flags |= reconstruction.flags;
+    if(any_combine&&!primary_heap)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
-    if(any_combine)nr_dual_capture::Composition(slot.dual_capture_index,&constants,
+    if(any_combine&&!primary_heap)nr_dual_capture::Composition(slot.dual_capture_index,&constants,
         kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
-    if(any_combine)nr_fg_capture::Composition(&constants,kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
+    if(any_combine&&!primary_heap)nr_fg_capture::Composition(&constants,kCodecRootConstantCount,codec_flags,v2_combine?2u:1u);
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12PipelineState* selected_pipeline=pipeline;
     if(constants.face_options&1u)selected_pipeline=v2_combine?g_codec.combine_v2_face:g_codec.combine_face;
-    if(slot.dual_selected&&slot.dual_reduced)selected_pipeline=nr_dual_runtime::CodecPipeline(selected_pipeline,(constants.face_options&1u)!=0u,slot.dual_model_domain);
+    if(!primary_heap&&slot.dual_selected&&slot.dual_reduced)selected_pipeline=nr_dual_runtime::CodecPipeline(selected_pipeline,(constants.face_options&1u)!=0u,slot.dual_model_domain);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, selected_pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8,
         ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
+    if(primary_heap)return; // P1 never updates final-output diagnostics.
+    if (pipeline == g_codec.encode)
+        slot.colour_restore_encoding = {nr_colour_restore::Encoding::Post, slot.last_used_serial, prepared_input_curve, 0};
+    else if (pipeline == g_codec.encode_v2 || pipeline == g_codec.lanczos_vertical)
+        slot.colour_restore_encoding = {nr_colour_restore::Encoding::V2, slot.last_used_serial, prepared_input_curve, prepared_scaled_proxy_mode};
     if (any_combine) {
         g_face_capture_geometry = {width, height, source_base_x, source_base_y,
             destination_base_x, destination_base_y,
@@ -9325,7 +10416,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
             evidence.frame=slot.diagnostic_identity.frame_id;
             evidence.config=g_config_generation.load(std::memory_order_relaxed);
             evidence.feature=slot.diagnostic_feature_generation;
-            evidence.target=target;evidence.mode=g_config.mode;
+            evidence.target=target;evidence.mode=frame_config.mode;
             evidence.before=static_cast<unsigned>(before);
             evidence.read_state=static_cast<unsigned>(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             evidence.after=static_cast<unsigned>(slot.result_state);
@@ -9371,7 +10462,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         metadata.interval_samples=nr_store_comparison::Unorm(NrStoreDiagnosticFormat(slot.result_uav_format))
             ? nr_store_comparison::PlannedSamples(width,height):0;
         metadata.feature_generation=slot.diagnostic_feature_generation;
-        metadata.mode=g_config.mode;
+        metadata.mode=frame_config.mode;
         metadata.source_physical=static_cast<unsigned>(slot.source_format);
         metadata.source_view=static_cast<unsigned>(slot.source_srv_format);
         metadata.result_physical=static_cast<unsigned>(slot.result_format);
@@ -9917,7 +11008,7 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     const unsigned int available_height = motion_desc.Height > s.motion_y
         ? motion_desc.Height - s.motion_y : 0;
     if ((feature.create_flags & 2) == 0) {
-        if (mode == 2) {
+        if (mode == 2 || mode == 1) {
             ID3D12Resource *output = nullptr;
             unsigned int output_x = 0, output_y = 0;
             unsigned int output_width = 0, output_height = 0;
@@ -9948,7 +11039,7 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
             s.motion_source_height = height;
         }
     }
-    if (mode == 2 && (s.motion_source_width != width ||
+    if ((mode == 2 || mode == 1) && (s.motion_source_width != width ||
                        s.motion_source_height != height))
         s.resample_motion = true;
     s.motion_bound_width = s.resample_motion ? width : s.motion_source_width;
@@ -9992,9 +11083,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     // Spatial resampling preserves values; this is the single value-unit
     // conversion to NR working pixels. The post generator applies it to mode 1
     // too; the historical base mode 1 remains unchanged. See the guide audit.
-    const float source_to_work_x = mode == 2 && guide_width != 0
+    const float source_to_work_x = (mode == 2 || mode == 1) && guide_width != 0
         ? static_cast<float>(width) / guide_width : 1.0f;
-    const float source_to_work_y = mode == 2 && guide_height != 0
+    const float source_to_work_y = (mode == 2 || mode == 1) && guide_height != 0
         ? static_cast<float>(height) / guide_height : 1.0f;
     s.motion_scale_x *= source_to_work_x;
     s.motion_scale_y *= source_to_work_y;
@@ -10343,6 +11434,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     context.diagnostic_reset_requested = reset_requested;
     context.diagnostic_warmup_reset = warmup_reset;
     context.diagnostic_reset_reasons = diagnostic_reset_reasons;
+    context.observed_delayed_exposure_reset=delayed_texture_reset;
     slot.capture_params.reset = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.
     // Only a successful Evaluate is allowed to consume a requested Reset.
@@ -10685,6 +11777,11 @@ bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& s
     slot.temporal_guide_recorded=true;return true;
 }
 #endif
+
+#include "nr_temporal_runtime.inl"
+#include "nr_private_sr_product.inl"
+#include "nr_spatial_experiment_runtime.inl"
+bool CoverPrivateShutdownDomain();
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
@@ -11275,6 +12372,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                   slot->codec_color_mode, render_width, render_height,
                   width, height, slot->suppress_transfer_this_frame ? 0.0f : 1.0f);
     UavBarrier(command_list, slot->result);
+    auto temporal=nr_temporal::PrepareForRoute(nr_temporal_route::Entry::PreSr,
+        command_list,*context,*slot,guides,feature,render_width,render_height,color_x,color_y,
+        false,&color_contract);
+    if(!nr_temporal::Record(command_list,*context,*slot,temporal)){
+        substitution.fatal_recording=0xBAD00005u;return substitution;
+    }
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
@@ -11318,6 +12421,8 @@ void RestoreSubstitution(Substitution &substitution) {
 }
 
 struct PostSrSubstitution {
+    unsigned private_sr_capture=0;
+    bool temporal_motion_snapshot=false;
     bool opaque_failure_is_fatal=false;
     nr_native_clear::Receipt prepared_clear_request;
     nr_native_clear::Invocation current_clear_request;
@@ -11334,6 +12439,7 @@ struct PostSrSubstitution {
     unsigned int output_base_y = 0;
     unsigned int width = 0;
     unsigned int height = 0;
+    unsigned int work_width = 0, work_height = 0;
     nr_post_boundary::Native native_boundary;
     nr_post_boundary::ObservationTicket boundary_ticket;
     unsigned int guide_width = 0;
@@ -11404,9 +12510,15 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     if(nr_processing_runtime::PresentSelected() || !nr_compat_present_runtime::InlineDrainReady())return substitution;
     if (!nr_source_runtime::InlineAllowed(1)){nr_processing_runtime::BlockSource();return substitution;}
     if (!g_config.enabled ||
-        !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
+        !(nr_post_compat::IsPost(feature.feature_id, g_config.mode, nr_post_settings::Read().rr) || (compatibility_fallback && g_config.mode == 2 && feature.feature_id == 1)) ||
         command_list == nullptr || sr_params == nullptr) return substitution;
 
+    if (feature.feature_id == 13 && feature.rr_depth_type != 1 && feature.rr_depth_type != 0) {
+        static unsigned depth_declines = 0;
+        if (++depth_declines <= 3) Log("RR post depth type=%d has an unknown depth declaration; native RR retained. F8 TXT for BUG feedback.", feature.rr_depth_type);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        return substitution;
+    }
     ID3D12Resource *output = nullptr;
     if (!GetResource(sr_params, "Output", &output) || output == nullptr)
         return substitution;
@@ -11521,20 +12633,19 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         static unsigned int logged_post_color_contracts = 0;
         ++logged_post_color_contracts;
         if (logged_post_color_contracts <= 3) {
-            const bool color_follow_active =
-                IsUnityExposureContract(color_contract);
-            Log("Post-SR FP16 color-follow contract: requested=%.3f "
-                "effective=%.3f preExposure=%.6f exposureScale=%.6f "
-                "exposureTexture=%d. %s",
-                static_cast<double>(g_config.color_strength),
-                static_cast<double>(color_follow_active
-                    ? g_config.color_strength : 0.0f),
+            const bool verified_exposure = IsUnityExposureContract(color_contract);
+            const bool colour_allowed = nr_colour_lab::AllowHdrColour(
+                g_config.colour_lab_mode, g_config.allow_unverified_hdr_color, verified_exposure);
+            Log("Post-SR FP16 color-follow admission: requested=%.3f "
+                "colourAllowed=%d mode=%s legacyRequest=%d verifiedExposure=%d "
+                "preExposure=%.6f exposureScale=%.6f exposureTexture=%d. "
+                "Final consumer strength is reported by ColorDiag.",
+                static_cast<double>(g_config.color_strength), colour_allowed ? 1 : 0,
+                nr_colour_lab::Name(g_config.colour_lab_mode),
+                g_config.allow_unverified_hdr_color ? 1 : 0, verified_exposure ? 1 : 0,
                 static_cast<double>(color_contract.pre_exposure),
                 static_cast<double>(color_contract.exposure_scale),
-                color_contract.exposure_texture != nullptr ? 1 : 0,
-                color_follow_active
-                    ? "Bounded RGB ratios will follow NR chroma while preserving NR luminance."
-                    : "The current non-unity exposure contract remains luminance-only.");
+                color_contract.exposure_texture != nullptr ? 1 : 0);
         }
     }
     ID3D12Device *device = nullptr;
@@ -11598,8 +12709,13 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     const CodecColorMode post_sr_color_mode =
         PostSrCodecColorMode(storage_contract);
     BeginPipelineStatsScopeLocked(feature.generation, 1);
+    const auto requested_work = nr_post_compat::Work({width,height},nr_post_settings::Read().percent);
+    unsigned int work_width = requested_work.work.w, work_height = requested_work.work.h;
+    if (!work_width || !work_height) { ReleaseCom(device); return substitution; }
+    if (requested_work.scaled)
+        SelectAlignedWorkExtent(work_width,work_height,width,height,work_width,work_height);
     NrGuideBinding guides = {};
-    if (!ResolveNrGuideBinding(sr_params, feature, 1, width, height,
+    if (!ResolveNrGuideBinding(sr_params, feature, 1, work_width, work_height,
                                guide_width, guide_height, output,
                                output_x, output_y, post_sr_color_mode, guides)) {
         ReleaseCom(device);
@@ -11611,8 +12727,20 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::RayReconstructionGuard);
         ReleaseCom(device);return substitution;
     }
+    // SR/RR colour is already reconstructed. Preserve the captured native
+    // input jitter for diagnostics; the new colour grid has zero sample jitter.
+    // Native depth remains on its declared R grid. Motion carries its explicit
+    // native convention; phase-sensitive games still require runtime checks.
+    guides.jitter.known = true;
+    guides.jitter.x = guides.jitter.y = 0.0f;
+    guides.jitter.source_x = guides.jitter.source_y = 0.0f;
+    guides.jitter.valid_x = guides.jitter.valid_y = true;
+    guides.jitter.source_width = width; guides.jitter.source_height = height;
+    guides.jitter.scale_x = static_cast<float>(work_width)/width;
+    guides.jitter.scale_y = static_cast<float>(work_height)/height;
+    guides.jitter_offset_x = guides.jitter_offset_y = 0.0f;
     NrContext *context = FindOrCreateContext(
-        sr_handle, feature.generation, 1, width, height,
+        sr_handle, feature.generation, 1, work_width, work_height,
         post_sr_color_mode, guides.signature, UsePeakShoulder(post_sr_color_mode,
             (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
     if (context == nullptr) {
@@ -11646,6 +12774,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_spatial_experiment::PrepareForPost(*context,*slot,width,height,output_x,output_y);
     slot->edit_field_recorded=false;slot->edit_horizontal_recorded=false;
     const bool post_color_field=g_config.low_grid_color_edit_field;
     const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
@@ -11666,6 +12795,16 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     substitution.dual_prepared=nr_dual_runtime::Prepare(device,command_list,*context,*slot,sr_params,feature,
         guide_width,guide_height,output,output_x,output_y,post_sr_color_mode);
+    if (guides.signature.resample_motion &&
+        !EnsureMotionProxy(device,*slot,guides.motion,work_width,work_height)) {
+        ReleaseCom(device); return substitution;
+    }
+    bool temporal_motion_ready=false;
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    if(g_config.enabled&&g_config.temporal_backend==1)
+        temporal_motion_ready=PrepareNativeTemporalGuideSnapshot(device,command_list,*slot,guides,feature,sr_params,
+            work_width,work_height,width,height);
+#endif
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (!NrRecoveryMayRecord(*slot)) {
         ReleaseCom(device);
@@ -11675,6 +12814,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    nr_acceptance_gpu::ReachPrepare();
+    nr_acceptance_gpu::Prepare(device,*slot,command_list,context->width,context->height,width,height);
     nr_binding::DescriptorSet rr_depth_bindings{};
     if(guides.signature.linear_depth) {
         rr_depth_bindings.Srv(0,guides.depth,static_cast<DXGI_FORMAT>(guides.signature.depth_format));
@@ -11684,15 +12825,27 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     // Region-only failure may retain the existing ordinary composition fallback.
     // A depth conversion must never fall back to an unsealed mutable heap.
     if(guides.signature.linear_depth && !primary_bindings_ready) {
+        nr_acceptance_gpu::DiscardPrepared(*slot);
         RejectRrDepth(RrDepthReject::DispatchBinding);
         g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         ReleaseCom(device);return substitution;
     }
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
+        nr_acceptance_gpu::DiscardPrepared(*slot);
         ReleaseCom(device);
         return substitution;
     }
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    if(temporal_motion_ready)substitution.temporal_motion_snapshot=RecordNativeTemporalGuideSnapshot(command_list,*slot);
+#else
+    (void)temporal_motion_ready;
+#endif
+    nr_acceptance_gpu::Bind(command_list,*slot);
+    nr_acceptance_gpu::Stamp(command_list,*slot,0);
+    if(slot->result_format==DXGI_FORMAT_R16G16B16A16_FLOAT)
+        substitution.private_sr_capture=nr_post_product::Capture(command_list,device,*context,sr_handle,sr_params,feature,
+            guides,post_sr_color_mode,guide_width,guide_height,work_width,work_height,width,height);
     nr_regions::Dispatch(command_list,*slot,false);
     ReleaseCom(device);
 
@@ -11705,6 +12858,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.output_base_y = output_y;
     substitution.width = width;
     substitution.height = height;
+    substitution.work_width = work_width;
+    substitution.work_height = work_height;
     substitution.guide_width = guide_width;
     substitution.guide_height = guide_height;
     substitution.color_contract = color_contract;
@@ -11720,6 +12875,37 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
                                             std::memory_order_relaxed);
     SetBypassReason(BypassReason::None);
     return substitution;
+}
+
+
+void RecordPostNrFields(ID3D12GraphicsCommandList* command_list,NrContext& context,NrSlot& slot,
+    const FeatureRecord& feature,const ColorContract& color_contract,unsigned width,unsigned height,
+    ID3D12DescriptorHeap* primary_heap=nullptr){
+    const bool post_color_field=g_config.low_grid_color_edit_field;
+    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
+    const DXGI_FORMAT post_field_format=post_color_field?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+    if(post_field_requested && slot.edit_field && ID3D12Resource_GetDesc(slot.edit_field).Format==post_field_format &&
+       ID3D12Resource_GetDesc(slot.edit_field).Width==context.width && ID3D12Resource_GetDesc(slot.edit_field).Height==context.height &&
+       (post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field)) {
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,slot,post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field,
+            context.width,context.height,color_contract,(feature.create_flags&1)!=0,0,0,0,0,
+            slot.codec_color_mode,width,height,context.width,context.height,1.0f,1,primary_heap);
+        UavBarrier(command_list,slot.edit_field);
+        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        slot.edit_field_recorded=true;
+        if(!post_color_field && g_config.catmull_edit_restore && slot.edit_horizontal &&
+           ID3D12Resource_GetDesc(slot.edit_horizontal).Width==width && ID3D12Resource_GetDesc(slot.edit_horizontal).Height==context.height &&
+           g_codec.restore_edit_horizontal) {
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            DispatchCodec(command_list,slot,g_codec.restore_edit_horizontal,width,height,color_contract,
+                (feature.create_flags&1)!=0,0,0,0,0,slot.codec_color_mode,width,height,context.width,context.height,1.0f,1,primary_heap);
+            UavBarrier(command_list,slot.edit_horizontal);
+            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            slot.edit_horizontal_recorded=true;
+        }
+    }
+    nr_regions::Dispatch(command_list,slot,true,primary_heap!=nullptr);
 }
 
 void RestorePostSrParameters(PostSrSubstitution &substitution) {
@@ -11826,10 +13012,12 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     NrSlot &slot = *substitution.slot;
     struct TimingEnd {
         ID3D12GraphicsCommandList* list;NrSlot& slot;bool visible=false,safe=true;
-        ~TimingEnd(){if(safe)nr_dual_runtime::ResolveTiming(list,slot,visible);}
+        ~TimingEnd(){if(safe){nr_acceptance_gpu::Finish(list,slot,visible);nr_dual_runtime::ResolveTiming(list,slot,visible);}}
     } timing{command_list,slot};
     const unsigned int width = substitution.width;
     const unsigned int height = substitution.height;
+    const unsigned int work_width = substitution.work_width;
+    const unsigned int work_height = substitution.work_height;
     // Use the exact scalar exposure snapshot captured before the game's SR
     // call.  Re-reading mutable parameters afterwards could otherwise encode
     // and combine with different exposure generations.
@@ -11850,13 +13038,22 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    if (substitution.guides.signature.resample_motion) {
+        const auto &motion = substitution.guides.signature;
+        Transition(command_list,slot.motion_proxy,slot.motion_proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchMotionResample(command_list,slot,work_width,work_height,
+            motion.motion_source_width,motion.motion_source_height,motion.motion_x,motion.motion_y);
+        UavBarrier(command_list,slot.motion_proxy);
+        Transition(command_list,slot.motion_proxy,slot.motion_proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
     Transition(command_list, slot.source, slot.source_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(command_list, slot.proxy, slot.proxy_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    DispatchCodec(command_list, slot, g_codec.encode, width, height,
+    DispatchCodec(command_list, slot, g_codec.encode, work_width, work_height,
                   color_contract, (feature.create_flags & 1) != 0,
-                  0, 0, 0, 0, slot.codec_color_mode);
+                  0, 0, 0, 0, slot.codec_color_mode, width, height,
+                  work_width, work_height, 1.0f, 1);
     UavBarrier(command_list, slot.proxy);
     Transition(command_list, slot.proxy, slot.proxy_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -11879,7 +13076,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     const bool first = context.nr_handle == nullptr;
     if (!BindNrParameters(context, slot, substitution.guides, feature,
-                          width, height, color_contract, first)) {
+                          work_width, work_height, color_contract, first, slot.motion_proxy)) {
         NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::ParameterBinding, false);
         PreservePostSrOnFailure(command_list, substitution);
         return false;
@@ -11897,7 +13094,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         context.nr_handle = static_cast<NgxHandle *>(handle);
         Log("post-SR signed feature 18 create %ux%u guides=%ux%u "
             "result=0x%08X(%s) handle=%p",
-            width, height, substitution.guide_width, substitution.guide_height,
+            work_width, work_height, substitution.guide_width, substitution.guide_height,
             created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
             if(substitution.opaque_failure_is_fatal){
@@ -11971,11 +13168,12 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     const auto boundary_identity=g_applied_nr_identity;
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
-    g_last_nr_width.store(width, std::memory_order_relaxed);
-    g_last_nr_height.store(height, std::memory_order_relaxed);
+    g_last_nr_width.store(work_width, std::memory_order_relaxed);
+    g_last_nr_height.store(work_height, std::memory_order_relaxed);
     g_last_nr_render_width.store(width, std::memory_order_relaxed);
     g_last_nr_render_height.store(height, std::memory_order_relaxed);
-    g_last_nr_linear_scale.store(1.0f, std::memory_order_relaxed);
+    g_last_nr_linear_scale.store(static_cast<float>(std::sqrt(
+        double(work_width)*work_height/(double(width)*height))), std::memory_order_relaxed);
     UavBarrier(command_list, slot.neural);
     Transition(command_list, slot.neural, slot.neural_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -11998,36 +13196,34 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,context,slot,substitution.dual_prepared,feature,color_contract);
     if(substitution.fatal_recording){timing.safe=false;return false;}
     nr_dual_runtime::Stamp(command_list,slot,6);
-    const bool post_color_field=g_config.low_grid_color_edit_field;
-    const bool post_field_requested=(g_config.low_grid_edit_field && g_config.color_strength<=0.000001f)||post_color_field;
-    const DXGI_FORMAT post_field_format=post_color_field?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
-    if(post_field_requested && slot.edit_field && ID3D12Resource_GetDesc(slot.edit_field).Format==post_field_format &&
-       ID3D12Resource_GetDesc(slot.edit_field).Width==context.width && ID3D12Resource_GetDesc(slot.edit_field).Height==context.height &&
-       (post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field)) {
-        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        DispatchCodec(command_list,slot,post_color_field?g_codec.build_color_edit_field:g_codec.build_edit_field,
-            context.width,context.height,color_contract,(feature.create_flags&1)!=0,0,0,0,0,
-            slot.codec_color_mode,width,height,context.width,context.height);
-        UavBarrier(command_list,slot.edit_field);
-        Transition(command_list,slot.edit_field,slot.edit_field_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        slot.edit_field_recorded=true;
-        if(!post_color_field && g_config.catmull_edit_restore && slot.edit_horizontal &&
-           ID3D12Resource_GetDesc(slot.edit_horizontal).Width==width && ID3D12Resource_GetDesc(slot.edit_horizontal).Height==context.height &&
-           g_codec.restore_edit_horizontal) {
-            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            DispatchCodec(command_list,slot,g_codec.restore_edit_horizontal,width,height,color_contract,
-                (feature.create_flags&1)!=0,0,0,0,0,slot.codec_color_mode,width,height,context.width,context.height);
-            UavBarrier(command_list,slot.edit_horizontal);
-            Transition(command_list,slot.edit_horizontal,slot.edit_horizontal_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            slot.edit_horizontal_recorded=true;
-        }
+    // FinishAfterSr is reached for Feature13 only after ProcessRrPost's
+    // successful native result, generation and ownership checks.
+    const auto temporal_entry=feature.feature_id==13?nr_temporal_route::Entry::PostRr:nr_temporal_route::Entry::PostSr;
+    auto temporal=nr_temporal::PrepareForRoute(temporal_entry,command_list,context,slot,substitution.guides,feature,
+        width,height,substitution.output_base_x,substitution.output_base_y,substitution.temporal_motion_snapshot,&color_contract);
+    if(temporal && temporal.primary_heap){
+        RecordPostNrFields(command_list,context,slot,feature,color_contract,width,height,temporal.primary_heap);
+        DispatchCodec(command_list,slot,g_codec.combine,width,height,color_contract,false,
+            0,0,0,0,slot.codec_color_mode,width,height,work_width,work_height,1.0f,1,temporal.primary_heap);
+        UavBarrier(command_list,temporal.runtime->anchor());
+        temporal.inputs.anchor_source=temporal.inputs.frame.source;
     }
-    nr_regions::Dispatch(command_list,slot,true);
+    RecordPostNrFields(command_list,context,slot,feature,color_contract,width,height);
     DispatchCodec(command_list, slot, g_codec.combine, width, height,
                    color_contract, (feature.create_flags & 1) != 0,
                    0, 0, substitution.output_base_x,
-                   substitution.output_base_y, slot.codec_color_mode);
+                   substitution.output_base_y, slot.codec_color_mode, width, height,
+                   work_width, work_height, 1.0f, 1);
     UavBarrier(command_list, slot.result);
+    if(!nr_temporal::Record(command_list,context,slot,temporal)){
+        substitution.fatal_recording=0xBAD00005u;timing.safe=false;return false;
+    }
+    nr_spatial_experiment::Finish(command_list,context,slot,feature,width,height,
+        substitution.output_base_x,substitution.output_base_y);
+    if(!nr_post_product::Finish(command_list,context,slot,feature,substitution.private_sr_capture,
+                              width,height,substitution.output_base_x,substitution.output_base_y)){
+        substitution.fatal_recording=0xBAD00005u;timing.safe=false;return false;
+    }
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
     replay.Finish(command_list,context,slot,false);
@@ -12119,6 +13315,7 @@ bool NrAcquireSwapchainBuffer(reshade::api::swapchain* chain,unsigned index,ID3D
     return native&&SUCCEEDED(IDXGISwapChain_GetBuffer(native,index,IID_ID3D12Resource,reinterpret_cast<void**>(output)))&&*output;
 }
 #include "nr_source_frame_runtime.inl"
+#include "nr_native_output_capture_runtime.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -12506,7 +13703,12 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         submission_timing.EnterChain(&g_chain_cs);
         CompleteSubmissionBatchLocked(batch);
         submission_timing.LeaveChain(&g_chain_cs);
-    } else if (captured && batch.quarantine) {
+    } else if(captured&&batch.active) {
+        submission_timing.EnterChain(&g_chain_cs);
+        for(unsigned c=0;c<batch.context_count;++c)if(batch.contexts[c]&&batch.contexts[c]->private_sr)nr_post_product::Poison(*batch.contexts[c]);
+        submission_timing.LeaveChain(&g_chain_cs);
+    }
+    if (captured && batch.quarantine) {
         Log("Quarantined Execute batch was submitted and %s with an exact "
             "current-queue fence; dependencies remain pinned until process exit.",
             signaled ? "signaled" : "could not be signaled");
@@ -12565,6 +13767,7 @@ HRESULT ProcessCommandListReset(
     OnCommandStateResetResult(command_list, result, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
+        nr_acceptance_gpu::DiscardUnsubmitted(token);
         if (QuarantineUnsubmittedLifecycleRecordLocked(
                 token, "native Reset")) {
             LeaveCriticalSection(&g_chain_cs);
@@ -12679,6 +13882,8 @@ void PreflightFeature1LifecycleModules() {
 
 NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                      NgxParams *params, NgxHandle **out_handle) {
+    if(nr_post_product::PrivateCall())return g_original_create?g_original_create(command_list, feature_id, params, out_handle):0xBAD00005u;
+
     if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
         return CallNativeCreatePassThrough(
             g_original_create, command_list, feature_id, params, out_handle);
@@ -12726,6 +13931,7 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
         DumpCreate(params);
     }
     observed.Finish(result, handle, params);
+    nr_private_sr_core::SealCoreCreate(handle,result);
     if (creating_external_nr) --g_external_nr_creates;
     if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
         g_feature1_successful_creates.fetch_add(1);
@@ -12753,6 +13959,10 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
 
 NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                          NgxParams *params, NgxHandle **out_handle) {
+    if(nr_post_product::PrivateCall())return g_original_core_create?g_original_core_create(command_list, feature_id, params, out_handle):0xBAD00005u;
+    const bool private_domain_covered=CoverPrivateShutdownDomain();
+    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();
+
     if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
         return CallNativeCreatePassThrough(
             g_original_core_create, command_list, feature_id, params, out_handle);
@@ -12795,7 +14005,10 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
                               feature_id == 18 || result != kNgxSuccess)) {
         DumpCreate(params);
     }
+    if(result==kNgxSuccess&&handle&&private_domain_covered)
+        nr_private_sr_core::ObserveCoreCreate(command_list,feature_id,handle,result,private_domain_ticket);
     observed.Finish(result, handle, params);
+    nr_private_sr_core::SealCoreCreate(handle,result);
     if (creating_external_nr) --g_external_nr_creates;
     if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
         g_feature1_successful_creates.fetch_add(1);
@@ -12824,6 +14037,8 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
 NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
                           int feature_id, NgxParams *params,
                           NgxHandle **out_handle) {
+    if(nr_post_product::PrivateCall())return g_original_dlssd_create?g_original_dlssd_create(command_list, feature_id, params, out_handle):0xBAD00005u;
+
     if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
         return CallNativeCreatePassThrough(
             g_original_dlssd_create, command_list, feature_id, params, out_handle);
@@ -12867,6 +14082,7 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
         if (params != nullptr) DumpCreate(params);
     }
     observed.Finish(result, handle, params);
+    nr_private_sr_core::SealCoreCreate(handle,result);
     if (creating_external_nr) --g_external_nr_creates;
     if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
         g_feature1_successful_creates.fetch_add(1);
@@ -12897,6 +14113,10 @@ bool ShouldGuardFeature1ForRayReconstruction() {
            g_rr_ownership_gate_owner.load(std::memory_order_acquire) == 2;
 }
 
+#include "interop/nr_rr_depth_evidence.inl"
+#define NR_HAS_ACCEPTANCE 1
+#include "interop/nr_rr_post_runtime.inl"
+
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                           ID3D12GraphicsCommandList *command_list,
                           const NgxHandle *handle, const NgxParams *params,
@@ -12904,6 +14124,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     if(nr_dual_runtime::fatal_carrier.load(std::memory_order_acquire)==handle){
         const auto fatal=nr_dual_runtime::fatal_result.load(std::memory_order_acquire);if(fatal)return fatal;
     }
+    nr_acceptance_gpu::EntryScope acceptance_sr_entry(nr_acceptance_gpu::EntryRoute::Sr,
+        nr_acceptance::PerformanceActive() && IsUpscalingCarrierFeature(FindFeature(handle).feature_id));
     // A disabled add-on must be indistinguishable from an unloaded add-on on
     // the hot NGX path. Configuration polling happens from Present, so this
     // branch avoids parameter lookups, rendering locks, instrumentation and
@@ -12915,6 +14137,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
+        if(acceptance_sr_entry.active)
+            acceptance_sr_entry.Decline(
+                nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0 || OtherNrOwnerActive()
+                    ?nr_acceptance_gpu::PreReason::Owner:
+                g_module_rescan_in_progress.load(std::memory_order_acquire) ||
+                g_evaluate_target_overflow.load(std::memory_order_acquire) ||
+                g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
+                g_nr_failed_create_process_latched.load(std::memory_order_acquire)
+                    ?nr_acceptance_gpu::PreReason::Lifecycle:nr_acceptance_gpu::PreReason::Route);
         if (!g_enabled_fast.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::MasterDisabled);
         else if (nr_external_provider_feedback::owner_provider_id.load(std::memory_order_acquire)!=0)
@@ -12933,6 +14164,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 
     const unsigned long long all = ++g_all_evaluations;
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
         SetBypassReason(g_module_observer_gap_detected.load(
                             std::memory_order_acquire)
             ? BypassReason::ModuleObserverUncertain
@@ -12941,20 +14173,12 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     const FeatureRecord feature = FindFeature(handle);
     if (feature.pending || feature.retiring) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
         SetBypassReason(BypassReason::LifecycleIsolation);
         return original(command_list, handle, params, callback);
     }
     if (feature.feature_id == 13) {
-        SetBypassReason(BypassReason::RayReconstructionGuard);
-        g_last_carrier_feature.store(13, std::memory_order_relaxed);
-        g_rr_guard_was_active.store(true, std::memory_order_relaxed);
-        const unsigned long long rr = ++g_rr_passthrough_evaluations;
-        if (rr <= 3 || (rr % 600) == 0) {
-            Log("Ray Reconstruction Feature 13 evaluate #%llu passed through "
-                "strictly unmodified; Feature 18 and texture substitution are "
-                "disabled for the RR path.", rr);
-        }
-        return original(command_list, handle, params, callback);
+        return ProcessRrPost(original,command_list,handle,params,callback,feature);
     }
     if (!IsUpscalingCarrierFeature(feature.feature_id) || params == nullptr) {
         return original(command_list, handle, params, callback);
@@ -12973,6 +14197,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
     if (ShouldGuardFeature1ForRayReconstruction()) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Owner);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
@@ -13036,6 +14261,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // and proceeds without blocking, avoiding an external cross-thread cycle.
     ScopedRrOwnershipGate rr_transaction(true, true, true);
     if (rr_transaction.acquisition_failed()) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Owner);
         const int gate_owner =
             g_rr_ownership_gate_owner.load(std::memory_order_acquire);
         if (gate_owner == 1) {
@@ -13066,11 +14292,13 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
         SetBypassReason(BypassReason::LifecycleIsolation);
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (ShouldGuardFeature1ForRayReconstruction()) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Owner);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
@@ -13144,6 +14372,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     NativeCommandStateScope before_state(command_list);
     if (!before_state.active) {
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Lifecycle);
         // Neither inline boundary can restore this list. Present must independently
         // prove its own source, queue and completion before doing any work.
         if(nr_processing_runtime::Effective()==nr_processing::Start::Before)
@@ -13154,6 +14383,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     NrRecoveryCommandObserved();
+    PrimeNativeOutputCapture(before_state.command_list);
     Substitution before_sr{};
     PostSrSubstitution after_sr{};
     const auto prepare_before = [&] { return PrepareBeforeSr(before_state.command_list, handle, params, feature); };
@@ -13185,6 +14415,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
         NrRouteAttemptPost();
 #endif
+        acceptance_sr_entry.Decline(nr_acceptance_gpu::PreReason::Unavailable);
         after_sr=PrepareAfterSr(before_state.command_list,handle,params,feature,compatibility_fallback);
 #if defined(NR_HAS_ROUTE_COMPATIBILITY)
         NrRoutePostPrepared(after_sr.active,after_sr.slot?after_sr.slot->recovery_token:nr_recovery::Token{});
@@ -13222,6 +14453,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     NrSlot* timed=before_sr.active?before_sr.timing_slot:after_sr.active?after_sr.slot:nullptr;
+    auto* native_output_capture=ArmNativeOutputCapture(before_state.command_list,params,feature,before_sr.active?before_sr.timing_slot:nullptr);
+    if(after_sr.active&&timed)nr_acceptance_gpu::Stamp(before_state.command_list,*timed,1);
     if(timed){if(after_sr.active)nr_dual_runtime::Stamp(before_state.command_list,*timed,10);nr_dual_runtime::Stamp(before_state.command_list,*timed,8);}
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     const bool trace_post_boundary=static_cast<bool>(after_sr.boundary_ticket);
@@ -13234,7 +14467,9 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     after_sr.native_boundary=native_output_trace.Finish();
 #endif
+    if(after_sr.active&&timed)nr_acceptance_gpu::Stamp(before_state.command_list,*timed,2);
     if(timed){nr_dual_runtime::Stamp(before_state.command_list,*timed,9);if(before_sr.active)nr_dual_runtime::ResolveTiming(before_state.command_list,*timed,result==kNgxSuccess);}
+    FinishNativeOutputCapture(before_state.command_list,params,result,native_output_capture);
     const bool used_before_sr = before_sr.active;
     const bool used_after_sr = after_sr.active;
     bool retried_original_color = false;
@@ -13242,6 +14477,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     RestorePostSrParameters(after_sr);
     if (rr_transaction.transaction_aborted() ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        if(used_after_sr)nr_acceptance_gpu::Abort(*after_sr.slot,"native-SR-transaction-aborted");
         Log("Modified Feature 1 transaction aborted after an RR ownership "
             "transition; substitutions were restored, retry/post-SR work is "
             "suppressed, and recorded dependencies are quarantined.");
@@ -13276,6 +14512,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                     if (compatibility_fallback) ++g_compat_fallback_recorded;
                 }
                 if(after_sr.fatal_recording){
+                    nr_acceptance_gpu::Abort(*after_sr.slot,"post-NR-fatal-before-finish");
                     after_state.AbandonAfterOpaqueFailure();
                     before_state.AbandonAfterOpaqueFailure();
                     LeaveCriticalSection(&g_chain_cs);rr_transaction.Release();return after_sr.fatal_recording;
@@ -13301,6 +14538,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         }
     }
 
+    if(used_after_sr)nr_acceptance_gpu::Abort(*after_sr.slot,
+        result!=kNgxSuccess?"native-SR-failed-before-finish":"post-NR-finish-unavailable");
     if (rr_transaction.transaction_aborted() ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
         Log("RR ownership changed while finalizing the modified Feature 1 "
@@ -13320,6 +14559,8 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
                            ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    if(nr_post_product::PrivateCall())return original(command_list,handle,params,callback);
+
     if (g_inside_ngx_evaluate) {
         const FeatureRecord nested_feature = FindFeature(handle);
         if (nested_feature.feature_id == 13)
@@ -13338,6 +14579,8 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
 #endif
     const auto source_feature=FindFeature(handle);
     nr_source_runtime::EvaluateScope source_scope(command_list,handle,params,source_feature);
+    if(nr_acceptance::Active() && source_feature.owner == NgxOwner::Game)
+        nr_acceptance::ObserveNativeSource(source_feature.feature_id, nr_source_runtime::CurrentSource());
     const NgxResult source_fatal=source_scope.FatalResult();
     const NgxResult result = source_fatal?source_fatal:ProcessEvaluate(
         original, command_list, handle, params, callback);
@@ -13365,6 +14608,8 @@ NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
 NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
                        const NgxHandle *handle, const NgxParams *params,
                        void *callback) {
+    if(nr_post_product::PrivateCall())return g_original_evaluate?g_original_evaluate(command_list, handle, params, callback):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Dlss);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
@@ -13396,6 +14641,8 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_evaluate, command_list, handle, params, callback);
     }
+    if (!g_inside_ngx_evaluate && observed_feature.owner == NgxOwner::Game)
+        nr_acceptance::ObserveNativeEntry(observed_feature.feature_id, observed_feature.generation);
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -13442,6 +14689,8 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_evaluate_c, command_list, handle, params, callback);
     }
+    if (!g_inside_ngx_evaluate && observed_feature.owner == NgxOwner::Game)
+        nr_acceptance::ObserveNativeEntry(observed_feature.feature_id, observed_feature.generation);
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -13454,6 +14703,8 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
 NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    if(nr_post_product::PrivateCall())return g_original_core_evaluate?g_original_core_evaluate(command_list, handle, params, callback):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Core);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
@@ -13491,6 +14742,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_core_evaluate, command_list, handle, params, callback);
     }
+    if (!g_inside_ngx_evaluate && observed_feature.owner == NgxOwner::Game)
+        nr_acceptance::ObserveNativeEntry(observed_feature.feature_id, observed_feature.generation);
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -13506,6 +14759,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
                             const NgxHandle *handle, const NgxParams *params,
                             void *callback) {
+    if(nr_post_product::PrivateCall())return g_original_dlssd_evaluate?g_original_dlssd_evaluate(command_list, handle, params, callback):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Dlssd);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
@@ -13543,6 +14798,8 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_dlssd_evaluate, command_list, handle, params, callback);
     }
+    if (!g_inside_ngx_evaluate && observed_feature.owner == NgxOwner::Game)
+        nr_acceptance::ObserveNativeEntry(observed_feature.feature_id, observed_feature.generation);
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -13559,6 +14816,8 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
 }
 
 NgxResult HookRelease(NgxHandle *handle) {
+    if(nr_post_product::PrivateCall())return g_original_release?g_original_release(handle):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Dlss);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
@@ -13568,6 +14827,7 @@ NgxResult HookRelease(NgxHandle *handle) {
         g_shortfuse_nr_enabled.load(std::memory_order_acquire))
         return g_original_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
+    nr_private_sr_core::ForgetParent(handle);
     const FeatureRecord feature = FindFeature(handle);
     ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
@@ -13591,10 +14851,10 @@ NgxResult HookRelease(NgxHandle *handle) {
             feature.feature_id, FeatureName(feature.feature_id));
     }
     if (result == kNgxSuccess || result == kNgxFeatureNotFound) {
-        // Only Feature 1 owns an NrContext. Auxiliary handle classification is
+        // Feature 1 and post-RR Feature 13 own NrContexts. Auxiliary classification is
         // observer bookkeeping and must not make a concurrent Feature 11
         // release contend with the render-chain critical section.
-        if (feature.feature_id == 1) {
+        if (feature.feature_id == 1 || feature.feature_id == 13) {
             QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
         ForgetObservedFeature(handle, feature.generation);
@@ -13612,6 +14872,8 @@ NgxResult HookRelease(NgxHandle *handle) {
 }
 
 NgxResult HookCoreRelease(NgxHandle *handle) {
+    if(nr_post_product::PrivateCall())return g_original_core_release?g_original_core_release(handle):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Core);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
@@ -13621,6 +14883,7 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
         g_shortfuse_nr_enabled.load(std::memory_order_acquire))
         return g_original_core_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
+    nr_private_sr_core::ForgetParent(handle);
     const FeatureRecord feature = FindFeature(handle);
     ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
@@ -13643,7 +14906,7 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
             feature.feature_id, FeatureName(feature.feature_id));
     }
     if (result == kNgxSuccess || result == kNgxFeatureNotFound) {
-        if (feature.feature_id == 1) {
+        if (feature.feature_id == 1 || feature.feature_id == 13) {
             QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
         ForgetObservedFeature(handle, feature.generation);
@@ -13661,6 +14924,8 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
 }
 
 NgxResult HookDlssdRelease(NgxHandle *handle) {
+    if(nr_post_product::PrivateCall())return g_original_dlssd_release?g_original_dlssd_release(handle):0xBAD00005u;
+
     ScopedNgxLayer observed_layer(NgxLayer::Dlssd);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
@@ -13670,6 +14935,7 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
         g_shortfuse_nr_enabled.load(std::memory_order_acquire))
         return g_original_dlssd_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
+    nr_private_sr_core::ForgetParent(handle);
     const FeatureRecord feature = FindFeature(handle);
     ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
@@ -13694,7 +14960,7 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
     }
     if ((result == kNgxSuccess || result == kNgxFeatureNotFound) &&
         feature.handle != nullptr) {
-        if (feature.feature_id == 1) {
+        if (feature.feature_id == 1 || feature.feature_id == 13) {
             QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
         ForgetObservedFeature(handle, feature.generation);
@@ -14143,17 +15409,36 @@ struct LoadedNgxModule {
     LoadedNgxModule &operator=(const LoadedNgxModule &) = delete;
 };
 
+using PrivateShutdown0=NgxResult(*)();
+using PrivateShutdown1=NgxResult(*)(ID3D12Device*);
+PrivateShutdown0 g_private_shutdown0[2]{};
+PrivateShutdown1 g_private_shutdown1[2]{};
+template<unsigned N> NgxResult HookPrivateShutdown0(){
+    {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::shutdown_inflight.fetch_add(1);nr_private_sr_core::InvalidateInit(nullptr);}
+    // No private call can enter the invalidated epoch. Forward without the API
+    // lock: native Shutdown may itself call a hooked release needing chain locks.
+    const auto result=g_private_shutdown0[N]?g_private_shutdown0[N]():0xBAD00005u;
+    nr_private_sr_core::shutdown_inflight.fetch_sub(1);return result;
+}
+template<unsigned N> NgxResult HookPrivateShutdown1(ID3D12Device* device){
+    {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::shutdown_inflight.fetch_add(1);nr_private_sr_core::InvalidateInit(device);}
+    const auto result=g_private_shutdown1[N]?g_private_shutdown1[N](device):0xBAD00005u;
+    nr_private_sr_core::shutdown_inflight.fetch_sub(1);return result;
+}
 void CoverNgxLifecycleAfterInit(const char *entry);
 
 NgxResult HookLoaderInit(unsigned long long application_id,
                          const wchar_t *application_data_path,
                          ID3D12Device *device, unsigned int sdk_version) {
+    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();
+
     const NgxResult result = g_original_loader_init(
         application_id, application_data_path, device, sdk_version);
     // The native call may load _nvngx.dll and nvngx_dlss.dll. Install their
     // lifecycle hooks only after it returns, outside the loader lock, and
     // before the game can issue its first CreateFeature.
     CoverNgxLifecycleAfterInit("D3D12_Init");
+    nr_private_sr_core::ObserveInit(device,result,nr_private_sr_core::DomainEvidence::OriginalInit,private_domain_ticket);
     return result;
 }
 
@@ -14161,9 +15446,12 @@ NgxResult HookLoaderInitExt(unsigned long long application_id,
                             const wchar_t *application_data_path,
                             ID3D12Device *device, unsigned int sdk_version,
                             const void *parameters) {
+    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();
+
     const NgxResult result = g_original_loader_init_ext(
         application_id, application_data_path, device, sdk_version, parameters);
     CoverNgxLifecycleAfterInit("D3D12_Init_Ext");
+    nr_private_sr_core::ObserveInit(device,result,nr_private_sr_core::DomainEvidence::OriginalInit,private_domain_ticket);
     return result;
 }
 
@@ -14174,10 +15462,13 @@ NgxResult HookLoaderInitProject(const char *project_id,
                                 ID3D12Device *device,
                                 const void *feature_info,
                                 unsigned int sdk_version) {
+    const auto private_domain_ticket=nr_private_sr_core::CaptureDomainTicket();
+
     const NgxResult result = g_original_loader_init_project(
         project_id, engine_type, engine_version, application_data_path,
         device, feature_info, sdk_version);
     CoverNgxLifecycleAfterInit("D3D12_Init_ProjectID");
+    nr_private_sr_core::ObserveInit(device,result,nr_private_sr_core::DomainEvidence::OriginalInit,private_domain_ticket);
     return result;
 }
 
@@ -14204,7 +15495,7 @@ bool PinHookAddress(const void *address, const char *name,
 // All entries are private to the startup worker, then the module-rescan lock.
 // Operation-specific lookup handles both orders of core/DLSSD forwarding and
 // prevents an Evaluate_C alias from being hooked twice.
-enum class NgxHookOperation { Release, Create, Evaluate, Init };
+enum class NgxHookOperation { Release, Create, Evaluate, Init, Shutdown };
 struct NgxHookTarget {
     NgxHookOperation operation = NgxHookOperation::Release;
     void *target = nullptr;
@@ -14212,7 +15503,7 @@ struct NgxHookTarget {
     bool published = false;
     bool queued = false;
 };
-NgxHookTarget g_ngx_hook_targets[16] = {};
+NgxHookTarget g_ngx_hook_targets[24] = {};
 std::size_t g_ngx_hook_target_count = 0;
 
 NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
@@ -14283,6 +15574,29 @@ void MarkNgxHooksPublished(bool initial_install) {
     }
 }
 
+bool InstallPrivateShutdownHooks(HMODULE module,unsigned index){
+    if(!module||index>1)return false;
+    void* a=reinterpret_cast<void*>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown"));
+    void* b=reinterpret_cast<void*>(GetProcAddress(module,"NVSDK_NGX_D3D12_Shutdown1"));
+    if(!a&&!b)return false;
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);bool queued=false;
+    const bool first=!a||QueueLateHook(NgxHookOperation::Shutdown,a,index?
+        reinterpret_cast<void*>(&HookPrivateShutdown0<1>):reinterpret_cast<void*>(&HookPrivateShutdown0<0>),
+        reinterpret_cast<void**>(&g_private_shutdown0[index]),"private SR Shutdown",queued);
+    const bool second=!b||QueueLateHook(NgxHookOperation::Shutdown,b,index?
+        reinterpret_cast<void*>(&HookPrivateShutdown1<1>):reinterpret_cast<void*>(&HookPrivateShutdown1<0>),
+        reinterpret_cast<void**>(&g_private_shutdown1[index]),"private SR Shutdown1",queued);
+    const bool applied=!queued||MH_ApplyQueued()==MH_OK;
+    if(applied)MarkNgxHooksPublished(false);
+    const bool covered=first&&second&&applied&&(!a||IsNgxHookPublished(NgxHookOperation::Shutdown,a))&&
+        (!b||IsNgxHookPublished(NgxHookOperation::Shutdown,b));
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);return covered;
+}
+bool CoverPrivateShutdownDomain(){
+    const auto loader=GetModuleHandleW(L"nvngx.dll"),core=GetModuleHandleW(L"_nvngx.dll");
+    const bool covered=core&&(!loader||InstallPrivateShutdownHooks(loader,0))&&InstallPrivateShutdownHooks(core,1);
+    nr_private_sr_core::shutdown_hooks_covered.store(covered);return covered;
+}
 bool InstallLoaderInitHooks(HMODULE loader) {
     if (loader == nullptr) return false;
     if (g_loader_init_hooks_ready.load(std::memory_order_acquire) &&
@@ -14769,6 +16083,7 @@ void CoverNgxLifecycleAfterInit(const char *entry) {
     // now fully published and the core can be covered before CreateFeature.
     if (loader_published || primary_covered)
         PollNgxLifecycleModules(true);
+    (void)CoverPrivateShutdownDomain();
     Log("[module] %s returned; primary=%d coreLoaded=%d coreLifecycle=%d "
         "observerFault=%s.", entry != nullptr ? entry : "D3D12 Init",
         primary_covered ? 1 : 0,
@@ -14811,6 +16126,7 @@ DWORD WINAPI HookWorker(void *) {
 
 #include "nr_compatibility_runtime.inl"
 #include "nr_runtime_identity.inl"
+namespace nr_acceptance { void Screenshot(reshade::api::effect_runtime*,const char*); }
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_feedback_core.inl"
@@ -14826,12 +16142,15 @@ nr_face_capture_geometry::View SnapshotFaceDiagnosticGeometry(
         GetTickCount64(), display_width, display_height);
 }
 }
+namespace nr_acceptance { bool Active(); bool PerformanceActive(); void ObserveNativeEntry(int,unsigned long long); void ObserveNativeSource(int,const nr_source_frame::Source&); }
 #include "nr_f8_sequence.inl"
+#include "nr_acceptance_gpu_timing.inl"
+#include "nr_acceptance_runtime.inl"
 
 void ToggleMasterFromHotkey() {
     ChainConfig next = SnapshotConfig();
     next.enabled = !next.enabled;
-    ApplyConfig(next, "F6");
+    ApplyConfig(next, "master-shortcut");
 }
 
 const char *ScreenshotStyleName(unsigned int style) {
@@ -14953,7 +16272,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
     static bool screenshot_key_was_down = false;
     static ULONGLONG last_screenshot_ms = 0;
-    static bool stage_key_was_down = false;
+    static nr_hotkeys::Edge image_edge;
     static ULONGLONG last_stage_request_ms = 0;
     if (!TryAcquireSRWLockExclusive(&screenshot_hotkey_lock)) return;
 
@@ -14967,25 +16286,22 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     const ULONGLONG now_ms = GetTickCount64();
     ObserveMenuTransition(runtime,now_ms);
 
-    static bool feedback_key_was_down = false;
-    static bool feedback_key_loaded=false;
-    if(!feedback_key_loaded){unsigned key=GetPrivateProfileIntW(L"NRBeforeSR",L"FeedbackVirtualKey",VK_F8,g_ini_path);
-        nr_f8::g_hotkey.store(nr_feedback_text::CoreHotkey(key));feedback_key_loaded=true;}
-    const SHORT f8_state = GetAsyncKeyState(static_cast<int>(nr_f8::g_hotkey.load()));
-    const bool feedback_down = (f8_state & 0x8000) != 0;
-    if (nr_shortcut::Pressed(f8_state, feedback_key_was_down)) {
-        nr_f8::RequestCore();
-        nr_f8::OpenWindow();
-        runtime->open_overlay(true, reshade::api::input_source::keyboard);
+
+    const auto shortcut_bindings=nr_hotkeys::published.load(std::memory_order_acquire);
+    static nr_hotkeys::Edge report_edge;
+    const auto report_key=nr_hotkeys::Key(shortcut_bindings,nr_hotkeys::Report);
+    const SHORT f8_state = report_key ? GetAsyncKeyState(static_cast<int>(report_key)) : 0;
+    if(report_edge.Press(report_key,f8_state)) {
+        nr_f8::RequestCore();nr_f8::OpenWindow();
+        runtime->open_overlay(true,reshade::api::input_source::keyboard);
     }
-    feedback_key_was_down = feedback_down;
     // Core feedback has no GPU-stage request and runs without eligible NR frames.
     QueueRuntimeStatus();
     EnterCriticalSection(&g_chain_cs);CollectF8GpuLocked();LeaveCriticalSection(&g_chain_cs);
-    const SHORT f7_state = GetAsyncKeyState(VK_F7);
-    const bool stage_key_is_down = (f7_state & 0x8000) != 0;
+    const auto image_key=nr_hotkeys::Key(shortcut_bindings,nr_hotkeys::Image);
+    const SHORT f7_state = image_key ? GetAsyncKeyState(static_cast<int>(image_key)) : 0;
     // Like '-', keep the transition fallback for short taps between Presents.
-    const bool stage_pressed = nr_shortcut::Pressed(f7_state, stage_key_was_down);
+    const bool stage_pressed = image_edge.Press(image_key,f7_state);
     if (stage_pressed && !nr_f8::IsActive() && now_ms - last_stage_request_ms >= 350) {
         last_stage_request_ms = now_ms;
         const bool accepted = nr_f8::RequestFullscreen();
@@ -14996,11 +16312,12 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         Log("[feedback] F7 image supplement request=%s; current-path capture with paired report; source domain and export status remain explicit in feedback.",
             accepted ? "accepted" : "busy");
     }
-    stage_key_was_down = stage_key_is_down;
+
     // Start after both shortcut handlers; even a single remaining Present can
     // queue the bounded core worker. The image coordinator waits for its pair.
     nr_core_feedback::Present(runtime);
     nr_f8::Present(runtime);
+    nr_acceptance::Present(runtime);
     PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
@@ -15090,6 +16407,8 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // SR wrapper. A one-second in-memory rescan records that transition and
     // installs any newly available lifecycle observers. It never scans disk.
     PollNgxLifecycleModules(false);
+    NrDx11DeploymentPoll(false);
+    NrRenderControlPoll();
     nr_source_runtime::PollStreamline();
     nr_fg_runtime::CollectRetired();
     nr_fg_capture::Collect();
@@ -15111,21 +16430,13 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // reference sampler alive while F6 is off and avoids counting engines that
     // submit more than one NGX evaluation per displayed frame.
     ObserveFrameCadence();
-    static bool f6_was_down = false;
+    static nr_hotkeys::Edge master_edge;
     static ULONGLONG last_f6_toggle_ms = 0;
-    const SHORT f6_state = GetAsyncKeyState(VK_F6);
-    const bool f6_is_down = (f6_state & 0x8000) != 0;
-    // A very short tap can start and finish between two Present callbacks. Use
-    // the transition bit as a fallback, while keeping the down-edge check for
-    // hosts that consume that bit before the addon sees it. The debounce also
-    // prevents one physical press from being handled by both paths.
-    const bool f6_pressed = nr_shortcut::Pressed(f6_state, f6_was_down);
-    const ULONGLONG now_ms = GetTickCount64();
-    if (f6_pressed && now_ms - last_f6_toggle_ms >= 250) {
-        last_f6_toggle_ms = now_ms;
-        ToggleMasterFromHotkey();
-    }
-    f6_was_down = f6_is_down;
+    const auto master_key=nr_hotkeys::Key(nr_hotkeys::Master);
+    const SHORT f6_state=master_key?GetAsyncKeyState(static_cast<int>(master_key)):0;
+    const bool f6_pressed=master_edge.Press(master_key,f6_state);
+    const ULONGLONG now_ms=GetTickCount64();
+    if(f6_pressed && now_ms-last_f6_toggle_ms>=250){last_f6_toggle_ms=now_ms;ToggleMasterFromHotkey();}
     UpdateEvaluateHookActivation();
     ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
@@ -15416,29 +16727,41 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
     const float nr_linear_scale =
         g_last_nr_linear_scale.load(std::memory_order_relaxed);
     if (width != 0 && height != 0 && nr_render_width != 0 && nr_render_height != 0) {
-        ImGui::Text(ui("Perfect chain: NR %ux%u -> render %ux%u -> SR output | %.0f%%",
-                       "完美链路：NR %u x %u -> 渲染 %u x %u -> SR 输出 | %.0f%%"),
+        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
+                       "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
                     width, height, nr_render_width, nr_render_height,
                     static_cast<double>(nr_linear_scale * 100.0f));
-    }
-    if (rr_protected) {
-        ImGui::Text("%s", ui(
-            "Protected game path: Ray Reconstruction ownership (Feature 13 pass-through)",
-            "受保护游戏链路：光线重构所有权（Feature 13 原样旁路）"));
-    } else if (carrier_feature == 1) {
-        ImGui::Text("%s", ui(
-            "Active game path: DLSS Super Resolution (Feature 1)",
-            "当前游戏链路：DLSS 超分（Feature 1）"));
-    } else {
         ImGui::TextDisabled("%s", ui(
-            "Active game path: waiting for DLSS Super Resolution",
-            "当前游戏链路：等待 DLSS 超分"));
+            "Last successful NR dimensions; may precede current mode/settings. Game R/O above is a separate observation.",
+            "最后一次 NR 成功时的尺寸，可能早于当前模式或设置；上方游戏 R/O 是独立观察。"));
+    }
+    if (scoped_mode == 1 || scoped_mode == 2) {
+        ImGui::Text("%s", scoped_mode == 1 ? ui(
+            "Observed scope: native SR/RR output -> NR -> output composition",
+            "已观察统计域：原生 SR/RR 输出 -> NR -> 输出合成") : ui(
+            "Observed scope: NR -> native SR -> output",
+            "已观察统计域：NR -> 原生 SR -> 输出"));
+        ImGui::Text(ui("Scope NR success / recorded / submitted: %llu / %llu / %llu",
+                       "统计域 NR 成功 / 录制 / 提交：%llu / %llu / %llu"),
+                    scoped_success, scoped_recorded, scoped_submitted);
+        ImGui::TextDisabled("%s", ui(
+            "Counters belong to the displayed historical scope. Recording/submission is not proof of GPU completion or visible effect.",
+            "计数属于显示的历史统计域；录制或提交不代表 GPU 完成或可见效果。"));
+    }
+    if (carrier_feature == 13 || rr_protected) {
+        ImGui::Text("%s", ui(
+            "Observed carrier/ownership: Ray Reconstruction (Feature 13); see post attempts and actual bypass reason.",
+            "已观察载体或所有权：光线重构（Feature 13）；请结合后置尝试与实际旁路原因。"));
+    } else if (carrier_feature == 1) {
+        ImGui::Text("%s", ui("Last observed carrier: DLSS Super Resolution (Feature 1)",
+                              "最后观察到的载体：DLSS 超分（Feature 1）"));
+    } else {
+        ImGui::TextDisabled("%s", ui("No identified SR/RR carrier observed yet",
+                                      "尚未观察到可识别的 SR/RR 载体"));
     }
     if (live_rr_handles != 0) {
-        ImGui::TextDisabled(
-            ui("Live RR handle(s): %u. Safety bypass remains until explicit Release or restart.",
-               "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
-            live_rr_handles);
+        ImGui::TextDisabled(ui("Live RR handles: %u; ownership alone does not establish post-NR activity.",
+                              "存活 RR 句柄：%u 个；所有权本身不代表后置 NR 已生效。"), live_rr_handles);
     }
     ImGui::SeparatorText(ui("Per-evaluation details", "单次评估细节"));
     {
@@ -15491,7 +16814,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
             "Restart the game and include nr-before-sr.log when reporting it.",
             "单次评估：安全跟踪状态不确定，本进程已禁用 Feature 18 并保留游戏原始 "
             "SR。请重启游戏；反馈时请附上 nr-before-sr.log。"));
-    } else if (rr_protected) {
+    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {
         ImGui::TextWrapped("%s", ui(
             "Last evaluation: Ray Reconstruction owns this process and is left completely "
             "untouched. Disable RR in-game; if the title retains its Feature 13 "
@@ -15773,6 +17096,16 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
 }
 
 #include "nr_compat_present_runtime.inl"
+namespace nr_acceptance {
+PresentCounters ReadPresentLocked() {
+    // The acceptance controller already holds g_chain_cs. Do not call Snapshot(),
+    // which acquires the same lock again.
+    const auto& o=nr_compat_present_runtime::observation;
+    return {nr_compat_present_runtime::stable_config,o.generation,o.completed_source,
+        o.submitted,o.completed,o.evaluated[0],o.attempted[0],o.timing_source,
+        o.reset_each_frame,o.timing_valid,o.total_ms};
+}
+}
 namespace nr_fg_capture {
 void Start(ID3D12GraphicsCommandList*,const nr_source_frame::Source&,NrContext&);
 void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
@@ -15781,19 +17114,22 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 #include "nr_fg_consumer.inl"
 #include "nr_fg_capture.inl"
 #include "interop/nr_external_provider_consumer.inl"
+#include "interop/nr_dx11_deployment.inl"
+#include "interop/nr_render_control.inl"
+#include "interop/nr_post_ui.inl"
 #include "nr_settings_ui.inl"
 
 } // namespace
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline21-uniform3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 13 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline21-uniform3 | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 13 (English UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -15938,3 +17274,5 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     }
     return TRUE;
 }
+
+#include "interop/nr_native_bridge_consumer.inl"

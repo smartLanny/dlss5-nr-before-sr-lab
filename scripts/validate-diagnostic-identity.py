@@ -38,6 +38,9 @@ harness = r'''
 #include <cstdio>
 #include "nr_guide_contract.h"
 #include "nr_jitter_status.h"
+#include "nr_source_frame.hpp"
+#include "nr_reset_observation.h"
+namespace nr_source_runtime { nr_source_frame::Source CurrentSource(){return {3,4,5};} }
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 TUNING
 IDENTITY
@@ -56,12 +59,17 @@ struct NrContext {
     bool diagnostic_reset_requested=false, reset_retry_pending=false;
     bool diagnostic_warmup_reset=false;
     unsigned diagnostic_reset_reasons=0;
+    unsigned layer_index=0,width=1920,height=1080,history_generation=5;
+    float last_source_to_canonical=1.25f;
+    bool observed_delayed_exposure_reset=false;
     bool lifecycle_dependencies_quarantined=false;
     NrTuningSignature tuning_signature{};
     NrGuideHistory guide_history{};
     int mode=2;
 };
 struct NrSlot {
+    bool acceptance_time_active=true,acceptance_time_pending=false;
+    NrDiagnosticIdentity acceptance_time_identity{};
     bool delta_stats_capture_armed=true;
     bool suppress_transfer_this_frame=false;
     struct { bool reset=false; } capture_params;
@@ -106,6 +114,7 @@ void SetInt(NgxParams* params,const char*,int value) { params->reset_value=value
 int BindReset(NrContext& context,bool config_changed,bool color_contract_reset=false,
               bool guide_reset=false,bool* suppressed=nullptr,bool placeholder=false) {
     bool reset=false; int game_reset=0;
+    const bool delayed_texture_reset=false;
     NrGuideSignature s{};s.rr_depth_placeholder=placeholder;
     const bool history_changed=config_changed;
     NrSlot slot{};
@@ -135,6 +144,12 @@ int main() {
     check(!a.reset_retry_pending && a.successful_evaluations_since_reset==1,"successful Reset starts since-reset count at one and consumes retry");
     check(slot.diagnostic_identity.instance_id==10 && slot.diagnostic_identity.config_generation==7 && slot.diagnostic_identity.since_reset==1 && !slot.diagnostic_identity.warmed_up,"armed diagnostic snapshots effective instance/config/warmup");
     check(slot.stage_capture.info.identity.frame_id==slot.diagnostic_identity.frame_id,"stage capture and statistics use identical successful-frame identity");
+    check(slot.acceptance_time_identity.frame_id==slot.diagnostic_identity.frame_id,"acceptance timing freezes the same successful-frame identity");
+    check(nr_reset_observation::counters.layers[0].last.instance==10 &&
+          nr_reset_observation::counters.layers[0].last.stream==3 &&
+          nr_reset_observation::counters.layers[0].last.epoch==4 &&
+          nr_reset_observation::counters.layers[0].last.source_frame==5,
+          "successful evaluation records the current source identity");
     auto captured=slot.diagnostic_identity;
     g_config_generation.store(99); a.tuning_signature.style=2; a.tuning_signature.intensity=2;
     check(slot.diagnostic_identity.config_generation==7 && slot.diagnostic_identity.tuning.style==1 && slot.diagnostic_identity.tuning.intensity==1,"completed slot snapshot survives later requested config/tuning edits");

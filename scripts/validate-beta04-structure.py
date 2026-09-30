@@ -9,26 +9,17 @@ source = (root / "src" / "nr_before_sr.cpp").read_text(encoding="utf-8")
 guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
-# The raw stage deliberately remains uniform3. The final reviewed colour
-# exporter stamps unified2; historical dev4 packaging/docs are not active inputs.
+# Check the current production structure directly. Version identity is an
+# observable product contract, not a frozen hash of an old patch generator.
 current_identity_files = {
     "source": source,
     "resource": (root / "src/nr_before_sr.rc").read_text(encoding="utf-8"),
-    "build": (root / "scripts/build.ps1").read_text(encoding="utf-8-sig"),
-    "overlay": (root / "scripts/patch-colour-edge.py").read_text(encoding="utf-8"),
-    "generator": (root / "scripts/prepare-multi-api-beta.py").read_text(encoding="utf-8"),
-    "handoff": (root / "docs/interop/UNIFIED_HANDOFF.md").read_text(encoding="utf-8"),
 }
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.5-dline21-uniform3"',
-               'kBuildIdentity = "beta0.5-dline21-uniform3"'],
-    "resource": ["FILEVERSION 0,5,1,26", "PRODUCTVERSION 0,5,1,26",
-                 "beta0.5-dline21-uniform3-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@"],
-    "overlay": ["VERSION = 'beta0.5-dline21-unified2'"],
-    "generator": ["INTEGRATION_CORE_PINS", "m.VERSION = VERSION"],
-    "handoff": ["scripts/build-unified-candidate.ps1", "next/0.5", "#294"],
+    "source": ['kAddonVersion = "0.5.2 Beta 13"',
+               'kBuildIdentity = "0.5.2-beta.13"'],
+    "resource": ["FILEVERSION 0,5,2,13", "PRODUCTVERSION 0,5,2,13",
+                 "0.5.2-beta.13"],
 }
 for label, tokens in identity_requirements.items():
     missing_identity = [token for token in tokens if token not in current_identity_files[label]]
@@ -36,8 +27,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.5-dline21-uniform3"',
-    'kBuildIdentity = "beta0.5-dline21-uniform3"',
+    'kAddonVersion = "0.5.2 Beta 13"',
+    'kBuildIdentity = "0.5.2-beta.13"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -150,4 +141,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("unified raw/final identities and all 60 constant DWORDs validated; generated GPU checks remain separate")
+print("production identity and all 60 constant DWORDs validated; GPU checks remain separate")

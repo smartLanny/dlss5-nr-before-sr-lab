@@ -6,8 +6,8 @@ are covered by test_d13_ui_compile, test_working_scale_ui and test_light_style.
 import argparse
 from pathlib import Path
 import unittest
-import subprocess
 import re
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED = None
@@ -99,18 +99,17 @@ class UnifiedUi(unittest.TestCase):
         for path in ('src/nr_before_sr.rc','scripts/build.ps1'):
             payload_identity = (GENERATED/path).read_text(encoding='utf-8-sig')
             self.assertIn(identity,payload_identity)
-        identity_source = (ROOT/'scripts/patch-colour-edge.py').read_text(encoding='utf-8')
-        self.assertEqual(identity,re.search(r"^VERSION = '([^']+)'",identity_source,re.M).group(1))
-        self.assertEqual(version,re.search(r"^DISPLAY_VERSION = '([^']+)'",identity_source,re.M).group(1))
+        product = json.loads((ROOT/'scripts/core-source-layout.json').read_text(encoding='utf-8'))['product']
+        self.assertEqual(identity,product['version'])
+        self.assertEqual(version,product['display_version'])
         addon_names = re.findall(r'const char \*NAME =\s*"([^"]+)"',core)
         self.assertEqual(len(addon_names),2)
         for name in addon_names:
             self.assertIn(version,name)
             self.assertNotIn('dline21-uniform3',name)
         for name in ('nr_unified_settings.inl','nr_unified_pages.inl','nr_unified_ui_policy.h'):
-            # Exported files are canonical Git blobs, not CRLF working-tree bytes.
-            frozen = subprocess.check_output(['git','show','HEAD:src/'+name],cwd=ROOT)
-            self.assertEqual((GENERATED/'src'/name).read_bytes(),frozen)
+            # A direct-source stage copies the maintained file bytes for this run.
+            self.assertEqual((GENERATED/'src'/name).read_bytes(),(ROOT/'src'/name).read_bytes())
 
 
 if __name__ == '__main__':

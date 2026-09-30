@@ -43,6 +43,12 @@ HARNESS=r'''
 #include "nr_work_config.h"
 #include "nr_config_policy.h"
 #include "nr_f8_types.h"
+#include "nr_colour_preferences.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_edge_policy.h"
+#include "nr_hotkeys.h"
+#include "nr_spatial_experiment_policy.h"
+#include "nr_reconstruction_policy.h"
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 ChainConfig g_config;
@@ -98,9 +104,13 @@ const char *kBuildIdentity="light-style-metadata-fixture";
 STAGE_WRITE_BYTES
 STAGE_WRITE_METADATA
 unsigned LightFlags(const ChainConfig &config,int pipeline) {
-    const auto &g_config=config;
+    const auto &frame_config=config;
     const struct {int combine=1,combine_v2=2;} g_codec;
     const unsigned source_flags=0;
+    // Other codec branches are covered by their own fixtures; this bounded
+    // seam carries the production light flags with neutral companion modes.
+    const unsigned edge_flags=0,colour_restore_flags=0;
+    const int prepared_input_curve=0,prepared_scaled_proxy_mode=0;
 LIGHT_GATE
 LIGHT_FLAGS
         0u;
@@ -291,7 +301,9 @@ int wmain(int argc,wchar_t **argv) {
     check(!nr_light_style::Active(next)&&next.color_strength==.53f&&next.light_control_mode==1,"group reset exits preview, keeps colour and control mode");
     next.light_control_mode=0;
     RestoreRecommendedPictureSettings(next);
-    check(!nr_light_style::Active(next)&&next.color_strength==1.f&&next.light_preset==0&&next.light_control_mode==1,"full recommendation resets group neutral in whole light/dark mode");
+    check(!nr_light_style::Active(next)&&next.color_strength==nr_colour_preferences::RangeDefault&&
+        next.light_preset==0&&next.light_control_mode==1,
+        "full recommendation resets group neutral and AI colour range in whole light/dark mode");
 
     DeleteFileW(g_ini_path);WritePrivateProfileStringW(L"NRBeforeSR",L"ColorStrength",L"0.37",g_ini_path);
     g_config={};const auto old=LoadGroup();
@@ -474,19 +486,20 @@ def main():
     if not compiler:raise SystemExit('C++ compiler not found')
     core=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     group=(ROOT/'src/nr_light_style_ui.inl').read_text(encoding='utf-8')
-    ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+    settings_ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+    unified_ui=(ROOT/'src/nr_unified_settings.inl').read_text(encoding='utf-8')
+    ui=settings_ui+'\n'+unified_ui
     stream=(ROOT/'src/nr_f8_stream.inl').read_text(encoding='utf-8')
     stage=(ROOT/'src/nr_stage_capture.inl').read_text(encoding='utf-8')
     dispatch=definition(core,'void DispatchCodec(')
-    assert 'const bool before_sr = !compatibility_mode && !rr_guarded && !compatibility_post &&' in ui
-    assert 'nr_processing_runtime::Effective()==nr_processing::Start::Before;' in ui
-    assert 'DrawLightStyleControls(next,before_sr' in ui
-    assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
-    apply_settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
+    assert 'const bool before_sr=!rr_guarded&&nr_processing_runtime::Effective()==nr_processing::Start::Before;' in unified_ui
+    assert 'DrawUnifiedLight(next,before_sr,current.generation,' in unified_ui
+    assert 'ApplySettingsOverlay(pending,pending_generation,' in unified_ui
+    apply_settings=definition(settings_ui,'OverlayApplyResult ApplySettingsOverlay(')
     assert 'ApplyLightStyleOverlay(next, expected_generation,' in apply_settings
     assert apply_settings.count('ApplyLightStyleOverlay(')==1
     layers=(ROOT/'src/nr_layers_ui.inl').read_text(encoding='utf-8')
-    assert 'DrawUniformLayerControls(next,changed,apply_discrete_edit);' in ui
+    assert 'DrawUniformLayerControls(next,changed,apply_discrete_edit);' in unified_ui
     assert 'for(unsigned i=0;i<count;++i)' in layers
     assert 'Reset this layer' in layers and 'if(edited)' in layers
     assert 'const auto count=nr_layers::Active(next.nr_layers);' in layers
@@ -496,8 +509,9 @@ def main():
         assert forbidden not in layers and forbidden not in apply_settings
     assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' not in ui
     assert 'next.mode=' not in group and 'independent_chroma_composition' not in group
-    assert group.index('##nr-light-reflection')<group.index('ImGui::CollapsingHeader')
-    assert group.index('##nr-light-broad')>group.index('ImGui::CollapsingHeader')
+    advanced=group.index('Advanced light controls###light-advanced')
+    assert group.index('##nr-light-reflection')<advanced
+    assert group.index('##nr-light-broad')>advanced
     assert 'NR 修改前后差' in group and '绝对线性差乘 4' in group
     replacements={
         'CHAIN_CONFIG':definition(core,'struct ChainConfig',True),

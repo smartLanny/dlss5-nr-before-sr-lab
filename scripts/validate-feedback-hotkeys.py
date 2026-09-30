@@ -33,7 +33,7 @@ HARNESS = r'''
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
-#include "nr_shortcut_edge.h"
+#include "nr_hotkeys.h"
 
 SHORT key_state[256] = {};
 SHORT TestGetAsyncKeyState(int key) { return key_state[key & 255]; }
@@ -49,7 +49,6 @@ struct effect_runtime {
 namespace nr_f8 {
 enum class Comparison { ShareMatrix, Current };
 struct Options { Comparison comparison; bool custom; unsigned x, y; };
-std::atomic<unsigned> g_hotkey{VK_F8};
 std::atomic<bool> g_settings_feedback_page_requested{false};
 bool active = false;
 unsigned core_requests = 0, current_requests = 0;
@@ -64,8 +63,7 @@ PAGE_FUNCTIONS
 void Log(const char *, ...) {}
 
 void Dispatch(reshade::api::effect_runtime *runtime, ULONGLONG now_ms) {
-    static bool feedback_key_was_down = false;
-    static bool stage_key_was_down = false;
+    static nr_hotkeys::Edge image_edge;
     static ULONGLONG last_stage_request_ms = 0;
 F8_BLOCK
 F7_BLOCK
@@ -76,6 +74,7 @@ void Require(bool value, const char *message) {
 }
 int main() {
     reshade::api::effect_runtime runtime;
+    Dispatch(&runtime, 900); // A newly published binding arms only after release.
     key_state[VK_F8] = static_cast<SHORT>(0x8001u);
     Dispatch(&runtime, 1000);
     Require(nr_f8::core_requests == 1,
@@ -126,14 +125,14 @@ def main() -> None:
     args = parser.parse_args()
     source = (ROOT / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
     present = function(source, "void OnReShadePresent(")
-    f8 = statement_range(present, "const SHORT f8_state", "feedback_key_was_down = feedback_down;")
-    f7 = statement_range(present, "const SHORT f7_state", "stage_key_was_down = stage_key_is_down;")
+    f8 = statement_range(present, "const auto shortcut_bindings=", "runtime->open_overlay(true,reshade::api::input_source::keyboard);\n    }")
+    f7 = statement_range(present, "const auto image_key=", 'accepted ? "accepted" : "busy");\n    }')
     assert "#if" not in present and "#ifdef" not in present, "hotkeys are preprocessor-gated"
     assert f8.index("nr_f8::RequestCore();") < f8.index("runtime->open_overlay("), "F8 request must precede UI"
     assert "nr_f8::RequestFullscreen()" in f7, "F7 hotkey must request the default Current capture"
     assert present.index("nr_core_feedback::Present(runtime);") < present.index("PollReportPathClipboard("), "clipboard must follow collector progress"
     assert "nr_f8::Present(runtime);" in present, "F7 must progress from Present even without visible UI"
-    settings = (ROOT / "src/nr_settings_ui.inl").read_text(encoding="utf-8-sig")
+    settings = (ROOT / "src/nr_unified_pages.inl").read_text(encoding="utf-8-sig")
     assert "RequestFullscreen()" in settings and "Comparison::ShareMatrix" in settings, "both F7 actions must remain in settings"
     assert "NR_HAS_F8_SEQUENCE" not in settings, "undefined feature macro hides F8/F7 from production settings"
     sequence = (ROOT / "src/nr_f8_sequence.inl").read_text(encoding="utf-8-sig")

@@ -135,8 +135,9 @@ void Cancel() {
     ReleaseSRWLockExclusive(&g_control);
 }
 bool RequestCore() {
+    if(nr_acceptance::Active())return false;
     AcquireSRWLockExclusive(&g_control);
-    const bool accepted = !IsActive() && g_status.load()!=Status::Packaging &&
+    const bool accepted = !nr_acceptance::Active() && !IsActive() && g_status.load()!=Status::Packaging &&
         StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
     if (accepted) {
         // A fresh core-only request must not display a previous image
@@ -148,6 +149,7 @@ bool RequestCore() {
     return accepted;
 }
 bool RequestWithOptions(const Options &options) {
+    if(nr_acceptance::Active())return false;
     // Present has its own current-source capture. Never run the native-stage
     // comparison controller against a Present image or relabel its stages.
     if(nr_processing_runtime::PresentSelected()) {
@@ -831,22 +833,14 @@ void DrawControls() {
     const bool compatibility=nr_processing_runtime::PresentSelected();
     if(compatibility)DrawCompatibilityCapture(use_chinese_ui,busy);
     if(!busy) {
-        static int key=VK_F8;
+
         if(!compatibility) {
         if(ImGui::Button(use_chinese_ui?"采集全屏原图（F7）":"Capture full-screen original (F7)"))RequestFullscreen();
         F8Tooltip(use_chinese_ui?"保存当前完整游戏画面，不裁切、不缩小。":"Save the entire game view without cropping or resizing.");
         if(ImGui::Button(use_chinese_ui?"七组画面对比：全屏原图":"Seven-group full-screen comparison"))RequestFullscreen(Comparison::ShareMatrix);
         F8Tooltip(use_chinese_ui?"依次保存关闭 NR、NR→SR 50/75/100、SR→NR 50/75/100。保持镜头不动，完成或取消后恢复设置。开启 RR 时跳过 NR→SR。":"Capture NR off, NR-before-SR 50/75/100 and SR-before-NR 50/75/100 in order. Keep the camera still. Original settings are restored. RR skips NR-before-SR groups.");
         }
-        if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
-            key=static_cast<int>(g_hotkey.load());
-            if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(nr_feedback_text::CoreHotkey(static_cast<unsigned>(key)));
-            key=static_cast<int>(g_hotkey.load());
-            ImGui::Text("F%d",key-VK_F1+1);
-            ImGui::TextDisabled("%s",use_chinese_ui?"F6 总开关、F7 图像采集已保留；冲突设置回到 F8。":"F6 master and F7 images are reserved; conflicting settings fall back to F8.");
-            if(ImGui::Button(use_chinese_ui?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
-            ImGui::TreePop();
-        }
+
     } else if(!compatibility) {
         AcquireSRWLockShared(&g_lock);
         if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，截图%s":"Group %u/%u, screenshot %s",s.group+1,s.group_count,g.shot_received?(use_chinese_ui?"已保存":"saved"):(use_chinese_ui?"等待中":"pending"));}

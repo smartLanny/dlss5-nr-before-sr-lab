@@ -16,8 +16,8 @@ struct FakeModule {
     const wchar_t *name;
     bool loaded = false;
     void *exports[7] = {};
-    int refs = 0;
-    int pins = 0;
+    std::atomic<int> refs{0};
+    std::atomic<int> pins{0};
 };
 FakeModule modules[] = {{L"nvngx_dlss.dll"}, {L"_nvngx.dll"},
     {L"nvngx_dlssd.dll"}, {L"nvngx.dll"}, {L"forwarded-owner.dll"}};
@@ -60,14 +60,14 @@ BOOL WINAPI FakeGetModuleHandleExW(DWORD flags, LPCWSTR name, HMODULE *result) {
 }
 BOOL WINAPI FakeFreeLibrary(HMODULE module) {
     auto *entry = reinterpret_cast<FakeModule *>(module);
-    assert(entry->refs > 0);
-    --entry->refs;
+    assert(entry->refs.fetch_sub(1) > 0);
     return TRUE;
 }
 FARPROC WINAPI FakeGetProcAddress(HMODULE module, LPCSTR name) {
     auto *entry = reinterpret_cast<FakeModule *>(module);
-    // Discovery must hold an ordinary loader reference across resolution.
-    assert(entry->refs > 0);
+    // Discovery owns a loader reference; post-install shutdown coverage may
+    // query an already pinned module after that temporary reference closes.
+    assert(entry->refs > 0 || entry->pins > 0);
     const char *names[] = {"NVSDK_NGX_D3D12_ReleaseFeature",
         "NVSDK_NGX_D3D12_CreateFeature", "NVSDK_NGX_D3D12_EvaluateFeature",
         "NVSDK_NGX_D3D12_EvaluateFeature_C", "NVSDK_NGX_D3D12_Init",
@@ -148,6 +148,41 @@ void HookDlssdEvaluate() {}
 void HookDlssdRelease() {}
 struct ID3D12Device {};
 using NgxResult = unsigned int;
+SRWLOCK g_nr_api_lock = SRWLOCK_INIT;
+thread_local bool nr_api_lock_held = false;
+struct ScopedSrwExclusive {
+    explicit ScopedSrwExclusive(SRWLOCK *lock) : lock_(lock) {
+        AcquireSRWLockExclusive(lock_); nr_api_lock_held = true;
+    }
+    ~ScopedSrwExclusive() {
+        nr_api_lock_held = false; ReleaseSRWLockExclusive(lock_);
+    }
+    SRWLOCK *lock_;
+};
+namespace nr_private_sr_core {
+enum class DomainEvidence : unsigned { OriginalInit };
+std::atomic<unsigned> shutdown_inflight{0};
+std::atomic<bool> shutdown_hooks_covered{false};
+std::atomic<unsigned long long> domain_ticket{0};
+std::atomic<unsigned> invalidations{0}, init_observations{0};
+ID3D12Device *last_invalidated_device = nullptr;
+unsigned long long CaptureDomainTicket() {
+    assert(!nr_api_lock_held);
+    return domain_ticket.load();
+}
+void InvalidateInit(ID3D12Device *device) {
+    assert(nr_api_lock_held && shutdown_inflight.load() > 0);
+    last_invalidated_device = device;
+    ++invalidations; ++domain_ticket;
+}
+void ObserveInit(ID3D12Device *device, NgxResult result,
+                 DomainEvidence evidence, unsigned long long ticket) {
+    assert(!nr_api_lock_held && evidence == DomainEvidence::OriginalInit);
+    assert(ticket <= domain_ticket.load());
+    assert(result == 0x12345678u && device != nullptr);
+    ++init_observations;
+}
+}
 void *g_original_create, *g_original_evaluate, *g_original_evaluate_c;
 void *g_original_release, *g_original_core_create, *g_original_core_evaluate;
 void *g_original_core_release, *g_original_dlssd_create;
@@ -260,6 +295,11 @@ void Reset() {
     g_hooked_loader_module = nullptr;
     g_loader_init_hooks_ready = false;
     g_loader_init_completions = 0;
+    nr_private_sr_core::shutdown_inflight = 0;
+    nr_private_sr_core::shutdown_hooks_covered = false;
+    nr_private_sr_core::domain_ticket = 0;
+    nr_private_sr_core::invalidations = nr_private_sr_core::init_observations = 0;
+    nr_private_sr_core::last_invalidated_device = nullptr;
     create_calls = apply_calls = 0;
     native_init_calls = 0;
     fail_apply = false;
@@ -304,6 +344,7 @@ int main() {
     during_apply = {};
     assert(native_init_calls == 1 && g_loader_init_hooks_ready &&
            g_loader_init_completions == 1);
+    assert(nr_private_sr_core::init_observations == 1);
     assert(g_core_lifecycle_hooks_ready && targets[4].enabled &&
            targets[5].enabled && targets[6].enabled);
     assert(!g_module_observer_gap_detected && g_module_observer_epoch == 2);
@@ -328,8 +369,29 @@ int main() {
     const unsigned int applies_before_init = apply_calls;
     assert(HookLoaderInit(7, L"fixture", &device, 19) == 0x12345678u);
     assert(native_init_calls == 1 && g_core_lifecycle_hooks_ready);
+    assert(nr_private_sr_core::init_observations == 1);
     assert(targets[4].enabled && targets[5].enabled && targets[6].enabled);
     assert(apply_calls == applies_before_init + 1);
+
+    // The extracted Shutdown hooks must invalidate before forwarding, and
+    // invoke the native callback outside the NR API lock.
+    g_private_shutdown0[0] = []() -> NgxResult {
+        assert(!nr_api_lock_held && nr_private_sr_core::shutdown_inflight == 1);
+        assert(nr_private_sr_core::invalidations == 1 &&
+               nr_private_sr_core::last_invalidated_device == nullptr);
+        return 0x12345678u;
+    };
+    assert(HookPrivateShutdown0<0>() == 0x12345678u);
+    assert(nr_private_sr_core::shutdown_inflight == 0);
+    g_private_shutdown1[0] = [](ID3D12Device *d) -> NgxResult {
+        assert(!nr_api_lock_held && nr_private_sr_core::shutdown_inflight == 1);
+        assert(nr_private_sr_core::invalidations == 2 &&
+               nr_private_sr_core::last_invalidated_device == d);
+        return 0x12345678u;
+    };
+    assert(HookPrivateShutdown1<0>(&device) == 0x12345678u);
+    assert(nr_private_sr_core::shutdown_inflight == 0 &&
+           nr_private_sr_core::domain_ticket == 2);
 
     Reset(); InstallPrimary();
     modules[1].loaded = true; // No exports: never an observer publication.
@@ -420,6 +482,7 @@ int main() {
     assert(g_core_unknown_handle_guard); // Failed alias never disables guard.
 
     std::puts("Observer regression scenarios passed: absent/aliases/reverse aliases, "
-        "single/preflight publication, Create overlap/null/failure, hook failures and forwarded PIN.");
+        "single/preflight publication, Create overlap/null/failure, hook failures, forwarded PIN, "
+        "Init observation and Shutdown invalidation/lock ordering.");
     return 0;
 }

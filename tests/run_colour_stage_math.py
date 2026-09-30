@@ -8,18 +8,14 @@ of the owner's game. No shader/GPU/NGX/Windows build claim is made here.
 from __future__ import annotations
 import argparse
 import hashlib
-import importlib.util
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from source_contract import definition
 
 ROOT = Path(__file__).resolve().parents[1]
-
-def load(path):
-    spec=importlib.util.spec_from_file_location('colour_stage_math_helpers',path)
-    m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 
 def marked(text, name):
     begin, end='// '+name+'_BEGIN','// '+name+'_END'
@@ -51,8 +47,6 @@ def main():
     parser.add_argument('--compiler');args=parser.parse_args()
     cc=args.compiler or os.environ.get('CXX') or shutil.which('clang++') or shutil.which('g++')
     if not cc: raise SystemExit('No host C++20 compiler')
-    helpers=load(ROOT/'scripts/patch-colour-restore.py')
-    stage=load(ROOT/'scripts/patch-colour-stage.py')
     raw=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
     shader=(ROOT/'src/nr_colour_stage_reference.hlsli').read_text(encoding='utf-8')
     base=(ROOT/'src/nr_colour_restore.hlsli').read_text(encoding='utf-8')
@@ -60,9 +54,9 @@ def main():
     adapter=(ROOT/'tests/colour_restore_math_test.cpp').read_text(encoding='utf-8').split('#include "colour_restore_math.generated.hpp"')[0]
     adapter=adapter.replace('#include "../src/nr_colour_restore_policy.h"',
                             '#include "'+str(ROOT/'src/nr_colour_stage_policy.h').replace('\\','/')+'"')
-    def body(s,sig):return s[slice(*helpers.definition(s,sig))]
-    sampler=stage.reference_sampler(raw,helpers)
-    # Same transformation used by the staging overlay, not a hand-written filter.
+    def body(s,sig):return definition(s,sig)
+    sampler=body(raw,'float3 ColourStageSampleNeural(')
+    # The compiled CPU harness uses the exact sampler in maintained Core source.
     shared=adapter+SHIM+marked(prep,'NR_COLOUR_PREPARE_MATH')+marked(base,'NR_COLOUR_RESTORE_MATH')
     shared+=marked(shader,'NR_COLOUR_STAGE_MATH')+body(shader,'bool ColourStageNeutral(')+body(shader,'float3 ColourStageLoadNeural(')
     shared+=body(raw,'float3 SampleProxyLinearV2(')+body(raw,'float3 SampleNeuralLinearV2(')

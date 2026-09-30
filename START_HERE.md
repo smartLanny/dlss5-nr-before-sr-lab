@@ -6,6 +6,7 @@
 - [完整新机说明](docs/handoff/BETA13_NEW_PC.zh-CN.md)：依赖、恢复、构建、验证和证据入口。
 - [已知问题与后续优先级](docs/handoff/BETA13_KNOWN_ISSUES.zh-CN.md)：哪些已实现，哪些只是实验，哪些仍失败。
 - [包与验证身份](docs/interop/052_BETA13_DELIVERY.json)：产品 SHA、组件哈希、实际检查范围。
+- [正式源码与构建结构](docs/maintenance/SOURCE_LAYOUT.md)：#321 折回后的源码入口、外部 carrier 集成与 Beta 13 字节对照。继续开发时直接修改正式源码，无需恢复 Python 补丁链。
 - [私有 GitHub 交接草稿](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases)：两个用户包及 `PRIVATE-DLSS5-DevInputs-20260929-r2.zip` 开发输入。开发输入不得混入公开用户包。
 
 ```powershell

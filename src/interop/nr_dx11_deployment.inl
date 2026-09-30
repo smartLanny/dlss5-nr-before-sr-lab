@@ -61,8 +61,7 @@ Snapshot Read() {
 
 void NrDx11DeploymentPoll(bool force) { nr_dx11_deployment::Poll(force); }
 bool NrDx11DeploymentBlocked() {
-    return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire) ||
-        !nr_dx11_deployment::Read().complete;
+    return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire);
 }
 void DrawDx11DeploymentStatus() {
     const bool zh = UseChineseUi();

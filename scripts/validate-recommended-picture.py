@@ -41,17 +41,31 @@ FIELDS = {
  'region_version':'RegionCompositionVersion','region_enabled':'RegionComposition','region_preview':None,
  'face_protection_version':'FaceProtectionVersion','face_protection':'FaceProtection',
  'face_extra_cap':'FaceExtraCap','face_original_luma':'FaceOriginalLuma','face_original_color':'FaceOriginalColor','face_preview':None,
+ 'colour_range_control':None, 'colour_priority_strength':'ColourPriorityStrength',
+ 'colour_conservative_strength':'ColourConservativeStrength','colour_lab_mode':'ColourLabMode',
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
+COLOUR_PREF_FIELDS={'colour_range_control','colour_priority_strength',
+                   'colour_conservative_strength','colour_lab_mode','color_strength'}
+# Beta 13's picture reset keeps these separately owned preferences. Folding
+# the source must not silently turn the picture button into a global reset.
 PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch',
-           'descriptor_low_overhead','present_mv_compensation'}
-UI_RESET_FIELDS={'processing_start','processing_selection','compat_percent','nr_full_reference','nr_full_passes'}
+           'descriptor_low_overhead','present_mv_compensation','compat_percent',
+           'spatial_experiment_mode','private_residual_sr','reconstruction_mode',
+           'near_black_chroma_guard','temporal_backend','temporal_scope','temporal_mode',
+           'temporal_legacy','master_virtual_key','image_virtual_key','feedback_virtual_key',
+           'colour_edge_recovery','colour_neutral_probe','colour_restore_mode',
+           'colour_input_curve','colour_scaled_proxy_mode'}
+UI_RESET_FIELDS={'processing_start','processing_selection','nr_full_reference','nr_full_passes'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
 # current model recommendation and the protection gate enabled.
 RECOMMENDED_OVERRIDES={
  'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.5',
  'color_protection':'1', 'lighting_lock':'0', 'edge_guard':'0', 'light_control_mode':'1', 'jitter_mode':'0',
+ # The lighting preset records the reset AI colour amount, not the old INI
+ # snapshot's historical 1.0 value.
+ 'colour_range_control':'1', 'light_preset_color':'0.5',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
@@ -61,19 +75,20 @@ def definition(text,marker):
   depth+=(text[end]=='{')-(text[end]=='}');end+=1
  return text[start:end]
 
-def check_wiring(cpp,ui,helper):
- assert '#include "nr_recommended_picture.inl"' in ui
+def check_wiring(cpp,ui,settings_ui,helper):
+ assert '#include "nr_recommended_picture.inl"' in settings_ui
  draw=definition(ui,'void DrawSettings(');call=draw.index('RestoreRecommendedPictureSettings(next);')
  picture=draw.index('ImGui::BeginTabItem(ui("Picture###nr-picture"')
- assert picture < draw.index('if (collecting) ImGui::BeginDisabled();',picture) < call
- assert call < draw.index('if (collecting) ImGui::EndDisabled();',picture)
- reset_block=draw[call:draw.index('    SettingsTooltip(',call)]
- assert 'changed = true;' in reset_block
+ assert picture < draw.index('ImGui::BeginDisabled(collecting);',picture) < call
+ assert call < draw.index('ImGui::EndDisabled();',call)
+ reset_block=draw[call:draw.index('SettingsTooltip(',call)]
+ assert 'changed=true;' in re.sub(r'\s+','',reset_block)
  assert 'next.processing_start=nr_processing::Start::Before;' in reset_block
  assert 'next.processing_selection=nr_processing_runtime::next_selection.fetch_add(1);' in reset_block
- assert 'next.compat_percent=100;next.nr_full_reference=false;next.nr_full_passes=3;' in reset_block
+ assert not re.search(r'next\.compat_percent\s*=',reset_block)
+ assert 'next.nr_full_reference=false;next.nr_full_passes=3;' in reset_block
  assert 'ApplySettingsOverlay(pending,pending_generation,' in draw
- settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
+ settings=definition(settings_ui,'OverlayApplyResult ApplySettingsOverlay(')
  assert 'ApplyLightStyleOverlay(next, expected_generation,' in settings
  apply=definition(cpp,'bool ApplyConfig(')
  published=apply.index('g_config = next;')
@@ -84,7 +99,8 @@ def check_wiring(cpp,ui,helper):
  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
  reset=definition(helper,'void RestoreRecommendedPictureSettings(')
  assert 'nr_light_style::Reset(next);' in reset
- assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode','nr_layers'}
+ assert 'nr_colour_preferences::Reset(next);' in reset
+ assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==((set(FIELDS)-LIGHT_FIELDS-COLOUR_PREF_FIELDS)|{'light_control_mode','nr_layers'})
  for forbidden in ['g_config','SaveConfig(','ApplyConfig(','Release','.store(','CreateFeature']:
   assert forbidden not in reset,forbidden
 
@@ -96,9 +112,10 @@ def main():
                 help='Use an existing private build directory instead of system temp')
  p.add_argument('--negative-control',action='store_true');a=p.parse_args();root=a.root
  cpp=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
- ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
+ ui=(root/'src/nr_unified_settings.inl').read_text(encoding='utf-8-sig')
+ settings_ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
  helper=(root/'src/nr_recommended_picture.inl').read_text(encoding='utf-8-sig')
- check_wiring(cpp,ui,helper)
+ check_wiring(cpp,ui,settings_ui,helper)
  config=configparser.ConfigParser();config.read(root/'config/nr_before_sr.ini',encoding='utf-8-sig')
  values=config['NRBeforeSR'];struct=definition(cpp,'struct ChainConfig {')+';'
  declared=set()
@@ -107,13 +124,13 @@ def main():
  expected_fields=set(FIELDS)|PRESERVED|UI_RESET_FIELDS
  assert declared==expected_fields,f'Unclassified fields: {declared^expected_fields}'
  if a.negative_control:
-  marker='next.color_strength = 1.0f;';assert helper.count(marker)==1
-  helper=helper.replace(marker,'next.color_strength = 0.5f;',1)
+  marker='nr_colour_preferences::Reset(next);';assert helper.count(marker)==1
+  helper=helper.replace(marker,marker+' next.color_strength = 0.25f;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
   number=values[key] if key else '0';recommended=RECOMMENDED_OVERRIDES.get(field,number)
   expected=f'static_cast<decltype(c.{field})>({recommended})'
-  dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
+  dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({recommended})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
  for index in range(5):
   dirty.append(f'c.generic_gains[{index}]=2.f;')
@@ -133,14 +150,21 @@ def main():
 #include "nr_dual_pass.hpp"
 #include "nr_layer_config.h"
 #include "nr_processing_route.h"
+#include "nr_colour_restore_policy.h"
+#include "nr_colour_preferences.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
 '''+struct+'\n'+helper+'\nint main(){\n'
  code+='for(bool enabled:{false,true})for(int encoding:{0,1,2}){ChainConfig c;\n'+'\n'.join(dirty)+'\n'
  code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.perf_epoch=777;c.descriptor_low_overhead=true;c.present_mv_compensation=1;\n'
+ for field in sorted(PRESERVED-{'enabled','depth_mode','r8_output_encoding','perf_epoch','descriptor_low_overhead','present_mv_compensation'}):
+  saved=73 if field=='compat_percent' else 123 if field.endswith('_virtual_key') else 1
+  code+=f'c.{field}=static_cast<decltype(c.{field})>({saved});const auto preserved_{field}=c.{field};\n'
  code+='for(int repeat=0;repeat<2;++repeat){RestoreRecommendedPictureSettings(c);\n'+'\n'.join(checks)+'\n'
  code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.perf_epoch==777&&c.descriptor_low_overhead&&c.present_mv_compensation==1,"master and provider contracts preserved");\n'
+ for field in sorted(PRESERVED-{'enabled','depth_mode','r8_output_encoding','perf_epoch','descriptor_low_overhead','present_mv_compensation'}):
+  code+=f'check(c.{field}==preserved_{field},"separate preference preserved: {field}");\n'
  code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')
@@ -153,7 +177,7 @@ void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAI
   result=subprocess.run([str(exe)],capture_output=True,text=True);print(result.stdout,end='');print(result.stderr,end='')
   if a.negative_control:
    if result.returncode!=1 or 'FAIL INI default ColorStrength' not in result.stdout:raise SystemExit('Wrong-default negative oracle was not rejected')
-   print('PASS wrong legacy colour default rejected by independent INI oracle')
+   print('PASS wrong AI colour reset amount rejected by independent INI oracle')
   elif result.returncode:raise SystemExit(result.returncode)
  print('PASS reset wiring: capture hold, stale-edit generation and normal persistence/history path')
 

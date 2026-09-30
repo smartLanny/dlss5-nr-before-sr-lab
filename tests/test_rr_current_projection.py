@@ -35,6 +35,7 @@ RrDepthReject rejected{};
 bool RejectRrDepth(RrDepthReject r){rejected=r;return false;}
 @ADMISSION@
 struct Context {bool reset_retry_pending=false,diagnostic_reset_requested=false,diagnostic_warmup_reset=false;
+ bool observed_delayed_exposure_reset=false;
  unsigned diagnostic_reset_reasons=0,successful_evaluations_since_reset=0;};
 struct Slot {bool suppress_transfer_this_frame=false;struct{bool reset=false;}capture_params;};
 struct{bool suppress_reset_frame=true;}g_config;
@@ -43,6 +44,7 @@ void SetInt(NgxParams*,const char* key,int value){assert(!std::strcmp(key,"DLSSN
 void BindReset(Context& context,Slot& slot,const NrGuideSignature& s,bool reset=false,int game_reset=0,
  bool history_changed=false,bool color_contract_reset=false,bool guide_reset=false){
  NgxParams* params=nullptr;
+ const bool delayed_texture_reset=false;
 @RESET@
 }
 void Complete(Context& context){

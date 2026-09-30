@@ -45,7 +45,7 @@ unsigned CaptureStatus(bool fg){return statuses[fg];}unsigned CaptureWorkers(boo
 }
 namespace nr_core_feedback {bool Busy(){return report_busy;}}
 namespace nr_feedback_text {unsigned CoreHotkey(unsigned value){return value;}}
-constexpr int VK_F1=112,VK_F8=119,VK_F12=123;
+constexpr int VK_F8=119;
 bool UseChineseUi(){return zh;}void DrawCoreStatus(){}void F8Tooltip(const char*){}
 enum class Status {Idle,Requested,Running,Packaging,Complete,Partial,Failed};
 enum class Comparison {Current,ShareMatrix};Comparison last_comparison=Comparison::Current;

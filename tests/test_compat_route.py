@@ -352,6 +352,18 @@ enum class BypassReason {{ LifecycleIsolation = 1 }};
 
 struct FeatureRecord {{ int feature_id = 1; unsigned long long generation = 1; }};
 struct NrSlot {{}};
+namespace nr_acceptance_gpu {{
+enum class PreReason {{ Lifecycle, Unavailable, Owner, Route }};
+struct EntryScope {{ bool active=true; void Decline(PreReason) {{}} }};
+void Stamp(ID3D12GraphicsCommandList*, NrSlot&, unsigned) {{}}
+void Abort(NrSlot&, const char*) {{}}
+}}
+nr_acceptance_gpu::EntryScope acceptance_sr_entry;
+void PrimeNativeOutputCapture(ID3D12GraphicsCommandList*) {{}}
+int* ArmNativeOutputCapture(ID3D12GraphicsCommandList*, const NgxParams*,
+                            const FeatureRecord&, NrSlot*) {{ return nullptr; }}
+void FinishNativeOutputCapture(ID3D12GraphicsCommandList*, const NgxParams*,
+                               NgxResult, int*) {{}}
 namespace nr_dual_runtime {{void Stamp(ID3D12GraphicsCommandList*,NrSlot&,unsigned){{}} void ResolveTiming(ID3D12GraphicsCommandList*,NrSlot&,bool){{}}}}
 struct Substitution {{
     NgxResult fatal_recording=0;NrSlot* timing_slot=nullptr;

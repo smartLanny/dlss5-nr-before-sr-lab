@@ -21,6 +21,7 @@
 #include <thread>
 #include "nr_runtime_timing.h"
 #include "nr_runtime_timing.inl"
+#include "nr_temporal_status.h"
 struct FeedbackSession{std::string text;};
 __attribute__((format(printf,2,3)))
 void FeedbackAppend(FeedbackSession& session,const char* format,...){
@@ -36,19 +37,37 @@ void Log(const char*,...){}
 namespace nr_resource_recovery { struct Token{unsigned value=0;}; }
 namespace nr_binding { constexpr unsigned kPackets=2; }
 struct LifecycleQueue;
+struct TemporalReceipt {
+    unsigned submitted_calls=0,resubmitted_calls=0;
+    bool submitted(ID3D12Fence*,unsigned long long,unsigned long long){++submitted_calls;return true;}
+    bool resubmitted(unsigned long long,ID3D12Fence*,unsigned long long){++resubmitted_calls;return true;}
+};
 struct NrContext {
     unsigned long long pending_recording_token=0,completion_fence_value=0;
     unsigned recording_command_lists=1;
     bool awaiting_fence_signal=false,lifecycle_dependencies_quarantined=false,complete=true;
+    bool private_sr=false;
+    unsigned long long temporal_token=0;
+    TemporalReceipt* temporal=nullptr;
     LifecycleQueue* last_submission_queue=nullptr;
 };
 struct NrSlot {
     unsigned long long completion_fence_value=0,dual_time_token=0,dual_time_fence=0;
     unsigned recording_command_lists=1;
     bool awaiting_fence_signal=false,dual_time_pending=false,complete=true;
+    bool acceptance_time_pending=false;
+    unsigned long long acceptance_time_token=0,acceptance_time_fence=0;
     LifecycleQueue* last_submission_queue=nullptr;
-    LifecycleQueue* dual_time_queue=nullptr;
+    LifecycleQueue* dual_time_queue=nullptr,*acceptance_time_queue=nullptr;
 };
+unsigned post_poison_calls=0,post_submitted_calls=0,spatial_submitted_calls=0;
+namespace nr_post_product {
+void Poison(NrContext&){++post_poison_calls;}
+void Submitted(NrContext&,unsigned long long,LifecycleQueue*,unsigned long long){++post_submitted_calls;}
+}
+namespace nr_spatial_experiment {
+void Submitted(NrContext&,unsigned long long){++spatial_submitted_calls;}
+}
 #include "production_types.inl"
 CRITICAL_SECTION g_chain_cs;
 std::atomic<unsigned> g_live_graphics_queue_count{0};
@@ -165,6 +184,7 @@ void Reset(){
     g_original_queue_execute[0]=NativeExecute;marker_failure=signal_failure=reset_between_locks=false;
     before_capture=nullptr;
     order.clear();native_calls=source_calls=boundary_before=boundary_after=signals=0;
+    post_poison_calls=post_submitted_calls=spatial_submitted_calls=0;
 }
 void Submit(Queue& q,List& l){ID3D12CommandList* list=&l.base.api;ProcessSubmittedCommandLists(0,&q.api,1,&list);}
 void Own(List& l,NrContext& c,NrSlot& s){
@@ -212,11 +232,17 @@ int main(){
     Reset();List fallback_nr;NrContext fallback_context;NrSlot fallback_slot;Own(fallback_nr,fallback_context,fallback_slot);
     fallback_nr.base_result=E_FAIL;Submit(q,fallback_nr);
     Check(signals==1&&!g_lifecycle_tracking_uncertain&&fallback_nr.qi_calls==2,"unknown base result preserves graphics token authority");
-    Reset();List nr,empty;NrContext c;NrSlot s;Own(nr,c,s);
+    Reset();List nr,empty;NrContext c;NrSlot s;TemporalReceipt temporal;Own(nr,c,s);
+    c.temporal=&temporal;c.temporal_token=nr.token;
+    s.acceptance_time_pending=true;s.acceptance_time_token=nr.token;
     ID3D12CommandList* mixed[]={&empty.base.api,&nr.base.api};
     ProcessSubmittedCommandLists(0,&q.api,2,mixed);
     Check(signals==1&&order=="BESFZ"&&!c.awaiting_fence_signal&&!s.awaiting_fence_signal&&c.pending_recording_token==0,"MIXED_BATCH_SIGNAL_ORACLE");
     Check(g_lifecycle_command_lists[0].submission_count==1&&g_lifecycle_command_lists[0].in_flight_submissions==0,"real capture/completion lifecycle");
+    Check(temporal.submitted_calls==1&&c.temporal_token==0&&
+          s.acceptance_time_queue==c.last_submission_queue&&s.acceptance_time_fence==c.completion_fence_value&&
+          post_submitted_calls==1&&spatial_submitted_calls==1,
+          "temporal, acceptance timing, private SR and spatial submission receipts");
     Check(nr.qi_calls==2&&nr.releases==2&&empty.qi_calls==1&&Latest().qi==3&&Latest().scanned==4,"all actual initial/capture scans counted");
     Submit(q,nr);
     Check(g_command_list_replay_detections==1&&g_lifecycle_tracking_uncertain&&c.lifecycle_dependencies_quarantined&&signals==2,"REPLAY_ORACLE");

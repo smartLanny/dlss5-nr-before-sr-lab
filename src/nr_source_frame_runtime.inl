@@ -856,6 +856,16 @@ struct EvaluateScope {
     }
 };
 Id CurrentRetryToken(){return evaluation?evaluation->retry_token:0;}
+bool PrivateSrInputReadState(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,unsigned& state){
+    if(!list||!resource)return false;
+    Lock lock;const auto recording=RecordingOf(list);if(!recording)return false;
+    constexpr unsigned read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    constexpr unsigned allowed=read|D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE|D3D12_RESOURCE_STATE_DEPTH_READ|D3D12_RESOURCE_STATE_COPY_SOURCE;
+    if(StateOf(recording,ResourceOf(resource),state))return (state&read)&&!(state&~allowed);
+    // Actual NGX input seam only: consume its shader-readable contract without
+    // adding a guessed input transition. Observed contradictions above refuse.
+    state=read;return true;
+}
 Source CurrentSource(){return evaluation?evaluation->source:Source{};}
 bool CurrentEnergyPaused() {
     const auto* current=evaluation;

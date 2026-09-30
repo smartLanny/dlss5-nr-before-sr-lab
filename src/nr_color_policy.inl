@@ -12,6 +12,7 @@ enum class NrColorReason : unsigned int {
     PostSrFp16UnitExposure,
     UnverifiedHdr,
     ExperimentalUnverifiedHdr,
+    ColourLabPriority, // Append: stable existing diagnostic IDs.
 };
 
 enum class NrLightingReason : unsigned int {
@@ -23,6 +24,16 @@ enum class NrLightingReason : unsigned int {
 };
 
 struct NrColorPolicy {
+    int requested_reconstruction_mode=0,recorded_reconstruction_mode=0;
+    bool requested_near_black_guard=false,recorded_near_black_guard=false;
+    nr_reconstruction::Reason reconstruction_reason=nr_reconstruction::Reason::Off;
+    nr_reconstruction::Reason near_black_reason=nr_reconstruction::Reason::Off;
+    int requested_edge_recovery = 0, recorded_edge_recovery = 0;
+    bool requested_neutral_probe = false, recorded_neutral_probe = false;
+    int requested_restore_mode = 0, recorded_restore_mode = 0;
+    bool restore_post_encoding = false, restore_encoding_known = false; // Recorded, not GPU completion.
+    int requested_input_curve = 0, recorded_input_curve = 0;
+    int requested_scaled_proxy_mode = 0, recorded_scaled_proxy_mode = 0;
     float requested_color_strength = 0.0f;
     float effective_color_strength = 0.0f;
     bool color_allowed = false;
@@ -87,10 +98,14 @@ void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
 void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
     float amplification = ActiveTransferStrength(g_config), bool protect_color = true,
     nr_color_amplification::ChromaConsumer consumer = nr_color_amplification::ChromaConsumer::GainCoupled) {
-    if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
+    // Called under the existing chain/configuration lock for pre AND post composition.
+    const int lab_mode = g_config.colour_lab_mode;
+    if (nr_colour_lab::AllowUnverified(lab_mode, allow) &&
+        policy.color_reason == NrColorReason::UnverifiedHdr) {
         policy.color_allowed = true;
         policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
-        policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
+        policy.color_reason = nr_colour_lab::Normalize(lab_mode) == nr_colour_lab::Mode::ColourPriority
+            ? NrColorReason::ColourLabPriority : NrColorReason::ExperimentalUnverifiedHdr;
     }
     const auto budget = nr_color_amplification::ResolveForConsumer(
         policy.effective_color_strength, amplification, protect_color, consumer);
@@ -109,6 +124,7 @@ const char *NrColorReasonName(NrColorReason reason) {
     case NrColorReason::ModelValueDomain: return "bounded-model-value-domain";
     case NrColorReason::PostSrFp16UnitExposure: return "post-sr-fp16-unit-exposure";
     case NrColorReason::ExperimentalUnverifiedHdr: return "experimental-unverified-hdr";
+    case NrColorReason::ColourLabPriority: return "colour-lab-priority-unverified-hdr";
     case NrColorReason::UnverifiedHdr: return "unverified-hdr-luminance-only";
     default: return "unknown-live-contract";
     }

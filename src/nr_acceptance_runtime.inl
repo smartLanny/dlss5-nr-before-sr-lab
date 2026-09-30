@@ -151,6 +151,7 @@ void StartGroup(Session& s){
     g.native_sr_first_source=g.native_sr_last_source={};
     g.native_rr_first_source=g.native_rr_last_source={};
     if(s.program==Program::Screenshots){
+        g.requested.spatial_experiment_mode=0; // Keep all nine old baselines independent.
         g.requested.enabled=s.index!=0;
         g.requested.processing_start=nr_processing::Start::After;
         g.requested.processing_selection=nr_processing_runtime::next_selection.fetch_add(1,std::memory_order_relaxed);
