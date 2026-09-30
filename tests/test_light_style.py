@@ -64,6 +64,9 @@ namespace nr_source_runtime {unsigned long long CurrentRetryToken(){static unsig
 enum class BypassReason {WaitingForFeature1,MasterDisabled};
 void SetBypassReason(BypassReason) {}
 void RecordWorkRequestStatus(nr_work_config::Status) {}
+// ApplyConfig/ApplyOverlayConfig reconcile NR residency; residency itself is
+// covered by the config-policy and residency-drain fixtures.
+void ReconcileNrResidencyLocked(unsigned,unsigned,bool) {}
 unsigned writes=0,checks=0,failures=0;
 std::wstring fail_key;
 std::vector<std::wstring> write_keys;
@@ -88,6 +91,7 @@ SAME_TUNING
 IDENTITY_TYPE
 STAGE_INFO_TYPE
 JSON_BUFFER
+GUIDE_DOMAIN_JSON
 CONFIG_JSON
 FRAME_JSON
 const char *kBuildIdentity="light-style-metadata-fixture";
@@ -511,6 +515,7 @@ def main():
         'IDENTITY_TYPE':definition(core,'struct NrDiagnosticIdentity',True),
         'STAGE_INFO_TYPE':definition(core,'struct NrStageCaptureInfo',True),
         'JSON_BUFFER':definition(stream,'struct JsonBuffer',True),
+        'GUIDE_DOMAIN_JSON':definition(stream,'void GuideDomainJson('),
         'CONFIG_JSON':definition(stream,'void ConfigJson('),
         'FRAME_JSON':definition(stream,'JsonBuffer FrameJson('),
         'STAGE_WRITE_BYTES':definition(stage,'bool WriteStageCaptureBytes('),

@@ -117,7 +117,12 @@ jobs:
           VAR_DLSS5_TOOLCHAIN_ROOT: ${{ vars.DLSS5_TOOLCHAIN_ROOT }}
         run: |
           $toolchain = if ($env:VAR_DLSS5_TOOLCHAIN_ROOT) { $env:VAR_DLSS5_TOOLCHAIN_ROOT } else { $env:DLSS5_TOOLCHAIN_ROOT }
-          if (-not $env:CXX -and $toolchain) { $env:CXX = Join-Path $toolchain 'bin/x86_64-w64-mingw32-clang++.exe' }
+          if ($toolchain) {
+            # Windows-only tests locate the pinned LLVM-MinGW through these names.
+            if (-not $env:CXX) { $env:CXX = Join-Path $toolchain 'bin/x86_64-w64-mingw32-clang++.exe' }
+            if (-not $env:DLSS5_LLVM_MINGW_ROOT) { $env:DLSS5_LLVM_MINGW_ROOT = $toolchain }
+            if (-not $env:NR_LLVM_BIN) { $env:NR_LLVM_BIN = Join-Path $toolchain 'bin' }
+          }
           python scripts/run-portable-tests.py --verbose
 
   self-hosted-canonical-build:
