@@ -87,10 +87,18 @@ if (Test-Path -LiteralPath $Validation) {
 }
 
 # Prune only after a successful build: a failed run throws above and keeps every
-# output. The newest $KeepOutputs directories (successful or failed) remain.
-$Old = Get-ChildItem -LiteralPath $CiRoot -Directory -Filter 'ci-*' |
-    Sort-Object LastWriteTime -Descending | Select-Object -Skip $KeepOutputs
-foreach ($directory in $Old) {
-    Write-Host "Removing old CI output: $($directory.FullName)"
-    Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+# output. A build writes <OutputRoot> plus sibling <OutputRoot>.<gate>-checks
+# folders, so whole runs are pruned together and the current run is never touched.
+# The current run and the newest $KeepOutputs - 1 other runs remain.
+$Others = @(Get-ChildItem -LiteralPath $CiRoot -Directory |
+    Where-Object { $_.Name -match '^ci-[^.]+$' -and $_.FullName -ne $OutputRoot } |
+    Sort-Object LastWriteTime -Descending | Select-Object -Skip ([Math]::Max($KeepOutputs - 1, 0)))
+foreach ($run in $Others) {
+    $prefix = $run.Name + '.'
+    $group = @($run) + @(Get-ChildItem -LiteralPath $CiRoot -Directory |
+        Where-Object { $_.Name.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) })
+    foreach ($directory in $group) {
+        Write-Host "Removing old CI output: $($directory.FullName)"
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force
+    }
 }

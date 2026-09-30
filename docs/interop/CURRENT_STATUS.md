@@ -75,9 +75,14 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 任何系统上都可以先跑 `python3 scripts/run-portable-tests.py`（说明见 `CONTRIBUTING.md`）；
 它不替代 Windows canonical 构建。
 源码审查、编译、CPU、WARP、硬件 shader、NGX 推理、托管 CI 和游戏验收分别记录；
-跳过、失败、取消、未启动都不是通过。托管 CI 仍需 `ENABLE_HOSTED_CI=true`，目前未启用。
+跳过、失败、取消、未启动都不是通过。托管 CI 仍需 `ENABLE_HOSTED_CI=true`，目前为 `false`。
 维护者电脑上的自托管 runner 受 `ENABLE_SELF_HOSTED_CI` 控制：每个 PR 跑快速测试，
 完整构建需手动触发或给 PR 打 `full-build` 标签，说明见 `docs/maintenance/SELF_HOSTED_RUNNER.md`。
+首次记录（2026-09-30）：main `7ea8ae15` 上快速测试 69 通过 / 0 失败 / 2 跳过；完整构建
+（run 36712552190）exit 0，约 55 分钟，`source-manifest.json` SHA256 `983ae6a4…dc29`，
+`validation.json` SHA256 `4b7e6174…0ee1`。这是本机 CPU/WARP 构建证据，不是 NGX 推理或游戏验收，
+也不重新命名任何已发布二进制。该次运行的 `*-checks` 门禁目录被旧清理逻辑误删（#326 修复），
+主输出目录保留。
 持续旁路必须请求 F8/日志反馈，旁路带来的高帧率不是优化。
 
 ## 历史
