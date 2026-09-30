@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Clean,
     [switch]$DescriptorProfile,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,

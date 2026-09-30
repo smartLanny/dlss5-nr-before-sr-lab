@@ -21,3 +21,24 @@
 # Normalizing these pre-existing blobs makes a fresh checkout appear dirty and
 # incorrectly taints the binary source identity. Do not relax the release gate.
 bug-inbox/** -text !eol
+
+# Preserve the exact inherited Beta 13 compiled bytes for mixed-newline files.
+# These remain editable source; only automatic newline conversion is disabled.
+src/interop/nr_post_area.hlsl -text !eol
+src/nr_aux_shader_runtime.hpp -text !eol
+src/nr_compat_present_policy.hpp -text !eol
+src/nr_dual_downsample.hlsl -text !eol
+src/nr_dual_embedded.hpp -text !eol
+src/nr_dual_lifetime.hpp -text !eol
+src/nr_dual_math.hlsli -text !eol
+src/nr_dual_observation.hpp -text !eol
+src/nr_dual_pass.hpp -text !eol
+src/nr_dual_residual.hlsl -text !eol
+src/nr_dual_resolve.hlsli -text !eol
+src/nr_dual_resolve_cached.hlsli -text !eol
+src/nr_dual_spatial_d3d12.hpp -text !eol
+src/nr_fg_contract.hpp -text !eol
+src/nr_full_pass.hpp -text !eol
+src/nr_late_present_receipt.hpp -text !eol
+src/nr_source_frame.hpp -text !eol
+src/interop/carrier-beta13.patch whitespace=-blank-at-eol

@@ -91,7 +91,8 @@ def stage_carrier(core: Path, upstream: Path, stage: Path, layout: dict,
     if headers != expected:
         raise ValueError('Unexpected carrier integration diff paths')
     for args in (['--check'], []):
-        result = subprocess.run(['git', 'apply', '--whitespace=nowarn', *args, '-'],
+        result = subprocess.run(['git', '-c', 'core.autocrlf=false', '-c', 'core.eol=lf',
+                                 'apply', '--whitespace=nowarn', *args, '-'],
                                 cwd=stage / 'carrier', input=patch, capture_output=True,
                                 env={**os.environ, 'GIT_CEILING_DIRECTORIES': str(stage)})
         if result.returncode:
