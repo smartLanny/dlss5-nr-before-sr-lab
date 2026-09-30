@@ -75,8 +75,10 @@ bool LatchGenericRenoDxConflictIfLoaded() {return false;}
 bool OtherNrOwnerActive() {return other_owner;}
 void ObserveNullEvaluateHandle(const char*) {}
 void LatchUnknownFeatureHandle(const char*,const char*,ModuleObserverFault) {++unknowns;}
-struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; };
+struct Feature { const NgxHandle* handle; NgxOwner owner=NgxOwner::Game; int feature_id=18; unsigned long long generation=7; };
 Feature FindFeature(const NgxHandle* h) {return {h==&public_handle?h:nullptr};}
+namespace nr_post_product { bool PrivateCall(){return false;} }
+namespace nr_acceptance { void ObserveNativeEntry(int,unsigned long long){} }
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle* h) {return h&&!g_inside_ngx_evaluate&&!FindFeature(h).handle;}
 template<class... T> void Log(const char*,T...) {}
 NgxResult DispatchEvaluate(EvaluateFeatureFn f, ID3D12GraphicsCommandList* l,const NgxHandle* h,const NgxParams* p,void* c) {

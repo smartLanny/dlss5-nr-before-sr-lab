@@ -26,7 +26,8 @@ HARNESS = r'''
 #include <initializer_list>
 using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess=1;
-int checks=0,failures=0,depth=0,releases=0,destroys=0,slots=0,bindings=0,guide_releases=0;
+int checks=0,failures=0,depth=0,releases=0,destroys=0,slots=0,bindings=0,guide_releases=0,post_destroys=0;
+bool post_ready=true;
 NgxResult release_result=1,destroy_result=1;
 std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 int g_nr_api_lock=0;
@@ -51,7 +52,10 @@ void ForgetObservedFeature(const NgxHandle *handle,unsigned long long generation
           "only successful Release forgets the same observed generation");
 }
 struct NrSlot {int value=7;};
-struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];void* dual_create_guides[2]{};};
+struct Temporal { struct Stats { unsigned long long bytes=16; }; Stats stats() const { return {}; } };
+namespace nr_temporal_status { std::atomic<unsigned long long> bytes{0}; }
+struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];void* dual_create_guides[2]{};Temporal* temporal=nullptr;};
+namespace nr_post_product { bool Destroy(NrContext&) { ++post_destroys;return post_ready; } }
 NgxResult release(void *entry,void *handle) {check(depth==1&&entry&&handle,"release serialized and callable");++releases;return release_result;}
 NgxResult destroy(NgxParams *p) {check(depth==1&&p,"parameter destroy serialized");++destroys;return destroy_result;}
 struct NrApi {bool initialized=true;void *signed_release=&params;NgxResult(*bridge_release)(void*,void*)=release;NgxResult(*destroy)(NgxParams*)=::destroy;} g_nr_api;
@@ -61,10 +65,11 @@ template<class T> void ReleaseCom(T*& p) {if(p){++guide_releases;p=nullptr;}}
 void DestroyBindings(NrContext& c) {check(depth==0&&!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined,"binding tables retained until provider teardown succeeds");++bindings;}
 void DestroySlot(NrSlot &s) {check(depth==0&&bindings==1,"slot teardown follows binding retirement outside provider lock");++slots;s.value=0;}
 @ACTUAL@
-void reset() {check(depth==0,"provider lock unwound");check(private_calls==0&&private_layers==0,"private Release scopes unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=bindings=guide_releases=0;release_result=destroy_result=1;}
+void reset() {check(depth==0,"provider lock unwound");check(private_calls==0&&private_layers==0,"private Release scopes unwound");g_lifecycle_tracking_uncertain=false;g_nr_api={};releases=destroys=slots=bindings=guide_releases=post_destroys=0;post_ready=true;release_result=destroy_result=1;}
 NrContext live() {NrContext c;c.nr_handle=&params;c.params=&params;c.dual_create_guides[0]=c.dual_create_guides[1]=&params;return c;}
 int main() {
- reset();{auto c=live();DestroyContext(c);check(releases==1&&destroys==1&&slots==2&&bindings==1&&guide_releases==2,"successful retirement completes once");check(!c.nr_handle&&!c.params&&!c.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain,"success clears ownership");}
+ reset();{auto c=live();c.temporal=new Temporal;nr_temporal_status::bytes=16;DestroyContext(c);check(releases==1&&destroys==1&&slots==2&&bindings==1&&guide_releases==2&&post_destroys==1,"successful retirement completes once");check(!c.nr_handle&&!c.params&&!c.temporal&&nr_temporal_status::bytes==0&&!c.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain,"success clears temporal and provider ownership");}
+ reset();{auto c=live();post_ready=false;DestroyContext(c);check(post_destroys==1&&releases==0&&destroys==0&&slots==0&&bindings==0&&c.nr_handle&&c.params,"post-product closure blocks provider and dependent retirement");post_ready=true;DestroyContext(c);check(releases==1&&destroys==1&&slots==2&&bindings==1,"post-product ready permits later retirement");}
  for(auto code:{0xBAD00000u,0xBAD00004u,0xBAD00007u,0xBAD0000Du}) {
    reset();release_result=code;auto c=live();DestroyContext(c);
    check(releases==1&&destroys==0&&slots==0&&bindings==0&&guide_releases==0,"failed release retains dependent resources");

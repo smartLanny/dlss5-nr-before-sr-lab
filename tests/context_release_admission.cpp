@@ -27,7 +27,7 @@ struct NrSlot{void* key=nullptr;NrContext* dual_owner=nullptr;unsigned recording
 struct NrContext{
  const NgxHandle* sr_handle=nullptr;unsigned long long instance_id=0,parent_instance_id=0,feature_generation=0,parent_input_epoch=0,stage_capture_request_id=0;
  unsigned layer_index=0,width=0,height=0,recording_command_lists=0;int mode=0;
- bool retired=false,create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;
+ bool retired=false,create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false,post_ready=true;
  unsigned long long pending_recording_token=0,completion_fence_value=0;bool awaiting_fence_signal=false,bindings_ok=true;
  LifecycleQueue* last_submission_queue=nullptr;NrSlot slots[8]{};
  bool codec_color_mode_initialized=false,tuning_signature_initialized=false,codec_peak_shoulder=false,reset_retry_pending=false;
@@ -35,6 +35,15 @@ struct NrContext{
  NrGuideSignature guide_storage_signature{};NrGuideHistory guide_history{};nr_dual::AuxHistory dual_history{};
 };
 NrContext g_contexts[16]{},g_pending_destroy_contexts[16]{};
+unsigned temporal_maintains=0,post_maintains=0,spatial_sweeps=0,post_ready_checks=0;
+// Complete Core owns these modules; the isolated admission fixture models
+// their lifecycle response and observes the production collector's calls.
+namespace nr_temporal {void Maintain(NrContext&){++temporal_maintains;}}
+namespace nr_post_product {
+bool Ready(const NrContext& context){++post_ready_checks;return context.post_ready;}
+void Maintain(NrContext&){++post_maintains;}
+}
+namespace nr_spatial_experiment {void SweepIdle(){++spatial_sweeps;}}
 std::atomic<bool>g_lifecycle_tracking_uncertain{false},g_nr_failed_create_process_latched{false};
 std::atomic<unsigned>g_nr_context_releases_in_progress{0},g_history_generation{0};
 bool g_nr_residency_drain_pending=false; // Explicit compaction is independently tested.
@@ -80,7 +89,7 @@ void DestroyContext(NrContext& c){
  for(auto& s:c.slots)check(s.dual_owner==&c,"owners rebound to detached storage before Release");
  released.push_back(c.instance_id);c={};
 }
-void clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)c={};g_config={};released.clear();reenter=false;matching_during_release=nullptr;g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;g_nr_context_releases_in_progress=0;g_nr_residency_drain_pending=false;g_nr_create_release_deferrals=0;g_aux_parent_retirements=0;reason=BypassReason::None;nr_processing_runtime::session={};nr_processing_runtime::session.Select(nr_processing::Start::After,1);nr_processing_runtime::effective=1;nr_processing_runtime::source_blocked=false;}
+void clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)c={};g_config={};released.clear();reenter=false;matching_during_release=nullptr;g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;g_nr_context_releases_in_progress=0;g_nr_residency_drain_pending=false;g_nr_create_release_deferrals=0;g_aux_parent_retirements=0;temporal_maintains=post_maintains=spatial_sweeps=post_ready_checks=0;reason=BypassReason::None;nr_processing_runtime::session={};nr_processing_runtime::session.Select(nr_processing::Start::After,1);nr_processing_runtime::effective=1;nr_processing_runtime::source_blocked=false;}
 void collect(){EnterCriticalSection(&g_chain_cs);CollectRetiredContextsLocked();LeaveCriticalSection(&g_chain_cs);}
 int main(){
  clear();auto* old=lookup();check(old,"initial context");old->instance_id=100;
@@ -127,7 +136,7 @@ int main(){
  child_fence.completed=9;collect();DrainPendingContextDestructions();check(released.size()==5&&released.back()==204,"last child releases only at own fence");
  check(lookup(3776,2120),"replacement becomes possible after last own child lifetime");
 
- for(unsigned gate=0;gate<10;++gate){clear();old=lookup();old->instance_id=300;old->slots[0].key=old;
+ for(unsigned gate=0;gate<11;++gate){clear();old=lookup();old->instance_id=300;old->slots[0].key=old;
   ID3D12Fence own_fence{1};LifecycleQueue own_queue{&own_fence};
   if(gate==0)old->recording_command_lists=1;if(gate==1)old->pending_recording_token=1;if(gate==2)old->awaiting_fence_signal=true;
   if(gate==3)old->bindings_ok=false;if(gate==4)old->slots[0].recording_command_lists=1;
@@ -136,10 +145,14 @@ int main(){
   if(gate==7)old->slots[0].bindings_ok=false;
   if(gate==8)old->create_dependencies_quarantined=true;
   if(gate==9)old->lifecycle_dependencies_quarantined=true;
+  if(gate==10)old->post_ready=false;
   check(!lookup(3776,2120),"blocked or quarantined retirement must not overlap a replacement");collect();DrainPendingContextDestructions();check(released.empty(),"existing recording/signal/binding gate retained");
+  check(temporal_maintains>0&&post_maintains>0&&spatial_sweeps>0,"collector maintenance calls were skipped");
+  if(gate==10)check(post_ready_checks>0,"post readiness was not consulted");
   old->recording_command_lists=0;old->pending_recording_token=0;old->awaiting_fence_signal=false;old->bindings_ok=true;
   old->slots[0].recording_command_lists=0;old->slots[0].awaiting_fence_signal=false;old->slots[0].bindings_ok=true;own_fence.completed=2;
-  if(gate>=8){check(!lookup(3776,2120),"opaque quarantine must never be cleared by admission");continue;}
+  old->post_ready=true;
+  if(gate==8||gate==9){check(!lookup(3776,2120),"opaque quarantine must never be cleared by admission");continue;}
   check(!lookup(3776,2120),"ready release is still deferred outside the selector lock");DrainPendingContextDestructions();check(lookup(3776,2120),"completed lifecycle recovers without timed retry");
  }
  clear();old=lookup();old->instance_id=400;auto* matching=lookup(640,360,0,0,&carriers[1]);check(matching,"matching independent carrier");
@@ -156,5 +169,5 @@ int main(){
  old->pending_recording_token=1;check(!lookup(3776,2120),"old route replacement deferred");check(other_mode()==cached_route,"already allocated same-carrier route must remain reusable");
  clear();g_nr_failed_create_process_latched=true;check(!lookup(),"failed Create quarantine is unchanged");
  clear();g_lifecycle_tracking_uncertain=true;check(!lookup(),"unknown lifecycle still rejects admission");
- std::puts("PASS real Find/collector/drain: ready and in-flight release ordering, detached reentry, matching reuse, ten own lifetime blockers, F6 cache, five layers, native route retention and latest settings");
+ std::puts("PASS real Find/collector/drain: ready and in-flight release ordering, detached reentry, matching reuse, eleven own lifetime blockers including post readiness, F6 cache, five layers, native route retention and latest settings");
 }

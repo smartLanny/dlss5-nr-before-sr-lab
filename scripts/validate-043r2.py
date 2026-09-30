@@ -87,7 +87,7 @@ def main():
     p.add_argument('--compiler', required=True)
     args = p.parse_args()
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
-    ui = (ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
+    ui = (ROOT/'src/nr_unified_settings.inl').read_text(encoding='utf-8-sig')
     core = (ROOT/'src/nr_feedback_core.inl').read_text(encoding='utf-8-sig')
     sequence = (ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig')
     post = definition(source, 'PostSrSubstitution PrepareAfterSr(')
@@ -105,8 +105,8 @@ def main():
     assert 'nr_feedback_ticket::Build' in definition(core,'void Publish(')
     assert 'g_submission[' in core
     assert 'Copy core path' in sequence
-    assert ui.count('BeginTabItem(')==3 and ui.count('EndTabItem(')==3 and 'nr-main-tabs' in ui
-    assert ui.index('Picture###nr-picture') < ui.index('Experiments###nr-experiments') < ui.index('Feedback and diagnostics###nr-feedback-diagnostics')
+    assert ui.count('BeginTabItem(')==5 and ui.count('EndTabItem(')==5 and 'nr-main-tabs' in ui
+    assert ui.index('Picture###nr-picture') < ui.index('Lighting###nr-lighting') < ui.index('Experiments###nr-experiments') < ui.index('Developer###nr-developer') < ui.index('Feedback###nr-feedback-diagnostics')
     status_ui=definition(sequence,'void DrawCoreStatus(')
     release=status_ui.index('ReleaseSRWLockShared(&g_feedback_lock)')
     assert status_ui.index('WideToUtf8(g_feedback_last_zip,path,sizeof(path))') < release
@@ -114,8 +114,8 @@ def main():
     assert status_ui.index('Copy core path') > release
     assert 'return config.transfer_strength;' in definition(source,'float ActiveTransferStrength(')
 
-    start=ui.index('    float effect_strength = ActiveTransferStrength(next);')
-    stop=ui.index('    SettingsTooltip(ui("1 keeps the model\'s base amount.', start)
+    start=ui.index('            float strength=ActiveTransferStrength(next);')
+    stop=ui.index('            SettingsTooltip(ui("Scales final brightness/detail edits, not model strength.', start)
     text=HARNESS.replace('ACTIVE_STRENGTH',definition(source,'float ActiveTransferStrength('))
     text=text.replace('RESET_POLICY',definition((ROOT/'src/nr_post_sr_snapshot.inl').read_text(), 'constexpr bool KeepNativePostSrImage('))
     text=text.replace('UI_STRENGTH',ui[start:stop])

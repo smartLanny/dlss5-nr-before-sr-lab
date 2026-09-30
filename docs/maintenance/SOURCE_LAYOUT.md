@@ -36,6 +36,14 @@ new; it must not be presented as the original manifest. Binary identity can also
 differ due to embedded build provenance, linker timestamps and paths. Preserve
 the original Beta 13 binary identities and report the new build separately.
 
+An independent recipe comparison found the compiler/linker command templates,
+optimization flags, source lists and resource steps unchanged. The two provenance
+defines intentionally differ: the old generated recipe embedded `cd8ba700` and
+`NR_SOURCE_DIRTY=1`; direct exports embed their actual commit and clean flag.
+These values feed diagnostics and capture metadata, not rendering decisions.
+Consequently neither all command arguments nor the new binaries are claimed to
+be byte-identical to the old release.
+
 ## 中文使用说明
 
 继续使用统一构建入口。Core 现在直接编译仓库里的正式源码，修复功能时直接修改
@@ -45,3 +53,5 @@ the original Beta 13 binary identities and report the new build separately.
 本次只整理构建结构，保留 Beta 13 算法、简洁 UI、默认值和 DLL ABI。运行成功、CPU、
 WARP、NGX 和游戏验收仍分别记录。新版构建回执不是旧版回执，旧二进制不能改名。
 源码对照清单只证明本次折回；未来合法源码修改不受这个历史清单阻断。
+编译及链接步骤保持原样，源码提交号和干净标记改为真实构建身份；这两项诊断宏
+会改变二进制字节，因此不宣称新版 DLL 与旧发布包逐字相同。

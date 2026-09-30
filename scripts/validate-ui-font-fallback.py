@@ -25,7 +25,8 @@ parser.add_argument("--compiler", required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
-settings = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8-sig")
+settings = (root / "src/nr_unified_settings.inl").read_text(encoding="utf-8-sig")
+pages = (root / "src/nr_unified_pages.inl").read_text(encoding="utf-8-sig")
 
 decision = definition(source, "constexpr bool ShouldUseChineseUi(")
 # ReShade draws these exported fields before the add-on's own panel can choose
@@ -39,14 +40,16 @@ if len(metadata) != 5:
     raise SystemExit(f"expected five exported NAME/DESCRIPTION/AUTHOR values, got {len(metadata)}")
 if any(ord(character) > 127 for payload in metadata for character in payload):
     raise SystemExit("exported NAME/DESCRIPTION/AUTHOR metadata is not ASCII-safe")
-for marker in (
-    "font->IsGlyphInFont",
-    "use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii",
-    "Chinese glyphs are unavailable",
-    "C:\\\\Windows\\\\Fonts\\\\msyh.ttc",
-):
-    if marker not in source and marker not in settings:
-        raise SystemExit(f"missing UI font-fallback marker: {marker}")
+for glyph in ("0x4E2D", "0x6587", "0x94FE", "0x8F7D"):
+    if f"font->IsGlyphInFont(static_cast<ImWchar>({glyph}))" not in source:
+        raise SystemExit(f"missing Chinese UI glyph check: {glyph}")
+if "const bool use_chinese_ui = UseChineseUi();" not in settings or \
+   "return use_chinese_ui ? zh : en;" not in settings:
+    raise SystemExit("unified settings must select English when the active font lacks Chinese glyphs")
+if "UseChineseUi()?kAddonAuthor:kAddonAuthorAscii" not in pages:
+    raise SystemExit("public author label must fall back to ASCII")
+if "if(kChineseUi&&!use_chinese_ui)SettingsNote(\"Chinese glyphs are unavailable." not in settings:
+    raise SystemExit("Chinese UI fallback must remain visible to users")
 
 harness = f"""
 #include <cstdio>
