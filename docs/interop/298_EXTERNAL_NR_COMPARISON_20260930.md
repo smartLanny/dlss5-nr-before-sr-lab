@@ -9,7 +9,7 @@
 | 对象 | 身份 | 许可 | 用法 |
 |---|---|---|---|
 | 本项目 | main `12a9dd508c712ad9a75d34390172f791c4c19250`；`src/` 与 `scripts/patch-*.py` 与 Beta 13 产品源码 `cd8ba700` 逐字相同 | — | 下文 `:行号` 默认指 `src/nr_before_sr.cpp` |
-| wilsjo2 OptiScaler NR | 发布 tag `v0.8.91` = `f45ccf3a761df91450959d325ac0166cba5364c9`（2026-09-23）。默认分支 main 停在 `1bd39091`，落后发布约 4 万行，**不能用 main 代表当前版本** | GPL-3.0 | 只学机制，不复制源码（同 `MAX_COMPAT_CONTINUATION.md`） |
+| wilsjo2 OptiScaler NR | 发布 tag `v0.8.91` = `f45ccf3a761df91450959d325ac0166cba5364c9`（2026-09-23）。默认分支 main 为 `1bd39091`，与 v0.8.91 相差约 4 万行（161 个文件）；两份均为 shallow clone，未确认祖先关系。**不能用 main 代表当前发布** | GPL-3.0 | 只学机制，不复制源码（同 `MAX_COMPAT_CONTINUATION.md`） |
 | BeliyG3/optimizer-fps-dlss5 | HEAD `1bc2b76fa3dbdb5e41677286eb74907f63831235`（2026.9.2）；wilsjo2 的空间压缩取自其 `64902dd6` | MIT | 可附版权声明复用 |
 
 已有引用：`052_BETA6_EVALUATION_AND_NEXT.md` 核对过 wilsjo2 main `1bd39091` 的 DeferredSr 与 RR 路由；
@@ -26,7 +26,7 @@
    对方同样每个 pass 一个独立 Feature（`S/DlssNr_Dx12_ModelState.h:14`），默认 1 层（`Config.h:351`），菜单上限 2，解锁后 10
    （`N/DlssNr_MenuControls.cpp:289`）。**同层数时这项没有差别；玩家常开 2–3 层才是主要差别。**
 3. **源码上有四处结构差异，可能让同设置下我们占用更多**（按可能量级排序，均未测）：
-   - **运行库不同。** 我们的 20/30 包带 plain FP16 运行库（309,671,536 B，是常规版约 165.8 MB 的 1.87 倍），40/50 包带 Kio v1.0.6；
+   - **运行库不同。** 我们的 20/30 包带 plain FP16 运行库（309,671,536 B，约为 Kio 及其他 40/50 包约 165.8 MB 的 1.87 倍），40/50 包带 Kio v1.0.6；
      对方固定 RTX50 原版 310.8 `E16BCF15…`、20/30/40 用 ShortFuse `E67DEE20…`（`INSTALL-DLSSNR.md:17-24`）。
      权重和工作区不同，模型占用就会不同，与插件代码无关。
    - **非当前路线的模型仍驻留。** 我们前置（mode 2）和后置/RR（mode 1）的 context 分别匹配（`:7684-7686`），上限 `g_contexts[16]`（`:5609`）。
