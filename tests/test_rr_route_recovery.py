@@ -287,6 +287,21 @@ FeatureRecord FindFeature(const NgxHandle* handle) {{
     if (handle == &g_rr) return {{handle, 13}};
     return {{handle, 99}};
 }}
+namespace nr_acceptance {{ bool PerformanceActive() {{ return false; }} }}
+namespace nr_acceptance_gpu {{
+enum class EntryRoute {{ Sr }};
+enum class PreReason {{ Owner, Lifecycle, Route }};
+struct EntryScope {{
+    bool active;
+    EntryScope(EntryRoute, bool enabled) : active(enabled) {{}}
+    void Decline(PreReason) {{}}
+}};
+}}
+NgxResult ProcessRrPost(EvaluateFeatureFn original, ID3D12GraphicsCommandList* list,
+                        const NgxHandle* handle, const NgxParams* params,
+                        void* callback, const FeatureRecord&) {{
+    return original(list, handle, params, callback);
+}}
 bool OtherNrOwnerActive() {{ return false; }}
 BypassReason OtherNrOwnerBypassReason() {{ return BypassReason::LifecycleIsolation; }}
 void SetBypassReason(BypassReason reason) {{ g_reason = reason; }}
@@ -493,7 +508,11 @@ int main() {{
         # Route identity comes from the per-handle record, so another
         # recognized Feature 1 handle takes the same admission path; this is a
         # source contract, not a claim that a game supplied two handles here.
-        self.assertEqual(self.process.count("FindFeature(handle)"), 1)
+        # Acceptance sampling may inspect the handle before the regular route,
+        # but the short circuit keeps that lookup off when sampling is idle.
+        self.assertEqual(self.process.count("FindFeature(handle)"), 2)
+        self.assertIn("nr_acceptance::PerformanceActive() && IsUpscalingCarrierFeature(FindFeature(handle).feature_id)",
+                      _compact(self.process))
         self.assertLess(
             self.process.index("FindFeature(handle)"),
             self.process.index("IsUpscalingCarrierFeature(feature.feature_id)"),
@@ -540,12 +559,19 @@ std::atomic<int> g_process_calls{{0}};
 std::atomic<int> g_native_calls{{0}};
 std::atomic<bool> g_enabled_fast{{true}};
 
-struct FeatureRecord {{ int feature_id = -1; }};
+enum class NgxOwner {{ Game }};
+struct FeatureRecord {{ int feature_id = -1; NgxOwner owner=NgxOwner::Game; }};
 FeatureRecord FindFeature(const NgxHandle* handle) {{
     return {{handle != nullptr && handle->id == 13 ? 13 : 1}};
 }}
+namespace nr_post_product {{ bool PrivateCall() {{ return false; }} }}
+namespace nr_acceptance {{
+bool Active() {{ return false; }}
+void ObserveNativeSource(int, unsigned long long) {{}}
+}}
 void LatchNestedRrOwnershipChange(const char*) {{ ++g_nested_latches; }}
 namespace nr_source_runtime {{
+unsigned long long CurrentSource() {{ return 1; }}
 struct EvaluateScope {{
     EvaluateScope(ID3D12GraphicsCommandList*, const NgxHandle*,
                   const NgxParams*, const FeatureRecord&) {{}}
