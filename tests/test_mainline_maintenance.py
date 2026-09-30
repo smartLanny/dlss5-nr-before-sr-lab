@@ -18,9 +18,19 @@ class MainlineMaintenance(unittest.TestCase):
  def test_all_router_jobs_are_explicitly_opt_in(self):
   s=read('.github/workflows/pull-request-validation.yml')
   self.assertIn('branches: [main]',s)
-  jobs=re.findall(r'^  [\w-]+:\n(.*?)(?=^  [\w-]+:|\Z)',s[s.index('jobs:'):],re.M|re.S)
-  self.assertEqual(len(jobs),14)
-  for job in jobs:self.assertIn("vars.ENABLE_HOSTED_CI == 'true'",job)
+  jobs=dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:|\Z)',s[s.index('jobs:'):],re.M|re.S))
+  hosted={n:j for n,j in jobs.items() if not n.startswith('self-hosted-')}
+  self.assertEqual(len(hosted),14)
+  for job in hosted.values():self.assertIn("vars.ENABLE_HOSTED_CI == 'true'",job)
+  # The maintainer's runner is a separate opt-in and never runs hosted work.
+  self_hosted={n:j for n,j in jobs.items() if n.startswith('self-hosted-')}
+  self.assertEqual(set(self_hosted),{'self-hosted-tests','self-hosted-canonical-build'})
+  for job in self_hosted.values():
+   self.assertIn("vars.ENABLE_SELF_HOSTED_CI == 'true'",job)
+   self.assertIn('runs-on: [self-hosted, Windows, X64, dlss5-build]',job)
+  build=self_hosted['self-hosted-canonical-build']
+  self.assertIn("inputs.full_build",build);self.assertIn("'full-build'",build)
+  self.assertIn('scripts/ci/run-self-hosted-build.ps1',build)
   self.assertIn('uses: ./.github/workflows/beta050-validate.yml',s)
  def test_archived_workflows_preserve_original_content(self):
   files=list((R/'docs/history/pre-mainline-20260926/workflows').glob('*.yml'))

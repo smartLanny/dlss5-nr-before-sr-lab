@@ -76,6 +76,8 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 它不替代 Windows canonical 构建。
 源码审查、编译、CPU、WARP、硬件 shader、NGX 推理、托管 CI 和游戏验收分别记录；
 跳过、失败、取消、未启动都不是通过。托管 CI 仍需 `ENABLE_HOSTED_CI=true`，目前未启用。
+维护者电脑上的自托管 runner 受 `ENABLE_SELF_HOSTED_CI` 控制：每个 PR 跑快速测试，
+完整构建需手动触发或给 PR 打 `full-build` 标签，说明见 `docs/maintenance/SELF_HOSTED_RUNNER.md`。
 持续旁路必须请求 F8/日志反馈，旁路带来的高帧率不是优化。
 
 ## 历史
