@@ -16,6 +16,17 @@ Both jobs are skipped unless the repository variable `ENABLE_SELF_HOSTED_CI` is
 the machine is offline or busy so PRs do not wait for the runner. Hosted jobs stay
 behind `ENABLE_HOSTED_CI` and are unaffected.
 
+## Runner tools
+
+The runner machine has Windows PowerShell 5.1 and no PowerShell 7, so the steps
+use `shell: powershell`; scripts they call must stay 5.1-compatible. The runner
+service does not necessarily see the interactive PATH. The first step of each job
+finds `git.exe` and `python.exe` on PATH, in the directory named by the optional
+repository variable (or machine environment variable) `DLSS5_GIT_DIR` /
+`DLSS5_PYTHON_DIR`, or in the usual install folders, and adds it to PATH before
+checkout. Without git, `actions/checkout` downloads an archive with no `.git`
+and the canonical build cannot record its source commit.
+
 ## Build inputs
 
 `run-self-hosted-build.ps1` reads each input from a repository variable of the

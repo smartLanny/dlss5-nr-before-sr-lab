@@ -66,7 +66,9 @@ Write-Host "Missing debug layer allowed: $AllowMissingDebugLayer"
 if ($CheckInputsOnly) { Write-Host 'Inputs resolved; build not started (-CheckInputsOnly).'; return }
 
 New-Item -ItemType Directory -Path $CiRoot -Force | Out-Null
-$Parameters = @{} + $Inputs
+# Windows PowerShell 5.1 cannot add an ordered dictionary to a hashtable.
+$Parameters = @{}
+foreach ($entry in $Inputs.GetEnumerator()) { $Parameters[$entry.Key] = $entry.Value }
 $Parameters.OutputRoot = $OutputRoot
 if ($NrchainReuseRoot) { $Parameters.NrchainReuseRoot = $NrchainReuseRoot }
 if ($CodecCacheRoot) { $Parameters.CodecCacheRoot = $CodecCacheRoot }
