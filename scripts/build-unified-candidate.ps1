@@ -31,6 +31,8 @@ foreach($Name in $PSBoundParameters.Keys) {
 }
 $SavedFfxSdk=$env:DLSS5_FFX_SDK_ROOT
 $SavedFfxCache=$env:DLSS5_FFX_CACHE_ROOT
+& python (Join-Path $PSScriptRoot 'validate-diagnostic-metadata.py') --compiler (Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe') --output ($OutputRoot + '.diagnostic-metadata-checks')
+if ($LASTEXITCODE) { throw 'Diagnostic metadata numeric preservation and privacy gate failed.' }
 try {
     $env:DLSS5_FFX_SDK_ROOT=$FfxSdkRoot
     $env:DLSS5_FFX_CACHE_ROOT=$FfxCacheRoot
@@ -38,8 +40,6 @@ $ReconstructionTests=Join-Path $OutputRoot 'reconstruction-checks'
 # Keep pre-build evidence OUTSIDE the output that the canonical builder creates.
 $ReconstructionPre=$OutputRoot + '.reconstruction-checks'
 $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
-& python (Join-Path $PSScriptRoot 'validate-diagnostic-metadata.py') --compiler $Cxx --output ($OutputRoot + '.diagnostic-metadata-checks')
-if ($LASTEXITCODE) { throw 'Diagnostic metadata numeric preservation and privacy gate failed.' }
 $GuideStorageProbe=$OutputRoot + '.guide-storage-contract.exe'
 & $Cxx '-std=c++20' '-O0' '-Wall' '-Wextra' '-Werror' '-static' (Join-Path $PSScriptRoot '../tests/nr_guide_storage_contract_test.cpp') '-o' $GuideStorageProbe
 if ($LASTEXITCODE) { throw 'NR guide storage contract CPU regression failed to compile.' }
