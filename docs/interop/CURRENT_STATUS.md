@@ -54,13 +54,20 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 
 ## 下一步（按顺序）
 
-1. **#321：** 16 个 `patch-*.py` 已归档，Core 改为直接编译正式源码；构建回执仍绑定实际输入哈希。原 Beta 13 manifest 与逐文件对照用于本次迁移证明，不作为未来源码 pin。结构与证据见 [SOURCE_LAYOUT.md](../maintenance/SOURCE_LAYOUT.md)；PR 整合前需通过 `full-build`。
-2. **#317：** Esc / UI 场景丢 NR。先取一份带 Esc 时间标记的 F8，候选修复是工作尺寸滞回。
-3. **#298：** 显存。先在 F8 加插件自有分配的分类账本，再做降档和复用。
+1. **#317：** Esc / UI 场景丢 NR。先取一份带 Esc 时间标记的 F8，候选修复是工作尺寸滞回。
+2. **#298：** 显存。先在 F8 加插件自有分配的分类账本，再做降档和复用。
 
-**待本机执行（云端会话推不了 tag、删不了分支，命令见 #311）：** 推送 `v0.5.2-beta.13`，
-删除已并入 main 的 `feat/309-post-private-sr`、`codex/051-guide-domain-audit-20260925`、
-`codex/acceptance-dev-followup-20260927`，以及先打 archive tag 的 `codex/317-…`、`codex/293-298-…`。
+**已完成 #321（#327，2026-09-30 合入 `0e1ba85c`）：** Core 直接编译 `src/`，16 个 `patch-*.py`
+已归档，结构见 [SOURCE_LAYOUT.md](../maintenance/SOURCE_LAYOUT.md)。维护审查在自托管 runner 上用原
+生成器独立重建 `cd8ba700`：manifest SHA256 等于 Beta 13 回执的 `6d15f8ee…`，PR 头 301 个 Core 文件
+300 个逐字节相同，只有 `scripts/build.ps1`（源码身份改为读取导出回执）不同。新编译的 Core DLL 哈希
+与已发布 Beta 13 不同，不声称二进制等价，也不是 NGX 或游戏验收。
+
+**版本号：** main 上的 `scripts/core-source-layout.json` 仍写 `0.5.2-beta.13`。此后从 main 构建的
+二进制不得作为 Beta 13 分发；下一个给玩家的包必须先改为 `0.5.2-beta.14`。
+
+**本机维护项已完成（2026-09-30）：** `v0.5.2-beta.13` tag 已推送，已并入的旧分支已删除，
+`codex/317-…`、`codex/293-298-…` 先打 archive tag 后删除。
 
 ## 从哪里开始
 
