@@ -1,126 +1,128 @@
-// Included where the existing settings helpers and the pending transaction
-// are available. All writes go through that transaction, never directly to
-// g_config; the regular Apply/Save path owns locking and INI persistence.
+// Final quality panel. Only edits the existing pending transaction. Rendering
+// or collapsing a section never changes saved settings or model parameters.
 void DrawColourLabControls(ChainConfig &next, unsigned generation,
                            bool has_pending, bool &changed, bool &apply_discrete_edit) {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
-    ImGui::PushID("nr-colour-lab-m3b");
-    ImGui::Separator();
-    SettingsField(ui("Colour / structure recovery [M3b experiment]", "颜色与结构实验"));
-    int mode = static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));
-    if (ImGui::Combo(ui("Colour policy###colour-lab-mode", "颜色策略###colour-lab-mode"), &mode,
-        ui("Legacy: original configured policy\0Colour priority [experimental]\0Conservative: limit unverified HDR\0",
-           "原设置\0颜色优先（实验）\0保守 HDR\0"))) {
-        next.colour_lab_mode = mode;
-        changed = true;
-        apply_discrete_edit = true;
+    ImGui::PushID("nr-quality-panel");
+    SettingsField(ui("Picture recipe", "画质预设"));
+    int recipe = static_cast<int>(nr_quality_recipe::Describe(next));
+    if (ImGui::Combo(ui("Recipe###quality-recipe", "方案###quality-recipe"), &recipe,
+        ui("Colour baseline\0N2 shadow experiment\0Custom\0",
+           "颜色基准\0N2 阴影实验\0自定义\0"))) {
+        if (nr_quality_recipe::Select(next, static_cast<nr_quality_recipe::Recipe>(recipe))) {
+            changed = true; apply_discrete_edit = true;
+        }
     }
     SettingsTooltip(ui(
-        "Changes only colour admission, not model settings, layer count, raster, exposure or resource validation. Legacy also retains the saved legacy HDR opt-in. The recovery selector below is a separate output-only choice.",
-        "仅改变 AI 色彩准入，不改模型、层数、分辨率、曝光或资源安全检查。旧版仍遵守已保存的旧 HDR 实验许可。下方恢复算法是独立的输出合成选项。"));
-    int recovery = nr_colour_restore::Normalize(next.colour_restore_mode);
-    if (ImGui::Combo(ui("Recovery###colour-restore", "恢复算法###colour-restore"), &recovery,
-        ui("D21 baseline composition\0Matched RGB + D21 protections\0Raw model RGB edit reference [diagnostic]\0",
-           "D21 基准\0RGB 恢复\0原始 RGB（诊断）\0"))) {
-        next.colour_restore_mode = recovery;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    SettingsTooltip(ui(
-        "Mode 1 keeps D21 lighting/detail/edge/region/face attenuation. Mode 2 is a diagnostic raw model-edit reference: it bypasses those aesthetic attenuations but keeps finite, gamut, ratio and GPU/resource safety. Neither adds an NR pass.",
-        "模式 1 保留 D21 的光照/细节/边缘/区域/人脸衰减；模式 2 是诊断用原始模型修改参考，会绕过这些审美衰减，但仍保留有限值、色域、倍率及 GPU/资源安全。两者都不增加 NR 推理。"));
-    if (recovery == 1 || recovery == 2) {
-        SettingsNote(ui(
-            "RGB replaces the final ratio/chroma consumer, not the input curve. Saved independent-chroma/opponent options are retained for baseline comparison; any existing low-grid luminance filtering remains active.",
-            "RGB 替换最终倍率/色度合成，不替换输入曲线。原独立色度/低网格颜色偏好保留给基线对照；已有低网格明暗过滤仍会生效。"));
-        SettingsNote(ui(
-            "Negative source channels or an invalid recovery keep the original pixel. On bypass, no visible change, hue/highlight errors or flicker: collect F8 and submit a BUG with the recovery selection.",
-            "原图负值通道或恢复数据异常时保留原像素。发生旁路、无变化、偏色、高光异常或闪烁，请按 F8 收集并提交 BUG，注明恢复算法。"));
-    }
-    if (recovery == 2)
-        SettingsNote(ui(
-            "Raw reference ignores output Transfer/LightingLock/DetailStability/EdgeGuard/region/face damping by design. Use it to see whether the model already created the missing character/fabric structure; it is not a recommended default.",
-            "原始参考会刻意绕过输出端的整体效果/光照保护/细节稳定/边缘/区域/人脸衰减，用来判断模型是否已经生成缺失的人物/衣物结构；它不是推荐默认值。"));
-    int inputCurve = nr_colour_restore::Normalize(next.colour_input_curve);
-    if (ImGui::Combo(ui("HDR input curve###colour-input-curve", "HDR 输入曲线###colour-input-curve"), &inputCurve,
-        ui("D21 input unchanged\0Paired N2 HDR [experimental; resets NR history]\0",
-           "D21 原输入\0N2 HDR（实验）\0"))) {
-        next.colour_input_curve = inputCurve;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    SettingsTooltip(ui(
-        "Optional second comparison axis. Before and after SR/RR use the same bounded N2 HDR curve, and RGB recovery uses the original source's scale. SDR and unresolved model-value inputs stay unchanged. Switching input preparation recreates NR history; wait for temporal settling before comparing. Default is D21 input unchanged.",
-        "第二条独立对照轴。前、后置 HDR 使用同一条有界 N2 曲线，RGB 恢复仍参考原图尺度。SDR 与未确认的模型值域保持原样。切输入准备会重建 NR 历史，请在时域稳定后对比；默认仍保留 D21 原输入。"));
-    int scaledPrep = nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
-    if (ImGui::Combo(ui("Sub-native NR input###colour-scaled-proxy", "低于 100% 的 NR 输入###colour-scaled-proxy"), &scaledPrep,
-        ui("D21: scale source, then encode\0Proxy-first exact-area [99/100 diagnostic]\0",
-           "先缩放\0先编码（诊断）\0"))) {
-        next.colour_scaled_proxy_mode = scaledPrep;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    SettingsTooltip(ui(
-        "Pre-SR exact-area path only. The experimental mode prepares each source tap into the model proxy first, then averages that proxy. It targets the observed 99% vs 100% colour/brightness cliff and mirrors Opti's encode-then-downsample topology. Switching it resets NR history. Lanczos keeps the D21 path and reports it as not applied.",
-        "仅用于前置 NR 的精确面积缩放。实验模式先把每个源采样编码为模型 Proxy，再对 Proxy 做面积平均，专门定位 99% 与 100% 的颜色/亮度断层，并与 Opti 的“先编码再缩放”拓扑对齐。切换会重建 NR 历史；Lanczos 暂时保留 D21 路径并显示未应用。"));
-    if (mode == 1) {
-        SettingsNote(ui(
-            "Experimental: internal HDR/scRGB/PQ inputs may change hue or highlights, even on an SDR display. Use Conservative if the result is wrong, then collect F8 and report the game.",
-            "实验警告：即使显示器为 SDR，内部 HDR/scRGB/PQ 输入也可能偏色或高光异常。出现异常请切回保守限制，按 F8 收集并反馈游戏。"));
-    } else if (mode == 0 && next.allow_unverified_hdr_color) {
-        SettingsNote(ui("Legacy HDR colour opt-in is enabled; Legacy is not the strict mode.",
-            "旧配置已开启 HDR 试色；“旧版”不等同于保守限制。"));
-    }
-    if (ImGui::Button(ui("Return to legacy###colour-lab-reset", "一键回到旧版###colour-lab-reset"))) {
-        next.colour_lab_mode = 0;
-        next.colour_restore_mode = 0;
-        next.colour_input_curve = 0;
-        next.colour_scaled_proxy_mode = 0;
-        changed = true;
-        apply_discrete_edit = true;
-    }
-    SettingsNote(ui("AI colour and original-lighting sliders keep their values. Recovery selection does not reset NR history; changing the input curve does.",
-        "AI 色彩、原始光照保护等滑块保留原值；切恢复算法不重建 NR 历史，切输入曲线会重建。"));
+        "Both recipes enable AI colour and use D21 composition. N2 changes only the input curve and resets NR history. Model/scale/layers/strength/lighting controls stay as saved. N2 plus D21 composition is a NEW comparison, not verified RenoDX equivalence.",
+        "两种方案均优先采用 AI 色彩，使用 D21 合成；N2 方案只再改输入曲线，会重建 NR 历史。模型、分辨率、层数、强度与光照控制保持原值。N2 + D21 合成是待验证的新组合，不是已确认等价 RenoDX。"));
+    if (nr_quality_recipe::Describe(next) == nr_quality_recipe::Recipe::Custom)
+        SettingsNote(ui("Existing custom settings were preserved. Choosing a recipe clears only the colour-lab experiments.",
+            "自定义设置已保留。"));
+    if (next.colour_restore_mode != 0)
+        SettingsNote(ui("RGB recovery is active: owner tests reported added contour halos and no clear fabric-detail gain. Use Colour baseline to leave this experiment.",
+            "RGB 实验开启：有亮边反馈。"));
+    if (next.colour_neutral_probe)
+        SettingsNote(ui("ZERO-EDIT TEST ACTIVE: NR still runs; the consumer uses synthetic N=P. Disable this before judging quality or performance.",
+            "零修改测试开启：画质对比无效。"));
 
     const auto sample = SnapshotColorPolicy();
-    // A pending UI edit must not label the preceding dispatch as its result.
-    if (changed || has_pending || sample.config_generation != generation) {
-        SettingsNote(ui("Candidate selected; waiting for the normal settings transaction and a matching composition sample.",
-            "准备中：等待处理记录。"));
-    } else if (sample.status != NrColorPolicyStatus::Current) {
+    const bool current = !changed && !has_pending && sample.config_generation == generation &&
+        sample.status == NrColorPolicyStatus::Current;
+    if (changed || has_pending || sample.config_generation != generation)
+        SettingsNote(ui("Waiting for committed settings and matching recorded output.", "准备中：等待处理记录。"));
+    else if (!current) {
         SettingsNote(NrColorPolicyStatusText(sample.status, zh));
         if (sample.status == NrColorPolicyStatus::Bypassed)
-            SettingsNote(ui("The native path is retained. Collect F8 and submit a BUG before changing compatibility settings.",
+            SettingsNote(ui("Native output retained. Capture F8 and report the bypass as a BUG.",
                 "未生效：保留游戏原画面。"));
     } else {
-        ImGui::TextWrapped(ui("Recent recorded combine: requested colour %.2f; effective coefficient %.2f.",
-                             "色彩记录：请求 %.2f／录制 %.2f"),
+        ImGui::TextWrapped(ui("AI colour: requested %.2f / recorded %.2f", "AI 色彩：请求 %.2f / 已录制 %.2f"),
             sample.policy.requested_color_strength, sample.policy.effective_color_strength);
-        ImGui::TextWrapped("%s: %s", ui("Reason", "原因"), NrColorReasonName(sample.policy.color_reason));
-        ImGui::TextWrapped("%s: %s", ui("Recorded recovery", "已录制恢复算法"),
-            nr_colour_restore::Name(sample.policy.recorded_restore_mode));
-        ImGui::TextWrapped("%s: %s", ui("Recorded input curve", "已录制输入曲线"),
+        ImGui::TextWrapped("%s: %s / %s", ui("Recorded path", "已录制路径"),
+            nr_colour_restore::Name(sample.policy.recorded_restore_mode),
             nr_colour_restore::CurveName(sample.policy.recorded_input_curve));
-        ImGui::TextWrapped("%s: %s", ui("Recorded sub-native preparation", "已录制低分辨率输入准备"),
-            nr_colour_restore::ScaledProxyName(sample.policy.recorded_scaled_proxy_mode));
-        if (sample.policy.requested_scaled_proxy_mode == 1 && sample.policy.recorded_scaled_proxy_mode == 0)
-            SettingsNote(ui(
-                "Proxy-first scaling was not applied to the recorded input (100% work size, post path, Lanczos, or missing producer receipt).",
-                "本次记录未应用“先编码 Proxy 再缩放”（可能为 100% 工作尺寸、后置路径、Lanczos，或缺少匹配的输入记录）。"));
-        if (sample.policy.requested_input_curve == 1 && sample.policy.recorded_input_curve == 0 && sample.policy.restore_encoding_known)
-            SettingsNote(ui("The current bounded SDR/model-value contract retains its original input; HDR N2 is not applied.",
-                "当前为有界 SDR/模型值域合同，保留原输入，未应用 HDR N2。"));
-        if ((sample.policy.requested_restore_mode == 1 || sample.policy.requested_input_curve == 1) && !sample.policy.restore_encoding_known)
-            SettingsNote(ui("No matching input-encoder record for this slot/frame; baseline composition retained. Collect F8 and submit a BUG.",
-                "该槽位/帧没有匹配的输入编码记录，已保留基线合成；请按 F8 收集并提交 BUG。"));
-        if (sample.policy.recorded_restore_mode == 1)
-            ImGui::TextWrapped("%s", sample.policy.restore_post_encoding
-                ? ui("Source reference: post-SR/RR EncodeCS", "原图参考：后置 SR/RR EncodeCS")
-                : ui("Source reference: pre-SR EncodeV2CS", "原图参考：前置 EncodeV2CS"));
-        SettingsNote(ui("Recorded constants are not proof of GPU completion, presentation or a visible colour difference.",
-            "仅处理记录，画质尚未验证。"));
+        if (next.colour_lab_mode == 1 && sample.policy.requested_color_strength > 0.0f &&
+            sample.policy.effective_color_strength == 0.0f)
+            SettingsNote(ui("AI colour is still limited; inspect the reason below and capture F8.",
+                "AI 色彩未生效：当前受限。"));
+        if (sample.policy.requested_input_curve == 1 && sample.policy.recorded_input_curve != 1)
+            SettingsNote(ui("N2 NOT applied to this recorded input. It is not an N2 comparison.",
+                "N2 未生效：本次不算对照。"));
+        if ((next.colour_restore_mode != 0 || next.colour_neutral_probe) && !sample.policy.restore_encoding_known)
+            SettingsNote(ui("Missing matched encoder receipt: baseline retained. Capture F8 and report a BUG.",
+                "未生效：缺少匹配输入记录。"));
     }
+    SettingsHelp(ui("The 99% / 100% colour difference remains unresolved. Edge protection does not remove ringing.",
+        "99% 与 100% 的色差仍未解决；边缘保护不能消除振铃。"));
+
+    // Diagnostic controls remain available, but are not daily-use recommendations.
+    if (ImGui::CollapsingHeader(ui("Developer colour controls###quality-research", "颜色实验###quality-research"))) {
+        int mode = static_cast<int>(nr_colour_lab::Normalize(next.colour_lab_mode));
+        if (ImGui::Combo(ui("Colour policy###quality-policy", "色彩策略###quality-policy"), &mode,
+            ui("Legacy configured\0Colour priority\0Conservative HDR\0",
+               "原设置\0颜色优先\0保守 HDR\0"))) {
+            next.colour_lab_mode = mode; changed = true; apply_discrete_edit = true;
+        }
+        int recovery = nr_colour_restore::Normalize(next.colour_restore_mode);
+        if (ImGui::Combo(ui("Recovery###quality-restore", "恢复算法###quality-restore"), &recovery,
+            ui("D21 composition\0Protected RGB [halo regression]\0Raw RGB [diagnostic]\0",
+               "D21 合成\0RGB 实验（亮边）\0原始 RGB（诊断）\0"))) {
+            next.colour_restore_mode = recovery; changed = true; apply_discrete_edit = true;
+        }
+        int curve = next.colour_input_curve == 1 ? 1 : 0;
+        if (ImGui::Combo(ui("Input curve###quality-curve", "输入曲线###quality-curve"), &curve,
+            ui("D21 input\0Paired N2 HDR\0", "D21 原输入\0成对 N2 HDR\0"))) {
+            next.colour_input_curve = curve; changed = true; apply_discrete_edit = true;
+        }
+        int scaledPrep = nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
+        if (ImGui::Combo(ui("Scaled input###quality-scale", "低分输入顺序###quality-scale"), &scaledPrep,
+            ui("Source first\0Proxy first [no improvement in tested scene]\0",
+               "先缩放\0先编码（未见改善）\0"))) {
+            next.colour_scaled_proxy_mode = scaledPrep; changed = true; apply_discrete_edit = true;
+        }
+        int edge = nr_colour_edge::Normalize(next.colour_edge_recovery);
+        if (ImGui::Combo(ui("Edge reconstruction###colour-edge", "配对边缘恢复###colour-edge"), &edge,
+            ui("D21 bilinear\0Paired weights [partial improvement only]\0",
+               "D21 双线性\0配对权重（部分）\0"))) {
+            next.colour_edge_recovery = edge; changed = true; apply_discrete_edit = true;
+        }
+        bool neutralProbe = next.colour_neutral_probe;
+        if (ImGui::Checkbox(ui("Zero-edit test###quality-neutral", "零修改对照###quality-neutral"), &neutralProbe)) {
+            next.colour_neutral_probe = neutralProbe; changed = true; apply_discrete_edit = true;
+        }
+        if (next.colour_edge_recovery && next.colour_restore_mode == 0 && !next.colour_neutral_probe)
+            SettingsNote(ui("Paired edge recovery is inactive with D21 composition.", "D21 合成不采用配对边缘恢复。"));
+        SettingsNote(ui("Source/model/history are unchanged by output-only controls. Raw bypasses artistic attenuation, not GPU safety; N=P only checks zero-edit sampling. Neither is a proven quality upgrade.",
+            "输出控制不改模型输入或历史。原始 RGB 绕过审美衰减，不绕过 GPU 安全；N=P 只检查零修改取样。二者均不是已验证的画质升级。"));
+        SettingsNote(ui("Colour priority / N2 may alter internal HDR hue and highlights even with SDR output. Revert on errors and collect F8.",
+            "即使最终输出 SDR，颜色优先 / N2 也可能影响内部 HDR 色相与高光；异常时回退并收集 F8。"));
+        if (current && !changed) {
+            ImGui::TextWrapped("%s: %s", ui("Reason", "原因"), NrColorReasonName(sample.policy.color_reason));
+            ImGui::TextWrapped("%s: %s / %s", ui("Recorded experiments", "已录制实验"),
+                nr_colour_restore::ScaledProxyName(sample.policy.recorded_scaled_proxy_mode),
+                nr_colour_edge::Name(sample.policy.recorded_edge_recovery != 0));
+            ImGui::TextWrapped("%s", nr_colour_stage::Name(sample.policy.recorded_neutral_probe));
+            if (next.colour_edge_recovery && !sample.policy.recorded_edge_recovery)
+                SettingsNote(ui("Edge option not applied: requires scaled V2 RGB and matched input receipt; unexpected bypass needs F8/BUG.",
+                    "边缘选项未采用：需要低分 V2 RGB 与匹配输入记录；意外旁路请 F8 / BUG 反馈。"));
+        }
+        if (ImGui::Button(ui("Legacy settings###quality-legacy", "回到旧版画质策略###quality-legacy"))) {
+            next.colour_lab_mode = 0; next.colour_restore_mode = 0;
+            next.colour_input_curve = 0; next.colour_scaled_proxy_mode = 0;
+            next.colour_edge_recovery = 0; next.colour_neutral_probe = false;
+            changed = true; apply_discrete_edit = true;
+        }
+    }
+    ImGui::BeginDisabled(!current || changed || StageCaptureStatus() != 0u);
+    if (ImGui::Button(ui("Capture stages (F7)###quality-capture", "捕获处理阶段（F7）###quality-capture"))) {
+        if (!RequestStageCapture())
+            SettingsNote(ui("Capture not accepted; no completed capture is claimed.", "捕获未受理，并非已经完成。"));
+    }
+    ImGui::EndDisabled();
+    SettingsTooltip(ui("F7 resets/warms NR, then exports sampled S/P/real N/E. Before SR, E is the SR INPUT, not final output. Use F8 centre ROI for fabric detail. Recorded constants are not GPU completion or a quality verdict.",
+        "F7 重建/预热后导出抽样 S/P/真实 N/E；前置 E 是 SR 输入，不是最终画面。衣物细节使用 F8 中心区域。常量录制不是 GPU 完成或画质验收。"));
     ImGui::Separator();
     ImGui::PopID();
 }

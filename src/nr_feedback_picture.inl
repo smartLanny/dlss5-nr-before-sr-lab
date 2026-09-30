@@ -3,6 +3,30 @@
 void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool valid) {
     FeedbackAppend(s, "requested.pictureSnapshotValid=%d\n", valid ? 1 : 0);
     if (!valid) return; // A busy snapshot must not report constructor defaults as facts.
+    FeedbackAppend(s,"requested.spatialExperimentMode=%u\n",config.spatial_experiment_mode);
+    FeedbackAppend(s,"requested.privateResidualSR=%d\n",config.private_residual_sr?1:0);
+    const char* private_gate=!config.private_residual_sr?"off":!config.enabled?"master-off":
+        config.temporal_backend?"residual-stabilizer-conflict":
+        static_cast<nr_processing::Start>(nr_processing_runtime::effective.load())!=nr_processing::Start::After?"unsupported-current-route":
+        (g_last_carrier_feature.load()!=1&&g_last_carrier_feature.load()!=13)?"waiting-native-Feature1-or-13":"consult-last-event-and-counter-deltas";
+    FeedbackAppend(s,"requested.privateSR.configurationGate=%s\n",private_gate);
+    FeedbackAppend(s,"requested.reconstructionMode=%d\nrequested.nearBlackChromaGuard=%d\n",
+        config.reconstruction_mode,config.near_black_chroma_guard?1:0);
+    FeedbackAppend(s,"reconstruction.contract=RegionFlags bits8-9 paired source-guided 4/16; bit10 continuous near-black chroma; same-call encoding; unchanged model/history; preserves chosen luminance; requested or recorded is not GPU/pixel proof; capture P/N uses effective pre-generic pair; optional detail-decision plane retains original detail estimator\n");
+
+    FeedbackAppend(s, "requested.colourEdgeRecovery=%d\ncolourEdge.contract=bit24 paired positive weights; actual captured N kept; recorded not GPU completion\n",
+        config.colour_edge_recovery);
+    FeedbackAppend(s, "requested.colourNeutralProbe=%d\ncolourStage.contract=bit25 synthetic consumer N=P; real captured N unchanged; detail-decision plane is legacy, not the early consumer; output-only, session-local, not GPU completion\n",
+        config.colour_neutral_probe ? 1 : 0);
+    FeedbackAppend(s, "requested.colourLabMode=%d\nrequested.colourRestoreMode=%d\n"
+        "requested.colourRestore=%s\nrequested.colourInputCurve=%d\nrequested.colourInputCurveName=%s\n"
+        "requested.colourScaledProxyMode=%d\nrequested.colourScaledProxy=%s\n"
+        "requested.colourRestoreContract=bit30 RGB, bit29 post EncodeCS, bit28 N2 HDR, bit27 raw edit reference, bit26 proxy-first scaled input; not GPU completion\n",
+        static_cast<int>(nr_colour_lab::Normalize(config.colour_lab_mode)),
+        nr_colour_restore::Normalize(config.colour_restore_mode),
+        nr_colour_restore::Name(config.colour_restore_mode),
+        config.colour_input_curve, nr_colour_restore::CurveName(config.colour_input_curve),
+        config.colour_scaled_proxy_mode, nr_colour_restore::ScaledProxyName(config.colour_scaled_proxy_mode));
     FeedbackAppend(s,"requested.regionEnabled=%d\nrequested.regionVersion=%u\nrequested.regionPreview=%u\n"
         "requested.regionGains=%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n"
         "requested.regionGainOrder=broadBrightLuma,broadBrightColour,fineBrightLuma,fineBrightColour,broadDarkLuma,broadDarkColour,fineDarkLuma,fineDarkColour,specularLuma,specularColour,pureColour\n"

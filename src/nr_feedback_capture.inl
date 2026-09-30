@@ -329,6 +329,85 @@ void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
 #endif
 // END ENERGY GATE FEEDBACK
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    const auto& spatial=nr_spatial_experiment::status;
+    const unsigned spatial_config=g_config_generation.load();
+    const bool spatial_current=spatial.configuration.load()==spatial_config;
+    const auto spatial_reason=static_cast<nr_spatial_experiment::Reason>(spatial.reason.load());
+    const bool spatial_budget=spatial_current&&(spatial_reason==nr_spatial_experiment::Reason::BudgetCap||
+        spatial_reason==nr_spatial_experiment::Reason::BudgetHeadroom||
+        spatial_reason==nr_spatial_experiment::Reason::MemoryUnknown||
+        spatial_reason==nr_spatial_experiment::Reason::Allocation);
+    FeedbackAppend(s,"%s.spatial.mode=%u\n%s.spatial.state=%s\n%s.spatial.config=%u\n%s.spatial.current=%u\n%s.spatial.requested=%llu\n%s.spatial.recorded=%llu\n%s.spatial.submitted=%llu\n%s.spatial.discarded=%llu\n%s.spatial.token=%llu\n%s.spatial.instance=%llu\n%s.spatial.low=%ux%u\n%s.spatial.requiredBytes=%llu\n%s.spatial.threeSlotBytes=%llu\n%s.spatial.availableBytes=%llu\n%s.spatial.residentBytes=%llu\n",
+        prefix,spatial.mode.load(),prefix,spatial_current?nr_spatial_experiment::Name(static_cast<nr_spatial_experiment::Reason>(spatial.reason.load())):"not-current-config",
+        prefix,spatial.configuration.load(),prefix,spatial_current?1u:0u,prefix,spatial.requested.load(),
+        prefix,spatial.recorded.load(),prefix,spatial.submitted.load(),prefix,spatial.discarded.load(),
+        prefix,spatial_current?spatial.token.load():0ull,prefix,spatial_current?spatial.instance.load():0ull,
+        prefix,spatial_current?spatial.low_width.load():0u,spatial_current?spatial.low_height.load():0u,
+        prefix,spatial_budget?spatial.required_bytes.load():0ull,prefix,spatial_budget?spatial.three_slot_bytes.load():0ull,
+        prefix,spatial_budget?spatial.available_bytes.load():0ull,
+        prefix,spatial.resident_bytes.load());
+    FeedbackAppend(s,"%s.spatial.contract=same-frame post-native B/Z FP16, default off; submitted is not picture quality or final display proof\n",prefix);
+    const unsigned spatial_mode=spatial.mode.load();
+    FeedbackAppend(s,"%s.spatial.algorithm=%s\n%s.spatial.countersScope=process-cumulative, not current-config adoption\n",
+        prefix,spatial_mode==1?"Beta8-area-delta-B-guided-four-tap":
+            spatial_mode==2?"full-resolution-B-guided-3x3-delta-mean":"off",
+        prefix);
+
+    const auto private_config=g_config_generation.load();
+    const auto private_state=nr_private_sr_status::state.load();
+    const bool private_current=nr_private_sr_status::state_configuration.load()==private_config;
+    const bool private_budget=private_current&&nr_private_sr_status::budget_configuration.load()==private_config&&
+        (private_state==nr_private_sr_status::State::BudgetCap||private_state==nr_private_sr_status::State::BudgetHeadroom||
+         private_state==nr_private_sr_status::State::BudgetUnknown||private_state==nr_private_sr_status::State::MemoryInfoUnknown||
+         private_state==nr_private_sr_status::State::Budget)&&
+        nr_private_sr_status::budget_instance.load()!=0&&nr_private_sr_status::budget_feature_generation.load()!=0;
+    FeedbackAppend(s,"%s.privateSR.lastEvent=%s\n%s.privateSR.guideReason=%u\n%s.privateSR.requested=%llu\n%s.privateSR.rejected=%llu\n%s.privateSR.guideCaptures=%llu\n%s.privateSR.createRecordings=%llu\n%s.privateSR.recorded=%llu\n%s.privateSR.composed=%llu\n%s.privateSR.submitted=%llu\n%s.privateSR.adopted=%llu\n%s.privateSR.planeBytes=%llu\n%s.privateSR.peakPlaneBytes=%llu\n%s.privateSR.retired=%llu\n",
+        prefix,private_current?nr_private_sr_status::Name(private_state):"not-current-config",prefix,
+        private_current&&nr_private_sr_status::guide_configuration.load()==private_config&&
+            (private_state==nr_private_sr_status::State::Guides||private_state==nr_private_sr_status::State::Phase)?
+            nr_private_sr_status::guide_reason.load():0,
+        prefix,nr_private_sr_status::requested.load(),prefix,nr_private_sr_status::rejected.load(),prefix,nr_private_sr_status::captures.load(),
+        prefix,nr_private_sr_status::creations.load(),prefix,nr_private_sr_status::recorded.load(),prefix,nr_private_sr_status::composed.load(),
+        prefix,nr_private_sr_status::submitted.load(),prefix,nr_private_sr_status::adopted.load(),prefix,nr_private_sr_status::bytes.load(),
+        prefix,nr_private_sr_status::peak.load(),prefix,nr_private_sr_status::retired.load());
+    FeedbackAppend(s,"%s.privateSR.stateConfig=%u\n%s.privateSR.budgetConfig=%u\n%s.privateSR.budget.snapshotMatched=%u\n%s.privateSR.budget.instance=%llu\n%s.privateSR.budget.featureGeneration=%llu\n%s.privateSR.budget.reason=%s\n%s.privateSR.budget.requiredBytes=%llu\n%s.privateSR.budget.availableBytes=%llu\n",
+        prefix,nr_private_sr_status::state_configuration.load(),prefix,nr_private_sr_status::budget_configuration.load(),
+        prefix,private_budget?1u:0u,
+        prefix,private_budget?nr_private_sr_status::budget_instance.load():0ull,
+        prefix,private_budget?nr_private_sr_status::budget_feature_generation.load():0ull,
+        prefix,private_budget?nr_private_sr_status::Name(private_state):"none-current-config",
+        prefix,private_budget?nr_private_sr_status::budget_required.load():0ull,
+        prefix,private_budget?nr_private_sr_status::budget_available.load():0ull);
+    FeedbackAppend(s,"%s.privateSR.gpuTimingAvailable=%u\n%s.privateSR.timingConfig=%llu\n%s.privateSR.timingInstance=%llu\n%s.privateSR.gpuSamples=%llu\n%s.privateSR.gpuFirstCreateMs=%.9g\n%s.privateSR.gpuFirstInferenceMs=%.9g\n%s.privateSR.gpuMedianMs=%.9g\n%s.privateSR.gpuP95Ms=%.9g\n",
+        prefix,nr_private_sr_status::gpu_timing_available.load(),prefix,nr_private_sr_status::timing_config.load(),
+        prefix,nr_private_sr_status::timing_instance.load(),prefix,nr_private_sr_status::timing_samples.load(),
+        prefix,nr_private_sr_status::gpu_first_create_ms.load(),prefix,nr_private_sr_status::gpu_first_inference_ms.load(),
+        prefix,nr_private_sr_status::gpu_median_ms.load(),prefix,nr_private_sr_status::gpu_p95_ms.load());
+    FeedbackAppend(s,"%s.privateSR.gpuTimingScope=exact queue timestamp after GPU completion and recording release; private residual encode/Feature1/compose only; excludes guide conversion, native SR/RR, NR and complete-frame baseline; stable excludes first eight composed frames; not a 3-percent verdict\n",prefix);
+    FeedbackAppend(s,"%s.privateSR.contract=post Feature1/13 NativeOutputValue FP16; NGX native jitter lowres guides; no FG; plane bytes exclude opaque NGX; composed/submitted are not picture acceptance\n",prefix);
+
+    nr_reset_observation::Counters reset_observations;
+    EnterCriticalSection(&g_chain_cs);reset_observations=nr_reset_observation::counters;LeaveCriticalSection(&g_chain_cs);
+    FeedbackAppend(s,"%s.resetObservation.schema=successful-evaluate-v1; diagnostic bits: 1=create,2=game,4=history,8=color-contract,16=guides,32=retry,64=RR-placeholder; delayedExposure is separate; Evaluate success is not GPU completion\n",prefix);
+    for(unsigned i=0;i<reset_observations.layers.size();++i){const auto& l=reset_observations.layers[i];
+        FeedbackAppend(s,"%s.resetObservation.layer%u=eval:%llu,resets:%llu,delayedExposure:%llu,reasons:%llu/%llu/%llu/%llu/%llu/%llu/%llu,lastInstance:%llu,feature:%llu,evaluation:%llu,sinceReset:%u,work:%ux%u,sourceToCanonical:%.9g\n",
+            prefix,i+1,l.evaluations,l.resets,l.delayed_exposure,l.reasons[0],l.reasons[1],l.reasons[2],l.reasons[3],l.reasons[4],l.reasons[5],l.reasons[6],
+            l.last.instance,l.last.feature,l.last.evaluation,l.last.since_reset,l.last.width,l.last.height,double(l.last.source_to_canonical));}
+    const auto reset_count=std::min<unsigned long long>(reset_observations.reset_events,reset_observations.recent_resets.size());
+    for(unsigned long long i=reset_observations.reset_events-reset_count;i<reset_observations.reset_events;++i){const auto& r=reset_observations.recent_resets[i%reset_observations.recent_resets.size()];
+        FeedbackAppend(s,"%s.resetObservation.event%llu=source:%llu/%llu/%llu,layer:%u,instance:%llu,feature:%llu,evaluation:%llu,config:%u,history:%u,reasons:%u,delayedExposure:%u,sourceToCanonical:%.9g\n",
+            prefix,i,r.stream,r.epoch,r.source_frame,r.layer+1,r.instance,r.feature,r.evaluation,r.config_generation,r.history_generation,r.reasons,r.delayed_exposure?1u:0u,double(r.source_to_canonical));}
+    FeedbackAppend(s,"%s.temporal.lastPreparedDomain=%u\n%s.temporal.lastPreparedSourceToScene=%.9g\n",prefix,nr_temporal_status::domain.load(),prefix,nr_temporal_status::source_to_scene.load());
+    const auto temporal_memory=nr_temporal::SnapshotMemory();
+    FeedbackAppend(s,"%s.temporal.cancelledUnsubmitted=%llu\n",prefix,nr_temporal_status::cancelled.load());
+    FeedbackAppend(s,"%s.temporal.contexts=live:%u,retired:%u,pending:%u,quarantinedSubset:%u\n%s.temporal.contextBytes=live:%llu,retired:%llu,pending:%llu,quarantinedSubset:%llu\n",
+        prefix,temporal_memory.live,temporal_memory.retired,temporal_memory.pending,temporal_memory.quarantined,
+        prefix,temporal_memory.live_bytes,temporal_memory.retired_bytes,temporal_memory.pending_bytes,temporal_memory.quarantined_bytes);
+    FeedbackAppend(s,"%s.temporal.state=%s\n%s.temporal.recorded=%llu\n%s.temporal.submitted=%llu\n%s.temporal.declined=%llu\n%s.temporal.accountedBytes=%llu\n%s.temporal.peakBytes=%llu\n%s.temporal.lastSubmitTick=%llu\n%s.temporal.scope=Core-owned textures plus SDK report; excludes NGX/driver; recorded is not adopted or completed; game quality unverified\n",
+        prefix,nr_temporal_status::Name(nr_temporal_status::state.load()),prefix,nr_temporal_status::recorded.load(),
+        prefix,nr_temporal_status::submitted.load(),prefix,nr_temporal_status::rejected.load(),prefix,nr_temporal_status::bytes.load(),
+        prefix,nr_temporal_status::peak.load(),prefix,nr_temporal_status::last_tick.load(),prefix);
+#include "interop/nr_post_feedback.inl"
 #if defined(NR_HAS_ENERGY_GATE)
     FeedbackAppendEnergyGate(s,prefix);
 #endif
@@ -357,6 +436,15 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,memory.live_slots,memory.retired_slots,memory.pending_slots,
         prefix,memory.live_aux_bytes,memory.retired_aux_bytes,memory.pending_aux_bytes,memory.tracked_aux_bytes,
         prefix,memory.parent_retirements,prefix);
+
+    const auto reconstructionSnapshot=SnapshotColorPolicy();
+    if(reconstructionSnapshot.status==NrColorPolicyStatus::Current) {
+        const auto& r=reconstructionSnapshot.policy;
+        FeedbackAppend(s,"%s.reconstruction.config=%u\n%s.reconstruction.recorded=%d\n%s.reconstruction.reason=%s\n%s.nearBlackChroma.recorded=%d\n%s.nearBlackChroma.reason=%s\n",
+            prefix,reconstructionSnapshot.config_generation,
+            prefix,r.recorded_reconstruction_mode,prefix,nr_reconstruction::ReasonName(r.reconstruction_reason),
+            prefix,r.recorded_near_black_guard?1:0,prefix,nr_reconstruction::ReasonName(r.near_black_reason));
+    } else FeedbackAppend(s,"%s.reconstruction.recorded=unknown\n%s.nearBlackChroma.recorded=unknown\n",prefix,prefix);
     FeedbackAppendDualSnapshot(s, prefix);
     FeedbackAppend(s,"%s.dual.timingSamples=%u\n%s.dual.warmupSamples=%llu\n%s.dual.timingContract=GPU timestamp pairs; exact submitted queue frequency and completed fence; chain excludes unrelated game work and is not whole-frame performance\n",
         prefix,nr_dual_runtime::time_samples.load(),prefix,nr_dual_runtime::time_warmup_samples.load(),prefix);
@@ -932,6 +1020,7 @@ void OnFeedbackScreenshot(reshade::api::effect_runtime *runtime, const char *pat
     }
     ReleaseSRWLockExclusive(&g_feedback_lock);
     nr_f8::Screenshot(runtime, path);
+    nr_acceptance::Screenshot(runtime, path);
 }
 
 #include "nr_optional_layer_probe.h"

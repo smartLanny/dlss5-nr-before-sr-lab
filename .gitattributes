@@ -3,6 +3,12 @@
 *.c text eol=lf
 *.h text eol=lf
 *.inl text eol=lf
+*.hpp text eol=lf
+*.hlsl text eol=lf
+*.hlsli text eol=lf
+*.rc text eol=lf
+*.patch text eol=lf
+*.json text eol=lf
 *.cpp.in text eol=lf
 *.py text eol=lf
 *.md text eol=lf

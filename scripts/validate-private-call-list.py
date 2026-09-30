@@ -29,10 +29,10 @@ def main() -> None:
     fixture = root / 'tests/private_sr_call_list_test.cpp'
     adapter = root / 'experiments/nr-edit/src/nr_private_sr_core_adapter.inl'
     product = root / 'src/nr_private_sr_product.inl'
-    overlay = root / 'scripts/patch-private-sr.py'
-    for file in (resolver, fixture, adapter, product, overlay):
+    core = root / 'src/nr_before_sr.cpp'
+    for file in (resolver, fixture, adapter, product, core):
         require(file.is_file(), 'Missing expected source: ' + str(file))
-    a_text, p_text, o_text = adapter.read_text(encoding='utf-8-sig'), product.read_text(encoding='utf-8-sig'), overlay.read_text(encoding='utf-8-sig')
+    a_text, p_text, c_text = adapter.read_text(encoding='utf-8-sig'), product.read_text(encoding='utf-8-sig'), core.read_text(encoding='utf-8-sig')
     create = a_text.split('a.create=[](', 1)[1].split('a.evaluate=[](', 1)[0]
     evaluate = a_text.split('a.evaluate=[](', 1)[1].split('a.release=[](', 1)[0]
     for name, body, call in (('Create', create, '->create(call_list,1,'),
@@ -42,9 +42,9 @@ def main() -> None:
                 name + ' must revalidate call list and use it only for original NGX')
     require(p_text.count('if(!NrPrivateOriginalCallList(list)){Refuse(State::OriginalInterface);') >= 2,
             'Capture and Finish must refuse missing current-call proof')
-    require("'src/nr_private_sr_call_list.inl'" in o_text and
-            '#include "nr_private_sr_call_list.inl"' in p_text,
-            'Exact resolver must be staged and included in generated Core')
+    require('#include "nr_private_sr_call_list.inl"' in p_text and
+            '#include "nr_private_sr_product.inl"' in c_text,
+            'Exact resolver and product must be included in production Core')
     out.mkdir(parents=True, exist_ok=False)
     binary = out / 'private_sr_call_list_test.exe'
     commands = [
@@ -60,9 +60,9 @@ def main() -> None:
         if r.returncode != 0:
             break
     report = {'passed': len(runs) == 2 and all(r['exit'] == 0 for r in runs),
-              'source_sha256': {str(file): sha(file) for file in (resolver, fixture, adapter, product, overlay)},
+              'source_sha256': {str(file): sha(file) for file in (resolver, fixture, adapter, product, core)},
               'structural_checks': ['Capture/Finish current-call preflight', 'Create current-call resolver + original NGX',
-                                    'Evaluate current-call resolver + original NGX', 'generated Core staging'],
+                                    'Evaluate current-call resolver + original NGX', 'production Core inclusion'],
               'runs': runs, 'scope': 'Exact resolver included by CPU COM double; no GPU, game or real NGX inference'}
     (out / 'validation.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(runs[-1]['output'])

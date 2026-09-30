@@ -117,9 +117,9 @@ bool Seal(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrContext& contex
  slot.region_binding=slot.region_ready?packet:nullptr;slot.compose_binding=packet;return true;
 }
 
-void Dispatch(ID3D12GraphicsCommandList* cmd,NrSlot& slot,bool field){
+void Dispatch(ID3D12GraphicsCommandList* cmd,NrSlot& slot,bool field,bool primary=false){
  if(!slot.region_ready)return;
- auto* packet=field&&slot.dual_selected?slot.dual_binding:slot.region_binding;
+ auto* packet=field&&!primary&&slot.dual_selected?slot.dual_binding:slot.region_binding;
  if(!packet||!packet->heaps[nr_binding::Region])return;
  auto resource=field?slot.region_field:slot.region_guide;auto& state=field?slot.region_field_state:slot.region_guide_state;
  Transition(cmd,resource,state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

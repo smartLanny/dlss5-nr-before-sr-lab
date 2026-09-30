@@ -1,13 +1,11 @@
 """Compile actual staged Release hooks; validate RR delayed-retirement dispatch."""
 import argparse
-import importlib.util
 from pathlib import Path
 import subprocess
 import tempfile
+from production_source import block
 
 ROOT=Path(__file__).resolve().parents[1]
-spec=importlib.util.spec_from_file_location('post_parser',ROOT/'scripts/patch-post-compat.py')
-parser=importlib.util.module_from_spec(spec);spec.loader.exec_module(parser)
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
@@ -18,7 +16,7 @@ def main():
     source=args.source.read_text(encoding='utf-8-sig')
     hooks=[]
     for marker in ('NgxResult HookRelease(', 'NgxResult HookCoreRelease(', 'NgxResult HookDlssdRelease('):
-        a,b=parser.block(source,marker);body=source[a:b]
+        a,b=block(source,marker);body=source[a:b]
         retirement_guard = '        if (feature.feature_id == 1 || feature.feature_id == 13) {'
         assert body.count(retirement_guard)==1
         if args.negative_control:

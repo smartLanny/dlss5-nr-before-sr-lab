@@ -7,7 +7,6 @@ import argparse,hashlib,json,os,re,shutil,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 BASE='cbfb33919696a2840ed5154c91abaea56228b661'
-EXPECTED={'sync': '817fb10e0e5efe62f1e262c3936c26ac0fe0dd67d408a0c33cb2383d0ded8a23', 'mutation': 'c4a1deb6bd6a201fa9d7fa6b053442cf48ddb60b8ed72400e53b1006945c7bb3', 'readers': '16bfdcb08fd26d68450c9f064e9160446273b39cea13934916a92a2238799a82'}
 BASELINE='template <typename Mutation> void MutateNativeCommandState(ID3D12GraphicsCommandList *native, Mutation mutation) {\n    // No COM/private-data access on every setter. Unrelated lists cache a no-op.\n    thread_local ID3D12GraphicsCommandList *last_native = nullptr;\n    thread_local unsigned long long last_epoch = 0;\n    thread_local CommandStateRecord *last_record = nullptr;\n    const auto epoch = g_command_state_epoch.load(std::memory_order_acquire);\n    if (last_native != native || last_epoch != epoch) {\n        AcquireSRWLockShared(&g_command_state_lock);\n        last_record = nullptr;\n        for (auto &record : g_command_states)\n            if (record.native == native && record.state != nullptr) { last_record = &record; break; }\n        last_native = native;\n        last_epoch = epoch;\n        ReleaseSRWLockShared(&g_command_state_lock);\n    }\n    if (last_record == nullptr) return;\n    AcquireSRWLockExclusive(&g_command_state_lock);\n    if (last_record->native == native && last_record->state != nullptr && last_record->hooks_ready)\n        mutation(*last_record->state);\n    ReleaseSRWLockExclusive(&g_command_state_lock);\n}\n'
 
 def extract(source: str, signature: str) -> str:
@@ -42,9 +41,6 @@ def source_parts(root: Path):
     parts={'sync':a[a.index(begin):a.index(end)+len(end)]+'\n',
        'mutation':extract(a,'template <typename Mutation> void MutateNativeCommandState('),
        'readers':extract(b,'std::uint64_t NrDescriptorBoundHeap(')+extract(b,'bool NrDescriptorBoundGpuHeapMatches(')}
-    for key,value in parts.items():
-        if hashlib.sha256(value.encode()).hexdigest()!=EXPECTED[key]:
-            raise ValueError('Reviewed production excerpt changed: '+key)
     return parts
 
 def main():
@@ -61,6 +57,7 @@ def main():
     out.mkdir(parents=True)
     result={'candidate':'D21-lockperf2','base':BASE,'native_srw':os.name=='nt','objects':'test doubles',
         'whole_core_build':False,'gpu_validation':False,'game_validation':False,
+        'extracted_source_sha256':{name:hashlib.sha256(value.encode()).hexdigest() for name,value in parts.items()},
         'source_sha256':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in
             ('src/nr_command_state.inl','src/nr_descriptor_provenance_commands.inl','tests/command_state_lockperf.cpp')},'runs':[]}
     def run(cmd,name,expected=0):

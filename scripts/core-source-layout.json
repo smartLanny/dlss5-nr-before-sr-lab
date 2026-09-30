@@ -1,0 +1,342 @@
+{
+  "schema": "dlss5-direct-source-layout-v1",
+  "product": {
+    "version": "0.5.2-beta.13",
+    "display_version": "0.5.2 Beta 13",
+    "pe_version": [
+      0,
+      5,
+      2,
+      13
+    ]
+  },
+  "core_build_inputs": [
+    "scripts/build-nrchain.ps1",
+    "scripts/build-private-sr-module.py",
+    "scripts/build-temporal-module.py",
+    "scripts/build.ps1",
+    "scripts/compile-aux-artifact.cpp",
+    "scripts/compile-codec-artifact.cpp",
+    "scripts/prepare-aux-artifacts.py",
+    "scripts/prepare-codec-artifacts.py",
+    "scripts/prepare-temporal-artifacts.py"
+  ],
+  "experiment_inputs": [
+    "experiments/nr-edit/shaders/nr_deferred_edit.hlsl",
+    "experiments/nr-edit/shaders/nr_edit_carrier.hlsli",
+    "experiments/nr-edit/shaders/nr_edit_scalar.hlsli",
+    "experiments/nr-edit/shaders/nr_normalize_guides.hlsl",
+    "experiments/nr-edit/shaders/nr_post_residual.hlsl",
+    "experiments/nr-edit/shaders/nr_rr_edit.hlsl",
+    "experiments/nr-edit/src/nr_edit_dx12.cpp",
+    "experiments/nr-edit/src/nr_edit_dx12.hpp",
+    "experiments/nr-edit/src/nr_post_private_sr_dx12.cpp",
+    "experiments/nr-edit/src/nr_post_private_sr_dx12.hpp",
+    "experiments/nr-edit/src/nr_post_residual_dx12.cpp",
+    "experiments/nr-edit/src/nr_post_residual_dx12.hpp",
+    "experiments/nr-edit/src/nr_private_sr_core_adapter.inl",
+    "experiments/nr-edit/src/nr_private_sr_runtime.hpp",
+    "experiments/nr-edit/tools/compile_edit_artifacts.py",
+    "experiments/nr-edit/tools/compile_edit_shader.cpp"
+  ],
+  "carrier_overlay": {
+    "patch_file": "src/interop/carrier-beta13.patch",
+    "headers": {
+      "src/nr_bridge_baseline.h": "src/interop/nr_bridge_baseline.h",
+      "src/nr_mirror_rect.h": "src/interop/nr_mirror_rect.h",
+      "src/nr_native_bridge_abi.h": "src/interop/nr_native_bridge_abi.h",
+      "src/nr_native_bridge_client.h": "src/interop/nr_native_bridge_client.h",
+      "src/nr_native_bridge_history.h": "src/interop/nr_native_bridge_history.h",
+      "src/nr_ngx_parameter_abi.h": "src/interop/nr_ngx_parameter_abi.h"
+    }
+  },
+  "manifest_metadata": {
+    "experiment": "beta0.5-dline21-uniform3",
+    "release_base": "61fe9a0fe527fb2304c382c332cbe62876228b8b",
+    "carrier_commit": "28aed4099b0fe1c207b20b5fee5364c0773c25c2",
+    "signed_release": false,
+    "dx11_reference": "0f714b32597e395d0684567ed9296dc1d2a1f35c",
+    "runtime_verification": "BG3 prior beta owner-confirmed; THIS integration not game-verified",
+    "shape_policy": "Evaluate-active-input and independent bounded output base",
+    "vendor_loader_modified": false,
+    "integration": {
+      "version": "beta0.5-dline21-uniform3",
+      "display_version": "0.5-dline21-uniform3",
+      "core_pe_version": "0.5.1.26",
+      "cumulative_corefix_source": "d7a6def43a58ea6c4b26c553547429a8ef88b735",
+      "cumulative_corefix_dependencies": [
+        218,
+        219,
+        220,
+        221,
+        230,
+        232,
+        238,
+        240,
+        241,
+        242,
+        243,
+        245
+      ],
+      "parents_in_history": [
+        "f88adc33d04803982d98336a3d26e7081bb66f9f",
+        "2ab31a17388fb9cfe3c6394397df4cb555b7a172"
+      ],
+      "required_ancestors": [
+        "f88adc33d04803982d98336a3d26e7081bb66f9f",
+        "2ab31a17388fb9cfe3c6394397df4cb555b7a172",
+        "145689aee077fa51c54d0b1dba2d79bc38633b2c",
+        "7aa6500ee79deca0689ec85faf2bbb8301d181b7",
+        "fefd447033b21cf0ae979aa53b7dddc1a8a3e20c",
+        "c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd",
+        "59ab029614df6fad6ea1e95df18a0a986be58962",
+        "b0fd489cdfa79d271c0015e35b62186abd0efcd5",
+        "e071c778d10cb4f079857f128aad3093defb7b9e",
+        "80a6379640cebbd70851d9929790ceee160ace57",
+        "6a0ad7684683993328a7a98a9bea83ac76b01a64",
+        "ec338d7d9d69230f208b25e4fd457cc79d03c465",
+        "fa450c9ec2abf2aa48dbdd016b6164626260058b",
+        "2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc",
+        "7182b3fd195c8cfb633eec5fa758f3826001a69f",
+        "13e4ac958587cb2b4542db9cf749315261ec17c6",
+        "10d624098d8cd062e7eacd7aa54274669ea641a2",
+        "d7a6def43a58ea6c4b26c553547429a8ef88b735"
+      ],
+      "picture_pr134_ancestor": "145689aee077fa51c54d0b1dba2d79bc38633b2c",
+      "bridge_release": "v1.4.12",
+      "bridge_commit": "28aed4099b0fe1c207b20b5fee5364c0773c25c2",
+      "ngx_parameter_abi": "Microsoft x64 native 17-slot layout; MSVC and Windows-GNU declarations",
+      "reset_132_source_blob": "5e067f23051cc313a668e91332e82eef9a5bbcf1",
+      "reset_source_blob": "036a601f0948f95641fca61218c5404c5c30819c",
+      "feedback": "F8 single TXT; F7 optional paired archive",
+      "optional_layers": "sparse incoming NGX resource metadata; untyped pointers never inspected; no masks exported or sampled",
+      "model_baseline": "seven model controls only, with generation-bound undo; no automatic reset or face-fix claim",
+      "face_diagnostic": "nine labeled transient groups; moved ROI plus full-screen PNG; actual tuning/fence and exact original-config restore",
+      "extra_strength_policy": "user range 1..4; one-time saved migration; internal zero-native contract retained",
+      "jitter_policy": "once-to-zero migration then respect explicit user re-enable; native SR jitter unchanged",
+      "region_composition_runtime": true,
+      "immutable_bindings": "up to 8 packets per context; exact view/resource equality; existing command-list and fence retirement; no GPU wait",
+      "dual_nr_defaults": "one layer; one chain scale, 1-5 independent models at equal extents; legacy auxiliary ratios archived",
+      "dual_nr_feedback": "configuration-scoped observation window, successful model tuning/reset reasons, exact binding refusal and guide availability",
+      "region_selection": "fixed pre-gain model difference with snapshotted depth/normals; reflection requires specular albedo and hit distance",
+      "post_low_grid_composition": true,
+      "face_isolation_runtime": true,
+      "face_isolation_game_verified": false,
+      "face_backend": "optional pinned YuNet and ONNX Runtime 1.23.2 CPU; opt-in; game/performance unverified",
+      "abc_new_changes_merged": true,
+      "post_feedback": "requested state and sampled RR counters; not GPU completion; same TXT",
+      "blend_feedback": "four observed native blend factors from the same locked state sample; explicit unobserved/unavailable",
+      "format_path": "Exact typed/native view -> unique explicit contract and successful device capability -> ambiguous native fallback; physical storage and typed access reported separately",
+      "exposure_path": "1x1 mip0 final-scale red; typed R8_UNORM or established R16/R32 FLOAT-family reads with actual Texture2D/ShaderLoad proof; queryAttempted distinguishes missing query from driver failure; no source UAV",
+      "resource_recovery": "same-process normal-carrier retry after semantics resolve; actual consumed immutable or owned descriptor table, NR/native results, matching Execute and sparse actual stored-value read; failed interpretation remains latched across observer cache churn",
+      "compatibility_verdict": "scoped current first block, retained failure and matching attempt/proof; technical proof requires three correlated carriers; final Present visual remains unobserved without separate F7 proof",
+      "native_observer": "layered Create/Evaluate/Release identity; external Feature18 ownership distinct from private NR; gaps remain fail-closed",
+      "post_boundary": "immutable scoped probe window with native barrier/write/submit evidence; no inferred final-screen write or automatic state rewrite",
+      "optional_inventory_blocks_on_failure": false,
+      "vulkan_native": "disabled: submit synchronization not implemented",
+      "synthetic_legacy": "not integrated",
+      "carrier_filename": "dlss5-native-carrier-045-dx11-compat.addon64",
+      "carrier_completion": "actual GPU progress before DX11 copyback; 500ms frame timeout quarantines resources until restart; no CPU completion signal",
+      "carrier_faults": "NGX hardware exceptions propagate; ordinary error codes retain native fallback",
+      "rr_post": "Feature13 native output; hardware depth or current standard ViewSpace projection converted privately; same NR core; game pending",
+      "post_work": "25-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected",
+      "rr_linear_depth": "positive view-Z standard perspective to private R32 HW depth; matrix-derived inversion; unknown projection stays native with F8",
+      "compatibility_source": "d7a6def43a58ea6c4b26c553547429a8ef88b735",
+      "compatibility_previous_source": "6a0ad7684683993328a7a98a9bea83ac76b01a64",
+      "light_style": "whole light/dark and fine-change modes retained; D13 groups common controls and moves explanations to hover",
+      "light_control_mode": "INI missing=0; template/recommended full-picture reset=1; group presets retain mode; composition only",
+      "post_light_style_game_verified_at_build": false,
+      "jitter": "resolved post color zero jitter; native guide phase requires runtime validation",
+      "fg_control": "not implemented",
+      "getdesc_spoof": "not implemented",
+      "mfg_scope": "Manager FG/MFG is independent under plan 0838ffb; this Core candidate adds no FG backend",
+      "game_validation": "owner will test final batch; old BG3 result retained separately"
+    },
+    "colour_lab": {
+      "version": "0.5.2-beta.2",
+      "display_version": "0.5.2-Beta-2",
+      "core_pe_version": "0.5.2.2",
+      "base_commit": "843d1e1c7f61e563b8913242b8756542af169a80",
+      "default_mode": 1,
+      "default_colour_strength": 0.5,
+      "default_colour_range": 0.5,
+      "priority_colour_strength": 0.5,
+      "conservative_colour_strength": 1.0,
+      "default_restore_mode": 0,
+      "default_input_curve": 0,
+      "raw_reference_before_aesthetics": true,
+      "neutral_probe_persisted": false,
+      "default_edge_recovery": 0,
+      "edge_flag": 16777216,
+      "edge_routes": [
+        "scaled-v2-rgb"
+      ],
+      "edge_selection_resets_history": false,
+      "edge_sampling_same_for_proxy_neural": true,
+      "edge_weights_depend_on_neural": false,
+      "captures_keep_actual_neural_output": true,
+      "v2_capture_proxy_neural_use_effective_edge_weights": true,
+      "capture_detail_decision_plane": "legacy filter, not edge or early raw consumer",
+      "extra_nr_invocations": 0,
+      "extra_gpu_passes": 0,
+      "default_model_input_changed": false,
+      "ui_pages": [
+        "picture",
+        "lighting",
+        "experiments",
+        "developer",
+        "feedback"
+      ],
+      "model_default_strength": 1.5,
+      "skin_default": 0.4,
+      "light_edge_protection_defaults": [
+        0,
+        0
+      ],
+      "saved_custom_settings_preserved": true,
+      "diagnostics_collapsed": false,
+      "n2_legacy_combination_game_verified": false,
+      "runtime_verified": false
+    },
+    "reconstruction": {
+      "version": "0.5.2-beta.2",
+      "default_mode": 0,
+      "default_chroma_guard": false,
+      "sampling": "paired decoded source-guided positive weights, modes 4/16; 1:1 retains original",
+      "preserves_new_luminance": true,
+      "extra_textures": 0,
+      "extra_passes": 0,
+      "extra_nr_calls": 0,
+      "history_changed": false,
+      "whole_dark_edit_shrink_added": false,
+      "capture": "same actual pre-generic P/N; original source/final stored; legacy detail plane unchanged",
+      "unsupported": "unknown encoding/raw diagnostics/legacy edit field; controls do not imply adoption",
+      "gpu_verified": false,
+      "game_verified": false
+    },
+    "temporal": {
+      "default_enabled": false,
+      "backends": [
+        "native-prepared-MV",
+        "AMD-FFX-1.1.4"
+      ],
+      "scopes": [
+        "whole-chain",
+        "later-layers-composed-anchor"
+      ],
+      "modes": [
+        "adaptive",
+        "low-frequency"
+      ],
+      "default_mode": 0,
+      "spatial_filter_product": false,
+      "production_routes": {
+        "DX12 Feature1 post-SR SDR": [
+          "native",
+          "AMD"
+        ],
+        "DX12 Feature1 pre-SR explicit SDR whole-chain": [
+          "AMD"
+        ],
+        "DX12 proven RR post SDR": [
+          "AMD"
+        ],
+        "DX12 Present SDR exact content lineage single swapchain whole chain": [
+          "AMD"
+        ],
+        "DX12 declared-linear-HDR pre-SR whole/post-RR; same-frame PreExposure": [
+          "AMD"
+        ],
+        "DX12 post-SR declared-linear-HDR; same-frame PreExposure and native snapshot proof": [
+          "native",
+          "AMD"
+        ]
+      },
+      "not_connected": [
+        "unknown-or-PQ-HDR",
+        "RR-native-MV",
+        "pre-native-MV",
+        "pre-later-layers",
+        "NVOF"
+      ],
+      "cpu_readback_wait": false,
+      "history_half_life_ms": 60,
+      "global_history_weight_scale": 0.65,
+      "per_pixel_optical_flow_confidence": false,
+      "maximum_gap_ms": 250,
+      "requires_exact_owner_queue": true,
+      "adoption": "actual Core Execute/Signal receipt",
+      "game_verified": false
+    },
+    "acceptance": {
+      "transient_only": true,
+      "ini_writes": false,
+      "model_switching": false,
+      "captures_after_measurement": true,
+      "captures_after_measurement_scope": "existing timed programs only",
+      "manual_game_settings": [
+        "SR",
+        "RR",
+        "HDR",
+        "FG"
+      ],
+      "screenshot_program": {
+        "groups": 9,
+        "shots_per_group": 3,
+        "capture_only": true,
+        "performance_measurement": false,
+        "exact_same_frame_pairing": false,
+        "source": "ReShade encoded screenshot callback with exact session/group/shot token",
+        "route": "temporary native After; unsupported groups explicit",
+        "history_adoption_checked": true,
+        "restore_on_cancel": true,
+        "viewer": "local bilingual dual selection and zoom"
+      },
+      "frame_timing": "ReShade callback intervals, not generated FPS",
+      "game_verified": false
+    },
+    "native_output_capture": {
+      "optional": true,
+      "schema": "native-output-v1",
+      "old_nrf_unchanged": true,
+      "same_call_required": true,
+      "known_state_required": true,
+      "missing_is_explicit": true,
+      "game_verified": false
+    },
+    "private_residual_sr": {
+      "version": "0.5.2-beta.13",
+      "default_enabled": false,
+      "producer": "same-source final B/Z with all NR layers",
+      "route": "D3D12 native Feature1 or Feature13 post, same-output-value FP16 SDR or proven HDR/AutoExposure, no FG",
+      "native_jitter": "original render-pixel projection offset, jointly point-sampled low-resolution depth/MV; not NR jitter option",
+      "positive_contract": "Flags75 and dynamic nonzero native jitter with low-resolution non-jittered MV",
+      "declined": [
+        "Present",
+        "FG",
+        "multi-GPU",
+        "unproven-source-or-domain",
+        "jittered-MV",
+        "nonzero-jitter-high-resolution-MV",
+        "external-stabilizer-conflict"
+      ],
+      "initialization_domain": "observed successful original Init or original native Create; exact device/module/epoch/generation; shutdown invalidates; no second Init",
+      "lifetime": "successful Execute/Signal plus exact recording release",
+      "runtime_verified": false,
+      "game_verified": false
+    },
+    "spatial_experiments": {
+      "default_mode": 0,
+      "modes": {
+        "1": "Beta8 FP32 area delta plus B-guided four taps",
+        "2": "same-frame full-resolution B-guided 3x3 signed-delta mean"
+      },
+      "route": "post-native SR/RR FP16 same-frame B/Z only",
+      "private_sr_temporal_conflict": true,
+      "baseline_groups_forced_off": 9,
+      "submitted_is_quality_proof": false,
+      "runtime_verified": false,
+      "game_verified": false
+    }
+  }
+}

@@ -25,8 +25,8 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     srv(10,reduced_second?dual.input:nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     srv(11,reduced_second?dual.output:nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     srv(12,reduced_second?dual.low_delta:nullptr,DXGI_FORMAT_R32G32B32A32_FLOAT);
-    srv(3,slot.motion_source,slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT);
-    srv(4,slot.exposure_source,slot.exposure_source?ID3D12Resource_GetDesc(slot.exposure_source).Format:DXGI_FORMAT_R32_FLOAT);
+    srv(3,slot.motion_source,slot.motion_source?NrMotionReadFormat(ID3D12Resource_GetDesc(slot.motion_source).Format):DXGI_FORMAT_R16G16_FLOAT);
+    srv(4,slot.exposure_source,slot.exposure_source?NrExposureReadFormat(ID3D12Resource_GetDesc(slot.exposure_source).Format):DXGI_FORMAT_R32_FLOAT);
     const DXGI_FORMAT edit_field_format = slot.edit_field
         ? ID3D12Resource_GetDesc(slot.edit_field).Format
         : DXGI_FORMAT_R32G32_FLOAT;

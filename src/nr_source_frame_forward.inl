@@ -1,6 +1,7 @@
 // Include in Core's private namespace before native command hooks.
 struct NgxHandle;
 namespace nr_source_runtime {
+bool PrivateSrInputReadState(ID3D12GraphicsCommandList*,ID3D12Resource*,unsigned&);
 void OnExecute(ID3D12CommandQueue*,unsigned,ID3D12CommandList*const*,bool);
 void OnReset(ID3D12GraphicsCommandList*,bool);
 void OnCopy(ID3D12GraphicsCommandList*,ID3D12Resource*,ID3D12Resource*,bool);
@@ -19,6 +20,7 @@ bool MayObserveSubmission();
 bool HasPendingSubmission(reshade::api::command_list*);
 bool InlineAllowed(unsigned);
 void MarkPrivateRecorded();
+nr_source_frame::Source CurrentSource();
 unsigned long long CurrentRetryToken();
 unsigned long long PresentRetryToken();
 bool TryPresentObservation(nr_source_frame::PresentObservation&);

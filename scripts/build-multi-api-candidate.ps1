@@ -34,7 +34,7 @@ foreach ($File in @($Cxx, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'
     if (-not (Test-Path -LiteralPath $File)) { throw "Missing build input: $File" }
 }
 $Stage = Join-Path $Output 'source'
-$Generator = if ($QualitySuccessor) { 'prepare-colour4-edge.py' } else { 'prepare-multi-api-beta.py' }
+$Generator = 'prepare-core-source.py'
 & python (Join-Path $PSScriptRoot $Generator) --core $Root --upstream $Upstream --output $Stage
 if ($LASTEXITCODE) { throw 'Full source staging failed.' }
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT

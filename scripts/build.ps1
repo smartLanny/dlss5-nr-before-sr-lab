@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$Clean,
     [switch]$DescriptorProfile,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
@@ -57,13 +57,31 @@ if ($Clean -and (Test-Path -LiteralPath $Build)) {
 }
 New-Item -ItemType Directory -Path $Objects -Force | Out-Null
 
-$SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $SourceCommit -notmatch '^[0-9a-f]{40}$') {
-    throw 'Cannot establish the source commit for this build.'
+$StageManifestPath = Join-Path (Split-Path -Parent $ProjectRoot) 'source-manifest.json'
+if (Test-Path -LiteralPath $StageManifestPath -PathType Leaf) {
+    $StageManifest = Get-Content -LiteralPath $StageManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($StageManifest.schema -ne 'dlss5-direct-source-v1' -or $StageManifest.source_transforms) {
+        throw 'Unexpected staged source identity.'
+    }
+    $SourceCommit = $StageManifest.source_commit
+    $SourceDirty = if ($StageManifest.source_dirty) { '1' } else { '0' }
+    foreach ($Input in $StageManifest.files.PSObject.Properties) {
+        if ($Input.Name.StartsWith('core/')) {
+            $InputPath = Join-Path $ProjectRoot $Input.Name.Substring(5)
+            if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $InputPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Input.Value) {
+                throw ('Staged compiler input differs from receipt: ' + $Input.Name)
+            }
+        }
+    }
+} else {
+    $SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot establish source commit.' }
+    $TrackedChanges = @(& git -C $ProjectRoot status --porcelain --untracked-files=no)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot establish tracked source dirtiness.' }
+    $SourceDirty = if ($TrackedChanges.Count -eq 0) { '0' } else { '1' }
 }
-$TrackedChanges = @(& git -C $ProjectRoot status --porcelain --untracked-files=no)
-if ($LASTEXITCODE -ne 0) { throw 'Cannot establish tracked source dirtiness.' }
-$SourceDirty = if ($TrackedChanges.Count -eq 0) { '0' } else { '1' }
+if ($SourceCommit -notmatch '^[0-9a-f]{40}$') { throw 'Invalid compiler source identity.' }
 
 $Common = @(
     '-O2', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
@@ -152,6 +170,19 @@ $DualObject=Join-Path $Objects 'nr_dual_spatial_d3d12.o'
 if($LASTEXITCODE){throw 'Second NR spatial module compilation failed.'}
 $ObjectFiles += $DualObject
 
+# Required compiled production temporal/AMD backend; external SDK cache stays private.
+& python (Join-Path $PSScriptRoot 'build-temporal-module.py') --source (Join-Path $ProjectRoot 'src/temporal') --compiler $CppCompiler --sdk $env:DLSS5_FFX_SDK_ROOT --sdk-cache $env:DLSS5_FFX_CACHE_ROOT --output (Join-Path $Objects 'temporal')
+if($LASTEXITCODE){throw 'Temporal module or pinned AMD SDK validation failed.'}
+$TemporalManifest=Get-Content -LiteralPath (Join-Path $Objects 'temporal/module.json') -Raw | ConvertFrom-Json
+$ObjectFiles += @($TemporalManifest.objects)
+# Compile owned post-SR module and its exact shader artifacts.
+& python (Join-Path $PSScriptRoot 'build-private-sr-module.py') --root $ProjectRoot --compiler $CppCompiler --output (Join-Path $Objects 'private-sr')
+if($LASTEXITCODE){throw 'Private SR module build failed.'}
+$PrivateSrManifest=Get-Content -LiteralPath (Join-Path $Objects 'private-sr/module.json') -Raw | ConvertFrom-Json
+if(-not $PrivateSrManifest.passed){throw 'Private SR module receipt not passed.'}
+$ObjectFiles += @($PrivateSrManifest.objects)
+$Common += "-I$(Join-Path $ProjectRoot 'experiments/nr-edit/src')"
+$Common += "-I$(Join-Path $Objects 'private-sr/bytecode')"
 $CodecCompiler=Join-Path $Build 'compile-codec-artifact.exe'
 & $CppCompiler '-std=c++20' '-O2' '-static' '-municode' `
     "-DNR_DESCRIPTOR_PROFILE=$DescriptorProfileValue" `
@@ -178,7 +209,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-0.5.2-beta.13-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -187,7 +218,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dline21-uniform3-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-0.5.2-beta.13-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()

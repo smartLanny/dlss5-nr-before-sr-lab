@@ -15,14 +15,14 @@ extern "C" __declspec(dllexport) std::int32_t WINAPI NRNativeBridge_QueryV1(
     // Called between NGX calls, never from DllMain or a loader notification.
     // Reconcile at session admission, not on every frame. This closes the
     // missed-first-Create race without weakening late-module/RR guards.
-    if (flags & 1u) PollNgxLifecycleModules(true);
+    if (flags & 1u) { NrDx11DeploymentPoll(true); PollNgxLifecycleModules(true); }
     const auto epoch = g_module_observer_epoch.load(std::memory_order_acquire);
     status.observerEpoch = epoch;
     if ((epoch & 1u) || g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_module_observer_gap_detected.load(std::memory_order_acquire) ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
         status.reason = NrNativeBridgeReason::ObserverUncertain;
-    } else if (LatchGenericRenoDxConflictIfLoaded() ||
+    } else if (NrDx11DeploymentBlocked() || LatchGenericRenoDxConflictIfLoaded() ||
                g_shortfuse_nr_enabled.load(std::memory_order_acquire)) {
         status.reason = NrNativeBridgeReason::CompetingNr;
     } else {

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Freeze explicit working-tree inputs and reuse canonical source transformations.
+"""Freeze explicit working-tree inputs and use the direct-source exporter.
 
 This is a local development compiler input, never a reviewed release candidate.
 It creates no Git commit and changes no Git index. Final acceptance and packaging
-continue to require the normal clean, pinned canonical generator.
+continue to require the normal clean, committed-source exporter.
 """
 from __future__ import annotations
 import argparse
@@ -101,51 +101,9 @@ def prepare(core: Path, upstream: Path, output: Path, extra: list[str]) -> None:
         'game_verified': False, 'nvidia_feature18_verified': False,
     }
     (output / 'input-manifest.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
-    canonical = load('development_canonical', raw / 'scripts/prepare-multi-api-beta.py')
-    real_git = canonical.git
-
-    def snapshot_git(root: Path, *args: str) -> bytes:
-        if Path(root).resolve() != raw.resolve():
-            return real_git(root, *args)
-        if args == ('rev-parse', 'HEAD'):
-            return (parent + '\n').encode()
-        if args and args[0] == 'status':
-            # The immutable input image is internally clean. Its external
-            # receipt and generated output are always labelled development.
-            return b''
-        if len(args) == 2 and args[0] == 'rev-parse' and args[1].startswith('HEAD:'):
-            return (git_blob(inputs[args[1][5:]]) + '\n').encode()
-        if len(args) == 2 and args[0] == 'show' and args[1].startswith('HEAD:'):
-            return inputs[args[1][5:]]
-        if args[:2] == ('archive', 'HEAD'):
-            requested = args[2:]
-            stream = io.BytesIO()
-            with tarfile.open(fileobj=stream, mode='w') as archive:
-                for name, data in inputs.items():
-                    if not any(name == p or name.startswith(p + '/') for p in requested):
-                        continue
-                    entry = tarfile.TarInfo(name)
-                    entry.size = len(data)
-                    archive.addfile(entry, io.BytesIO(data))
-            return stream.getvalue()
-        if args[:2] == ('merge-base', '--is-ancestor'):
-            return real_git(core, *args)
-        raise ValueError(f'Unmapped snapshot Git operation: {args}')
-
-    canonical.git = snapshot_git
-    canonical.is_ancestor = lambda _root, commit: subprocess.run(
-        ['git', '-C', str(core), 'merge-base', '--is-ancestor', commit, parent],
-        capture_output=True).returncode == 0
-    # Pins below are development-input identities, not approvals. The strict
-    # generator's checked-in pins remain untouched until the final source freeze.
-    canonical.INTEGRATION_CORE_PINS = {
-        name: git_blob(inputs[name]) for name in canonical.INTEGRATION_CORE_PINS
-    }
-    transformer = canonical.configure(raw)
-    transformer.legacy.git = snapshot_git
+    canonical = load('development_canonical', core / 'scripts/prepare-core-source.py')
     stage = output / 'source'
-    transformer.prepare(raw, upstream, stage)
-    canonical.finalize(raw, stage, parent)
+    canonical.prepare(core, upstream, stage, snapshot=inputs, parent=parent)
     manifest_path = stage / 'source-manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     manifest.update({
