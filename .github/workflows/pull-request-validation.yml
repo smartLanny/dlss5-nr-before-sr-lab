@@ -87,12 +87,32 @@ jobs:
     runs-on: [self-hosted, Windows, X64, dlss5-build]
     timeout-minutes: 30
     steps:
+      - name: Locate git and python
+        # The runner service may not inherit the interactive PATH. Without git on
+        # PATH actions/checkout downloads an archive with no .git directory, and
+        # the canonical build refuses to run without a commit identity.
+        shell: powershell
+        env:
+          VAR_DLSS5_GIT_DIR: ${{ vars.DLSS5_GIT_DIR }}
+          VAR_DLSS5_PYTHON_DIR: ${{ vars.DLSS5_PYTHON_DIR }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Add-ToolDir([string]$Exe, [string[]]$Dirs) {
+            if (Get-Command $Exe -ErrorAction SilentlyContinue) { return }
+            $found = $Dirs | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ $Exe)) } | Select-Object -First 1
+            if (-not $found) { throw "$Exe not found on PATH or in: $($Dirs -join '; '). Set the DLSS5_GIT_DIR / DLSS5_PYTHON_DIR repository variable." }
+            Write-Host "Adding $found to PATH for $Exe"
+            [IO.File]::AppendAllText($env:GITHUB_PATH, "$found`n")
+          }
+          Add-ToolDir 'git.exe' @($env:VAR_DLSS5_GIT_DIR, $env:DLSS5_GIT_DIR, "$env:ProgramFiles\Git\cmd", "${env:ProgramFiles(x86)}\Git\cmd", "$env:LOCALAPPDATA\Programs\Git\cmd")
+          $pythonDirs = @($env:VAR_DLSS5_PYTHON_DIR, $env:DLSS5_PYTHON_DIR) + @(Get-ChildItem -Directory -Path "$env:LOCALAPPDATA\Programs\Python\Python3*", "$env:ProgramFiles\Python3*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object FullName)
+          Add-ToolDir 'python.exe' $pythonDirs
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
       - name: Portable tests
-        shell: pwsh
+        shell: powershell
         env:
           VAR_DLSS5_TOOLCHAIN_ROOT: ${{ vars.DLSS5_TOOLCHAIN_ROOT }}
         run: |
@@ -110,12 +130,32 @@ jobs:
     runs-on: [self-hosted, Windows, X64, dlss5-build]
     timeout-minutes: 150
     steps:
+      - name: Locate git and python
+        # The runner service may not inherit the interactive PATH. Without git on
+        # PATH actions/checkout downloads an archive with no .git directory, and
+        # the canonical build refuses to run without a commit identity.
+        shell: powershell
+        env:
+          VAR_DLSS5_GIT_DIR: ${{ vars.DLSS5_GIT_DIR }}
+          VAR_DLSS5_PYTHON_DIR: ${{ vars.DLSS5_PYTHON_DIR }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Add-ToolDir([string]$Exe, [string[]]$Dirs) {
+            if (Get-Command $Exe -ErrorAction SilentlyContinue) { return }
+            $found = $Dirs | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ $Exe)) } | Select-Object -First 1
+            if (-not $found) { throw "$Exe not found on PATH or in: $($Dirs -join '; '). Set the DLSS5_GIT_DIR / DLSS5_PYTHON_DIR repository variable." }
+            Write-Host "Adding $found to PATH for $Exe"
+            [IO.File]::AppendAllText($env:GITHUB_PATH, "$found`n")
+          }
+          Add-ToolDir 'git.exe' @($env:VAR_DLSS5_GIT_DIR, $env:DLSS5_GIT_DIR, "$env:ProgramFiles\Git\cmd", "${env:ProgramFiles(x86)}\Git\cmd", "$env:LOCALAPPDATA\Programs\Git\cmd")
+          $pythonDirs = @($env:VAR_DLSS5_PYTHON_DIR, $env:DLSS5_PYTHON_DIR) + @(Get-ChildItem -Directory -Path "$env:LOCALAPPDATA\Programs\Python\Python3*", "$env:ProgramFiles\Python3*" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object FullName)
+          Add-ToolDir 'python.exe' $pythonDirs
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
       - name: Canonical build
-        shell: pwsh
+        shell: powershell
         env:
           VAR_DLSS5_UPSTREAM_ROOT: ${{ vars.DLSS5_UPSTREAM_ROOT }}
           VAR_DLSS5_TOOLCHAIN_ROOT: ${{ vars.DLSS5_TOOLCHAIN_ROOT }}

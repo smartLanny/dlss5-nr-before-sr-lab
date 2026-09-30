@@ -28,6 +28,9 @@ class MainlineMaintenance(unittest.TestCase):
   for job in self_hosted.values():
    self.assertIn("vars.ENABLE_SELF_HOSTED_CI == 'true'",job)
    self.assertIn('runs-on: [self-hosted, Windows, X64, dlss5-build]',job)
+   # The runner has Windows PowerShell only, and its service PATH may lack git.
+   self.assertNotIn('shell: pwsh',job)
+   self.assertLess(job.index('Locate git and python'),job.index('actions/checkout'))
   build=self_hosted['self-hosted-canonical-build']
   self.assertIn("inputs.full_build",build);self.assertIn("'full-build'",build)
   self.assertIn('scripts/ci/run-self-hosted-build.ps1',build)
