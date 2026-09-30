@@ -53,7 +53,7 @@ inline bool CanonicalUnsigned(std::string_view value, std::uint64_t *parsed = nu
 }
 inline bool TimingStageKey(std::string_view key) {
     for (const auto stage : {"carrier", "chain-lock", "queue-lock", "submitted-fence-wait",
-            "readback-map-copy", "nr-evaluate", "native-evaluate", "native-execute", "retirement-signal"})
+            "readback-map-copy", "nr-model-create", "nr-evaluate", "native-evaluate", "native-execute", "retirement-signal"})
         if (key == stage) return true;
     return false;
 }

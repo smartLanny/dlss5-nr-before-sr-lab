@@ -195,7 +195,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     binary = out / 'feedback-timing-full.exe'
     run([str(compiler), *common, '-std=c++20', '-static', '-municode', '-Wl,--gc-sections',
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32', '-ld3d12', '-ldxgi',
-         '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
+         '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'], 'compile-core')
     cases = []
     case_names = ('known-clock', 'missing-clock', 'qpc-12', 'qpc-13', 'qpc-14', 'qpc-15', 'qpc-16')
     if not args.compile_only:

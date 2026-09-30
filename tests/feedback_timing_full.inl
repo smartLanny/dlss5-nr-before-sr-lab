@@ -906,7 +906,8 @@ void CheckDiagnosticNumericPreservation(const std::filesystem::path& directory) 
         for(const auto key:{"menuTrace.windowStartMs","menuTrace.windowDeadlineMs",
                             "menuTrace.event.32"}) {
             const auto expected=Value(raw,key);
-            Check(expected.find(digits)!=std::string::npos&&Value(disk,key)==expected,
+            const auto expected_counter=std::string_view(key)=="menuTrace.windowDeadlineMs"?U(numeric+2000):digits;
+            Check(expected.find(expected_counter)!=std::string::npos&&Value(disk,key)==expected,
                   "FULL_CORE_F8_DIAGNOSTIC_MENU_NUMERIC_ROUNDTRIP");
         }
 #endif
