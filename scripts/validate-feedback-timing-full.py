@@ -79,14 +79,14 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 112u * 1024u',
+        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 161u * 1024u',
                     'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-metadata-limit':
-        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 192u * 1024u',
-                    'kMetadataBytes = 128u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 288u * 1024u',
+                    'kMetadataBytes = 192u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-text-limit':
-        mutation = ('src/nr_feedback_single_text.h', 'kTextLimit = 384u * 1024u',
-                    'kTextLimit = 192u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
+        mutation = ('src/nr_feedback_single_text.h', 'kTextLimit = 480u * 1024u',
+                    'kTextLimit = 384u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
     elif args.negative_control == 'redact-timing-numbers':
         mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
                     'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
@@ -195,7 +195,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     binary = out / 'feedback-timing-full.exe'
     run([str(compiler), *common, '-std=c++20', '-static', '-municode', '-Wl,--gc-sections',
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32', '-ld3d12', '-ldxgi',
-         '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
+         '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'], 'compile-core')
     cases = []
     case_names = ('known-clock', 'missing-clock', 'qpc-12', 'qpc-13', 'qpc-14', 'qpc-15', 'qpc-16')
     if not args.compile_only:

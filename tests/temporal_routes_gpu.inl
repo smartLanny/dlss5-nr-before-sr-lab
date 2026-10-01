@@ -82,6 +82,9 @@ void Run(const char* scenario){
     list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
     NrContext* context=nullptr;NrSlot* slot=nullptr;unsigned expected_recordings=0;
     const unsigned frames=off||reject?1:9;
+    const bool trace_pre=choice=="pre";
+    if(trace_pre)g_menu_trace.Mark(GetTickCount64());
+    unsigned trace_closed_observations=0,trace_closed_evaluations=0;
     for(unsigned frame=1;frame<=frames;++frame){
         nr_source_runtime::StreamlineScope token(nr_source_frame::Source{41,51,frame});
         nr_source_runtime::EvaluateScope source(list.native,&handle,&params,feature);
@@ -114,6 +117,26 @@ void Run(const char* scenario){
             Check(finished&&!sub.fatal_recording,"actual FinishAfterSr RR consumer");RestorePostSrParameters(sub);
         }
         if(pre)for(auto&c:g_contexts)for(auto&s:c.slots)if(&s==slot)context=&c;
+        if(trace_pre && frame==1){
+            const auto trace=g_menu_trace.Copy(GetTickCount64());
+            bool source_seen=false;
+            for(unsigned i=0;i<trace.count;++i)
+                if(trace.events[i].kind==nr_menu_trace::Kind::First &&
+                   trace.events[i].frame.source_frame==1 && trace.events[i].frame.route==2)
+                    source_seen=true;
+            Check(source_seen && trace.observations>0 && trace.evaluations>0 &&
+                  trace.successful>0 && trace.resets>0 && trace.reset_success>0,
+                  "real pre-SR entry records guide/source/Reset/successful Evaluate in Esc window");
+            trace_closed_observations=trace.observations;trace_closed_evaluations=trace.evaluations;
+            Check(!g_menu_trace.Active(GetTickCount64()+nr_menu_trace::kWindowMs+1),
+                  "trace window closes without GPU waiting");
+        }
+        if(trace_pre && frame==2){
+            const auto trace=g_menu_trace.Copy(GetTickCount64());
+            Check(trace.observations==trace_closed_observations &&
+                  trace.evaluations==trace_closed_evaluations,
+                  "real pre-SR entry outside Esc window adds no trace observations");
+        }
         Check(context!=nullptr,"actual production context owner");
         if(hdr&&frame>1)Check(nr_temporal_status::domain.load()==2,"HDR enters scene-linear consumer rather than SDR relabeling");
         const auto recorded=nr_temporal_status::recorded.load();

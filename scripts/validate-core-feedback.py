@@ -65,6 +65,8 @@ HARNESS = r'''
 #include "nr_source_frame.hpp"
 #include "nr_late_present_receipt.hpp"
 #include "nr_process_memory.h"
+#include "nr_menu_trace.h"
+nr_menu_trace::Trace g_menu_trace;
 #include "interop/nr_external_provider_feedback.h"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id,adapter_luid };

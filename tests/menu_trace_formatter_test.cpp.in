@@ -1,0 +1,78 @@
+#include <algorithm>
+#include <cassert>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <new>
+#include <string>
+#include "nr_feedback_limits.h"
+#include "nr_menu_trace.h"
+
+struct FeedbackSession {
+    char report[nr_feedback_limits::kMetadataBytes]{};
+    std::size_t report_used=0;
+    bool report_truncated=false;
+};
+// @PRODUCTION_FEEDBACK_APPEND@
+namespace nr_core_feedback {
+// @PRODUCTION_MENU_FORMATTERS@
+}
+
+int main() {
+    nr_menu_trace::History history{};
+    history.count=3;
+    for(unsigned w=0;w<3;++w) {
+        auto& window=history.windows[w];
+        window.marked=true;window.expired=true;window.started=1000+w*3000;
+        window.deadline=window.started+2000;window.presses=1;
+        window.count=nr_menu_trace::kCapacity;
+        for(unsigned i=0;i<window.count;++i) {
+            auto& e=window.events[i];
+            e.ms=window.started+i*16;e.kind=i==0?nr_menu_trace::Kind::Esc:
+                i==32?nr_menu_trace::Kind::Retire:
+                i==33?nr_menu_trace::Kind::Reset:
+                i==34?nr_menu_trace::Kind::Change:nr_menu_trace::Kind::ResourceRotation;
+            e.frame.observed=true;e.frame.context_known=true;e.frame.source_known=true;
+            e.frame.render_w=3840;e.frame.render_h=2160;
+            e.frame.work_w=1920;e.frame.work_h=1080;
+            e.frame.output_w=3840;e.frame.output_h=2160;
+            e.frame.feature=13;e.frame.feature_generation=UINT64_MAX;
+            e.frame.instance=UINT64_MAX;e.frame.layer=0;e.frame.route=2;
+            e.frame.config=UINT32_MAX;e.frame.history=UINT32_MAX;
+            e.frame.source_stream=UINT64_MAX;e.frame.source_epoch=UINT64_MAX;
+            e.frame.source_frame=UINT64_MAX;e.resource_mask=7;
+            if(i==34) {e.storage_mask=nr_menu_trace::MotionBound;e.previous_work_w=1280;e.previous_work_h=720;}
+        }
+    }
+    auto session=std::make_unique<FeedbackSession>();
+    nr_core_feedback::AppendMenuTrace(*session,history);
+    const std::string trace(session->report);
+    assert(!session->report_truncated && session->report_used<24u*1024u);
+    unsigned omissions=0;
+    for(std::size_t p=0;(p=trace.find("menuTrace.eventOmitted=56",p))!=std::string::npos;p+=26)++omissions;
+    assert(omissions==3);
+    for(unsigned w=0;w<3;++w) {
+        assert(trace.find("menuTrace.windowBegin="+std::to_string(w))!=std::string::npos);
+        assert(trace.find("menuTrace.windowEnd="+std::to_string(w))!=std::string::npos);
+    }
+    assert(trace.find("kind:retire")!=std::string::npos &&
+           trace.find("kind:reset-requested")!=std::string::npos &&
+           trace.find("kind:change")!=std::string::npos);
+    FeedbackAppend(*session,"artifact.identityStatus=verified\ncollection.status=complete\n");
+    assert(!session->report_truncated && std::strstr(session->report,"artifact.identityStatus=verified"));
+
+    auto crowded=std::make_unique<FeedbackSession>();
+    crowded->report_used=nr_feedback_limits::kMetadataBytes-32u*1024u-256u;
+    std::memset(crowded->report,'x',crowded->report_used);
+    crowded->report[crowded->report_used]=0;
+    nr_core_feedback::AppendMenuTrace(*crowded,history);
+    assert(!crowded->report_truncated &&
+           std::strstr(crowded->report,"menuTrace.status=omitted-report-capacity") &&
+           std::strstr(crowded->report,"menuTrace.eventOmitted=192"));
+    FeedbackAppend(*crowded,"artifact.identityStatus=verified\ncollection.status=complete\n");
+    assert(!crowded->report_truncated &&
+           std::strstr(crowded->report,"artifact.identityStatus=verified"));
+    std::printf("PASS: production menu formatter three full windows, bytes=%zu, omitted=168, worker tail preserved\n",trace.size());
+}

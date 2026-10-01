@@ -44,6 +44,77 @@ bool Field(const std::string &line, const std::string &key, const std::string &v
 }
 std::string U(std::uint64_t value) { return std::to_string(value); }
 
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+std::string FullWidthAllocationLedger(const char* prefix,
+    std::uint64_t numeric=std::numeric_limits<std::uint64_t>::max()) {
+    // Synthetic maximum-width values traverse the actual production formatter.
+    // They are a capacity fixture, not measured GPU allocations or game data.
+    nr_allocation_ledger::Snapshot snapshot{};
+    for(unsigned c=0;c<nr_allocation_ledger::categories;++c)
+        for(unsigned p=0;p<nr_allocation_ledger::phases;++p)
+            for(unsigned h=0;h<nr_allocation_ledger::heaps;++h){
+                auto& cell=snapshot.cells[c][p][h];
+                cell.bytes=numeric;
+                cell.resources=cell.unknown=std::numeric_limits<unsigned>::max();
+                cell.overflow=true;
+            }
+    for(auto& model:snapshot.model_instances)for(auto& count:model)
+        count=std::numeric_limits<unsigned>::max();
+    snapshot.destroying_contexts=snapshot.aliases=std::numeric_limits<unsigned>::max();
+    snapshot.compat_retiring_unknown=snapshot.detached_quarantined_unknown=true;
+    snapshot.model_destroying_unknown=snapshot.seen_overflow=true;
+    snapshot.sample_complete=false;
+    std::string output;
+    char ticks[160]{};
+    Check(nr_allocation_ledger::FormatSampleTicks(ticks,sizeof(ticks),prefix,
+          numeric,numeric),
+          "FULL_CORE_F8_LEDGER_FULL_WIDTH_TICKS");
+    output+=ticks;
+    nr_allocation_ledger::WriteText(snapshot,prefix,[&](const char* line){output+=line;});
+    unsigned lines=0;for(char ch:output)if(ch=='\n')++lines;
+    Check(lines==204&&output.size()<=25u*1024u,
+          "FULL_CORE_F8_LEDGER_25K_BOUND");
+    return output;
+}
+#endif
+
+#if defined(NR_MENU_TRACE_ENABLED)
+std::unique_ptr<nr_menu_trace::History> FullWidthMenuTrace(
+    std::uint64_t numeric=std::numeric_limits<std::uint64_t>::max()) {
+    auto history=std::make_unique<nr_menu_trace::History>();
+    history->count=3;
+    constexpr auto wide=std::numeric_limits<std::uint64_t>::max();
+    constexpr auto word=std::numeric_limits<unsigned>::max();
+    for(unsigned w=0;w<3;++w){
+        auto& window=history->windows[w];
+        window.marked=window.expired=true;
+        window.started=(numeric==wide?1000:numeric)+w*3000;
+        window.deadline=window.started+2000;
+        window.presses=1;window.count=nr_menu_trace::kCapacity;
+        for(unsigned i=0;i<window.count;++i){
+            auto& event=window.events[i];
+            event.ms=window.started+i;
+            event.kind=i==0?nr_menu_trace::Kind::Esc:
+                i==32?nr_menu_trace::Kind::Retire:
+                i==33?nr_menu_trace::Kind::Reset:
+                i==34?nr_menu_trace::Kind::Change:nr_menu_trace::Kind::ResourceRotation;
+            auto& frame=event.frame;
+            frame.observed=frame.context_known=frame.source_known=true;
+            frame.render_w=frame.output_w=3840;frame.render_h=frame.output_h=2160;
+            frame.work_w=1920;frame.work_h=1080;
+            frame.feature=13;frame.layer=0;frame.route=2;
+            frame.feature_generation=frame.instance=frame.source_stream=frame.source_epoch=frame.source_frame=numeric;
+            frame.config=frame.history=word;
+            if(i==34){
+                event.storage_mask=nr_menu_trace::MotionBound;
+                event.previous_work_w=1280;event.previous_work_h=720;
+            }
+        }
+    }
+    return history;
+}
+#endif
+
 void SeedRouteAndDescriptorEvidence() {
     constexpr auto wide = std::numeric_limits<std::uint64_t>::max();
     constexpr auto word = std::numeric_limits<unsigned>::max();
@@ -712,8 +783,22 @@ void CheckAllSourcesCapacity(const std::filesystem::path &directory) {
     wcscpy_s(session->directory,folder.c_str());wcscpy_s(session->exe,(folder/L"game"/L"fixture.exe").c_str());
     wcscpy_s(session->reshade_module,(folder/L"module"/L"ReShade64.dll").c_str());
     session->carrier_log=paths[5].wstring();GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
-    const auto metadata=BudgetLines("fixture.fullMetadata=1\n",sizeof(session->activity.report)-512,"fixture.fullMetadata");
+    std::size_t ledger_bytes=0;
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+    const auto ledger_start=FullWidthAllocationLedger("start");
+    const auto ledger_end=FullWidthAllocationLedger("end");
+    ledger_bytes=ledger_start.size()+ledger_end.size();
+#endif
+    const auto metadata=BudgetLines("fixture.fullMetadata=1\n",
+        sizeof(session->activity.report)-512-ledger_bytes,"fixture.fullMetadata");
     FeedbackAppend(session->activity,"%s",metadata.c_str());
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+    FeedbackAppend(session->activity,"%s",ledger_start.c_str());
+    FeedbackAppend(session->activity,"%s",ledger_end.c_str());
+    Check(!Value(session->activity.report,"start.allocation.knownBytesLowerBound").empty()&&
+          !Value(session->activity.report,"end.allocation.knownBytesLowerBound").empty(),
+          "FULL_CORE_F8_ALL_SOURCES_LEDGER_INCLUDED");
+#endif
     Check(!session->activity.report_truncated,"FULL_CORE_F8_ALL_SOURCES_METADATA");
     const auto output=nr_core_feedback::CollectSingleText(*session,true);
     wcscpy_s(g_log_path,old_log.c_str());
@@ -770,6 +855,67 @@ void CheckDescriptorMillisecondsThroughCollector(const std::filesystem::path& di
 #endif
     }
 }
+void CheckDiagnosticNumericPreservation(const std::filesystem::path& directory) {
+#if defined(NR_MENU_TRACE_ENABLED) || defined(NR_ALLOCATION_LEDGER_ENABLED)
+    // Fixture ordinals and byte counts, never game telemetry. These producer
+    // outputs pass through the actual single-TXT SafeLines/SanitizeMetadata path.
+    constexpr const char* numbers[]={"123456789012","1234567890123","12345678901234",
+        "123456789012345","1234567890123456"};
+    for(unsigned width=0;width<std::size(numbers);++width) {
+        const std::string digits=numbers[width];
+        const auto numeric=std::stoull(digits);
+        const auto folder=directory/(L"diagnostic-numeric-"+std::to_wstring(width));
+        std::filesystem::create_directories(folder);
+        auto session=std::make_unique<nr_core_feedback::CoreSession>();
+        session->snapshot_ok=true;session->serial=100+width;
+        wcscpy_s(session->directory,folder.c_str());
+        wcscpy_s(session->exe,(folder/L"fixture.exe").c_str());
+        GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+        const auto ledger_start=FullWidthAllocationLedger("start",numeric);
+        const auto ledger_end=FullWidthAllocationLedger("end",numeric);
+        FeedbackAppend(session->activity,"%s",ledger_start.c_str());
+        FeedbackAppend(session->activity,"%s",ledger_end.c_str());
+#endif
+#if defined(NR_MENU_TRACE_ENABLED)
+        const auto trace=FullWidthMenuTrace(numeric);
+        nr_core_feedback::AppendMenuTrace(session->activity,*trace);
+#endif
+        const std::string raw(session->activity.report,session->activity.report_used);
+        Check(!session->activity.report_truncated,"FULL_CORE_F8_DIAGNOSTIC_NUMERIC_RAW_FITS");
+        Check(nr_core_feedback::nr_feedback_report::SafeLines(session->activity.report)==raw+"\n",
+              "FULL_CORE_F8_DIAGNOSTIC_ALL_FORMATTED_FIELDS_PRESERVED");
+        const auto result=nr_core_feedback::CollectSingleText(*session,true);
+        Check(result.text&&result.complete&&result.error==ERROR_SUCCESS,
+              "FULL_CORE_F8_DIAGNOSTIC_NUMERIC_FINAL_TEXT");
+        if(!result.text)continue;
+        const auto disk=Read(result.path);
+        Check(disk==*result.text&&disk.ends_with("text.complete=1\nEND DLSS5 FEEDBACK TEXT\n"),
+              "FULL_CORE_F8_DIAGNOSTIC_NUMERIC_FINAL_STATUS");
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+        for(const auto key:{"start.allocation.sampleStartedTickMs",
+                            "end.allocation.sampleFinishedTickMs",
+                            "start.allocation.coreSlot.live.heap.default",
+                            "end.allocation.fg.destroying.heap.other"}) {
+            const auto expected=Value(raw,key);
+            Check(expected.find(digits)!=std::string::npos&&Value(disk,key)==expected,
+                  "FULL_CORE_F8_DIAGNOSTIC_LEDGER_NUMERIC_ROUNDTRIP");
+        }
+#endif
+#if defined(NR_MENU_TRACE_ENABLED)
+        for(const auto key:{"menuTrace.windowStartMs","menuTrace.windowDeadlineMs",
+                            "menuTrace.event.32"}) {
+            const auto expected=Value(raw,key);
+            const auto expected_counter=std::string_view(key)=="menuTrace.windowDeadlineMs"?U(numeric+2000):digits;
+            Check(expected.find(expected_counter)!=std::string::npos&&Value(disk,key)==expected,
+                  "FULL_CORE_F8_DIAGNOSTIC_MENU_NUMERIC_ROUNDTRIP");
+        }
+#endif
+    }
+#else
+    (void)directory;
+#endif
+}
 int Run(const std::filesystem::path &directory, bool missing_clock) {
     std::filesystem::create_directories(directory);
     InitializeCriticalSection(&g_chain_cs);
@@ -806,7 +952,17 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     FeedbackAppend(activity, "format=full-core-f8-timing-test\nfixture.language=时序诊断，暂停不改写历史。\n");
     FeedbackAppend(activity, "%s", numeric_width_allowance.c_str());
     FeedbackAppendActivity(activity, "start");
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+    const auto ledger_start=FullWidthAllocationLedger("start");
+    FeedbackAppend(activity,"%s",ledger_start.c_str());
+    Check(Value(activity.report,"start.allocation.knownBytesLowerBound")==
+          U(std::numeric_limits<std::uint64_t>::max())&&
+          !Value(activity.report,"start.allocation.fg.destroying.heap.other").empty()&&
+          !activity.report_truncated,"FULL_CORE_F8_LEDGER_START_FULL_WIDTH");
+#endif
     const auto start_bytes = activity.report_used;
+    Check(start_bytes < sizeof(activity.report)-nr_feedback_limits::kTimelineReserveBytes,
+          "FULL_CORE_F8_START_WITH_LEDGER_RESERVE");
     CheckTiming(activity.report, "start", *start, missing_clock);
     CheckExpandedEvidence(activity.report, "start");
     CheckUiActivityEvidence(activity.report,"start");
@@ -837,9 +993,21 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     const auto worker_equivalent = WorkerEquivalent();
     Check(worker_equivalent.size() == 8192 && nr_bundle::ValidUtf8(worker_equivalent.c_str()),
           "FULL_CORE_F8_WORKER_EQUIVALENT_BUDGET");
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+    const auto ledger_end=FullWidthAllocationLedger("end");
+#endif
+#if defined(NR_MENU_TRACE_ENABLED)
+    const auto menu_trace=FullWidthMenuTrace();
+#endif
     const auto append_end = [&](FeedbackSession &target) {
         FeedbackAppend(target, "%s", numeric_width_allowance.c_str());
         FeedbackAppendActivity(target, "end");
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+        FeedbackAppend(target,"%s",ledger_end.c_str());
+#endif
+#if defined(NR_MENU_TRACE_ENABLED)
+        nr_core_feedback::AppendMenuTrace(target,*menu_trace);
+#endif
         FeedbackAppendCommandHistory(target);
         FeedbackAppend(target, "%s", worker_equivalent.c_str());
         FeedbackAppend(target, "collection.elapsedMs=%llu\ncollection.parameterSamples=0\ncollection.cancelled=0\n"
@@ -851,6 +1019,9 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Write(directory / "mandatory-tail.txt", std::string(mandatory_tail->report, mandatory_tail->report_used));
     std::printf("FULL_CORE_F8_TAIL startBytes=%zu requiredBytes=%zu configuredReserve=%u tailTruncated=%d\n",
         start_bytes, mandatory_tail->report_used, nr_feedback_limits::kTimelineReserveBytes, mandatory_tail->report_truncated);
+    Check(!mandatory_tail->report_truncated&&
+          mandatory_tail->report_used<=nr_feedback_limits::kMandatoryTailBytes,
+          "FULL_CORE_F8_LEDGER_TRACE_MANDATORY_TAIL_RESERVE");
     append_end(activity);
     Check(!activity.report_truncated && activity.report_used < sizeof(activity.report) - nr_feedback_limits::kFinalStatusReserveBytes,
           "FULL_CORE_F8_CAPACITY");
@@ -874,6 +1045,43 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
           !Value(activity.report, "decision.nextAction").empty(), "FULL_CORE_F8_END_DECISION");
     Check(Value(activity.report, "fixture.metadataEnd") == "完整结尾" && nr_bundle::ValidUtf8(activity.report),
           "FULL_CORE_F8_METADATA_UTF8_TAIL");
+#if defined(NR_ALLOCATION_LEDGER_ENABLED)
+    Check(Value(activity.report,"end.allocation.knownBytesLowerBound")==
+          U(std::numeric_limits<std::uint64_t>::max())&&
+          !Value(activity.report,"end.allocation.fg.destroying.heap.other").empty()&&
+          !Value(activity.report,"end.allocation.sampleFinishedTickMs").empty(),
+          "FULL_CORE_F8_LEDGER_END_FULL_WIDTH");
+#endif
+#if defined(NR_MENU_TRACE_ENABLED)
+    const std::string raw_trace(activity.report,activity.report_used);
+    const auto count_line=[&](const char* marker){
+        unsigned count=0;std::size_t at=0;
+        while((at=raw_trace.find(marker,at))!=std::string::npos){++count;at+=std::strlen(marker);}
+        return count;
+    };
+    Check(Value(raw_trace,"menuTrace.windowCount")=="3"&&
+          count_line("menuTrace.windowBegin=")==3&&count_line("menuTrace.windowEnd=")==3&&
+          count_line("menuTrace.eventCount=64\n")==3&&count_line("menuTrace.eventOmitted=")==3&&
+          raw_trace.find("kind:retire")!=std::string::npos&&
+          raw_trace.find("kind:reset-requested")!=std::string::npos&&
+          raw_trace.find("kind:change")!=std::string::npos,
+          "FULL_CORE_F8_THREE_WINDOWS_BOUNDED_TRACE");
+    for(unsigned w=0;w<3;++w){
+        const auto begin=raw_trace.find("menuTrace.windowBegin="+U(w)+"\n");
+        const auto end=raw_trace.find("menuTrace.windowEnd="+U(w)+"\n",begin);
+        Check(begin!=std::string::npos&&end!=std::string::npos,
+              "FULL_CORE_F8_THREE_WINDOWS_BOUNDARIES");
+        if(begin==std::string::npos||end==std::string::npos)continue;
+        const auto window=raw_trace.substr(begin,end-begin);
+        const auto output_count=Value(window,"menuTrace.eventOutputCount");
+        const auto omitted=Value(window,"menuTrace.eventOmitted");
+        Check(Value(window,"menuTrace.eventCount")=="64"&&
+              !output_count.empty()&&!omitted.empty()&&
+              std::stoul(output_count)<=8&&
+              std::stoul(output_count)+std::stoul(omitted)==64,
+              "FULL_CORE_F8_THREE_WINDOWS_RETAINED_BOUNDED_EVENTS");
+    }
+#endif
     Write(directory / "metadata.txt", std::string(activity.report, activity.report_used));
     const auto text = nr_core_feedback::CollectSingleText(*session, !activity.report_truncated);
     Check(text.text && text.complete && text.error == ERROR_SUCCESS && !text.path.empty(), "FULL_CORE_F8_FINAL_TEXT_COMPLETE");
@@ -901,6 +1109,8 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     CheckPrivacyThroughCollector(directory);
     CheckAllSourcesCapacity(directory);
     CheckDescriptorMillisecondsThroughCollector(directory);
+    if(!missing_clock && !g_feedback_fixture_digits)
+        CheckDiagnosticNumericPreservation(directory);
     Check(NrUiActivityThread().calls==ui_calls&&!g_nr_ui_activity_window.Inspect().initialized,
           "FULL_CORE_F8_UI_NO_OBSERVE");
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",

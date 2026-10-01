@@ -1,13 +1,13 @@
 {
   "schema": "dlss5-direct-source-layout-v1",
   "product": {
-    "version": "0.5.2-beta.13",
-    "display_version": "0.5.2 Beta 13",
+    "version": "0.5.2-beta.14",
+    "display_version": "0.5.2 Beta 14",
     "pe_version": [
       0,
       5,
       2,
-      13
+      14
     ]
   },
   "core_build_inputs": [
@@ -305,7 +305,7 @@
       "game_verified": false
     },
     "private_residual_sr": {
-      "version": "0.5.2-beta.13",
+      "version": "0.5.2-beta.14",
       "default_enabled": false,
       "producer": "same-source final B/Z with all NR layers",
       "route": "D3D12 native Feature1 or Feature13 post, same-output-value FP16 SDR or proven HDR/AutoExposure, no FG",
