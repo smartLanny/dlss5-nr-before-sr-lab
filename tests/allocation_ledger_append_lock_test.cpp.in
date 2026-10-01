@@ -1,0 +1,63 @@
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
+#include <windows.h>
+#include <atomic>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include "nr_allocation_ledger.h"
+
+struct FeedbackSession {char report[65536]{};std::size_t used=0;};
+SRWLOCK g_feedback_lock=SRWLOCK_INIT;
+HANDLE sampled=nullptr,first_append=nullptr;
+std::atomic<bool> observer_inside{false},violation{false};
+
+// The resource sampler is a seam in this lock-order fixture. The separate
+// WARP gate tests the real D3D12 measurement and formatter.
+namespace nr_allocation_runtime {
+nr_allocation_ledger::Snapshot Sample(){SetEvent(sampled);return {};}
+}
+void FeedbackAppend(FeedbackSession& session,const char* format,...) {
+    if(observer_inside.load(std::memory_order_acquire)) {
+        violation.store(true,std::memory_order_release);
+        SetEvent(first_append);
+        return;
+    }
+    SetEvent(first_append);
+    va_list args;va_start(args,format);
+    const int n=std::vsnprintf(session.report+session.used,sizeof(session.report)-session.used,format,args);
+    va_end(args);
+    if(n>0&&static_cast<std::size_t>(n)<sizeof(session.report)-session.used)session.used+=static_cast<std::size_t>(n);
+}
+
+PRODUCTION_APPEND_FUNCTION
+
+DWORD WINAPI Writer(void* opaque) {
+    NrAppendAllocationLedger(*static_cast<FeedbackSession*>(opaque),"start");
+    return 0;
+}
+int main() {
+    sampled=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    first_append=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    if(!sampled||!first_append)return 2;
+    FeedbackSession session{};
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    observer_inside.store(true,std::memory_order_release);
+    std::memcpy(session.report,"observer=held\n",14);session.used=14;
+    HANDLE writer=CreateThread(nullptr,0,Writer,&session,0,nullptr);
+    if(!writer)return 2;
+    const bool sampled_first=WaitForSingleObject(sampled,5000)==WAIT_OBJECT_0;
+    const bool appended_while_observed=WaitForSingleObject(first_append,100)==WAIT_OBJECT_0;
+    observer_inside.store(false,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+    const bool writer_done=WaitForSingleObject(writer,5000)==WAIT_OBJECT_0;
+    CloseHandle(writer);CloseHandle(sampled);CloseHandle(first_append);
+    if(!sampled_first||!writer_done||appended_while_observed||violation.load()||
+       !std::strstr(session.report,"start.allocation.sampleStartedTickMs=")||
+       !std::strstr(session.report,"start.allocation.schema=owned-d3d12-v1")) {
+        std::fprintf(stderr,"FAIL production append overlapped published observer or omitted F8 text\n");
+        return 1;
+    }
+    std::puts("production append lock serializes published observer; sampler ran first PASS");
+}

@@ -66,6 +66,9 @@ try {
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
+    & python (Join-Path $PSScriptRoot 'validate-allocation-ledger.py') --compiler $Cxx --output (Join-Path $TestBuild 'allocation-ledger')
+    if ($LASTEXITCODE) { throw 'F8 owned D3D12 allocation ledger CPU/WARP or negative controls failed.' }
+    $Checks.Add('F8 worker-only allocation helper: ownership/alias/lifecycle/overflow/heap CPU, WARP allocation-info, serialized observer append negative control and ten mutation controls')
     & (Join-Path $PSScriptRoot 'validate-runtime-load-windows.ps1') -ToolchainRoot $Toolchain `
         -SourceRoot (Join-Path $Stage 'core') -FixtureRoot $Root `
         -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')

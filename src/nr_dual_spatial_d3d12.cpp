@@ -294,7 +294,7 @@ SpatialSlot* CreateSpatialSlot(Pipelines* p, ID3D12Resource* first,
 Surfaces GetSurfaces(const SpatialSlot* s) noexcept {
     if (!s) return {};
     return {s->primary, s->low_input ? s->low_input : s->primary, s->second, s->residual_valid?s->residual_valid:s->valid,
-            s->plan.primary, s->plan.secondary, s->domain,s->delta};
+            s->plan.primary, s->plan.secondary, s->domain,s->delta,s->valid!=nullptr};
 }
 bool MatchesResidualBase(const SpatialSlot* s,const Surfaces* base) noexcept {
     return s&&(base?(s->residual_base==base->input&&s->residual_valid==base->low_valid):
