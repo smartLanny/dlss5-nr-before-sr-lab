@@ -12,6 +12,8 @@
 | wilsjo2 OptiScaler NR | 发布 tag `v0.8.91` = `f45ccf3a761df91450959d325ac0166cba5364c9`（2026-09-23）。默认分支 main 为 `1bd39091`，与 v0.8.91 相差约 4 万行（161 个文件）；两份均为 shallow clone，未确认祖先关系。**不能用 main 代表当前发布** | GPL-3.0 | 只学机制，不复制源码（同 `MAX_COMPAT_CONTINUATION.md`） |
 | BeliyG3/optimizer-fps-dlss5 | HEAD `1bc2b76fa3dbdb5e41677286eb74907f63831235`（2026.9.2）；wilsjo2 的空间压缩取自其 `64902dd6` | MIT | 可附版权声明复用 |
 
+**行号说明：** 本页本项目的行号固定指 `12a9dd50`。之后 #327（`0e1ba85c`）把 16 个 patch 折叠进 `src/`，`src/nr_before_sr.cpp` 行号整体后移约 900–1100 行（例如 `NrSlot slots[8]` 从 `:5605` 移到 `:6505`），`scripts/patch-*.py` 移到 `scripts/archive/patch-chain-beta13/`。在新 main 上请按函数名或符号定位。
+
 已有引用：`052_BETA6_EVALUATION_AND_NEXT.md` 核对过 wilsjo2 main `1bd39091` 的 DeferredSr 与 RR 路由；
 `052_BETA4_UNIFIED_ACCEPTANCE.md` 引用过其 v0.8.0 上游核查。本页基于更新的 v0.8.91，下文对方路径相对其仓库根，
 `S/` = `OptiScaler/shaders/dlssnr/`，`N/` = `OptiScaler/dlssnr/`。
@@ -157,7 +159,7 @@
 | Issue | 内容 | 前置 |
 |---|---|---|
 | #329 | 离线测量（第 4 节第 2 项）：同一宿主、同一 5090D 下“尺寸×运行库”的单实例 DXGI 差值表，以及循环换模型的基线曲线 | 无，建议最先做 |
-| #330 | F8 显存账本与趋势日志（第 4 节第 1 项），不改渲染行为 | 无 |
+| #330 | F8 显存账本与趋势日志（第 4 节第 1 项），不改渲染行为。#336 已实现自有分配分类账的第一部分；槽高水位、趋势日志、单实例代价仍待做 | 无 |
 | #331 | 驻留策略（第 4 节第 4、5、7 项） | #329、#330 |
 | #332 | `Cyberpunk2077.exe` 改名复现，同时接入 NGX 日志回调（第 5 节第 1、2 项） | 无 |
 | #333 | 工程实践清单（第 5 节第 6–9 项等） | 无 |
