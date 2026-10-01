@@ -53,6 +53,8 @@
 #define NR_NATIVE_FORMAT_STAGED 1
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
+#include "nr_menu_trace.h"
+nr_menu_trace::Trace g_menu_trace;
 #define NR_HAS_PRIVATE_RESIDUAL_SR 1
 #include "nr_private_sr_guides.h"
 #include "private_sr/nr_post_private_sr_dx12.hpp"
@@ -597,6 +599,13 @@ void SetBypassReason(BypassReason reason) {
     NrRouteBypass(static_cast<BypassReason>(next));
 #endif
     if (previous == next) return;
+#if defined(NR_MENU_TRACE_ENABLED)
+    if (g_menu_trace.Armed()) {
+        const auto now=GetTickCount64();
+        if (g_menu_trace.Active(now))
+            g_menu_trace.Note(now,nr_menu_trace::Kind::Bypass,{},static_cast<unsigned>(next));
+    }
+#endif
     const unsigned long long transition =
         g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
     // The overlay always shows the current reason. The file log records early
@@ -6508,6 +6517,36 @@ struct NrContext {
 #include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
 
+ULONGLONG MenuTraceNow() {
+    if(!g_menu_trace.Armed())return 0;
+    const auto now=GetTickCount64();
+    return g_menu_trace.Active(now)?now:0;
+}
+nr_menu_trace::Frame MenuTraceFrame(int feature,unsigned long long generation,int route,
+    unsigned render_w,unsigned render_h,unsigned work_w,unsigned work_h,
+    unsigned output_w,unsigned output_h,const NrContext* context=nullptr) {
+    nr_menu_trace::Frame f{};
+    f.observed=true;f.context_known=context!=nullptr;
+    f.feature=feature;f.feature_generation=generation;f.route=route;
+    f.render_w=render_w;f.render_h=render_h;f.work_w=work_w;f.work_h=work_h;
+    f.output_w=output_w;f.output_h=output_h;
+    f.instance=context?context->instance_id:0;
+    f.layer=context?context->layer_index:0;
+    f.carrier_key=context?reinterpret_cast<std::uintptr_t>(context->sr_handle):0;
+    f.config=g_config_generation.load(std::memory_order_relaxed);
+    f.history=g_history_generation.load(std::memory_order_relaxed);
+    const auto source=nr_source_runtime::CurrentSource();
+    f.source_known=static_cast<bool>(source);
+    f.source_stream=source.stream;f.source_epoch=source.epoch;f.source_frame=source.sequence;
+    return f;
+}
+void MenuNoteContext(nr_menu_trace::Kind kind,const NrContext& context,unsigned reason) {
+    const auto now=MenuTraceNow();
+    if(!now)return;
+    g_menu_trace.Note(now,kind,MenuTraceFrame(0,context.feature_generation,context.mode,
+        0,0,context.width,context.height,0,0,&context),reason);
+}
+
 bool g_nr_residency_drain_pending=false; // Existing g_chain_cs; not a completion proof.
 void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change) {
     const unsigned marked=nr_residency::RetireForCompaction(
@@ -8674,6 +8713,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
     for (auto &context : g_contexts) {
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation != feature_generation) {
+#if defined(NR_MENU_TRACE_ENABLED)
+            MenuNoteContext(nr_menu_trace::Kind::Retire,context,1);
+#endif
             context.retired = true;
             Log("Feature 1 contract changed for handle=%p: generation %llu -> "
                 "%llu. Retiring mode=%d extent=%ux%u after its exact GPU fence.",
@@ -8688,13 +8730,28 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
             // Parent object identity owns this layer's immutable Create inputs.
             // A history-only epoch change is handled by Reset below after every
             // storage/tuning check, not by destroying the unchanged NGX model.
-            if(layer_index!=0 && context.parent_instance_id!=parent_instance){context.retired=true;continue;}
+            if(layer_index!=0 && context.parent_instance_id!=parent_instance){
+#if defined(NR_MENU_TRACE_ENABLED)
+                MenuNoteContext(nr_menu_trace::Kind::Retire,context,2);
+#endif
+                context.retired=true;continue;
+            }
             // One temporal history per carrier/generation/mode. Keeping an
             // active context for every DRS extent resurrected stale history
             // on A->B->A and eventually occupied all 16 context entries.
             if (context.width != width || context.height != height ||
                 !SameNrGuideStorageContract(context.guide_storage_signature,
                                             requested_guides)) {
+#if defined(NR_MENU_TRACE_ENABLED)
+                if(const auto trace_now=MenuTraceNow()) {
+                    auto before=MenuTraceFrame(0,context.feature_generation,context.mode,
+                        0,0,context.width,context.height,0,0,&context);
+                    auto after=before;after.work_w=width;after.work_h=height;
+                    g_menu_trace.ContractChange(trace_now,before,after,
+                        context.guide_storage_signature,requested_guides);
+                }
+                MenuNoteContext(nr_menu_trace::Kind::Retire,context,3);
+#endif
                 context.retired = true;
                 const auto& previous=context.guide_storage_signature;
                 Log("NR dimensions/guide storage changed: handle=%p mode=%d "
@@ -8716,6 +8773,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
             if (context.codec_color_mode_initialized &&
                 (context.codec_color_mode != requested_color_mode ||
                  context.codec_peak_shoulder != requested_peak_shoulder)) {
+#if defined(NR_MENU_TRACE_ENABLED)
+                MenuNoteContext(nr_menu_trace::Kind::Retire,context,4);
+#endif
                 context.retired = true;
                 Log("Live Color/NR proxy contract changed for handle=%p mode=%d "
                     "extent=%ux%u: codec mode %u -> %u peakShoulder %d -> %d without a new Feature 1 "
@@ -8730,6 +8790,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
             if (context.tuning_signature_initialized &&
                 !SameNrTuningSignature(context.tuning_signature,
                                        requested_tuning)) {
+#if defined(NR_MENU_TRACE_ENABLED)
+                MenuNoteContext(nr_menu_trace::Kind::Retire,context,5);
+#endif
                 context.retired = true;
                 if(context.tuning_signature.input_filter!=requested_tuning.input_filter)
                     Log("NR input filter request changed %u->%u; retiring old input/history after exact fence.",
@@ -10907,6 +10970,22 @@ struct NrGuideBinding {
     int game_reset = 0;
 };
 
+#if defined(NR_MENU_TRACE_ENABLED)
+void MenuObserveGuide(const FeatureRecord& feature,int route,unsigned render_w,unsigned render_h,
+    unsigned work_w,unsigned work_h,unsigned output_w,unsigned output_h,
+    const NrGuideBinding& guides,ID3D12Resource* color,const NrContext* context) {
+    const auto now=MenuTraceNow();
+    if(!now)return;
+    auto frame=MenuTraceFrame(feature.feature_id,feature.generation,route,
+        render_w,render_h,work_w,work_h,output_w,output_h,context);
+    frame.carrier_key=reinterpret_cast<std::uintptr_t>(feature.handle);
+    g_menu_trace.Observe(now,frame,guides.signature,
+        {reinterpret_cast<std::uintptr_t>(guides.depth),
+         reinterpret_cast<std::uintptr_t>(guides.motion),
+         reinterpret_cast<std::uintptr_t>(color)});
+}
+#endif
+
 // Jitter is expressed in source pixels by the game's SR call. The signed NR
 // feature receives work-grid pixels, so scale each axis independently. A
 // missing or non-finite value is unknown and is deliberately omitted from the
@@ -11440,6 +11519,9 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     // Only a successful Evaluate is allowed to consume a requested Reset.
     context.reset_retry_pending = reset_requested;
     SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);
+#if defined(NR_MENU_TRACE_ENABLED)
+    if(reset_requested)MenuNoteContext(nr_menu_trace::Kind::Reset,context,diagnostic_reset_reasons);
+#endif
 #if defined(NR_HAS_TIMING)
     NrTimingResetBound(reset_requested, timing_reset_reasons);
     if (delayed_texture_reset)
@@ -11572,6 +11654,9 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
     }
     if (result == kNgxSuccess && handle != nullptr) {
         context.instance_id = ++g_next_nr_instance_id;
+#if defined(NR_MENU_TRACE_ENABLED)
+        MenuNoteContext(nr_menu_trace::Kind::Create,context,0);
+#endif
         context.successful_evaluations_since_reset = 0;
         context.diagnostic_first_sample_logged = false;
         Log("[nr-instance] created=%llu mode=%d featureGeneration=%llu "
@@ -11583,6 +11668,9 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         context.create_variant_selected = true;
         *out_handle = handle;
     } else if (handle != nullptr) {
+#if defined(NR_MENU_TRACE_ENABLED)
+        MenuNoteContext(nr_menu_trace::Kind::CreateFailed,context,static_cast<unsigned>(result));
+#endif
         // A failed Create may still have recorded initialization commands on
         // this command list. Releasing the returned object immediately is not
         // fence-safe. This exceptional handle is deliberately quarantined
@@ -11598,6 +11686,10 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
             "parameter block, descriptor heaps and all dependent textures are "
             "quarantined until process exit; every later Feature 18 attempt is "
             "disabled for this process.", handle);
+    } else {
+#if defined(NR_MENU_TRACE_ENABLED)
+        MenuNoteContext(nr_menu_trace::Kind::CreateFailed,context,static_cast<unsigned>(result));
+#endif
     }
     return result;
 }
@@ -12058,6 +12150,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (!ResolveNrGuideBinding(sr_params, feature, 2, width, height,
                                render_width, render_height, color, color_x, color_y,
                                pre_sr_color_mode, guides)) {
+        const auto trace_now=MenuTraceNow();
+        if(trace_now)g_menu_trace.Note(trace_now,nr_menu_trace::Kind::GuideRejected,
+            MenuTraceFrame(feature.feature_id,feature.generation,2,render_width,render_height,
+                width,height,work.output_width,work.output_height),1);
         ReleaseCom(device);
         return substitution;
     }
@@ -12065,6 +12161,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         sr_handle, feature.generation, 2, width, height, pre_sr_color_mode,
         guides.signature, UsePeakShoulder(pre_sr_color_mode,
             (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
+    MenuObserveGuide(feature,2,render_width,render_height,width,height,
+        work.output_width,work.output_height,guides,color,context);
     if (context == nullptr) {
         Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -12297,6 +12395,13 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     nr_dual_runtime::Stamp(command_list,*slot,1);
     NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
+    if(const auto trace_now=MenuTraceNow()) {
+        const auto frame=MenuTraceFrame(feature.feature_id,feature.generation,2,
+            render_width,render_height,width,height,work.output_width,work.output_height,context);
+        if(evaluated==kNgxSuccess)g_menu_trace.Success(trace_now,context->diagnostic_reset_requested);
+        else g_menu_trace.Note(trace_now,nr_menu_trace::Kind::EvaluateFailed,frame,
+            static_cast<unsigned>(evaluated),context->diagnostic_reset_requested);
+    }
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
             Log("signed feature 18 evaluate failed: 0x%08X (%s)",
@@ -12718,6 +12823,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!ResolveNrGuideBinding(sr_params, feature, 1, work_width, work_height,
                                guide_width, guide_height, output,
                                output_x, output_y, post_sr_color_mode, guides)) {
+        const auto trace_now=MenuTraceNow();
+        if(trace_now)g_menu_trace.Note(trace_now,nr_menu_trace::Kind::GuideRejected,
+            MenuTraceFrame(feature.feature_id,feature.generation,1,guide_width,guide_height,
+                work_width,work_height,width,height),2);
         ReleaseCom(device);
         return substitution;
     }
@@ -12743,6 +12852,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         sr_handle, feature.generation, 1, work_width, work_height,
         post_sr_color_mode, guides.signature, UsePeakShoulder(post_sr_color_mode,
             (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
+    MenuObserveGuide(feature,1,guide_width,guide_height,work_width,work_height,
+        width,height,guides,output,context);
     if (context == nullptr) {
         Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -13145,6 +13256,14 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     if(evaluated==kNgxSuccess||!substitution.opaque_failure_is_fatal)
         nr_dual_runtime::Stamp(command_list,slot,1);
     NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
+    if(const auto trace_now=MenuTraceNow()) {
+        const auto frame=MenuTraceFrame(feature.feature_id,feature.generation,1,
+            substitution.guide_width,substitution.guide_height,work_width,work_height,
+            width,height,&context);
+        if(evaluated==kNgxSuccess)g_menu_trace.Success(trace_now,context.diagnostic_reset_requested);
+        else g_menu_trace.Note(trace_now,nr_menu_trace::Kind::EvaluateFailed,frame,
+            static_cast<unsigned>(evaluated),context.diagnostic_reset_requested);
+    }
     if (evaluated != kNgxSuccess) {
         if(substitution.opaque_failure_is_fatal){
             substitution.fatal_recording=evaluated;context.lifecycle_dependencies_quarantined=true;
@@ -16252,6 +16371,7 @@ void ObserveMenuTransition(reshade::api::effect_runtime* runtime, ULONGLONG now_
     if(!window||!foreground||GetAncestor(window,GA_ROOT)!=GetAncestor(foreground,GA_ROOT))return;
     if(pressed&&now_ms-last_press>=250) {
         started=last_press=now_ms;phase=0;
+        g_menu_trace.Mark(now_ms);
     }
     if(phase>=3)return;
     const ULONGLONG elapsed=now_ms-started;
