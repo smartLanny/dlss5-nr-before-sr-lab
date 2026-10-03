@@ -261,39 +261,39 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     if(NrCombo(NrUi("Jitter input","Jitter 输入"),"##jitter",jitter,NrUi("Off\0Verified game pixel jitter\0","不传递\0已验证的游戏像素抖动\0"))){next.jitter_mode=static_cast<NrJitterMode>(jitter);changed=true;discrete=true;}
     SettingsTooltip(NrUi("Experimental. Changes NR history, not the game's SR jitter; binding does not prove the model uses it.","实验选项；改变 NR 历史，不改游戏 SR 抖动。参数写入不等于模型一定采用。"));
     SettingsSection(NrUi("Shortcuts","快捷键"));
-    const char* shortcut_names[]={NrUi("Toggle NR","启用／关闭 NR"),NrUi("Capture current view","采集当前画面"),NrUi("Text report","生成文字报告"),NrUi("Save screenshot","保存截图")};
     static bool shortcut_conflict=false;
     int shortcut_preset=static_cast<int>(nr_hotkeys::PresetIndex(next));
     if(NrCombo(NrUi("Shortcut preset","快捷键预设"),"##shortcut-preset",shortcut_preset,
-        NrUi("Custom (retained)\0Default: F6 / F7 / F8 / Minus\0F9 / F10 / F11 / Minus\0ScrollLock / Pause / PageDown / Minus\0All off\0",
-             "自定义（保留）\0默认：F6 / F7 / F8 / 减号\0F9 / F10 / F11 / 减号\0ScrollLock / Pause / PageDown / 减号\0全部关闭\0")) && shortcut_preset>0){
+        NrUi("Custom\0Default\0Alternate F keys\0Alternate function keys\0All off\0",
+             "自定义\0默认\0备用 F 键\0备用功能键\0全部关闭\0")) && shortcut_preset>0){
         if(nr_hotkeys::ApplyPreset(next,static_cast<unsigned>(shortcut_preset-1))){shortcut_conflict=false;changed=true;discrete=true;}
     }
-    SettingsTooltip(NrUi("Applies the four actions in the order shown below, only when you select a preset. Custom saved bindings are kept until you edit them. All off also disables both minus screenshot keys; buttons on Feedback still work.",
-        "仅点选预设时，按下方四项顺序一起应用；未点选时保留已保存绑定。全部关闭也停用主键盘和小键盘的减号截图，反馈页按钮仍可使用。"));
-    const unsigned shortcut_values[]={next.master_virtual_key,next.image_virtual_key,next.feedback_virtual_key,next.screenshot_virtual_key};
-    for(unsigned i=0;i<nr_hotkeys::Count;++i){
-        ImGui::PushID(static_cast<int>(i));
-        SettingsField(shortcut_names[i]);
-        if(ImGui::BeginCombo("##shortcut",nr_hotkeys::Name(shortcut_values[i],UseChineseUi()))){
-            for(const auto& choice:nr_hotkeys::Choices){
-                if(!nr_hotkeys::Allowed(static_cast<nr_hotkeys::Action>(i),choice.key))continue;
-                if(ImGui::Selectable(UseChineseUi()?choice.zh:choice.en,shortcut_values[i]==choice.key)){
-                    shortcut_conflict=!nr_hotkeys::Set(next,static_cast<nr_hotkeys::Action>(i),choice.key);
-                    if(!shortcut_conflict){changed=true;discrete=true;}
+    SettingsTooltip(NrUi("Order: NR / capture / report / screenshot.\nDefault: F6 / F7 / F8 / Minus. F keys: F9 / F10 / F11 / Minus.\nFunction keys: ScrollLock / Pause / PageDown / Minus.\nOnly selection applies; saved bindings otherwise stay. All off disables all four shortcuts; buttons still work.",
+        "顺序：NR / 采集 / 报告 / 截图。\n默认：F6 / F7 / F8 / 减号；备用 F 键：F9 / F10 / F11 / 减号。\n备用功能键：ScrollLock / Pause / PageDown / 减号。\n仅点选时应用，否则保留原绑定；全部关闭停用四项快捷键，按钮仍可用。"));
+    if(ImGui::CollapsingHeader(NrUi("Custom shortcuts###nr-custom-shortcuts","自定义快捷键###nr-custom-shortcuts"))){
+        const char* shortcut_names[]={NrUi("Toggle NR","启用／关闭 NR"),NrUi("Capture current view","采集当前画面"),NrUi("Text report","生成文字报告"),NrUi("Save screenshot","保存截图")};
+        const unsigned shortcut_values[]={next.master_virtual_key,next.image_virtual_key,next.feedback_virtual_key,next.screenshot_virtual_key};
+        for(unsigned i=0;i<nr_hotkeys::Count;++i){
+            ImGui::PushID(static_cast<int>(i));
+            SettingsField(shortcut_names[i]);
+            if(ImGui::BeginCombo("##shortcut",nr_hotkeys::Name(shortcut_values[i],UseChineseUi()))){
+                for(const auto& choice:nr_hotkeys::Choices){
+                    if(!nr_hotkeys::Allowed(static_cast<nr_hotkeys::Action>(i),choice.key))continue;
+                    if(ImGui::Selectable(UseChineseUi()?choice.zh:choice.en,shortcut_values[i]==choice.key)){
+                        shortcut_conflict=!nr_hotkeys::Set(next,static_cast<nr_hotkeys::Action>(i),choice.key);
+                        if(!shortcut_conflict){changed=true;discrete=true;}
+                    }
                 }
+                ImGui::EndCombo();
             }
-            ImGui::EndCombo();
+            SettingsTooltip(NrUi("Off disables this shortcut. Release a rebound key before pressing. Minus includes keypad minus. ReShade overlaps are shown; game bindings are not scanned.",
+                "关闭只停用此快捷键；改键后松开再按。减号含小键盘减号。提示已知 ReShade 重叠，不扫描游戏绑定。"));
+            ImGui::PopID();
         }
-        SettingsTooltip(NrUi("Off disables this action only. Release a rebound key before pressing. Minus also covers keypad minus. Known ReShade overlaps are shown, including modifier bindings. Game bindings are not scanned; Home is often a menu key.",
-            "关闭只停用此快捷键；改键后松开再按。减号截图也兼容小键盘减号。会提示已知 ReShade 同键绑定，含组合键；不扫描游戏绑定，Home 常用于菜单。"));
-        ImGui::PopID();
+        if(ImGui::Button(NrUi("Reset shortcuts","恢复默认快捷键"))){nr_hotkeys::ApplyPreset(next,0);shortcut_conflict=false;changed=true;discrete=true;}
     }
     if(shortcut_conflict)SettingsNote(NrUi("Key already assigned. Choose another key or disable its existing action first.","此按键已有用途，请换一个，或先关闭原绑定。"));
     DrawKnownReShadeHotkeyConflicts(runtime,next);
-    if(ImGui::Button(NrUi("Reset shortcuts","恢复默认快捷键"))){nr_hotkeys::ApplyPreset(next,0);shortcut_conflict=false;changed=true;discrete=true;}
-    SettingsNote(NrUi("Each action can be turned off. Defaults: F6 NR, F7 current-view capture, F8 text report, Minus screenshot.",
-        "每项均可关闭。默认 F6 开关 NR、F7 采集当前画面、F8 文字报告、减号保存截图。"));
     SettingsSection(NrUi("Recovery and composition","恢复与合成"));
     int order=nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
     if(NrCombo(NrUi("Low-resolution input order","低分输入顺序"),"##scaled-proxy",order,NrUi("Scale source first\0Encode proxy first (no proven gain)\0","先缩放场景\0先编码 Proxy（未证实收益）\0"))){next.colour_scaled_proxy_mode=order;changed=true;discrete=true;}

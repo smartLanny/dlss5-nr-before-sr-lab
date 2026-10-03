@@ -51,7 +51,7 @@ Feature1 又增加偏差。离线 `Z+(private-spatial)` 未证明净收益，因
 新增 Home/End/Insert/Delete/PageUp/PageDown/ScrollLock/Pause 选项，三组预设及全部关闭。
 默认 F6/F7/F8/减号不变；减号截图的主键盘/小键盘别名都受关闭选项控制。
 已知 ReShade 重叠只读提示，不保证游戏全局没有冲突；按钮仍可使用。
-详见 [短测试单](053_BETA15_TEST_CHECKLIST.zh-CN.md)。
+页面常显预设，逐项设置折叠在“自定义快捷键”；详见 [短测试单](053_BETA15_TEST_CHECKLIST.zh-CN.md)。
 
 完整 Windows 构建和实际产品采集验证按本批冻结源码执行，最终状态/真实 build SHA
 同步 #338/#309/#311。源码/受控检查/安装/游戏验收各自记录；不发布在线 OTA、不合 main。
