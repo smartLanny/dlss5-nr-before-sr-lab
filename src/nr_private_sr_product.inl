@@ -100,7 +100,8 @@ void CollectEvidence(Owner& o,const Flight& f) {
         "nativeResetKnown=%u nativeReset=%u sourceGap=%u guideReset=%u "
         "feature1Bind=%u resetCauses=%u historyCauses=%u predecessor=%llu:%llu:%llu reference=%llu:%llu:%llu "
         "recording=%llu:%llu:%llu fence=%llu:%llu:%llu planeBindingsPresent=%u "
-        "guideWork=%ux%u guideMotionScale=%.6g,%.6g guideJitter=%.6g,%.6g guideDepth=linear:%u,inverted:%u; "
+        "guideWork=%ux%u guideMotionScaleWorkPx=%.6g,%.6g nativeJitterRenderPx=%.6g,%.6g "
+        "feature1BindJitterWorkPx=0,0 feature1BindMVScaleWorkPx=1,1 guideDepth=linear:%u,inverted:%u; "
         "metadata-only, no pixel or quality proof",
         f.evidence_index,o.evidence_limit,
         static_cast<unsigned long long>(f.evidence_source.stream),static_cast<unsigned long long>(f.evidence_source.epoch),

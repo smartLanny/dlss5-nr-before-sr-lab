@@ -44,7 +44,9 @@ public:
         Recording recording{};
         ID3D12Fence* fence=nullptr;
         nr_private_sr::Fence completion{};
-        bool sr_recorded=false;
+        bool sr_recorded=false,private_composed=false;
+        nr_post_residual_dx12::Encoded encoded{};
+        ID3D12Resource* original_target=nullptr;
     };
     std::array<Slot,3> slots{};
     nr_private_sr::Api api{};
@@ -81,6 +83,21 @@ RecordedPlanes InspectRecordedPlanes(const Context* c,Recording recording) {
         }
     }
     return found;
+}
+bool RecordSpatialReference(Context* c,ID3D12GraphicsCommandList* list,unsigned index,
+    Recording recording,View spatial,View target,nr_post_residual_dx12::Rect target_rect) {
+    if(!c||c->poisoned||c->retiring||!list||index>=c->slots.size()||
+       reinterpret_cast<std::uint64_t>(list)!=recording.list)return false;
+    const auto& slot=c->slots[index];
+    if(!recording||slot.recording!=recording||slot.fence||!slot.private_composed||!slot.encoded||
+       !spatial.resource||!target.resource||target.resource==slot.original_target||
+       target.resource==spatial.resource||target.resource==slot.encoded.pair.candidate.resource)return false;
+    nr_post_residual_dx12::Reconstruction replay{};
+    replay.carrier=spatial;replay.target=target;replay.target_rect=target_rect;
+    replay.recording=recording;replay.source=slot.encoded.pair.base_source;
+    replay.encoded_token=slot.encoded.dispatch.token;
+    replay.succeeded=true;replay.target_contains_candidate=true;
+    return nr_post_residual_dx12::Compose(c->kernels,list,slot.encoded,replay).recorded;
 }
 Context* Create(ID3D12Device* device,nr_private_sr::Api api,nr_private_sr::Shape shape,
     const std::array<nr_edit_dx12::Bytecode,static_cast<unsigned>(nr_edit_dx12::Kernel::Count)>& code,
@@ -152,7 +169,8 @@ bool Collect(Context* c) {
             if(s.depth)c->api.release_resource(c->api.user,s.depth);
             if(s.motion)c->api.release_resource(c->api.user,s.motion);
             s.depth=s.motion=nullptr;
-            s.recording={};s.completion={};s.sr_recorded=false;
+            s.recording={};s.completion={};s.sr_recorded=false;s.private_composed=false;
+            s.encoded={};s.original_target=nullptr;
         }
     }
     return true;
@@ -182,7 +200,8 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     const auto encoded=nr_post_residual_dx12::Encode(c->kernels,list,i.recording,i.pair,
         Owned(slot->carrier,10),Owned(slot->tail,2));
     if(!encoded)return {nr_edit_dx12::Poisoned(c->kernels)?Status::Poisoned:Status::Busy};
-    slot->recording=i.recording;c->last_attempt=i.pair.base_source;
+    slot->recording=i.recording;slot->encoded=encoded;slot->original_target=i.target.resource;
+    c->last_attempt=i.pair.base_source;
     c->last_view=i.view;c->last_configuration=i.configuration;c->last_encoding=i.encoding_generation;
     c->last_range=i.pair.carrier_range;
     nr_private_sr::Frame frame{};
@@ -222,6 +241,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
         if(nr_edit_dx12::Poisoned(c->kernels)){c->Poison();return {Status::Poisoned,true,false,sr.result,index};}
         c->sr.ResetHistory(nr_private_sr::ComposeFailed);return {Status::WaitingForSr,true,false,sr.result,index,c->sr.LastBindEvidence()};
     }
+    slot->private_composed=true;
     return {Status::Composed,true,true,sr.result,index,c->sr.LastBindEvidence()};
 }
 bool Submitted(Context* c,Recording r,ID3D12Fence* fence,nr_private_sr::Fence proof,bool success) {
