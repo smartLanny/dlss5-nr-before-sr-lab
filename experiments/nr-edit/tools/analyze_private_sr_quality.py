@@ -283,8 +283,9 @@ def main():
     results, first = [], None
     for frame in range(16):
         result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve)
-        if mode == "fixture" and result["errors"]["corrected_vs_z"]["all"]["max"] > .002:
-            raise ValueError("Spatial fixture correction did not return to Z")
+        if mode == "fixture" and (result["errors"]["matched_vs_private"]["all"]["max"] != 0 or
+                                  result["errors"]["corrected_vs_z"]["all"]["max"] != 0):
+            raise ValueError("GPU spatial fixture and corrected candidate must be bit-exact identities")
         if scene in ("dark_text_v1", "dark_text_hair_v2") and result["errors"]["source_edit"]["dark_boundary_outside"]["max"] != 0:
             raise ValueError("Dark support exterior has source edit")
         if first is None:
