@@ -23,6 +23,7 @@ struct Result {
     Status status=Status::InvalidContract;
     bool recorded=false, composed=false;
     unsigned sr_result=0, slot=0;
+    nr_private_sr::BindEvidence bind{};
 };
 class Context;
 // Diagnostic view for a still-live, exact recording. Borrowed resources must

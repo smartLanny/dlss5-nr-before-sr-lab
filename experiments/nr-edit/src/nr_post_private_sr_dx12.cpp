@@ -168,7 +168,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     // Before Encode/barriers or slot adoption: a queue identity does not prove
     // submission order across recorded lists. Already-submitted work may stay
     // in flight. Duplicate-source rejection above does not reset good history.
-    for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory();return {Status::Busy};}
+    for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory(nr_private_sr::RecordingBackpressure);return {Status::Busy};}
     Context::Slot* slot=nullptr;unsigned index=0;
     for(unsigned n=0;n<c->slots.size();++n) {
         // One source per command-list recording. A replay/duplicate submission
@@ -176,7 +176,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
         if(c->slots[n].recording==i.recording)return {Status::Busy};
         if(!slot&&!c->slots[n].recording){slot=&c->slots[n];index=n;}
     }
-    if(!slot){c->sr.ResetHistory();return {Status::Busy};}
+    if(!slot){c->sr.ResetHistory(nr_private_sr::SlotPressure);return {Status::Busy};}
     if(c->last_view!=i.view||c->last_configuration!=i.configuration||
        c->last_encoding!=i.encoding_generation||c->last_range!=i.pair.carrier_range)c->sr.ResetHistory();
     const auto encoded=nr_post_residual_dx12::Encode(c->kernels,list,i.recording,i.pair,
@@ -212,7 +212,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     Transition(list,slot->upscaled,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COMMON);
     Transition(list,i.depth.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,i.depth.state);
     Transition(list,i.motion.resource,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,i.motion.state);
-    if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index};
+    if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index,c->sr.LastBindEvidence()};
     nr_post_residual_dx12::Reconstruction r{};
     r.carrier=Owned(slot->upscaled,10);r.target=i.target;r.target_rect=i.target_rect;
     r.recording=i.recording;r.source=i.pair.base_source;r.encoded_token=encoded.dispatch.token;
@@ -220,9 +220,9 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     const auto composed=nr_post_residual_dx12::Compose(c->kernels,list,encoded,r);
     if(!composed.recorded) {
         if(nr_edit_dx12::Poisoned(c->kernels)){c->Poison();return {Status::Poisoned,true,false,sr.result,index};}
-        c->sr.ResetHistory();return {Status::WaitingForSr,true,false,sr.result,index};
+        c->sr.ResetHistory(nr_private_sr::ComposeFailed);return {Status::WaitingForSr,true,false,sr.result,index,c->sr.LastBindEvidence()};
     }
-    return {Status::Composed,true,true,sr.result,index};
+    return {Status::Composed,true,true,sr.result,index,c->sr.LastBindEvidence()};
 }
 bool Submitted(Context* c,Recording r,ID3D12Fence* fence,nr_private_sr::Fence proof,bool success) {
     if(!c||c->poisoned)return false;
@@ -238,7 +238,7 @@ bool Submitted(Context* c,Recording r,ID3D12Fence* fence,nr_private_sr::Fence pr
 void Discarded(Context* c,Recording r) {
     if(c)for(const auto& s:c->slots)if(r&&s.recording==r){c->Poison();return;}
 }
-void Cancel(Context* c) {if(c){c->retiring=true;c->sr.ResetHistory();}}
+void Cancel(Context* c) {if(c){c->retiring=true;c->sr.ResetHistory(nr_private_sr::Cancelled);}}
 bool Poisoned(const Context* c) {return c&&(c->poisoned||c->sr.Poisoned()||nr_edit_dx12::Poisoned(c->kernels));}
 bool ReadyToRetire(Context* c) {
     if(!c)return true;
