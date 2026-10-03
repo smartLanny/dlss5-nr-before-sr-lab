@@ -19,6 +19,12 @@
   关闭时不创建采集线程/读回资源、不增加采集 GPU 指令；不改 INI。
   产品采集没有匹配 GPU 空间参考，也没有原生曝光纹理读回，manifest 如实标缺失。
 
+真实 Core C-ABI / NVIDIA 宿主已核验一层、三层各完整连续 16 帧 × 十平面，
+原 Flight 的提交/释放/完成证明、逐文件哈希与 worker 排空均通过。关闭对照
+32 帧没有私有 Feature1、采集 worker 或私有平面分配。生成源码为
+`eee59c92175c20737791f5899bcab7c6a333716e`；修正验证宿主的分支归属后执行，
+与产品源码身份分别记录。人工场景不等于真实游戏，也不作整游戏成本或画质验收。
+
 ## 有证据的最小修正
 
 旧 `Tail.a` 是 RGB 共享支撑标记：一个通道有 carrier 编辑，会让仍以 FP32 tail
@@ -43,7 +49,15 @@ Feature1 又增加偏差。离线 `Z+(private-spatial)` 未证明净收益，因
 提供已审查的本机 compiler/nrchain/SR runtime。`--scenario threshold` 是带符号跨门
 实验，`--legacy-rgb-support` 是负控，`--output-size` / `--work-size` 记录真实网格。
 `matched-jitter` 只属于栅格同步的宿主实验，不替代生产 normalize 导引或游戏运动门。
-当前生产固定 B/Z + 匹配 jitter-pixel 导引、真实相邻游戏、HDR 与整游戏成本尚未验证。
+
+另以实际 Core 的生产 normalize/Bind 做两组最小相位控制：R=320×192、
+N=O=640×384，测试注入固定 B/Z、零 MV，创建后预热 16 次实际推理，再各采
+16 连续帧。零 jitter 与匹配 ±0.375 像素栅格的 normalized depth 最近邻独立
+oracle 最大差均为 0；实际 private Bind jitter=0、MV scale=1、Reset/历史原因=0。
+固定 carrier/tail 下，private reconstruction 和 final 仍有逐帧变化，两组对应帧
+输出逐字节相同。本控制没有导引导致的额外差异证据，不能据此猜改游戏 jitter。
+N=O 与注入 B/Z 只用于阶段定位，不替代真实原生输出相位、61%/99% 画质或游戏。
+真实相邻游戏、HDR、净画质收益与整游戏成本仍未验收。
 
 ## 快捷键（独立功能）
 

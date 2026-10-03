@@ -444,14 +444,14 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
                 CodecColorMode::SrgbEncodedSdr,rw,rh,nw,nh,ow,oh);
             if(private_sr&&!capture)std::printf("capture reason=%s guide=%u\n",nr_private_sr_status::Name(nr_private_sr_status::state.load()),nr_private_sr_status::guide_reason.load());
             if(private_sr)Require(capture!=0,"original product Capture/CreateOwner");
+            else {Require(!capture&&!context.private_sr,"spatial control creates no private SR owner");
+                if(nr_layers_count)standalone_guides.Record(h,queue,guides,feature,params,rw,rh,nw,nh,ow,oh);}
             if(capture_frames&&frame==0){
                 Require(context.private_sr->pixel_capture.enabled,"actual product capture enabled by explicit writable directory");
                 const auto until=GetTickCount64()+10000;
                 while(nr_private_sr_capture::worker.state.load()==1&&GetTickCount64()<until)Sleep(1);
                 Require(nr_private_sr_capture::worker.state.load()==2,"bounded CPU startup for actual capture worker");
             }
-            else {Require(!capture&&!context.private_sr,"spatial control creates no private SR owner");
-                if(nr_layers_count)standalone_guides.Record(h,queue,guides,feature,params,rw,rh,nw,nh,ow,oh);}
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,1);
             Ngx(evaluate(native_list,parent,params,nullptr),"actual native baseline Evaluate");
             Copy(h,native,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Copy(h,native,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
