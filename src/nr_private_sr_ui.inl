@@ -2,7 +2,7 @@ void DrawPrivateResidualSr(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();const auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
     SettingsSection(ui("Private SR (experimental)","私有 SR（实验）"));
     if(ImGui::Checkbox(ui("Enable private residual SR","启用私有残差 SR"),&next.private_residual_sr))changed=discrete=true;
-    SettingsTooltip(ui("Rebuilds the final NR edit once after game SR or successful RR. Beta15 prevents model bias entering neutral colour channels. This is not a proven flicker fix; ordinary recovery remains the baseline. Requires proven D3D12 guides; Present, FG and multiple GPUs are unsupported.",
+    SettingsTooltip(ui("Rebuilds the final NR edit once after game SR or successful RR. Beta15 prevents model bias entering neutral colour channels. This is not a proven flicker fix; ordinary recovery remains the baseline. It needs proven D3D12, colour and motion inputs. Present, FG and multiple GPUs are unsupported.",
         "在游戏 SR 或成功 RR 后重建最终 NR 改动。Beta15 修正中性颜色通道串扰，尚未证明消闪或净收益；普通恢复仍是基线。需要可信 D3D12 导引；Present、FG、多显卡暂不支持。"));
     if(next.private_residual_sr&&next.temporal_backend)
         SettingsNote(ui("Not applied: turn off residual stabilization first; its saved choices remain.",
