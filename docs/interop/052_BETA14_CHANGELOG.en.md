@@ -8,6 +8,6 @@ Beta14 is the continuing development baseline. It retains Beta13's short feature
 - Private SR executed in supported game configurations, but the 61% comparison showed fragmented edges/grain and the owner reported flicker. Quality has not passed. It remains off by default; ordinary reconstruction is the recommended baseline. General denoising and whole-game-frame cost are not established.
 - The delivered route is native RR → post NR. Low-resolution NR → one native RR, a second private RR and cross-API transport remain future research.
 
-This OTA contains Core and its matching nrchain only. It does not include NR/SR/RR/FG runtimes or face resources, write INI files or enable experiments. Retain the existing installation, runtimes and rollback package.
+The Core-only OTA updates Core and nrchain and is importable by the current Manager. Separate RTX20/30 and RTX40/50 manual full overlays include the matching NR runtime and verified face companions; the current Manager cannot import these full packages. Both preserve saved settings and INI files, leave native SR/RR/FG runtimes unchanged, and do not enable experiments.
 
 The binaries were compiled from `3663affdd77309c3eac9a306849415a1ded4f330`. Baseline main `024f9cc32778c1056db364d76d087ee257da6502` has the same Git tree; the original binaries are not relabeled as builds from main.

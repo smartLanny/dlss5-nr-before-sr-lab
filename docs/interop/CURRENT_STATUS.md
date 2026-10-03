@@ -9,7 +9,7 @@
 | 中文 Core SHA256 | `a10947a9902ea3870d48945f3d08bcc0c1c5b142a11deb9c9575f9054144ec35` |
 | 英文 Core SHA256 | `a418bddf52a163a413d097f69184584ca4ef802ad0daa412c9557165644696c0` |
 | 交付回执 | [052_BETA14_DELIVERY.json](052_BETA14_DELIVERY.json) |
-| 用户包 | 双语Core-only OTA；固定交付目录按版本保存，NR运行库独立存放；未在线发布 |
+| 用户包 | 双语Core-only OTA + RTX20/30、40/50手动完整升级包；按版本保存；未在线发布 |
 
 Beta14相对Beta13增加F8有界菜单事件和部分资源分配分类账，不改变渲染算法、默认值或公开DLL ABI。
 [完整Windows双语构建](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/36823064779)成功，
@@ -30,7 +30,7 @@ NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有�
 ## 发布给玩家
 
 - Manager 默认版本在 `smartLanny/DLSS5-Manager-ZJZ` 调整，本仓库不改 Manager pin。
-- Beta14 OTA不带NVIDIA运行库；两组固定NR库独立保留，不随每版重复。Beta13私有用户包内含运行库。**确认再分发
+- Beta14 Core-only OTA不带NR；两组NR库独立保留，另提供含NR/人脸资源的手动完整包，当前Manager不能导入。**确认再分发
   许可之前，公开发布只放 Core、nrchain、人脸资源和许可说明**，玩家继续使用本机运行库。
 - 发布前按 `docs/REPOSITORY_AUDIT.md` 审查载荷，保留上一版可回退。
 
