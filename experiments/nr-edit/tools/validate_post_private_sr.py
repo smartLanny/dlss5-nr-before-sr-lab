@@ -67,7 +67,7 @@ def main():
             '-I'+str(PACKAGE/'src'),order_source,'-o',order_exe])
         run('submission-order',[order_exe],needle='PASS private SR submission order')
         owner_text=(PACKAGE/'src/nr_private_sr_runtime.hpp').read_text(encoding='utf-8')
-        guard='for(const auto& f:flights_)if(f.pending&&!f.fence){history_reset_=true;return {Status::Busy};}'
+        guard='for(const auto& f:flights_)if(f.pending&&!f.fence){ResetHistory(RecordingBackpressure);return {Status::Busy};}'
         if owner_text.count(guard)!=1:raise RuntimeError('Review submission-order negative anchor')
         negative_owner=out/'negative-owner';negative_owner.mkdir()
         (negative_owner/'nr_private_sr_runtime.hpp').write_text(owner_text.replace(guard,'// Test-only missing predecessor submission gate.'),encoding='utf-8')
@@ -94,11 +94,11 @@ def main():
         run('wrong-submission-queue',[exe,shader_root,'--negative','submit'],needle='PASS wrong queue poisons without release')
         text=module.read_text(encoding='utf-8')
         negatives=[('missing-transport-submission-gate',
-                    'for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory();return {Status::Busy};}',
+                    'for(const auto& s:c->slots)if(s.recording&&!s.fence){c->sr.ResetHistory(nr_private_sr::RecordingBackpressure);return {Status::Busy};}',
                     '// Test-only missing transport submission gate.',
                     'unsubmitted predecessor blocks second list before any transport or vendor work'),
-                   ('missing-evaluate-proof','if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index};',
-                    'if(false)return {Status::WaitingForSr,true,false,sr.result,index};','creation is not successful reconstruction'),
+                   ('missing-evaluate-proof','if(!sr.evaluated)return {Status::WaitingForSr,true,false,sr.result,index,c->sr.LastBindEvidence()};',
+                    'if(false)return {Status::WaitingForSr,true,false,sr.result,index,c->sr.LastBindEvidence()};','creation is not successful reconstruction'),
                    ('missing-post-phase-proof','!i.post_sr_phase_verified||','',
                     'invalid input cannot record or consume private history'),
                    ('missing-barrier-guide-retention',

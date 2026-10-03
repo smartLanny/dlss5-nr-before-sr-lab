@@ -40,6 +40,9 @@ struct Reconstruction {
     // Target may be the old candidate after Encode's synchronized read. It must
     // already contain Z; a refused contract or invalid pixel leaves it intact.
     bool succeeded=false,target_contains_candidate=false;
+    // A neutral stored channel is carried exactly by FP32 tail, even when a
+    // different channel has a model-visible edit. No model bias may enter it.
+    bool per_channel_support=true;
 };
 nr_edit_dx12::Answer Compose(nr_edit_dx12::Kernels*,ID3D12GraphicsCommandList*,
                             const Encoded&,const Reconstruction&);

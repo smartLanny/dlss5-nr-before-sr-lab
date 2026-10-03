@@ -4,6 +4,7 @@
 #include "nr_private_sr_budget.h"
 #include "nr_private_sr_call_list.inl"
 #include "private_sr/nr_private_sr_core_adapter.inl"
+#include "nr_private_sr_capture.inl"
 namespace nr_post_product {
 using Id=std::uint64_t;
 using Recording=nr_private_sr::Recording;
@@ -21,7 +22,9 @@ struct Flight {
     ID3D12Resource* timing_readback=nullptr;
     bool timing_resolved=false,timing_creation=false;
     bool backend_recorded=false,composed=false,submitted=false;
-    // Metadata only. No readback allocation or copy is recorded by this gate.
+    // Optional pixels retain their own leases on this same Flight. Collection
+    // hands them to the worker only after recording-release and exact fence.
+    nr_private_sr_capture::Job* pixel_capture=nullptr;
     nr_private_sr::BindEvidence bind{};
     Source evidence_source{},evidence_reference{};
     unsigned evidence_planes=0,evidence_index=0;
@@ -43,12 +46,13 @@ struct Owner {
     unsigned timing_count=0,timing_cursor=0;
     unsigned evidence_limit=0,evidence_count=0;
     Source evidence_previous{};
+    nr_private_sr_capture::Run pixel_capture{};
     bool poisoned=false,retiring=false,creation_observed=false;
 };
 // Optional diagnostics use the existing flight retirement proof. They never
 // wait for the GPU or change whether reconstruction is admitted.
 bool PrepareTiming(Owner& o,Flight& f,ID3D12Device* device) {
-    if(!o.queue||!o.queue->queue||nr_f8::IsActive()||StageCaptureStatus()!=0||nr_replay::Active())return false;
+    if(!o.queue||!o.queue->queue||nr_f8::IsActive()||StageCaptureStatus()!=0||nr_replay::Active()||nr_private_sr_capture::Active())return false;
     if(!o.timing_frequency&&FAILED(ID3D12CommandQueue_GetTimestampFrequency(o.queue->queue,&o.timing_frequency)))return false;
     if(!o.timing_frequency)return false;
     if(!f.timing_heap){
@@ -179,7 +183,9 @@ bool Collect(Owner& o) {
     for(auto& f:o.flights)if(f.recording&&f.submitted&&RecordingReleased(nullptr,f.recording)) {
         const auto done=f.fence?ID3D12Fence_GetCompletedValue(f.fence):UINT64_MAX;
         if(done==UINT64_MAX||done<f.fence_value)continue;
-        CollectTiming(o,f);CollectEvidence(o,f);ReleaseCom(f.fence);
+        CollectTiming(o,f);CollectEvidence(o,f);
+        nr_private_sr_capture::Handoff(f.pixel_capture,f.recording,f.fence,f.fence_value,done,f.submitted,true);
+        ReleaseCom(f.fence);
         auto* d=f.depth;auto* m=f.motion;auto* th=f.timing_heap;auto* tr=f.timing_readback;
         f={};f.depth=d;f.motion=m;f.timing_heap=th;f.timing_readback=tr;
     }
@@ -198,6 +204,7 @@ bool Destroy(NrContext& context) {
     if(!nr_post_private_sr_dx12::Retire(o->backend)||!nr_edit_dx12::DestroyAfterRetirement(o->normalizer)){Poison(context);return false;}
     for(auto& f:o->flights){ReleaseCom(f.fence);ReleaseCom(f.depth);ReleaseCom(f.motion);ReleaseCom(f.timing_heap);ReleaseCom(f.timing_readback);}
     nr_private_sr_core::ReleaseExports(o->exports);
+    nr_private_sr_capture::Close(o->pixel_capture);
     nr_private_sr_status::bytes.fetch_sub(o->bytes);nr_private_sr_status::retired.fetch_add(1);
     delete o;context.private_sr=nullptr;return true;
 }
@@ -263,6 +270,7 @@ bool CreateOwner(NrContext& context,ID3D12Device* device,const NgxHandle* parent
         if(std::strcmp(evidence_setting,"16")==0)o->evidence_limit=16;
         else if(std::strcmp(evidence_setting,"32")==0)o->evidence_limit=32;
     }
+    (void)nr_private_sr_capture::Enable(o->pixel_capture,o->evidence_limit);
     context.private_sr=o;
     if(!nr_private_sr_core::ResolveExports(o->exports,device,parent,feature.generation)){(void)Destroy(context);return false;}
     auto api=nr_private_sr_core::MakeApi(o->exports);api.recording_released=RecordingReleased;
@@ -372,10 +380,16 @@ unsigned Capture(ID3D12GraphicsCommandList* list,ID3D12Device* device,NrContext&
     const View depth{f.depth,41,0,D3D12_RESOURCE_STATE_COMMON,true},motion{f.motion,16,0,D3D12_RESOURCE_STATE_COMMON,true};
     f.guides=nr_private_sr_guides::Record(o->normalizer,list,input,depth,motion);
     if(!f.guides.dispatch.recorded){RefuseGuide(State::Guides,unsigned(f.guides.reason));return 0;}
-    f.recording=recording;o->last_capture=input.source;nr_private_sr_status::captures.fetch_add(1);return index+1;
+    f.recording=recording;o->last_capture=input.source;nr_private_sr_status::captures.fetch_add(1);
+    f.pixel_capture=nr_private_sr_capture::Begin(o->pixel_capture,device,list,input,params,unsigned(color),
+        native_reset_known,native_reset,source_gap,feature.generation);
+    return index+1;
 }
 bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,const FeatureRecord& feature,
             unsigned capture,unsigned ow,unsigned oh,unsigned x,unsigned y) {
+    if(nr_private_sr_capture::Active()){
+        slot.acceptance_time_mask=0;slot.dual_time_mask=0;
+    }
     if(!capture)return true;auto* o=context.private_sr;
     if(!o||capture>o->flights.size()){Poison(context);return false;}
     auto& f=o->flights[capture-1];const auto current=nr_source_runtime::CurrentSource();
@@ -405,6 +419,13 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
     input.encoding_generation=Id(g_history_generation.load())+1;input.reset=f.capture.reset;
     input.ordered_queue_verified=true;input.post_sr_phase_verified=normalized.post_sr_phase_verified;
     input.normalized_guide_units_verified=normalized.normalized_guide_units_verified;input.native_result=kNgxSuccess;
+    if(f.pixel_capture)(void)nr_private_sr_capture::BeforeRecord(*f.pixel_capture,g_codec.device,list,input);
+    // The acceptance/dual timestamp recorders started earlier on this list.
+    // Mask zero makes their later resolve/collection refuse the capture window,
+    // including pre-native raw copies and the asynchronous writer backlog.
+    if(f.pixel_capture||nr_private_sr_capture::Active()){
+        slot.acceptance_time_mask=0;slot.dual_time_mask=0;
+    }
     const bool timed=PrepareTiming(*o,f,g_codec.device);
     if(timed)ID3D12GraphicsCommandList_EndQuery(list,f.timing_heap,D3D12_QUERY_TYPE_TIMESTAMP,0);
     const auto result=nr_post_private_sr_dx12::Record(o->backend,list,input);
@@ -415,6 +436,11 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
         f.timing_creation=result.status==nr_post_private_sr_dx12::Status::WaitingForSr&&!o->creation_observed;
     }
     f.backend_recorded=result.recorded;f.composed=result.composed;
+    if(f.pixel_capture){
+        const auto planes=result.composed?nr_post_private_sr_dx12::InspectRecordedPlanes(o->backend,result.slot,recording):
+            nr_post_private_sr_dx12::RecordedPlanes{};
+        nr_private_sr_capture::AfterRecord(o->pixel_capture,*f.pixel_capture,list,result,planes);
+    }
     if(result.composed&&o->evidence_count<o->evidence_limit){
         const auto planes=nr_post_private_sr_dx12::InspectRecordedPlanes(o->backend,result.slot,recording);
         f.evidence_selected=true;f.evidence_source=source;f.evidence_reference=input.motion_reference;

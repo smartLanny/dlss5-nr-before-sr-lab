@@ -42,9 +42,11 @@ struct Rig {
     std::map<void*,unsigned> retained_resources;
     std::array<std::vector<char>,2> shader_bytes;
 
-    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge,bool quality)
-        :width(real_bridge||quality?640:64),height(real_bridge||quality?384:48),
-         nw(width/2),nh(height/2),real(real_bridge!=nullptr) {
+    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge,bool quality,
+        unsigned output_width=0,unsigned output_height=0,unsigned work_width=0,unsigned work_height=0)
+        :width(output_width?output_width:real_bridge||quality?640:64),
+         height(output_height?output_height:real_bridge||quality?384:48),
+         nw(work_width?work_width:width/2),nh(work_height?work_height:height/2),real(real_bridge!=nullptr) {
         h=new Harness(shaders,hardware||real);owner=new ResourceOwner;
         api.user=this;api.original_sr_owner_verified=true;
         api.retirement_user=this;
@@ -104,7 +106,9 @@ struct Rig {
         auto bad=api;bad.recording_released=nullptr;
         Need(!pipeline::Create(h->device,bad,shape,code,SameDevice,64ull<<20,&bytes)&&bytes==0,"missing recording retirement proof rejected");
         Need(!pipeline::Create(h->device,api,shape,code,SameDevice,1,&bytes)&&bytes==0,"plane budget rejection before vendor allocation");
-        context=pipeline::Create(h->device,api,shape,code,SameDevice,64ull<<20,&bytes);
+        // A full-resolution attribution host may need more than the small
+        // lifecycle fixture's budget. This changes only developer-host limits.
+        context=pipeline::Create(h->device,api,shape,code,SameDevice,1024ull<<20,&bytes);
         Need(context&&!pipeline::Poisoned(context)&&bytes>0&&allocations==4,"three scratch slots, one feature with private parameter blocks");
     }
     void RecordSpatial(ID3D12Resource* carrier,ID3D12Resource* output,ID3D12GraphicsCommandList* list) {
@@ -420,7 +424,8 @@ void CaptureQuality(Rig& r,const std::filesystem::path& directory,float carrier_
                 <<"\",\"output\":[640,384],\"work\":[320,192],\"carrier_range\":"<<carrier_range
                 <<",\"depth\":\"two_planes_0.25_0.75_split_160\",\"motion\":\"normalized_zero_work_pixels\",\"scene\":\""
                 <<(r.dark_quality?"dark_text_hair_v2":"legacy_v1")
-                <<"\",\"encoding_policy\":\"post_legacy_range4_neutral\",\"zero_preserve\":true}\n";
+                <<"\",\"per_channel_support\":"<<(i.per_channel_support?"true":"false")
+                <<",\"encoding_policy\":\"post_legacy_range4_neutral\",\"zero_preserve\":true}\n";
         manifest.flush();Need(bool(manifest),"write quality identity log");
     }
 }

@@ -80,15 +80,26 @@ void ComposeCS(uint3 id:SV_DispatchThreadID){
     int2 origin=int2(numerator/denominator)-1;
     float2 f=float2(numerator%denominator)/float2(denominator);
     float3 tail=0;float total=0;bool hasCarrierEdit=false;
+    bool3 channelEdit=bool3(false,false,false);
     [unroll]for(int y=0;y<2;++y)[unroll]for(int x=0;x<2;++x){
         int2 q=clamp(origin+int2(x,y),int2(0,0),int2(WorkSize)-1);
         float4 value=Tail.Load(int3(q,0));float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
         if(w>0&&(!all(isfinite(value))||value.a<.5))return;
         hasCarrierEdit=hasCarrierEdit||(w>0&&value.a>=1.5);
+        if(w>0&&(Reserved&1)){
+            // During Compose t0 is this exact recording's N-grid carrier,
+            // never the candidate/target alias. FP16 neutral channels keep
+            // their original tail-only contract independently of other RGB.
+            float3 stored=Candidate.Load(int3(q,0)).rgb;
+            if(!all(isfinite(stored)))return;
+            channelEdit=channelEdit||((stored!=.5)&&(value.a>=1.5));
+        }
         tail+=value.rgb*w;total+=w;
     }
     if(total<=0)return;
-    float3 delta=(hasCarrierEdit?(2*saturate(carrier)-1)*CarrierRange:float3(0,0,0))+tail/total;
+    float3 modelEdit=(hasCarrierEdit?(2*saturate(carrier)-1)*CarrierRange:float3(0,0,0));
+    if(Reserved&1)modelEdit=float3(channelEdit.x?modelEdit.x:0,channelEdit.y?modelEdit.y:0,channelEdit.z?modelEdit.z:0);
+    float3 delta=modelEdit+tail/total;
     // The target already contains Z. Invalid pixels keep that safe candidate.
     // Only B is the addition base; alpha is always B's alpha.
     float3 rgb=all(delta==0)?b.rgb:b.rgb+delta;

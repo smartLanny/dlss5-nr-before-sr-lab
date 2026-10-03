@@ -1,4 +1,62 @@
-# Beta 15 / #309：实际 Reset 记录与同源空间参考
+# Beta 15 / #309：有界采集与中性通道串扰修正
+
+## 2026-10-03 续接：候选范围
+
+本批实现真实平面的产品采集接线，并修正受控实际 Feature1 已复现的中性通道
+串扰。**没有采到真实游戏序列，不能称已修游戏闪烁或证明私有 SR 净收益。**
+普通恢复继续作为基线；现有私有 SR 开关默认关闭，外部时域互斥、用户配置不变。
+
+- 默认关闭的采集复用原 Flight、recording、队列和 fence。只有精确录制已提交、
+  已释放且同队列 fence 完成，才交后台线程 Map/写盘；渲染不等待 GPU 或磁盘。
+- `DLSS5_PRIVATE_SR_EVIDENCE_FRAMES` 必须精确为 16/32，像素另需
+  `DLSS5_PRIVATE_SR_EVIDENCE_DIR` 指定现有绝对目录。无目录只保留已有元数据。
+  捕获原始 depth/MV、B/Z、carrier/tail、private/final、归一化 depth/MV 十平面。
+  完整合法输入不裁成 ROI；不明确的多平面/数组/mip 仅拒绝采集。
+- 最多 64 attempts / 8 sessions；每帧读回分配最多 512 MiB，进程读回最多
+  8 GiB 且保留 4 GiB 可用物理内存；总像素文件最多 8 GiB、磁盘保留 1 GiB。
+  断源或合同变化另起 session，逐帧成功文件才可证明 16/32 帧连续完整。
+- 采集及后台积压窗口不进入 private/acceptance/dual GPU 计时样本。
+  关闭时不创建采集线程/读回资源、不增加采集 GPU 指令；不改 INI。
+  产品采集没有匹配 GPU 空间参考，也没有原生曝光纹理读回，manifest 如实标缺失。
+
+## 有证据的最小修正
+
+旧 `Tail.a` 是 RGB 共享支撑标记：一个通道有 carrier 编辑，会让仍以 FP32 tail
+传递的中性通道也采用 Feature1 偏差。现在 Compose 使用**同一 recording 的低分
+carrier**，只在权重非零且该通道实际 stored carrier 不为 0.5 时采用模型部分。
+保留全局 Z==B、有效 tail、区域/alpha/HDR headroom、原 Reset 和生命周期保护。
+不改编码 range、不添加光流或外部历史，不新增玩家算法组合。
+
+实际 Feature1 的 640×384 / 320×192 阈值正负控使用同一新 shader：
+`per_channel_support=false` 复现旧 RGB 门，默认 true 为候选。16 帧 B/Z、carrier、
+tail、depth/MV 和原始 reconstructed 逐帧哈希完全相同；中性通道的模型增量最大值
+从 `0.0009765625` 降为精确 `0`，定位到 Compose 门而不是推断模型/Reset 根因。
+同帧匹配空间参考使用同一支撑策略。有效 R/G 通道的模型偏差仍未解决。
+
+冻结输入先预热 16 帧、再捕获 16 帧；B/Z、carrier/tail、guides 全部固定、实际
+Bind Reset 为 0、前驱连续，输出仍有增量变化。低分空间往返已损失细线，私有
+Feature1 又增加偏差。离线 `Z+(private-spatial)` 未证明净收益，因此**不进入产品**；
+不会用继续叠加保护保留该候选。4K 的 N=2336×1312 和 99% N=3802×2138
+另有受控实际 Feature1 检查，精确结果见 #309 后续执行回执，不借用小网格证明。
+
+固定入口：`experiments/nr-edit/tools/validate_private_sr_attribution.py`，要求显式
+提供已审查的本机 compiler/nrchain/SR runtime。`--scenario threshold` 是带符号跨门
+实验，`--legacy-rgb-support` 是负控，`--output-size` / `--work-size` 记录真实网格。
+`matched-jitter` 只属于栅格同步的宿主实验，不替代生产 normalize 导引或游戏运动门。
+当前生产固定 B/Z + 匹配 jitter-pixel 导引、真实相邻游戏、HDR 与整游戏成本尚未验证。
+
+## 快捷键（独立功能）
+
+四项可单独关闭：NR 开关、当前画面采集、文字反馈、保存截图。保留已有合法绑定；
+新增 Home/End/Insert/Delete/PageUp/PageDown/ScrollLock/Pause 选项，三组预设及全部关闭。
+默认 F6/F7/F8/减号不变；减号截图的主键盘/小键盘别名都受关闭选项控制。
+已知 ReShade 重叠只读提示，不保证游戏全局没有冲突；按钮仍可使用。
+详见 [短测试单](053_BETA15_TEST_CHECKLIST.zh-CN.md)。
+
+完整 Windows 构建和实际产品采集验证按本批冻结源码执行，最终状态/真实 build SHA
+同步 #338/#309/#311。源码/受控检查/安装/游戏验收各自记录；不发布在线 OTA、不合 main。
+
+## 续接前的开发记录（b16bd25a）
 
 This is development evidence, not a game-ready quality fix or release candidate.
 

@@ -44,7 +44,7 @@ public:
         Recording recording{};
         ID3D12Fence* fence=nullptr;
         nr_private_sr::Fence completion{};
-        bool sr_recorded=false,private_composed=false;
+        bool sr_recorded=false,private_composed=false,per_channel_support=true;
         nr_post_residual_dx12::Encoded encoded{};
         ID3D12Resource* original_target=nullptr;
     };
@@ -97,6 +97,7 @@ bool RecordSpatialReference(Context* c,ID3D12GraphicsCommandList* list,unsigned 
     replay.recording=recording;replay.source=slot.encoded.pair.base_source;
     replay.encoded_token=slot.encoded.dispatch.token;
     replay.succeeded=true;replay.target_contains_candidate=true;
+    replay.per_channel_support=slot.per_channel_support;
     return nr_post_residual_dx12::Compose(c->kernels,list,slot.encoded,replay).recorded;
 }
 Context* Create(ID3D12Device* device,nr_private_sr::Api api,nr_private_sr::Shape shape,
@@ -201,6 +202,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
         Owned(slot->carrier,10),Owned(slot->tail,2));
     if(!encoded)return {nr_edit_dx12::Poisoned(c->kernels)?Status::Poisoned:Status::Busy};
     slot->recording=i.recording;slot->encoded=encoded;slot->original_target=i.target.resource;
+    slot->per_channel_support=i.per_channel_support;
     c->last_attempt=i.pair.base_source;
     c->last_view=i.view;c->last_configuration=i.configuration;c->last_encoding=i.encoding_generation;
     c->last_range=i.pair.carrier_range;
@@ -235,7 +237,7 @@ Result Record(Context* c,ID3D12GraphicsCommandList* list,const Input& i) {
     nr_post_residual_dx12::Reconstruction r{};
     r.carrier=Owned(slot->upscaled,10);r.target=i.target;r.target_rect=i.target_rect;
     r.recording=i.recording;r.source=i.pair.base_source;r.encoded_token=encoded.dispatch.token;
-    r.succeeded=true;r.target_contains_candidate=true;
+    r.succeeded=true;r.target_contains_candidate=true;r.per_channel_support=i.per_channel_support;
     const auto composed=nr_post_residual_dx12::Compose(c->kernels,list,encoded,r);
     if(!composed.recorded) {
         if(nr_edit_dx12::Poisoned(c->kernels)){c->Poison();return {Status::Poisoned,true,false,sr.result,index};}

@@ -82,7 +82,7 @@ def summary(values):
             "p95": values[(len(values)*95+99)//100-1], "max": values[-1]}
 
 
-def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
+def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve, per_channel_support=False):
     planes, hashes = {}, {}
     for name in PLANES:
         planes[name], hashes[name] = read_plane(directory, frame, name)
@@ -152,7 +152,7 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
                         if weight > 0:
                             if tail[offset+3] < .5 or not math.isfinite(tail[offset+c]):
                                 invalid += 1
-                            support |= tail[offset+3] >= 1.5
+                            support |= tail[offset+3] >= 1.5 and (not per_channel_support or carrier[offset+c] != .5)
                 pixel = (y*OW+x)*4+c
                 stored_interpolation = half(interpolation)
                 spatial = half(b[pixel]+((2*max(0, min(1, interpolation))-1)*carrier_range
@@ -278,11 +278,15 @@ def main():
             len(zero_flags) != 1 or any(type(flag) is not bool for flag in zero_flags)):
         raise ValueError("Mixed or unknown encoding/zero-preserve identity")
     policy, zero_preserve = policies.pop(), zero_flags.pop()
+    channel_flags = {entry.get("per_channel_support", False) for entry in identities}
+    if len(channel_flags) != 1 or any(type(flag) is not bool for flag in channel_flags):
+        raise ValueError("Mixed or invalid per-channel support identity")
+    per_channel_support = channel_flags.pop()
     if zero_preserve and policy != "post_legacy_range4_neutral":
         raise ValueError("Zero-preserve capture must name post encoding policy")
     results, first = [], None
     for frame in range(16):
-        result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve)
+        result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve, per_channel_support)
         if mode == "fixture" and (result["errors"]["matched_vs_private"]["all"]["max"] != 0 or
                                   result["errors"]["corrected_vs_z"]["all"]["max"] != 0):
             raise ValueError("GPU spatial fixture and corrected candidate must be bit-exact identities")
@@ -295,6 +299,7 @@ def main():
         results.append(result)
     report = {"schema": "private-sr-controlled-quality-v1", "mode": mode,
               "scene": scene, "encoding_policy": policy, "zero_preserve": zero_preserve,
+              "per_channel_support": per_channel_support,
               "reference": "GPU spatial reconstruction of captured N carrier followed by the same production Compose over an independent Z copy, with identical tail/support/phase; corrected candidate is Z plus private-minus-matched-reference, offline only; CPU interpolation and decode remain separate tolerance checks",
               "carrier_range": carrier_range,
               "identity": identities, "frames": results,

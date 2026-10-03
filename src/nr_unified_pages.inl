@@ -18,6 +18,20 @@ bool NrChoice(const char* id,unsigned& value,const char* const* labels,unsigned 
 bool NrCombo(const char* label,const char* id,int& value,const char* options) {
     SettingsField(label);return ImGui::Combo(id,&value,options);
 }
+void DrawKnownReShadeHotkeyConflicts(reshade::api::effect_runtime* runtime,const ChainConfig& config) {
+    if(!runtime)return;
+    const char* config_keys[]={"KeyOverlay","KeyScreenshot","KeyEffects","KeyNextPreset","KeyPreviousPreset","KeyReload","KeyFPS","KeyFrameTime"};
+    const char* labels[]={NrUi("menu","菜单"),NrUi("screenshot","截图"),NrUi("effects","效果开关"),NrUi("next preset","下一预设"),NrUi("previous preset","上一预设"),NrUi("reload","重新加载"),NrUi("FPS display","帧率显示"),NrUi("frame-time display","帧时间显示")};
+    const char* actions[]={NrUi("NR toggle","NR 开关"),NrUi("Current-view capture","当前画面采集"),NrUi("Text report","文字报告"),NrUi("Screenshot","保存截图")};
+    const unsigned keys[]={config.master_virtual_key,config.image_virtual_key,config.feedback_virtual_key,config.screenshot_virtual_key};
+    // The SDK reads the current runtime's cached config. Its integer getter
+    // yields the base key of the key/modifier array; saved bindings stay intact.
+    for(unsigned j=0;j<sizeof(config_keys)/sizeof(config_keys[0]);++j){
+        unsigned other=0;if(!reshade::get_config_value(runtime,"INPUT",config_keys[j],other))continue;
+        for(unsigned i=0;i<nr_hotkeys::Count;++i)if(nr_hotkeys::Overlaps(static_cast<nr_hotkeys::Action>(i),keys[i],other))
+            ImGui::TextWrapped(NrUi("%s uses %s, also used by ReShade (%s).","%s 绑定 %s，与 ReShade 的%s重叠。"),actions[i],nr_hotkeys::Name(keys[i],UseChineseUi()),labels[j]);
+    }
+}
 void DrawUnifiedColourState(const ChainConfig& next,unsigned generation,bool pending) {
     const auto sample=SnapshotColorPolicy();
     if(pending||sample.config_generation!=generation||sample.status!=NrColorPolicyStatus::Current){
@@ -226,7 +240,7 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
         "计数只表示录制次数，实际是否采用 NR 请查看 F8。"));
 }
 
-void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete) {
+void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& discrete,reshade::api::effect_runtime* runtime=nullptr) {
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
     SettingsSection(NrUi("Temporal comparison","时域对照"));
     if(ImGui::Checkbox(NrUi("Legacy fixed residual weight 0.5","残差采用旧固定权重 0.5"),&next.temporal_legacy)){changed=discrete=true;}
@@ -247,22 +261,39 @@ void DrawUnifiedDeveloper(ChainConfig& next,bool before_sr,bool& changed,bool& d
     if(NrCombo(NrUi("Jitter input","Jitter 输入"),"##jitter",jitter,NrUi("Off\0Verified game pixel jitter\0","不传递\0已验证的游戏像素抖动\0"))){next.jitter_mode=static_cast<NrJitterMode>(jitter);changed=true;discrete=true;}
     SettingsTooltip(NrUi("Experimental. Changes NR history, not the game's SR jitter; binding does not prove the model uses it.","实验选项；改变 NR 历史，不改游戏 SR 抖动。参数写入不等于模型一定采用。"));
     SettingsSection(NrUi("Shortcuts","快捷键"));
-    const char* shortcut_names[]={NrUi("Toggle NR","启用／关闭 NR"),NrUi("Capture current view","采集当前画面"),NrUi("Text report","生成文字报告")};
-    const unsigned shortcut_values[]={next.master_virtual_key,next.image_virtual_key,next.feedback_virtual_key};
+    const char* shortcut_names[]={NrUi("Toggle NR","启用／关闭 NR"),NrUi("Capture current view","采集当前画面"),NrUi("Text report","生成文字报告"),NrUi("Save screenshot","保存截图")};
     static bool shortcut_conflict=false;
-    for(unsigned i=0;i<3;++i){
+    int shortcut_preset=static_cast<int>(nr_hotkeys::PresetIndex(next));
+    if(NrCombo(NrUi("Shortcut preset","快捷键预设"),"##shortcut-preset",shortcut_preset,
+        NrUi("Custom (retained)\0Default: F6 / F7 / F8 / Minus\0F9 / F10 / F11 / Minus\0ScrollLock / Pause / PageDown / Minus\0All off\0",
+             "自定义（保留）\0默认：F6 / F7 / F8 / 减号\0F9 / F10 / F11 / 减号\0ScrollLock / Pause / PageDown / 减号\0全部关闭\0")) && shortcut_preset>0){
+        if(nr_hotkeys::ApplyPreset(next,static_cast<unsigned>(shortcut_preset-1))){shortcut_conflict=false;changed=true;discrete=true;}
+    }
+    SettingsTooltip(NrUi("Applies the four actions in the order shown below, only when you select a preset. Custom saved bindings are kept until you edit them. All off also disables both minus screenshot keys; buttons on Feedback still work.",
+        "仅点选预设时，按下方四项顺序一起应用；未点选时保留已保存绑定。全部关闭也停用主键盘和小键盘的减号截图，反馈页按钮仍可使用。"));
+    const unsigned shortcut_values[]={next.master_virtual_key,next.image_virtual_key,next.feedback_virtual_key,next.screenshot_virtual_key};
+    for(unsigned i=0;i<nr_hotkeys::Count;++i){
         ImGui::PushID(static_cast<int>(i));
-        int choice=shortcut_values[i]?static_cast<int>(shortcut_values[i])-111:0;
-        if(NrCombo(shortcut_names[i],"##shortcut",choice,NrUi("Off\0F1\0F2\0F3\0F4\0F5\0F6\0F7\0F8\0F9\0F10\0F11\0F12\0","关闭\0F1\0F2\0F3\0F4\0F5\0F6\0F7\0F8\0F9\0F10\0F11\0F12\0"))){
-            shortcut_conflict=!nr_hotkeys::Set(next,static_cast<nr_hotkeys::Action>(i),choice?static_cast<unsigned>(choice+111):0);
-            if(!shortcut_conflict){changed=true;discrete=true;}
+        SettingsField(shortcut_names[i]);
+        if(ImGui::BeginCombo("##shortcut",nr_hotkeys::Name(shortcut_values[i],UseChineseUi()))){
+            for(const auto& choice:nr_hotkeys::Choices){
+                if(!nr_hotkeys::Allowed(static_cast<nr_hotkeys::Action>(i),choice.key))continue;
+                if(ImGui::Selectable(UseChineseUi()?choice.zh:choice.en,shortcut_values[i]==choice.key)){
+                    shortcut_conflict=!nr_hotkeys::Set(next,static_cast<nr_hotkeys::Action>(i),choice.key);
+                    if(!shortcut_conflict){changed=true;discrete=true;}
+                }
+            }
+            ImGui::EndCombo();
         }
+        SettingsTooltip(NrUi("Off disables this action only. Release a rebound key before pressing. Minus also covers keypad minus. Known ReShade overlaps are shown, including modifier bindings. Game bindings are not scanned; Home is often a menu key.",
+            "关闭只停用此快捷键；改键后松开再按。减号截图也兼容小键盘减号。会提示已知 ReShade 同键绑定，含组合键；不扫描游戏绑定，Home 常用于菜单。"));
         ImGui::PopID();
     }
     if(shortcut_conflict)SettingsNote(NrUi("Key already assigned. Choose another key or disable its existing action first.","此按键已有用途，请换一个，或先关闭原绑定。"));
-    if(ImGui::Button(NrUi("Reset shortcuts","恢复默认快捷键"))){next.master_virtual_key=117;next.image_virtual_key=118;next.feedback_virtual_key=119;shortcut_conflict=false;changed=true;discrete=true;}
-    SettingsNote(NrUi("Defaults: F6 NR, F7 picture, F8 text report. F8 does not record video. Reassigned keys activate after release. Avoid keys used by the game or ReShade.",
-        "默认 F6 开关 NR、F7 采集画面、F8 生成文字报告；F8 不是录像。改键后松开再按生效，请避开游戏及 ReShade 已用按键。"));
+    DrawKnownReShadeHotkeyConflicts(runtime,next);
+    if(ImGui::Button(NrUi("Reset shortcuts","恢复默认快捷键"))){nr_hotkeys::ApplyPreset(next,0);shortcut_conflict=false;changed=true;discrete=true;}
+    SettingsNote(NrUi("Each action can be turned off. Defaults: F6 NR, F7 current-view capture, F8 text report, Minus screenshot.",
+        "每项均可关闭。默认 F6 开关 NR、F7 采集当前画面、F8 文字报告、减号保存截图。"));
     SettingsSection(NrUi("Recovery and composition","恢复与合成"));
     int order=nr_colour_restore::NormalizeScaledProxy(next.colour_scaled_proxy_mode);
     if(NrCombo(NrUi("Low-resolution input order","低分输入顺序"),"##scaled-proxy",order,NrUi("Scale source first\0Encode proxy first (no proven gain)\0","先缩放场景\0先编码 Proxy（未证实收益）\0"))){next.colour_scaled_proxy_mode=order;changed=true;discrete=true;}
@@ -310,8 +341,8 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::BeginDisabled(busy);
     const bool row=SettingsContentWidth()>ImGui::GetFontSize()*42.f;
     char report_label[96]{},image_label[96]{};
-    std::snprintf(report_label,sizeof(report_label),NrUi("Text report (%s)###report","生成文字报告（%s）###report"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Report)));
-    std::snprintf(image_label,sizeof(image_label),NrUi("Capture current view (%s)###capture","采集当前画面（%s）###capture"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Image)));
+    std::snprintf(report_label,sizeof(report_label),NrUi("Text report (%s)###report","生成文字报告（%s）###report"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Report),UseChineseUi()));
+    std::snprintf(image_label,sizeof(image_label),NrUi("Capture current view (%s)###capture","采集当前画面（%s）###capture"),nr_hotkeys::Name(nr_hotkeys::Key(nr_hotkeys::Image),UseChineseUi()));
     if(ImGui::Button(report_label))nr_f8::RequestCore();
     SettingsTooltip(NrUi("Bounded TXT; settings unchanged; path copied when ready.","生成有界 TXT，不改画质设置；完成后复制路径。"));
     if(row)ImGui::SameLine();
@@ -356,8 +387,8 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::TextWrapped("%s",UseChineseUi()?kAddonAuthor:kAddonAuthorAscii);
     ImGui::TextWrapped("%s",kOfficialReleaseUrl);
     ImGui::TextWrapped("%s",NrUi("QQ group 2: 392308850","交流群（二群）：392308850"));
-    SettingsNote(NrUi("Shortcut keys can be changed on Developer. Minus: screenshot. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
-        "可在开发者页修改快捷键；减号为截图。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
+    SettingsNote(NrUi("Change or disable shortcuts on Developer. Deep comparisons may reset history and temporarily change parameters; completion/cancel restores saved values.",
+        "可在开发者页修改或关闭快捷键。深度对照可能重置历史、临时改变参数；完成或取消后恢复。"));
 #if NR_HAS_ACCEPTANCE
     ImGui::EndDisabled();
 #endif

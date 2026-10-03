@@ -61,7 +61,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             ImGui::BeginChild("nr-page-picture",ImVec2(0,0));
             ImGui::BeginDisabled(collecting);
             char nr_label[96]{};
-            std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key));
+            std::snprintf(nr_label,sizeof(nr_label),ui("NR (%s)###master-nr","启用 NR（%s）###master-nr"),nr_hotkeys::Name(next.master_virtual_key,use_chinese_ui));
             if(ImGui::Checkbox(nr_label,&next.enabled)){changed=true;apply_discrete_edit=true;}
             if(SettingsSliderFloat(ui("AI colour range","AI 色彩范围"),"##final-colour",&next.color_strength,0.f,1.f,"%.2f")){
                 nr_colour_preferences::SetRange(next,next.color_strength);changed=true;
@@ -185,7 +185,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         if(ImGui::BeginTabItem(ui("Developer###nr-developer","开发者###nr-developer"))){
             ImGui::BeginChild("nr-page-developer",ImVec2(0,0));
-            ImGui::BeginDisabled(collecting);DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
+            ImGui::BeginDisabled(collecting);DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit,runtime);ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Feedback###nr-feedback-diagnostics","反馈###nr-feedback-diagnostics"),nullptr,feedback_tab_flags)){
             ImGui::BeginChild("nr-page-feedback-diagnostics",ImVec2(0,0));

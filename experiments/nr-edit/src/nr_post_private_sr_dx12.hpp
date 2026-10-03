@@ -15,6 +15,8 @@ struct Input {
     bool target_contains_candidate=false;
     bool ordered_queue_verified=false, post_sr_phase_verified=false;
     bool normalized_guide_units_verified=false, reset=true;
+    // False is retained only for development comparison with the old RGB gate.
+    bool per_channel_support=true;
     float motion_scale_x=1, motion_scale_y=1;
     unsigned native_result=0;
 };
