@@ -49,10 +49,12 @@
   hosted CI and game acceptance. A skipped/failed/unstarted check is not a pass.
 - Beta 13 default routes passed the owner's game check (2026-09-29); experiments
   and open issues in CURRENT_STATUS did not. UI1 had only an initial observation.
+  Beta 14 is the owner's continuing baseline (2026-10-03); the NTE Esc observation
+  and partial allocation recovery do not approve private SR quality or all UI cases.
 - Record build SHA, packaging SHA, binary/ZIP hashes, actual commands, receipts,
   failures and remaining tests. A merge tree match does not rename a binary's source.
-- Released names are fixed: UI1/Inbox1, `0.5.2-beta.1` … `0.5.2-beta.13`. The
-  next behavior change is `0.5.2-beta.14`; never relabel an existing binary.
+- Released names are fixed: UI1/Inbox1, `0.5.2-beta.1` … `0.5.2-beta.14`. The
+  next behavior change is `0.5.2-beta.15`; never relabel an existing binary.
 - Public Core attachments require reviewed payloads, licenses and explicit release
   authorization. An experimental prerelease must not silently replace stable/latest
   or change Manager default component pins. Keep the previous package available.
