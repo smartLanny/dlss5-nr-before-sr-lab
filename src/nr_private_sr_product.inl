@@ -389,6 +389,15 @@ bool Finish(ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot,cons
             unsigned capture,unsigned ow,unsigned oh,unsigned x,unsigned y) {
     if(nr_private_sr_capture::Active()){
         slot.acceptance_time_mask=0;slot.dual_time_mask=0;
+        // Full-reference child layers resolved their own queries before this
+        // final composition. Invalidate every child on this exact recording;
+        // clearing only the primary slot would still admit full_time samples.
+        unsigned long long capture_token=0;
+        if(ReadLifecycleToken(list,capture_token)&&capture_token)
+            for(auto& owner:g_contexts)for(auto& timed:owner.slots)
+                if(timed.dual_time_token==capture_token){
+                    timed.dual_time_mask=0;timed.dual_time_stable=false;
+                }
     }
     if(!capture)return true;auto* o=context.private_sr;
     if(!o||capture>o->flights.size()){Poison(context);return false;}
