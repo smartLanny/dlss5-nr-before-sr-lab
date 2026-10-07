@@ -53,6 +53,9 @@ void EnterCriticalSection(Lock* p){++p->depth;}
 void LeaveCriticalSection(Lock* p){assert(p->depth);--p->depth;}
 void DrainNgxFeatureRetirementsLocked(){}
 void CollectCompletedDeltaStatsLocked(){}
+// Native COM event consumption is outside this release-admission CPU fixture;
+// the full-Core WARP queue host verifies the production implementation.
+void CollectDeadNativeRecordingsLocked(){}
 void MarkLifecycleUncertain(const char*){g_lifecycle_tracking_uncertain=true;}
 void Log(const char*,...){}
 void PrepareStageCaptureContextLocked(const NgxHandle*,unsigned long long,int){}

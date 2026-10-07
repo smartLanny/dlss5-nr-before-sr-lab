@@ -34,6 +34,9 @@ void EnterCriticalSection(Lock* p){++p->depth;}
 void LeaveCriticalSection(Lock* p){if(!p->depth)std::abort();--p->depth;}
 void DrainNgxFeatureRetirementsLocked(){}
 void CollectCompletedDeltaStatsLocked(){}
+// No native COM objects in these parent/residency CPU services. Actual native
+// destruction and its recording ownership are covered by the full-Core host.
+void CollectDeadNativeRecordingsLocked(){}
 void MarkLifecycleUncertain(const char*){g_lifecycle_tracking_uncertain=true;}
 template<class...A>void Log(const char*,A...){}
 namespace nr_dual{void RebindSlotOwners(NrContext& c){for(auto& s:c.slots)s.dual_owner=&c;}}

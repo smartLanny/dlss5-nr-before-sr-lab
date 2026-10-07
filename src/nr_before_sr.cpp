@@ -6644,10 +6644,23 @@ enum class RecordingQueueProof : unsigned char {
     CompletedDependencies,
 };
 
+struct NativeCommandLifetime;
+NativeCommandLifetime *AcquireNativeLifetimeForNr(
+    ID3D12GraphicsCommandList *, unsigned long long &);
+void NativeCommandLifetimeDropPod(NativeCommandLifetime *);
+bool NativeCommandLifetimeDeadMatches(const NativeCommandLifetime *,
+    unsigned long long, ID3D12GraphicsCommandList *);
+void CollectDeadNativeRecordingsLocked();
+
 struct LifecycleCommandList {
     nr_resource_recovery::Token recovery_tokens[16]{};
     unsigned recovery_token_count = 0;
     unsigned long long token = 0;
+    // One pure-storage reference, independent of the private-data marker's
+    // IUnknown lifetime. Neither this identity nor the notice owns the list.
+    NativeCommandLifetime *native_lifetime = nullptr;
+    unsigned long long native_lifetime_token = 0;
+    ID3D12GraphicsCommandList *native_identity = nullptr;
     // Immutable prediction captured before plugin work is recorded. The
     // actual Execute queue is checked against this identity later.
     unsigned long long expected_queue_identity = 0;
@@ -7419,6 +7432,15 @@ void CollectRetiredContextsLocked() {
 #endif
         return;
     }
+    CollectDeadNativeRecordingsLocked();
+    // Unsubmitted opaque work and any failed detach retain the original
+    // isolation gate before maintenance or release permission is evaluated.
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementPublishLocked(true);
+#endif
+        return;
+    }
     DrainNgxFeatureRetirementsLocked();
     RetireAuxiliaryDependenciesLocked();
     CollectCompletedDeltaStatsLocked();
@@ -7828,6 +7850,7 @@ void RollBackEmptyLifecycleCommandListLocked(
     }
     g_lifecycle_active_command_lists.fetch_sub(1,
                                                std::memory_order_release);
+    NativeCommandLifetimeDropPod(record->native_lifetime);
     *record = {};
 }
 
@@ -8134,6 +8157,27 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    unsigned long long native_token = 0;
+    auto *native_lifetime = AcquireNativeLifetimeForNr(command_list, native_token);
+    if (!native_lifetime ||
+        (record->native_lifetime &&
+         (record->native_lifetime != native_lifetime ||
+          record->native_lifetime_token != native_token ||
+          record->native_identity != command_list))) {
+        NativeCommandLifetimeDropPod(native_lifetime);
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
+        return false;
+    }
+    if (record->native_lifetime) {
+        NativeCommandLifetimeDropPod(native_lifetime);
+    } else {
+        record->native_lifetime = native_lifetime;
+        record->native_lifetime_token = native_token;
+        record->native_identity = command_list;
+    }
+
     record->queue_proof = proof;
     record->expected_queue_identity = proof == RecordingQueueProof::StableHistory
         ? queue_marker.identity : 0;
@@ -8229,23 +8273,11 @@ bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList *command_list,
     return true;
 }
 
-void DetachLifecycleCommandListTokenLocked(
-    ID3D12GraphicsCommandList *command_list, unsigned long long token,
-    const char *reason) {
-    if (token == 0) return;
-    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
-    if (record == nullptr) {
-        MarkLifecycleUncertain("unknown command-list marker during reset");
-        return;
-    }
-    if (record->detached) {
-        MarkLifecycleUncertain("command-list lifetime record detached twice");
-        return;
-    }
-    if (!ClearLifecycleToken(command_list)) {
-        MarkLifecycleUncertain("could not clear command-list lifetime marker");
-        return;
-    }
+// Consumes only the captured NR recording generation. The native-death path
+// must never read or clear private data on the object that has already died.
+void DetachLifecycleRecordLocked(LifecycleCommandList *record,
+    unsigned long long token, const char *reason) {
+    if (!record || record->token != token || record->detached) return;
     for (unsigned int i = 0; i < record->slot_count; ++i) {
         NrSlot *slot = record->slots[i];
         if (slot == nullptr || slot->recording_command_lists == 0) {
@@ -8284,6 +8316,11 @@ void DetachLifecycleCommandListTokenLocked(
     nr_fg_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
+    auto *native_lifetime = record->native_lifetime;
+    record->native_lifetime = nullptr;
+    record->native_lifetime_token = 0;
+    record->native_identity = nullptr;
+    NativeCommandLifetimeDropPod(native_lifetime);
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
     if (active == 0) {
@@ -8299,6 +8336,39 @@ void DetachLifecycleCommandListTokenLocked(
             "submission(s) still fenced; immutable batch retains ownership.",
             reason != nullptr ? reason : "reset",
             record->in_flight_submissions);
+    }
+}
+
+void DetachLifecycleCommandListTokenLocked(
+    ID3D12GraphicsCommandList *command_list, unsigned long long token,
+    const char *reason) {
+    if (token == 0) return;
+    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+    if (record == nullptr) {
+        MarkLifecycleUncertain("unknown command-list marker during reset");
+        return;
+    }
+    if (record->detached) {
+        MarkLifecycleUncertain("command-list lifetime record detached twice");
+        return;
+    }
+    if (!ClearLifecycleToken(command_list)) {
+        MarkLifecycleUncertain("could not clear command-list lifetime marker");
+        return;
+    }
+    DetachLifecycleRecordLocked(record, token, reason);
+}
+
+void CollectDeadNativeRecordingsLocked() {
+    for (auto &record : g_lifecycle_command_lists) {
+        if (!record.token || record.detached ||
+            !NativeCommandLifetimeDeadMatches(record.native_lifetime,
+                record.native_lifetime_token, record.native_identity)) continue;
+        const auto token = record.token;
+        if (QuarantineUnsubmittedLifecycleRecordLocked(token, "native destruction") ||
+            g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+        DetachLifecycleRecordLocked(&record, token, "native destruction");
+        if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     }
 }
 
@@ -8798,8 +8868,10 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             {nr_post_product::Submitted(*record->contexts[c],record->token,queue_state,batch.fence_value);
              nr_spatial_experiment::Submitted(*record->contexts[c],record->token);}
         --record->in_flight_submissions;
-        if (record->detached && record->in_flight_submissions == 0)
+        if (record->detached && record->in_flight_submissions == 0) {
+            NativeCommandLifetimeDropPod(record->native_lifetime);
             *record = {};
+        }
     }
 }
 
@@ -15554,12 +15626,15 @@ void OnDestroyCommandList(reshade::api::command_list *command_list) {
     unsigned long long token = 0;
     ReadLifecycleToken(native_command_list, token);
     EnterCriticalSection(&g_chain_cs);
-    if (token != 0 && QuarantineUnsubmittedLifecycleRecordLocked(
-            token, "destroy")) {
+    const auto *record = FindLifecycleCommandListLocked(token);
+    // A departing wrapper can leave a replayable native list alive, including
+    // after its observation marker was replaced. Only the ledger's notice
+    // pairs that native lifetime with the exact NR recording generation.
+    if (record && !record->detached && !record->native_lifetime) {
+        MarkLifecycleUncertain("wrapper destruction lacks native lifetime proof");
         LeaveCriticalSection(&g_chain_cs);
         return;
     }
-    DetachLifecycleCommandListLocked(native_command_list, "destroy");
     CollectRetiredContextsLocked();
     LeaveCriticalSection(&g_chain_cs);
     DrainPendingContextDestructions();

@@ -70,6 +70,9 @@ void Log(const char*,...){++logs;}
 void MarkLifecycleUncertain(const char*){g_lifecycle_tracking_uncertain=true;}
 void DrainNgxFeatureRetirementsLocked(){}
 void CollectCompletedDeltaStatsLocked(){}
+// This diagnostic-only fixture has no native COM lifetime events. The actual
+// native death consumer is covered by the complete-Core WARP queue host.
+void CollectDeadNativeRecordingsLocked(){}
 namespace nr_temporal{void Maintain(NrContext&) {}}
 namespace nr_spatial_experiment{void SweepIdle(){}}
 namespace nr_dual{void RebindSlotOwners(NrContext& c){for(auto& s:c.slots)s.dual_owner=&c;}}
