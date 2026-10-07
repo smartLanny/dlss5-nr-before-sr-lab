@@ -75,7 +75,8 @@ v4实际manifest SHA `e3c61bb691ae041cab5d304325cb292c35425be6aec0f3607c46b1de8d
 
 关键diff及上述小门过后才允许固定四个独立history，16warm/16observe一次；
 完整U和paired-repeat保留。NR decoded与editedRaw各自判定；不唯一/不informative
-保持unknown，不继承SceneRR c0。当前未运行模型，不宣称新RR可用。
+保持unknown，不继承SceneRR c0。此处记录截至v4；随后固定四history实际F18
+结果与边界见 [实际模型相位门](RAW_NR_ACTUAL_MODEL_PHASE_20261008.md)，不宣称新RR可用。
 
 两RR的真实clean-guide producer缺失边界不变；本任务不能替代SceneRR→NR(clean)
 →rephase→nativeRR，也不放松生产Before/Feature1门。普通恢复仍为基线。
