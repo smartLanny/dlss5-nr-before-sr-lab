@@ -1,0 +1,2 @@
+# Review copies use LF consistently; private originals keep their exact bytes.
+*.diff text eol=lf

@@ -1,0 +1,340 @@
+--- a/raw-nr-execution-v2-r1/host-path-variant/helpers.inl
++++ b/raw-nr-model-safe-host-v3/helpers.inl
+@@ -14,13 +14,13 @@
+     if (!condition) {
+         std::printf("FAIL %s\n", name);
+         std::fflush(stdout);
+-        std::exit(41);
++        probe_terminal::Exit(41,"Check");
+     }
+ }
+ void Hr(HRESULT result, const char *name) {
+     if (FAILED(result)) {
+         std::printf("API_FAIL %s %08lx\n", name, static_cast<unsigned long>(result));
+-        std::exit(2);
++        probe_terminal::Exit(2,"Hr");
+     }
+ }
+ void STDMETHODCALLTYPE NativeExecute(ID3D12CommandQueue *queue, UINT count,
+--- a/raw-nr-execution-v2-r1/host-path-variant/parent_fixture.inl
++++ b/raw-nr-model-safe-host-v3/parent_fixture.inl
+@@ -12,7 +12,7 @@
+         Check(scene_create_attempts==0&&scene_eval_attempts==0,"rejected capability/domain records no private Create or Eval");
+     std::printf("STOP_COUNTS parentCreate=%u sceneCreate=%u sceneEval=%u\n",parent_create_attempts,scene_create_attempts,scene_eval_attempts);
+     std::printf("STOP stage=%s key=%s reason=%s result=%08x\n",stage,key,reason,result);
+-    std::fflush(stdout);std::exit(42);
++    probe_terminal::Exit(42,"parent-Stop");
+ }
+ struct Inputs {
+     Plane depth,diffuse,specular,normal,roughness,clean;
+--- a/raw-nr-execution-v2-r1/host-path-variant/raw-nr-phase.cpp
++++ b/raw-nr-model-safe-host-v3/raw-nr-phase.cpp
+@@ -1,14 +1,19 @@
+ #include <array>
+ #include <filesystem>
+ #include REVIEW_ONLY_CORE_INCLUDE
++#include "terminal_policy.hpp"
+ #include "helpers.inl"
+ #include "rr_identity_core_host.cpp.in"
+ #include "rr_identity_native_host.cpp.in"
+ #include "parent_fixture.inl"
+ #include "probe_admission.inl"
+ #include "raw_nr_host.inl"
++#include "cpu_terminal.inl"
+ int wmain(int argc,wchar_t** argv){std::setvbuf(stdout,nullptr,_IONBF,0);
+  if(argc==2&&std::wstring(argv[1])==L"off"){std::puts("PASS CPU off: device=0 bootstrap=0 create=0 eval=0 GPU=0");return 0;}
+  if(argc==2&&std::wstring(argv[1])==L"cpu-admission"){raw_nr_probe::CpuAdmissionControls();return 0;}
+- if(argc!=5||std::wstring(argv[4])!=L"--root-model-go")return 2;
++ if(argc==3&&std::wstring(argv[1])==L"cpu-terminal")probe_terminal_cpu::Run(argv[2]);
++ if(argc!=5)return 2;
++ const bool control=std::wstring(argv[1])==L"opaque-stop-control";
++ if(std::wstring(argv[4])!=(control?L"--root-opaque-stop-go":L"--root-model-go"))return 2;
+  std::wstring cohort=argv[1];raw_nr_probe::Run(std::string(cohort.begin(),cohort.end()),argv[2],argv[3]);return 0;}
+--- a/raw-nr-execution-v2-r1/host-path-variant/raw_nr_host.inl
++++ b/raw-nr-model-safe-host-v3/raw_nr_host.inl
+@@ -3,11 +3,16 @@
+ namespace raw_nr_probe {
+ using namespace scene_rr_probe_test;
+ unsigned nr_creates=0,nr_evals=0,device_entries=0;
++unsigned nr_init_attempts=0,probe_combines=0,parent_release_calls=0,context_destroy_calls=0,controlled_backend_calls=0;
++unsigned control_execute_base=0,control_restore_base=0;bool controlled_error_pending=false;
++struct NrFlight;NrFlight* active_flight=nullptr;Adapter* active_envelope=nullptr;
++void PrintPinnedClosure();
++[[noreturn]] void OpaqueFailure(Adapter&,NrContext&,const char*,NgxResult);
+ [[noreturn]] void Fail(const char* stage,NrContext* owner=nullptr,NgxResult result=0){
+  if(owner)owner->lifecycle_dependencies_quarantined=true;
+  MarkLifecycleUncertain("isolated raw NR failed; no fallback, release or retry");
+  std::printf("STOP_RAW_NR stage=%s result=%08x parentCreate=%u parentEval=0 NRCreate=%u NREval=%u SceneCreate=0 SceneEval=0 Feature1=0 quarantine=1 retry=0\n",stage,result,parent_create_attempts,nr_creates,nr_evals);
+- std::fflush(stdout);std::exit(42);
++ PrintPinnedClosure();probe_terminal::Exit(42,"Fail");
+ }
+ std::vector<unsigned char> File(const std::wstring& path){std::ifstream f{std::filesystem::path(path),std::ios::binary};Check(bool(f),"pinned file exists");return {std::istreambuf_iterator<char>(f),{}};}
+ void VerifyRuntime(const wchar_t* pin,bool include_nr){
+@@ -85,12 +90,13 @@
+   const char* names[]={"proxy-encoded-rgba16f","nr-encoded-rgba16f","edited-stored-rgba16f"};for(unsigned i=0;i<3;++i)Save(half_readbacks[i],half_footprints[i],8,frame,names[i]);}
+  void Drop(){proxy_linear.Drop();nr_proxy_linear.Drop();ReleaseCom(pipeline);for(auto*& p:half_readbacks)ReleaseCom(p);}
+ };
++#include "clear_cpu_owner.inl"
+ struct NrFlight {
+  NrContext* owner=nullptr;NrSlot* slot=nullptr;NrBindingPacket *packet=nullptr,*diagnostic=nullptr;unsigned long long token=0,native_token=0,reset=0;
+- std::shared_ptr<Inputs> cpu_owner;
++ std::shared_ptr<Inputs> cpu_owner;ClearCpuOwner clear;
+  void Pin(ID3D12GraphicsCommandList* list,NrContext& ctx,NrSlot& s,NrBindingPacket& p,NrBindingPacket& d,const std::shared_ptr<Inputs>& input){
+-  owner=&ctx;slot=&s;packet=&p;diagnostic=&d;cpu_owner=input;const auto native=SnapshotPostBoundaryList(list);
+-  Check(native.known&&native.token&&ReadLifecycleToken(list,token)&&token,"actual NR/native recording identities before opaque");native_token=native.token;reset=native.reset;
++  owner=&ctx;slot=&s;packet=&p;diagnostic=&d;cpu_owner=input;active_flight=this;const auto native=SnapshotPostBoundaryList(list);
++  Check(native.known&&native.token&&ReadLifecycleToken(list,token)&&token,"actual NR/native recording identities before opaque");native_token=native.token;reset=native.reset;if(clear.pending)clear.Pin(token);
+   auto* record=FindLifecycleCommandListLocked(token);Check(record&&record->submission_count==0,"NR flight before Submit");
+   for(auto* lease:{slot,&packet->lease,&diagnostic->lease}){bool found=false;for(unsigned i=0;i<record->slot_count;++i)found|=record->slots[i]==lease;
+    Check(found&&lease->recording_command_lists==1&&!CanMutateSlotLocked(*lease),"actual slot and two immutable packets owned before opaque");}
+@@ -105,14 +111,14 @@
+   Check(native.known&&native.token==native_token&&native.reset==reset+1&&!g_lifecycle_tracking_uncertain.load(),"real successful Reset advances native token");
+   for(auto* lease:{slot,&packet->lease,&diagnostic->lease})Check(lease->recording_command_lists==0&&CanMutateSlotLocked(*lease),"NR exact fence plus Reset retires every real lease");
+   std::printf("NR_RETIRED frame=%u token=%llu nativeToken=%llu queue=%llu fence=%p value=%llu completed=%llu\n",frame,token,native_token,queue,(void*)fence,value,ID3D12Fence_GetCompletedValue(fence));
+-  DropBindingPacket(*packet);DropBindingPacket(*diagnostic);slot->compose_binding=nullptr;packet=diagnostic=nullptr;cpu_owner.reset();LeaveCriticalSection(&g_chain_cs);ReleaseCom(fence);
++  clear.Retire(token);active_flight=nullptr;DropBindingPacket(*packet);DropBindingPacket(*diagnostic);slot->compose_binding=nullptr;packet=diagnostic=nullptr;cpu_owner.reset();LeaveCriticalSection(&g_chain_cs);ReleaseCom(fence);
+  }
+ };
+ void Configure(){g_config=ChainConfig{};g_config.enabled=true;g_config.mode=2;g_config.proxy_curve=2;g_config.proxy_scale=1;g_config.transfer_strength=1;
+  g_config.colour_input_curve=0;g_config.colour_restore_mode=0;g_config.colour_scaled_proxy_mode=0;g_config.colour_lab_mode=0;g_config.jitter_mode=NrJitterMode::GameInputPixel;
+  g_config_generation.store(17);nr_processing_runtime::Reconcile();Check(nr_processing_runtime::work_enabled.load(),"actual source observer admission enabled");}
+ void Opaque(NgxResult result,Adapter& envelope,NrContext& ctx,const char* stage){
+- if(result!=kNgxSuccess){if(envelope.state)envelope.state->AbandonAfterOpaqueFailure();Fail(stage,&ctx,result);}
++ if(result!=kNgxSuccess)OpaqueFailure(envelope,ctx,stage,result);
+  if(!envelope.EnvelopeApi().restore(&envelope))Fail("native-state-restore",&ctx);
+ }
+ void ObserveSlot(ID3D12GraphicsCommandList* list,NrContext& ctx,NrSlot& slot,const char* stage){
+@@ -132,11 +138,12 @@
+   std::printf("F18_GET frame=%u type=f key=%s present=%u value=%.9g\n",frame,kv.first,ok,value);Check(ok&&value==kv.second,"actual F18 jitter units and raw MV scale getters");}
+  int valid=0,upscale=1,quality=0;Check(GetInt(ctx.params,"DLSSNR.Jitter.Valid",&valid)&&valid==1&&GetInt(ctx.params,"DLSSNR.Upscaling",&upscale)&&upscale==0&&GetInt(ctx.params,"PerfQualityValue",&quality)&&quality==5,"actual F18 fixed mode getters");
+ }
++#include "opaque_control.inl"
+ void RunGpu(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
+- const bool identity=mode=="codec-identity";Check(identity||mode=="Z"||mode=="Z2"||mode=="J"||mode=="J2","fixed independent raw NR cohorts or no-model codec identity");VerifyRuntime(pin,!identity);
++ const bool identity=mode=="codec-identity",opaque_control=mode=="opaque-stop-control",no_nr=identity||opaque_control;Check(no_nr||mode=="Z"||mode=="Z2"||mode=="J"||mode=="J2","fixed model cohorts or explicit no-NR controls");VerifyRuntime(pin,!no_nr);
+  // Legacy phase arrays retain exact 32-frame schedule/input bytes; only the
+  // expected output phase changes from Scene13 c=0 to Feature18 c=s.
+- control="probe";phase_frames=(identity||mode=="Z"||mode=="Z2")?phase_Z:phase_J;phase_input_root=std::string(PHASE_INPUT_ROOT)+((identity||mode=="Z"||mode=="Z2")?"/Z":"/J");
++ control="probe";phase_frames=(no_nr||mode=="Z"||mode=="Z2")?phase_Z:phase_J;phase_input_root=std::string(PHASE_INPUT_ROOT)+((no_nr||mode=="Z"||mode=="Z2")?"/Z":"/J");
+  std::printf("RAW_NR_COHORT name=%s N=R=1280x720 parentEval=0 Scene=0 Feature1=0 expected_c=s storedScale=.375 strength=1 intensity=1.5\n",mode.c_str());
+  Check(std::filesystem::equivalent(std::filesystem::path(bridge),std::filesystem::current_path()/"nrchain_nvngx.dll"),"native and NR bridge is exact pinned adjacent file");
+  ++device_entries;queue_test::Fixture f;Configure();GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\raw-nr-core.log");
+@@ -157,9 +164,9 @@
+  ++parent_create_attempts;const auto made=HookCoreCreate(list.native,13,parent_params,&parent);std::printf("PARENT_CREATE feature=13 result=%08x calls=1 quality=5 RtoR=1\n",made);OpaqueResult(made,envelope,"parent-create");ObserveAfterOpaque(list.native,*owner,0,"parent-create");Check(parent,"real parent handle");LeaveCriticalSection(&g_chain_cs);parent_flight.Finish(f,list,"parent-create");
+  SceneFactory factory;factory.Resolve(f,parent);factory.Query();factory.eval_params=factory.Allocate("raw-NR-entry-params");
+  // Native and signed NR loader/init domains remain distinct even on one device.
+- if((!identity&&!EnsureNrApi(f.device))||!EnsureCodec(f.device))Fail("signed-NR-api-or-codec");Capture capture;capture.Make(f);
++ if(!no_nr){++nr_init_attempts;if(!EnsureNrApi(f.device))Fail("signed-NR-api");}if(!EnsureCodec(f.device))Fail("codec");Capture capture;capture.Make(f);
+  NrContext* nr=nullptr;NrFlight flight;
+- for(unsigned frame=0;frame<(identity?1u:32u);++frame){auto bytes=ReadPhase(frame,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->SelectFrame(frame);
++ for(unsigned iteration=0;iteration<(opaque_control?2u:identity?1u:32u);++iteration){const unsigned frame=opaque_control?0u:iteration;bool continue_control=false;auto bytes=ReadPhase(frame,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->SelectFrame(frame);
+   if(frame==0)Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_DEST);
+   owner->colors[frame].FillAndRecord(list.native,bytes);factory.Bind(owner,frame);factory.Guard("raw-NR-input");
+   EnterCriticalSection(&g_chain_cs);GuideState(list.native,*owner,frame);const auto feature=FindFeature(parent);Check(feature.feature_id==13&&feature.generation==factory.parent_generation,"no forged Feature1 carrier");
+@@ -173,7 +180,7 @@
+   // production codec plan and retain the two genuine raw guides.
+   nr_binding::Plan bindings{};bindings.primary_owner=slot;WriteCodecDescriptorSet(f.device,*slot,nullptr,&bindings.heaps[nr_binding::Consumer]);bindings.retained[0]=guides.depth;bindings.retained[1]=guides.motion;nr_binding::Refusal refusal{};
+   auto* packet=AcquireBindingPacket(f.device,list.native,*nr,bindings,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),nr);slot->compose_binding=packet;
+-  Check(RecordNrUseLocked(list.native,*nr,*slot),"actual main slot recording pin");auto* diagnostic=capture.Pin(f,list.native,*nr,*slot,guides);flight.Pin(list.native,*nr,*slot,*packet,*diagnostic,owner);
++  Check(RecordNrUseLocked(list.native,*nr,*slot),"actual main slot recording pin");auto* diagnostic=capture.Pin(f,list.native,*nr,*slot,guides);if(!identity)flight.clear.Prepare(f,*slot,*diagnostic);flight.Pin(list.native,*nr,*slot,*packet,*diagnostic,owner);
+   auto admission=raw_nr_admission::Inputs(phase_frames[frame].sx,phase_frames[frame].sy,guides.jitter.x,guides.jitter.y);
+   admission.has_mv_x=guides.has_motion_scale_x;admission.has_mv_y=guides.has_motion_scale_y;admission.has_j_x=guides.jitter.valid_x;admission.has_j_y=guides.jitter.valid_y;
+   admission.mv_x=guides.signature.motion_scale_x;admission.mv_y=guides.signature.motion_scale_y;admission.hardware_depth=!guides.signature.linear_depth;
+@@ -202,6 +209,7 @@
+   auto* admitted_record=FindLifecycleCommandListLocked(admission.actual_recording);admission.recording_fresh=admitted_record&&!admitted_record->detached&&admitted_record->submission_count==0;
+   admission.lifecycle_certain=!g_lifecycle_tracking_uncertain.load();
+   const auto refusal_at_entry=raw_nr_admission::Enter(admission,[&]{
++#include "control_branch.inl"
+   Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.encode_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,1);auto roots=Capture::Roots(list.native,frame,"encode-v2");
+   UavBarrier(list.native,slot->proxy);Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+   if(identity){
+@@ -219,11 +227,10 @@
+   // Every opaque Create and Eval has its own captured current command state.
+   if(first_nr){Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Create envelope and prior lease");void* handle=nullptr;++nr_creates;
+    const auto created=CreateSignedNrFeature(list.native,*nr,feature,&handle);std::printf("F18_CREATE frame=%u result=%08x handle=%p calls=%u\n",frame,created,handle,nr_creates);
+-   if(created!=kNgxSuccess||!handle){if(envelope.state)envelope.state->AbandonAfterOpaqueFailure();Fail("F18-Create-partial-or-error",nr,created);}nr->nr_handle=static_cast<NgxHandle*>(handle);Opaque(created,envelope,*nr,"F18-Create");ObserveSlot(list.native,*nr,*slot,"Create");}
++   if(created!=kNgxSuccess||!handle)OpaqueFailure(envelope,*nr,"F18-Create-partial-or-error",created);nr->nr_handle=static_cast<NgxHandle*>(handle);Opaque(created,envelope,*nr,"F18-Create");ObserveSlot(list.native,*nr,*slot,"Create");}
+   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-  {auto* clear_heap=diagnostic->heaps[nr_binding::Codec];ID3D12GraphicsCommandList_SetDescriptorHeaps(list.native,1,&clear_heap);const float sentinel[4]={-1234,-1234,-1234,-1234};
+-   ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(list.native,descriptor_warp_test::Gpu(f,clear_heap,kCodecMotionUavIndex),descriptor_warp_test::Cpu(f,clear_heap,kCodecMotionUavIndex),slot->neural,sentinel,0,nullptr);UavBarrier(list.native,slot->neural);
+-   std::printf("NR_OUTPUT_SENTINEL frame=%u negative=-1234 wholePlane=1 encodedCaptureBeforeSaturate=1\n",frame);}
++  flight.clear.Record(f,list.native,*diagnostic,*slot);
++  std::printf("NR_OUTPUT_SENTINEL frame=%u negative=-1234 wholePlane=1 encodedCaptureBeforeSaturate=1 nonvisibleCPUDescriptor=1\n",frame);
+   Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Eval envelope and prior lease");NgxResult evaluated=0;{ScopedSrwExclusive lock(&g_nr_api_lock);ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,nr->nr_handle);++nr_evals;evaluated=g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list.native,nr->nr_handle,nr->params,nullptr);}
+   std::printf("F18_EVAL frame=%u result=%08x calls=%u\n",frame,evaluated,nr_evals);Opaque(evaluated,envelope,*nr,"F18-Eval");ObserveAfterOpaque(list.native,*owner,frame,"F18-evaluate");ObserveSlot(list.native,*nr,*slot,"Evaluate");
+   nr->guide_history.CommitOnEvaluate(guides.signature,true);++nr->evaluations;CompleteNrDiagnosticEvaluation(*nr,*slot);g_nr_successful_evaluations.fetch_add(1);
+@@ -232,28 +239,28 @@
+   // Save original function outputs even during the two production warm-up
+   // frames. A warm-up edited result is explicit raw identity, never model proof.
+   const bool combine=identity||(nr->successful_evaluations_since_reset>g_config.warmup_after_create&&!g_config.identity_use_original);
+-  if(combine){Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.combine_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,slot->suppress_transfer_this_frame?0.f:1.f);roots=Capture::Roots(list.native,frame,"combine-v2");UavBarrier(list.native,slot->result);}
++  if(combine){++probe_combines;Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.combine_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,slot->suppress_transfer_this_frame?0.f:1.f);roots=Capture::Roots(list.native,frame,"combine-v2");UavBarrier(list.native,slot->result);}
+   else {Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_COPY_DEST);Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ID3D12GraphicsCommandList_CopyResource(list.native,slot->result,owner->colors[frame].resource);Barrier(list.native,owner->colors[frame].resource,D3D12_RESOURCE_STATE_COPY_SOURCE,static_cast<D3D12_RESOURCE_STATES>(read_state));}
+   Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);capture.Record(list.native,*diagnostic,roots,*slot);
+   std::printf("RAW_NR_FRAME frame=%u observe=%u combined=%u suppress=%u warmupCount=%u expected_c=s parentEval=0 Scene=0 strength=1\n",frame,frame>=16,combine,slot->suppress_transfer_this_frame,nr->successful_evaluations_since_reset);
+-  });if(refusal_at_entry)Fail(refusal_at_entry,nr);
++  });if(refusal_at_entry)Fail(refusal_at_entry,nr);if(continue_control)continue;
+   ObserveAfterOpaque(list.native,*owner,frame,"diagnostic-recorded");LeaveCriticalSection(&g_chain_cs);flight.Finish(f,list,frame);capture.Save(frame);
+  }
+  Check(nr_creates==(identity?0u:1u)&&nr_evals==(identity?0u:32u)&&nr&&CanDestroyContextLocked(*nr)&&CanDestroyBindingsLocked(*nr),"complete independent F18 history and exact retirement");Check(SUCCEEDED(ID3D12Device_GetDeviceRemovedReason(f.device)),"device healthy");
+- DestroyContext(*nr);if(nr->lifecycle_dependencies_quarantined)Fail("F18-release-unproven",nr);
++ flight.clear.Drop();++context_destroy_calls;DestroyContext(*nr);if(nr->lifecycle_dependencies_quarantined)Fail("F18-release-unproven",nr);
+  {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;factory.Guard("parent-release");for(auto** p:{&factory.eval_params,&factory.capability})if(*p){Check(factory.exports.destroy(*p)==kNgxSuccess,"actual owner parameter destruction");*p=nullptr;}}
+- Check(release(parent)==kNgxSuccess,"original parent Release after NR retirement and while native exports retained");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Check(destroy(parent_params)==kNgxSuccess,"parent params destroyed under retained original owner");
++ ++parent_release_calls;Check(release(parent)==kNgxSuccess,"original parent Release after NR retirement and while native exports retained");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Check(destroy(parent_params)==kNgxSuccess,"parent params destroyed under retained original owner");
+  FreeLibrary(factory.callback_owner);FreeLibrary(factory.capability_owner);nr_private_sr_core::ReleaseExports(factory.exports);
+  DestroyBindings(context);capture.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);std::printf("PASS RAW_NR_HOST mode=%s parentCreate=1 parentEval=0 F18Create=%u F18Eval=%u Scene=0 Feature1=0 phaseVerdict=external-unknown HDRgain=record-only\n",mode.c_str(),nr_creates,nr_evals);
+ }
+ void Run(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
+  // Cold input facts are this sealed fixture's CPU-owned explicit schedule.
+  // They do not pretend a native parent or recording already exists.
+- const bool zero=mode=="Z"||mode=="Z2"||mode=="codec-identity";
++ const bool zero=mode=="Z"||mode=="Z2"||mode=="codec-identity"||mode=="opaque-stop-control";
+  const auto* frames=zero?phase_Z:phase_J;
+- for(unsigned i=0;i<(mode=="codec-identity"?1u:32u);++i){const auto& p=frames[i];auto facts=raw_nr_admission::Inputs(p.sx,p.sy,p.jx,p.jy);
+-  const auto rejected=raw_nr_admission::Enter(facts,[]{});if(rejected){std::printf("COLD_REFUSAL frame=%u reason=%s device=0 opaque=0\n",i,rejected);std::exit(42);}}
++ for(unsigned i=0;i<((mode=="codec-identity"||mode=="opaque-stop-control")?1u:32u);++i){const auto& p=frames[i];auto facts=raw_nr_admission::Inputs(p.sx,p.sy,p.jx,p.jy);
++  const auto rejected=raw_nr_admission::Enter(facts,[]{});if(rejected){std::printf("COLD_REFUSAL frame=%u reason=%s device=0 opaque=0\n",i,rejected);probe_terminal::Exit(42,"cold-refusal");}}
+  RunGpu(mode,bridge,pin);
+ }
+ void CpuAdmissionControls(){
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/terminal_policy.hpp
+@@ -0,0 +1,13 @@
++#pragma once
++#include <cstdio>
++#include <cstdlib>
++namespace probe_terminal {
++// Only our stdout/stderr are flushed. Do not run global CRT destruction while
++// a recorded list may still retain the Core's COM/context dependency closure.
++[[noreturn]] inline void Exit(int code,const char* route) noexcept {
++    std::fprintf(stdout,"TERMINAL_POLICY route=%s code=%d cleanup=0\n",route,code);
++    std::fprintf(stderr,"TERMINAL_STDERR route=%s code=%d\n",route,code);
++    std::fflush(stdout);std::fflush(stderr);
++    std::_Exit(code);
++}
++}
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/cpu_terminal.inl
+@@ -0,0 +1,17 @@
++namespace probe_terminal_cpu {
++void AtExit(){std::fputs("ATEXIT_SENTINEL\n",stdout);std::fflush(stdout);}
++struct StaticSentinel {~StaticSentinel(){std::fputs("STATIC_DTOR_SENTINEL\n",stdout);std::fflush(stdout);}};
++void Register(){static StaticSentinel sentinel;(void)sentinel;
++    queue_test::Check(std::atexit(AtExit)==0,"register independent CPU atexit sentinel");
++    std::setvbuf(stdout,nullptr,_IOFBF,4096);std::setvbuf(stderr,nullptr,_IOFBF,4096);
++    std::fputs("OWN_STDOUT_PENDING\n",stdout);std::fputs("OWN_STDERR_PENDING\n",stderr);
++    std::puts("CPU_TERMINAL device=0 NGX=0 GPU=0 registeredAtexit=1 registeredStaticDtor=1");
++}
++[[noreturn]] void Run(const std::wstring& route){Register();
++    if(route==L"check")queue_test::Check(false,"cpu-terminal-check");
++    if(route==L"hr")queue_test::Hr(E_FAIL,"cpu-terminal-hr");
++    if(route==L"fail")raw_nr_probe::Fail("cpu-terminal-fail",nullptr,0xBAD00006u);
++    if(route==L"parent-stop")scene_rr_probe_test::Stop("cpu-terminal-parent","controlled","CPU-only");
++    probe_terminal::Exit(43,"bad-cpu-route");
++}
++}
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/cpu_std_exit_reference.cpp
+@@ -0,0 +1,11 @@
++// Isolated CRT reference only, never includes Core, D3D or NGX.
++#include <cstdio>
++#include <cstdlib>
++void AtExit(){std::fputs("ATEXIT_SENTINEL\n",stdout);std::fflush(stdout);}
++struct StaticSentinel {~StaticSentinel(){std::fputs("STATIC_DTOR_SENTINEL\n",stdout);std::fflush(stdout);}};
++int main(){static StaticSentinel sentinel;(void)sentinel;
++    if(std::atexit(AtExit)!=0)return 2;
++    std::setvbuf(stdout,nullptr,_IOFBF,4096);std::setvbuf(stderr,nullptr,_IOFBF,4096);
++    std::fputs("OWN_STDOUT_PENDING\n",stdout);std::fputs("OWN_STDERR_PENDING\n",stderr);
++    std::puts("CPU_STD_EXIT_REFERENCE device=0 NGX=0 GPU=0");std::exit(42);
++}
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/clear_cpu_owner.inl
+@@ -0,0 +1,38 @@
++// Included inside raw_nr_probe. This is a host owner, not a Core modification.
++struct ClearCpuOwner {
++ ID3D12DescriptorHeap* heap=nullptr;ID3D12Resource* retained=nullptr;
++ unsigned long long recording_token=0;bool pending=false;
++ void Prepare(queue_test::Fixture& f,NrSlot& slot,NrBindingPacket& packet){
++  Check(!pending&&!retained&&!recording_token,"CPU clear descriptor reused only after exact retirement");
++  const auto& view=packet.plan.heaps[nr_binding::Codec].views[kCodecMotionUavIndex];
++  Check(packet.valid&&view.kind==nr_binding::ViewKind::Uav2D&&view.resource==slot.neural&&view.format==DXGI_FORMAT_R16G16B16A16_FLOAT,"CPU clear view matches immutable actual GPU u2 resource/format");
++  const auto resource=ID3D12Resource_GetDesc(slot.neural);
++  Check(resource.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&resource.Format==view.format&&resource.Width==rw&&resource.Height==rh&&resource.DepthOrArraySize==1&&resource.MipLevels==1&&resource.SampleDesc.Count==1,"actual clear resource GetDesc typed plane");
++  if(!heap)heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,false,1);
++  const auto cpu=ID3D12DescriptorHeap_GetDesc(heap),gpu=ID3D12DescriptorHeap_GetDesc(packet.heaps[nr_binding::Codec]);
++  Check(cpu.Type==D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV&&cpu.Flags==D3D12_DESCRIPTOR_HEAP_FLAG_NONE&&cpu.NumDescriptors==1&&gpu.Type==cpu.Type&&gpu.Flags==D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,"clear CPU heap nonvisible and actual bound GPU heap visible");
++  retained=slot.neural;ID3D12Resource_AddRef(retained);pending=true;
++  // Write the same one-mip Texture2D typed view directly from the immutable
++  // value recipe. Never copy a descriptor from a shader-visible CPU address.
++  descriptor_warp_test::Uav(f,retained,descriptor_warp_test::Cpu(f,heap),view.format);
++  std::printf("CLEAR_CPU_OWNER heap=%p flags=%u gpuHeap=%p gpuFlags=%u resource=%p format=%u extent=%llux%u sample=%u mip=0 plane=0 sameImmutableView=1 resourceRetained=1\n",(void*)heap,unsigned(cpu.Flags),(void*)packet.heaps[nr_binding::Codec],unsigned(gpu.Flags),(void*)retained,unsigned(resource.Format),resource.Width,resource.Height,resource.SampleDesc.Count);
++ }
++ void Pin(unsigned long long token){Check(pending&&retained&&heap&&token&&!recording_token,"clear CPU owner pins exact real recording");recording_token=token;}
++ void Record(queue_test::Fixture& f,ID3D12GraphicsCommandList* list,NrBindingPacket& packet,NrSlot& slot){
++  Check(pending&&retained==slot.neural&&recording_token,"actual typed clear owner live through recording");
++  {nr_source_runtime::Lock lock;unsigned state=0;
++   Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(slot.neural),state)&&state==unsigned(slot.neural_state),"clear before-state matches actual native resource observation");}
++  Transition(list,slot.neural,slot.neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  auto* gpu=packet.heaps[nr_binding::Codec];ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,&gpu);
++  const float sentinel[4]={-1234,-1234,-1234,-1234};UavBarrier(list,slot.neural);
++  ID3D12GraphicsCommandList_ClearUnorderedAccessViewFloat(list,descriptor_warp_test::Gpu(f,gpu,kCodecMotionUavIndex),descriptor_warp_test::Cpu(f,heap),slot.neural,sentinel,0,nullptr);
++  UavBarrier(list,slot.neural);
++  std::printf("CLEAR_RECORDED token=%llu cpuHeap=%p gpuHeap=%p resource=%p sentinel=-1234 prePostUAVBarrier=1\n",recording_token,(void*)heap,(void*)gpu,(void*)retained);
++ }
++ void Retire(unsigned long long token){if(!pending)return;
++  Check(recording_token==token&&retained&&heap,"clear owner exact retired recording matches");
++  std::printf("CLEAR_CPU_RETIRED token=%llu heap=%p resource=%p afterExactFenceAndReset=1\n",token,(void*)heap,(void*)retained);
++  ReleaseCom(retained);pending=false;recording_token=0;
++ }
++ void Drop(){Check(!pending&&!retained&&!recording_token,"CPU clear heap released only after every real flight retires");ReleaseCom(heap);}
++};
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/opaque_control.inl
+@@ -0,0 +1,22 @@
++// One backend seam shared by real Create/Eval errors and this no-F18 control.
++[[noreturn]] void OpaqueFailure(Adapter& envelope,NrContext& ctx,const char* stage,NgxResult result){
++ if(envelope.state)envelope.state->AbandonAfterOpaqueFailure();
++ Fail(stage,&ctx,result);
++}
++void PrintPinnedClosure(){
++ if(!active_flight)return;auto& f=*active_flight;
++ auto* record=FindLifecycleCommandListLocked(f.token);unsigned members=0;
++ if(record)for(auto* lease:{f.slot,&f.packet->lease,&f.diagnostic->lease})for(unsigned i=0;i<record->slot_count;++i)members+=record->slots[i]==lease;
++ std::printf("FATAL_CLOSURE token=%llu nativeToken=%llu recordPresent=%u detached=%u submitCount=%llu exactMembers=%u slotRefs=%u consumerRefs=%u diagnosticRefs=%u contextQuarantined=%u lifecycleUncertain=%u cpuClearHeap=%p clearResource=%p clearPending=%u matricesOwned=%u\n",f.token,f.native_token,record!=nullptr,record?record->detached:1,record?record->submission_count:0,members,f.slot->recording_command_lists,f.packet->lease.recording_command_lists,f.diagnostic->lease.recording_command_lists,f.owner->lifecycle_dependencies_quarantined,g_lifecycle_tracking_uncertain.load(),(void*)f.clear.heap,(void*)f.clear.retained,f.clear.pending,f.cpu_owner!=nullptr);
++ if(controlled_error_pending)std::printf("CONTROL_STOP_OBSERVATION backendCalls=%u executeDelta=%u restoreDelta=%u combineCalls=%u parentReleaseCalls=%u contextDestroyCalls=%u nrInitCalls=%u NRCreate=%u NREval=%u retry=0\n",controlled_backend_calls,queue_test::native_executes-control_execute_base,active_envelope->restores-control_restore_base,probe_combines,parent_release_calls,context_destroy_calls,nr_init_attempts,nr_creates,nr_evals);
++}
++NgxResult ControlledRecordedBackend(queue_test::Fixture& f,queue_test::List& list,NrFlight& flight,NrBindingPacket& diagnostic,NrSlot& slot,Adapter& envelope,bool reject){
++ ++controlled_backend_calls;
++ ID3D12GraphicsCommandList_SetPipelineState(list.native,envelope.alternate_pipeline);
++ flight.clear.Record(f,list.native,diagnostic,slot);
++ nr_source_runtime::Lock lock;unsigned observed=0;
++ Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list.native),nr_source_runtime::ResourceOf(slot.neural),observed)&&observed==D3D12_RESOURCE_STATE_UNORDERED_ACCESS,"controlled backend records actual observed UAV state");
++ const NgxResult result=reject?0xBAD00006u:kNgxSuccess;
++ std::printf("CONTROL_BACKEND call=%u actualPipelineMutation=1 actualTypedClearAndBarriers=1 recordingToken=%llu resource=%p observedState=%u result=%08x vendorNR=0 fakeHandle=0\n",controlled_backend_calls,flight.token,(void*)slot.neural,observed,result);
++ return result;
++}
+--- /dev/null
++++ b/raw-nr-model-safe-host-v3/control_branch.inl
+@@ -0,0 +1,20 @@
++// Included inside the same live admission continuation, before any model or
++// production encode/combine. Iterations reuse frame0/the same actual slot.
++  if(opaque_control){
++   pipeline.Bind(list,heap);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++   Check(envelope.EnvelopeApi().capture(&envelope,list.native),"controlled backend uses actual NativeCommandStateScope");
++   const bool reject=iteration==1;
++   if(reject){controlled_error_pending=true;control_execute_base=queue_test::native_executes;control_restore_base=envelope.restores;active_envelope=&envelope;}
++   const auto result=ControlledRecordedBackend(f,list,flight,*diagnostic,*slot,envelope,reject);
++   Opaque(result,envelope,*nr,reject?"controlled-opaque-stop":"controlled-positive");
++   Check(!reject,"controlled error must terminate at shared opaque failure sink");
++   ObserveSlot(list.native,*nr,*slot,"controlled-positive");
++   Capture::Copy(list.native,slot->neural,capture.half_readbacks[1],capture.half_footprints[1],slot->neural_state);
++   ObserveAfterOpaque(list.native,*owner,frame,"controlled-positive");LeaveCriticalSection(&g_chain_cs);
++   flight.Finish(f,list,frame);Capture::Save(capture.half_readbacks[1],capture.half_footprints[1],8,0,"clear-positive-rgba16f");
++   const auto cleared=File(L"clear-positive-rgba16f-0.bin");Check(cleared.size()==size_t(rw)*rh*8,"typed clear exact full plane readback size");
++   for(size_t i=0;i<cleared.size();i+=2)Check(cleared[i]==0xd2&&cleared[i+1]==0xe4,"actual clear -1234 exact IEEE binary16 d2e4 bytes");
++   std::printf("CONTROL_POSITIVE sameSlot=%p sameCPUHeap=%p clearReadbackExact=1 scopeRestored=1 exactFenceAndReset=1 NRInit=0 NRCreate=0 NREval=0 combineCalls=%u parentReleaseCalls=%u\n",(void*)slot,(void*)flight.clear.heap,probe_combines,parent_release_calls);
++   continue_control=true;
++   return;
++  }
