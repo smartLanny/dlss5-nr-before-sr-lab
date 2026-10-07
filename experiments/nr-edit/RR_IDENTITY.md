@@ -59,15 +59,34 @@ semantic 别名或 ColorBefore/After/透明层关系不支持时拒绝；静态�
 - 从独立 B1 官方合同表读取所有非 Color 资源键，逐个用实际模块验证
   Color 物理别名必须在 GPU copy 前拒绝；测试列表不手抄实现中的键列表。
 
-这里的 native callback 是受控 CopyResource 消费者，envelope/lease 是明确
-标记的隔离宿主 adapter；这些结果不算 NVIDIA NGX 或生产 adapter 通过。
-真实 Core command-state/lease 适配验证另行记录，不能借用这 304 项充数。
+上述 native callback 是受控 CopyResource 消费者，envelope/lease 是明确
+标记的隔离宿主 adapter；这些 304 项结果不算 NVIDIA NGX 或生产 adapter 通过。
+
+`scripts/validate-rr-identity-core.py` 另行编译完整 assembled Core
+`9b2636eb6cd80b540f80194fc6be771d14709c0b`（#341 的 canonical source），
+链接其经清单核对的实际对象与 source-defines，并验证与实验头文件 ABI 相同。
+`tests/rr_identity_core_host.cpp.in` 实跑 Windows/WARP，使用实际
+NativeCommandStateScope、Create/setter/Reset observer、AcquireBindingPacket、
+RecordNrUseLocked、CanMutateSlotLocked 及真实 queue/fence；7 场景 282 项
+全部通过，覆盖成功/失败 Reset、未提交、未知状态拒绝、opaque 失败、关闭
+和可重执行 list 的保守 quarantine。冷 Collect/Retire 保持既有 chain 锁，
+copy 后态查询保持 source 锁，没有建立第二份提交账本。
+
+两项私有测试副本分别移除实际 recording 引用发布和 scope Restore，均先
+编译成功，再在指定 LEASE_PINNED_BEFORE_FIRST_COPY /
+PRODUCTION_ENVELOPE_RESTORED 断言精确 exit 41。初版夹具编译失败及两项
+错误预期失败回执保留，未放宽生产门。本组仅关闭真实 Core adapter 缺口；
+source/module/feature/材质事实及 native copy callback 仍受控，未运行 NGX。
+它也不是本分支或后续组合候选的完整 canonical。
 
 ## 后续审查门
 
 按 [#309 执行单](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346)
 提交 B1 合同、B2 关键 diff、真实 adapter 正负控与调用计数供主审。运行时
 完整 RR 材质/反射/透明/曝光合同、同输入/初始化/预热的原生重复基线仍缺失。
+独立进程的原生 Feature13 A baseline、A2 repeat、B identity 属于 B2，可在
+此门之前完成；各组独立历史，每源帧一次原生 RR、额外 PrivateSceneRR=0、
+NR=0。固定输入网格 N=R 不要求原生输出 O=R，亦不能用 Feature1 替代 RR。
 在审查通过前不接产品，不执行额外私有 Feature13，不选择 ratio 分母、
 firefly 阈值或 jitter 符号，不让维护者分批测试该宿主。
 
