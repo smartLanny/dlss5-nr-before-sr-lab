@@ -72,12 +72,23 @@ r4 执行结果 SHA `22887ce6c66091428fb85e42112999fa220634160919dcb7e6d127a9c5b
 支持 Init 收到了代理设备这一窄事实。已准备只替换为同 LUID 的原始设备、
 保持全部其他 Init 输入的单变量对照；必须先核 unwrap 的 IUnknown→typed
 ID3D12Device QI，再仅 Init一次/成功时同设备 Shutdown1，caps/Create前停止。
-未执行的旧 r6 缺少 typed QI，保留原件并由独立 r6b 补齐。即使此控制成功，
-也不等于完整 renderer 的 Create/Eval、Core观察或模型接入通过。
+未执行的旧 r6 缺少 typed QI，保留原件并由独立 r6b 补齐。r6b随后实际运行：
+unwrap/typed QI均S_OK、原始与代理指针不同、同进程LUID相同，Init实际传入
+typed原始设备；仍在同一HW check返回BAD00001。仅Init1，caps/Create/Eval/NR0，
+失败所以Shutdown0，最后typed引用Release，进程退出/GPU释放。因此只unwrap
+即可恢复的假说未成立，停止基于此假说的完整架构改造。
+
+最后仅允许一次有官方合同依据的Init-only控制：自身固定ProjectID/CUSTOM与
+显式per-run可写dataPath，其他SDK/310.9.1 tuple/typed设备/API15/CommonInfo
+不动。原numeric ID缺分配证据不等于已证无分配；这次是复合合同修正，成功
+也不能分开归因AppID或path，更不等于Create/Eval/Core采用通过。失败则本轮
+官方测试台适配停止，不换SDK/驱动或扫描参数。
 
 r5 stdout SHA `5a7a9fe6cefb7ad8a135859608e8f4e601c30a0371755c7eff47efb3acdb576d`。
 r5 result SHA `d33c69fcbdee59d7d383cd68c54472d9856aef35b28a7c15a705323374ff6f66`。
 原始设备对照方向 SHA `460286bcdec0ef6aeb131240d3b7cb0f9213745be06fc820763fde1f32fb3a38`。
+r6b result SHA `9645c7c27b6cac5904396135c894961f1f57fac29edc6faf72f88648588461de`。
+最后合同方向 SHA `c5969564619cfab710b643d00ab405c40c8a01f0229348870bba0e1830efea7d`。
 
 先完成一个准确 SR-off 功能首门，再串行 NR-on / RR；失败保留并定位，不扫配置。
 真实 Feature18 Create/Eval/adopt 与精确退休成立后才加入画质与计量。画质和性能
