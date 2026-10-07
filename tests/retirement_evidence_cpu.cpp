@@ -19,6 +19,8 @@ struct NgxHandle{} handle;
 struct ID3D12GraphicsCommandList{} list;
 struct ID3D12Fence{Id completed=9;};
 unsigned fence_reads=0,ready_calls=0,invalidations=0,drops=0,releases=0,logs=0,checks=0;
+unsigned death_service_calls=0,temporal_maintain_calls=0,post_maintain_calls=0;
+bool death_service_marks_uncertain=false;
 Id now=100;
 Id GetTickCount64(){return now;}
 Id ID3D12Fence_GetCompletedValue(ID3D12Fence* f){++fence_reads;return f->completed;}
@@ -70,15 +72,19 @@ void Log(const char*,...){++logs;}
 void MarkLifecycleUncertain(const char*){g_lifecycle_tracking_uncertain=true;}
 void DrainNgxFeatureRetirementsLocked(){}
 void CollectCompletedDeltaStatsLocked(){}
-// This diagnostic-only fixture has no native COM lifetime events. The actual
-// native death consumer is covered by the complete-Core WARP queue host.
-void CollectDeadNativeRecordingsLocked(){}
-namespace nr_temporal{void Maintain(NrContext&) {}}
+// This controlled service only models uncertainty becoming visible at this
+// collector boundary. It never represents or proves a native COM death; that
+// event consumer is covered separately by the complete-Core WARP queue host.
+void CollectDeadNativeRecordingsLocked(){
+    ++death_service_calls;
+    if(death_service_marks_uncertain)MarkLifecycleUncertain("controlled death-service uncertainty");
+}
+namespace nr_temporal{void Maintain(NrContext&) {++temporal_maintain_calls;}}
 namespace nr_spatial_experiment{void SweepIdle(){}}
 namespace nr_dual{void RebindSlotOwners(NrContext& c){for(auto& s:c.slots)s.dual_owner=&c;}}
 namespace nr_post_product{
 bool Ready(const NrContext& c){++ready_calls;return c.post_ready;}
-void Maintain(NrContext&){}
+void Maintain(NrContext&){++post_maintain_calls;}
 #include "private_inspector.inl"
 }
 void DropBindingPacket(NrBindingPacket& p){++drops;p={};}
@@ -106,6 +112,7 @@ void Clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)
     g_nr_retirement_deciding=nullptr;g_nr_retirement_observations=g_nr_retirement_suppressed=g_nr_retirement_publication=0;
     g_lifecycle_tracking_uncertain=false;g_nr_context_releases_in_progress=0;
     fence_reads=ready_calls=invalidations=drops=releases=logs=0;now+=2000;
+    death_service_calls=temporal_maintain_calls=post_maintain_calls=0;death_service_marks_uncertain=false;
 }
 NrContext& Retired(){auto& c=g_contexts[0];c.sr_handle=&handle;c.instance_id=73;c.retired=true;return c;}
 void Collect(){EnterCriticalSection(&g_chain_cs);CollectRetiredContextsLocked();LeaveCriticalSection(&g_chain_cs);}
@@ -150,6 +157,8 @@ int main(){using namespace nr_retirement;
     std::printf("PASS binding detail overflow: %u checks; only extracted diagnostic capacity guard reduced\n",checks);return 0;
 #else
     Clear();Collect();Check(!g_nr_retirement_published.sequence&&!fence_reads&&!ready_calls,"no retired path creates no snapshot or fence/Ready work");
+    Check(death_service_calls==1&&temporal_maintain_calls==std::size(g_contexts)&&post_maintain_calls==std::size(g_contexts),
+        "controlled maintenance counters witness the actual normal collector path");
     auto& c=Retired();ID3D12Fence fence;LifecycleQueue queue{nullptr,&fence,7};
     c.last_submission_queue=&queue;c.completion_fence_value=9;c.recording_command_lists=1;c.pending_recording_token=45;c.awaiting_fence_signal=true;
     c.slots[0].key=&list;c.slots[0].recording_command_lists=1;c.slots[0].last_submission_queue=&queue;c.slots[0].completion_fence_value=9;
@@ -205,6 +214,13 @@ int main(){using namespace nr_retirement;
     Check(!fence_reads&&!ready_calls&&(evidence.context[0].unknown&ContextFence),"quarantine diagnostic does not dereference unproven fence");
     Clear();auto& uncertain=Retired();uncertain.recording_command_lists=1;g_lifecycle_tracking_uncertain=true;Collect();
     Check(g_nr_retirement_published.context[0].first_block==TrackingUncertain&&!ready_calls,"collector uncertainty early return is observed without predicate calls");
+    Clear();auto& death_uncertain=Retired();death_service_marks_uncertain=true;Collect();
+    Check(death_service_calls==1&&g_lifecycle_tracking_uncertain,
+        "controlled death service publishes uncertainty after the first collector gate");
+    Check(!temporal_maintain_calls&&!post_maintain_calls&&!ready_calls&&!invalidations&&!drops&&!releases&&!Pending()&&death_uncertain.sr_handle==&handle,
+        "COLLECTOR_DEATH_UNCERTAIN_GUARD");
+    Check(g_nr_retirement_published.context[0].first_block==TrackingUncertain&&g_nr_retirement_published.pending_used==0,
+        "post-death-service uncertainty publishes refusal without scheduling destruction");
     Clear();auto& releasing=Retired();releasing.recording_command_lists=1;g_nr_context_releases_in_progress=1;Collect();
     Check(g_nr_retirement_published.releasing==1&&(g_nr_retirement_published.context[0].blocked&ReleaseInProgress),"outside-lock release window is separate evidence");
     const auto prior_sequence=g_nr_retirement_published.sequence;g_lifecycle_tracking_uncertain=true;Collect();

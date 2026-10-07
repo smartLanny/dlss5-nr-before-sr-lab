@@ -47,8 +47,14 @@ class RetirementEvidence(unittest.TestCase):
             'append.inl':definition(feedback,'void FeedbackAppend('),
             'formatter.inl':(ROOT/'src/nr_retirement_feedback.inl').read_text(encoding='utf-8-sig'),
         }
+        source_head=(subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True).stdout.strip() or None
+                     if shutil.which('git') else None)
         report={'schema':'nr-retirement-evidence-cpu-v1','status':'running','gpu':False,'ngx':False,'game':False,
-                'scope':'Production predicate/collector/binding/POD publisher/formatter and const inspectors; controlled OS and owner-maintenance services',
+                'scope':'Production predicate/collector/binding/POD publisher/formatter and const inspectors; controlled OS, owner maintenance and death-service uncertainty publisher; no native COM death proof',
+                'source_head':source_head,
+                'source_core_sha256':hashlib.sha256((ROOT/'src/nr_before_sr.cpp').read_bytes()).hexdigest(),
+                'fixture_sha256':hashlib.sha256((ROOT/'tests/retirement_evidence_cpu.cpp').read_bytes()).hexdigest(),
+                'runner_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 'runs':[],'pieces_sha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in pieces.items()}}
         flags=['-std=c++20','-O1','-Wall','-Wextra','-Werror','-fstack-usage']
         if os.name=='nt':flags+=['-static']
@@ -61,12 +67,20 @@ class RetirementEvidence(unittest.TestCase):
             ('missing-pending-mask','if(c.pending_recording_token)row.blocked|=ContextPending;',
              'full mask preserves simultaneous pending/slot/binding/private/temporal blockers'),
             ('f8-extra-ready','out=g_nr_retirement_published;',
-             'earlier branch never calls Ready or claims unobserved post-ready'))
+             'earlier branch never calls Ready or claims unobserved post-ready'),
+            ('collector-death-uncertain-gate',None,'COLLECTOR_DEATH_UNCERTAIN_GUARD'))
         try:
             for name,marker,failure in mutations:
                 case=folder/name;case.mkdir()
                 small_detail=name in ('binding-detail-overflow','binding-overflow-short-circuit','binding-holder-from-details-only')
                 for filename,text in pieces.items():
+                    if filename=='collector.inl' and name=='collector-death-uncertain-gate':
+                        death_call='    CollectDeadNativeRecordingsLocked();\n'
+                        self.assertEqual(text.count(death_call),1)
+                        before,after=text.split(death_call)
+                        guard=definition(after,'if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))')
+                        self.assertEqual(after.count(guard),1)
+                        text=before+death_call+after.replace(guard,'',1)
                     if filename=='runtime.inl' and small_detail:
                         self.assertEqual(text.count('if(out.bindings==kBindings)'),1)
                         text=text.replace('if(out.bindings==kBindings)','if(out.bindings==1)')
@@ -84,8 +98,9 @@ class RetirementEvidence(unittest.TestCase):
                 for index,command in enumerate(commands):
                     result=subprocess.run(command,cwd=ROOT,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=90)
                     (case/f'{index}.log').write_text(result.stdout+result.stderr,encoding='utf-8')
-                    report['runs'].append({'name':name,'index':index,'command':command,'exit':result.returncode})
                     expected=3 if index==1 and failure else 0
+                    report['runs'].append({'name':name,'index':index,'command':command,'exit':result.returncode,
+                                           'expected_exit':expected,'expected_assertion':failure if index==1 else None})
                     self.assertEqual(result.returncode,expected,result.stdout+result.stderr)
                     if index==1:
                         if failure:self.assertIn('FAIL '+failure,result.stderr)
