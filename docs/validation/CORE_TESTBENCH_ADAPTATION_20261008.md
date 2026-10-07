@@ -60,6 +60,25 @@ r4 执行结果 SHA `22887ce6c66091428fb85e42112999fa220634160919dcb7e6d127a9c5b
 
 ## 后续最小范围
 
+### r5 因果日志与隔离初始化对照
+
+只启用原应用内 callback/VERBOSE 的一次 SR-off 实际运行仍 exit1。日志确认
+驱动 NGX core 经 QAI 找到并成功加载，随后在 `NGXCheckIfSupportedOnHW`
+报告 unsupported hw，再由 Init 返回 BAD00001。应用旁 DLL 的126是此前查找
+过程，不能当最终缺库原因；失败后 invalid-handle release 也不是第一原因。
+该结果不能外推本 GPU 一般不支持 DLSS。
+
+同一次 ReShade 的 CreateCommandQueue `this` 与实际 Init device 指针相同，
+支持 Init 收到了代理设备这一窄事实。已准备只替换为同 LUID 的原始设备、
+保持全部其他 Init 输入的单变量对照；必须先核 unwrap 的 IUnknown→typed
+ID3D12Device QI，再仅 Init一次/成功时同设备 Shutdown1，caps/Create前停止。
+未执行的旧 r6 缺少 typed QI，保留原件并由独立 r6b 补齐。即使此控制成功，
+也不等于完整 renderer 的 Create/Eval、Core观察或模型接入通过。
+
+r5 stdout SHA `5a7a9fe6cefb7ad8a135859608e8f4e601c30a0371755c7eff47efb3acdb576d`。
+r5 result SHA `d33c69fcbdee59d7d383cd68c54472d9856aef35b28a7c15a705323374ff6f66`。
+原始设备对照方向 SHA `460286bcdec0ef6aeb131240d3b7cb0f9213745be06fc820763fde1f32fb3a38`。
+
 先完成一个准确 SR-off 功能首门，再串行 NR-on / RR；失败保留并定位，不扫配置。
 真实 Feature18 Create/Eval/adopt 与精确退休成立后才加入画质与计量。画质和性能
 独立进程/窗口；性能使用原 graphics queue/fence 的两个 timestamp，图像采集实际
