@@ -140,9 +140,23 @@ copy; these are not measurements of the complete game's call stack or FPS.
 
 Whole-Core Windows syntax and the existing combined F8 TXT/ZIP CPU fixture
 passed (103 checks, plus its exact old-capacity negative). That isolated combined
-fixture does not enable the new retirement writer; its passing result alone
-does not prove the combined worst-width retirement tail. The assembled complete
-Core serializer must separately exercise that writer and its final privacy path.
+fixture does not enable the new retirement writer, so it is not used as proof
+of the new combined worst-width tail.
+
+The complete assembled Core serializer was then compiled from accurately
+exported commit `8787b9e8aa6c8be4b2635175f1bc0ccd2aa65068`, with verified
+temporal/private module receipts. Seven fresh CPU processes passed: real clock,
+unavailable clock and 12–16-digit deterministic clocks. The fixture supplies a
+synthetic published retirement POD with 32 full-width typed contexts and full
+detail tables; the actual Activity writer, final collector and disk output
+preserve every context mask and semantic pending token, redact pointer fields,
+and explicitly omit optional detail. Maximum metadata was 281,852/294,912 bytes;
+the widest mandatory end tail was 179,049 bytes within the 185 KiB reserve.
+The all-source text capacity check was 422,150/491,520 bytes. Removing the actual
+end-retirement writer compiled successfully and made all seven processes fail
+at the required `FULL_CORE_F8_RETIREMENT_END` assertion with exit41. These are
+CPU serialization/capacity results, not native holder, NGX or game observations.
+
 A first whole-Core syntax attempt exposed a too-narrow CPU-double owner type;
 the helper now compares the production `const void*` identity without
 dereferencing it, and the CPU fixture uses that actual type. The failed run is
