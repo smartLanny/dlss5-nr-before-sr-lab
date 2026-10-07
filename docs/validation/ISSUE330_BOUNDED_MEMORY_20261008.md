@@ -32,7 +32,7 @@ Create/Release 决策、运行库、设置、UI、任何 GPU 命令或默认值�
 
 ## 有界容量与 CPU 验证
 
-证据根目录：`G:\DLSS5-evidence\issue330-20261008`。
+本地证据标识：`local-evidence:issue330-20261008`；下列回执相对此标识。
 
 | 验证 | 结果 / 回执 |
 |---|---|
