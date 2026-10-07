@@ -10,7 +10,9 @@ void DrawPrivateResidualSr(ChainConfig& next,bool& changed,bool& discrete) {
     if(next.private_residual_sr) {
         const auto state=nr_private_sr_status::state.load();
         const bool current_state=!changed&&nr_private_sr_status::state_configuration.load()==g_config_generation.load();
-        if(!current_state)SettingsNote(ui("Preparing: checking this configuration.","准备中：等待当前设置状态。"));
+        if(nr_processing_runtime::Effective()!=nr_processing::Start::After)
+            SettingsNote(ui("Not applied: available only with post-SR NR.","未生效：仅后置 NR 可用。"));
+        else if(!current_state)SettingsNote(ui("Preparing: checking this configuration.","准备中：等待当前设置状态。"));
         else if(state==nr_private_sr_status::State::Quarantined)
             SettingsNote(ui("Not applied: processing fault. Save F8 and restart with this off.","未生效：处理异常。保存 F8，关闭后重启。"));
         else if(state==nr_private_sr_status::State::OriginalInterface)
