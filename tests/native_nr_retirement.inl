@@ -140,7 +140,7 @@ NgxResult NativeOwnerRelease(void* entry,void* handle) {
 NrContext& NativeOwner() {
     auto& nr=g_contexts[0];
     nr.sr_handle=reinterpret_cast<const NgxHandle*>(static_cast<uintptr_t>(339));
-    nr.nr_handle=reinterpret_cast<void*>(static_cast<uintptr_t>(340));
+    nr.nr_handle=reinterpret_cast<NgxHandle*>(static_cast<uintptr_t>(340));
     nr.instance_id=339;
     g_nr_api.initialized=true;
     g_nr_api.signed_release=reinterpret_cast<void*>(&NativeOwnerRelease);
