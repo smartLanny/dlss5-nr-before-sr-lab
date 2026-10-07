@@ -90,7 +90,25 @@ r5 result SHA `d33c69fcbdee59d7d383cd68c54472d9856aef35b28a7c15a705323374ff6f66`
 r6b result SHA `9645c7c27b6cac5904396135c894961f1f57fac29edc6faf72f88648588461de`。
 最后合同方向 SHA `c5969564619cfab710b643d00ab405c40c8a01f0229348870bba0e1830efea7d`。
 
-先完成一个准确 SR-off 功能首门，再串行 NR-on / RR；失败保留并定位，不扫配置。
+### r7 最后合同控制仍拒绝，本批适配停止
+
+r7只执行一次。实际typed原始设备、自身固定ProjectID/CUSTOM与绝对per-run
+dataPath已输出，启动前真实write/fsync/close/read和两项路径负控通过；SDK、
+API15、CommonInfo与310.9.1 tuple不变。驱动NGX仍成功加载后在同一HW check
+返回BAD00001。Init1、Shutdown0、caps/Create/Eval/NR0；进程退出、typed引用
+释放、GPU窗口结束。没有F8、重试、换tuple/驱动或配置扫描。
+
+按此前方向，**本批官方场景测试台适配STOP**。失败原因保持unknown，不能
+泛称5090D不支持，也不能单独归因ID、目录或代理。NRD-Sample仍是初评成本
+较低的选择，但当前初始化前置未成立，未完成可用MVP。暂停GUI/计量/采集扩接，
+不另造系统或转投RTXPT继续扩大范围。已备计时helper仅CPU编译，未接入。
+
+r7 result SHA `d288679cde843a4024fd5ba0fdcbf21fc37b477f18f15f25e182761c161229a7`。
+execution SHA `f2e1c4d2775f8983e676990e2508ac917d1a11386e40e6a3f32ac7986843b130`。
+独立准入报告 SHA `566480e4e4e2b330b8dfd4f76dac6749500d5cad8fcb5c30f92ded8daa49c795`。
+
+此前计划先完成准确 SR-off 功能首门，再串行 NR-on / RR；当前Init前置未过，
+本批不执行这些后续组合。失败全部保留，不扫配置。
 真实 Feature18 Create/Eval/adopt 与精确退休成立后才加入画质与计量。画质和性能
 独立进程/窗口；性能使用原 graphics queue/fence 的两个 timestamp，图像采集实际
 工作为0，显存查询必须在 Sample 进程内。普通 Sample FPS 是 CPU loop，不能当

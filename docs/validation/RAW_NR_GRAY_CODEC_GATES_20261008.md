@@ -48,6 +48,31 @@ CPU子进程证明不执行atexit/静态析构，再用同host一次无F18部分
 验证保留依赖并停止提交/恢复/释放。厂商真实partial-handle、device-loss和
 failed-Reset仍unknown，不新增完整故障矩阵。
 
+v3的唯一实际无NR控制在正向首段提前拒绝，未到预定第二段错误：真实Clear
+成功录制后，`ObserveSlot` 首查proxy无状态记录，按原门退出42并保留三份lease/
+descriptor闭包。此分支绕过encode，只对neural转换；新proxy虽由factory以
+COMMON创建，但当前recording从未录制其transition。Reset后同目标neural
+转换也会no-op，不能当新状态证据。因此控制未通过，不把退出42单独算PASS。
+
+最小新v4仅补control的真实状态来源与barrier：首次绑定实际fresh factory
+COMMON，后继绑定相同资源的前次实际观测及精确退休；同目标经合法中间状态
+再回目标，每次重新StateOf核验。原ObserveSlot/生产guard不改、不直接填表。
+旧v3保持失败封存，模型仍禁用，下一次执行须独立窄核和GPU窗口。
+
+v3实际manifest SHA `9dee0735b3c950496c10912f7dc1519e8cff1d00e10c614daffa7ab004371c03`。
+独立定位 SHA `854eb7507f46a72323e5322ac3b79e36d4896c835096792175a68379330984e3`。
+
+v4经独立窄核后只执行一次，注册纪律门通过。正向首段两资源实际transition/
+StateOf成立，neural整面FP16 Clear读回d2e4逐bit一致，Scope恢复及同recording
+精确fence/Reset退休完成。第二记录真实命令后受控BAD00006，实际token3三份
+lease/CPUheap闭包仍持有并quarantine，提交/恢复/combine/release/retry增量为0，
+日志flush后实际退出42。此时只有F13 Create1/Eval0，NR Init/Create/Eval0。
+原厂partial-handle/device-loss/failedReset仍未测试，不能外推。
+
+v4实际manifest SHA `e3c61bb691ae041cab5d304325cb292c35425be6aec0f3607c46b1de8ddab888`。
+外层known-process监督 SHA `01a1dc101cfdaee57e5e9c0937384ab4b3a2b17e97e331887209f6f43381be37`。
+独立窄核 SHA `97facac911e1507ad939d4d17b44ed0918fc403f489ed9a17dee4fd3f04a6c82`。
+
 关键diff及上述小门过后才允许固定四个独立history，16warm/16observe一次；
 完整U和paired-repeat保留。NR decoded与editedRaw各自判定；不唯一/不informative
 保持unknown，不继承SceneRR c0。当前未运行模型，不宣称新RR可用。
