@@ -77,8 +77,11 @@ def output_statistics(case):
         rows.append({'frame': index, 'sha256': sha(path), 'channels': channels,
                      'changed_rgba_half_components_from_previous': changed})
         previous = pixels.view('<u2').copy()
+    if not any(row['changed_rgba_half_components_from_previous'] for row in rows[1:]):
+        raise ValueError('Controlled sequence did not establish temporal output response; '
+                         'this does not establish model failure or a quality defect')
     return {'frames': rows, 'all_finite': True, 'nonzero_spatially_varying_rgb': True,
-            'input_response_observed': any(row['changed_rgba_half_components_from_previous'] for row in rows[1:]),
+            'input_response_observed': True,
             'claim': 'Controlled clean output validity only; no phase, NR benefit, or game-quality oracle.'}
 
 
@@ -140,7 +143,7 @@ def execute(out):
             row['ranges'] = [dict(zip(('key', 'value', 'origin'), values)) for values in
                              re.findall(r'RANGE key=(\S+) value=(\d+) origin=(\S+)', log)]
             row['parent_guards'] = re.findall(r'PARENT_GUARD .*', log)
-            row['leases'] = re.findall(r'LEASE .*', log)
+            row['leases'] = re.findall(r'^LEASE .*', log, re.MULTILINE)
             row['retired'] = re.findall(r'RETIRED .*', log)
             row['resource_states'] = re.findall(r'RESOURCE_STATE .*', log)
             row['state_before'] = re.findall(r'STATE_BEFORE .*', log)
