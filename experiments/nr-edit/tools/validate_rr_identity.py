@@ -40,6 +40,14 @@ def main():
         ('quarantine-off-bypass', 'if(c&&c->poisoned){out.reason=Reason::OpaqueFailure;out.result=fatal;return out;}',
          '// precise negative: disabled path escapes quarantine', 41,
          'switching off cannot escape quarantine'),
+        ('device-loss-cold', None, None, 0, 'RR actual WARP device-loss'),
+        ('device-loss-recorded', None, None, 0, 'RR actual WARP device-loss'),
+        ('device-loss-bypass-cold',
+         ['FAILED(device->GetDeviceRemovedReason())', 'FAILED(c->device->GetDeviceRemovedReason())'],
+         ['false', 'false'], 41, 'actual device loss is fatal before native or GPU work'),
+        ('device-loss-bypass-recorded',
+         ['FAILED(device->GetDeviceRemovedReason())', 'FAILED(c->device->GetDeviceRemovedReason())'],
+         ['false', 'false'], 41, 'actual device loss is fatal before native or GPU work'),
     ]
     report = {'scope': 'isolated real D3D12 WARP; controlled native copy/envelope/lease adapter',
               'ngx_inference': False, 'game': False, 'production_adapter': False,
@@ -52,9 +60,11 @@ def main():
         directory.mkdir(exist_ok=True)
         text = original
         if needle is not None:
-            if text.count(needle) != 1:
-                raise RuntimeError(f'{name}: expected exactly one mutation anchor')
-            text = text.replace(needle, replacement)
+            anchors = zip(needle, replacement) if isinstance(needle, list) else [(needle, replacement)]
+            for before, after in anchors:
+                if text.count(before) != 1:
+                    raise RuntimeError(f'{name}: expected exactly one mutation anchor')
+                text = text.replace(before, after)
         generated = directory / source.name
         generated.write_text(text, encoding='utf-8')
         exe = directory / 'rr-identity.exe'
@@ -63,7 +73,8 @@ def main():
                        str(generated), '-o', str(exe), '-ld3d12', '-ldxgi', '-ldxguid']
         row = {'name': name, 'expected_exit': expected, 'diagnostic': diagnostic,
                'mutated_source_sha256': digest(generated), 'steps': []}
-        for stage, cmd in [('compile', compile_cmd), ('run', [str(exe)])]:
+        run_args = ['--device-loss', name.rsplit('-', 1)[-1]] if name.startswith('device-loss-') else []
+        for stage, cmd in [('compile', compile_cmd), ('run', [str(exe), *run_args])]:
             start = time.monotonic()
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             log = r.stdout + r.stderr

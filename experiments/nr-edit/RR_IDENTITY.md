@@ -56,6 +56,12 @@ semantic 别名或 ColorBefore/After/透明层关系不支持时拒绝；静态�
 - 四个生成副本各编译成功后，移除 CopyResource、移除 Color 恢复、增加
   第二 native 调用、移除关闭时 quarantine 门，均在指定断言精确 exit 41。
   正向 exit 0；没有修改正在验证的生产文件。
+- 两个独立进程对其 WARP device 实际调用 `ID3D12Device5::RemoveDevice`，
+  分别验证冷 context（17 项）和已录制 context（20 项）。设备确实失效后
+  不再录制/修改参数/调用 native，不伪造退休，关闭也不能逃过隔离。删除两处
+  removed-reason 检查的副本各编译成功，在指定设备丢失断言精确 exit 41。
+  早期在同进程重复创建已移除 WARP device 的失败保留；最终两个模式进程
+  隔离，不触碰硬件 GPU、NVIDIA 模块或游戏。
 - 从独立 B1 官方合同表读取所有非 Color 资源键，逐个用实际模块验证
   Color 物理别名必须在 GPU copy 前拒绝；测试列表不手抄实现中的键列表。
 
@@ -79,11 +85,27 @@ PRODUCTION_ENVELOPE_RESTORED 断言精确 exit 41。初版夹具编译失败及�
 source/module/feature/材质事实及 native copy callback 仍受控，未运行 NGX。
 它也不是本分支或后续组合候选的完整 canonical。
 
+`scripts/validate-rr-identity-native.py` 再使用同一实际完整 Core，运行
+三个独立进程 A（原生）、A2（原生重复）和 B（Color identity）。每组一次
+初始化、一次原始 Feature13 创建、32 次原始 Evaluate（16 暖机＋16 观察）；
+无 Feature1/18、NR、额外 private RR 或产品入口。固定 R=N=1280×720、
+O=1920×1080、单层/FG off，HDR Color 和 preExposure=.75/exposureScale=2，
+材质、反射、depth/投影、零 jitter/MV 与透明缺席均为显式控制宿主合同。
+它没有把游戏 B1 的 unknown 改成 verified。
+
+逐帧 Color/导引/非 Color getter/合同一致；本次观察 A–A2、A–B 的全部
+RGBA FP16 位均相同（RGB max/MAE/RMS、alpha max 和变化成分均为 0）。
+输出全部有限非零、有显著空间梯度和逐帧响应；CPU 独立重建 32 帧输入
+SHA 与宿主上传来源相等。没有预写 sentinel，不据此声称独立写掩码证明
+或普遍 NGX 逐位确定性。B 的 32 个实际 Core 租约逐一沿真实提交/fence/
+成功 Reset 退休，A/A2 无复制租约。准确源码、对象、运行库、输出与失败
+回执见 [脱敏报告](../../docs/validation/RR_B2_NATIVE_CONTROL_20261008.md)。
+
 ## 后续审查门
 
 按 [#309 执行单](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346)
-提交 B1 合同、B2 关键 diff、真实 adapter 正负控与调用计数供主审。运行时
-完整 RR 材质/反射/透明/曝光合同、同输入/初始化/预热的原生重复基线仍缺失。
+提交 B1 合同、B2 关键 diff、真实 adapter 正负控与调用计数供主审。受控
+宿主已具备原生重复基线；真实游戏完整材质/反射/透明/曝光合同仍未知。
 独立进程的原生 Feature13 A baseline、A2 repeat、B identity 属于 B2，可在
 此门之前完成；各组独立历史，每源帧一次原生 RR、额外 PrivateSceneRR=0、
 NR=0。固定输入网格 N=R 不要求原生输出 O=R，亦不能用 Feature1 替代 RR。

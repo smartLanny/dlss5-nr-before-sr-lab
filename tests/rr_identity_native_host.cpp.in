@@ -1,0 +1,217 @@
+// Standalone B2 native Feature13 control. Included after the frozen full-Core
+// lease adapter; generated scene inputs are not game pixels or a quality test.
+#include <bcrypt.h>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include "rr-native-keys.inl"
+namespace rr_identity_native_test {
+using namespace rr_identity_core_test;
+constexpr unsigned rw=1280,rh=720,ow=1920,oh=1080;
+constexpr float pre_exposure=.75f,exposure_scale=2.f;
+std::string Digest(const void* data,size_t size){
+    BCRYPT_ALG_HANDLE algorithm=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;ULONG bytes=0,object_size=0;
+    Check(BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0)==0,"SHA256 provider");
+    Check(BCryptGetProperty(algorithm,BCRYPT_OBJECT_LENGTH,(PUCHAR)&object_size,sizeof(object_size),&bytes,0)==0,"SHA256 object size");
+    std::vector<unsigned char> object(object_size);unsigned char digest[32]{};
+    Check(BCryptCreateHash(algorithm,&hash,object.data(),object_size,nullptr,0,0)==0&&
+        BCryptHashData(hash,(PUCHAR)data,static_cast<ULONG>(size),0)==0&&BCryptFinishHash(hash,digest,32,0)==0,"SHA256 input bytes");
+    BCryptDestroyHash(hash);BCryptCloseAlgorithmProvider(algorithm,0);std::ostringstream out;
+    for(auto v:digest)out<<std::hex<<std::setfill('0')<<std::setw(2)<<unsigned(v);return out.str();
+}
+unsigned short Half(float value){
+    // Values are positive normal numbers; explicit round-to-nearest-even.
+    unsigned bits=0;std::memcpy(&bits,&value,4);int exponent=int((bits>>23)&255)-127+15;
+    if(exponent<=0||exponent>=31)Check(false,"generated scene finite positive normal half");
+    unsigned mantissa=bits&0x7fffff,rounded=mantissa>>13,remainder=mantissa&8191;
+    if(remainder>4096||(remainder==4096&&(rounded&1)))++rounded;
+    if(rounded==1024){rounded=0;++exponent;}return static_cast<unsigned short>((exponent<<10)|rounded);
+}
+struct Plane {
+    ID3D12Resource *resource=nullptr,*upload=nullptr;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0;unsigned width=0,height=0,bpp=0;
+    void Make(queue_test::Fixture& f,unsigned w,unsigned h,DXGI_FORMAT format,bool output=false){
+        width=w;height=h;bpp=format==DXGI_FORMAT_R32_FLOAT?4:8;
+        D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=w;desc.Height=h;
+        desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;desc.Format=format;
+        if(output)desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+        Hr(ID3D12Device_CreateCommittedResource(f.device,&heap,D3D12_HEAP_FLAG_NONE,&desc,
+            output?D3D12_RESOURCE_STATE_UNORDERED_ACCESS:D3D12_RESOURCE_STATE_COPY_DEST,nullptr,
+            IID_ID3D12Resource,(void**)&resource),"generated RR plane");
+        ID3D12Device_GetCopyableFootprints(f.device,&desc,0,1,0,&footprint,nullptr,nullptr,&bytes);
+        if(!output)upload=Buffer(f,bytes,D3D12_HEAP_TYPE_UPLOAD);
+    }
+    void FillAndRecord(ID3D12GraphicsCommandList* list,const std::vector<unsigned char>& packed){
+        Check(packed.size()==size_t(width)*height*bpp,"generated plane exact packed extent");
+        unsigned char* mapped=nullptr;Hr(ID3D12Resource_Map(upload,0,nullptr,(void**)&mapped),"RR upload map");
+        for(unsigned y=0;y<height;++y)std::memcpy(mapped+footprint.Offset+y*footprint.Footprint.RowPitch,packed.data()+size_t(y)*width*bpp,size_t(width)*bpp);
+        ID3D12Resource_Unmap(upload,0,nullptr);D3D12_TEXTURE_COPY_LOCATION from{},to{};
+        from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=footprint;
+        to.pResource=resource;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        ID3D12GraphicsCommandList_CopyTextureRegion(list,&to,0,0,0,&from,nullptr);
+        Barrier(list,resource,D3D12_RESOURCE_STATE_COPY_DEST,static_cast<D3D12_RESOURCE_STATES>(read_state));
+    }
+    void Drop(){ReleaseCom(upload);ReleaseCom(resource);}
+};
+std::vector<unsigned char> Constant(unsigned bpp,const void* pixel){
+    std::vector<unsigned char> bytes(size_t(rw)*rh*bpp);
+    for(size_t i=0;i<size_t(rw)*rh;++i)std::memcpy(bytes.data()+i*bpp,pixel,bpp);return bytes;
+}
+std::vector<unsigned char> Scene(unsigned frame){
+    std::vector<unsigned char> bytes(size_t(rw)*rh*8);
+    for(unsigned y=0;y<rh;++y)for(unsigned x=0;x<rw;++x){
+        // Static opaque plane with a deterministic noisy HDR radiance sequence.
+        // Stored Color = radiance * PreExposure / ExposureScale (HDR scene-linear).
+        unsigned seed=(x*1664525u)^(y*1013904223u)^(frame*747796405u);seed^=seed>>16;
+        const float noise=(float(seed&1023)/1023.f-.5f)*.08f;
+        const float radiance=3.1f+1.1f*float(x)/rw+.6f*float(y)/rh+(((x/48+y/48)&1)? .35f:0.f)+noise;
+        unsigned short rgba[]={Half(radiance*pre_exposure/exposure_scale),Half((radiance*.83f+.1f)*pre_exposure/exposure_scale),
+            Half((radiance*.61f+.2f)*pre_exposure/exposure_scale),0x3c00};
+        std::memcpy(bytes.data()+(size_t(y)*rw+x)*8,rgba,8);
+    }return bytes;
+}
+Parameters NativeParams(NgxParams* p){return {p,
+    [](void* p,const char* key,bool typed,void** out)->Result{
+        auto* params=static_cast<NgxParams*>(p);
+        if(typed){ID3D12Resource* value=nullptr;const auto result=ParamSlot<GetD3D12Fn>(params,9)(params,key,&value);*out=value;return result;}
+        return ParamSlot<GetVoidFn>(params,8)(params,key,out);},
+    [](void* p,const char* key,bool typed,void* value){
+        if(typed)SetResource(static_cast<NgxParams*>(p),key,static_cast<ID3D12Resource*>(value));
+        else SetVoid(static_cast<NgxParams*>(p),key,value);}};}
+struct Native {
+    nr_private_sr_core::Exports exports{};NgxHandle* feature=nullptr;NgxParams* params=nullptr;
+    ID3D12Resource* original=nullptr;bool identity=false;unsigned calls=0;
+    std::map<std::string,ID3D12Resource*> resources;std::string input_hash,guide_hashes;
+    static Result Call(void* p,ID3D12GraphicsCommandList* list,Parameters parameters){
+        auto& n=*static_cast<Native*>(p);++n.calls;Check(parameters.object==n.params,"one original parameter block");
+        Check(nr_private_sr_core::DomainAlive(n.exports),"actual original Create init-domain still live");
+        const auto feature=FindFeature(n.feature);Check(feature.feature_id==13&&feature.generation&&!feature.retiring&&!feature.pending,"live actual native Feature13 generation");
+        ID3D12Resource* color=nullptr;Check(GetResource(n.params,"Color",&color)&&((color!=n.original)==n.identity),"actual RR Color substitution matches A/A2/B mode");
+        float pre=0,scale=0;Check(GetFloat(n.params,"DLSS.Pre.Exposure",&pre)&&GetFloat(n.params,"DLSS.Exposure.Scale",&scale)&&pre==pre_exposure&&scale==exposure_scale,"non-unit native exposure floats unchanged");
+        std::ostringstream contract;contract<<"source=1,1,"<<n.calls<<";input="<<n.input_hash<<";guides="<<n.guide_hashes;
+        for(const char* key:rr_native_resource_keys){
+            if(std::strcmp(key,"Color")==0)continue;
+            void *typed=nullptr,*untyped=nullptr;const auto t=parameters.read(parameters.object,key,true,&typed),u=parameters.read(parameters.object,key,false,&untyped);
+            const auto found=n.resources.find(key);void* expected=found==n.resources.end()?nullptr:found->second;
+            Check(t==kNgxSuccess&&typed==expected&&(u!=kNgxSuccess||untyped==expected),"actual generated native non-Color resource and optional absence contract");
+            contract<<';'<<key<<'='<<t<<','<<u<<','<<(expected?"supplied":"absent");
+        }
+        for(const char* key:{"DLSS.Pre.Exposure","DLSS.Exposure.Scale","MV.Scale.X","MV.Scale.Y","Jitter.Offset.X","Jitter.Offset.Y","FrameTimeDeltaInMsec"}){
+            float value=0;Check(GetFloat(n.params,key,&value)&&std::isfinite(value),"actual native float contract getter");contract<<';'<<key<<'='<<value;
+        }
+        int reset=0;Check(GetInt(n.params,"Reset",&reset)&&reset==int(n.calls==1),"actual reset only on first model input");contract<<";reset="<<reset;
+        for(const char* key:rr_native_subrect_keys){unsigned value=1;Check(GetUInt(n.params,key,&value)&&value==0,"actual zero base for every generated guide");contract<<';'<<key<<'='<<value;}
+        const auto contract_bytes=contract.str();std::printf("CONTRACT_SHA256 index=%u value=%s\n",n.calls-1,Digest(contract_bytes.data(),contract_bytes.size()).c_str());
+        const auto result=n.exports.evaluate(list,n.feature,n.params,nullptr);
+        std::printf("NATIVE_CALL index=%u feature=13 result=%08x\n",n.calls,result);return result;
+    }
+};
+void SubmitReset(queue_test::Fixture& f,queue_test::List& list){
+    list.Close();list.Submit(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
+    Check(!g_lifecycle_tracking_uncertain.load()&&!context.lifecycle_dependencies_quarantined,"actual submit/completion/Reset stays certain");
+}
+void Run(const std::string& mode,const wchar_t* bridge){
+    Check(mode=="A"||mode=="A2"||mode=="B","known independent native RR cohort");
+    queue_test::Fixture f;g_config.enabled=true;g_config_generation.store(9);g_codec.device=f.device;
+    nr_processing_runtime::Reconcile();Check(nr_processing_runtime::work_enabled.load(),"actual configuration reconciliation enables source observation");
+    GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\rr-native-core.log");
+    auto library=LoadLibraryW(bridge);Check(library!=nullptr,"verified isolated bootstrap library");
+    auto bootstrap=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(library,"NRChain_Bootstrap"));Check(bootstrap!=nullptr,"sole bootstrap export");
+    const auto initialized=bootstrap(f.device);std::printf("BOOTSTRAP calls=1 result=%08x\n",initialized);Check(initialized==kNgxSuccess,"sole actual bootstrap success");
+    auto* ngx=GetModuleHandleW(L"_nvngx.dll");Check(ngx!=nullptr,"actual NGX Core loader");
+    wchar_t module_path[MAX_PATH]{};Check(GetModuleFileNameW(ngx,module_path,MAX_PATH)!=0,"actual Core module path");std::wprintf(L"NATIVE_MODULE %ls\n",module_path);
+    auto allocate=reinterpret_cast<nr_private_sr_core::Allocate>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_AllocateParameters"));
+    auto create=reinterpret_cast<nr_private_sr_core::Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));
+    auto release=reinterpret_cast<nr_private_sr_core::Release>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_ReleaseFeature"));
+    auto destroy=reinterpret_cast<nr_private_sr_core::Destroy>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_DestroyParameters"));
+    Check(allocate&&create&&release&&destroy,"original native exports present");
+    const auto hook_init=MH_Initialize();Check(hook_init==MH_OK||hook_init==MH_ERROR_ALREADY_INITIALIZED,"actual native observer initialization");
+    Check(NrDescriptorConfigureStartup(false),"native full observer configuration");descriptor_warp_test::InstallCommandObservation(f);
+    TrackGraphicsQueueLocked(f.a);queue_test::List list(f);
+    const auto barrier_coverage=EnsurePostBoundaryNativeHooks(list.native);
+    Check((barrier_coverage&(nr_post_boundary::Legacy|nr_post_boundary::Operations))==(nr_post_boundary::Legacy|nr_post_boundary::Operations),"actual native resource-barrier/copy observer installed");
+    nr_source_runtime::SeedCoreRecordingDevice(list.native);
+    {nr_source_runtime::Lock lock;Check(bool(nr_source_runtime::RecordingOf(list.native)),"actual cold source boundary resolves native device cookie");}
+    list.Close();list.ResetWithNewAllocator(f);
+    NgxParams* params=nullptr;Check(allocate(&params)==kNgxSuccess&&params,"original parameter allocation");
+    for(auto pair:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh},{"CreationNodeMask",1u},{"VisibilityNodeMask",1u},
+        {"DLSS.Render.Subrect.Dimensions.Width",rw},{"DLSS.Render.Subrect.Dimensions.Height",rh}})SetUInt(params,pair.first,pair.second);
+    SetInt(params,"PerfQualityValue",0);SetInt(params,"DLSS.Feature.Create.Flags",75);SetInt(params,"DLSS.Denoise.Mode",1);
+    SetUInt(params,"DLSS.Roughness.Mode",0);SetUInt(params,"DLSS.Use.HW.Depth",1);
+    ScopedNgxLayer layer(NgxLayer::Core);g_original_core_create=create;NgxHandle* parent=nullptr;
+    const auto created=HookCoreCreate(list.native,13,params,&parent);std::printf("NATIVE_CREATE calls=1 feature=13 result=%08x\n",created);
+    Check(created==kNgxSuccess&&parent,"actual Feature13 Create (no Feature1 fallback)");SubmitReset(f,list);
+    Native native;native.feature=parent;native.params=params;native.identity=mode=="B";
+    Check(nr_private_sr_core::ResolveExports(native.exports,f.device,parent,FindFeature(parent).generation),"production original module/export/init-domain owner proof");
+    const auto feature=FindFeature(parent);const auto domain=native.exports.domain_epoch;
+    std::printf("OWNER featureGeneration=%llu domainEpoch=%llu createFlags=%d\n",feature.generation,domain,feature.create_flags);
+    descriptor_warp_test::Pipeline pipeline(f),alternate(f);
+    auto* heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
+    auto* alternate_heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
+    Adapter adapter(f);adapter.list=list.native;adapter.alternate_pipeline=alternate.state;adapter.alternate_heap=alternate_heap;
+    Plane depth,motion,reflection,diffuse,specular,normal,roughness,output;std::vector<Plane> colors(32);
+    depth.Make(f,rw,rh,DXGI_FORMAT_R32_FLOAT);motion.Make(f,rw,rh,DXGI_FORMAT_R32G32_FLOAT);reflection.Make(f,rw,rh,DXGI_FORMAT_R32G32_FLOAT);
+    diffuse.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);specular.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    normal.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);roughness.Make(f,rw,rh,DXGI_FORMAT_R32_FLOAT);output.Make(f,ow,oh,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+    const float z=.05f,rough=.5f,zero_motion[2]={0,0};const unsigned short albedo[]={0x3800,0x3666,0x34cd,0x3c00},spec[]={0x291f,0x291f,0x291f,0x3c00},norm[]={0,0,0x3c00,0};
+    for(auto tuple:{std::tuple{"Depth",&depth,4u,(const void*)&z},std::tuple{"MotionVectors",&motion,8u,(const void*)zero_motion},
+        std::tuple{"GBuffer.SpecularMvec",&reflection,8u,(const void*)zero_motion},std::tuple{"DLSS.Input.DiffuseAlbedo",&diffuse,8u,(const void*)albedo},
+        std::tuple{"DLSS.Input.SpecularAlbedo",&specular,8u,(const void*)spec},std::tuple{"GBuffer.Normals",&normal,8u,(const void*)norm},
+        std::tuple{"GBuffer.Roughness",&roughness,4u,(const void*)&rough}}){
+        const auto bytes=Constant(std::get<2>(tuple),std::get<3>(tuple));const auto hash=Digest(bytes.data(),bytes.size());
+        std::printf("GUIDE_SHA256 role=%s value=%s\n",std::get<0>(tuple),hash.c_str());native.guide_hashes+=std::string(std::get<0>(tuple))+"="+hash+";";
+        std::get<1>(tuple)->FillAndRecord(list.native,bytes);
+    }SubmitReset(f,list);
+    // Set every official B1 resource role explicitly, including optional absence.
+    for(const char* key:rr_native_resource_keys)SetResource(params,key,nullptr);
+    for(const char* key:rr_native_subrect_keys)SetUInt(params,key,0);
+    for(auto pair:{std::pair{"Depth",depth.resource},{"MotionVectors",motion.resource},{"GBuffer.SpecularMvec",reflection.resource},
+        {"DLSS.Input.DiffuseAlbedo",diffuse.resource},{"DLSS.Input.SpecularAlbedo",specular.resource},
+        {"GBuffer.Normals",normal.resource},{"GBuffer.Roughness",roughness.resource},{"Output",output.resource}}){SetResource(params,pair.first,pair.second);native.resources[pair.first]=pair.second;}
+    SetFloat(params,"DLSS.Pre.Exposure",pre_exposure);SetFloat(params,"DLSS.Exposure.Scale",exposure_scale);
+    SetFloat(params,"MV.Scale.X",1.f);SetFloat(params,"MV.Scale.Y",1.f);SetFloat(params,"Jitter.Offset.X",0);SetFloat(params,"Jitter.Offset.Y",0);
+    float world_to_view[16]={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+    // Row-major row-vector reversed infinite projection: z_ndc=near/z, near=.1.
+    float view_to_clip[16]={1,0,0,0,0,1,0,0,0,0,0,1,0,0,.1f,0};
+    SetVoid(params,"WorldToViewMatrix",world_to_view);SetVoid(params,"ViewToClipMatrix",view_to_clip);
+    auto* readback=Buffer(f,output.bytes,D3D12_HEAP_TYPE_READBACK);auto* candidate=Create(f.device,adapter.Leases());Check(candidate!=nullptr,"native identity context cold allocation");
+    for(unsigned frame_index=0;frame_index<32;++frame_index){
+        auto& color=colors[frame_index];color.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);const auto scene=Scene(frame_index);
+        native.input_hash=Digest(scene.data(),scene.size());std::printf("INPUT_SHA256 index=%u value=%s\n",frame_index,native.input_hash.c_str());color.FillAndRecord(list.native,scene);
+        SetResource(params,"Color",color.resource);SetInt(params,"Reset",frame_index==0?1:0);SetFloat(params,"FrameTimeDeltaInMsec",1000.f/60.f);pipeline.Bind(list,heap);
+        const auto identity=SnapshotPostBoundaryList(list.native);auto* queue=FindGraphicsQueueRecordLocked(f.a);Check(identity.known&&queue,"actual native list and queue identity");
+        Frame frame;frame.recording={identity.device,queue->identity,identity.address,identity.token,identity.reset+1};
+        frame.source={1,1,frame_index+1};frame.view=1;frame.module_generation=domain;frame.feature_generation=feature.generation;
+        frame.color={color.resource,unsigned(DXGI_FORMAT_R16G16B16A16_FLOAT),0,read_state,true};frame.render_width=rw;frame.render_height=rh;frame.output_width=ow;frame.output_height=oh;
+        frame.native_contract_known=frame.transparency_absent_known=frame.all_color_aliases_known=frame.single_layer=frame.fg_off_known=true;
+        frame.pre_exposure=pre_exposure;frame.exposure_scale=exposure_scale;native.original=color.resource;
+        std::printf("IDENTITY index=%u source=1,1,%u device=%llu queue=%llu list=%llu lifetime=%llu reset=%llu feature=%llu domain=%llu\n",frame_index,frame_index+1,frame.recording.device,frame.recording.queue,frame.recording.list,frame.recording.lifetime,frame.recording.reset,frame.feature_generation,frame.module_generation);
+        {nr_source_runtime::Lock lock;unsigned observed=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list.native),nr_source_runtime::ResourceOf(color.resource),observed)&&observed==read_state,"actual same-recording Color barrier state proof");}
+        EnterCriticalSection(&g_chain_cs);const auto result=Evaluate(candidate,native.identity,list.native,frame,NativeParams(params),adapter.EnvelopeApi(),64ull<<20,Native::Call,&native);LeaveCriticalSection(&g_chain_cs);
+        std::printf("FRAME index=%u observe=%u reason=%u result=%08x copied=%u substituted=%u restored=%u calls=%u\n",frame_index,frame_index>=16,unsigned(result.reason),result.result,result.copied,result.substituted,result.restored,result.native_calls);
+        Check(result.result==kNgxSuccess&&result.native_calls==1&&native.calls==frame_index+1,"one successful original Feature13 per source frame");
+        Check((result.copied&&result.substituted&&result.restored)==native.identity&&result.reason==(native.identity?Reason::Ready:Reason::Disabled),"identity B accepted; A/A2 exact disabled copy path");
+        ID3D12Resource* restored=nullptr;Check(GetResource(params,"Color",&restored)&&restored==color.resource,"actual Color getter restoration after native call");
+        Barrier(list.native,output.resource,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=output.resource;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        to.pResource=readback;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=output.footprint;
+        ID3D12GraphicsCommandList_CopyTextureRegion(list.native,&to,0,0,0,&from,nullptr);Barrier(list.native,output.resource,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        SubmitReset(f,list);
+        unsigned char* mapped=nullptr;Hr(ID3D12Resource_Map(readback,0,nullptr,(void**)&mapped),"native output readback map");
+        std::vector<unsigned short> pixels(size_t(ow)*oh*4);for(unsigned y=0;y<oh;++y)std::memcpy(pixels.data()+size_t(y)*ow*4,mapped+output.footprint.Offset+y*output.footprint.Footprint.RowPitch,ow*8);
+        ID3D12Resource_Unmap(readback,0,nullptr);unsigned nonzero=0;bool finite=true;for(size_t i=0;i<pixels.size();++i){finite&=((pixels[i]>>10)&31)!=31;if(i%4!=3)nonzero|=pixels[i]&0x7fff;}
+        Check(finite&&nonzero!=0,"actual native RR produced finite nonzero RGB output");
+        if(frame_index>=16){const auto path="output-"+std::to_string(frame_index)+".fp16";std::ofstream file(path,std::ios::binary);file.write((char*)pixels.data(),pixels.size()*2);Check(bool(file),"complete observed native output saved");}
+        std::printf("OUTPUT_SHA256 index=%u value=%s\n",frame_index,Digest(pixels.data(),pixels.size()*2).c_str());
+        Check(FindFeature(parent).generation==feature.generation&&nr_private_sr_core::DomainEpoch(f.device,ngx)==domain,"same actual model and module history through frame completion");
+    }
+    Check(native.calls==32&&adapter.records==(native.identity?32u:0u)&&adapter.consumers==adapter.records,"32 native calls and expected exact production recording consumers");
+    Check(RetireCandidate(candidate)&&candidate==nullptr&&adapter.releases==adapter.records,"all native-copy leases retired by exact completion and real Reset");
+    Check(release(parent)==kNgxSuccess,"original native Feature13 release after retirement");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);
+    Check(destroy(params)==kNgxSuccess,"original native parameter destruction");nr_private_sr_core::ReleaseExports(native.exports);
+    Check(CanDestroyBindingsLocked(context),"native identity bindings no remaining holder");DestroyBindings(context);
+    for(auto& color:colors)color.Drop();for(auto* plane:{&depth,&motion,&reflection,&diffuse,&specular,&normal,&roughness,&output})plane->Drop();ReleaseCom(readback);ReleaseCom(heap);ReleaseCom(alternate_heap);
+    g_codec.device=nullptr;std::printf("PASS native identity %s: native=32 warmup=16 observe=16 checks=%u NR=0 FG=0 controlled-scene-only\n",mode.c_str(),queue_test::checks);
+}
+}
