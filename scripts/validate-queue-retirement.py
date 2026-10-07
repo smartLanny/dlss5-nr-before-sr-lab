@@ -152,10 +152,11 @@ def main() -> None:
     save()
     for case in cases:
         # post-output contains 27 complete GPU/readback scenes plus cold shader
-        # setup. Both the old and current Core approach the former 30s budget.
-        # Keep a bounded correctness timeout without changing any assertion;
-        # the smaller queue cases retain their original 30s deadline.
-        timeout = 90 if case == 'post-output' else 30
+        # compilation. The unchanged host completed all 6085 checks in 153.7s
+        # after the 90s run timed out. Bound this offline correctness fixture
+        # separately; every assertion and the 30s queue-case deadline remain.
+        # This does not change any production fence/retirement timeout.
+        timeout = 180 if case == 'post-output' else 30
         started = time.perf_counter()
         result = run([str(binary), case], case, timeout)
         elapsed = time.perf_counter()-started

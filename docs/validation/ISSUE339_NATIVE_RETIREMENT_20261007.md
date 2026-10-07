@@ -162,14 +162,76 @@ the helper now compares the production `const void*` identity without
 dereferencing it, and the CPU fixture uses that actual type. The failed run is
 preserved and not counted as validation.
 
+## S2 event-pairing fix
+
+Production commit `4275795e1486fffb02d17d9730ba35fde07d7fb4` pairs a true
+`ID3DDestructionNotifier` callback with the existing NR recording ledger.
+Marker IUnknown references remain independent of callback/ledger POD references.
+The callback only publishes an atomic death flag and drops its own POD; it
+does not dereference the dying object, acquire Core locks, touch registries,
+collect/drain, log, call NGX or release models. The ledger captures native
+identity and lifetime token separately from the recording token.
+
+The existing collector consumes an exact dead notice through the original
+unsubmitted-work quarantine and a pure ledger detach. It rechecks uncertainty
+before owner maintenance or release decisions. Successful Reset still clears
+the live object's old token before the same detach; failure preserves it.
+Wrapper destruction only detaches the observation owner, retaining NR ownership
+while the native list remains alive, even after marker replacement. Fence
+completion, queue affinity, private/temporal/binding consumers, release-before-
+create and outside-lock provider Release retain their original gates.
+
+NR admission now requires a registered destruction notice from native Create
+observation. Unsupported QI/registration or a late-wrapper-only list refuses
+new NR before counter publication; native SR/RR state observation remains
+available. Source inspection finds synchronous future-Create observation in
+the normal pinned ReShade device-construction path. Actual game coverage,
+other driver/Agility implementations and late injection remain unverified.
+A safe-bypass FPS increase is not a performance improvement.
+
+The accurate assembled source is `d72f011f3152872e1d76976e0baf2240cfd59a46`;
+`31ed896fdd621fd2d6865cefcadea5770d601246` changes only the
+controlled fixture's handle cast. Whole-Core WARP executions pass final
+destruction, marker replacement, wrapper/raw-reference retention, marker-plus-
+wrapper retention, successful and failed real Reset entry, pending own fence,
+unsubmitted native death, target-only notifier QI failure and callback
+registration failure. Native Release only publishes death; the normal collector
+schedules the owner and the original outside-lock Drain calls an explicitly
+controlled provider Release exactly once. No model or game is executed.
+
+The two notification failure controls temporarily intercept only the target
+native object's exact IID or the target notifier's callback registration, then
+remove the hook. They do not inject death flags or clear NR counters. The
+unsubmitted case retains the quarantined ledger and references with zero
+provider Release. A separate actual-collector CPU fixture proves the second
+uncertainty gate stops Maintain/Ready/slot invalidation and pending scheduling;
+removing only that gate compiles and fails precisely with exit3.
+
+The combined retirement CPU fixture now passes 41 normal checks (the original
+37 plus four second-gate checks), four overflow checks and five precise runtime
+negatives. Original parent/residency/release-admission/model-boundary and
+submission controls still pass. Their native-event services are explicitly
+controlled; the complete-Core WARP host supplies the native COM evidence.
+
+The full queue host first failed to compile because its controlled handle used
+`void*` rather than production `NgxHandle*`; the fixture type was corrected.
+Its existing 27-scene output oracle then exceeded the offline 90-second process
+deadline. The unchanged binary subsequently passed all 6,085 checks in 153.7
+seconds with a bounded 180-second deadline. Only this offline fixture deadline
+is extended; no production fence timeout or assertion changes. Both failed
+attempts remain in the private evidence directory.
+
 ## Remaining verification
 
-No event-pairing behavior fix is implemented. The approved minimal fix must turn
-the two causal cases green and retain wrong-event refusals; removing that fix
-must reproduce the old failure. Full bilingual canonical validation and actual
-game acceptance remain pending. Old negative-control success, a diagnostic
-snapshot and syntax/CPU checks are not a fix, private-SR benefit or performance
-acceptance. No player diagnostic package is deployed by this PR.
+The complete 24-case runner, old and fix-removal exact negatives, and full
+bilingual canonical entry are in progress. Canonical uses an isolated clean
+`31ed896f` checkout with full face/FFX inputs; the initial PowerShell 5 host
+misclassified successful unittest stderr as an exception, so that failed
+attempt is retained and a fresh PowerShell 7 run is used. Actual game acceptance
+remains pending. These checks cannot prove private-SR benefit, flicker repair,
+0.4.7 performance parity or the holder path of old player feedback.
+No game installation or player package is performed by this independent PR;
+its internal main-based build must not be distributed as released Beta 13.
 
 Execution specifications: [#339 runbook](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/339#issuecomment-6034176166),
 [#309 dispatch](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346).
