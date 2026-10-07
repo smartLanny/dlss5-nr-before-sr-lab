@@ -96,7 +96,7 @@ The proposed seam, submitted for maintainer review before ownership changes:
    notification, failed Reset, pending submission, wrong queue/fence,
    device removal and busy binding/private/temporal owners retain refusal.
 
-There is no implementation of this new ownership seam in this evidence commit.
+The original S1 evidence commits contained no implementation of this seam.
 No overlapping Create, counter clearing, timeout-based release, pool expansion,
 runtime change, game installation or algorithm change is authorized by the
 reproduction. Preserve the original all-consumer retirement and outside-lock
@@ -221,10 +221,33 @@ seconds with a bounded 180-second deadline. Only this offline fixture deadline
 is extended; no production fence timeout or assertion changes. Both failed
 attempts remain in the private evidence directory.
 
+A repeat cold-shader process exceeded 180 seconds while the full canonical
+build was running. That receipt also remains failed. The complete runner then
+passed all 24 cases using the production precompiled shader path: its source
+key, embedded header and all 29 shader payload hashes were verified before
+compilation. This reuses the unchanged shader implementation and keeps every
+GPU/readback assertion. It neither substitutes a passing exit for the timed-out
+attempt nor changes any release permission.
+
+Both whole-Core causal negative sets now pass: the exact old `8d89f8e8` Core and
+a separate copy of the new Core with only the collector's death-sweep call
+removed each compile/link successfully, then fail both original native cases
+at exit41 / `NATIVE_FINAL_DESTROY_MUST_RETIRE_NR_RECORDING`. The original assembled
+source remains untouched; the copied private module is rebuilt at its new root
+and unchanged temporal source/object/artifact receipts are checked in full.
+
+The existing isolated D13/primary-depth generators also retain their original
+assertions. Their small service environment now supplies typed notice fields
+and a controlled Create registry backed by real notifier QI/registration. The
+history CPU case, three original ReShade/WARP hosts and direct primary-depth
+caller pass. These adapted Create/Execute/Reset services do not validate the
+production native-death consumer. An initial history compile failure exposed
+pre-existing missing source/reset-diagnostic service declarations; that failure
+is retained, and actual reset-observation types/counters are now supplied.
+
 ## Remaining verification
 
-The complete 24-case runner, old and fix-removal exact negatives, and full
-bilingual canonical entry are in progress. Canonical uses an isolated clean
+The full bilingual canonical entry remains in progress. It uses an isolated clean
 `31ed896f` checkout with full face/FFX inputs; the initial PowerShell 5 host
 misclassified successful unittest stderr as an exception, so that failed
 attempt is retained and a fresh PowerShell 7 run is used. Actual game acceptance

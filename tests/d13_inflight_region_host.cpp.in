@@ -4,6 +4,8 @@
 // nr_binding runtime.  A queue Wait fence holds several command lists in
 // flight so a same-input Seal must reuse an immutable packet while a changed
 // input takes another packet.
+// Native/Create registry and Reset publication are controlled services. Real
+// notifier registration does not exercise the production native-death consumer.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define CINTERFACE
@@ -129,9 +131,13 @@ constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
 constexpr std::size_t kLifecycleCommandListCount = 128;
 constexpr std::size_t kLifecycleUsesPerCommandList = 32;
 // @CORE_QUEUE_PROOF@
+struct NativeCommandLifetime;
 struct LifecycleCommandList {
     RecordingQueueProof queue_proof = RecordingQueueProof::None;
     unsigned long long token = 0;
+    NativeCommandLifetime *native_lifetime = nullptr;
+    unsigned long long native_lifetime_token = 0;
+    ID3D12GraphicsCommandList *native_identity = nullptr;
     unsigned long long expected_queue_identity = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
     unsigned int slot_count = 0;
@@ -294,6 +300,9 @@ Recording MakeRecording(ID3D12Device *device) {
         device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, r.allocator, nullptr,
         IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&r.list));
     if (FAILED(hr)) { std::fprintf(stderr, "FAIL region command list\n"); std::exit(2); }
+    if (!FixtureRegisterNativeNotice(r.list)) {
+        std::fprintf(stderr, "FAIL region controlled Create/notifier registration\n");std::exit(2);
+    }
     return r;
 }
 void Check(bool ok, const char *message) {
@@ -641,6 +650,9 @@ int main() {
     ReleaseCom(depth_resource); ReleaseCom(normals_resource); ReleaseCom(specular_resource);
     ReleaseCom(hit_resource); ReleaseCom(hit_changed); ReleaseCom(proxy_resource); ReleaseCom(neural_resource);
     ReleaseCom(nr_regions::build); ReleaseCom(nr_regions::snapshot); ReleaseCom(nr_regions::root); ReleaseCom(nr_regions::owner);
+    ReleaseCom(frame3.list); ReleaseCom(frame3.allocator);
+    ReleaseCom(frame2.list); ReleaseCom(frame2.allocator);
+    ReleaseCom(frame1.list); ReleaseCom(frame1.allocator);
     ReleaseCom(gate); ReleaseCom(queue.fence); ReleaseCom(queue.queue);
     ReleaseCom(device); ReleaseCom(proxy); ReleaseCom(warp); ReleaseCom(factory);
     std::printf("PASS D13 production region Prepare/Seal/Dispatch WARP; X24 readback; queue in-flight; missing-guide degradation; no game/NVIDIA inference\n");

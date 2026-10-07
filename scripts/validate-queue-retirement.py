@@ -31,6 +31,8 @@ def main() -> None:
     parser.add_argument('--build-dir', type=Path, required=True)
     parser.add_argument('--source', type=Path, required=True,
                         help='Canonical staged Core source, including the integration adapters.')
+    parser.add_argument('--codec-cache', type=Path,
+                        help='Verified production shader artifacts: source, header and every payload must match. Avoids repeating cold shader compilation.')
     parser.add_argument('--old-policy-negative', action='store_true')
     parser.add_argument('--native-destruction-negative', action='store_true',
                         help='Run the native-final-destruction regression against an unfixed Core; require its exact runtime failure.')
@@ -80,6 +82,31 @@ def main() -> None:
               '-I'+str(ROOT/'third_party/minhook/include'),
               '-I'+str(args.reshade.resolve()/'include'),
               '-I'+str(args.reshade.resolve()/'deps/imgui')]
+    if args.codec_cache:
+        cache = args.codec_cache.resolve(strict=True)
+        receipt = cache/'codec-artifacts.json'
+        data = json.loads(receipt.read_text(encoding='utf-8'))
+        shader = source.read_text(encoding='utf-8-sig').split(
+            'const char kCodecShader[] = R"HLSL(', 1)[1].split(')HLSL";', 1)[0]
+        if hashlib.sha256(shader.encode()).hexdigest() != data['source']:
+            raise ValueError('Cache does not match this complete production shader')
+        header = cache/'nr_codec_precompiled.h'
+        if hashlib.sha256(header.read_bytes()).hexdigest() != data['header_sha256']:
+            raise ValueError('Production shader header hash mismatch')
+        payloads = {}
+        for item in data['artifacts']:
+            path = (cache/item['file']).resolve(strict=True)
+            if not path.is_relative_to(cache):
+                raise ValueError('Production shader payload outside cache')
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != item['sha256']:
+                raise ValueError('Production shader payload hash mismatch')
+            payloads[item['file']] = digest
+        evidence['codec_cache'] = {'path': str(cache), 'source_sha256': data['source'],
+            'receipt_sha256': hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            'header_sha256': data['header_sha256'], 'payloads_sha256': payloads}
+        common.extend(['-DNR_CODEC_PRECOMPILED=1', '-I'+str(cache)])
+        save()
     if args.old_policy_negative:
         common.append('-DNR_QUEUE_OLD_POLICY_NEGATIVE')
     def run(command: list[str], name: str, timeout: int = 180) -> subprocess.CompletedProcess:
