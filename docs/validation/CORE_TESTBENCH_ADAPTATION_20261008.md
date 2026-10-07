@@ -40,6 +40,24 @@ r2 receipt SHA `75f7ff6709b697c8b595767af599cb24a3cc95f27c3d3966b8b3e5f148e77e09
 r3 receipt SHA `a68db2d913f82b5874eb8964e0dc0dbc819afbc88395e056fb612480b16aa6e5`。
 独立纠正报告 SHA `9755b83f755557aef988027510a127da8e1461b8f9f09988588ca41455a33741`。
 
+## r4 实际初始化失败已定位到调用边界
+
+r4 已核真正 Shared.cpp 编译命令及 OBJ→最终 PE 中的 Init/caps/回调/optimal
+控制流；最小编译目标修正成立。实际 SR-off 首次运行仍 exit1：静态 SDK 的
+`NVSDK_NGX_D3D12_Init` 返回 `0xBAD00001 / FeatureNotSupported`，随后 NRI
+Create 返回 FAILURE/null。caps、Init后回调、Feature Create/Eval 和渲染均未到。
+准确 Core 已加载，Init前 off 查询仍为 Disabled。没有重试或运行其他组合。
+
+此返回是广义初始化拒绝，不能锁定 AppID、空 dataPath、设备或运行库。官方
+v310.9.1 头文件规定 numeric ID 须由 NVIDIA 分配；无该 ID 时使用自有
+ProjectID/CUSTOM，dataPath 需可写，API 默认仍为0x15。已成功的 Core 宿主走
+ProjectID/显式目录的 bridge 初始化，与本次 numeric/空目录/静态 SDK 不是同输入
+正控；也没有已成功的新310.9.1 parent 证据。下一窄改动只启用本进程 NGX 日志
+callback，保留原 Init 输入和 tuple，先取得因果日志再决定适配修正。
+
+r4 执行结果 SHA `22887ce6c66091428fb85e42112999fa220634160919dcb7e6d127a9c5b55bff`。
+独立 Init 合同方向 SHA `b8d7ca3c1462f729c423c728097a9a0ede030eb55347da652d35300469fd9147`。
+
 ## 后续最小范围
 
 先完成一个准确 SR-off 功能首门，再串行 NR-on / RR；失败保留并定位，不扫配置。
