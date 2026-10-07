@@ -46,7 +46,7 @@ def main():
               'sources': {str(x.relative_to(ROOT)): digest(x) for x in
                           [source, host, ROOT / 'src/nr_rr_identity_dx12.hpp']},
               'compiler': {'path': str(a.compiler), 'sha256': digest(a.compiler)},
-              'runs': [], 'passed': False}
+              'runs': [], 'aliases': [], 'passed': False}
     for name, needle, replacement, expected, diagnostic in variants:
         directory = a.output / name
         directory.mkdir(exist_ok=True)
@@ -78,7 +78,25 @@ def main():
         report['runs'].append(row)
         if not row['passed']:
             break
-    report['passed'] = len(report['runs']) == len(variants) and all(r['passed'] for r in report['runs'])
+    # Test every semantic resource key from the independently audited official
+    # B1 table, not a second handwritten list matching the implementation.
+    contract = ROOT.parents[1] / 'docs/validation/RR_B1_STATIC_CONTRACT_20261008.json'
+    table = json.loads(contract.read_text(encoding='utf-8-sig'))
+    keys = sorted({k['value'] for role in table['roles'] if role['kind'] == 'resource'
+                   for k in role['ngx_keys'] if k['value'] != 'Color'})
+    report['official_table_sha256'] = digest(contract)
+    if all(r['passed'] for r in report['runs']):
+        exe = a.output / 'positive/rr-identity.exe'
+        for index, key in enumerate(keys):
+            cmd = [str(exe), '--alias-key', key]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            log = a.output / f'alias-{index:02d}.log'
+            log.write_text(r.stdout + r.stderr, encoding='utf-8')
+            report['aliases'].append({'key': key, 'command': cmd, 'exit_code': r.returncode,
+                                      'passed': r.returncode == 0 and 'RR official alias contract passed' in r.stdout,
+                                      'log_sha256': digest(log)})
+    report['passed'] = (len(report['runs']) == len(variants) and all(r['passed'] for r in report['runs'])
+                        and len(report['aliases']) == len(keys) and all(r['passed'] for r in report['aliases']))
     receipt = a.output / 'validation.json'
     receipt.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps({'passed': report['passed'], 'receipt': str(receipt)}))

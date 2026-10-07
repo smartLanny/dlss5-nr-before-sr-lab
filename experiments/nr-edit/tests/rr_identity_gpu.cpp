@@ -268,7 +268,19 @@ void FormatFlip(Rig& h){
     }
     Need(Retire(c)&&lease.records==3&&lease.retirements==3,"format flip acquires and releases three exact leases");
 }
+void AliasContract(Rig& h,const char* key){
+    Com<ID3D12Resource> color;color.p=h.Texture(10);
+    Lease lease{};lease.rig=&h;lease.current=Make(h,color,10);
+    Params p;p.original=color.p;p.typed["Color"]=color.p;p.typed[key]=color.p;
+    Consumer native{&h,nullptr,color.p,0,1,false};auto* c=Create(h.device,lease.Api());
+    const auto t=p.typed,u=p.untyped;
+    const auto r=Evaluate(c,true,h.list,lease.current,p.Api(),lease.State(),64ull<<20,Consumer::Call,&native);
+    Need(r.reason==Reason::Alias&&r.native_calls==1&&!r.copied&&!r.substituted,"official semantic resource alias must reject before GPU work");
+    Need(p.typed==t&&p.untyped==u&&Retire(c),"official alias decline retains exact parameter states");
 }
-int main(){try{Rig h;Declines(h);Pixels(h,10);Pixels(h,2);FormatFlip(h);Faults(h);
+}
+int main(int argc,char** argv){try{Rig h;
+    if(argc==3&&std::strcmp(argv[1],"--alias-key")==0){AliasContract(h,argv[2]);std::puts("RR official alias contract passed");return 0;}
+    Declines(h);Pixels(h,10);Pixels(h,2);FormatFlip(h);Faults(h);
     std::printf("RR identity WARP: %u assertions passed; native callback=controlled copy; NGX=not run; game=not run; envelope=controlled, production adapter pending\n",checks);
     return 0;}catch(const std::exception& e){std::fprintf(stderr,"RR identity failed: %s\n",e.what());return 41;}}

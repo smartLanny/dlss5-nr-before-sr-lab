@@ -56,6 +56,8 @@ semantic 别名或 ColorBefore/After/透明层关系不支持时拒绝；静态�
 - 四个生成副本各编译成功后，移除 CopyResource、移除 Color 恢复、增加
   第二 native 调用、移除关闭时 quarantine 门，均在指定断言精确 exit 41。
   正向 exit 0；没有修改正在验证的生产文件。
+- 从独立 B1 官方合同表读取所有非 Color 资源键，逐个用实际模块验证
+  Color 物理别名必须在 GPU copy 前拒绝；测试列表不手抄实现中的键列表。
 
 这里的 native callback 是受控 CopyResource 消费者，envelope/lease 是明确
 标记的隔离宿主 adapter；这些结果不算 NVIDIA NGX 或生产 adapter 通过。
