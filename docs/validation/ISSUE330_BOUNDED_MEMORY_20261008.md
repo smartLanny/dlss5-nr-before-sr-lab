@@ -71,9 +71,18 @@ python scripts/validate-feedback-timing-full.py --compiler <clang++.exe> --resha
 
 #341 自身增加的 24 KiB tail 必须保留：合成时先取 **361 KiB**，然后用实际组合源重跑
 完整 F8 容量门，不能把本分支 337 KiB 结果当作组合通过。#338 capture Active 与新增
-CollectTiming window 的交叉 CPU gate **尚未覆盖**；合成必须验证普通完成样本、各
+CollectTiming window 的交叉 CPU gate 在本切片初次冻结时尚未覆盖；合成必须验证普通完成样本、各
 capture 状态 ResolveTiming/ResolveLayerTiming 后不增加正常成本样本、合法旧 recording
 以及 idle 恢复，并以移除真实 Active guards 的编译后精确反例证明。
+
+后续独立组合源 `a24e4fd88ff7985bb9e5bdfaf99f6d5ad99c1257` / src tree
+`7fe3819be240c0fad0eb16526e9d4b3ce0a67f87` 已补该交叉 CPU 门：
+`scripts/validate-memory-capture-timing.py` 读取实际 timing inl、capture Active、
+TimingWindow 及已保留的 capture fixture，不复制另一套统计实现。35 项正向通过；
+删 primary guard、删 layer guard、删 Observe 的三个副本先编译成功，再分别
+精确 exit 1 命中指定断言（沿原 fixture 的错误码）。首轮 Queue 测试替身聚合
+初始化顺序错误的编译失败保留，未改生产代码。该结果只证明 capture 与新增窗口
+不会交叉污染，不是 GPU/NGX 或组合 canonical；实际组合容量仍须完整验证。
 
 本轮未运行 GPU、WARP、NGX、canonical 全入口或游戏，没有打包、部署、GitHub 写入、
 合 main、关闭 issue。资源逐项真实 WARP allocation-info 对账、同 adapter/node 的真实
