@@ -101,7 +101,7 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_experiments_and_developer_keep_safety_limits(self):
         self.assertIn('DrawUnifiedExperiments(next,current.generation,has_pending,changed,apply_discrete_edit)', self.settings)
-        self.assertIn('DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit)', self.settings)
+        self.assertIn('DrawUnifiedDeveloper(next,before_sr,changed,apply_discrete_edit,runtime)', self.settings)
         self.assertIn('ImGui::BeginDisabled(!before_sr);', self.pages)
         self.assertIn('Detail stability applies before SR only.', self.pages)
         self.assertIn('if(nr_post_settings::missing_projection_save_failed.load', self.pages)

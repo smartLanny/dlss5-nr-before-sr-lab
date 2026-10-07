@@ -58,12 +58,16 @@ nr_edit_dx12::Answer Compose(nr_edit_dx12::Kernels* k,ID3D12GraphicsCommandList*
         r.target.resource==e.carrier.resource||
         r.target_rect.width!=full.width||r.target_rect.height!=full.height||
         !Exact(k,r.carrier,full.width,full.height,10)||
-        !Exact(k,e.tail,p.work_width,p.work_height,2)||!Contains(k,r.target,r.target_rect,10))return {};
+        !Exact(k,e.tail,p.work_width,p.work_height,2)||
+        (r.per_channel_support&&!Exact(k,e.carrier,p.work_width,p.work_height,10))||
+        !Contains(k,r.target,r.target_rect,10))return {};
     if(r.target.resource==p.candidate.resource&&(r.target_rect.x!=p.candidate_rect.x||
         r.target_rect.y!=p.candidate_rect.y))return {};
     auto c=Make(p);c.target_origin[0]=r.target_rect.x;c.target_origin[1]=r.target_rect.y;c.reconstruction_succeeded=1;
+    c.reserved=r.per_channel_support?1u:0u;
     nr_edit_dx12::Work w{};w.kernel=nr_edit_dx12::Kernel::PostCompose;
     w.recording=r.recording;w.width=full.width;w.height=full.height;w.constants=&c;w.constant_bytes=sizeof(c);
+    if(r.per_channel_support)w.reads[0]=e.carrier;
     w.reads[1]=p.base;w.reads[2]=r.carrier;w.reads[3]=e.tail;w.writes[2]=r.target;
     return nr_edit_dx12::Record(k,list,w);
 }

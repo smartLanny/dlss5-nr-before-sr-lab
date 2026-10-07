@@ -53,7 +53,7 @@ PRESERVED={'enabled','depth_mode','r8_output_encoding','perf_epoch',
            'descriptor_low_overhead','present_mv_compensation','compat_percent',
            'spatial_experiment_mode','private_residual_sr','reconstruction_mode',
            'near_black_chroma_guard','temporal_backend','temporal_scope','temporal_mode',
-           'temporal_legacy','master_virtual_key','image_virtual_key','feedback_virtual_key',
+           'temporal_legacy','master_virtual_key','image_virtual_key','feedback_virtual_key','screenshot_virtual_key',
            'colour_edge_recovery','colour_neutral_probe','colour_restore_mode',
            'colour_input_curve','colour_scaled_proxy_mode'}
 UI_RESET_FIELDS={'processing_start','processing_selection','nr_full_reference','nr_full_passes'}

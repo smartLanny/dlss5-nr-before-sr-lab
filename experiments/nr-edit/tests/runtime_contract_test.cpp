@@ -48,14 +48,33 @@ int main(){
  assert(c.Record(reinterpret_cast<void*>(3),FrameAt(2),shape).status==Status::AwaitCreateCompletion);
  assert(c.Submitted(frame.recording,{2,9,1},true));f.complete=1;
  r=c.Record(reinterpret_cast<void*>(3),FrameAt(2),shape);assert(r.evaluated&&f.last_reset);assert(f.retained==8);
+ assert(c.LastBindEvidence().bound&&c.LastBindEvidence().predecessor==Source{}&&
+        c.LastBindEvidence().reset_causes==(HistoryReset|PredecessorMismatch));
+ assert(c.LastBindEvidence().history_causes==InitialHistory);
  assert(c.Submitted(FrameAt(2).recording,{2,9,2},true));f.complete=2;
  r=c.Record(reinterpret_cast<void*>(3),FrameAt(3),shape);assert(r.evaluated&&!f.last_reset);
+ assert(c.LastBindEvidence().bound&&c.LastBindEvidence().predecessor==FrameAt(2).source&&
+        c.LastBindEvidence().reset_causes==0);
  assert(c.Submitted(FrameAt(3).recording,{2,9,3},true));f.complete=3;
  assert(c.Record(reinterpret_cast<void*>(3),FrameAt(4),shape).status==Status::Busy);
  assert(!c.ReadyToRetire());f.references_released=true;assert(c.Collect());assert(f.retained==0&&f.fences==0);
  r=c.Record(reinterpret_cast<void*>(3),FrameAt(5),shape);assert(r.evaluated&&f.last_reset);
+ assert(c.LastBindEvidence().predecessor==FrameAt(3).source&&
+        c.LastBindEvidence().reset_causes==(HistoryReset|PredecessorMismatch));
+ assert(c.LastBindEvidence().history_causes==SlotPressure);
  assert(c.Record(reinterpret_cast<void*>(3),FrameAt(5),shape).status==Status::DuplicateSource);
+ assert(!c.LastBindEvidence().bound);
  assert(c.Submitted(FrameAt(5).recording,{2,9,5},true));f.complete=5;
+ auto wrong_reference=FrameAt(6);wrong_reference.motion_reference=FrameAt(3).source;
+ r=c.Record(reinterpret_cast<void*>(3),wrong_reference,shape);assert(r.evaluated&&f.last_reset);
+ assert(c.LastBindEvidence().predecessor==FrameAt(5).source&&
+        c.LastBindEvidence().reset_causes==PredecessorMismatch);
+ assert(c.Submitted(wrong_reference.recording,{2,9,6},true));f.complete=6;
+ auto explicit_reset=FrameAt(7);explicit_reset.reset=true;
+ r=c.Record(reinterpret_cast<void*>(3),explicit_reset,shape);assert(r.evaluated&&f.last_reset);
+ assert(c.LastBindEvidence().predecessor==FrameAt(6).source&&
+        c.LastBindEvidence().reset_causes==RequestedReset&&c.LastBindEvidence().history_causes==0);
+ assert(c.Submitted(explicit_reset.recording,{2,9,7},true));f.complete=7;
  assert(c.ReadyToRetire());assert(c.Retire());assert(f.blocks==0&&f.releases==1&&f.retained==0&&f.fences==0);
  for(unsigned bits=0;bits<8;bits++){int calls=0;Flow a{&calls};a.ready=(bits&1)!=0;a.fatal=(bits&2)!=0;a.after=(bits&4)!=0;
    auto result=nr_edit_flow::Execute(a);if(a.ready&&a.fatal){assert(calls==0&&a.quarantined&&result.fatal);}

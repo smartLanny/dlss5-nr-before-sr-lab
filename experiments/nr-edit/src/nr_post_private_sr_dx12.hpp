@@ -15,6 +15,8 @@ struct Input {
     bool target_contains_candidate=false;
     bool ordered_queue_verified=false, post_sr_phase_verified=false;
     bool normalized_guide_units_verified=false, reset=true;
+    // False is retained only for development comparison with the old RGB gate.
+    bool per_channel_support=true;
     float motion_scale_x=1, motion_scale_y=1;
     unsigned native_result=0;
 };
@@ -23,6 +25,7 @@ struct Result {
     Status status=Status::InvalidContract;
     bool recorded=false, composed=false;
     unsigned sr_result=0, slot=0;
+    nr_private_sr::BindEvidence bind{};
 };
 class Context;
 // Diagnostic view for a still-live, exact recording. Borrowed resources must
@@ -35,6 +38,12 @@ struct RecordedPlanes {
 };
 RecordedPlanes InspectRecordedPlanes(const Context*,unsigned slot,nr_private_sr::Recording);
 RecordedPlanes InspectRecordedPlanes(const Context*,nr_private_sr::Recording);
+// Development-host replay of the exact encoded carrier/tail through the same
+// production Compose shader. Only a live, unsubmitted recording is accepted;
+// target must already contain this frame's Z. This never calls Feature1.
+bool RecordSpatialReference(Context*,ID3D12GraphicsCommandList*,unsigned slot,
+                            nr_private_sr::Recording,nr_edit_dx12::View spatial,
+                            nr_edit_dx12::View target,nr_post_residual_dx12::Rect target_rect);
 // Three independent scratch slots, one private Feature1 history. The existing
 // caller serializes CPU access and supplies verified original API ownership.
 // accounted_plane_bytes excludes opaque NGX memory and descriptor/kernel storage.

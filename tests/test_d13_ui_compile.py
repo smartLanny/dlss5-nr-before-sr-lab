@@ -147,6 +147,77 @@ std::atomic<double> time_median[7]{},time_p95[7]{};
 
 @unittest.skipUnless(os.name == "nt", "CPU UI adapter compile requires the Windows toolchain")
 class D13UiCompile(unittest.TestCase):
+    def test_private_sr_route_precedes_stale_configuration_status(self):
+        configured = os.environ.get("NR_LLVM_BIN")
+        compiler = (Path(configured) if configured else Path("missing")) / "clang++.exe"
+        if not compiler.is_file():
+            self.skipTest("Set NR_LLVM_BIN to the pinned LLVM-MinGW bin directory")
+        core = (ROOT / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
+        config = definition(core, "struct ChainConfig") + ";"
+        prelude = PRELUDE.replace("CHAIN_CONFIG", config).replace(
+            "void SettingsNote(const char*) {}",
+            "void SettingsNote(const char* text) { rendered+=text;rendered+='\\n'; }")
+        source = prelude + r'''
+#include <cstdlib>
+#include "nr_private_sr_status.h"
+void SettingsHelp(const char*) {}
+namespace ImGui { template<class... T> void Text(const char*,T...) {} }
+''' + (ROOT / "src/nr_private_sr_ui.inl").read_text(encoding="utf-8") + r'''
+unsigned checks=0;
+void Check(bool value,const char* reason) {
+    ++checks;if(!value){std::fprintf(stderr,"FAIL %s\n",reason);std::exit(3);}
+}
+int main() {
+    using Start=nr_processing::Start;using State=nr_private_sr_status::State;
+    for(bool zh:{false,true}) {
+        chinese=zh;ChainConfig c;c.private_residual_sr=true;c.processing_start=Start::Before;
+        g_config_generation=95;nr_private_sr_status::state_configuration=73;
+        nr_private_sr_status::state=State::Submitted;
+        auto draw=[&](Start route,bool changed=false) {
+            nr_processing_runtime::session.Select(route,++nr_processing_runtime::next_selection);
+            rendered.clear();bool discrete=false;DrawPrivateResidualSr(c,changed,discrete);
+            Check(c.processing_start==Start::Before&&c.private_residual_sr&&!discrete,
+                "status preserves saved route and private SR selection");
+        };
+        const char* route_note=zh?"未生效：仅后置 NR 可用。":"Not applied: available only with post-SR NR.";
+        const char* preparing=zh?"准备中":"Preparing";
+        for(auto route:{Start::Before,Start::Present})for(bool edited:{false,true}) {
+            draw(route,edited);
+            Check(rendered.find(route_note)!=std::string::npos,"unsupported route is explicit with stale state");
+            Check(rendered.find(preparing)==std::string::npos,"unsupported route does not also display Preparing");
+        }
+        nr_private_sr_status::state_configuration=95;nr_private_sr_status::state=State::Busy;
+        draw(Start::Before);
+        Check(rendered.find(route_note)!=std::string::npos&&rendered.find(preparing)==std::string::npos,
+            "unsupported route also overrides old Busy event");
+        nr_private_sr_status::state_configuration=73;draw(Start::After);
+        Check(rendered.find(preparing)!=std::string::npos&&rendered.find(route_note)==std::string::npos,
+            "supported After with stale state retains Preparing");
+        nr_private_sr_status::state_configuration=95;nr_private_sr_status::state=State::Submitted;
+        draw(Start::After);
+        Check(rendered.find(zh?"已提交处理":"Processing submitted")!=std::string::npos,
+            "automatic Before to After fallback remains supported");
+        nr_private_sr_status::state=State::Route;draw(Start::After);
+        Check(rendered.find(zh?"路线或 FG":"this route or FG")!=std::string::npos,
+            "current FG route refusal retains its existing explanation");
+        c.private_residual_sr=false;rendered.clear();bool changed=false,discrete=false;
+        DrawPrivateResidualSr(c,changed,discrete);
+        Check(rendered.empty()&&!changed&&!discrete&&!c.private_residual_sr&&c.processing_start==Start::Before,
+            "disabled option remains silent and unchanged");
+    }
+    std::printf("Private SR production UI: %u checks; bilingual route priority and settings preserved\n",checks);
+}
+'''
+        with tempfile.TemporaryDirectory(prefix="nr-private-sr-ui-") as directory:
+            cpp, exe = Path(directory) / "private_sr.cpp", Path(directory) / "private_sr.exe"
+            cpp.write_text(source, encoding="utf-8")
+            built = subprocess.run([str(compiler), "-std=c++20", "-O0", "-static", "-Wall", "-Wextra", "-Werror",
+                                    "-I", str(ROOT / "src"), str(cpp), "-o", str(exe)], capture_output=True, text=True, timeout=45)
+            self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+            ran = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn("Private SR production UI: 42 checks", ran.stdout)
+
     def test_quick_details_and_method_selector_compile_and_preserve_values(self):
         configured = os.environ.get("NR_LLVM_BIN")
         bins = sorted((ROOT.parent / "dlss5-lab" / "toolchains").glob("llvm-mingw-*/bin"))

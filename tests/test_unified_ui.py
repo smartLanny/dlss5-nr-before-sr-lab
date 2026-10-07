@@ -28,8 +28,10 @@ class UnifiedUi(unittest.TestCase):
         self.assertEqual(self.settings.count('ImGui::BeginChild("nr-page-'),5)
         self.assertEqual(self.settings.count('ImGui::EndChild();ImGui::EndTabItem();'),5)
         self.assertLess(self.settings.index('DrawNrActivityStatus('),self.settings.index('ImGui::BeginTabBar('))
-        for text in (self.settings, self.pages, self.layers):
+        for text in (self.settings, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
+        self.assertEqual(self.pages.count('CollapsingHeader('), 1)
+        self.assertIn('ImGui::CollapsingHeader(NrUi("Custom shortcuts###nr-custom-shortcuts"', self.pages)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
         markers = ['###master-nr', '##final-colour', 'DrawProcessingModeBlocks(', '##nr-processing-precision',
                    'DrawUniformLayerCount(', '##final-gain',

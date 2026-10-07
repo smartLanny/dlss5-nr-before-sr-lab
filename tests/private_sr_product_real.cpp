@@ -241,7 +241,14 @@ struct GuideOnly {
 
 // 0=off, 1=PostRr AMDOF, 2=PostRr AMDOF low-frequency,
 // 3=PostRr native-MV contract refusal, 4/5=PostRr AMDOF later low-frequency/adaptive.
-int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case,unsigned spatial_mode){
+int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,unsigned requested_frames,bool odd,bool private_sr,unsigned temporal_case,unsigned spatial_mode,unsigned capture_frames){
+    Require(!capture_frames||((capture_frames==16||capture_frames==32)&&private_sr&&!rr&&!temporal_case&&!spatial_mode&&requested_frames>capture_frames),
+        "bounded capture requires real Feature1, private SR, and enough final Z frames");
+    char capture_setting[8]{};
+    const auto capture_chars=GetEnvironmentVariableA("DLSS5_PRIVATE_SR_EVIDENCE_FRAMES",capture_setting,sizeof(capture_setting));
+    Require(capture_frames?(capture_chars<sizeof(capture_setting)&&std::strtoul(capture_setting,nullptr,10)==capture_frames):!capture_chars,
+        "explicit capture mode matches child environment; ordinary timing mode has no capture setting");
+    Require(nr_private_sr_capture::worker.state.load()==0,"capture worker cold before product owner");
     Require(temporal_case<=5&&(!temporal_case||(rr&&nr_layers_count&&!private_sr))&&
         ((temporal_case!=4&&temporal_case!=5)||nr_layers_count>=2),
         "PostRr temporal requires real RR, at least one real NR layer, and private SR OFF");
@@ -349,25 +356,25 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     context.instance_id=1;context.feature_generation=feature.generation;context.mode=1;
     context.width=nw;context.height=nh;
     if(private_sr){
-        // Exercise the actual product CreateOwner boundary with the known 4K
-        // 100% layout. No synthetic budget and no vendor Create is involved.
+        // Query the real 4K layout, then exercise invalid-query refusal without
+        // allocating another owner or invoking vendor Create in this preflight.
         constexpr unsigned full=3840,high=2160;
         const auto plan=nr_private_sr_budget::Query(h.device,full,high,full,high);
-        Require(plan.valid&&plan.required>(768ull<<20),"real device 4K private planes exceed fixed cap");
+        Require(plan.valid&&plan.required>(1ull<<30),"real device 4K private-plane allocation query");
         const nr_private_sr_status::BudgetKey key{reinterpret_cast<UINT64>(h.device),reinterpret_cast<UINT64>(parent),
-            queue->identity,feature.generation,g_config_generation.load(),full,high,full,high,2u|(unsigned(feature.create_flags)&8)};
+            queue->identity,feature.generation,g_config_generation.load(),0,high,full,high,2u|(unsigned(feature.create_flags)&8)};
         const auto before_owned=h.owned.size();
-        Require(!nr_post_product::CreateOwner(context,h.device,parent,feature,queue,full,high,full,high,key),
-            "real CreateOwner refuses full private layout before allocation");
-        Require(context.private_sr_budget_retry.valid&&context.private_sr_budget_retry.permanent&&
-            context.private_sr_budget_retry.reason==nr_private_sr_status::State::BudgetCap&&
-            context.private_sr_budget_retry.required==plan.required&&
-            context.private_sr_budget_retry.available==(768ull<<20)&&
+        Require(!nr_post_product::CreateOwner(context,h.device,parent,feature,queue,0,high,full,high,key),
+            "real CreateOwner refuses invalid allocation query before allocation");
+        Require(context.private_sr_budget_retry.valid&&!context.private_sr_budget_retry.permanent&&
+            context.private_sr_budget_retry.reason==nr_private_sr_status::State::BudgetUnknown&&
+            context.private_sr_budget_retry.required==0&&
+            context.private_sr_budget_retry.available==0&&
             !context.private_sr&&!nr_private_sr_status::bytes.load()&&!nr_private_sr_status::peak.load()&&
             !nr_private_sr_status::retired.load()&&!nr_private_sr_status::creations.load()&&
-            h.owned.size()==before_owned,"over-cap preflight leaves no partial private planes or Feature1");
-        std::printf("PASS real CreateOwner 4K cap preflight required=%llu available=%llu planes=0 privateCreate=0\n",
-            (unsigned long long)plan.required,(unsigned long long)(768ull<<20));
+            h.owned.size()==before_owned,"invalid-query preflight leaves no partial private planes or Feature1");
+        std::printf("PASS real 4K allocation query required=%llu; CreateOwner invalid-query refusal planes=0 privateCreate=0\n",
+            (unsigned long long)plan.required);
         context.private_sr_budget_retry={};nr_private_sr_status::budget_configuration.store(0);
     }
     auto& slot=context.slots[0];slot.source=base;slot.result=final;slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -439,6 +446,12 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
             if(private_sr)Require(capture!=0,"original product Capture/CreateOwner");
             else {Require(!capture&&!context.private_sr,"spatial control creates no private SR owner");
                 if(nr_layers_count)standalone_guides.Record(h,queue,guides,feature,params,rw,rh,nw,nh,ow,oh);}
+            if(capture_frames&&frame==0){
+                Require(context.private_sr->pixel_capture.enabled,"actual product capture enabled by explicit writable directory");
+                const auto until=GetTickCount64()+10000;
+                while(nr_private_sr_capture::worker.state.load()==1&&GetTickCount64()<until)Sleep(1);
+                Require(nr_private_sr_capture::worker.state.load()==2,"bounded CPU startup for actual capture worker");
+            }
             ID3D12GraphicsCommandList_EndQuery(h.list,timing,D3D12_QUERY_TYPE_TIMESTAMP,1);
             Ngx(evaluate(native_list,parent,params,nullptr),"actual native baseline Evaluate");
             Copy(h,native,base,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Copy(h,native,final,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -561,7 +574,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         Require(nr_post_product::Ready(context),"fence plus real Reset permits retirement");
         const auto memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(h.device),true);
         std::printf("METRIC frame=%u cpu_record_ms=%.6f cpu_submit_ms=%.6f cpu_retire_ms=%.6f gpu_guides_ms=%.6f gpu_private_sr_ms=%.6f gpu_nr_chain_ms=%.6f gpu_temporal_ms=%.6f nr_create=%u produced=%u plane_bytes=%llu temporal_bytes=%llu dxgi_local_usage=%llu diagnostic_capture=%u private_enabled=%u temporal_recorded=%u temporal_submitted=%llu temporal_gpu_frames=%llu temporal_gpu_tested=%llu temporal_gpu_adopted=%llu temporal_gpu_rejected=%llu temporal_gpu_depth_rejected=%llu\n",
-            frame,record_ms,submit_ms,Millis(retire),guide_ms,private_ms,nr_ms,temporal_ms,chain.c&&chain.created_this_frame?1u:0u,produced,nr_private_sr_status::bytes.load(),nr_temporal_status::bytes.load(),(unsigned long long)memory.local.CurrentUsage,unsigned(!captures.empty()),unsigned(private_sr),temporal_recorded,(unsigned long long)nr_temporal_status::submitted.load(),(unsigned long long)nr_temporal_status::gpu_frames.load(),(unsigned long long)nr_temporal_status::gpu_tested.load(),(unsigned long long)nr_temporal_status::gpu_adopted.load(),(unsigned long long)nr_temporal_status::gpu_rejected.load(),(unsigned long long)nr_temporal_status::gpu_depth_rejected.load());
+            frame,record_ms,submit_ms,Millis(retire),guide_ms,private_ms,nr_ms,temporal_ms,chain.c&&chain.created_this_frame?1u:0u,produced,nr_private_sr_status::bytes.load(),nr_temporal_status::bytes.load(),(unsigned long long)memory.local.CurrentUsage,unsigned(capture_frames||!captures.empty()),unsigned(private_sr),temporal_recorded,(unsigned long long)nr_temporal_status::submitted.load(),(unsigned long long)nr_temporal_status::gpu_frames.load(),(unsigned long long)nr_temporal_status::gpu_tested.load(),(unsigned long long)nr_temporal_status::gpu_adopted.load(),(unsigned long long)nr_temporal_status::gpu_rejected.load(),(unsigned long long)nr_temporal_status::gpu_depth_rejected.load());
         Require(nr_private_sr_status::composed.load()==(private_sr&&produced?produced-1:0),"first create preserves Z; subsequent exact composition");
     }
     Require(produced==requested_frames,"all requested final Z frames completed");
@@ -590,7 +603,7 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         Require(z!=baseline&&output!=baseline,"complete real NR Z and private reconstruction both retain nonzero full-chain contribution");
         std::ofstream saved_z("actual-core-final-Z.fp16",std::ios::binary);saved_z.write(z.data(),z.size());
         std::ofstream saved_output("actual-core-private-result.fp16",std::ios::binary);saved_output.write(output.data(),output.size());}
-    if(private_sr){Require(nr_private_sr_status::timing_config.load()==g_config_generation.load()&&
+    if(private_sr&&!capture_frames){Require(nr_private_sr_status::timing_config.load()==g_config_generation.load()&&
         nr_private_sr_status::timing_instance.load()==context.instance_id,"production timing belongs to exact configuration and owner");
     Require(std::isfinite(nr_private_sr_status::gpu_first_create_ms.load())&&nr_private_sr_status::gpu_first_create_ms.load()>=0&&
         std::isfinite(nr_private_sr_status::gpu_first_inference_ms.load())&&nr_private_sr_status::gpu_first_inference_ms.load()>=0,"finite first creation/inference timings");
@@ -603,8 +616,31 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
         nr_private_sr_status::gpu_first_create_ms.load(),nr_private_sr_status::gpu_first_inference_ms.load(),
         nr_private_sr_status::gpu_median_ms.load(),nr_private_sr_status::gpu_p95_ms.load());}
     ReleaseCom(timing);ResetAndClose(h); // end readback recording before releasing any referenced model resource
+    unsigned capture_session=0;
+    if(capture_frames){const auto& run=context.private_sr->pixel_capture;
+        Require(run.enabled&&run.finished&&run.requested==capture_frames&&run.count==capture_frames&&run.session,
+            "actual Flight recorded requested consecutive bounded capture session");capture_session=run.session;}
     const auto peak=nr_private_sr_status::peak.load();Require(nr_post_product::Destroy(context)&&!context.private_sr,"product original owner retirement");
     Require(nr_private_sr_status::bytes.load()==0,"owned plane account retired");
+    if(capture_frames){
+        // Test host only: all exact recording/fence retirements already completed.
+        // Wait for bounded CPU file I/O, never introduce a product GPU wait.
+        auto& worker=nr_private_sr_capture::worker;const auto until=GetTickCount64()+30000;
+        while(worker.state.load()!=4&&GetTickCount64()<until)Sleep(1);
+        Require(worker.state.load()==4&&!worker.leases.load()&&!worker.resident.load()&&!worker.users.load()&&!worker.active_runs.load(),
+            "actual capture worker drained all jobs after owner retirement");
+        Require(worker.attempts.load()<=64&&worker.sessions.load()<=8,"bounded capture attempts and sessions");
+        char folder[MAX_PATH*4]{};Require(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,worker.folder,-1,folder,sizeof(folder),nullptr,nullptr)>0,"capture folder UTF8");
+        for(char* c=folder;*c;++c)if(*c=='\\')*c='/';
+        std::ofstream receipt("actual-core-product-capture.json");
+        receipt<<"{\"schema\":\"actual-core-product-capture-v1\",\"requestedFrames\":"<<capture_frames<<",\"session\":"<<capture_session
+            <<",\"folder\":\""<<folder<<"\",\"workerState\":"<<worker.state.load()<<",\"leases\":"<<worker.leases.load()
+            <<",\"residentBytes\":"<<worker.resident.load()<<",\"users\":"<<worker.users.load()<<",\"activeRuns\":"<<worker.active_runs.load()
+            <<",\"attempts\":"<<worker.attempts.load()<<",\"sessions\":"<<worker.sessions.load()<<",\"diskReservedBytes\":"<<worker.disk.load()
+            <<",\"residentCapBytes\":"<<worker.resident_cap.load()<<",\"producer\":\"actual-Core-Capture-Finish-Flight-worker\",\"nativeFeature\":1,\"privateFeature\":1,\"game\":false,\"timingExcluded\":true,\"performanceSample\":\"capture_period_not_performance_sample\"}\n";
+        receipt.close();Require(bool(receipt),"complete worker drain receipt written");
+    }else Require(nr_private_sr_capture::worker.state.load()==0&&!nr_private_sr_capture::worker.attempts.load()&&!nr_private_sr_capture::worker.leases.load(),
+        "ordinary mode creates no capture worker or readback jobs");
     g_config.temporal_backend=0;nr_temporal::Maintain(context);
     Require(!context.temporal,"completed PostRr temporal owner retired after exact recording and fence");
     Require(CanDestroyBindingsLocked(context),"P1 descriptor packets retired after exact Reset and fence");
@@ -628,5 +664,5 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     std::printf("PASS actual generated Core native=%u realNRLayers=%u percent=%u checks=%u privateCreate=%u privateEvaluate=%u submit=%u retire=1; artificial scene, no game\n",rr?13:1,nr_layers_count,percent,checks,unsigned(private_sr),private_sr?requested_frames-1:0,frame);return 0;
 }
 }
-int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>10)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0,argc>=9?std::wcstoul(argv[8],nullptr,10):0,argc>=10?std::wcstoul(argv[9],nullptr,10):0);}
+int wmain(int argc,wchar_t**argv){std::setvbuf(stdout,nullptr,_IONBF,0);if(argc<6||argc>11)return 2;const unsigned frames=std::wcstoul(argv[5],nullptr,10);if(frames<2||frames>256)return 2;try{return product_real::Run(argv[1],std::wcstoul(argv[2],nullptr,10),std::wcstoul(argv[3],nullptr,10),std::wcstoul(argv[4],nullptr,10)!=0,frames,argc>=7&&std::wcstoul(argv[6],nullptr,10)!=0,argc<8||std::wcstoul(argv[7],nullptr,10)!=0,argc>=9?std::wcstoul(argv[8],nullptr,10):0,argc>=10?std::wcstoul(argv[9],nullptr,10):0,argc>=11?std::wcstoul(argv[10],nullptr,10):0);}
 catch(const std::exception& e){std::fprintf(stderr,"FAIL %s\n",e.what());std::fflush(nullptr);ExitProcess(1);}}

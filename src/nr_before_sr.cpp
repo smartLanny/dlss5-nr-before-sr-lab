@@ -125,11 +125,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.5.2 Beta 14";
+constexpr const char *kAddonVersion = "0.5.2 Beta 16";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.5.2-beta.14";
+constexpr const char *kBuildIdentity = "0.5.2-beta.16";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -947,7 +947,7 @@ struct ChainConfig {
     bool near_black_chroma_guard = false;
     unsigned temporal_backend=0,temporal_scope=0,temporal_mode=0;
     bool temporal_legacy=false;
-    unsigned master_virtual_key=117, image_virtual_key=118, feedback_virtual_key=119;
+    unsigned master_virtual_key=117, image_virtual_key=118, feedback_virtual_key=119, screenshot_virtual_key=189;
     bool colour_range_control=true;
     float colour_priority_strength=nr_colour_preferences::PriorityDefault;
     float colour_conservative_strength=nr_colour_preferences::ConservativeDefault;
@@ -1680,7 +1680,7 @@ void NormalizeConfig(ChainConfig &config) {
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
     return a.spatial_experiment_mode==b.spatial_experiment_mode && a.private_residual_sr==b.private_residual_sr && a.reconstruction_mode==b.reconstruction_mode && a.near_black_chroma_guard==b.near_black_chroma_guard && a.temporal_backend==b.temporal_backend && a.temporal_scope==b.temporal_scope && a.temporal_mode==b.temporal_mode && a.temporal_legacy==b.temporal_legacy && a.master_virtual_key==b.master_virtual_key && a.image_virtual_key==b.image_virtual_key &&
-           a.feedback_virtual_key==b.feedback_virtual_key &&
+           a.feedback_virtual_key==b.feedback_virtual_key && a.screenshot_virtual_key==b.screenshot_virtual_key &&
            a.colour_range_control==b.colour_range_control &&
            a.colour_priority_strength==b.colour_priority_strength &&
            a.colour_conservative_strength==b.colour_conservative_strength && a.colour_edge_recovery == b.colour_edge_recovery && a.colour_neutral_probe == b.colour_neutral_probe && a.colour_restore_mode == b.colour_restore_mode && a.colour_input_curve == b.colour_input_curve && a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode && a.colour_lab_mode == b.colour_lab_mode && a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
@@ -1774,6 +1774,7 @@ void ReloadConfig(bool force = false) {
     next.master_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"MasterVirtualKey",117,g_ini_path);
     next.image_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"ImageVirtualKey",118,g_ini_path);
     next.feedback_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"FeedbackVirtualKey",119,g_ini_path);
+    next.screenshot_virtual_key=GetPrivateProfileIntW(L"NRBeforeSR",L"ScreenshotVirtualKey",189,g_ini_path);
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 1, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
@@ -2179,6 +2180,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"MasterVirtualKey",config.master_virtual_key));
     record_write(WriteIniInt(L"ImageVirtualKey",config.image_virtual_key));
     record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));
+    record_write(WriteIniInt(L"ScreenshotVirtualKey",config.screenshot_virtual_key));
     if (light_saved) record_write(WriteIniInt(L"LightStyleVersion",static_cast<int>(config.light_style_version)));
     // END LIGHT STYLE SAVE
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
@@ -16392,19 +16394,12 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     ServiceFaceDiagnosticSelection(runtime);
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
-    static bool screenshot_key_was_down = false;
+    static nr_hotkeys::Edge screenshot_edge;
     static ULONGLONG last_screenshot_ms = 0;
     static nr_hotkeys::Edge image_edge;
     static ULONGLONG last_stage_request_ms = 0;
     if (!TryAcquireSRWLockExclusive(&screenshot_hotkey_lock)) return;
 
-    const SHORT minus_state = GetAsyncKeyState(VK_OEM_MINUS);
-    const SHORT numpad_minus_state = GetAsyncKeyState(VK_SUBTRACT);
-    const bool screenshot_key_is_down =
-        (minus_state & 0x8000) != 0 || (numpad_minus_state & 0x8000) != 0;
-    const bool screenshot_pressed =
-        (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
-        (screenshot_key_is_down && !screenshot_key_was_down);
     const ULONGLONG now_ms = GetTickCount64();
     ObserveMenuTransition(runtime,now_ms);
 
@@ -16442,6 +16437,10 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     nr_acceptance::Present(runtime);
     PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);
 
+    const auto screenshot_key=nr_hotkeys::Key(shortcut_bindings,nr_hotkeys::Screenshot);
+    const SHORT screenshot_state=nr_hotkeys::State(screenshot_key,nr_hotkeys::Screenshot,
+        [](unsigned key){return GetAsyncKeyState(static_cast<int>(key));});
+    const bool screenshot_pressed=screenshot_edge.Press(screenshot_key,screenshot_state);
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
         const ChainConfig config = SnapshotConfig();
@@ -16473,7 +16472,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         }
 
         runtime->save_screenshot(postfix);
-        Log("[screenshot] ReShade capture queued by '-' hotkey: %s", postfix);
+        Log("[screenshot] ReShade capture queued by %s hotkey: %s", nr_hotkeys::Name(screenshot_key), postfix);
         Log("[screenshot] requested config=%u build=%s mode=%s state=%s "
             "input=%ux%u NR=%ux%u output=%ux%u format=%u "
             "intensity=%.3f blend=%.3f style=%s autoMask=%d skin=%.3f "
@@ -16501,7 +16500,6 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
             applied.tuning.style);
     }
 
-    screenshot_key_was_down = screenshot_key_is_down;
     ReleaseSRWLockExclusive(&screenshot_hotkey_lock);
 }
 
@@ -17246,13 +17244,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 0.5.2 Beta 14 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 16 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 0.5.2 Beta 14 (English UI) | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 16 (English UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -19,7 +19,8 @@ struct Config {
  int colour_lab_mode=nr_colour_lab::kDefaultMode; bool allow_unverified_hdr_color=false;
  bool colour_range_control=false;
  float color_strength=1.f,colour_priority_strength=.7f,colour_conservative_strength=1.f;
- unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119;
+ unsigned master_virtual_key=117,image_virtual_key=118,feedback_virtual_key=119,screenshot_virtual_key=189;
+ unsigned spatial_experiment_mode=0;bool private_residual_sr=false;
  unsigned temporal_backend=0,temporal_scope=0,temporal_mode=0;bool temporal_legacy=false;
 };
 int main(){
@@ -58,6 +59,29 @@ int main(){
  Publish(c);assert(Key(Master)==118 && Key(Image)==117 && Key(Report)==119);
  assert(!Set(c,Report,65));
  c.feedback_virtual_key=118;Normalize(c);assert(c.feedback_virtual_key==0);
+ Config keys;
+ for(const auto& choice:Choices){
+   assert(Valid(choice.key));assert(Choices[Index(choice.key)].key==choice.key);
+   assert(Name(choice.key)[0]&&Name(choice.key,true)[0]);
+ }
+ assert(!Set(keys,Master,189)&&!Set(keys,Report,109));
+ assert(Overlaps(Master,36,36)&&Overlaps(Screenshot,189,109));
+ assert(!Overlaps(Screenshot,0,109)&&!Overlaps(Master,36,0));
+ assert(!Set(keys,static_cast<Action>(Count),36));
+ assert(Set(keys,Master,36)&&Set(keys,Image,35)&&Set(keys,Report,145)&&Set(keys,Screenshot,19));
+ Normalize(keys);Publish(keys);
+ assert(Key(Master)==36&&Key(Image)==35&&Key(Report)==145&&Key(Screenshot)==19);
+ assert(!Set(keys,Screenshot,36));
+ keys.image_virtual_key=36;keys.feedback_virtual_key=999;Normalize(keys);
+ assert(keys.master_virtual_key==36&&keys.image_virtual_key==0&&keys.feedback_virtual_key==0&&keys.screenshot_virtual_key==19);
+ for(unsigned preset=0;preset<4;++preset){
+   assert(ApplyPreset(keys,preset));assert(PresetIndex(keys)==preset+1);
+   const auto before=Pack(keys.master_virtual_key,keys.image_virtual_key,keys.feedback_virtual_key,keys.screenshot_virtual_key);
+   Normalize(keys);Publish(keys);assert(published.load()==before);
+ }
+ assert(Key(Master)==0&&Key(Image)==0&&Key(Report)==0&&Key(Screenshot)==0);
+ assert(!ApplyPreset(keys,99));
+ unsigned reads=0;assert(State(0,Screenshot,[&](unsigned){++reads;return short(0x8001);})==0&&reads==0);
  Edge e;assert(!e.Press(117,0));assert(e.Press(117,short(0x8001)));
  for(int i=0;i<100;++i)assert(!e.Press(117,short(0x8001)));
  assert(!e.Press(117,0));assert(e.Press(117,1));
@@ -79,6 +103,69 @@ class UserControls(unittest.TestCase):
             subprocess.run([str(exe)],check=True,cwd=td)
 
     def test_behaviour(self):self.run_cpp(CPP)
+
+    def test_actual_reshade_conflict_notice(self):
+        if GENERATED is None:self.skipTest('complete export checked separately')
+        spec=importlib.util.spec_from_file_location('hotkey_fixture',ROOT/'scripts/validate-feedback-hotkeys.py')
+        helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+        source=(GENERATED/'src/nr_unified_pages.inl').read_text(encoding='utf-8')
+        notice=helper.function(source,'void DrawKnownReShadeHotkeyConflicts(')
+        code=CPP[:CPP.index('int main()')]+r'''
+#include <cstring>
+using ChainConfig=Config;
+unsigned reads=0,notices=0;
+namespace reshade::api {struct effect_runtime{};}
+namespace reshade {
+bool get_config_value(api::effect_runtime*,const char*,const char* name,unsigned& key){
+ ++reads;if(std::strcmp(name,"KeyOverlay")==0){key=36;return true;}
+ if(std::strcmp(name,"KeyScreenshot")==0){key=109;return true;}return false;
+}}
+namespace ImGui {void TextWrapped(const char*,...){++notices;}}
+const char* NrUi(const char* en,const char*){return en;}
+bool UseChineseUi(){return false;}
+'''+notice+r'''
+int main(){Config c;c.master_virtual_key=36;
+ DrawKnownReShadeHotkeyConflicts(nullptr,c);assert(reads==0&&notices==0);
+ reshade::api::effect_runtime runtime;DrawKnownReShadeHotkeyConflicts(&runtime,c);
+ assert(reads==8&&notices==2);assert(c.master_virtual_key==36&&c.screenshot_virtual_key==189);
+ nr_hotkeys::ApplyPreset(c,3);DrawKnownReShadeHotkeyConflicts(&runtime,c);assert(notices==2);
+}
+'''
+        self.run_cpp(code)
+
+    def test_actual_screenshot_dispatch(self):
+        if GENERATED is None:self.skipTest('complete export checked separately')
+        core=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+        start=core.index('    const auto screenshot_key=nr_hotkeys::Key(')
+        poll=core[start:core.index('    if (screenshot_pressed &&',start)]
+        code=r'''
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <cassert>
+#include "nr_hotkeys.h"
+SHORT key_state[256]{};
+SHORT TestKey(int key){return key_state[key];}
+#define GetAsyncKeyState TestKey
+bool Poll(){static nr_hotkeys::Edge screenshot_edge;
+ const auto shortcut_bindings=nr_hotkeys::published.load();
+'''+poll+r'''
+ return screenshot_pressed;}
+int main(){
+ assert(!Poll());key_state[VK_OEM_MINUS]=SHORT(0x8001);assert(Poll());
+ for(unsigned i=0;i<100;++i)assert(!Poll());
+ key_state[VK_OEM_MINUS]=0;assert(!Poll());
+ key_state[VK_SUBTRACT]=SHORT(0x8001);assert(Poll());
+ for(unsigned i=0;i<100;++i)assert(!Poll());
+ nr_hotkeys::published=nr_hotkeys::Pack(0,0,0,0);
+ key_state[VK_OEM_MINUS]=SHORT(0x8001);for(unsigned i=0;i<100;++i)assert(!Poll());
+ nr_hotkeys::published=nr_hotkeys::Pack(117,118,119,VK_END);
+ key_state[VK_END]=SHORT(0x8001);assert(!Poll()); // Rebinding while held must not fire.
+ key_state[VK_END]=0;assert(!Poll());key_state[VK_END]=SHORT(0x8001);assert(Poll());
+ for(unsigned i=0;i<100;++i)assert(!Poll());
+ key_state[VK_END]=0;assert(!Poll());key_state[VK_END]=1;assert(Poll());
+}
+'''
+        self.run_cpp(code)
 
     def test_actual_remapped_dispatch(self):
         if GENERATED is None:self.skipTest('complete export checked separately')
@@ -139,7 +226,7 @@ int main(){
         start=core.index('    next.temporal_backend=') if '    next.temporal_backend=' in core else core.index('    next.master_virtual_key=')
         key_load=core[start:core.index('    next.enabled =',start)]
         start=core.index('    record_light(WriteIniFloat(L"ColorStrength"')
-        last='    record_write(WriteIniInt(L"FeedbackVirtualKey",config.feedback_virtual_key));'
+        last='    record_write(WriteIniInt(L"ScreenshotVirtualKey",config.screenshot_virtual_key));'
         saved=core[start:core.index(last,start)+len(last)]
         # Run the generated loader and writes against real Win32 INI storage,
         # including a fresh load after mode changes and partial old settings.
@@ -168,6 +255,9 @@ int main(){
  c.color_strength=.6f;nr_colour_preferences::Remember(c);
  assert(nr_hotkeys::Set(c,nr_hotkeys::Master,120));save(c);c=load();
  assert(c.color_strength==.6f && c.master_virtual_key==120);
+ assert(nr_hotkeys::Set(c,nr_hotkeys::Master,36));assert(nr_hotkeys::Set(c,nr_hotkeys::Image,145));
+ assert(nr_hotkeys::Set(c,nr_hotkeys::Screenshot,0));save(c);c=load();
+ assert(c.master_virtual_key==36&&c.image_virtual_key==145&&c.screenshot_virtual_key==0);
  nr_colour_preferences::Select(c,1);assert(c.color_strength==1.f);
  c.color_strength=.2f;nr_colour_preferences::Remember(c);save(c);c=load();
  assert(c.color_strength==.2f);nr_colour_preferences::Select(c,0);assert(c.color_strength==.6f);
@@ -183,7 +273,7 @@ int main(){
     def test_final_wiring(self):
         if GENERATED is None:self.skipTest('complete export checked separately')
         core=(GENERATED/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
-        for key in ('MasterVirtualKey','ImageVirtualKey','FeedbackVirtualKey','ColourPriorityStrength','ColourConservativeStrength'):
+        for key in ('MasterVirtualKey','ImageVirtualKey','FeedbackVirtualKey','ScreenshotVirtualKey','ColourPriorityStrength','ColourConservativeStrength'):
             self.assertIn('L"'+key+'"',core)
         self.assertEqual(core.count('nr_hotkeys::Publish(g_config);'),2)
         self.assertIn('nr_colour_preferences::Load(next,',core)

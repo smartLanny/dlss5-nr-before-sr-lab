@@ -14,7 +14,8 @@ from pathlib import Path
 OW, OH, NW, NH = 640, 384, 320, 192
 PLANES = {"B": (OW, OH, "e"), "Z": (OW, OH, "e"),
           "carrier": (NW, NH, "e"), "tail": (NW, NH, "f"),
-          "reconstructed": (OW, OH, "e"), "final": (OW, OH, "e")}
+          "reconstructed": (OW, OH, "e"), "spatial_reconstructed": (OW, OH, "e"),
+          "final": (OW, OH, "e"), "spatial_final": (OW, OH, "e")}
 
 
 def digest(path):
@@ -81,7 +82,7 @@ def summary(values):
             "p95": values[(len(values)*95+99)//100-1], "max": values[-1]}
 
 
-def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
+def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve, per_channel_support=False):
     planes, hashes = {}, {}
     for name in PLANES:
         planes[name], hashes[name] = read_plane(directory, frame, name)
@@ -94,7 +95,7 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
            for y in range(NH) for x in range(NW)):
         raise ValueError("Expected two constant depth planes")
     hashes["depth"] = digest(depth_path)
-    b, z, carrier, tail, reconstructed, final = (planes[n] for n in PLANES)
+    b, z, carrier, tail, reconstructed, spatial_reconstructed, final, spatial_final = (planes[n] for n in PLANES)
     # Independent N-grid area average. Here O/N is exactly two in each axis.
     down = [0.0]*(NW*NH*3)
     for ny in range(NH):
@@ -109,9 +110,19 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
               for stage in ("downsample_loss", "transport_error", "reconstruction_fp16_loss",
                             "reconstruction_quantization", "compose_error",
                             "feature1_increment", "feature1_increment_gate_aware", "feature1_vs_z",
-                            "fixture_vs_spatial", "fixture_vs_gated_spatial", "source_edit")}
+                            "fixture_vs_spatial", "fixture_vs_gated_spatial", "source_edit",
+                            "corrected_vs_z", "corrected_vs_private", "matched_vs_private",
+                            "cpu_spatial_vs_gpu", "cpu_decode_vs_gpu_matched")}
     references = {"exact_spatial": bytearray(), "exact_spatial_fp16": bytearray(),
-                  "gated_spatial_fp16": bytearray(), "area_average": bytearray()}
+                  "gated_spatial_fp16": bytearray(), "area_average": bytearray(),
+                  "matched_reference": bytearray(), "corrected_candidate": bytearray()}
+    support_data = bytes(int(tail[index*4+3] >= 1.5) for index in range(NW*NH))
+    support_path = directory/f"frame-{frame}-support.u8"
+    support_path.write_bytes(support_data)
+    hashes["support"] = digest(support_path)
+    en_path = directory/f"frame-{frame}-E_N.fp32"
+    en_path.write_bytes(struct.pack(f"<{len(down)}f", *down))
+    hashes["E_N"] = digest(en_path)
     invalid = 0
     dark_base_min, dark_base_max = math.inf, -math.inf
     for y in range(OH):
@@ -120,6 +131,14 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
             xt = taps(x, OW, NW)
             pixel_base = (y*OW+x)*4
             exact_unchanged = zero_preserve and all(z[pixel_base+j] == b[pixel_base+j] for j in range(3))
+            tail_valid = True
+            for ny, wy in yt:
+                for nx, wx in xt:
+                    if wx*wy <= 0:
+                        continue
+                    offset = (ny*NW+nx)*4
+                    value = tail[offset:offset+4]
+                    tail_valid &= len(value) == 4 and all(math.isfinite(v) for v in value) and value[3] >= .5
             for c in range(3):
                 interpolation = edit = quantization = 0.0
                 support = False
@@ -133,7 +152,7 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
                         if weight > 0:
                             if tail[offset+3] < .5 or not math.isfinite(tail[offset+c]):
                                 invalid += 1
-                            support |= tail[offset+3] >= 1.5
+                            support |= tail[offset+3] >= 1.5 and (not per_channel_support or carrier[offset+c] != .5)
                 pixel = (y*OW+x)*4+c
                 stored_interpolation = half(interpolation)
                 spatial = half(b[pixel]+((2*max(0, min(1, interpolation))-1)*carrier_range
@@ -147,6 +166,20 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
                 references["gated_spatial_fp16"].extend(struct.pack("<e", gated_spatial))
                 references["area_average"].extend(struct.pack("<e", area))
                 observed = final[pixel]
+                spatial_gpu = spatial_reconstructed[pixel]
+                matched_decode = half(b[pixel]+((2*max(0, min(1, spatial_gpu))-1)*carrier_range
+                                        if support else 0)+quantization)
+                cpu_matched = (b[pixel] if exact_unchanged else matched_decode) if tail_valid else z[pixel]
+                matched = spatial_final[pixel]
+                corrected = z[pixel]
+                if tail_valid and not exact_unchanged and all(math.isfinite(v) for v in (z[pixel], observed, matched)):
+                    proposed = z[pixel] + (observed-matched)
+                    if math.isfinite(proposed) and abs(proposed) <= 65504:
+                        corrected = half(proposed)
+                references["matched_reference"].extend(struct.pack("<e", matched))
+                references["corrected_candidate"].extend(struct.pack("<e", corrected))
+                if exact_unchanged and corrected != z[pixel]:
+                    raise ValueError("Zero-edit candidate changed Z")
                 actual_carrier = reconstructed[pixel]
                 composed = (b[pixel] if exact_unchanged else
                     half(b[pixel]+((2*max(0, min(1, actual_carrier))-1)*carrier_range
@@ -166,6 +199,11 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
                     "feature1_vs_z": abs(observed-z[pixel]),
                     "fixture_vs_spatial": abs(observed-spatial_fp16),
                     "fixture_vs_gated_spatial": abs(observed-gated_spatial),
+                    "corrected_vs_z": abs(corrected-z[pixel]),
+                    "corrected_vs_private": abs(corrected-observed),
+                    "matched_vs_private": abs(matched-observed),
+                    "cpu_spatial_vs_gpu": abs(stored_interpolation-spatial_gpu),
+                    "cpu_decode_vs_gpu_matched": abs(cpu_matched-matched),
                 }
                 masks = region(x, y, scene)
                 if (masks.get("dark_background") or masks.get("dark_line") or
@@ -181,10 +219,17 @@ def analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve):
                             errors[stage][name].append(value)
             for ref in references.values():
                 ref.extend(struct.pack("<e", b[(y*OW+x)*4+3]))
+            if (b[pixel_base+3] != z[pixel_base+3] or final[pixel_base+3] != b[pixel_base+3]
+                    or spatial_final[pixel_base+3] != b[pixel_base+3]):
+                raise ValueError("Alpha contract changed in captured planes")
     for name, data in references.items():
         path = directory/f"frame-{frame}-{name}.fp16"
         path.write_bytes(data)
         hashes[name] = digest(path)
+    motion_path = directory/f"frame-{frame}-motion.fp32"
+    if len(motion_path.read_bytes()) != NW*NH*2*4:
+        raise ValueError("Normalized motion plane byte extent mismatch")
+    hashes["motion"] = digest(motion_path)
     return {"frame": frame, "plane_sha256": hashes,
             "invalid_or_nonfinite_samples": invalid,
             "dark_base_range": [dark_base_min, dark_base_max] if scene in ("dark_text_v1", "dark_text_hair_v2") else None,
@@ -210,10 +255,19 @@ def main():
     if any(not entry["adopted"] or entry["output"] != [OW, OH] or
            entry["work"] != [NW, NH] or entry["carrier_range"] != carrier_range
            or entry["depth"] != "two_planes_0.25_0.75_split_160"
+           or entry["motion"] != "normalized_zero_work_pixels"
            for entry in identities):
         raise ValueError("Mixed extent, range or non-adopted frame")
-    if len({entry["source_sequence"] for entry in identities}) != 16:
-        raise ValueError("Repeated source identity")
+    if any(identities[index]["source_sequence"] != identities[0]["source_sequence"]+index
+           for index in range(16)):
+        raise ValueError("Source identities are not consecutive")
+    if any(entry["completion_value"] < entry["fence_value"] or not entry["recording_released"]
+           or not entry["feature1_bind_reset"] == bool(entry["reset_causes"])
+           for entry in identities):
+        raise ValueError("Missing exact completion, recording release or Bind Reset evidence")
+    if any(identities[index]["predecessor_sequence"] != identities[index-1]["source_sequence"]
+           or identities[index]["reset_causes"] != 0 for index in range(1, 16)):
+        raise ValueError("Host private Feature1 history is not continuous")
     scenes = {entry.get("scene", "legacy_v1") for entry in identities}
     if len(scenes) != 1 or scenes.pop() not in ("legacy_v1", "dark_text_v1", "dark_text_hair_v2"):
         raise ValueError("Mixed or unknown quality scene")
@@ -224,11 +278,18 @@ def main():
             len(zero_flags) != 1 or any(type(flag) is not bool for flag in zero_flags)):
         raise ValueError("Mixed or unknown encoding/zero-preserve identity")
     policy, zero_preserve = policies.pop(), zero_flags.pop()
+    channel_flags = {entry.get("per_channel_support", False) for entry in identities}
+    if len(channel_flags) != 1 or any(type(flag) is not bool for flag in channel_flags):
+        raise ValueError("Mixed or invalid per-channel support identity")
+    per_channel_support = channel_flags.pop()
     if zero_preserve and policy != "post_legacy_range4_neutral":
         raise ValueError("Zero-preserve capture must name post encoding policy")
     results, first = [], None
     for frame in range(16):
-        result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve)
+        result, output = analyze_frame(directory, frame, mode, carrier_range, scene, zero_preserve, per_channel_support)
+        if mode == "fixture" and (result["errors"]["matched_vs_private"]["all"]["max"] != 0 or
+                                  result["errors"]["corrected_vs_z"]["all"]["max"] != 0):
+            raise ValueError("GPU spatial fixture and corrected candidate must be bit-exact identities")
         if scene in ("dark_text_v1", "dark_text_hair_v2") and result["errors"]["source_edit"]["dark_boundary_outside"]["max"] != 0:
             raise ValueError("Dark support exterior has source edit")
         if first is None:
@@ -238,7 +299,8 @@ def main():
         results.append(result)
     report = {"schema": "private-sr-controlled-quality-v1", "mode": mode,
               "scene": scene, "encoding_policy": policy, "zero_preserve": zero_preserve,
-              "reference": "captured-carrier half-pixel spatial, ungated and exact-Z-equals-B gated FP16 variants, plus captured N-tail; independent area-average D(Z-B)",
+              "per_channel_support": per_channel_support,
+              "reference": "GPU spatial reconstruction of captured N carrier followed by the same production Compose over an independent Z copy, with identical tail/support/phase; corrected candidate is Z plus private-minus-matched-reference, offline only; CPU interpolation and decode remain separate tolerance checks",
               "carrier_range": carrier_range,
               "identity": identities, "frames": results,
               "quality_acceptance": "unjudged; compare against spatial baseline and user imagery"}

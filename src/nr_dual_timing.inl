@@ -1,3 +1,7 @@
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+// The capture implementation follows this module in the Core translation unit.
+namespace nr_private_sr_capture { bool Active(); }
+#endif
 namespace nr_dual_runtime {
 constexpr unsigned kTimeStages=7,kTimeQueries=14,kTimeWindow=120;
 std::atomic<unsigned> time_samples{0},time_config{0};
@@ -103,6 +107,12 @@ void Stamp(ID3D12GraphicsCommandList* list,NrSlot& slot,unsigned query) {
 void Clock(void* user,ID3D12GraphicsCommandList* list,unsigned query){Stamp(list,*static_cast<NrSlot*>(user),query);}
 void ResolveTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool visible) {
     if(!slot.dual_time_active||fatal_result.load())return;
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    if(nr_private_sr_capture::Active()){
+        slot.dual_time_mask=0;slot.dual_time_stable=false;
+        slot.dual_time_pending=false;slot.dual_time_active=false;return;
+    }
+#endif
     if(slot.dual_time_mask&(1u<<10))Stamp(list,slot,11);
     slot.dual_time_stable=visible&&slot.dual_selected!=nullptr&&slot.dual_capture_index==nr_replay::Recorder::Invalid&&StageCaptureStatus()==0&&!nr_f8::IsActive()&&!nr_replay::Active();
     slot.dual_time_reduced=slot.dual_reduced;
@@ -118,6 +128,13 @@ void ResolveTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool visible) {
 }
 void ResolveLayerTiming(ID3D12GraphicsCommandList* list,NrSlot& slot,bool stable) {
     if(!slot.dual_time_active||fatal_result.load())return;
+#if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
+    // Pending must stay false so later full-chain adoption cannot revive it.
+    if(nr_private_sr_capture::Active()){
+        slot.dual_time_mask=0;slot.dual_time_stable=false;
+        slot.dual_time_pending=false;slot.dual_time_active=false;return;
+    }
+#endif
     slot.dual_time_stable=stable&&StageCaptureStatus()==0&&!nr_f8::IsActive()&&!nr_replay::Active();
     const unsigned pair=3u<<4;
     if((slot.dual_time_mask&pair)==pair) {

@@ -42,9 +42,11 @@ struct Rig {
     std::map<void*,unsigned> retained_resources;
     std::array<std::vector<char>,2> shader_bytes;
 
-    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge,bool quality)
-        :width(real_bridge||quality?640:64),height(real_bridge||quality?384:48),
-         nw(width/2),nh(height/2),real(real_bridge!=nullptr) {
+    Rig(const std::filesystem::path& shaders,bool hardware,const wchar_t* real_bridge,bool quality,
+        unsigned output_width=0,unsigned output_height=0,unsigned work_width=0,unsigned work_height=0)
+        :width(output_width?output_width:real_bridge||quality?640:64),
+         height(output_height?output_height:real_bridge||quality?384:48),
+         nw(work_width?work_width:width/2),nh(work_height?work_height:height/2),real(real_bridge!=nullptr) {
         h=new Harness(shaders,hardware||real);owner=new ResourceOwner;
         api.user=this;api.original_sr_owner_verified=true;
         api.retirement_user=this;
@@ -104,7 +106,9 @@ struct Rig {
         auto bad=api;bad.recording_released=nullptr;
         Need(!pipeline::Create(h->device,bad,shape,code,SameDevice,64ull<<20,&bytes)&&bytes==0,"missing recording retirement proof rejected");
         Need(!pipeline::Create(h->device,api,shape,code,SameDevice,1,&bytes)&&bytes==0,"plane budget rejection before vendor allocation");
-        context=pipeline::Create(h->device,api,shape,code,SameDevice,64ull<<20,&bytes);
+        // A full-resolution attribution host may need more than the small
+        // lifecycle fixture's budget. This changes only developer-host limits.
+        context=pipeline::Create(h->device,api,shape,code,SameDevice,1024ull<<20,&bytes);
         Need(context&&!pipeline::Poisoned(context)&&bytes>0&&allocations==4,"three scratch slots, one feature with private parameter blocks");
     }
     void RecordSpatial(ID3D12Resource* carrier,ID3D12Resource* output,ID3D12GraphicsCommandList* list) {
@@ -369,24 +373,59 @@ void CaptureQuality(Rig& r,const std::filesystem::path& directory,float carrier_
              "quality frame adopted by private SR");
         const auto planes=pipeline::InspectRecordedPlanes(r.context,result.slot,i.recording);
         Need(bool(planes),"exact recorded diagnostic planes");
-        const std::array<const char*,7> names={"B","Z","carrier","tail","reconstructed","final","depth"};
-        const std::array<ID3D12Resource*,7> resources={i.pair.base.resource,i.pair.candidate.resource,
-            planes.carrier,planes.tail,planes.reconstructed,i.target.resource,i.depth.resource};
-        const std::array<unsigned,7> formats={10,10,10,2,10,10,41};
-        std::array<Harness::Readback,7> copies{};
-        for(unsigned k=0;k<7;++k)copies[k]=r.h->CopyOut(*r.owner,resources[k],formats[k]);
+        Need(result.bind.bound,"actual Feature1 Bind evidence accompanies adopted frame");
+        // The fixture's private output is already the spatial pass. A real
+        // Feature1 recording gets an independent pass over its exact N carrier.
+        // Both are development-host only; neither changes production Compose.
+        ID3D12Resource* spatial=planes.reconstructed;
+        if(r.real){
+            spatial=r.h->Texture(*r.owner,r.width,r.height,10,0,0,false);
+            Transition(r.h->list,planes.carrier,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            Transition(r.h->list,spatial,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            r.RecordSpatial(planes.carrier,spatial,r.h->list);
+            D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;barrier.UAV.pResource=spatial;
+            r.h->list->ResourceBarrier(1,&barrier);
+            Transition(r.h->list,spatial,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COMMON);
+            Transition(r.h->list,planes.carrier,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COMMON);
+        }
+        auto* spatial_final=r.h->Texture(*r.owner,r.width,r.height,10,0,0,false);
+        Transition(r.h->list,i.pair.candidate.resource,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_SOURCE);
+        Transition(r.h->list,spatial_final,D3D12_RESOURCE_STATE_COMMON,D3D12_RESOURCE_STATE_COPY_DEST);
+        r.h->list->CopyResource(spatial_final,i.pair.candidate.resource);
+        Transition(r.h->list,spatial_final,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COMMON);
+        Transition(r.h->list,i.pair.candidate.resource,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COMMON);
+        Need(pipeline::RecordSpatialReference(r.context,r.h->list,result.slot,i.recording,
+             r.h->View(spatial,10),r.h->View(spatial_final,10),i.target_rect),
+             "same-recording production Compose accepts spatial reference");
+        const std::array<const char*,10> names={"B","Z","carrier","tail","reconstructed","spatial_reconstructed","final","spatial_final","depth","motion"};
+        const std::array<ID3D12Resource*,10> resources={i.pair.base.resource,i.pair.candidate.resource,
+            planes.carrier,planes.tail,planes.reconstructed,spatial,i.target.resource,spatial_final,i.depth.resource,i.motion.resource};
+        const std::array<unsigned,10> formats={10,10,10,2,10,10,10,10,41,16};
+        std::array<Harness::Readback,10> copies{};
+        for(unsigned k=0;k<10;++k)copies[k]=r.h->CopyOut(*r.owner,resources[k],formats[k]);
         r.Submit(true);
-        for(unsigned k=0;k<7;++k)
+        Need(!pipeline::RecordSpatialReference(r.context,r.h->list,result.slot,i.recording,
+             r.h->View(spatial,10),r.h->View(spatial_final,10),i.target_rect),
+             "retired recording cannot replay spatial reference");
+        for(unsigned k=0;k<10;++k)
             SaveReadback(copies[k],directory/("frame-"+std::to_string(frame)+"-"+names[k]+
-                         (formats[k]==2||formats[k]==41?".fp32":".fp16")));
+                         (formats[k]==2||formats[k]==41||formats[k]==16?".fp32":".fp16")));
         manifest<<"{\"frame\":"<<frame<<",\"source_sequence\":"<<i.pair.base_source.sequence
                 <<",\"recording_lifetime\":"<<i.recording.lifetime
                 <<",\"reset\":"<<(i.reset?"true":"false")
+                <<",\"feature1_bind_reset\":"<<(result.bind.reset_causes?"true":"false")
+                <<",\"reset_causes\":"<<result.bind.reset_causes
+                <<",\"history_causes\":"<<result.bind.history_causes
+                <<",\"predecessor_sequence\":"<<result.bind.predecessor.sequence
+                <<",\"fence_value\":"<<r.fence_value
+                <<",\"completion_value\":"<<r.h->fence->GetCompletedValue()
+                <<",\"recording_released\":"<<(r.retired.count(i.recording.lifetime)?"true":"false")
                 <<",\"adopted\":true,\"mode\":\""<<(r.real?"feature1":"fixture")
                 <<"\",\"output\":[640,384],\"work\":[320,192],\"carrier_range\":"<<carrier_range
-                <<",\"depth\":\"two_planes_0.25_0.75_split_160\",\"scene\":\""
+                <<",\"depth\":\"two_planes_0.25_0.75_split_160\",\"motion\":\"normalized_zero_work_pixels\",\"scene\":\""
                 <<(r.dark_quality?"dark_text_hair_v2":"legacy_v1")
-                <<"\",\"encoding_policy\":\"post_legacy_range4_neutral\",\"zero_preserve\":true}\n";
+                <<"\",\"per_channel_support\":"<<(i.per_channel_support?"true":"false")
+                <<",\"encoding_policy\":\"post_legacy_range4_neutral\",\"zero_preserve\":true}\n";
         manifest.flush();Need(bool(manifest),"write quality identity log");
     }
 }
@@ -397,6 +436,8 @@ void Run(const std::filesystem::path& shaders,bool hardware,const wchar_t* bridg
     r->fixture_output=r->Image(.625f);r->Submit(false);
     auto warm=r->Frame(.75f);r->Invalid(warm);auto result=pipeline::Record(r->context,r->h->list,warm);
     Need(result.recorded&&!result.composed&&result.status==pipeline::Status::WaitingForSr,"creation is not successful reconstruction");
+    Need(!pipeline::RecordSpatialReference(r->context,r->h->list,result.slot,warm.recording,
+         warm.pair.base,warm.target,warm.target_rect),"creation cannot replay a spatial reference");
     if(negative==L"discard") {
         pipeline::Discarded(r->context,warm.recording);Need(pipeline::Poisoned(r->context)&&!pipeline::Retire(r->context),"discard quarantines uncertain vendor state");
         std::cout<<"PASS discarded recording remains retained; process exit is only cleanup\n";std::cout.flush();ExitProcess(0);

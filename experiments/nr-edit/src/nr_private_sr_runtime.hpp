@@ -75,6 +75,12 @@ struct Api {
 enum class Status {Empty,Ready,CreatedNeedsSubmission,AwaitCreateCompletion,EvaluateRecorded,Busy,
     InvalidContract,RebuildRequired,DuplicateSource,Poisoned,Retired};
 struct Outcome {Status status=Status::Empty;Result result=0;bool recorded=false,evaluated=false;};
+// CPU-only observation of the value actually passed to Feature1 Bind. A
+// caller's reset request alone cannot describe this private history.
+enum ResetCause:unsigned { RequestedReset=1u, HistoryReset=2u, PredecessorMismatch=4u };
+enum HistoryCause:unsigned { InitialHistory=1u, RecordingBackpressure=2u,
+    SlotPressure=4u, IdentityChanged=8u, ComposeFailed=16u, Cancelled=32u };
+struct BindEvidence {Source predecessor{};unsigned reset_causes=0,history_causes=0;bool bound=false;};
 class Context {
     struct Flight {
         void* params=nullptr;Recording recording{};Fence fence{};Source source{};
@@ -84,7 +90,9 @@ class Context {
     std::array<Flight,3> flights_{};Source last_source_{};
     Fence creation_fence_{};Recording creation_recording_{};
     bool initialized_=false,created_=false,poisoned_=false,history_reset_=true,creation_completed_=false;
+    unsigned history_causes_=InitialHistory;
     Result last_result_=0;
+    BindEvidence last_bind_{};
     void Poison(Result r=0)noexcept{poisoned_=true;last_result_=r;}
     void Pin(Flight& f,const Frame& frame,bool create) {
         f.recording=frame.recording;f.source=frame.source;f.pending=true;f.fence={};f.is_create=create;
@@ -145,6 +153,7 @@ public:
         return true;
     }
     Outcome Record(void* list,const Frame& frame,const Shape& shape) {
+        last_bind_={};
         if(poisoned_)return {Status::Poisoned,last_result_};
         if(!initialized_||!list||reinterpret_cast<Id>(list)!=frame.recording.list||!frame.Valid(shape_))return {Status::InvalidContract};
         if(!(shape==shape_))return {Status::RebuildRequired};
@@ -161,11 +170,12 @@ public:
         // feature's history into a second list while its predecessor can still
         // be submitted after it. Already-submitted work may remain in flight;
         // this is backpressure, not a CPU fence wait or global serialization.
-        for(const auto& f:flights_)if(f.pending&&!f.fence){history_reset_=true;return {Status::Busy};}
+        for(const auto& f:flights_)if(f.pending&&!f.fence){ResetHistory(RecordingBackpressure);return {Status::Busy};}
         Flight* slot=nullptr;for(auto& f:flights_)if(!f.pending&&!f.fence){slot=&f;break;}
-        if(!slot){history_reset_=true;return {Status::Busy};}
+        if(!slot){ResetHistory(SlotPressure);return {Status::Busy};}
         Pin(*slot,frame,!created_);
         if(!created_){
+            last_bind_={last_source_,RequestedReset|HistoryReset,history_causes_,true};
             Bind(create_params_,frame,true);
             void* handle=nullptr;last_result_=api_.create(api_.user,list,1,create_params_,&handle);
             feature_=handle;creation_recording_=frame.recording;
@@ -173,10 +183,13 @@ public:
             created_=true;return {Status::CreatedNeedsSubmission,last_result_,true,false};
         }
         const bool matched=bool(frame.motion_reference)&&frame.motion_reference==last_source_;
-        Bind(slot->params,frame,frame.reset||history_reset_||!matched);
+        const unsigned causes=(frame.reset?RequestedReset:0u)|(history_reset_?HistoryReset:0u)|
+            (!matched?PredecessorMismatch:0u);
+        last_bind_={last_source_,causes,history_reset_?history_causes_:0u,true};
+        Bind(slot->params,frame,causes!=0);
         last_result_=api_.evaluate(api_.user,list,feature_,slot->params);
         if(last_result_!=success){Poison(last_result_);return {Status::Poisoned,last_result_,true,false};}
-        last_source_=frame.source;history_reset_=false;
+        last_source_=frame.source;history_reset_=false;history_causes_=0;
         return {Status::EvaluateRecorded,last_result_,true,true};
     }
     bool Submitted(Recording r,Fence fence,bool execute_and_signal_succeeded) {
@@ -192,7 +205,7 @@ public:
     void Discarded(Recording r) {
         for(const auto& f:flights_)if(f.pending&&f.recording==r){Poison();return;}
     }
-    void ResetHistory()noexcept{history_reset_=true;}
+    void ResetHistory(unsigned reason=IdentityChanged)noexcept{history_reset_=true;history_causes_|=reason;}
     void MarkUncertain()noexcept{Poison();}
     bool ReadyToRetire() {
         if(!initialized_)return true;if(!Collect())return false;
@@ -205,10 +218,11 @@ public:
         for(auto& f:flights_)if(f.params){const auto r=api_.destroy(api_.user,f.params);if(r!=success){Poison(r);return false;}f.params=nullptr;}
         if(create_params_){const auto r=api_.destroy(api_.user,create_params_);if(r!=success){Poison(r);return false;}create_params_=nullptr;}
         initialized_=false;created_=false;creation_completed_=false;creation_fence_={};creation_recording_={};
-        last_source_={};history_reset_=true;return true;
+        last_source_={};history_reset_=true;history_causes_=InitialHistory;return true;
     }
     bool Poisoned()const noexcept{return poisoned_;}
     Source LastSource()const noexcept{return last_source_;}
+    BindEvidence LastBindEvidence()const noexcept{return last_bind_;}
     const Shape& Configuration()const noexcept{return shape_;}
 };
 }
