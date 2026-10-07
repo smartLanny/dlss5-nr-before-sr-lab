@@ -132,7 +132,7 @@ void Cpu() {
           "F8 widest tick row truncated");
     wide+=wide_ticks;
     unsigned lines=0;for(char ch:wide)if(ch=='\n')++lines;
-    Check(lines==36+144+24&&wide.find("start.allocation.fg.destroying.heap.other=")!=std::string::npos,
+    Check(lines==36+144+26&&wide.find("start.allocation.fg.destroying.heap.other=")!=std::string::npos,
           "F8 widest schema silently omitted a category, phase or heap row");
     std::printf("F8 maximum formatted one-snapshot bytes=%zu lines=%u (36 category/phase, 144 heap rows)\n",
                 wide.size(),lines);

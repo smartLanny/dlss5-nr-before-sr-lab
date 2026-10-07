@@ -144,6 +144,9 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
         slot.key=source.neural;slot.source=source.neural;ID3D12Resource_AddRef(slot.source);
         slot.proxy=surfaces.input;ID3D12Resource_AddRef(slot.proxy);
         slot.neural=surfaces.output;ID3D12Resource_AddRef(slot.neural);
+#if defined(NR_HAS_MEMORY_OBSERVATION)
+        nr_memory_observation::NoteSlots(aux->memory_max_slots,aux->slots);
+#endif
         InitializeSourceFormats(slot);
         slot.codec_color_mode=color_mode;
     }
@@ -172,6 +175,10 @@ LayerPrepared PrepareOne(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     }
     if(layer_index==1)PrepareTiming(device,main,full?1u:0u);
     if(full)PrepareTiming(device,slot,layer_index+1);
+#if defined(NR_HAS_MEMORY_OBSERVATION)
+    if(layer_index==1)main.memory_timing_key={primary.instance_id,0,primary.config_generation,
+        primary.history_generation,primary.layer_index,primary.width,primary.height};
+#endif
     SetStatus(completed?Status::Preparing:Status::CreatePending);
     return {aux,&slot,plan,guides,completed,&source,nullptr,false,false,full};
 }

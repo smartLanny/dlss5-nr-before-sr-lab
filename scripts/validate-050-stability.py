@@ -54,6 +54,7 @@ def main():
 #include <cmath>
 #include <cstdint>
 #include <atomic>
+#include <memory>
 #include <string>
 using ULONGLONG = unsigned long long;
 using DWORD = unsigned long;
@@ -89,7 +90,10 @@ int main() {
         c.high_strength_protection=guard!=0;c.layered_enhancement=layered!=0;
         c.layer_tone=.5f;c.layer_structure=1.5f;c.layer_bright=.75f;c.layer_shadow=1.25f;
         c.allow_unverified_hdr_color=true;
-        FeedbackSession s;
+        // Match the production heap-owned session. Expanded bounded metadata
+        // must not create several O0 aggregate temporaries on the Windows stack.
+        auto storage=std::make_unique<FeedbackSession>();
+        auto& s=*storage;
         AppendPictureConfig(s,c,true);
         if (s.report_truncated || !std::strstr(s.report,"requested.layerBright=0.75\n")) {
             std::fputs("PICTURE_SNAPSHOT_ORACLE\n",stderr);return 1;
@@ -100,11 +104,11 @@ int main() {
             !std::strstr(s.report,"requested.unverifiedHdrColor=1\n")) return 3;
         std::string expected="requested.highStrengthProtection="+std::to_string(guard)+"\n";
         if (!std::strstr(s.report,expected.c_str())) return 4;
-        s={};AppendPictureConfig(s,c,false);
-        if (std::strcmp(s.report,"requested.pictureSnapshotValid=0\n")!=0) return 5;
-        s={};s.report_used=sizeof(s.report)-256;
-        AppendPictureConfig(s,c,true);
-        if (!s.report_truncated || s.report_used!=sizeof(s.report)-256) return 6;
+        auto invalid=std::make_unique<FeedbackSession>();AppendPictureConfig(*invalid,c,false);
+        if (std::strcmp(invalid->report,"requested.pictureSnapshotValid=0\n")!=0) return 5;
+        auto full=std::make_unique<FeedbackSession>();full->report_used=sizeof(full->report)-256;
+        AppendPictureConfig(*full,c,true);
+        if (!full->report_truncated || full->report_used!=sizeof(full->report)-256) return 6;
         JsonBuffer b;b.Append("{\"test\":1");ConfigJson(b,"requested",c);b.Append("}");
         if (!b.ok) return 7;
         std::puts(b.data);checks+=7;
