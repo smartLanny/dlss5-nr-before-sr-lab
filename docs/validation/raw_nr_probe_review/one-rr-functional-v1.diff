@@ -1,0 +1,401 @@
+--- frozen-model-v1/host/one_rr_contract.inl
++++ one-rr-v1/host/one_rr_contract.inl
+@@ -0,0 +1,137 @@
++// Private same-host completion slice. No production routing is changed.
++namespace raw_nr_probe {
++Flight* active_rr_consumer=nullptr;
++bool one_rr_variant=false;
++void PrintOneRrClosure(){
++ if(!active_rr_consumer)return;
++ auto& c=*active_rr_consumer;auto* record=FindLifecycleCommandListLocked(c.nr_recording_token);
++ context.lifecycle_dependencies_quarantined=true;MarkLifecycleUncertain("one-RR terminal retains current consumer closure");
++ if(active_flight&&active_flight->owner)active_flight->owner->lifecycle_dependencies_quarantined=true;
++ std::printf("ONE_RR_FATAL_CLOSURE token=%llu nativeToken=%llu consumer=%p consumerRefs=%u recordPresent=%u submitCount=%llu matricesOwned=%u nativeEvalCalls=%u variant=%u contextQuarantined=1 noCleanup=1\n",c.nr_recording_token,c.native_lifetime_token,(void*)c.packet,c.packet?c.packet->lease.recording_command_lists:0,record!=nullptr,record?record->submission_count:0,c.cpu_owner!=nullptr,native_rr_evals,one_rr_variant);
++}
++struct PreCreateCapability {
++ NgxParams* params=nullptr;HMODULE core_owner=nullptr,callback_owner=nullptr;
++ void* callback=nullptr;bool proven=false;
++ void Query(HMODULE core,ID3D12Device* device){
++  Check(core&&device&&parent_create_attempts==0&&nr_creates==0&&nr_evals==0,"real bootstrap precedes capability; no dummy parent or model");
++  auto address=GetProcAddress(core,"NVSDK_NGX_D3D12_GetCapabilityParameters");
++  Check(address&&GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(address),&core_owner)&&core_owner==core,"original Core capability export owner retained before parent Create");
++  wchar_t path[32768]{};Check(GetModuleFileNameW(core_owner,path,32768)>0,"actual original Core owner path");
++  const auto bytes=File(path);const auto sha=Digest(bytes.data(),bytes.size());
++  Check(sha=="91d3742f0df3f2dd85141fa39ea257f7b9243c3e6755cd7fea894c721e7491aa","same original Core bytes as previously successful fixed tuple");
++  std::printf("PRECREATE_CORE_OWNER address=%p owner=%p device=%p sha256=%s parentCreate=0\n",reinterpret_cast<void*>(address),(void*)core_owner,(void*)device,sha.c_str());
++  ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;
++  const auto result=reinterpret_cast<SceneFactory::Capability>(address)(&params);
++  std::printf("PRECREATE_CAPABILITY result=%08x params=%p parentCreate=%u\n",result,(void*)params,parent_create_attempts);
++  if(result!=kNgxSuccess||!params)Stop("precreate-capability","GetCapabilityParameters","actual-query-refused",result);
++  int available=0,needs=0,initial=0,major=0,minor=0;
++  const auto ar=SceneFactory::I(params,"SuperSamplingDenoising.Available",available);
++  const auto nr=SceneFactory::I(params,"SuperSamplingDenoising.NeedsUpdatedDriver",needs);
++  const auto ir=SceneFactory::I(params,"SuperSamplingDenoising.FeatureInitResult",initial);
++  SceneFactory::I(params,"SuperSamplingDenoising.MinDriverVersionMajor",major);SceneFactory::I(params,"SuperSamplingDenoising.MinDriverVersionMinor",minor);
++  if(ar!=kNgxSuccess||available!=1||(nr==kNgxSuccess&&needs!=0)||(ir==kNgxSuccess&&(unsigned(initial)&0xFFF00000u)==0xBAD00000u))
++   Stop("precreate-capability","SuperSamplingDenoising","unsupported-or-explicit-init-error",ar);
++  const auto cr=ParamSlot<GetVoidFn>(params,8)(params,"DLSSDOptimalSettingsCallback",&callback);
++  if(cr!=kNgxSuccess||!callback||!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(callback),&callback_owner))
++   Stop("precreate-optimal","DLSSDOptimalSettingsCallback","missing-or-unretained-official-callback",cr);
++  Check(GetModuleFileNameW(callback_owner,path,32768)>0,"actual retained RR callback module path");
++  const auto cb_bytes=File(path);const auto cb_sha=Digest(cb_bytes.data(),cb_bytes.size());
++  const bool in_original=callback_owner==core_owner;
++  Check(in_original?cb_sha==sha:(std::filesystem::equivalent(path,std::filesystem::current_path()/"nvngx_dlssd.dll")&&cb_sha=="50eb21e654a1fd12403e000f5ac9c2488bf9149930c028e73196f3f1d47d10a9"),"official callback belongs to retained original Core or exact adjacent RR runtime");
++  const auto utf8=std::filesystem::path(path).u8string();const std::string printable(utf8.begin(),utf8.end());
++  std::printf("PRECREATE_CALLBACK_OWNER address=%p module=%p path=%s sha256=%s retained=1\n",callback,(void*)callback_owner,printable.c_str(),cb_sha.c_str());
++  SetUInt(params,"Width",ow);SetUInt(params,"Height",oh);SetInt(params,"PerfQualityValue",2);SetInt(params,"RTXValue",0);
++  unsigned w=0,h=0;int quality=0,rtx=1;
++  Check(SceneFactory::UI(params,"Width",w)==kNgxSuccess&&w==ow&&SceneFactory::UI(params,"Height",h)==kNgxSuccess&&h==oh&&SceneFactory::I(params,"PerfQualityValue",quality)==kNgxSuccess&&quality==2&&SceneFactory::I(params,"RTXValue",rtx)==kNgxSuccess&&rtx==0,"actual O/MaxQuality2 optimal input getters before parent");
++  using Optimal=NgxResult(*)(NgxParams*);const auto optimal=reinterpret_cast<Optimal>(callback)(params);
++  std::printf("PRECREATE_OPTIMAL result=%08x target=%ux%u quality=2 parentCreate=%u\n",optimal,ow,oh,parent_create_attempts);
++  if(optimal!=kNgxSuccess||SceneFactory::UI(params,"OutWidth",w)!=kNgxSuccess||SceneFactory::UI(params,"OutHeight",h)!=kNgxSuccess||w!=rw||h!=rh)
++   Stop("precreate-optimal","OutWidth/OutHeight","fixed-R-not-exactly-supported-no-size-scan",optimal);
++  for(auto kv:{std::pair{"DLSS.Get.Dynamic.Min.Render.Width",rw},std::pair{"DLSS.Get.Dynamic.Min.Render.Height",rh},std::pair{"DLSS.Get.Dynamic.Max.Render.Width",rw},std::pair{"DLSS.Get.Dynamic.Max.Render.Height",rh}}){
++   unsigned v=0;const auto r=SceneFactory::UI(params,kv.first,v);const bool minimum=std::strstr(kv.first,"Min")!=nullptr;
++   std::printf("PRECREATE_RANGE key=%s result=%08x value=%u missingIsUnknown=1\n",kv.first,r,v);
++   if(r==kNgxSuccess&&(!v||(minimum?v>kv.second:v<kv.second)))Stop("precreate-optimal",kv.first,"explicit-range-excludes-fixed-R",r);
++  }
++  proven=parent_create_attempts==0;Check(proven,"capability and exact optimal proof completed before sole parent Create");
++  std::printf("PRECREATE_SUPPORTED R=%ux%u O=%ux%u quality=2 exactOptimal=1 parentCreate=0 noDummyParent=1\n",rw,rh,ow,oh);
++ }
++ void Drop(nr_private_sr_core::Destroy destroy){Check(proven&&params&&core_owner&&callback_owner,"precreate owners retained until complete history");Check(destroy(params)==kNgxSuccess,"capability parameters destroyed under their retained original owner");params=nullptr;FreeLibrary(callback_owner);FreeLibrary(core_owner);callback_owner=core_owner=nullptr;}
++};
++std::string RrNonColorContract(SceneFactory& factory,const std::shared_ptr<Inputs>& owner,unsigned frame){
++ std::ostringstream receipt;
++ for(const char* key:rr_native_resource_keys){if(std::strcmp(key,"Color")==0)continue;
++  auto found=owner->resources.find(key);auto* expected=found==owner->resources.end()?nullptr:found->second;
++  ID3D12Resource* typed=nullptr;void* untyped=nullptr;
++  const auto t=ParamSlot<GetD3D12Fn>(factory.eval_params,9)(factory.eval_params,key,&typed),u=ParamSlot<GetVoidFn>(factory.eval_params,8)(factory.eval_params,key,&untyped);
++  Check(t==kNgxSuccess&&typed==expected&&(u!=kNgxSuccess||untyped==expected),"one-RR actual non-Color aliases and optional absence unchanged");receipt<<key<<'='<<typed<<','<<t<<','<<u<<';';
++ }
++ for(const char* key:rr_native_subrect_keys){unsigned v=1;Check(GetUInt(factory.eval_params,key,&v)&&v==0,"one-RR raw guide subrect unchanged");receipt<<key<<'='<<v<<';';}
++ for(auto kv:{std::pair{"DLSS.Pre.Exposure",pre_exposure},{"DLSS.Exposure.Scale",exposure_scale},{"MV.Scale.X",1.f},{"MV.Scale.Y",1.f},{"Jitter.Offset.X",phase_frames[frame].jx},{"Jitter.Offset.Y",phase_frames[frame].jy},{"FrameTimeDeltaInMsec",1000.f/60.f}}){float v=0;Check(GetFloat(factory.eval_params,kv.first,&v)&&std::memcmp(&v,&kv.second,4)==0,"one-RR fixed exposure/raw-jitter/MV scalars unchanged");unsigned bits=0;std::memcpy(&bits,&v,4);receipt<<kv.first<<'='<<bits<<';';}
++ for(auto kv:{std::pair{"DLSS.Render.Subrect.Dimensions.Width",rw},{"DLSS.Render.Subrect.Dimensions.Height",rh}}){unsigned v=0;Check(GetUInt(factory.eval_params,kv.first,&v)&&v==kv.second,"one-RR actual render extent R");receipt<<kv.first<<'='<<v<<';';}
++ int reset=-1;Check(GetInt(factory.eval_params,"Reset",&reset)&&reset==int(frame==0),"one-RR Reset only first frame");receipt<<"Reset="<<reset<<';';
++ for(auto kv:{std::pair{"WorldToViewMatrix",owner->world_to_view},std::pair{"ViewToClipMatrix",owner->view_to_clip}}){void* v=nullptr;Check(ParamSlot<GetVoidFn>(factory.eval_params,8)(factory.eval_params,kv.first,&v)==kNgxSuccess&&v==kv.second,"one-RR actual P0 matrix CPU owner unchanged");receipt<<kv.first<<'='<<v<<','<<Digest(v,16*sizeof(float))<<';';}
++ const auto bytes=receipt.str();return Digest(bytes.data(),bytes.size());
++}
++std::pair<NgxResult,NgxResult> CheckColor(SceneFactory& factory,ID3D12Resource* expected){ID3D12Resource* typed=nullptr;void* untyped=nullptr;
++ const auto t=ParamSlot<GetD3D12Fn>(factory.eval_params,9)(factory.eval_params,"Color",&typed),u=ParamSlot<GetVoidFn>(factory.eval_params,8)(factory.eval_params,"Color",&untyped);
++ Check(t==kNgxSuccess&&typed==expected&&(u!=kNgxSuccess||untyped==expected),"one-RR actual typed/void Color transaction readback");return {t,u};
++}
++struct RrOutput {
++ ID3D12Resource* upload=nullptr;ID3D12Resource* readback=nullptr;D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 bytes=0;
++ static constexpr unsigned short poison=0xe4d2; // exact FP16 -1234
++ void Make(queue_test::Fixture& f,const Inputs& owner){const auto d=ID3D12Resource_GetDesc(owner.clean.resource);
++  Check(d.Width==ow&&d.Height==oh&&d.Format==DXGI_FORMAT_R16G16B16A16_FLOAT&&d.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&d.MipLevels==1&&d.DepthOrArraySize==1&&d.SampleDesc.Count==1&&(d.Flags&D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS),"actual distinct O-sized FP16 UAV GetDesc");
++  ID3D12Device_GetCopyableFootprints(f.device,&d,0,1,0,&footprint,nullptr,nullptr,&bytes);upload=Buffer(f,bytes,D3D12_HEAP_TYPE_UPLOAD);readback=Buffer(f,bytes,D3D12_HEAP_TYPE_READBACK);
++  unsigned char* mapped=nullptr;Hr(ID3D12Resource_Map(upload,0,nullptr,(void**)&mapped),"O sentinel upload Map");
++  for(unsigned y=0;y<oh;++y)for(unsigned x=0;x<ow*4;++x)std::memcpy(mapped+footprint.Offset+size_t(y)*footprint.Footprint.RowPitch+x*2,&poison,2);ID3D12Resource_Unmap(upload,0,nullptr);
++  std::printf("ONE_RR_OUTPUT_DESC resource=%p extent=%ux%u format=%u packedRowBytes=%u copyRowPitch=%u footprintOffset=%llu allocationBytes=%llu RGBwriteOnlyGate=1 alphaSDKContract=unknown poison=FP16-e4d2\n",(void*)owner.clean.resource,ow,oh,unsigned(d.Format),ow*8,footprint.Footprint.RowPitch,footprint.Offset,bytes);
++ }
++ void Poison(ID3D12GraphicsCommandList* list,Inputs& owner,unsigned frame){unsigned observed=0;
++  {nr_source_runtime::Lock lock;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(owner.clean.resource),observed),"actual current O state before per-frame sentinel");}
++  Barrier(list,owner.clean.resource,static_cast<D3D12_RESOURCE_STATES>(observed),D3D12_RESOURCE_STATE_COPY_DEST);
++  D3D12_TEXTURE_COPY_LOCATION a{},b{};a.pResource=upload;a.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;a.PlacedFootprint=footprint;b.pResource=owner.clean.resource;b.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++  ID3D12GraphicsCommandList_CopyTextureRegion(list,&b,0,0,0,&a,nullptr);Barrier(list,owner.clean.resource,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  std::printf("ONE_RR_OUTPUT_POISON frame=%u resource=%p exactUploadCopy=1 wholePlane=1 RGB=e4d2 copyRowPitch=%u\n",frame,(void*)owner.clean.resource,footprint.Footprint.RowPitch);
++ }
++ void Record(ID3D12GraphicsCommandList* list,Inputs& owner,unsigned frame){unsigned observed=0;
++  {nr_source_runtime::Lock lock;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(owner.clean.resource),observed),"actual post-RR O state before readback");}
++  Capture::Copy(list,owner.clean.resource,readback,footprint,static_cast<D3D12_RESOURCE_STATES>(observed));owner.completed_states[owner.clean.resource]=observed;
++  std::printf("ONE_RR_OUTPUT_COPY frame=%u resource=%p readback=%p state=%u sameRecording=1\n",frame,(void*)owner.clean.resource,(void*)readback,observed);
++ }
++ void Save(unsigned frame){unsigned char* mapped=nullptr;Hr(ID3D12Resource_Map(readback,0,nullptr,(void**)&mapped),"RR readback only after exact fence plus Reset");std::vector<unsigned char> packed(size_t(ow)*oh*8);
++  for(unsigned y=0;y<oh;++y)std::memcpy(packed.data()+size_t(y)*ow*8,mapped+footprint.Offset+size_t(y)*footprint.Footprint.RowPitch,size_t(ow)*8);ID3D12Resource_Unmap(readback,0,nullptr);
++  size_t nonfinite=0,unwritten=0,alpha_poison=0;for(size_t i=0;i<size_t(ow)*oh;++i){for(unsigned c=0;c<4;++c){unsigned short h=0;std::memcpy(&h,packed.data()+i*8+c*2,2);if(c<3){nonfinite+=(h&0x7c00)==0x7c00;unwritten+=h==poison;}else alpha_poison+=h==poison;}}
++  const auto name="native-rr-output-rgba16f-"+std::to_string(frame)+".bin";std::ofstream out(name,std::ios::binary);out.write((char*)packed.data(),packed.size());Check(bool(out),"complete O readback saved before validation");
++  std::printf("ONE_RR_OUTPUT frame=%u file=%s sha256=%s bytes=%zu extent=%ux%u packedStride=%u format=R16G16B16A16_FLOAT finiteRGB=%zu nonfiniteRGB=%zu poisonRGB=%zu alphaPoison=%zu alphaGate=unknown\n",frame,name.c_str(),Digest(packed.data(),packed.size()).c_str(),packed.size(),ow,oh,ow*8,size_t(ow)*oh*3-nonfinite,nonfinite,unwritten,alpha_poison);
++  Check(nonfinite==0&&unwritten==0,"every actual O RGB sample finite and overwritten this frame");
++ }
++ void Drop(){ReleaseCom(upload);ReleaseCom(readback);}
++};
++void OneRrEvaluate(queue_test::List& list,Adapter& envelope,SceneFactory& factory,const std::shared_ptr<Inputs>& owner,unsigned frame,Flight& rr_consumer,ID3D12Resource* edited,NrContext* nr){
++ active_rr_consumer=&rr_consumer;factory.Guard("one-RR-Evaluate");
++ Check(rr_consumer.packet&&rr_consumer.cpu_owner==owner&&rr_consumer.packet->lease.recording_command_lists==1&&native_rr_evals==frame,"one RR call per frame under actual consumer lease");
++ const auto live=SnapshotPostBoundaryList(list.native);unsigned long long token=0;Check(ReadLifecycleToken(list.native,token)&&token==rr_consumer.nr_recording_token&&live.known&&live.token==rr_consumer.native_lifetime_token&&live.reset==rr_consumer.native_reset,"one-RR live recording/native identity");
++ auto* record=FindLifecycleCommandListLocked(token);Check(record&&!record->detached&&record->submission_count==0&&!g_lifecycle_tracking_uncertain.load(),"one-RR same unsubmitted certain recording");
++ auto* color=edited?edited:owner->colors[frame].resource;const auto color_presence=CheckColor(factory,owner->colors[frame].resource);
++ HMODULE actual_owner=nullptr;auto current_export=GetProcAddress(factory.exports.domain_core,"NVSDK_NGX_D3D12_EvaluateFeature");
++ Check(current_export==reinterpret_cast<FARPROC>(factory.exports.evaluate)&&factory.exports.retained_modules[1]==factory.exports.domain_core&&GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(current_export),&actual_owner)&&actual_owner==factory.exports.domain_core,"actual native RR Evaluate address still belongs to retained original domain");
++ ID3D12Device* actual_list_device=nullptr;Hr(ID3D12GraphicsCommandList_GetDevice(list.native,IID_ID3D12Device,(void**)&actual_list_device),"actual native RR command-list device");Check(IsSameRrDepthDevice(actual_list_device,factory.exports.domain_device),"native RR actual list matches original parent init device");ReleaseCom(actual_list_device);
++ std::printf("ONE_RR_RUNTIME_GATE frame=%u address=%p owner=%p device=%p parentGeneration=%llu domain=%llu token=%llu nativeToken=%llu nativeReset=%llu pinned=1 unsubmitted=1\n",frame,reinterpret_cast<void*>(current_export),(void*)actual_owner,(void*)factory.exports.domain_device,factory.parent_generation,factory.exports.domain_epoch,token,live.token,live.reset);
++ const auto d=ID3D12Resource_GetDesc(color);Check(d.Width==rw&&d.Height==rh&&d.Format==DXGI_FORMAT_R16G16B16A16_FLOAT&&d.SampleDesc.Count==1&&color!=owner->clean.resource,"native RR Color is actual R FP16; Output distinct O");
++ ID3D12Device* color_device=nullptr;Hr(ID3D12Resource_GetDevice(color,IID_ID3D12Device,(void**)&color_device),"actual RR Color device");Check(IsSameRrDepthDevice(factory.exports.domain_device,color_device),"RR Color and original init device owner match");ReleaseCom(color_device);
++ {nr_source_runtime::Lock lock;unsigned state=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list.native),nr_source_runtime::ResourceOf(color),state)&&((state&D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)!=0),"RR Color readable in same actual recording");}
++ const auto contract=RrNonColorContract(factory,owner,frame);SetResource(factory.eval_params,"Color",color);Check(CheckColor(factory,color)==color_presence,"Color transaction preserves actual typed/void presence and results");
++ Check(RrNonColorContract(factory,owner,frame)==contract,"Color substitution preserves all actual raw guides/scalars/matrices");
++ std::printf("ONE_RR_COLOR_BEGIN frame=%u original=%p replacement=%p variant=%u nonColorSHA=%s token=%llu parentGeneration=%llu domain=%llu\n",frame,(void*)owner->colors[frame].resource,(void*)color,edited!=nullptr,contract.c_str(),token,factory.parent_generation,factory.exports.domain_epoch);
++ Check(envelope.EnvelopeApi().capture(&envelope,list.native),"one-RR normal command state envelope captured after codec");
++ NgxResult result=0;{ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;++native_rr_evals;result=factory.exports.evaluate(list.native,factory.parent,factory.eval_params,nullptr);}
++ std::printf("ONE_RR_EVAL frame=%u feature=13 result=%08x calls=%u token=%llu NRsameFlight=%u\n",frame,result,native_rr_evals,token,nr!=nullptr);
++ if(result!=kNgxSuccess){if(nr)OpaqueFailure(envelope,*nr,"native-RR-Eval",result);OpaqueResult(result,envelope,"native-RR-Eval");}
++ if(!envelope.EnvelopeApi().restore(&envelope))Fail("one-RR-state-restore",nr,result);
++ Check(RrNonColorContract(factory,owner,frame)==contract,"successful native RR preserved actual non-Color aliases");Check(CheckColor(factory,color)==color_presence,"successful RR preserved actual Color alias presence");
++ SetResource(factory.eval_params,"Color",owner->colors[frame].resource);Check(CheckColor(factory,owner->colors[frame].resource)==color_presence,"restored original Color aliases preserve original presence/results");
++ Check(RrNonColorContract(factory,owner,frame)==contract,"successful Color restore preserves actual non-Color contract");
++ std::printf("ONE_RR_COLOR_RESTORED frame=%u actualTypedVoid=1 nonColorSHA=%s nativeEvalCalls=%u\n",frame,contract.c_str(),native_rr_evals);
++ ObserveAfterOpaque(list.native,*owner,frame,"one-RR-Evaluate");
++}
++}
+--- frozen-model-v1/host/one_rr_host.inl
++++ one-rr-v1/host/one_rr_host.inl
+@@ -0,0 +1,140 @@
++namespace raw_nr_probe {
++void RunOneRrGpu(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
++ const bool baseline=mode=="baseline",identity=false,opaque_control=false,no_nr=baseline;
++ Check(baseline||mode=="variant","only two registered one-RR histories");VerifyRuntime(pin,!baseline);
++ one_rr_variant=!baseline;terminal_observer=PrintOneRrClosure;
++ control="probe";phase_frames=phase_J;phase_input_root=std::string(PHASE_INPUT_ROOT)+"/J";
++ std::printf("ONE_RR_COHORT name=%s R=1280x720 O=1920x1080 RRquality=2 RRpreset=0 flags=75 NRquality=5 intensity=1.5 strength=1 Jschedule=1 warm=16 observe=16\n",mode.c_str());
++ Check(std::filesystem::equivalent(std::filesystem::path(bridge),std::filesystem::current_path()/"nrchain_nvngx.dll"),"native and NR bridge is exact pinned adjacent file");
++ ++device_entries;queue_test::Fixture f;Configure();GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\raw-nr-core.log");
++ auto library=LoadLibraryW(bridge);Check(library,"pinned native bootstrap bridge");auto bootstrap=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(library,"NRChain_Bootstrap"));Check(bootstrap,"actual bootstrap export");
++ const auto initialized=bootstrap(f.device);std::printf("BOOTSTRAP result=%08x count=1\n",initialized);if(initialized!=kNgxSuccess)Fail("native-init",nullptr,initialized);
++ auto* ngx=GetModuleHandleW(L"_nvngx.dll");Check(ngx,"actual original Core module");auto allocate=reinterpret_cast<nr_private_sr_core::Allocate>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_AllocateParameters"));
++ auto create=reinterpret_cast<nr_private_sr_core::Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));auto release=reinterpret_cast<nr_private_sr_core::Release>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_ReleaseFeature"));auto destroy=reinterpret_cast<nr_private_sr_core::Destroy>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_DestroyParameters"));Check(allocate&&create&&release&&destroy,"actual original exports");
++ PreCreateCapability precreate;precreate.Query(ngx,f.device);
++ const auto hooks=MH_Initialize();Check(hooks==MH_OK||hooks==MH_ERROR_ALREADY_INITIALIZED,"real native hooks");Check(NrDescriptorConfigureStartup(false),"descriptor observer startup");descriptor_warp_test::InstallCommandObservation(f);TrackGraphicsQueueLocked(f.a);queue_test::List list(f);
++ const auto coverage=EnsurePostBoundaryNativeHooks(list.native);Check((coverage&(nr_post_boundary::Legacy|nr_post_boundary::Operations))==(nr_post_boundary::Legacy|nr_post_boundary::Operations),"actual source operation observation");nr_source_runtime::SeedCoreRecordingDevice(list.native);list.Close();list.ResetWithNewAllocator(f);
++ Check(EnsureCodec(f.device),"actual production codec initialization after native observation installation");
++ descriptor_warp_test::Pipeline pipeline(f),alternate(f);auto* heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);auto* alternate_heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
++ Adapter envelope(f);envelope.list=list.native;envelope.alternate_pipeline=alternate.state;envelope.alternate_heap=alternate_heap;
++ auto owner=std::make_shared<Inputs>();owner->Make(f,ow,oh);owner->UploadGuides(list.native);SubmitReset(f,list);const auto first=ReadPhase(0,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->colors[0].FillAndRecord(list.native,first);
++ NgxParams* parent_params=nullptr;Check(allocate(&parent_params)==kNgxSuccess&&parent_params,"true native parent params");for(auto kv:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh},{"CreationNodeMask",1u},{"VisibilityNodeMask",1u}})SetUInt(parent_params,kv.first,kv.second);
++ SetInt(parent_params,"PerfQualityValue",2);SetInt(parent_params,"RayReconstruction.Hint.Render.Preset.Quality",0);SetInt(parent_params,"DLSS.Feature.Create.Flags",75);SetInt(parent_params,"DLSS.Denoise.Mode",1);SetUInt(parent_params,"DLSS.Roughness.Mode",0);SetUInt(parent_params,"DLSS.Use.HW.Depth",1);SetInt(parent_params,"DLSS.Enable.Output.Subrects",0);
++ for(auto kv:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh}}){unsigned v=0;Check(GetUInt(parent_params,kv.first,&v)&&v==kv.second,"actual parent R-to-O create extent getters");}
++ for(auto kv:{std::pair{"PerfQualityValue",2},{"RayReconstruction.Hint.Render.Preset.Quality",0},{"DLSS.Feature.Create.Flags",75},{"DLSS.Denoise.Mode",1}}){int v=-1;Check(GetInt(parent_params,kv.first,&v)&&v==kv.second,"actual fixed native RR quality/preset/flags getters");std::printf("ONE_RR_CREATE_GET key=%s value=%d\n",kv.first,v);}
++ Check(precreate.proven&&parent_create_attempts==0,"sole parent Create after exact original capability/optimal support");
++ ScopedNgxLayer layer(NgxLayer::Core);g_original_core_create=create;NgxHandle* parent=nullptr;Flight parent_flight;
++ EnterCriticalSection(&g_chain_cs);pipeline.Bind(list,heap);parent_flight.Pin(f,list,owner,0,"parent-create");active_rr_consumer=&parent_flight;GuideState(list.native,*owner);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"actual parent Create state envelope");
++ ++parent_create_attempts;const auto made=HookCoreCreate(list.native,13,parent_params,&parent);std::printf("PARENT_CREATE feature=13 result=%08x calls=1 quality=2 preset=0 RtoO=1\n",made);OpaqueResult(made,envelope,"parent-create");ObserveAfterOpaque(list.native,*owner,0,"parent-create");Check(parent,"real parent handle");LeaveCriticalSection(&g_chain_cs);parent_flight.Finish(f,list,"parent-create");active_rr_consumer=nullptr;
++ SceneFactory factory;factory.Resolve(f,parent);factory.eval_params=factory.Allocate("one-RR-eval-params");
++ // Native and signed NR loader/init domains remain distinct even on one device.
++ NrRuntimeGate runtime_gate;if(!no_nr)runtime_gate.Initialize(f.device,factory);if(!EnsureCodec(f.device))Fail("codec");Capture capture;if(!baseline)capture.Make(f);RrOutput rr_output;rr_output.Make(f,*owner);Flight rr_consumer;
++ NrContext* nr=nullptr;NrFlight flight;ControlSlotStates control_states;
++ for(unsigned iteration=0;iteration<(opaque_control?2u:identity?1u:32u);++iteration){const unsigned frame=opaque_control?0u:iteration;bool continue_control=false;auto bytes=ReadPhase(frame,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->SelectFrame(frame);
++  if(frame==0)Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_DEST);
++  owner->colors[frame].FillAndRecord(list.native,bytes);factory.Bind(owner,frame);factory.Guard("raw-NR-input");
++  EnterCriticalSection(&g_chain_cs);if(baseline)pipeline.Bind(list,heap);GuideState(list.native,*owner,frame);const auto feature=FindFeature(parent);Check(feature.feature_id==13&&feature.generation==factory.parent_generation,"no forged Feature1 carrier");
++  if(baseline){rr_consumer.Pin(f,list,owner,frame,"one-RR-baseline");active_rr_consumer=&rr_consumer;rr_output.Poison(list.native,*owner,frame);
++   OneRrEvaluate(list,envelope,factory,owner,frame,rr_consumer,nullptr,nullptr);rr_output.Record(list.native,*owner,frame);
++   LeaveCriticalSection(&g_chain_cs);rr_consumer.Finish(f,list,"one-RR-baseline");active_rr_consumer=nullptr;rr_output.Save(frame);continue;}
++
++  const auto color=ReadColorContract(factory.eval_params);Check(color.has_pre_exposure&&color.has_exposure_scale&&!color.exposure_texture&&color.pre_exposure==.75f&&color.exposure_scale==2,"explicit fixed stored HDR exposure");NrGuideBinding guides{};
++  Check(ResolveNrGuideBinding(factory.eval_params,feature,2,rw,rh,rw,rh,owner->colors[frame].resource,0,0,CodecColorMode::Automatic,guides),"actual production raw guide resolver");
++  Check(guides.jitter.known&&guides.jitter.x==phase_frames[frame].jx&&guides.jitter.y==phase_frames[frame].jy&&guides.has_motion_scale_x&&guides.has_motion_scale_y&&guides.valid_motion_scale_x&&guides.valid_motion_scale_y&&!guides.signature.resample_motion&&!guides.signature.linear_depth,"strict raw admission before codec or opaque call");
++  nr=FindOrCreateContext(parent,feature.generation,2,rw,rh,CodecColorMode::Automatic,guides.signature,false);Check(nr&&nr->feature_generation==feature.generation&&nr->sr_handle==parent,"real parent generation owns independent F18 context");++nr->frames_seen;
++  Check(PrepareContextUseLocked(list.native,*nr),"actual NR context recording admission");NrColorSemanticContract semantic{};semantic.flags_known=feature.create_flags_known;semantic.exposure=color;
++  if(opaque_control)control_states.BeforeFactory(*nr);
++  auto* slot=FindOrCreateSlot(*nr,f.device,owner->colors[frame].resource,false,nullptr,CodecColorMode::Automatic,feature.create_flags,&semantic);Check(slot&&!nr->failed,"actual typed slot factory");slot->active_render_width=rw;slot->active_render_height=rh;
++  if(opaque_control)control_states.Bind(*nr,*slot);
++  // Region-OFF Seal alone is a no-op: explicitly construct the immutable
++  // production codec plan and retain the two genuine raw guides.
++  nr_binding::Plan bindings{};bindings.primary_owner=slot;WriteCodecDescriptorSet(f.device,*slot,nullptr,&bindings.heaps[nr_binding::Consumer]);bindings.retained[0]=guides.depth;bindings.retained[1]=guides.motion;nr_binding::Refusal refusal{};
++  auto* packet=AcquireBindingPacket(f.device,list.native,*nr,bindings,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),nr);slot->compose_binding=packet;
++  Check(RecordNrUseLocked(list.native,*nr,*slot),"actual main slot recording pin");auto* diagnostic=capture.Pin(f,list.native,*nr,*slot,guides);if(!identity)flight.clear.Prepare(f,*slot,*diagnostic);flight.Pin(list.native,*nr,*slot,*packet,*diagnostic,owner);
++  auto admission=raw_nr_admission::Inputs(phase_frames[frame].sx,phase_frames[frame].sy,guides.jitter.x,guides.jitter.y);
++  admission.has_mv_x=guides.has_motion_scale_x;admission.has_mv_y=guides.has_motion_scale_y;admission.has_j_x=guides.jitter.valid_x;admission.has_j_y=guides.jitter.valid_y;
++  admission.mv_x=guides.signature.motion_scale_x;admission.mv_y=guides.signature.motion_scale_y;admission.hardware_depth=!guides.signature.linear_depth;
++  // Replace cold planned dimensions with actual getters/GetDesc/real context.
++  const auto actual_color_desc=ID3D12Resource_GetDesc(owner->colors[frame].resource);
++  Check(GetUInt(factory.eval_params,"DLSS.Render.Subrect.Dimensions.Width",&admission.raw_w)&&GetUInt(factory.eval_params,"DLSS.Render.Subrect.Dimensions.Height",&admission.raw_h),"actual raw render extent getter");
++  admission.work_w=nr->width;admission.work_h=nr->height;admission.physical_w=static_cast<unsigned>(actual_color_desc.Width);admission.physical_h=actual_color_desc.Height;admission.samples=actual_color_desc.SampleDesc.Count;
++  Check(GetUInt(factory.eval_params,"DLSS.Input.Color.Subrect.Base.X",&admission.base_x)&&GetUInt(factory.eval_params,"DLSS.Input.Color.Subrect.Base.Y",&admission.base_y),"actual source subrect getters");
++  ID3D12Resource *actual_color=nullptr,*actual_depth=nullptr,*actual_motion=nullptr;
++  admission.same_producer=GetResource(factory.eval_params,"Color",&actual_color)&&GetResource(factory.eval_params,"Depth",&actual_depth)&&GetResource(factory.eval_params,"MotionVectors",&actual_motion)&&actual_color==owner->colors[frame].resource&&actual_depth==owner->depth.resource&&actual_motion==owner->motions[frame].resource&&guides.depth==actual_depth&&guides.motion==actual_motion;
++  const auto actual_frame_depth=ReadPhase(frame,"depth-r32f.bin",size_t(rw)*rh*4),initial_uploaded_depth=ReadPhase(0,"depth-r32f.bin",size_t(rw)*rh*4);
++  const auto actual_frame_motion=ReadPhase(frame,"motion-rg32f.bin",size_t(rw)*rh*8);
++  admission.same_frame=admission.same_producer&&actual_frame_depth==initial_uploaded_depth&&Digest(actual_frame_motion.data(),actual_frame_motion.size())==owner->motion_hashes[frame];
++  // Same-frame is this fixture's immutable upload lineage: current Color was
++  // uploaded from ReadPhase(frame) immediately above, MV hash matches that
++  // frame's uploaded owner, and actual current depth equals the shared static
++  // plane depth. It is not inferred for arbitrary game resources.
++  unsigned actual_hardware_depth=0;admission.hardware_depth=admission.hardware_depth&&GetUInt(parent_params,"DLSS.Use.HW.Depth",&actual_hardware_depth)&&actual_hardware_depth==1;
++  Check(actual_color_desc.Format==DXGI_FORMAT_R16G16B16A16_FLOAT&&actual_color_desc.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&actual_color_desc.DepthOrArraySize==1&&actual_color_desc.MipLevels==1,"actual raw color resource format/shape");
++  admission.pre_exposure=color.pre_exposure;admission.exposure_scale=color.exposure_scale;admission.stage=raw_nr_admission::Stage::Live;
++  admission.feature_id=feature.feature_id;admission.expected_generation=factory.parent_generation;admission.actual_generation=feature.generation;
++  admission.expected_domain=factory.exports.domain_epoch;admission.actual_domain=nr_private_sr_core::ParentInDomain(parent,feature.generation,factory.exports.domain_epoch,reinterpret_cast<void*>(factory.exports.create))?factory.exports.domain_epoch:0;
++  admission.domain_alive=nr_private_sr_core::DomainAlive(factory.exports);admission.device_same=IsSameRrDepthDevice(factory.exports.domain_device,f.device);
++  const auto admitted_native=SnapshotPostBoundaryList(list.native);admission.native_known=admitted_native.known;admission.expected_native=flight.native_token;admission.actual_native=admitted_native.token;
++  admission.expected_reset=flight.reset;admission.actual_reset=admitted_native.reset;admission.expected_recording=flight.token;ReadLifecycleToken(list.native,admission.actual_recording);
++  auto* admitted_record=FindLifecycleCommandListLocked(admission.actual_recording);admission.recording_fresh=admitted_record&&!admitted_record->detached&&admitted_record->submission_count==0;
++  admission.lifecycle_certain=!g_lifecycle_tracking_uncertain.load();
++  NrSlot* edited_slot=slot;const auto refusal_at_entry=raw_nr_admission::Enter(admission,[&]{
++#include "control_branch.inl"
++  Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.encode_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,1);auto roots=Capture::Roots(list.native,frame,"encode-v2");
++  UavBarrier(list.native,slot->proxy);Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if(identity){
++   // Explicit no-model control: a real GPU copy gives NeuralColor the exact
++   // encoded proxy bytes. Actual production shader decode/combine still run.
++   Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
++   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_COPY_DEST);
++   ID3D12GraphicsCommandList_CopyResource(list.native,slot->neural,slot->proxy);
++   Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++   std::printf("CODEC_IDENTITY frame=0 F18Init=0 F18Create=0 F18Eval=0 neuralBytes=proxyBytes originalDecodeAndCombine=1\n");
++  }else{
++  if(!nr->params){ScopedSrwExclusive lock(&g_nr_api_lock);Check(g_nr_api.allocate(&nr->params)==kNgxSuccess&&nr->params,"actual F18 parameter allocation");}
++  const bool first_nr=!nr->nr_handle;Check(BindNrParameters(*nr,*slot,guides,feature,rw,rh,color,first_nr),"actual production F18 binder");VerifyBinder(*nr,*slot,guides,frame);
++  // Every opaque Create and Eval has its own captured current command state.
++  if(first_nr){runtime_gate.Before("Create",frame,list.native,flight,factory,*nr);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Create envelope and prior lease");void* handle=nullptr;++nr_creates;
++   const auto created=CreateSignedNrFeature(list.native,*nr,feature,&handle);std::printf("F18_CREATE frame=%u result=%08x handle=%p calls=%u\n",frame,created,handle,nr_creates);
++   if(created!=kNgxSuccess||!handle)OpaqueFailure(envelope,*nr,"F18-Create-partial-or-error",created);nr->nr_handle=static_cast<NgxHandle*>(handle);Opaque(created,envelope,*nr,"F18-Create");ObserveSlot(list.native,*nr,*slot,"Create");}
++  Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  flight.clear.Record(f,list.native,*diagnostic,*slot);
++  std::printf("NR_OUTPUT_SENTINEL frame=%u negative=-1234 wholePlane=1 encodedCaptureBeforeSaturate=1 nonvisibleCPUDescriptor=1\n",frame);
++  runtime_gate.Before("Evaluate",frame,list.native,flight,factory,*nr);
++  Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Eval envelope and prior lease");NgxResult evaluated=0;{ScopedSrwExclusive lock(&g_nr_api_lock);ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,nr->nr_handle);++nr_evals;evaluated=g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list.native,nr->nr_handle,nr->params,nullptr);}
++  std::printf("F18_EVAL frame=%u result=%08x calls=%u\n",frame,evaluated,nr_evals);Opaque(evaluated,envelope,*nr,"F18-Eval");ObserveAfterOpaque(list.native,*owner,frame,"F18-evaluate");ObserveSlot(list.native,*nr,*slot,"Evaluate");
++  nr->guide_history.CommitOnEvaluate(guides.signature,true);++nr->evaluations;CompleteNrDiagnosticEvaluation(*nr,*slot);g_nr_successful_evaluations.fetch_add(1);
++  UavBarrier(list.native,slot->neural);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  }
++  // Save original function outputs even during the two production warm-up
++  // frames. A warm-up edited result is explicit raw identity, never model proof.
++  const bool combine=identity||(nr->successful_evaluations_since_reset>g_config.warmup_after_create&&!g_config.identity_use_original);
++  if(combine){++probe_combines;Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.combine_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,slot->suppress_transfer_this_frame?0.f:1.f);roots=Capture::Roots(list.native,frame,"combine-v2");UavBarrier(list.native,slot->result);}
++  else {Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_COPY_DEST);Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_SOURCE);
++   ID3D12GraphicsCommandList_CopyResource(list.native,slot->result,owner->colors[frame].resource);Barrier(list.native,owner->colors[frame].resource,D3D12_RESOURCE_STATE_COPY_SOURCE,static_cast<D3D12_RESOURCE_STATES>(read_state));}
++  Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);capture.Record(list.native,*diagnostic,roots,*slot);
++  std::printf("RAW_NR_FRAME frame=%u observe=%u combined=%u suppress=%u warmupCount=%u expected_c=s parentEval=one-per-frame Scene=0 strength=1\n",frame,frame>=16,combine,slot->suppress_transfer_this_frame,nr->successful_evaluations_since_reset);
++  });if(refusal_at_entry)Fail(refusal_at_entry,nr);if(continue_control)continue;
++  ObserveAfterOpaque(list.native,*owner,frame,"diagnostic-recorded");
++  rr_consumer.Pin(f,list,owner,frame,"one-RR-variant",edited_slot->result,edited_slot);active_rr_consumer=&rr_consumer;
++  Check(rr_consumer.nr_recording_token==flight.token,"NR producer and RR consumer use identical real recording");
++  GuideState(list.native,*owner,frame); // actual-current raw guide states after opaque NR; never guessed
++  rr_output.Poison(list.native,*owner,frame);OneRrEvaluate(list,envelope,factory,owner,frame,rr_consumer,edited_slot->result,nr);
++  {nr_source_runtime::Lock lock;unsigned state=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list.native),nr_source_runtime::ResourceOf(edited_slot->result),state),"actual edited Color state after native RR");edited_slot->result_state=static_cast<D3D12_RESOURCE_STATES>(state);std::printf("ONE_RR_EDITED_STATE frame=%u state=%u actualObserver=1\n",frame,state);}
++  rr_output.Record(list.native,*owner,frame);LeaveCriticalSection(&g_chain_cs);flight.Finish(f,list,frame,&rr_consumer);active_rr_consumer=nullptr;capture.Save(frame);rr_output.Save(frame);
++ }
++ Check(native_rr_evals==32&&parent_create_attempts==1&&nr_creates==(baseline?0u:1u)&&nr_evals==(baseline?0u:32u)&&!active_rr_consumer,"complete one-RR history and exact call counts");if(!baseline)Check(nr&&CanDestroyContextLocked(*nr)&&CanDestroyBindingsLocked(*nr),"F18 dependencies retire only after real RR consumption");Check(SUCCEEDED(ID3D12Device_GetDeviceRemovedReason(f.device)),"device healthy");
++ if(!baseline){flight.clear.Drop();++context_destroy_calls;DestroyContext(*nr);if(nr->lifecycle_dependencies_quarantined)Fail("F18-release-unproven",nr);}
++ {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;factory.Guard("parent-release");for(auto** p:{&factory.eval_params,&factory.capability})if(*p){Check(factory.exports.destroy(*p)==kNgxSuccess,"actual owner parameter destruction");*p=nullptr;}}
++ ++parent_release_calls;Check(release(parent)==kNgxSuccess,"original parent Release after NR retirement and while native exports retained");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Check(destroy(parent_params)==kNgxSuccess,"parent params destroyed under retained original owner");
++ precreate.Drop(destroy);FreeLibrary(factory.callback_owner);FreeLibrary(factory.capability_owner);nr_private_sr_core::ReleaseExports(factory.exports);
++ DestroyBindings(context);if(!baseline)capture.Drop();rr_output.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);if(!no_nr)runtime_gate.Drop();std::printf("PASS ONE_RR_HOST mode=%s parentCreate=1 parentEval=32 F18Create=%u F18Eval=%u Scene=0 Feature1=0 R=1280x720 O=1920x1080 RGBfiniteFullWrite=32 qualityVerdict=unknown\n",mode.c_str(),nr_creates,nr_evals);
++}
++void RunOneRr(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
++ Check(mode=="baseline"||mode=="variant","only registered one-RR histories");
++ for(unsigned i=0;i<32;++i){const auto& p=phase_J[i];auto facts=raw_nr_admission::Inputs(p.sx,p.sy,p.jx,p.jy);const auto rejected=raw_nr_admission::Enter(facts,[]{});if(rejected){std::printf("COLD_REFUSAL frame=%u reason=%s device=0 opaque=0\n",i,rejected);probe_terminal::Exit(42,"one-RR-cold-refusal");}}
++ RunOneRrGpu(mode,bridge,pin);
++}
++
++}
+--- frozen-model-v1/host/parent_fixture.inl
++++ one-rr-v1/host/parent_fixture.inl
+@@ -7,11 +7,13 @@
+ std::string control;
+ #include "phase_schedule.inl"
+ unsigned parent_create_attempts=0,scene_create_attempts=0,scene_eval_attempts=0;
++void (*terminal_observer)()=nullptr;
+ [[noreturn]] void Stop(const char* stage,const char* key,const char* reason,NgxResult result=0){
+     if(control=="missing-capability"||control=="missing-callback"||control=="wrong-optimal"||control=="parent-generation")
+         Check(scene_create_attempts==0&&scene_eval_attempts==0,"rejected capability/domain records no private Create or Eval");
+     std::printf("STOP_COUNTS parentCreate=%u sceneCreate=%u sceneEval=%u\n",parent_create_attempts,scene_create_attempts,scene_eval_attempts);
+     std::printf("STOP stage=%s key=%s reason=%s result=%08x\n",stage,key,reason,result);
++    if(terminal_observer)terminal_observer();
+     probe_terminal::Exit(42,"parent-Stop");
+ }
+ struct Inputs {
+@@ -24,13 +26,13 @@
+     std::map<std::string,ID3D12Resource*> resources;
+     std::map<ID3D12Resource*,unsigned> completed_states;
+     std::string guide_hashes;
+-    void Make(queue_test::Fixture& f){
++    void Make(queue_test::Fixture& f,unsigned output_width=rw,unsigned output_height=rh){
+         depth.Make(f,rw,rh,DXGI_FORMAT_R32_FLOAT);
+         for(auto& v:motions)v.Make(f,rw,rh,DXGI_FORMAT_R32G32_FLOAT);
+         for(auto& v:reflections)v.Make(f,rw,rh,DXGI_FORMAT_R32G32_FLOAT);
+         diffuse.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);
+         specular.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);normal.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);
+-        roughness.Make(f,rw,rh,DXGI_FORMAT_R32_FLOAT);clean.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
++        roughness.Make(f,rw,rh,DXGI_FORMAT_R32_FLOAT);clean.Make(f,output_width,output_height,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
+         for(auto& color:colors)color.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT);
+         resources={{"Depth",depth.resource},{"MotionVectors",motions[0].resource},{"GBuffer.SpecularMvec",reflections[0].resource},
+             {"DLSS.Input.DiffuseAlbedo",diffuse.resource},{"DLSS.Input.SpecularAlbedo",specular.resource},
+@@ -77,20 +79,21 @@
+     NrBindingPacket* packet=nullptr;
+     unsigned long long nr_recording_token=0,native_lifetime_token=0,native_reset=0;
+     std::shared_ptr<Inputs> cpu_owner;
+-    void Pin(queue_test::Fixture& f,queue_test::List& list,const std::shared_ptr<Inputs>& owner,unsigned frame,const char* stage){
++    void Pin(queue_test::Fixture& f,queue_test::List& list,const std::shared_ptr<Inputs>& owner,unsigned frame,const char* stage,ID3D12Resource* edited=nullptr,const void* edited_owner=nullptr){
+         Check(!packet&&!cpu_owner,"one independent Scene flight at a time");
+         const auto native=SnapshotPostBoundaryList(list.native);auto* queue=FindGraphicsQueueRecordLocked(f.a);
+         Check(native.known&&native.token&&queue,"actual Scene native state and queue identity");
+-        nr_binding::Plan plan;plan.primary_owner=&context.slots[0];
++        nr_binding::Plan plan;plan.primary_owner=&context.slots[0];plan.secondary_owner=edited_owner;
+         auto& views=plan.heaps[nr_binding::Codec];views.Srv(0,owner->colors[frame].resource,DXGI_FORMAT_R16G16B16A16_FLOAT);
+         views.Uav(1,owner->clean.resource,DXGI_FORMAT_R16G16B16A16_FLOAT);unsigned index=2;
+         for(const auto& [key,resource]:owner->resources)if(key!="Output")views.Srv(index++,resource,ID3D12Resource_GetDesc(resource).Format);
++        if(edited)views.Srv(index++,edited,DXGI_FORMAT_R16G16B16A16_FLOAT);
+         cpu_owner=owner;nr_binding::Refusal refusal{};
+         const bool remove=control=="recording-pin"&&std::strcmp(stage,"scene-create")==0;
+         if(!remove)packet=AcquireBindingPacket(f.device,list.native,context,plan,&refusal);
+         else std::printf("INJECTION kind=recording-pin scope=Scene-Create skip=AcquireBindingPacket\n");
+         if(!packet&&!remove)Stop(stage,"production-lease",nr_binding::RefusalName(refusal));
+-        Check(packet&&index==9&&ReadLifecycleToken(list.native,nr_recording_token)&&nr_recording_token,"SCENE_LEASE_BEFORE_OPAQUE");
++        Check(packet&&index==(edited?10u:9u)&&ReadLifecycleToken(list.native,nr_recording_token)&&nr_recording_token,"SCENE_LEASE_BEFORE_OPAQUE");
+         auto* record=FindLifecycleCommandListLocked(nr_recording_token);bool held=false;
+         if(record)for(unsigned i=0;i<record->slot_count;++i)held|=record->slots[i]==&packet->lease;
+         Check(held&&record->submission_count==0&&packet->lease.recording_command_lists==1&&
+--- frozen-model-v1/host/raw-nr-phase.cpp
++++ one-rr-v1/host/raw-nr-phase.cpp
+@@ -9,11 +9,13 @@
+ #include "probe_admission.inl"
+ #include "raw_nr_host.inl"
+ #include "cpu_terminal.inl"
++#include "one_rr_contract.inl"
++#include "one_rr_host.inl"
+ int wmain(int argc,wchar_t** argv){std::setvbuf(stdout,nullptr,_IONBF,0);
+  if(argc==2&&std::wstring(argv[1])==L"off"){std::puts("PASS CPU off: device=0 bootstrap=0 create=0 eval=0 GPU=0");return 0;}
+  if(argc==2&&std::wstring(argv[1])==L"cpu-admission"){raw_nr_probe::CpuAdmissionControls();return 0;}
+  if(argc==3&&std::wstring(argv[1])==L"cpu-terminal")probe_terminal_cpu::Run(argv[2]);
+  if(argc!=5)return 2;
+- const std::wstring selected=argv[1];if(selected!=L"Z"&&selected!=L"Z2"&&selected!=L"J"&&selected!=L"J2")return 2;
+- if(std::wstring(argv[4])!=L"--root-model-go")return 2;
+- std::wstring cohort=argv[1];raw_nr_probe::Run(std::string(cohort.begin(),cohort.end()),argv[2],argv[3]);return 0;}
++ const std::wstring selected=argv[1];if(selected!=L"baseline"&&selected!=L"variant")return 2;
++ if(std::wstring(argv[4])!=L"--root-one-rr-go")return 2;
++ std::wstring cohort=argv[1];raw_nr_probe::RunOneRr(std::string(cohort.begin(),cohort.end()),argv[2],argv[3]);return 0;}
+--- frozen-model-v1/host/raw_nr_host.inl
++++ one-rr-v1/host/raw_nr_host.inl
+@@ -3,6 +3,7 @@
+ namespace raw_nr_probe {
+ using namespace scene_rr_probe_test;
+ unsigned nr_creates=0,nr_evals=0,device_entries=0;
++unsigned native_rr_evals=0;void PrintOneRrClosure();
+ unsigned nr_init_attempts=0,probe_combines=0,parent_release_calls=0,context_destroy_calls=0,controlled_backend_calls=0;
+ unsigned control_execute_base=0,control_restore_base=0;bool controlled_error_pending=false;
+ struct NrFlight;NrFlight* active_flight=nullptr;Adapter* active_envelope=nullptr;
+@@ -12,8 +13,8 @@
+ [[noreturn]] void Fail(const char* stage,NrContext* owner=nullptr,NgxResult result=0){
+  if(owner)owner->lifecycle_dependencies_quarantined=true;
+  MarkLifecycleUncertain("isolated raw NR failed; no fallback, release or retry");
+- std::printf("STOP_RAW_NR stage=%s result=%08x parentCreate=%u parentEval=0 NRCreate=%u NREval=%u SceneCreate=0 SceneEval=0 Feature1=0 quarantine=1 retry=0\n",stage,result,parent_create_attempts,nr_creates,nr_evals);
+- PrintPinnedClosure();PrintNrRuntimeClosure();probe_terminal::Exit(42,"Fail");
++ std::printf("STOP_RAW_NR stage=%s result=%08x parentCreate=%u parentEval=%u NRCreate=%u NREval=%u SceneCreate=0 SceneEval=0 Feature1=0 quarantine=1 retry=0\n",stage,result,parent_create_attempts,native_rr_evals,nr_creates,nr_evals);
++ PrintPinnedClosure();PrintNrRuntimeClosure();PrintOneRrClosure();probe_terminal::Exit(42,"Fail");
+ }
+ std::vector<unsigned char> File(const std::wstring& path){std::ifstream f{std::filesystem::path(path),std::ios::binary};Check(bool(f),"pinned file exists");return {std::istreambuf_iterator<char>(f),{}};}
+ void VerifyRuntime(const wchar_t* pin,bool include_nr){
+@@ -103,15 +104,18 @@
+    Check(found&&lease->recording_command_lists==1&&!CanMutateSlotLocked(*lease),"actual slot and two immutable packets owned before opaque");}
+   std::printf("NR_LEASE token=%llu nativeToken=%llu reset=%llu parentGeneration=%llu context=%p slot=%p packet=%p capture=%p matricesOwned=1\n",token,native_token,reset,ctx.feature_generation,(void*)&ctx,(void*)slot,(void*)packet,(void*)diagnostic);
+  }
+- void Finish(queue_test::Fixture& f,queue_test::List& list,unsigned frame){list.Close();list.Submit(f.a);ID3D12Fence* fence=nullptr;unsigned long long value=0,queue=0;
++ void Finish(queue_test::Fixture& f,queue_test::List& list,unsigned frame,Flight* rr_consumer=nullptr){list.Close();list.Submit(f.a);ID3D12Fence* fence=nullptr;unsigned long long value=0,queue=0;
+   EnterCriticalSection(&g_chain_cs);Check(!slot->awaiting_fence_signal&&slot->last_submission_queue&&slot->completion_fence_value,"NR exact submitted fence published");
+   fence=slot->last_submission_queue->fence;value=slot->completion_fence_value;queue=slot->last_submission_queue->identity;ID3D12Fence_AddRef(fence);
+-  for(auto* p:{packet,diagnostic})Check(p->lease.last_submission_queue==slot->last_submission_queue&&p->lease.completion_fence_value==value&&!p->lease.awaiting_fence_signal,"all packet fences same exact submission");LeaveCriticalSection(&g_chain_cs);
++  for(auto* p:{packet,diagnostic})Check(p->lease.last_submission_queue==slot->last_submission_queue&&p->lease.completion_fence_value==value&&!p->lease.awaiting_fence_signal,"all packet fences same exact submission");
++  if(rr_consumer)Check(rr_consumer->packet&&rr_consumer->nr_recording_token==token&&rr_consumer->native_lifetime_token==native_token&&rr_consumer->native_reset==reset&&rr_consumer->cpu_owner==cpu_owner&&rr_consumer->packet->lease.last_submission_queue==slot->last_submission_queue&&rr_consumer->packet->lease.completion_fence_value==value&&!rr_consumer->packet->lease.awaiting_fence_signal,"RR consumer same real recording queue and exact fence as all NR dependencies");
++  LeaveCriticalSection(&g_chain_cs);
+   queue_test::Wait(fence,value);EnterCriticalSection(&g_chain_cs);Check(!CanMutateSlotLocked(*slot),"completion alone retains executable recording");LeaveCriticalSection(&g_chain_cs);
+   list.ResetWithNewAllocator(f);EnterCriticalSection(&g_chain_cs);const auto native=SnapshotPostBoundaryList(list.native);
+   Check(native.known&&native.token==native_token&&native.reset==reset+1&&!g_lifecycle_tracking_uncertain.load(),"real successful Reset advances native token");
+   for(auto* lease:{slot,&packet->lease,&diagnostic->lease})Check(lease->recording_command_lists==0&&CanMutateSlotLocked(*lease),"NR exact fence plus Reset retires every real lease");
+   std::printf("NR_RETIRED frame=%u token=%llu nativeToken=%llu queue=%llu fence=%p value=%llu completed=%llu\n",frame,token,native_token,queue,(void*)fence,value,ID3D12Fence_GetCompletedValue(fence));
++  if(rr_consumer){auto& lease=rr_consumer->packet->lease;Check(lease.recording_command_lists==0&&CanMutateSlotLocked(lease)&&!context.lifecycle_dependencies_quarantined,"RR consumer exact fence plus Reset retirement");std::printf("ONE_RR_CONSUMER_RETIRED frame=%u token=%llu nativeToken=%llu queue=%llu fence=%p value=%llu completed=%llu sameNRFlight=1\n",frame,token,native_token,queue,(void*)fence,value,ID3D12Fence_GetCompletedValue(fence));DropBindingPacket(*rr_consumer->packet);rr_consumer->packet=nullptr;rr_consumer->cpu_owner.reset();}
+   clear.Retire(token);active_flight=nullptr;DropBindingPacket(*packet);DropBindingPacket(*diagnostic);slot->compose_binding=nullptr;packet=diagnostic=nullptr;cpu_owner.reset();LeaveCriticalSection(&g_chain_cs);ReleaseCom(fence);
+  }
+ };

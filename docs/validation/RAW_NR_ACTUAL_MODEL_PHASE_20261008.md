@@ -58,6 +58,8 @@ scene radiance 声明，也不是复杂 HDR/自动曝光的画质验收。
 ## 本批最后一门与交付边界
 
 上述 parent 是 R→R DLAA Create，Eval0；**尚未执行完整 rawNR→nativeRR R→O**。
+这是本报告四 NR histories 的截止范围；后续最后切片结果见
+[一次原生 RR 端到端功能结果](RAW_NR_ONE_NATIVE_RR_FUNCTIONAL_20261008.md)。
 Astra 建议只再做同宿主一个固定端到端切片：R1280×720→O1920×1080，真实
 cap/optimal 在唯一 parent Create 前必须精确支持该 R；原生 RR 基线和
 rawNR→一次原生 RR 两条独立 J 历史，各16warm/16observe，一帧仅一次 RR。
