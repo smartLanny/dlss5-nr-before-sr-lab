@@ -102,13 +102,60 @@ runtime change, game installation or algorithm change is authorized by the
 reproduction. Preserve the original all-consumer retirement and outside-lock
 vendor release contracts.
 
+## S1 diagnostic implementation
+
+The original collector now publishes its real first rejecting branch and a
+bounded CPU snapshot of context, slot, binding, recording and private/temporal
+holders. `blocked`, `evaluated` and `unknown` remain distinct. Pending capacity,
+outside-lock release in progress, quarantine and device-removed fence values
+remain visible. A completed fence never cancels a live recording reference.
+The original Ready/Invalidate calls and release permission are unchanged.
+
+Normal execution with no retired candidates does not scan holder tables or
+private/temporal owners. Stable retired detail refreshes at most once per second;
+decision/state changes publish immediately. This CPU refresh interval grants no
+release permission. There are no added GPU commands, readbacks or waits. F8
+copies already-published data, using an 86,624-byte heap scratch instead of a
+large callback-stack object. Core native lifetime/reset and retired-context
+device-generation identities remain explicitly unknown until a reviewed seam
+can supply them. Current `globalCodecDevice` is not proof of a retired device.
+
+The metadata allocation remains 288 KiB. The end-only retirement projection is
+capped at 24 KiB: all 32 contexts' core identity and masks precede optional
+detail, with explicit omission/overflow counts. Detail capacity does not truncate
+the known blocker masks or indirect recording-holder relationships. The full
+bounded POD is retained for the active F8 session; omitted optional text is not
+a claim that every holder was exported. Complete, source-written decimal
+counter fields survive metadata sanitization, while pointers, paths, raw logs,
+unknown fields and malformed schemas retain the privacy rules.
+
+Windows controlled CPU checks passed 37 normal and four forced-detail-overflow
+checks. Four compile-success runtime negatives catch missing pending masks,
+extra Ready calls from F8, early overflow exits and lost indirect holders.
+The actual formatter through the actual privacy policy passed 36 checks;
+removing its typed-number exception fails the precise semantic-ID assertion.
+The widest projection was 24,011 bytes. Controlled Clang O1 stack records were
+1,464 bytes for the publisher, 376 for the formatter and 40 for the snapshot
+copy; these are not measurements of the complete game's call stack or FPS.
+
+Whole-Core Windows syntax and the existing combined F8 TXT/ZIP CPU fixture
+passed (103 checks, plus its exact old-capacity negative). That isolated combined
+fixture does not enable the new retirement writer; its passing result alone
+does not prove the combined worst-width retirement tail. The assembled complete
+Core serializer must separately exercise that writer and its final privacy path.
+A first whole-Core syntax attempt exposed a too-narrow CPU-double owner type;
+the helper now compares the production `const void*` identity without
+dereferencing it, and the CPU fixture uses that actual type. The failed run is
+preserved and not counted as validation.
+
 ## Remaining verification
 
-S1 must report the original first blocking branch, full bounded read-only
-blocker evidence and explicit unknown identities without extra Ready/Invalidate
-calls. The approved minimal event fix must turn the two causal cases green and
-retain wrong-event refusals. Full bilingual canonical validation and actual
-game acceptance remain pending; old negative-control success is not a fix.
+No event-pairing behavior fix is implemented. The approved minimal fix must turn
+the two causal cases green and retain wrong-event refusals; removing that fix
+must reproduce the old failure. Full bilingual canonical validation and actual
+game acceptance remain pending. Old negative-control success, a diagnostic
+snapshot and syntax/CPU checks are not a fix, private-SR benefit or performance
+acceptance. No player diagnostic package is deployed by this PR.
 
 Execution specifications: [#339 runbook](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/339#issuecomment-6034176166),
 [#309 dispatch](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346).

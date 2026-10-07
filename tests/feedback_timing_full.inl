@@ -747,6 +747,79 @@ void SeedUiActivityEvidence() {
     o.sample.elapsed_ms=wide;o.reset_mask=255;o.regression_mask=15;o.kind=Kind::Incoherent;
     for(unsigned i=0;i!=6;++i)NrPublishUiActivity(read,static_cast<Site>(i%2),Display::CommandStateUnknown);
 }
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+constexpr nr_retirement::Id kRetirementPointer=0x123456789ABCDEF0ull;
+constexpr nr_retirement::Id kRetirementSemanticToken=123456789012345ull;
+void SeedRetirementEvidence() {
+    // Synthetic maximum-width typed values only. No live owners or GPU objects
+    // are created or queried; the real F8 writer consumes the published POD.
+    using namespace nr_retirement;
+    constexpr auto wide=std::numeric_limits<Id>::max();
+    constexpr auto word=std::numeric_limits<unsigned>::max();
+    EnterCriticalSection(&g_chain_cs);
+    auto& full=g_nr_retirement_published;std::memset(&full,0,sizeof(full));
+    full.sequence=full.tick=full.observations=full.suppressed=wide;
+    full.contexts=kContexts;full.slots=kSlots;full.bindings=kBindings;full.recordings=kRecordings;
+    full.private_flights=full.temporal_flights=kOwnerFlights;
+    full.pending_used=full.pending_capacity=16;full.releasing=word;full.tracking_uncertain=true;
+    const Fence fence{wide,kRetirementPointer,wide,wide,wide,true,true};
+    const Lease lease{fence,word,true};
+    for(auto& value:full.context){
+        value.instance=value.parent=value.feature=value.last_eval=value.last_eval_frame=wide;
+        value.pending_token=value.last_submit_queue=value.last_submit_value=wide;
+        value.last_completed_queue=value.last_completed_value=value.retired_tick=wide;
+        value.global_codec_device=value.handle=kRetirementPointer;value.lease=lease;
+        value.blocked=value.evaluated=kAll;value.unknown=0;
+        value.first_block=PendingCapacity; // Longest legal first-block spelling.
+        value.configuration=value.layer=value.width=value.height=word;
+        value.mode=std::numeric_limits<int>::min();value.retire_reason=9;
+        value.pending_destroy=value.post_evaluated=true;value.post_ready=false;
+    }
+    // A pointer-width semantic token must survive the actual metadata policy;
+    // all other 64-bit counters retain their full-width/sentinel values.
+    full.context[0].pending_token=kRetirementSemanticToken;
+    for(auto& value:full.slot){value.lease=lease;value.key=kRetirementPointer;value.context=value.index=word;}
+    for(auto& value:full.binding){value.lease=lease;
+        value.instance=value.feature=value.primary_instance=value.secondary_instance=wide;
+        value.configuration=value.index=value.primary_slot=value.secondary_slot=word;
+        value.primary_known=value.secondary_known=true;}
+    for(auto& value:full.recording){
+        value.token=value.expected_queue=value.submissions=value.native_lifetime=value.native_reset=wide;
+        value.address=value.device=kRetirementPointer;
+        value.contexts=value.direct_contexts=value.indirect_contexts=0xFFFFFFFFull;
+        value.in_flight=value.context_count=value.slot_count=word;
+        value.detached=value.unproven_execution=value.native_identity_known=true;
+    }
+    const auto flight=[&](OwnerFlight& value){value.instance=value.token=value.reset=value.queue=wide;
+        value.list=value.device=kRetirementPointer;value.fence=fence;value.index=word;
+        value.submitted=value.poisoned=value.unsafe=true;};
+    for(auto& value:full.private_flight)flight(value);for(auto& value:full.temporal_flight)flight(value);
+    LeaveCriticalSection(&g_chain_cs);
+}
+void CheckRetirementEvidence(const std::string& text,bool sanitized) {
+    using namespace nr_retirement;
+    Check(Field(Value(text,"end.retirement.counts"),"contexts",U(kContexts)),"FULL_CORE_F8_RETIREMENT_END");
+    for(unsigned i=0;i<kContexts;++i){const auto row=Value(text,"end.retirement.context."+U(i));
+        Check(Field(row,"id","18446744073709551615")&&Field(row,"config","4294967295")&&
+              Field(row,"first","pending-destroy-capacity")&&Field(row,"blocked","0x3FFFFF")&&
+              Field(row,"evaluated","0x3FFFFF")&&Field(row,"unknown","0x0")&&
+              Field(row,"done","18446744073709551615"),"FULL_CORE_F8_RETIREMENT_ALL_CONTEXT_MASKS");
+        Check(Field(row,"f",sanitized?"[address]":"0x123456789ABCDEF0"),"FULL_CORE_F8_RETIREMENT_POINTER_PRIVACY");
+    }
+    Check(Field(Value(text,"end.retirement.context.0"),"pendingToken","123456789012345"),
+          "FULL_CORE_F8_RETIREMENT_SEMANTIC_ID_PRESERVED");
+    const auto omitted=Value(text,"end.retirement.textOmitted");
+    Check(Field(omitted,"contexts","0")&&omitted.find("contextDetails:")!=std::string::npos&&
+          omitted.find("full fixed POD retained, text capped at 24576 bytes")!=std::string::npos&&
+          (!Field(omitted,"slots","0")||!Field(omitted,"bindings","0")||!Field(omitted,"recordings","0")),
+          "FULL_CORE_F8_RETIREMENT_BOUNDED_TEXT_OMISSIONS");
+    const auto begin=text.find("end.retirement.sequence=");
+    const auto marker=text.find("end.retirement.textOmitted=",begin);
+    const auto end=marker==std::string::npos?std::string::npos:text.find('\n',marker);
+    Check(begin!=std::string::npos&&end!=std::string::npos&&end-begin+1<=nr_feedback_limits::kRetirementTextBytes,
+          "FULL_CORE_F8_RETIREMENT_TEXT_24K_BOUND");
+}
+#endif
 void CheckUiActivityEvidence(const std::string& text,const char* prefix,const std::string* raw=nullptr) {
     const auto key=std::string(prefix)+".uiActivity.";
     Check(Value(text,key+"schema")=="1"&&Value(text,key+"available")=="1"&&
@@ -1000,6 +1073,9 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     const auto menu_trace=FullWidthMenuTrace();
 #endif
     const auto append_end = [&](FeedbackSession &target) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        SeedRetirementEvidence();
+#endif
         FeedbackAppend(target, "%s", numeric_width_allowance.c_str());
         FeedbackAppendActivity(target, "end");
 #if defined(NR_ALLOCATION_LEDGER_ENABLED)
@@ -1028,6 +1104,9 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     CheckTiming(activity.report, "end", *end, missing_clock);
     CheckExpandedEvidence(activity.report, "end");
     CheckUiActivityEvidence(activity.report,"end");
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    CheckRetirementEvidence(activity.report,false);
+#endif
     Check(Value(activity.report,"end.post.boundary.selection")=="current-read-only-recording" &&
           Value(activity.report,"end.post.boundary.pairedWithProbe")=="0" &&
           Value(activity.report,"end.post.boundary.probePhase")==U(end_probe.phase) &&
@@ -1100,6 +1179,10 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
         CheckUiActivityEvidence(*text.text,"end",&raw_ui);
         CheckUiActivityEvidence(Read(text.path),"start",&raw_ui);
         CheckUiActivityEvidence(Read(text.path),"end",&raw_ui);
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        CheckRetirementEvidence(*text.text,true);
+        CheckRetirementEvidence(Read(text.path),true);
+#endif
         CheckTiming(*text.text, "start", *start, missing_clock);
         CheckTiming(Read(text.path), "end", *end, missing_clock);
         const auto path_utf8 = std::filesystem::path(text.path).u8string();

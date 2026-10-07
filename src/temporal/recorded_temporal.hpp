@@ -44,6 +44,19 @@ struct TemporalStats {
     bool snapshot_refused=false; // Allocation/budget refusal; current NR is retained.
 };
 
+// Stored parent lifetime fields only; this module does not depend on Core's
+// diagnostic schema, poll fences or expose its internal owner objects.
+struct RetirementFlight {
+    Id recording=0,fence=0,value=0;
+    unsigned index=0;
+    bool submitted=false,unsafe=false;
+};
+struct RetirementInspection {
+    RetirementFlight flights[3]{};
+    unsigned count=0;
+    bool present=false,faulted=false,unsafe=false,opaque_unknown=false;
+};
+
 // One serialized Core context; all work and final consumers use the proven
 // constructor queue. No production Execute/Signal/Wait occurs here. Completed GPU statistics use nonblocking readback only after their exact fence.
 // Recorded is NOT submitted/adopted/completed. Core supplies the actual last
@@ -62,6 +75,8 @@ public:
     // All of this instance's recordings must be non-replayable and its final
     // consumers complete. Unrelated NR recordings do not own these resources.
     bool releasable() const noexcept;
+    // Copy stored lifetime fields only: no polling, statistics Map or collection.
+    RetirementInspection inspect_retirement() const noexcept;
     ID3D12Resource* anchor() const noexcept; // FP16, UAV; only allocated for LaterLayers.
     RecordResult record(ID3D12GraphicsCommandList*,const RecordedInputs&) noexcept;
     bool submitted(ID3D12Fence* exact_last_consumer,Id value,Id recording_lease=0) noexcept;

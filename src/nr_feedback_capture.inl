@@ -5,6 +5,11 @@ std::atomic<bool> g_feedback_requested{false};
 std::atomic<unsigned int> g_feedback_status{0}; // idle, collecting, packaging, complete, partial, failed
 SRWLOCK g_feedback_lock = SRWLOCK_INIT;
 struct FeedbackSession {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    // One bounded CPU scratch allocated only by an explicitly requested F8.
+    // No large local Snapshot on a game's small Present/callback stack.
+    std::unique_ptr<nr_retirement::Snapshot> retirement_scratch{new(std::nothrow) nr_retirement::Snapshot};
+#endif
     ULONGLONG started = 0;
     unsigned long long stage_request = 0;
     unsigned int shots_requested = 0;
@@ -46,6 +51,9 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
     } else s.report_used += static_cast<std::size_t>(n);
 }
 
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+#include "nr_retirement_feedback.inl"
+#endif
 #include "nr_compatibility_verdict_feedback.inl"
 #if defined(NR_HAS_UI_ACTIVITY_RECEIPTS)
 #include "nr_ui_activity_feedback.inl"
@@ -427,6 +435,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,nr_dual_runtime::last_primary_instance.load(),prefix,nr_dual_runtime::last_second_instance.load(),prefix,nr_dual_runtime::last_parent_evaluation.load(),
         prefix,g_dual_allocated_bytes.load(),prefix,kDualTotalBudget,prefix,nr_dual_runtime::fatal_result.load(),prefix);
     const auto memory=SnapshotNrContextMemory();
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    if(std::strcmp(prefix,"end")==0)FeedbackAppendRetirement(s,prefix);
+#endif
     FeedbackAppend(s,"%s.contextMemory.contexts=livePrimary:%u,liveAux:%u,retiredPrimary:%u,retiredAux:%u,pendingPrimary:%u,pendingAux:%u,quarantined:%u\n"
         "%s.contextMemory.auxSlots=live:%u,retired:%u,pending:%u\n"
         "%s.contextMemory.auxTrackedBytes=live:%llu,retired:%llu,pending:%llu,global:%llu\n"

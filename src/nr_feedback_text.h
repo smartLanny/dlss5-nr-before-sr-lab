@@ -305,6 +305,98 @@ inline bool DiagnosticMetadataNumber(std::string_view line,std::size_t begin,std
         c.Literal(",unknownGroups:") && c.Number(UINT32_MAX) &&
         c.Literal(",overflow:") && c.Boolean() && c.Done();
 }
+inline bool RetirementMetadataNumber(std::string_view line,std::size_t begin,std::size_t end) {
+    // Preserve semantic decimal counters only in complete source-written rows.
+    // Object pointers, arbitrary text, malformed rows and raw logs keep the
+    // normal privacy policy. Hex fields may already have been redacted during
+    // this same pass; that does not invalidate later semantic counter fields.
+    if(begin>=end||end>line.size()||!CanonicalUnsigned(line.substr(begin,end-begin)))return false;
+    constexpr std::string_view prefix="end.retirement.";
+    const auto equal=line.find('=');
+    if(equal==std::string_view::npos||begin<=equal||line.substr(0,prefix.size())!=prefix)return false;
+    auto key=line.substr(prefix.size(),equal-prefix.size());
+    struct Cursor {
+        std::string_view line;std::size_t at,begin,end;bool found=false;
+        bool Literal(std::string_view text){if(line.substr(at,text.size())!=text)return false;at+=text.size();return true;}
+        bool Number(std::uint64_t maximum=UINT64_MAX){
+            const auto first=at;while(at<line.size()&&line[at]>='0'&&line[at]<='9')++at;
+            std::uint64_t value=0;
+            if(!CanonicalUnsigned(line.substr(first,at-first),&value)||value>maximum)return false;
+            found|=first==begin&&at==end;return true;
+        }
+        bool HexValue(){
+            if(Literal("[address]"))return true;
+            if(!Literal("0x"))return false;
+            const auto first=at;while(at<line.size()&&Hex(line[at]))++at;
+            return at>first&&at-first<=16;
+        }
+        bool SignedMode(){
+            const bool negative=Literal("-");const auto first=at;
+            while(at<line.size()&&line[at]>='0'&&line[at]<='9')++at;
+            std::uint64_t value=0;
+            return CanonicalUnsigned(line.substr(first,at-first),&value)&&
+                value<=(negative?2147483648ull:2147483647ull);
+        }
+        bool FirstBlock(){
+            const auto finish=line.find(',',at);
+            const auto value=line.substr(at,(finish==std::string_view::npos?line.size():finish)-at);
+            for(const auto name:{"none","create-quarantine","lifecycle-quarantine","tracking-uncertain",
+                    "context-recording","context-pending-token","context-await-signal","context-fence",
+                    "slot-recording","slot-await-signal","slot-fence","binding-recording","binding-await-signal",
+                    "binding-fence","other-context-binding","private-recording","private-poison",
+                    "temporal-recording","temporal-unsafe","pending-destroy-capacity","release-in-progress",
+                    "private-post-ready","binding-lease","unknown"})
+                if(value==name){at+=value.size();return true;}
+            return false;
+        }
+        struct Field{const char* name;char type;};
+        bool Row(std::initializer_list<Field> fields){
+            bool first=true;
+            for(const auto& field:fields){
+                if(!first&&!Literal(","))return false;first=false;
+                if(*field.name&&(!Literal(field.name)||!Literal(":")))return false;
+                const bool valid=field.type=='U'?Number():field.type=='u'?Number(UINT32_MAX):
+                    field.type=='b'?Number(1):field.type=='h'?HexValue():field.type=='i'?SignedMode():
+                    field.type=='s'?FirstBlock():field.type=='p'?
+                    (Number()&&Literal("/")&&Number(UINT32_MAX)&&Literal("/")&&Number(1)):false;
+                if(!valid)return false;
+            }
+            return at==line.size()&&found;
+        }
+    } c{line,equal+1,begin,end};
+    if(key=="sequence")return c.Row({{"",'U'},{"tick",'U'},{"observations",'U'},{"suppressed",'U'}});
+    const auto dot=key.find('.');if(dot==std::string_view::npos)return false;
+    const auto kind=key.substr(0,dot);key.remove_prefix(dot+1);
+    const auto suffix=key.find('.');std::uint64_t index=0;
+    if(!CanonicalUnsigned(key.substr(0,suffix),&index))return false;
+    const auto tail=suffix==std::string_view::npos?std::string_view{}:key.substr(suffix+1);
+    if(kind=="context"&&index<32){
+        if(tail=="last")return c.Row({{"eval",'U'},{"frame",'U'},{"submitQ",'U'},{"submitV",'U'},
+            {"completedQ",'U'},{"completedV",'U'},{"retiredTick",'U'},{"globalCodecDevice",'h'}});
+        if(!tail.empty())return false;
+        return c.Row({{"id",'U'},{"parent",'U'},{"featureGen",'U'},{"config",'u'},{"layer",'u'},
+            {"mode",'i'},{"first",'s'},{"blocked",'h'},{"evaluated",'h'},{"unknown",'h'},
+            {"pendingDestroy",'b'},{"refs",'u'},{"pendingToken",'U'},{"await",'b'},{"q",'U'},
+            {"f",'h'},{"v",'U'},{"done",'U'},{"sampled",'b'},{"postEvaluated",'b'},
+            {"postReady",'b'},{"retireReason",'u'}});
+    }
+    if(!tail.empty())return false;
+    if(kind=="recording"&&index<128)return c.Row({{"token",'U'},{"list",'h'},{"expectedQ",'U'},
+        {"submits",'U'},{"inFlight",'u'},{"contextMask",'h'},{"direct",'h'},{"indirect",'h'},
+        {"contextCount",'u'},{"slotCount",'u'},{"detached",'b'},{"unprovenExecute",'b'},
+        {"nativeKnown",'b'},{"nativeLifetime",'U'},{"nativeReset",'U'},{"device",'h'}});
+    if(kind=="binding"&&index<256)return c.Row({{"id",'U'},{"featureGen",'U'},{"config",'u'},
+        {"i",'u'},{"primary",'p'},{"secondary",'p'},{"refs",'u'},{"await",'b'},{"q",'U'},
+        {"f",'h'},{"v",'U'},{"done",'U'},{"sampled",'b'},{"tick",'U'}});
+    if(kind=="slot"&&index<256)return c.Row({{"c",'u'},{"i",'u'},{"key",'h'},{"refs",'u'},
+        {"await",'b'},{"q",'U'},{"f",'h'},{"v",'U'},{"done",'U'},{"sampled",'b'},
+        {"reused",'b'},{"tick",'U'}});
+    if((kind=="privateFlight"||kind=="temporalFlight")&&index<96)return c.Row({{"id",'U'},
+        {"i",'u'},{"token",'U'},{"list",'h'},{"reset",'U'},{"device",'h'},{"q",'U'},
+        {"f",'h'},{"v",'U'},{"done",'U'},{"sampled",'b'},{"submitted",'b'},
+        {"poison",'b'},{"unsafe",'b'}});
+    return false;
+}
 inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = false) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
@@ -337,6 +429,7 @@ inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = f
             if (typed_metadata && BoundaryMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && DiagnosticMetadataNumber(line, i, end)) { i = end; continue; }
+            if (typed_metadata && RetirementMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;
     }
