@@ -456,6 +456,7 @@ void BoundaryCallbacks() {
 }
 #include "post_boundary_native.inl"
 #include "post_boundary_readonly.inl"
+#include "native_nr_retirement.inl"
 #endif
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
@@ -469,6 +470,8 @@ int main(int argc, char **argv) {
     else if (mode == "guards") queue_test::Guards();
 #ifndef NR_QUEUE_OLD_POLICY_NEGATIVE
     else if (mode == "submitted-retirement") queue_test::SubmittedRetirement();
+    else if (mode == "native-final-destruction") queue_test::NativeNrRetirement(false);
+    else if (mode == "native-marker-replacement") queue_test::NativeNrRetirement(true);
 #if defined(NR_HAS_TIMING)
     else if (mode == "submitted-retirement-polling") {
         NrTimingSetWaitPolicy(1, 2); queue_test::SubmittedRetirement();

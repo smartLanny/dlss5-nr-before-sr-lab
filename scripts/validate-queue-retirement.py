@@ -20,9 +20,13 @@ def main() -> None:
     parser.add_argument('--source', type=Path, required=True,
                         help='Canonical staged Core source, including the integration adapters.')
     parser.add_argument('--old-policy-negative', action='store_true')
+    parser.add_argument('--native-destruction-negative', action='store_true',
+                        help='Run the native-final-destruction regression against an unfixed Core; require its exact runtime failure.')
     parser.add_argument('--compile-only', action='store_true',
                         help='Compile the production queue host without running WARP cases.')
     args = parser.parse_args()
+    if args.old_policy_negative and args.native_destruction_negative:
+        parser.error('Choose one causal negative control per evidence directory.')
     out = args.build_dir.resolve()
     if out.exists():
         raise ValueError('Preserve existing queue evidence; use a fresh build directory.')
@@ -75,21 +79,24 @@ def main() -> None:
     binary = out/'queue-retirement.exe'
     run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
          str(wrapper), *objects, '-o', str(binary), '-lkernel32', '-luser32',
-         '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
+         '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'], 'compile-core')
     if args.compile_only:
         evidence = {'source': str(source), 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                     'fixture_sha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
                     'fixture_inputs_sha256': {str(path.relative_to(ROOT)): digest for path, digest in fixture_inputs.items()},
                     'old_policy_negative': args.old_policy_negative, 'cases': [],
+                    'native_destruction_negative': args.native_destruction_negative,
                     'production_translation_unit': True, 'compile_only': True,
                     'warp': False, 'nvidia_nr': False}
         (out/'result.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')
         print('PASS production queue retirement compile-only; WARP cases not run')
         return
-    cases = ['one-shot'] if args.old_policy_negative else [
+    cases = (['one-shot'] if args.old_policy_negative else
+             ['native-final-destruction', 'native-marker-replacement'] if args.native_destruction_negative else [
         'one-shot', 'guards', 'pending-context', 'pending-slot',
         'migration', 'one-observation-migration', 'replay', 'discard',
-        'submitted-retirement', 'submitted-retirement-polling', 'retirement-timeout', 'retirement-guards', 'post-output', 'boundary-callbacks']
+        'submitted-retirement', 'submitted-retirement-polling', 'retirement-timeout', 'retirement-guards', 'post-output', 'boundary-callbacks',
+        'native-final-destruction', 'native-marker-replacement'])
     results = []
     for case in cases:
         # post-output contains 27 complete GPU/readback scenes plus cold shader
@@ -102,7 +109,9 @@ def main() -> None:
         elapsed = time.perf_counter()-started
         print(result.stdout.strip())
         expected = (result.returncode == 41 and 'FAIL ONE_SHOT_RETIRED_ADMISSION' in result.stdout
-                    if args.old_policy_negative else result.returncode == 0)
+                    if args.old_policy_negative else
+                    result.returncode == 41 and 'FAIL NATIVE_FINAL_DESTROY_MUST_RETIRE_NR_RECORDING' in result.stdout
+                    if args.native_destruction_negative else result.returncode == 0)
         results.append({'case': case, 'exit_code': result.returncode, 'expected_result': expected,
                         'elapsed_seconds': elapsed, 'timeout_seconds': timeout})
         if not expected:
@@ -113,9 +122,11 @@ def main() -> None:
                 'fixture_sha256': hashlib.sha256(fixture.read_bytes()).hexdigest(),
                 'fixture_inputs_sha256': {str(path.relative_to(ROOT)):digest for path,digest in fixture_inputs.items()},
                 'old_policy_negative': args.old_policy_negative, 'cases': results,
+                'native_destruction_negative': args.native_destruction_negative,
                 'production_translation_unit': True, 'warp': True, 'nvidia_nr': False}
     (out/'result.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')
-    print('PASS old queue policy rejected one-shot carrier as expected' if args.old_policy_negative
+    print('PASS native destruction negative reproduced the exact NR recording leak' if args.native_destruction_negative else
+          'PASS old queue policy rejected one-shot carrier as expected' if args.old_policy_negative
           else 'PASS production queue retirement matrix')
 
 if __name__ == '__main__':
