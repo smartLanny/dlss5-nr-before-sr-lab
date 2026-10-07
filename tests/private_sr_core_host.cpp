@@ -292,27 +292,27 @@ int Run(const std::wstring& mode){if(mode==L"domain")return DomainCase();if(mode
         auto* queue=FindOrCreateLifecycleQueueLocked(h.queue);Require(queue&&queue->fence,"real WARP Core queue");
         context.instance_id=1;context.frames_seen=1;
         const auto plan=nr_private_sr_budget::Query(h.device,full,high,full,high);
-        Require(plan.valid&&plan.required>(768ull<<20),"WARP 4K real allocation layout exceeds private cap");
+        Require(plan.valid&&plan.required>(1ull<<30),"WARP 4K real private-plane allocation query");
         const nr_private_sr_status::BudgetKey key{reinterpret_cast<UINT64>(h.device),reinterpret_cast<UINT64>(&parent),
-            queue->identity,feature.generation,g_config_generation.load(),full,high,full,high,2u};
+            queue->identity,feature.generation,g_config_generation.load(),0,high,full,high,2u};
         const auto owned=h.owned.size();
-        Require(!nr_post_product::CreateOwner(context,h.device,&parent,feature,queue,full,high,full,high,key),
-            "actual CreateOwner refuses before private resources or NGX");
+        Require(!nr_post_product::CreateOwner(context,h.device,&parent,feature,queue,0,high,full,high,key),
+            "actual CreateOwner refuses invalid query before private resources or NGX");
         const auto retry=context.private_sr_budget_retry;
-        Require(retry.valid&&retry.permanent&&retry.key==key&&retry.reason==nr_private_sr_status::State::BudgetCap&&
-            retry.required==plan.required&&retry.available==(768ull<<20)&&!context.private_sr&&
+        Require(retry.valid&&!retry.permanent&&retry.key==key&&retry.reason==nr_private_sr_status::State::BudgetUnknown&&
+            retry.required==0&&retry.available==0&&!context.private_sr&&
             nr_private_sr_status::bytes.load()==0&&nr_private_sr_status::peak.load()==0&&
             nr_private_sr_status::retired.load()==0&&nr_private_sr_status::creations.load()==0&&h.owned.size()==owned,
-            "fixed-cap refusal leaves no private texture, owner or model");
+            "invalid-query refusal leaves no private texture, owner or model");
         nr_post_product::RefuseBudget(context,retry);
-        Require(nr_private_sr_status::state.load()==nr_private_sr_status::State::BudgetCap&&
+        Require(nr_private_sr_status::state.load()==nr_private_sr_status::State::BudgetUnknown&&
             nr_private_sr_status::state_configuration.load()==g_config_generation.load()&&
             nr_private_sr_status::budget_instance.load()==context.instance_id&&
             nr_private_sr_status::budget_feature_generation.load()==feature.generation&&
-            nr_private_sr_status::budget_required.load()==plan.required,
+            nr_private_sr_status::budget_required.load()==0,
             "current-instance budget diagnostics match exact failed key");
-        std::printf("PASS actual Core WARP 4K preflight required=%llu available=%llu planes=0 privateCreate=0 checks=%u; no NGX/game\n",
-            (unsigned long long)plan.required,(unsigned long long)(768ull<<20),checks);
+        std::printf("PASS actual Core WARP 4K query required=%llu; invalid-query refusal planes=0 privateCreate=0 checks=%u; no NGX/game\n",
+            (unsigned long long)plan.required,checks);
         return 0;
     }
     auto* depth=h.Plane(rw+gx,rh+gy,DXGI_FORMAT_R32_FLOAT,false);auto* motion=h.Plane(rw+gx,rh+gy,DXGI_FORMAT_R32G32_FLOAT,false);

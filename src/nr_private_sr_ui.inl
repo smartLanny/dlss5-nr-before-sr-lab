@@ -2,8 +2,8 @@ void DrawPrivateResidualSr(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();const auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
     SettingsSection(ui("Private SR (experimental)","私有 SR（实验）"));
     if(ImGui::Checkbox(ui("Enable private residual SR","启用私有残差 SR"),&next.private_residual_sr))changed=discrete=true;
-    SettingsTooltip(ui("Rebuilds the final NR edit once after game SR or successful RR. Beta15 prevents model bias entering neutral colour channels. This is not a proven flicker fix; ordinary recovery remains the baseline. It needs proven D3D12, colour and motion inputs. Present, FG and multiple GPUs are unsupported.",
-        "在游戏 SR 或成功 RR 后重建最终 NR 改动。Beta15 修正中性颜色通道串扰，尚未证明消闪或净收益；普通恢复仍是基线。需要可信 D3D12 导引；Present、FG、多显卡暂不支持。"));
+    SettingsTooltip(ui("Rebuilds the final NR edit once after game SR or successful RR. Beta15 prevents model bias entering neutral colour channels. This is not a proven flicker fix; ordinary recovery remains the baseline. It needs proven D3D12, colour and motion inputs. Present, FG and multiple GPUs are unsupported. Uses extra VRAM: about 1052 MiB for private planes at 4K/100%, plus model memory; stays off if headroom is insufficient.",
+        "在游戏 SR 或成功 RR 后重建最终 NR 改动。Beta15 修正中性颜色通道串扰，尚未证明消闪或净收益；普通恢复仍是基线。需要可信 D3D12 导引；Present、FG、多显卡暂不支持。会增加显存占用：4K/100% 私有平面约 1052 MiB，模型另计；余量不足时不启用。"));
     if(next.private_residual_sr&&next.temporal_backend)
         SettingsNote(ui("Not applied: turn off residual stabilization first; its saved choices remain.",
             "未生效：请先关闭残差防闪；原设置会保留。"));

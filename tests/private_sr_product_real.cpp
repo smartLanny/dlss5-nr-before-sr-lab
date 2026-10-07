@@ -356,25 +356,25 @@ int Run(const wchar_t* bridge,unsigned nr_layers_count,unsigned percent,bool rr,
     context.instance_id=1;context.feature_generation=feature.generation;context.mode=1;
     context.width=nw;context.height=nh;
     if(private_sr){
-        // Exercise the actual product CreateOwner boundary with the known 4K
-        // 100% layout. No synthetic budget and no vendor Create is involved.
+        // Query the real 4K layout, then exercise invalid-query refusal without
+        // allocating another owner or invoking vendor Create in this preflight.
         constexpr unsigned full=3840,high=2160;
         const auto plan=nr_private_sr_budget::Query(h.device,full,high,full,high);
-        Require(plan.valid&&plan.required>(768ull<<20),"real device 4K private planes exceed fixed cap");
+        Require(plan.valid&&plan.required>(1ull<<30),"real device 4K private-plane allocation query");
         const nr_private_sr_status::BudgetKey key{reinterpret_cast<UINT64>(h.device),reinterpret_cast<UINT64>(parent),
-            queue->identity,feature.generation,g_config_generation.load(),full,high,full,high,2u|(unsigned(feature.create_flags)&8)};
+            queue->identity,feature.generation,g_config_generation.load(),0,high,full,high,2u|(unsigned(feature.create_flags)&8)};
         const auto before_owned=h.owned.size();
-        Require(!nr_post_product::CreateOwner(context,h.device,parent,feature,queue,full,high,full,high,key),
-            "real CreateOwner refuses full private layout before allocation");
-        Require(context.private_sr_budget_retry.valid&&context.private_sr_budget_retry.permanent&&
-            context.private_sr_budget_retry.reason==nr_private_sr_status::State::BudgetCap&&
-            context.private_sr_budget_retry.required==plan.required&&
-            context.private_sr_budget_retry.available==(768ull<<20)&&
+        Require(!nr_post_product::CreateOwner(context,h.device,parent,feature,queue,0,high,full,high,key),
+            "real CreateOwner refuses invalid allocation query before allocation");
+        Require(context.private_sr_budget_retry.valid&&!context.private_sr_budget_retry.permanent&&
+            context.private_sr_budget_retry.reason==nr_private_sr_status::State::BudgetUnknown&&
+            context.private_sr_budget_retry.required==0&&
+            context.private_sr_budget_retry.available==0&&
             !context.private_sr&&!nr_private_sr_status::bytes.load()&&!nr_private_sr_status::peak.load()&&
             !nr_private_sr_status::retired.load()&&!nr_private_sr_status::creations.load()&&
-            h.owned.size()==before_owned,"over-cap preflight leaves no partial private planes or Feature1");
-        std::printf("PASS real CreateOwner 4K cap preflight required=%llu available=%llu planes=0 privateCreate=0\n",
-            (unsigned long long)plan.required,(unsigned long long)(768ull<<20));
+            h.owned.size()==before_owned,"invalid-query preflight leaves no partial private planes or Feature1");
+        std::printf("PASS real 4K allocation query required=%llu; CreateOwner invalid-query refusal planes=0 privateCreate=0\n",
+            (unsigned long long)plan.required);
         context.private_sr_budget_retry={};nr_private_sr_status::budget_configuration.store(0);
     }
     auto& slot=context.slots[0];slot.source=base;slot.result=final;slot.source_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;

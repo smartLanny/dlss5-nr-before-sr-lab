@@ -5,6 +5,7 @@ namespace nr_private_sr_status {
 enum class State : unsigned { Off, Waiting, Conflict, Route, Domain, Queue, Source, Guides,
     Budget, Busy, Creating, Recorded, Submitted, Quarantined, Phase, Duplicate, OriginalInterface,
     BudgetCap, BudgetHeadroom, BudgetUnknown, MemoryInfoUnknown };
+// BudgetCap keeps its historical diagnostic code; new admission uses DXGI headroom.
 inline std::atomic<State> state{State::Off};
 inline std::atomic<unsigned> guide_reason{0};
 // One Core chain lock serializes publication. A snapshot from another config

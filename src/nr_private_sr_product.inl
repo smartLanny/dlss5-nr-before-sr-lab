@@ -243,22 +243,21 @@ bool CreateOwner(NrContext& context,ID3D12Device* device,const NgxHandle* parent
                  LifecycleQueue* queue,unsigned nw,unsigned nh,unsigned ow,unsigned oh,
                  const nr_private_sr_status::BudgetKey& key) {
     if(context.private_sr)return false;
-    constexpr Id cap=768ull<<20;
+    constexpr Id reserve=64ull<<20;
     const auto planes=nr_private_sr_budget::Query(device,nw,nh,ow,oh);
     auto deny=[&](State reason,Id available,bool permanent){
         context.private_sr_budget_retry={key,reason,context.frames_seen,true,permanent,planes.required,available};
-        Log("Private residual SR admission refused: reason=%s config=%u work=%ux%u output=%ux%u requiredBytes=%llu availableBytes=%llu capBytes=%llu; no private planes or model allocated.",
+        Log("Private residual SR admission refused: reason=%s config=%u work=%ux%u output=%ux%u requiredBytes=%llu availableBytes=%llu reserveBytes=%llu; no private planes or model allocated.",
             nr_private_sr_status::Name(reason),key.configuration,nw,nh,ow,oh,
             static_cast<unsigned long long>(planes.required),static_cast<unsigned long long>(available),
-            static_cast<unsigned long long>(cap));
+            static_cast<unsigned long long>(reserve));
         return false;
     };
     if(!planes.valid)return deny(State::BudgetUnknown,0,false);
-    if(planes.required>cap)return deny(State::BudgetCap,cap,true);
     const auto memory=nr_process_memory::Read(ID3D12Device_GetAdapterLuid(device),true);
     if(FAILED(memory.local_result))return deny(State::MemoryInfoUnknown,0,false);
     const Id spare=memory.local.CurrentUsage<memory.local.Budget?memory.local.Budget-memory.local.CurrentUsage:0;
-    const Id budget=std::min<Id>(cap,spare>(64ull<<20)?spare-(64ull<<20):0);
+    const Id budget=spare>reserve?spare-reserve:0;
     if(planes.required>budget)return deny(State::BudgetHeadroom,budget,false);
     context.private_sr_budget_retry={key,State::Budget,context.frames_seen,true,false,planes.required,budget};
     auto* o=new(std::nothrow)Owner;if(!o)return false;
