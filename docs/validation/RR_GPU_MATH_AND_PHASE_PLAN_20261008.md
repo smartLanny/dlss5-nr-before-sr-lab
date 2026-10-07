@@ -58,6 +58,32 @@ copy/不写或明确整数路径证明，不以普通 float 写回代替。
 s=0 帧须先通过固定当前位置零基线；不事后减去共同偏差。所有 informative
 观察帧、三个运动区段须同结论，否则 unknown，不自动选最低残差。
 
-Astra high 已核宿主/输入和完整 v2 聚合方向 PASS。四历史实际模型执行单独
-记录，不能把本页的 CPU/GPU 数学结果当 NGX 相位通过。本页不含模型输出结论。
-没有游戏、运行库替换、候选部署、公开包或最终 canonical 通过。
+Astra high 已核宿主/输入和完整 v2 聚合方向 PASS。下面的实际模型执行与
+上面的 CPU/GPU 数学门分别记录，不能互相替代。
+
+## 四历史实际 NGX 结果
+
+按 v2 seal 一次串行执行四进程，原输入/配置/运行库/规则未改、没有重试。
+各一 Bootstrap、parentCreate1/parentEval0、SceneCreate1/Eval32、NR/FG0；总共
+128 次实际 Feature13 Evaluate、136 对生产 lease/精确 queue-fence＋真实Reset
+退休，64 份完整观察输出及全部128个 INPUT/CONTRACT/OUTPUT hash 已核验。
+
+冻结分析器结果为 **c=0 相容且排除另外两项**：J/J2各13个 informative 观察帧
+全为 zero，覆盖静止、移动、停止三段；Z/Z2全部观察帧及J/J2六个s=0帧的
+当前位置零基线均通过。两配对的本次低频角差及固定patch均值差为0；不外推
+未知模型重复性。原始raw相对解析相位的三波最坏误差分别为
+0.00042143017 / 0.00057118549 / 0.00087564853 rad，照原规则计入U。
+
+固定曝光、stored raw域下，三块patch拟合的RGB gain总范围
+0.9985533–1.0003372；静止段patch均值最大range为0.000180244。
+这是本序列的量测，不是NR/通用HDR/自动曝光或净画质通过。
+
+实际 runs receipt SHA256：
+`a76833a263ab4c4357bbf10f1d16613585853d4592067f6b4ea77e627cbac1cf`。
+冻结 v2 离线分析 receipt SHA256：
+`036e566b518c0a01985e8a3f0e6ac4d10efd66d59e7987dbb3574a21b756c469`。
+
+下一门是同几何双网格的非恒定depth/MV与遮挡/显露guide验证。当前单平面结果
+不能授权对游戏raw guides作无证据插值后供NR(clean)；测试宿主可重新渲染P0
+guide，不代表现有游戏producer提供了这种能力。没有游戏、产品新接线、运行库
+替换、候选部署、公开包或最终 canonical 通过。
