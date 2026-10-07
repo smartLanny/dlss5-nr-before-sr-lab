@@ -1,6 +1,8 @@
 # #339 native recording retirement evidence
 
-Status: development reproduction; behavior fix and release validation pending.
+Status: narrow behavior fix implemented; focused Windows controls pass. The full
+canonical entry failed at an inherited fixture identity conflict, now adapted
+without production changes. A fresh complete run remains pending.
 The original guest feedback lacks holder identities, so this is a demonstrated
 production lifetime defect, not a confirmed explanation of that guest session.
 
@@ -247,14 +249,31 @@ is retained, and actual reset-observation types/counters are now supplied.
 
 ## Remaining verification
 
-The full bilingual canonical entry remains in progress. It uses an isolated clean
-`31ed896f` checkout with full face/FFX inputs; the initial PowerShell 5 host
-misclassified successful unittest stderr as an exception, so that failed
-attempt is retained and a fresh PowerShell 7 run is used. Actual game acceptance
+The full bilingual canonical entry on an isolated clean `31ed896f` checkout,
+with full face/FFX inputs, completed its canonical bilingual compilation and
+initial WARP gates, then failed at descriptor WARP. That fixture installs the
+real native Create observer, but the common List helper subsequently overwrote
+the real creation receipt with its earlier controlled device identity. The
+production identity check correctly refused the mismatch. This run remains
+failed; generated binaries do not make the whole entry a pass. The initial
+PowerShell 5 host also failed by misclassifying successful unittest stderr as an
+exception; that separate failure remains retained.
+
+The shared helper now preserves actual observed creation
+receipts; only unobserved controlled Create fixtures supply controlled receipts.
+The acceptance and temporal entry fixtures register their actual metadata once,
+rather than invent a second device identity after registration. Descriptor
+provenance CPU (2,225 checks) and WARP (701), the full 24-case queue matrix, and
+the acceptance controller/entry with its precise RR-timestamp runtime negative
+pass after adaptation. The shared helper does not fall back on damaged receipts
+or change any notification failure injection.
+A fresh committed-source full entry is required after these fixture changes;
+no production identity or release predicate is relaxed. Actual game acceptance
 remains pending. These checks cannot prove private-SR benefit, flicker repair,
 0.4.7 performance parity or the holder path of old player feedback.
 No game installation or player package is performed by this independent PR;
-its internal main-based build must not be distributed as released Beta 13.
+its internal main-based build inherits the source layout's Beta 14 identity and
+must not replace or be distributed as the released Beta 14 package.
 
 Execution specifications: [#339 runbook](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/339#issuecomment-6034176166),
 [#309 dispatch](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346).

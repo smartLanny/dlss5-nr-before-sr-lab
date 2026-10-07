@@ -176,8 +176,12 @@ void WarpRrEntry(bool sr=false,bool pressure=false){
     feature.create_flags_known=feature.create_contract_known=true;feature.rr_depth_type=1;
     PublishObservedFeature(feature);feature=FindFeature(&handle);
     Check(feature.generation&&feature.feature_id==(sr?1:13),"real feature registry owns native identity");
-    queue_test::List list(f);list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);
-    CommandStateMetaContract meta{};meta.device_identity=g_next_command_device_identity.fetch_add(1);
+    // This entry queries real meta-command coverage before its one native
+    // registration; keep the device identity assigned by the common fixture.
+    queue_test::List list(f,queue_test::NativeNoticeFailure::None,
+        queue_test::NativeListRegistration::Deferred);
+    list.Close();list.Prime(f.a);list.Prime(f.a);f.Drain(f.a);
+    CommandStateMetaContract meta{};meta.device_identity=f.command_meta.device_identity;
     ID3D12Device5* extended=nullptr;
     const HRESULT query=ID3D12Device_QueryInterface(f.device,IID_ID3D12Device5,
         reinterpret_cast<void**>(&extended));
@@ -199,8 +203,9 @@ void WarpRrEntry(bool sr=false,bool pressure=false){
         "actual WARP device meta-command state can be restored");
     queue_test::Hr(ID3D12Device_SetPrivateData(f.device,kCommandStateMetaContract,sizeof(meta),&meta),
         "entry device creation identity");
-    CommandCreationInfo creation{};creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
-    Check(RegisterCreatedCommandStateList(list.native,meta,creation),"entry native list registered");
+    f.command_meta=meta;
+    Check(!ReadCommandStateToken(list.native),"entry native registration was deferred until actual meta query");
+    Check(list.RegisterCreated(f),"entry native list registered");
     Check(MH_Initialize()==MH_OK,"entry native command state hook initialization");
     Check(InstallNativeCommandStateHooks(list.native),"entry native command state hooks");
     auto state_probe=std::make_unique<NativeCommandState>();

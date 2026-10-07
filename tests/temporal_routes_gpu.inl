@@ -42,12 +42,15 @@ void Run(const char* scenario){
     const bool reject=(native&&!sr_post)||(pre&&later)||bad_jitter;
     const bool packed=choice.find("r11")!=std::string::npos;
     queue_test::Fixture f;device=f.device;g_original_command_list_reset[0]=Reset;
-    queue_test::List list(f);
+    // Native-SR installs its original observer after one explicit registration.
+    // Other routes retain the common immediate Create/notifier registration.
+    queue_test::List list(f,queue_test::NativeNoticeFailure::None,sr_post?
+        queue_test::NativeListRegistration::Deferred:queue_test::NativeListRegistration::Immediate);
     if(sr_post){
-        CommandStateMetaContract meta{};meta.device_identity=g_next_command_device_identity.fetch_add(1);
+        const auto meta=f.command_meta; // Preserve unknown coverage and actual device identity.
         Hr(ID3D12Device_SetPrivateData(f.device,kCommandStateMetaContract,sizeof(meta),&meta),"native-SR entry device identity");
-        CommandCreationInfo creation{};creation.serial=1;creation.device_identity=meta.device_identity;creation.method=1;
-        Check(RegisterCreatedCommandStateList(list.native,meta,creation),"native-SR entry list identity");
+        Check(!ReadCommandStateToken(list.native),"native-SR entry native registration was deferred");
+        Check(list.RegisterCreated(f),"native-SR entry list identity");
         Check(MH_Initialize()==MH_OK,"native command-state hook initialization");
         Check(InstallNativeCommandStateHooks(list.native),"actual native command-state observer hooks");
     }

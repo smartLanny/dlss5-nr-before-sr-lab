@@ -148,25 +148,48 @@ struct Fixture {
         DeleteCriticalSection(&g_chain_cs);
     }
 };
+enum class NativeListRegistration { Immediate, Deferred };
 struct List {
     ID3D12CommandAllocator *allocator = nullptr;
     ID3D12CommandAllocator *replacement = nullptr;
     ID3D12GraphicsCommandList *native = nullptr;
-    explicit List(Fixture &f,NativeNoticeFailure failure=NativeNoticeFailure::None) {
+    explicit List(Fixture &f,NativeNoticeFailure failure=NativeNoticeFailure::None,
+            NativeListRegistration registration=NativeListRegistration::Immediate) {
         Hr(ID3D12Device_CreateCommandAllocator(f.device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             IID_ID3D12CommandAllocator, reinterpret_cast<void **>(&allocator)), "allocator");
         Hr(ID3D12Device_CreateCommandList(f.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             allocator, nullptr, IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&native)), "fresh list");
-        // The real Create observer normally supplies these receipts. This host
-        // owns real WARP lists but does not install the process-wide observer.
-        CommandCreationInfo created{};
-        created.serial = ++f.next_creation_serial;
-        created.device_identity = f.command_meta.device_identity;
-        created.method = 1;
-        Hr(ID3D12GraphicsCommandList_SetPrivateData(native, kCommandCreationReceipt,
-            sizeof(created), &created), "controlled native creation receipt");
-        Check(RegisterTestNativeList(native, f.command_meta, created, failure),
-              "actual native lifetime registration after successful Create");
+        if(registration==NativeListRegistration::Immediate)
+            Check(RegisterCreated(f, failure),
+                  "actual native lifetime registration after successful Create");
+        else
+            Check(failure==NativeNoticeFailure::None,
+                  "deferred native registration cannot skip a requested failure injection");
+    }
+    bool RegisterCreated(Fixture &f,NativeNoticeFailure failure=NativeNoticeFailure::None) {
+        CommandCreationInfo created{};UINT created_bytes=sizeof(created);
+        const auto receipt=ID3D12GraphicsCommandList_GetPrivateData(native,kCommandCreationReceipt,
+            &created_bytes,&created);
+        CommandStateMetaContract meta{};UINT meta_bytes=sizeof(meta);
+        Hr(ID3D12Device_GetPrivateData(f.device,kCommandStateMetaContract,&meta_bytes,&meta),
+            "native list reads current device metadata");
+        Check(meta_bytes==sizeof(meta)&&meta.device_identity,"native list has current device identity");
+        if(SUCCEEDED(receipt)) {
+            Check(created_bytes==sizeof(created)&&created.serial&&created.device_identity==meta.device_identity,
+                  "actual Create receipt matches current device identity");
+            Check(failure==NativeNoticeFailure::None||!ReadCommandStateToken(native),
+                  "notice failure injection must precede actual lifetime registration");
+            // A real Create observer may already have registered this list.
+            // Preserve its serial/identity and verify through the actual API.
+        } else {
+            // Only the no-observer path needs the controlled Create receipt.
+            Check(receipt==DXGI_ERROR_NOT_FOUND,"controlled Create fallback requires an absent receipt");
+            created.serial=++f.next_creation_serial;
+            created.device_identity=meta.device_identity;created.method=1;
+            Hr(ID3D12GraphicsCommandList_SetPrivateData(native,kCommandCreationReceipt,
+                sizeof(created),&created),"controlled native creation receipt");
+        }
+        return RegisterTestNativeList(native,meta,created,failure);
     }
     void Close() { Hr(ID3D12GraphicsCommandList_Close(native), "close"); }
     void ResetWithNewAllocator(Fixture &f) {
