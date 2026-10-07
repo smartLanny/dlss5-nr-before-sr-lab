@@ -1,8 +1,8 @@
 # #339 native recording retirement evidence
 
-Status: narrow behavior fix implemented; focused Windows controls pass. The full
-canonical entry failed at an inherited fixture identity conflict, now adapted
-without production changes. A fresh complete run remains pending.
+Status: narrow behavior fix implemented; focused Windows controls and the full
+bilingual canonical entry pass. Actual game acceptance and maintainer
+integration remain pending. This is an internal review candidate.
 The original guest feedback lacks holder identities, so this is a demonstrated
 production lifetime defect, not a confirmed explanation of that guest session.
 
@@ -247,7 +247,7 @@ production native-death consumer. An initial history compile failure exposed
 pre-existing missing source/reset-diagnostic service declarations; that failure
 is retained, and actual reset-observation types/counters are now supplied.
 
-## Remaining verification
+## Full canonical completion and handoff
 
 The full bilingual canonical entry on an isolated clean `31ed896f` checkout,
 with full face/FFX inputs, completed its canonical bilingual compilation and
@@ -267,13 +267,51 @@ provenance CPU (2,225 checks) and WARP (701), the full 24-case queue matrix, and
 the acceptance controller/entry with its precise RR-timestamp runtime negative
 pass after adaptation. The shared helper does not fall back on damaged receipts
 or change any notification failure injection.
-A fresh committed-source full entry is required after these fixture changes;
-no production identity or release predicate is relaxed. Actual game acceptance
-remains pending. These checks cannot prove private-SR benefit, flicker repair,
+A fresh clean committed-source run of `scripts/build-unified-candidate.ps1`
+passed with exit0 on `9b2636eb6cd80b540f80194fc6be771d14709c0b`, from
+11:58:29 to 12:35:45 UTC on 2026-10-07. Full face inputs and explicit pinned
+FFX SDK/cache were enabled; the debug layer's known absence is explicitly
+recorded, while GPU output assertions remain mandatory. No failed gate was
+skipped. Both language analyzers, compilation/link, initial WARP gates,
+descriptor provenance, actual 4K synthetic F8 shader/ring/fence, Reset/Execute
+failure injection, codec positive and precise negatives, controller/pressure/
+restoration entries, all 16 temporal routes, auxiliary bytecode, native output,
+and final reconstruction positive/inverse control completed successfully.
+
+The compiled `src` tree is `9d5404da757a8e35e3e14215b2d08d1dd31b2993`;
+main CPP SHA-256 is
+`52d1ff490e39ad34a2ec07fe88caaef0dbcc40939b8faa1bab5a77a8cac3286f`.
+Subsequent documentation does not rename that binary source. Internal packaged
+English Core SHA-256:
+`be8194116c3bb8cf00b0e2aacc0d697bd6c26127c7487542bb9c4e9f56387914`;
+Chinese Core:
+`9ea8cd8da5fcae3ac41d480f5e7968cb6a99442e677a7afad4449badfed3d90f`.
+English ZIP:
+`5ec04fdf16f58b52e07a36c4db143375d29b226e68ec3d9f962a6285482fe1cd`;
+Chinese ZIP:
+`56739fc48a0c9462c82944bda2e5782d8cc7fc2191e02b1727f7813aab172a3b`.
+Full commands, module/cache identities, failure receipts and package checks
+remain private locally. The independent receipt audit covers 184 checks with
+zero mismatches; its then-running canonical snapshot is preserved separately
+from this completed run. The implementation head's Windows portable CI run
+`37617766131` is 58 passed, zero failed, one missing historical replay skipped;
+the other 15 jobs were skipped and do not count as passes.
+
+No production identity or release predicate was relaxed for fixture adaptation.
+Actual game acceptance remains pending. These checks cannot prove private-SR benefit, flicker repair,
 0.4.7 performance parity or the holder path of old player feedback.
 No game installation or player package is performed by this independent PR;
 its internal main-based build inherits the source layout's Beta 14 identity and
 must not replace or be distributed as the released Beta 14 package.
+
+Claude owns review and main integration, including preservation of the already
+tested hotkeys in any later combined owner candidate. This PR leaves frozen
+#338/#340, the installed Beta15, saved settings, runtimes and Beta14 rollback
+untouched. The next owner check is a short ordinary-restoration continuity and
+NR-setting A/B/A recovery check with one final F8, after delivery of the reviewed
+combined candidate. No repeat hotkey test or three-video request is required.
+Private SR is excluded from owner testing without a separate internal net-benefit
+result. The original guest's holder path remains unconfirmed by this reproduction.
 
 Execution specifications: [#339 runbook](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/339#issuecomment-6034176166),
 [#309 dispatch](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-6034217346).
