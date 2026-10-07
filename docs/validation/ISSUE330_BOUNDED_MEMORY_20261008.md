@@ -88,3 +88,22 @@ TimingWindow 及已保留的 capture fixture，不复制另一套统计实现。
 合 main、关闭 issue。资源逐项真实 WARP allocation-info 对账、同 adapter/node 的真实
 Create/Release 游戏噪声样本及最终组合 canonical/验收由统一候选完成；不要求维护者
 单独测诊断包，也不把 lower-bound 或进程 DXGI delta 提升为完整模型成本。
+
+## 组合时的旧 CPU 宿主适配
+
+后续主代理在准确组合源 `373cec0e` 上完整运行，保留两次 canonical
+失败。第一轮旧 slot-selection 宿主缺新增观测 header/metadata；同时窄补
+retirement-return 的 CPU query/event 服务。原生产正文和旧 ownership
+反证保留。另 D13 history-only 宿主补真实 reset header、CPU source 身份
+服务与匹配 metadata，正向通过，删除真实 history commit 仍在原断言失败。
+
+第二轮 `validate-050-stability.py` 旧宿主将扩容后的 FeedbackSession
+及两份 O0 aggregate 临时对象放在 Windows 默认栈。保存的原源码/EXE
+实际编译成功，运行退出 `0xc00000fd`（栈溢出）；没有将其归因为产品崩溃。
+现改用与生产相同的 heap session，各阶段仍用独立新对象；原 JSON/TXT
+字段、缺快照及容量断言不变。实际组合生产 serializer 正向 33 项 exit0；
+原错 layerBright 副本编译成功后精确 exit1 / PICTURE_SNAPSHOT_ORACLE。
+生产 `src` tree 仍 `cfc4865`，没有加大线程栈、跳 gate 或修改 GPU 行为。
+本地 `combined-20261008/stability-old-stack-r1`、`stability-heap-r2`、
+`stability-heap-negative-r2` 保留准确命令、生成源码/EXE SHA 和实际 exit。
+组合完整 canonical 须从新提交重新开始，旧失败不算通过。
