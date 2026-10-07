@@ -69,6 +69,9 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-allocation-ledger.py') --compiler $Cxx --output (Join-Path $TestBuild 'allocation-ledger')
     if ($LASTEXITCODE) { throw 'F8 owned D3D12 allocation ledger CPU/WARP or negative controls failed.' }
     $Checks.Add('F8 worker-only allocation helper: ownership/alias/lifecycle/overflow/heap CPU, WARP allocation-info, serialized observer append negative control and ten mutation controls')
+    & python (Join-Path $PSScriptRoot 'validate-memory-observation.py') --compiler $Cxx --output (Join-Path $TestBuild 'memory-observation')
+    if ($LASTEXITCODE) { throw 'Bounded context/slot/model-event/trend CPU contracts or exact mutation controls failed.' }
+    $Checks.Add('F8 actual Core context/slot resource walk, bounded metadata, typed privacy, same-identity timing and same-adapter/node deltas: CPU with compiled exact mutation controls')
     & (Join-Path $PSScriptRoot 'validate-runtime-load-windows.ps1') -ToolchainRoot $Toolchain `
         -SourceRoot (Join-Path $Stage 'core') -FixtureRoot $Root `
         -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')

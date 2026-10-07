@@ -58,7 +58,7 @@ def check_append_lock(compiler, out):
     marker = "void NrAppendAllocationLedger(FeedbackSession& session,const char* prefix) {"
     if runtime.count(marker) != 1:
         raise RuntimeError("production append function not uniquely found")
-    function = runtime[runtime.index(marker):]
+    function = runtime[runtime.index(marker):runtime.index("\nvoid NrObserveMemoryTrend(")]
     acquire = "AcquireSRWLockExclusive(&g_feedback_lock);"
     release = "ReleaseSRWLockExclusive(&g_feedback_lock);"
     if (function.count(acquire) != 1 or function.count(release) != 1 or

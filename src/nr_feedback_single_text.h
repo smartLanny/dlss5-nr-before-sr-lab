@@ -7,7 +7,7 @@
 namespace nr_feedback_single {
 // Bounded metadata plus up to six independently bounded 24 KiB summaries and
 // their framing. A full metadata report must not crowd out the current log.
-constexpr std::size_t kTextLimit = 480u * 1024u;
+constexpr std::size_t kTextLimit = 832u * 1024u;
 inline std::string Component(std::string value, const char *fallback) {
     const auto slash = value.find_last_of("/\\");
     if (slash != std::string::npos) value.erase(0, slash + 1);

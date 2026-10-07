@@ -224,6 +224,13 @@ inline bool DiagnosticMetadataNumber(std::string_view line,std::size_t begin,std
             return true;
         }
         bool Boolean(){return Number(1);}
+        bool Signed(){Literal("-");return Number();}
+        bool HexValue(unsigned minimum,unsigned maximum) {
+            if(Literal("[address]"))return true;
+            Literal("0x");const auto first=at;
+            while(at<line.size()&&Hex(line[at]))++at;
+            return at-first>=minimum&&at-first<=maximum;
+        }
         bool MaybeNumber(std::uint64_t maximum=UINT64_MAX) {
             return Literal("unknown") || Number(maximum);
         }
@@ -286,6 +293,58 @@ inline bool DiagnosticMetadataNumber(std::string_view line,std::size_t begin,std
     else return false;
     if(one_of(allocation,{"sampleStartedTickMs","sampleFinishedTickMs","knownBytesLowerBound"}))
         return c.Number() && c.Done();
+    if(allocation.substr(0,8)=="context."){
+        allocation.remove_prefix(8);const auto dot=allocation.find('.');
+        std::uint64_t index=0;
+        if(!CanonicalUnsigned(allocation.substr(0,dot),&index)||index>=32)return false;
+        if(dot==std::string_view::npos)
+            return c.Literal("instance:")&&c.Number()&&c.Literal(",feature:")&&c.Number()&&
+                c.Literal(",srHandle:")&&c.HexValue(1,16)&&c.Literal(",nrHandle:")&&c.HexValue(1,16)&&
+                c.Literal(",mode:")&&c.Signed()&&c.Literal(",layer:")&&c.Number(UINT32_MAX)&&
+                c.Literal(",state:")&&(c.Literal("live")||c.Literal("retired")||c.Literal("pending")||c.Literal("destroying"))&&
+                c.Literal(",quarantine:")&&c.Boolean()&&c.Literal(",slots:")&&c.Number(UINT32_MAX)&&
+                c.Literal(",maxSlots:")&&c.Number(UINT32_MAX)&&c.Literal(",knownBytesLowerBound:")&&c.Number()&&
+                c.Literal(",sampledBytesHighWater:")&&c.Number()&&c.Literal(",unknownGroups:")&&c.Number(UINT32_MAX)&&
+                c.Literal(",modelGpuBytes:unknown")&&c.Done();
+        allocation.remove_prefix(dot+1);
+        if(allocation.substr(0,5)!="slot."||!CanonicalUnsigned(allocation.substr(5),&index)||index>=8)return false;
+        if(!c.Literal("occupied:")||!c.Boolean()||!c.Literal(",knownBytesLowerBound:")||!c.Number()||
+           !c.Literal(",resources:")||!c.Number(UINT32_MAX)||!c.Literal(",unknownGroups:")||!c.Number(UINT32_MAX))return false;
+        for(const auto role:{"source","Proxy","NeuralOutput","Result","SRIntermediate","MotionProxy","RRdepth","other"})
+            if(!c.Literal(",")||!c.Literal(role)||!c.Literal(":")||!c.Number())return false;
+        return c.Literal(",roleUnknownMask:")&&c.HexValue(1,2)&&c.Done();
+    }
+    if(allocation=="budgets"){
+        bool first=true;
+        for(const auto owner:{"extra","dual","privateSR","temporal","capture","replay","face"}){
+            if((!first&&!c.Literal(","))||!c.Literal(owner)||!c.Literal(":")||!c.Number())return false;
+            first=false;
+        }
+        return c.Literal("; separate owner counters, overlapping payload/SDK/allocation measures; never sum or add to lower-bound")&&c.Done();
+    }
+    if(allocation=="contextCoverage")
+        return c.Literal("count:")&&c.Number(UINT32_MAX)&&c.Literal(",overflow:")&&c.Number(UINT32_MAX)&&
+            c.Literal(",quarantineKnownBytesLowerBound:")&&c.Number()&&c.Literal(",quarantineUnknownGroups:")&&c.Number(UINT32_MAX)&&
+            c.Literal(",quarantineOverflow:")&&c.Boolean()&&
+            c.Literal("; Core/aux table contexts only, compat/FG remain category totals; deduplicated subsets; quarantine overlaps life state; sampled high-water is F8-only, not an instantaneous peak; roleUnknownMask bits=source/Proxy/NeuralOutput/Result/SRIntermediate/MotionProxy/RRdepth/other")&&c.Done();
+    if(allocation=="modelEventCoverage")
+        return c.Literal("count:")&&c.Number(32)&&c.Literal(",overwritten:")&&c.Number()&&
+            c.Literal("; latest 32 cold events; absent history is missing")&&c.Done();
+    if(allocation.substr(0,11)=="modelEvent."){
+        std::uint64_t index=0;if(!CanonicalUnsigned(allocation.substr(11),&index)||index>=32)return false;
+        return c.Literal("sequence:")&&c.Number()&&c.Literal(",operation:")&&(c.Literal("Create")||c.Literal("Release"))&&
+            c.Literal(",instance:")&&c.Number()&&c.Literal(",handle:")&&c.HexValue(1,16)&&c.Literal(",feature:")&&c.Number()&&
+            c.Literal(",mode:")&&c.Signed()&&c.Literal(",layer:")&&c.Number(UINT32_MAX)&&
+            c.Literal(",adapter:")&&c.HexValue(8,8)&&c.Literal(":")&&c.HexValue(8,8)&&
+            c.Literal(",node:")&&c.Number(UINT32_MAX)&&c.Literal(",result:")&&c.HexValue(8,8)&&
+            c.Literal(",beforeTick:")&&c.Number()&&c.Literal(",afterTick:")&&c.Number()&&
+            c.Literal(",beforeHr:")&&c.HexValue(8,8)&&c.Literal(",afterHr:")&&c.HexValue(8,8)&&
+            c.Literal(",beforeValid:")&&c.Boolean()&&c.Literal(",afterValid:")&&c.Boolean()&&
+            c.Literal(",beforeUsage:")&&(c.Literal("unknown")||c.Number())&&
+            c.Literal(",afterUsage:")&&(c.Literal("unknown")||c.Number())&&
+            c.Literal(",localDeltaBytes:")&&(c.Literal("unknown")||c.Signed())&&
+            c.Literal("; process-wide concurrent noise, not model/plugin allocation or reclaimable bytes")&&c.Done();
+    }
     const auto category_end=allocation.find('.');
     if(category_end==std::string_view::npos)return false;
     const auto category=allocation.substr(0,category_end);

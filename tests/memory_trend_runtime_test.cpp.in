@@ -1,0 +1,59 @@
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
+#include <windows.h>
+#include <atomic>
+#include <cstdarg>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include "nr_memory_observation.h"
+#include "nr_process_memory.h"
+void Check(bool v,const char* name){if(!v){std::fprintf(stderr,"FAIL %s\n",name);std::exit(41);}}
+namespace reshade::api {
+enum class device_properties {adapter_luid};
+struct device {bool get_property(device_properties,void* out){*static_cast<LUID*>(out)={7,8};return true;}};
+struct effect_runtime {api::device device_;api::device* get_device(){return &device_;}};
+}
+struct NrSlot {void* key=nullptr;};
+struct NrContext {
+    void* sr_handle=nullptr;bool retired=false,create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;
+    NrSlot slots[8]{};
+};
+NrContext g_contexts[16]{},g_pending_destroy_contexts[16]{};
+CRITICAL_SECTION g_chain_cs;
+std::atomic<bool> g_enabled_fast{false},g_lifecycle_tracking_uncertain{false};
+std::atomic<unsigned> g_config_generation{3},g_history_generation{4},g_nr_context_releases_in_progress{0};
+nr_memory_observation::TimingWindow g_nr_memory_gpu_window;
+unsigned queries=0,logs=0;unsigned long long now=10000;std::string last;
+ULONGLONG TestNow(){return now;}
+nr_process_memory::Snapshot TestRead(LUID adapter,bool known,UINT node,bool nonlocal){
+    Check(g_chain_cs.RecursionCount==0,"DXGI_QUERY_MUST_BE_OUTSIDE_CHAIN_LOCK");
+    Check(known&&adapter.LowPart==7&&adapter.HighPart==8&&node==0&&!nonlocal,"EXACT_RUNTIME_ADAPTER_NODE_QUERY");
+    ++queries;nr_process_memory::Snapshot out{};out.tick=now;out.local_result=S_OK;
+    out.local.CurrentUsage=456;out.local.Budget=789;return out;
+}
+void Log(const char* format,...){
+    Check(g_chain_cs.RecursionCount==0,"TREND_FILE_WRITE_MUST_BE_OUTSIDE_CHAIN_LOCK");
+    ++logs;char row[2048]{};va_list args;va_start(args,format);std::vsnprintf(row,sizeof(row),format,args);va_end(args);last=row;
+}
+PRODUCTION_TREND_FUNCTION
+int main(){
+    InitializeCriticalSection(&g_chain_cs);reshade::api::effect_runtime runtime;
+    for(unsigned i=0;i<700;++i)NrObserveMemoryTrend(&runtime);
+    Check(queries==0&&logs==0,"DISABLED_RUNTIME_MUST_NOT_QUERY_DXGI");
+    g_enabled_fast=true;
+    g_contexts[0].sr_handle=reinterpret_cast<void*>(1);g_contexts[0].slots[0].key=reinterpret_cast<void*>(1);
+    g_pending_destroy_contexts[0].sr_handle=reinterpret_cast<void*>(2);g_pending_destroy_contexts[0].slots[1].key=reinterpret_cast<void*>(2);
+    g_pending_destroy_contexts[0].lifecycle_dependencies_quarantined=true;
+    g_nr_memory_gpu_window.Observe({9,10,3,4,0,1920,1080},2.5);
+    for(unsigned i=0;i<599;++i)NrObserveMemoryTrend(&runtime);
+    Check(queries==0,"RUNTIME_MUST_NOT_QUERY_EVERY_FRAME");NrObserveMemoryTrend(&runtime);
+    Check(queries==1&&logs==1&&last.find("live=1 retired=0 pending=1 quarantine=1")!=std::string::npos&&
+        last.find("nrGpu=samples:1,p50Ms:2.5,p99Ms:2.5")!=std::string::npos,"ACTUAL_RUNTIME_TREND_COUNTS_AND_TIMING");
+    now=20000;for(unsigned i=0;i<600;++i)NrObserveMemoryTrend(&runtime);
+    Check(queries==2&&logs==2&&last.find("nrGpu=samples:0,p50Ms:missing,p99Ms:missing")!=std::string::npos,
+        "ACTUAL_RUNTIME_MUST_CONSUME_INTERVAL_TIMING");
+    DeleteCriticalSection(&g_chain_cs);
+    std::puts("PASS actual trend runtime: disabled/599 frames zero DXGI, bounded 600-frame query, lock-out query/log, fresh/missing interval; CPU API seams only");
+}
