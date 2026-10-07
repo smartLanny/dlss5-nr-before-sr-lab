@@ -55,6 +55,19 @@ struct NrSlot {int value=7;};
 struct Temporal { struct Stats { unsigned long long bytes=16; }; Stats stats() const { return {}; } };
 namespace nr_temporal_status { std::atomic<unsigned long long> bytes{0}; }
 struct NrContext {bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;void *nr_handle=nullptr;NgxParams *params=nullptr;NrSlot slots[2];void* dual_create_guides[2]{};Temporal* temporal=nullptr;};
+// Query/record are CPU service seams here, like the provider boundary below.
+// Keep this ownership fixture portable: it never loads DXGI or queries an adapter.
+namespace nr_process_memory {struct Snapshot {unsigned release_calls=0;};}
+nr_process_memory::Snapshot NrReadModelMemory(const NrContext& c) {
+    check(depth==1&&c.nr_handle,"memory observation query keeps serialized live Release identity");
+    return {unsigned(releases)};
+}
+void NrRememberModelMemory(const NrContext& c,const void* handle,bool release_operation,unsigned result,
+                          const nr_process_memory::Snapshot& before,const nr_process_memory::Snapshot& after) {
+    check(depth==1&&handle==c.nr_handle&&release_operation&&result==release_result&&
+          before.release_calls+1==after.release_calls&&after.release_calls==unsigned(releases),
+          "memory event brackets the same provider Release");
+}
 namespace nr_post_product { bool Destroy(NrContext&) { ++post_destroys;return post_ready; } }
 NgxResult release(void *entry,void *handle) {check(depth==1&&entry&&handle,"release serialized and callable");++releases;return release_result;}
 NgxResult destroy(NgxParams *p) {check(depth==1&&p,"parameter destroy serialized");++destroys;return destroy_result;}
