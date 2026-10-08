@@ -29,3 +29,19 @@ Independent readback review found **zero accepted edited pixels**. Across all 32
 The observed input alpha is exactly 0.75 (FP16 `0x3a00`), while the new experimental shader incorrectly required raw alpha = 1. Frame 16 has positive clean RGB, nonnegative edited RGB and 908,477/921,600 pixels changed by NR, yet zero changed composite pixels. This proves an experimental alpha-contract mistake; it does not prove approximate raw guides or the two-RR idea ineffective. v1/v2 and their actual results remain frozen. Correcting the observed input contract requires its own CPU counterexample, packet and new validation; no production guard is changed to hide the issue.
 
 This is flat-fixture inference/retirement validation, not effective two-RR editing, 3D quality, performance, actual-game acceptance or a new candidate deployment. Independent CPU readback/oracle/coverage review is recorded separately. Nonzero valid edit coverage and then a scene-based quality result must precede any claim of an advantage or flicker repair.
+
+## v3: effective edit on the observed alpha contract
+
+Astra approved only changing the experimental shader's editable alpha domain from the incorrect 1 to the observed 0.75, not arbitrary finite alpha. The complete host executable and all C++/INL sources are byte-identical to v2. The single shader predicate changed; no clamp, additional guard, product setting or lifecycle rule was added. Fourteen ratio/bit cases plus thirteen source-derived alpha cases passed, including an old-code-fails nonidentity 0.75 case. Identity/refused pixels retain the CopyResource base; unknown alpha and NaN payload still fall back unchanged.
+
+Root ran one new 32-frame arm, once, after Astra's 55-file frozen packet check. Child RR / Feature18 NR / original RR each executed 32 times; all 34 new recordings retired. Each observed frame had both predicted and actual nonzero RGB changes. The result is `passed-bounded-twoRR-v3-effective-edit-with-pinned-v1-controls-functional-only`.
+
+Independent CPU recomputation of all 288 new readbacks found observed-frame legal domain 99.563273%, identity 0.323364%, refusal 0.113363% at the boundary, and actual RGB changes in 14,517,331 pixels (98.451952%). All alpha u16 values and non-edit RGBA bits were preserved, no changed pixel lay outside the predicted legal domain, and legal values were within the previously approved one-FP16-ULP tolerance. The predicted and actual changed masks differ at 164,758 pixels (1.117337%); this is reported separately rather than claimed as an exact GPU write mask. Every observed final O differs from the inherited native baseline. This is effective editing evidence, not a quality benefit.
+
+v3 frozen manifest: `ed149a17db683155226401033a859dc421b6c4e905bbd93a42c5dd6ec02d2746`.
+
+Reused executable: `52f21828f4eea2ce2496aef71b3321c5fbf72cd7ca43b28f46087f94db5e04ef`; new shader: `11aa1705bd530075e7637acb074e6a00e1360e1007984fd746bdcfaff3e1a4b6`.
+
+Actual v3 manifest: `c51d69e51f6be5c960b8d707acf9acf534fcb74ec715f029ea059184b5fc38cc`.
+
+The next bounded gate uses the already successful 3D SceneFrame. Its separately observed alpha is 1 (`0x3c00`), so that route needs its own explicit producer contract, not the flat fixture's 0.75 predicate or a silent scene modification. No new product RR route or game candidate has been enabled.

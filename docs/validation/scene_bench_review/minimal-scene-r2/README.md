@@ -19,6 +19,8 @@ The original CPU export selected an absent libx264 encoder and failed after all 
 
 GPU scope is scene + Core + final native RR on the graphics queue, excluding image copy and Present. This serial research host has CPU checks, logging and per-frame waits; inverse GPU milliseconds is not game FPS. DXGI local memory is process usage sampled at boundaries, not instantaneous allocation maximum. A retained driver/model cache after handle release is not evidence by itself of a leak. This run does not establish a 0.4.7 game regression or a private-SR quality benefit.
 
+The 124 memory samples cover before model creation, the 120 observed frames and three retirement/release boundaries. Model creation and warmup transients are not sampled. The reported peak is therefore the observed-window/boundary sampled peak, not a complete lifetime peak.
+
 Native packet SHA256: `ce2892176df7c5608f8465ffc7ce4d7b23a6ef1c97e34c9201d9c177fc6f7c9c`.
 
 Native executable SHA256: `4009f2d30352b72f4c704c464af821b5d387e1812a66ac05aaee75c6c65b434e`.

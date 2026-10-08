@@ -1,0 +1,69 @@
+--- sealed-v2/host/ratio-before-shift.hlsl
++++ private-v3/host/ratio-before-shift.hlsl
+@@ -34 +34 @@
+- if(raw.a!=1) return; // bounded opaque fixture; preserve every other alpha bit pattern
++ if(raw.a!=0.75) return; // actual frozen raw alpha 0x3a00; all unknown alpha bits fall back
+--- sealed-v2/ratio_oracle.py
++++ private-v3/ratio_oracle.py
+@@ -26 +26 @@
+-  accepted=valid&(~identity)&(raw[:,:,3]==1)&np.all(np.isfinite(rgb)&(rgb>=0)&np.isfinite(value)&(value>=0)&(value<=65504),axis=2)
++  accepted=valid&(~identity)&(raw[:,:,3]==np.float16(.75))&np.all(np.isfinite(rgb)&(rgb>=0)&np.isfinite(value)&(value>=0)&(value<=65504),axis=2)
+@@ -33 +33 @@
+- raw=np.ones((2,2,4),dtype='<f2');clean=raw.copy();edited=raw.copy()
++ raw=np.ones((2,2,4),dtype='<f2');raw[:,:,3]=.75;clean=raw.copy();edited=raw.copy()
+@@ -37 +37 @@
+- raw=np.ones((1,2,4),dtype='<f2');clean=raw.copy();edited=raw.copy();clean[0,1,:3]=3;edited[0,0,:3]=2;edited[0,1,:3]=3
++ raw=np.ones((1,2,4),dtype='<f2');raw[:,:,3]=.75;clean=raw.copy();edited=raw.copy();clean[0,1,:3]=3;edited[0,0,:3]=2;edited[0,1,:3]=3
+@@ -47 +47 @@
+- raw=np.ones((1,1,4),dtype='<f2');clean=raw.copy();edited=raw*2
++ raw=np.ones((1,1,4),dtype='<f2');raw[:,:,3]=.75;clean=raw.copy();edited=raw*2
+@@ -49,2 +49,2 @@
+- raw[:]=1;raw.view('<u2')[0,0,0]=0x7e35;out,_,_=compose(raw,clean,edited,(0,0));check('nonidentity-raw-NaN-refuses-payload-exactly',out.tobytes()==raw.tobytes())
+- raw[:]=1;raw[0,0,0]=-1;out,_,_=compose(raw,clean,edited,(0,0));check('nonidentity-negative-raw-refuses',out.tobytes()==raw.tobytes())
++ raw[:]=1;raw[:,:,3]=.75;raw.view('<u2')[0,0,0]=0x7e35;out,_,_=compose(raw,clean,edited,(0,0));check('nonidentity-raw-NaN-refuses-payload-exactly',out.tobytes()==raw.tobytes())
++ raw[:]=1;raw[:,:,3]=.75;raw[0,0,0]=-1;out,_,_=compose(raw,clean,edited,(0,0));check('nonidentity-negative-raw-refuses',out.tobytes()==raw.tobytes())
+@@ -53 +53 @@
+- raw=np.ones((1,4,4),dtype='<f2');clean=raw.copy();edited=raw.copy();edited[0,:,:3]=np.arange(4)[:,None]/4+1
++ raw=np.ones((1,4,4),dtype='<f2');raw[:,:,3]=.75;clean=raw.copy();edited=raw.copy();edited[0,:,:3]=np.arange(4)[:,None]/4+1
+--- sealed-v2/two_rr_receipt.py
++++ private-v3/two_rr_receipt.py
+@@ -1 +1 @@
+-"""Strict actual two-RR process/input/lease/output receipts. No quality verdict."""
++"""Strict actual two-RR receipts including effective edits; no quality verdict."""
+@@ -73,0 +74 @@
++  need(np.all(raw.view('<u2')[:,:,3]==0x3a00),'actual frozen raw alpha is exactly approved half0.75 in every pixel')
+@@ -85,0 +87,8 @@
++  predicted_changed=np.any(predicted.view('<u2')[:,:,:3]!=raw.view('<u2')[:,:,:3],axis=2)
++  actual_changed=np.any(actual.view('<u2')[:,:,:3]!=raw.view('<u2')[:,:,:3],axis=2)
++  need(not np.any(actual_changed&~accepted),'all actual changed RGB pixels are inside CPU-predicted legal edit domain')
++  # A legal write can round to unchanged RGB; acceptance is the CPU domain,
++  # not a separate GPU UAV-write trace. Keep actual changed coverage distinct.
++  if i>=16:
++   need(int(predicted_changed.sum())>0,'every observed frame must have nonzero oracle-predicted RGB edits')
++   need(int(actual_changed.sum())>0,'every observed frame must have nonzero actual GPU RGB edits')
+@@ -89 +98 @@
+-  diagnostics.append({'frame':i,'observe':i>=16,'composition':counts,'max_FP16_ULP':int(delta[accepted].max()) if accepted.any() else 0,'quality_verdict':'unknown'})
++  diagnostics.append({'frame':i,'observe':i>=16,'composition':counts,'oracle_predicted_RGB_changed':int(predicted_changed.sum()),'actual_RGB_changed':int(actual_changed.sum()),'actual_changes_outside_oracle_domain':int((actual_changed&~accepted).sum()),'predicted_actual_changed_mask_disagreement':int((predicted_changed!=actual_changed).sum()),'actual_alpha_u16_all_equal_raw':True,'identity_refused_all_RGBA_bits_equal_raw':True,'max_FP16_ULP':int(delta[accepted].max()) if accepted.any() else 0,'acceptance_scope':'oracle domain; actual writes inferred only from changed bits, domain exclusions and accepted value checks','quality_verdict':'unknown'})
+@@ -93 +102 @@
+- return {'status':'passed-bounded-two-RR-approximate-functional-only','bound_raw_contract_sha256':[contracts[i*2].group(2) for i in range(32)],'nonColor_contract_sha256':[m.group(2) for m in raw_restores],'parent_Create_Eval':[1,32],'private_child_Create_Eval':[1,32],'NR_Init_Create_Eval':[1,1,32],'intermediate_attachments':256,'exact_model_recordings':34,'one_RR_outputs':final_outputs,'composition_diagnostics':diagnostics,'raw_guides':'explicitly-approximate','quality_performance_game':'unknown'}
++ return {'status':'passed-bounded-two-RR-approximate-v3-effective-edit-functional-only','bound_raw_contract_sha256':[contracts[i*2].group(2) for i in range(32)],'nonColor_contract_sha256':[m.group(2) for m in raw_restores],'parent_Create_Eval':[1,32],'private_child_Create_Eval':[1,32],'NR_Init_Create_Eval':[1,1,32],'intermediate_attachments':256,'exact_model_recordings':34,'one_RR_outputs':final_outputs,'composition_diagnostics':diagnostics,'every_observed_frame_nonzero_predicted_and_actual_RGB_edits':True,'raw_alpha_edit_domain_u16':0x3a00,'raw_guides':'explicitly-approximate','quality_performance_game':'unknown'}
+--- sealed-v2/run_two_rr.py
++++ private-v3/run_two_rr.py
+@@ -1 +1 @@
+-"""Explicit root GO: one new v2 J history with exact pinned v1 controls, fail-fast."""
++"""Explicit root GO: one new v3 J history, effective-edit gate, pinned v1 controls."""
+@@ -6 +6 @@
+-ROOT=Path(__file__).resolve().parent;BASE=ROOT.parent;OUTPUT=BASE/'two-rr-approx-v2-r1'
++ROOT=Path(__file__).resolve().parent;BASE=ROOT.parent;OUTPUT=BASE/'two-rr-approx-v3-r1'
+@@ -35 +35 @@
+- runs={'schema':'one-new-v2-J-twoRR-with-explicit-pinned-v1-controls','source_manifest':own,'input_dataset_sha256':sha(RASTER/'dataset.json'),'histories':{name:prior['histories'][name] for name in ['baseline','variant']},'inherited_controls':{'histories':['baseline','variant'],'actual':v1,'independent_review':v1_review,'actual_EXE_sha256':'1158ef0e3adf42e827715b7c909553ca5d7511d40e77edc1ba8b822c160a9716','binary_identity_differs_from_v2':True,'old_results_unchanged':True},'quality_performance_game':'unknown'}
++ runs={'schema':'one-new-v3-J-twoRR-with-explicit-pinned-v1-controls','source_manifest':own,'input_dataset_sha256':sha(RASTER/'dataset.json'),'histories':{name:prior['histories'][name] for name in ['baseline','variant']},'inherited_controls':{'histories':['baseline','variant'],'actual':v1,'independent_review':v1_review,'actual_EXE_sha256':'1158ef0e3adf42e827715b7c909553ca5d7511d40e77edc1ba8b822c160a9716','binary_identity_differs_from_v3':True,'old_results_unchanged':True},'quality_performance_game':'unknown'}
+@@ -51,0 +52,2 @@
++   composition=receipt['composition_diagnostics']
++   save(OUTPUT/'COMPOSITION_COVERAGE.json',{'schema':'v3-actual-vs-oracle-effective-edit-coverage','frames':composition,'warmup_totals':{key:sum(row['composition'][key] for row in composition[:16]) for key in ['accepted','identity','refused']},'observed_totals':{key:sum(row['composition'][key] for row in composition[16:]) for key in ['accepted','identity','refused']},'observed_predicted_RGB_changed':sum(row['oracle_predicted_RGB_changed'] for row in composition[16:]),'observed_actual_RGB_changed':sum(row['actual_RGB_changed'] for row in composition[16:]),'every_observed_frame_nonzero_predicted_and_actual_RGB_edits':receipt['every_observed_frame_nonzero_predicted_and_actual_RGB_edits'],'scope':'accepted counts are CPU oracle domain; actual changed bits and legal value/unchanged exclusion checks are independently reported; no new GPU write-mask instrumentation'})
+@@ -54 +56 @@
+-  need(all(receipts[name]['bound_raw_contract_sha256']==receipts['baseline']['bound_raw_contract_sha256'] for name in comparison),'new v2 and explicitly inherited v1 normalized raw input/guide/jitter/scalar/matrix contracts match')
++  need(all(receipts[name]['bound_raw_contract_sha256']==receipts['baseline']['bound_raw_contract_sha256'] for name in comparison),'new v3 and explicitly inherited v1 normalized raw input/guide/jitter/scalar/matrix contracts match')
+@@ -64 +66 @@
+-  state.update({'status':'passed-bounded-twoRR-v2-with-pinned-v1-controls-functional-only','new_histories':1,'inherited_control_histories':['baseline','variant'],'new_native_parent_Create_Eval':[1,32],'new_private_child_Create_Eval':[1,32],'new_NR_Init_Create_Eval':[1,1,32],'new_exact_model_recordings':34,'inherited_control_exact_model_recordings':66,'comparison_set_exact_model_recordings':100,'raw_guides':'explicitly-approximate','game_route_enabled':False,'quality_performance_game':'unknown'})
++  state.update({'status':'passed-bounded-twoRR-v3-effective-edit-with-pinned-v1-controls-functional-only','new_histories':1,'inherited_control_histories':['baseline','variant'],'new_native_parent_Create_Eval':[1,32],'new_private_child_Create_Eval':[1,32],'new_NR_Init_Create_Eval':[1,1,32],'new_exact_model_recordings':34,'inherited_control_exact_model_recordings':66,'comparison_set_exact_model_recordings':100,'every_observed_frame_nonzero_predicted_and_actual_RGB_edits':True,'raw_alpha_edit_domain_u16':0x3a00,'raw_guides':'explicitly-approximate','game_route_enabled':False,'quality_performance_game':'unknown'})

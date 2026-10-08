@@ -24,9 +24,9 @@
     },
     {
       "name": "README.md",
-      "bytes": 4941,
-      "sha256": "3bfa62fb124c2bc810ef67cabb5b24f8720c72e5f04420ed11ece165bcb8f302",
-      "git_blob_content_sha256": "3bfa62fb124c2bc810ef67cabb5b24f8720c72e5f04420ed11ece165bcb8f302"
+      "bytes": 5217,
+      "sha256": "40886887110110227b3797acd66889aa2a70c44eb4bd6a0d917d05742fbdab1f",
+      "git_blob_content_sha256": "40886887110110227b3797acd66889aa2a70c44eb4bd6a0d917d05742fbdab1f"
     },
     {
       "name": "scene_frame.inl",

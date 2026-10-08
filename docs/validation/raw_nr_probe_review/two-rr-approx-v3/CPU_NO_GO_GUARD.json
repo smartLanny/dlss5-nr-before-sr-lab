@@ -1,0 +1,12 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "command": [
+    "python",
+    "run_two_rr.py"
+  ],
+  "exit": 1,
+  "explicit_GO_refusal_before_manifest_or_device": true,
+  "fresh_actual_directory_absent": true
+}
