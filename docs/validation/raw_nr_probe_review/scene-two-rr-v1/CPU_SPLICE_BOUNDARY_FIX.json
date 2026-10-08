@@ -1,0 +1,16 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "first_compile_exit": 1,
+  "reason": "source generator selected later lambda closing boundary and deleted untouched helper prefix",
+  "before_source_sha256": "fe073309ca0b9870292a73b95814432b758062fb24c862405aec8d1b64d8a699",
+  "after_source_sha256": "969587bf91bc9983ae1db968ade5a0cb005d26cb22f81292a16ce7c04e2f4a70",
+  "only_actual_NRFlight_Finish_function_changed_from_measure_r2": true,
+  "prefix_byte_normalized_equal": true,
+  "suffix_byte_normalized_equal": true,
+  "renderer_unchanged": true,
+  "failed_attempt_preserved": "cpu-compile-attempt-1",
+  "prefix_bytes_equal": true,
+  "suffix_bytes_equal": true
+}

@@ -1,0 +1,276 @@
+--- measure-r2/one_rr_contract.inl
++++ default-post-r2/one_rr_contract.inl
+@@ -90 +90 @@
+-  {nr_source_runtime::Lock lock;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(owner.clean.resource),observed),"actual current O state before per-frame sentinel");}
++  observed=scene_renderer_state::State(list,owner.clean.resource);
+@@ -97 +97 @@
+-  {nr_source_runtime::Lock lock;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(owner.clean.resource),observed),"actual post-RR O state before readback");}
++  observed=scene_renderer_state::State(list,owner.clean.resource);
+--- measure-r2/parent_fixture.inl
++++ default-post-r2/parent_fixture.inl
+@@ -108 +108 @@
+-        LeaveCriticalSection(&g_chain_cs);scene_bench::Consume(fence,value,true);DrainPendingContextDestructions();ReleaseCom(fence);
++        LeaveCriticalSection(&g_chain_cs);if(scene_renderer_state::installed)scene_renderer_state::AfterExactReset(list.native);scene_bench::Consume(fence,value,true);DrainPendingContextDestructions();ReleaseCom(fence);
+@@ -236,17 +236,9 @@
+-    // Carry only actual post-opaque observer values across the exact completed
+-    // queue/Reset boundary. Never invent read/UAV as the next StateBefore.
+-    auto resources=owner.resources;resources["Color"]=owner.colors[0].resource;
+-    for(const auto& [key,resource]:resources){
+-        unsigned current=0;bool current_known=false;
+-        {nr_source_runtime::Lock lock;current_known=nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),current);}
+-        const auto prior=owner.completed_states.find(resource);
+-        if(!current_known&&prior==owner.completed_states.end())Stop("state",key.c_str(),"no-completed-observed-state");
+-        const auto wanted=key=="Output"?D3D12_RESOURCE_STATE_UNORDERED_ACCESS:static_cast<D3D12_RESOURCE_STATES>(read_state);
+-        const auto before=static_cast<D3D12_RESOURCE_STATES>(current_known?current:prior->second);
+-        std::printf("STATE_BEFORE frame=%u key=%s value=%u origin=%s\n",frame,key.c_str(),static_cast<unsigned>(before),current_known?"current-recording-observer":"prior-observer-after-exact-completion");
+-        const auto middle=before==wanted?D3D12_RESOURCE_STATE_COPY_SOURCE:wanted;
+-        Barrier(list,resource,before,middle);if(middle!=wanted)Barrier(list,resource,middle,wanted);
+-        nr_source_runtime::Lock lock;unsigned observed=0;
+-        Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),observed)&&observed==static_cast<unsigned>(wanted),
+-            "actual same-recording guide/output state proof");
+-    }
++ auto resources=owner.resources;resources["Color"]=owner.colors[0].resource;
++ for(const auto& [key,resource]:resources){
++  const auto before=static_cast<D3D12_RESOURCE_STATES>(scene_renderer_state::State(list,resource));
++  const auto wanted=key=="Output"?D3D12_RESOURCE_STATE_UNORDERED_ACCESS:static_cast<D3D12_RESOURCE_STATES>(read_state);
++  if(before==wanted){Barrier(list,resource,before,D3D12_RESOURCE_STATE_COPY_SOURCE);Barrier(list,resource,D3D12_RESOURCE_STATE_COPY_SOURCE,wanted);}else Barrier(list,resource,before,wanted);
++  Check(scene_renderer_state::State(list,resource)==unsigned(wanted),"renderer actual legacy state after GuideState");
++  if(g_config.enabled){nr_source_runtime::Lock lock;unsigned actual=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),actual)&&actual==unsigned(wanted),"NR-on source state remains actual production observation, never host table injection");}
++  std::printf("STATE_BEFORE frame=%u key=%s value=%u origin=renderer-actual-legacy-callback productionSourceEnabled=%u\n",frame,key.c_str(),unsigned(before),g_config.enabled);
++ }
+@@ -255,7 +247,4 @@
+-    auto resources=owner.resources;resources["Color"]=owner.colors[0].resource;
+-    for(const auto& [key,resource]:resources){nr_source_runtime::Lock lock;unsigned observed=0;
+-        const bool known=nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),observed);
+-        std::printf("RESOURCE_STATE stage=%s frame=%u key=%s known=%u value=%u\n",stage,frame,key.c_str(),known,observed);
+-        if(!known)Stop("state",key.c_str(),"post-opaque-legacy-state-unknown-no-guessed-barrier");
+-        owner.completed_states[resource]=observed;
+-    }
++ auto resources=owner.resources;resources["Color"]=owner.colors[0].resource;
++ for(const auto& [key,resource]:resources){const auto observed=scene_renderer_state::State(list,resource);owner.completed_states[resource]=observed;
++  std::printf("RESOURCE_STATE stage=%s frame=%u key=%s known=1 value=%u actualRendererBarrier=1 productionStateInjection=0\n",stage,frame,key.c_str(),observed);
++ }
+--- /dev/null
++++ default-post-r2/post_rr_host.inl
+@@ -0,0 +1,96 @@
++// Private real default entry control: HookCoreEvaluate is the only entry.
++// NR-off is genuine master-off passthrough; NR-on uses unmodified RR-post.
++namespace raw_nr_probe {
++SceneFactory* post_factory=nullptr;Flight* post_consumer=nullptr;unsigned post_frame=0;
++NgxResult CountOriginalRr(ID3D12GraphicsCommandList* list,const NgxHandle* handle,const NgxParams* params,void* callback){
++ Check(post_factory&&post_consumer&&post_consumer->packet&&handle==post_factory->parent&&params==post_factory->eval_params&&callback==nullptr,"default native thunk receives exact untouched parent/params");
++ post_factory->Guard("default-original-native-evaluate");scene_renderer_state::Guard();
++ unsigned long long nr_token=0;const auto native=SnapshotPostBoundaryList(list);
++ Check(native_rr_evals==post_frame&&ReadLifecycleToken(list,nr_token)&&nr_token==post_consumer->nr_recording_token&&native.token==post_consumer->native_lifetime_token&&native.reset==post_consumer->native_reset,"exactly one native call for current real recording");
++ NgxResult result=0;{ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;++native_rr_evals;result=post_factory->exports.evaluate(list,handle,params,callback);}
++ std::printf("DEFAULT_NATIVE_EVAL frame=%u result=%08x calls=%u nativeToken=%llu reset=%llu nrToken=%llu\n",post_frame,result,native_rr_evals,native.token,native.reset,nr_token);
++ return result;
++}
++void ConfigureDefault(bool enabled){
++ g_config=ChainConfig{};g_config.enabled=enabled;g_config.mode=1;
++ g_config.processing_start=nr_processing::Start::After;g_config.processing_selection=1;
++ g_config.nr_passes=1;g_config.private_residual_sr=false;g_config.spatial_experiment_mode=0;g_config.temporal_backend=0;
++ g_config_generation.store(17);g_enabled_fast.store(enabled,std::memory_order_release);nr_processing_runtime::Reconcile();
++ Check(nr_processing_runtime::work_enabled.load()==enabled&&nr_processing_runtime::Effective()==nr_processing::Start::After,"ordinary configuration reconciliation; true master-off stays source-disabled");
++ Check(nr_post_settings::Read().percent==100&&g_config.warmup_after_create==2&&!g_config.identity_use_original,"fixed default post precision100 and original two model warmups");
++ std::printf("DEFAULT_CONFIG master=%u mode=1 start=After sourceWork=%u privateSR=0 layers=1 Npost=1920x1080 postPercent=100 flagsUnchanged=1\n",enabled,nr_processing_runtime::work_enabled.load());
++}
++NrContext* ActualPostContext(const NgxHandle* parent,unsigned long long generation){
++ NrContext* found=nullptr;for(auto& candidate:g_contexts)if(candidate.sr_handle==parent&&candidate.feature_generation==generation){Check(!found,"one true production post context");found=&candidate;}
++ return found;
++}
++void RunDefaultPost(bool enabled){
++ VerifyRuntime(L"runtime.sha256",enabled);one_rr_variant=enabled;terminal_observer=PrintOneRrClosure;control="probe";
++ std::array<PhaseFrame,3> phases{};for(unsigned i=0;i<3;++i){phases[i]=phase_J[i];phases[i].reset=i==0;}phase_frames=phases.data();phase_input_root.clear();
++ ++device_entries;queue_test::Fixture f;ConfigureDefault(enabled);GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\default-post-core.log");
++ auto library=LoadLibraryW(L"nrchain_nvngx.dll");Check(library,"exact adjacent bootstrap bridge");auto bootstrap=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(library,"NRChain_Bootstrap"));Check(bootstrap,"real bootstrap export");
++ const auto initialized=bootstrap(f.device);std::printf("BOOTSTRAP result=%08x count=1\n",initialized);if(initialized!=kNgxSuccess)Fail("default-native-init",nullptr,initialized);
++ auto* ngx=GetModuleHandleW(L"_nvngx.dll");Check(ngx,"actual original Core module");
++ auto allocate=reinterpret_cast<nr_private_sr_core::Allocate>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_AllocateParameters"));auto create=reinterpret_cast<nr_private_sr_core::Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));
++ auto release=reinterpret_cast<nr_private_sr_core::Release>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_ReleaseFeature"));auto destroy=reinterpret_cast<nr_private_sr_core::Destroy>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_DestroyParameters"));Check(allocate&&create&&release&&destroy,"actual original native exports");
++ PreCreateCapability precreate;precreate.Query(ngx,f.device);
++ const auto hooks=MH_Initialize();Check(hooks==MH_OK||hooks==MH_ERROR_ALREADY_INITIALIZED,"existing native observation hooks");Check(NrDescriptorConfigureStartup(false),"descriptor startup");descriptor_warp_test::InstallCommandObservation(f);TrackGraphicsQueueLocked(f.a);queue_test::List list(f);
++ const auto coverage=EnsurePostBoundaryNativeHooks(list.native);Check((coverage&(nr_post_boundary::Legacy|nr_post_boundary::Operations))==(nr_post_boundary::Legacy|nr_post_boundary::Operations)&&!(coverage&(nr_post_boundary::HookMissing|nr_post_boundary::InterfaceUnknown)),"real complete native legacy and enhanced capability coverage");
++ nr_source_runtime::SeedCoreRecordingDevice(list.native);list.Close();list.ResetWithNewAllocator(f);
++ Check(EnsureCodec(f.device),"original production codec setup; functional setup cost not performance");
++ scene_renderer_state::Install(list.native);
++ descriptor_warp_test::Pipeline pipeline(f),alternate(f);auto* heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);auto* alternate_heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
++ Adapter envelope(f);envelope.list=list.native;envelope.alternate_pipeline=alternate.state;envelope.alternate_heap=alternate_heap;
++ auto owner=std::make_shared<Inputs>();owner->Make(f,ow,oh);scene_renderer_state::Add(owner->colors[0].resource);
++ for(auto* resource:{owner->depth.resource,owner->motions[0].resource,owner->normal.resource,owner->diffuse.resource,owner->specular.resource,owner->roughness.resource,owner->clean.resource})scene_renderer_state::Add(resource);
++ SceneFrame scene;scene.Make(f,*owner);scene.Record(list.native,*owner,0);
++ NgxParams* parent_params=nullptr;Check(allocate(&parent_params)==kNgxSuccess&&parent_params,"actual native parent params");
++ for(auto kv:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh},{"CreationNodeMask",1u},{"VisibilityNodeMask",1u}})SetUInt(parent_params,kv.first,kv.second);
++ SetInt(parent_params,"PerfQualityValue",2);SetInt(parent_params,"RayReconstruction.Hint.Render.Preset.Quality",0);SetInt(parent_params,"DLSS.Feature.Create.Flags",75);SetInt(parent_params,"DLSS.Denoise.Mode",1);SetUInt(parent_params,"DLSS.Roughness.Mode",0);SetUInt(parent_params,"DLSS.Use.HW.Depth",1);SetInt(parent_params,"DLSS.Enable.Output.Subrects",0);
++ ScopedNgxLayer layer(NgxLayer::Core);g_original_core_create=create;NgxHandle* parent=nullptr;Flight parent_flight;
++ EnterCriticalSection(&g_chain_cs);pipeline.Bind(list,heap);parent_flight.Pin(f,list,owner,0,"default-parent-create");active_rr_consumer=&parent_flight;GuideState(list.native,*owner);
++ Check(envelope.EnvelopeApi().capture(&envelope,list.native),"independent true native parent Create envelope");++parent_create_attempts;
++ const auto made=HookCoreCreate(list.native,13,parent_params,&parent);std::printf("PARENT_CREATE feature=13 result=%08x calls=1 quality=2 preset=0 flags=75\n",made);OpaqueResult(made,envelope,"default-parent-create");ObserveAfterOpaque(list.native,*owner,0,"default-parent-create");Check(parent,"real native parent handle");LeaveCriticalSection(&g_chain_cs);
++ parent_flight.Finish(f,list,"default-parent-create");active_rr_consumer=nullptr;
++ SceneFactory factory;factory.Resolve(f,parent);factory.eval_params=factory.Allocate("default-eval-params");post_factory=&factory;
++ NrRuntimeGate runtime_gate;runtime_gate.expected_evals=3;if(enabled)runtime_gate.Initialize(f.device,factory);
++ else Check(!g_nr_api.initialized&&!GetModuleHandleW(L"nvngx_dlssnr.dll")&&!nr_processing_runtime::work_enabled.load(),"masteroff no NR init/module or source work");
++ g_original_core_evaluate=CountOriginalRr;g_original_core_release=release;RrOutput output;output.Make(f,*owner);Flight consumer;
++ unsigned long long instance=0;NrContext* production=nullptr;
++ for(unsigned frame=0;frame<3;++frame){post_frame=frame;scene.Record(list.native,*owner,frame);factory.Bind(owner,frame);factory.Guard("default-entry");Check(scene.Matches(list.native,*owner,frame),"default entry exact same-frame scene producer");
++  EnterCriticalSection(&g_chain_cs);pipeline.Bind(list,heap);GuideState(list.native,*owner,frame);consumer.Pin(f,list,owner,frame,"default-native-consumer");post_consumer=&consumer;active_rr_consumer=&consumer;output.Poison(list.native,*owner,frame);
++  const auto noncolor=RrNonColorContract(factory,owner,frame);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"renderer own envelope protects genuine masteroff native passthrough too");LeaveCriticalSection(&g_chain_cs);
++  const auto successes_before=g_nr_successful_evaluations.load();const auto visible_before=g_nr_transfer_recorded_frames.load();
++  const auto result=HookCoreEvaluate(list.native,parent,factory.eval_params,nullptr);
++  std::printf("DEFAULT_ENTRY frame=%u master=%u result=%08x nativeCalls=%u coreCalls=%u rrAttempts=%llu rrRecorded=%llu F18Success=%llu visibleRecorded=%llu stage=%d\n",frame,enabled,result,native_rr_evals,g_core_calls.load(),nr_post_settings::rr_attempts.load(),nr_post_settings::rr_recorded.load(),g_nr_successful_evaluations.load(),g_nr_transfer_recorded_frames.load(),nr_post_settings::last_rr_stage.load());
++  if(result!=kNgxSuccess)OpaqueResult(result,envelope,"default-HookCoreEvaluate");
++  EnterCriticalSection(&g_chain_cs);Check(envelope.EnvelopeApi().restore(&envelope),"renderer restores its independent actual native state after complete entry");
++  Check(native_rr_evals==frame+1&&RrNonColorContract(factory,owner,frame)==noncolor,"default entry preserves native guides/scalars/matrices and exactly one original call");CheckColor(factory,owner->colors[0].resource);
++  ObserveAfterOpaque(list.native,*owner,frame,"default-entry");production=ActualPostContext(parent,factory.parent_generation);
++  if(enabled){
++   if(g_nr_successful_evaluations.load()!=successes_before+1||!production||!production->nr_handle){std::printf("UNSUPPORTED defaultPost frame=%u stage=%d beforeState=%llu prepareDeclined=%llu afterState=%llu finishDeclined=%llu lifecycleUnknown=%u\n",frame,nr_post_settings::last_rr_stage.load(),nr_post_settings::rr_before_state_rejected.load(),nr_post_settings::rr_prepare_declined.load(),nr_post_settings::rr_after_state_rejected.load(),nr_post_settings::rr_finish_declined.load(),g_lifecycle_tracking_uncertain.load());Fail("default-production-NR-admission-unavailable",production);}
++   Check(production->mode==1&&production->width==ow&&production->height==oh&&production->evaluations==frame+1&&production->successful_evaluations_since_reset==frame+1,"true production O-grid post context and model history");
++   if(!instance)instance=production->instance_id;Check(instance&&production->instance_id==instance,"one actual production F18 model instance");runtime_gate.context=production;
++   Check(nr_post_settings::rr_attempts.load()==frame+1&&nr_post_settings::rr_recorded.load()==(frame==2?1u:0u)&&g_nr_transfer_recorded_frames.load()==visible_before+(frame==2?1u:0u),"original two warmups then actual default visible transfer");
++   unsigned slots=0;for(const auto& slot:production->slots)if(slot.result){++slots;Check(slot.result==owner->clean.resource&&!CanMutateSlotLocked(slot)&&slot.recording_command_lists==1,"real production slot pins native O output until original exact flight");}
++   Check(slots==1&&production->recording_command_lists==1,"one production O slot and exact recording owner");
++  }else Check(!production&&g_nr_successful_evaluations.load()==0&&nr_post_settings::rr_attempts.load()==0&&g_core_calls.load()==0&&!g_nr_api.initialized&&!GetModuleHandleW(L"nvngx_dlssnr.dll")&&!nr_processing_runtime::work_enabled.load(),"true masteroff native passthrough skips ProcessRrPost/source/Feature18 entirely");
++  output.Record(list.native,*owner,frame);LeaveCriticalSection(&g_chain_cs);consumer.Finish(f,list,"default-native-consumer");active_rr_consumer=nullptr;post_consumer=nullptr;
++  EnterCriticalSection(&g_chain_cs);if(production)Check(CanDestroyContextLocked(*production)&&CanDestroyBindingsLocked(*production)&&!production->recording_command_lists&&!production->awaiting_fence_signal,"actual production context/packets exact-fence and Reset retire without manual detachment");LeaveCriticalSection(&g_chain_cs);
++  Check(g_nr_transfer_submitted_frames.load()==(enabled&&frame==2?1u:0u),"visible production transfer has actual native Execute and exact private Signal");output.Save(frame);scene.Save(frame);
++ }
++ Check(native_rr_evals==3&&parent_create_attempts==1&&scene.dispatches==4&&scene.saves==3,"complete bounded default-entry three-frame control");
++ const auto recorded=nr_post_settings::rr_recorded.load(),submitted=g_nr_transfer_submitted_frames.load(),evaluated=g_nr_successful_evaluations.load();
++ // Real native Release publishes the production context retirement request.
++ ++parent_release_calls;Check(HookCoreRelease(parent)==kNgxSuccess,"actual production parent Release event");
++ EnterCriticalSection(&g_chain_cs);CollectRetiredContextsLocked();LeaveCriticalSection(&g_chain_cs);DrainPendingContextDestructions();
++ EnterCriticalSection(&g_chain_cs);Check(!ActualPostContext(parent,factory.parent_generation),"original collector and outside-lock Drain release production context");for(const auto& pending:g_pending_destroy_contexts)Check(!pending.sr_handle,"no pending production model destruction");LeaveCriticalSection(&g_chain_cs);
++ if(enabled){Check(runtime_gate.ready&&!g_lifecycle_tracking_uncertain.load()&&evaluated==3&&recorded==1&&submitted==1,"production model owners released only after exact flights and real release event");for(auto& entry:runtime_gate.exports){FreeLibrary(entry.owner);entry.owner=nullptr;}ReleaseCom(runtime_gate.identity);ReleaseCom(runtime_gate.device);runtime_gate.ready=false;active_nr_runtime_gate=nullptr;}
++ {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;Check(factory.exports.destroy(factory.eval_params)==kNgxSuccess,"original eval params destroy under retained module owner");factory.eval_params=nullptr;}
++ Check(destroy(parent_params)==kNgxSuccess,"actual parent params destroy");precreate.Drop(destroy);FreeLibrary(factory.callback_owner);FreeLibrary(factory.capability_owner);nr_private_sr_core::ReleaseExports(factory.exports);post_factory=nullptr;
++ Check(SUCCEEDED(ID3D12Device_GetDeviceRemovedReason(f.device)),"actual device remains healthy");scene_renderer_state::Drop();DestroyBindings(context);output.Drop();scene.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);
++ std::filesystem::copy_file("native-rr-output-rgba16f-2.bin","frame-0000.rgba16f",std::filesystem::copy_options::none);
++ std::ofstream receipt("result.json");receipt<<"{\n\"schema\":\"dlss5-default-rr-post-functional-v1\",\n\"status\":\"passed-functional\",\n\"route\":\"HookCoreEvaluate-native-RR-then-production-NR\",\n\"coreSource\":\"45df68dc80138e89778e544d49f15109ec437a4f\",\n\"coreSrcTree\":\"7fe3819be240c0fad0eb16526e9d4b3ce0a67f87\",\n\"coreLoad\":\"compiled-full-Core-host;not-addon-load\",\n\"R\":[1280,720],\"N\":[1920,1080],\"O\":[1920,1080],\n\"nrEnabled\":"<<(enabled?"true":"false")<<",\"layers\":1,\"warm\":2,\"frames\":1,\"totalFrames\":3,\n\"counts\":{\"nativeCreate\":1,\"nativeEval\":"<<native_rr_evals<<",\"nrSuccessfulCreateInstances\":"<<(instance?1:0)<<",\"nrSuccessfulEval\":"<<evaluated<<",\"productionVisibleRecorded\":"<<recorded<<",\"productionVisibleSubmitted\":"<<submitted<<"},\n\"retirement\":{\"exactFenceAndSuccessfulReset\":true,\"productionContextReleasedByCollectorDrain\":true,\"nativeReleased\":true},\n\"output\":{\"file\":\"frame-0000.rgba16f\",\"format\":\"R16G16B16A16_FLOAT\",\"width\":1920,\"height\":1080,\"stride\":15360,\"stage\":\"after-complete-default-entry-before-NIS-tonemap\"},\n\"performance\":false,\"qualityVerdict\":\"not-evaluated\",\"gameAcceptance\":false\n}\n";Check(bool(receipt),"complete default-entry result written");receipt.close();
++ std::printf("PASS DEFAULT_RR_POST master=%u native=3 F18SuccessfulEval=%llu instance=%llu visibleRecorded=%llu submitted=%llu exactRetired=1 sourceStateInjection=0\n",enabled,evaluated,instance,recorded,submitted);
++}
++}
+--- /dev/null
++++ default-post-r2/post_rr_main.inl
+@@ -0,0 +1,11 @@
++int wmain(int argc,wchar_t** argv){
++ std::setvbuf(stdout,nullptr,_IONBF,0);std::map<std::wstring,std::wstring> options;bool go=false;
++ for(int i=1;i<argc;++i){const std::wstring key=argv[i];if(key==L"--root-exclusive-gpu-go"){if(go)return 2;go=true;continue;}
++  if(key!=L"--mode"&&key!=L"--route"&&key!=L"--nr"&&key!=L"--frames"&&key!=L"--warm"&&key!=L"--out")return 2;
++  if(++i>=argc||!options.emplace(key,argv[i]).second)return 2;
++ }
++ if(!go||options.size()!=6||options[L"--mode"]!=L"functional"||options[L"--route"]!=L"RR-post-production"||(options[L"--nr"]!=L"on"&&options[L"--nr"]!=L"off")||options[L"--frames"]!=L"1"||options[L"--warm"]!=L"2")return 2;
++ const auto out=std::filesystem::path(options[L"--out"]);if(!out.is_absolute()||!std::filesystem::equivalent(out,std::filesystem::current_path()))return 2;
++ scene_bench::mode=scene_bench::Mode::Functional;scene_bench::warm=2;scene_bench::observed=1;
++ raw_nr_probe::RunDefaultPost(options[L"--nr"]==L"on");return 0;
++}
+--- measure-r2/raw-nr-phase.cpp
++++ default-post-r2/raw-nr-phase.cpp
+@@ -5,0 +6 @@
++#include "renderer_state.inl"
+@@ -15,2 +16,2 @@
+-#include "one_rr_host.inl"
+-#include "scene_main.inl"
++#include "post_rr_host.inl"
++#include "post_rr_main.inl"
+--- /dev/null
++++ default-post-r2/renderer_state.inl
+@@ -0,0 +1,91 @@
++// Private renderer-only legacy-state observations. No Core source-state writes,
++// admission exception, second device proxy, hook, queue or submission ledger.
++namespace scene_renderer_state {
++using LegacyFn=decltype(ID3D12GraphicsCommandListVtbl::ResourceBarrier);
++using EnhancedFn=decltype(ID3D12GraphicsCommandList7Vtbl::Barrier);
++struct Entry {ID3D12Resource* resource=nullptr;unsigned state=0;bool known=false;};
++std::array<Entry,8> entries{};
++std::array<void*,4> legacy{},enhanced{},legacy_targets{},enhanced_targets{};
++unsigned legacy_count=0,enhanced_count=0;bool installed=false,enhanced_absent=false;
++SRWLOCK lock=SRWLOCK_INIT;ID3D12GraphicsCommandList* commands=nullptr;
++unsigned long long token=0,reset=0,legacy_events=0;const char* refusal=nullptr;
++void Refuse(const char* reason){if(!refusal)refusal=reason;for(auto& e:entries)e.known=false;}
++void Observe(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){
++ // Published native targets are process-wide. Unrelated NGX internal lists
++ // and resources are outside this single renderer pool, not false failures.
++ if(list!=commands){
++  if(count>256||(count&&!barriers)){AcquireSRWLockExclusive(&lock);Refuse("renderer-other-list-unknown-legacy-batch");ReleaseSRWLockExclusive(&lock);return;}
++  bool touches=false;for(unsigned i=0;i<count;++i)for(const auto& e:entries)if(e.resource){
++   const auto& b=barriers[i];touches|=b.Type==D3D12_RESOURCE_BARRIER_TYPE_TRANSITION&&b.Transition.pResource==e.resource;
++   touches|=b.Type==D3D12_RESOURCE_BARRIER_TYPE_ALIASING&&(b.Aliasing.pResourceBefore==e.resource||b.Aliasing.pResourceAfter==e.resource);
++  }
++  if(touches){AcquireSRWLockExclusive(&lock);Refuse("renderer-owned-resource-on-other-list");ReleaseSRWLockExclusive(&lock);}return;
++ }
++ const auto id=SnapshotPostBoundaryList(list);
++ AcquireSRWLockExclusive(&lock);
++ if(list!=commands||!id.known||id.token!=token||id.reset!=reset){Refuse("renderer-observation-recording-mismatch");ReleaseSRWLockExclusive(&lock);return;}
++ if((count&&!barriers)||count>256){Refuse("renderer-unbounded-barrier-batch");ReleaseSRWLockExclusive(&lock);return;}
++ for(unsigned i=0;i<count;++i){const auto& b=barriers[i];
++  if(b.Type==D3D12_RESOURCE_BARRIER_TYPE_ALIASING){bool touches=!b.Aliasing.pResourceBefore&&!b.Aliasing.pResourceAfter;for(const auto& e:entries)touches|=e.resource&&(b.Aliasing.pResourceBefore==e.resource||b.Aliasing.pResourceAfter==e.resource);if(touches)Refuse("renderer-aliasing-unsupported");continue;}
++  if(b.Type!=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION)continue;
++  for(auto& e:entries)if(e.resource&&e.resource==b.Transition.pResource){
++   if(b.Flags!=D3D12_RESOURCE_BARRIER_FLAG_NONE||b.Transition.Subresource!=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES){Refuse("renderer-split-or-subresource-transition-unsupported");break;}
++   if(!e.known||e.state!=unsigned(b.Transition.StateBefore)){Refuse("renderer-observed-StateBefore-contradiction");break;}
++   e.state=unsigned(b.Transition.StateAfter);++legacy_events;break;
++  }
++ }
++ ReleaseSRWLockExclusive(&lock);
++}
++template<unsigned I> void STDMETHODCALLTYPE Legacy(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers){
++ reinterpret_cast<LegacyFn>(legacy[I])(list,count,barriers);Observe(list,count,barriers);
++}
++template<unsigned I> void STDMETHODCALLTYPE Enhanced(ID3D12GraphicsCommandList7* list,UINT count,const D3D12_BARRIER_GROUP* groups){
++ reinterpret_cast<EnhancedFn>(enhanced[I])(list,count,groups);
++ bool touches=reinterpret_cast<void*>(list)==reinterpret_cast<void*>(commands);
++ bool unknown=count>64||(count&&!groups);
++ if(!touches&&!unknown)for(unsigned i=0;i<count;++i){const auto& group=groups[i];
++  if(group.NumBarriers>256||(group.NumBarriers&&!group.pGlobalBarriers)){unknown=true;break;}
++  if(group.Type==D3D12_BARRIER_TYPE_TEXTURE)for(unsigned j=0;j<group.NumBarriers;++j)for(const auto& e:entries)touches|=e.resource&&e.resource==group.pTextureBarriers[j].pResource;
++  else if(group.Type!=D3D12_BARRIER_TYPE_GLOBAL&&group.Type!=D3D12_BARRIER_TYPE_BUFFER){unknown=true;break;}
++ }
++ if(unknown){AcquireSRWLockExclusive(&lock);Refuse("renderer-other-list-unknown-enhanced-batch");ReleaseSRWLockExclusive(&lock);return;}
++ if(touches){AcquireSRWLockExclusive(&lock);Refuse("renderer-enhanced-barrier-unsupported");ReleaseSRWLockExclusive(&lock);}
++}
++void* const legacy_thunks[4]={reinterpret_cast<void*>(&Legacy<0>),reinterpret_cast<void*>(&Legacy<1>),reinterpret_cast<void*>(&Legacy<2>),reinterpret_cast<void*>(&Legacy<3>)};
++void* const enhanced_thunks[4]={reinterpret_cast<void*>(&Enhanced<0>),reinterpret_cast<void*>(&Enhanced<1>),reinterpret_cast<void*>(&Enhanced<2>),reinterpret_cast<void*>(&Enhanced<3>)};
++void Guard(){
++ using queue_test::Check;
++ Check(installed&&g_post_hook_ResourceBarrier.count==legacy_count&&g_post_hook_Barrier.count==enhanced_count,"renderer observer fixed published hook-family coverage");
++ for(unsigned i=0;i<legacy_count;++i)Check(g_post_hook_ResourceBarrier.targets[i]==legacy_targets[i]&&g_post_hook_ResourceBarrier.originals[i]==legacy_thunks[i]&&g_post_hook_ResourceBarrier.enabled[i],"renderer legacy observer still chained once to actual trampoline");
++ for(unsigned i=0;i<enhanced_count;++i)Check(g_post_hook_Barrier.targets[i]==enhanced_targets[i]&&g_post_hook_Barrier.originals[i]==enhanced_thunks[i]&&g_post_hook_Barrier.enabled[i],"renderer enhanced invalidation observer remains chained");
++ if(refusal){std::printf("UNSUPPORTED renderer_state=%s nativeToken=%llu reset=%llu\n",refusal,token,reset);probe_terminal::Exit(42,"renderer-state-unsupported");}
++}
++void Install(ID3D12GraphicsCommandList* list){
++ using queue_test::Check;Check(!installed&&list,"one renderer observer installation before any model call");
++ commands=list;const auto id=SnapshotPostBoundaryList(list);Check(id.known&&id.token,"renderer observer actual native lifetime/reset");token=id.token;reset=id.reset;
++ ID3D12GraphicsCommandList7* extended=nullptr;
++ const auto query=ID3D12GraphicsCommandList_QueryInterface(list,IID_ID3D12GraphicsCommandList7,reinterpret_cast<void**>(&extended));
++ enhanced_absent=query==E_NOINTERFACE;Check(enhanced_absent||(SUCCEEDED(query)&&extended),"actual enhanced interface capability receipt");ReleaseCom(extended);
++ legacy_count=g_post_hook_ResourceBarrier.count;enhanced_count=g_post_hook_Barrier.count;
++ Check(legacy_count&&legacy_count<=4&&(enhanced_absent||enhanced_count)&&enhanced_count<=4,"published legacy plus enhanced invalidation or real E_NOINTERFACE");
++ for(unsigned i=0;i<legacy_count;++i){Check(g_post_hook_ResourceBarrier.enabled[i]&&g_post_hook_ResourceBarrier.originals[i],"real published legacy original");legacy[i]=g_post_hook_ResourceBarrier.originals[i];legacy_targets[i]=g_post_hook_ResourceBarrier.targets[i];g_post_hook_ResourceBarrier.originals[i]=legacy_thunks[i];}
++ for(unsigned i=0;i<enhanced_count;++i){Check(g_post_hook_Barrier.enabled[i]&&g_post_hook_Barrier.originals[i],"real published enhanced original");enhanced[i]=g_post_hook_Barrier.originals[i];enhanced_targets[i]=g_post_hook_Barrier.targets[i];g_post_hook_Barrier.originals[i]=enhanced_thunks[i];}
++ installed=true;Guard();std::printf("RENDERER_OBSERVER legacySlots=%u enhancedSlots=%u enhancedAbsent=%u token=%llu reset=%llu sourceStateWrites=0 additionalHooks=0\n",legacy_count,enhanced_count,enhanced_absent,token,reset);
++}
++void Add(ID3D12Resource* resource){
++ Guard();for(auto& e:entries)if(!e.resource){e={resource,unsigned(D3D12_RESOURCE_STATE_UNORDERED_ACCESS),true};return;}
++ queue_test::Check(false,"renderer eight-plane single pool capacity");
++}
++unsigned State(ID3D12GraphicsCommandList* list,ID3D12Resource* resource){
++ Guard();const auto id=SnapshotPostBoundaryList(list);queue_test::Check(list==commands&&id.known&&id.token==token&&id.reset==reset,"renderer State exact native recording/reset");
++ AcquireSRWLockShared(&lock);bool known=false;unsigned state=0;for(const auto& e:entries)if(e.resource==resource){known=e.known;state=e.state;break;}ReleaseSRWLockShared(&lock);
++ queue_test::Check(known,"renderer state from successful resource creation or actual legacy callback");return state;
++}
++void AfterExactReset(ID3D12GraphicsCommandList* list){
++ Guard();const auto id=SnapshotPostBoundaryList(list);queue_test::Check(list==commands&&id.known&&id.token==token&&id.reset==reset+1,"renderer carries state only across caller-proven exact completion and successful Reset");reset=id.reset;
++}
++void Drop(){
++ Guard();for(unsigned i=0;i<legacy_count;++i)g_post_hook_ResourceBarrier.originals[i]=legacy[i];for(unsigned i=0;i<enhanced_count;++i)g_post_hook_Barrier.originals[i]=enhanced[i];
++ std::printf("RENDERER_OBSERVER_RELEASE legacyEvents=%llu exactFlightsRetired=1 sourceStateWrites=0\n",legacy_events);installed=false;commands=nullptr;entries={};
++}
++}
+--- measure-r2/scene_frame.inl
++++ default-post-r2/scene_frame.inl
+@@ -38,4 +38 @@
+- unsigned State(ID3D12GraphicsCommandList* list,Inputs& owner,ID3D12Resource* resource){unsigned state=0;
+-  {nr_source_runtime::Lock lock;if(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),state))return state;}
+-  auto prior=owner.completed_states.find(resource);Check(prior!=owner.completed_states.end(),"scene state requires successful creation or exact completed predecessor");return prior->second;
+- }
++ unsigned State(ID3D12GraphicsCommandList* list,Inputs&,ID3D12Resource* resource){return scene_renderer_state::State(list,resource);}

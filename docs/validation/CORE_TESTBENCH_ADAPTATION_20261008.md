@@ -2,6 +2,11 @@
 
 2026-10-08；开发侧隔离测试台，不是产品新路线或游戏验收。
 
+后续维护者重新授权后，已完成自建最小 3D 台及真实两 RR 短功能验证。
+本文件保留官方 Sample 原适配/失败记录；当前结果见
+[开发测试台结果](DEVELOPMENT_TESTBENCH_RESULTS_20261008.md)，不把本页历史 STOP
+扩大为禁止其他有界方案，也不把新宿主成功改写为官方 Sample 成功。
+
 固定官方 NRD-Sample `00fd99e8b36b4508544f0cd113dfc20c16094f14`、
 NRIFramework `f9bddb7e79b91fb8017d3421e9bf44a584dc33dc`、NRI
 `a08ed54e218ac3cf1fdd2d159b8d9d3034079361`。与 RTXPT 的成本比较后选择直接

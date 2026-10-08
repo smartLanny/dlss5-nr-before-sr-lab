@@ -1,0 +1,72 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "old_actual_parser_error": "IndexError",
+  "old_actual_marker": "phase_J[3]={",
+  "new_actual_marker": "phase_J[32]={",
+  "frozen_array_rows": 32,
+  "observed_prefix_rows_checked": 3,
+  "both_actual_receipt_schedule_expressions_equal": true,
+  "all_s_equals_negative_j": true,
+  "schedule_source_sha256": "4c558525c3886738ba9bdabd6a63c1a65fe91854bea31503c65be5225e01fc15",
+  "old_receipt_sha256": "91a944e7c245696e872b59221dce0374606ec213dc9dc90a2bbb626410794d24",
+  "new_receipt_sha256": "6969053e469a817ec4aed20a8672128992610a938192d30ba257a5ea84b4cd26",
+  "scene_input_receipt_sha256": "93333eb94fa31b087f311215333adb9af0d7b8041d356ec9848c99c0c2cfe667",
+  "frames": [
+    {
+      "frame": 0,
+      "producer_s": [
+        0.0,
+        0.0
+      ],
+      "RR_jitter": [
+        -0.0,
+        -0.0
+      ],
+      "oracle_transport": [
+        0.0,
+        0.0
+      ],
+      "same_actual_parser_values": true,
+      "scene_constants_bytes": 48,
+      "scene_constants_sha256": "83489617428b7a0014a8bcaad4f9209d3ccd3daea8d74832e322f0140f094c6c"
+    },
+    {
+      "frame": 1,
+      "producer_s": [
+        0.25,
+        0.0
+      ],
+      "RR_jitter": [
+        -0.25,
+        -0.0
+      ],
+      "oracle_transport": [
+        0.25,
+        0.0
+      ],
+      "same_actual_parser_values": true,
+      "scene_constants_bytes": 48,
+      "scene_constants_sha256": "5ee9659e289ba01739356d8d10218567854327f8656609e58c3d324955c83f52"
+    },
+    {
+      "frame": 2,
+      "producer_s": [
+        -0.25,
+        0.0
+      ],
+      "RR_jitter": [
+        0.25,
+        -0.0
+      ],
+      "oracle_transport": [
+        -0.25,
+        0.0
+      ],
+      "same_actual_parser_values": true,
+      "scene_constants_bytes": 48,
+      "scene_constants_sha256": "0cd6b888f07133131ee44bf1668178f62f266db53fa7a9ae3c167a893818d577"
+    }
+  ]
+}

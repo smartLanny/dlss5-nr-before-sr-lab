@@ -1,0 +1,29 @@
+{
+  "local_actual_launch_and_guard": "runner_support.py",
+  "local_launch_guard_sha256": "25738decfabc3a515c005b8f72be5a8e38957391a1750fca7813c37ff06af0f3",
+  "old_unsafe_launch_and_guard_imported": false,
+  "legacy_module_safe_imports": [
+    "need",
+    "sha",
+    "save",
+    "verify_manifest",
+    "preflight",
+    "TUPLE",
+    "RUNTIME",
+    "seal_output"
+  ],
+  "legacy_actual_files": [
+    {
+      "file": "runner_common.py",
+      "sha256": "c8107aa594ed5de2d34c74acff457bb9c8c59ddc4b819b35309e4b9dbc4d5ebf"
+    },
+    {
+      "file": "codec_receipt.py",
+      "sha256": "b005bb3e3c4dfa6fa8ff149e81e409d1b64fe50fb1de48b8ac1029e35fdf36f1"
+    }
+  ],
+  "sourceguard_calls": "preflight -> verify_manifest/sha/need; no process launch",
+  "receipt_helper_calls": "codec_receipt.one -> regex + need; no launch",
+  "timeout_policy": "RetainedProcessTimeout -> save retained PID/STOP-unsealed; no final manifest on live writer",
+  "CPU_timeout_fake_process_proof_sha256": "d9f41f92c57765215b4681985d7b8a27eab2c8e6c61dea8d770e1b0a05ba7f30"
+}
