@@ -1,0 +1,29 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "D3D12_device_API_calls": 0,
+  "D3D12_ResourceBarrier_API_calls": 0,
+  "source_derived_test_count": 7,
+  "old_Move_source_sha256": "cd09bbf2c8e6024d2fd3788aa2c28bd9325bd73ce5172c11462a9fbb9c043101",
+  "new_Move_source_sha256": "ae042b29f813e24f46fe6e75c215b76f39200599ce818b0922b706fabe9b3867",
+  "actual_descriptor_contract_sha256": "11ef630f7e659603a62c5c90115b9db4cb4943fafe3f9eaa5f9092b118525891",
+  "generated_test_source_sha256": "3f2f7009add517e36871e9b02f1ef58ff3ca1de9e1222b1c4d9d581714bc7405",
+  "compiler_sha256": "bf58cf0e544a308660645aad1fe65ae9cbc44b0871e4010278f3d9551f86a690",
+  "test_EXE_sha256": "0cf72062470c3b4fa9256981f52cbc1b07efdcc726b8e6101697938613917293",
+  "compile_exit": 0,
+  "test_exit": 0,
+  "explicit_UAV_barriers_unchanged": true,
+  "old_frame0_noop_transition": [
+    64,
+    64
+  ],
+  "old_table_count": 14,
+  "old_uninitialized_holes": 10,
+  "required_root_span": 21,
+  "new_table_count": 21,
+  "proven_scope": "exact source-derived recording sequence and DescriptorSet value contract, backed by official runtime validation rule",
+  "runtime_not_executed": true,
+  "v1_first_bad_log": "API_FAIL close 80070057",
+  "official_runtime_rule": "https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-resourcebarrier"
+}
