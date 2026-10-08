@@ -24,4 +24,8 @@ Actual v2 manifest: `978c8e81f713d3bb17b2f7e7dce4ead483a703b392af1148c387d9ff9b0
 
 Inherited v1 actual manifest: `97475bee24b6cf47828b0fc2f88e8074f868b6f6eba9f66c625d1468a5fe492f`; independent failed-run review manifest: `32630ebbb699c0ec938144913529095554202c8b910461ac96c0b1483971348e`.
 
-This is flat-fixture functional validation, not 3D quality, performance, actual-game acceptance or a new candidate deployment. Independent CPU readback/oracle/coverage review is recorded separately. A scene-based quality result must precede any claim of an advantage or flicker repair.
+Independent readback review found **zero accepted edited pixels**. Across all 32 frames, identity pixels = 1,927,728 and refused pixels = 27,563,472. In the 16 observed frames, 99.6766% were refused and no legal edit reached the parent. All composite pixels retained the original raw bits. Oracle agreement with this fallback is not an effective editing pass.
+
+The observed input alpha is exactly 0.75 (FP16 `0x3a00`), while the new experimental shader incorrectly required raw alpha = 1. Frame 16 has positive clean RGB, nonnegative edited RGB and 908,477/921,600 pixels changed by NR, yet zero changed composite pixels. This proves an experimental alpha-contract mistake; it does not prove approximate raw guides or the two-RR idea ineffective. v1/v2 and their actual results remain frozen. Correcting the observed input contract requires its own CPU counterexample, packet and new validation; no production guard is changed to hide the issue.
+
+This is flat-fixture inference/retirement validation, not effective two-RR editing, 3D quality, performance, actual-game acceptance or a new candidate deployment. Independent CPU readback/oracle/coverage review is recorded separately. Nonzero valid edit coverage and then a scene-based quality result must precede any claim of an advantage or flicker repair.

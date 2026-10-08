@@ -50,7 +50,7 @@
     {
       "file": "V1_TO_V2.diff",
       "private_source_sha256": "23b0a40056ae3a1be447db56964f33e443ca4801df8bf971a306b55f00ef1549",
-      "sanitized_sha256": "23b0a40056ae3a1be447db56964f33e443ca4801df8bf971a306b55f00ef1549"
+      "sanitized_sha256": "3f8202fad108c54e2d024f2beeb27a3ff9ab34dd45c31cf6dec89952da4c63f9"
     },
     {
       "file": "README.md",
@@ -72,5 +72,6 @@
       "private_source_sha256": "cb3bbe527d5617e9357785c56429f9137774a92d46f853133e90965f390834ea",
       "sanitized_sha256": "cb3bbe527d5617e9357785c56429f9137774a92d46f853133e90965f390834ea"
     }
-  ]
+  ],
+  "review_diff_format": "zero-context diff of sanitized review copies; frozen private source unchanged"
 }
