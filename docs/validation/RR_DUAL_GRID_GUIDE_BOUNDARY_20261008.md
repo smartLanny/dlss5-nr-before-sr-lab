@@ -44,9 +44,16 @@ surface-ID/P0重渲染 producer，fractional raw depth/MV/normal 的 nearest、
 bilinear 或“小 depth 差”都不能成为 verified clean 输入。下游 edit mask 也不能
 修复已经送进不透明 NR 的无效 guides。
 
-两 RR 链在 NR(clean) 前需要真实 clean producer，或严格证明同时间、语义、
-extent/subrect/identity 全 known 的 coincident s=0/整数 copy/gather。缺少这个
-输入合同时整条新链拒绝，保留已支持的普通 native RR / RR→NR 路线。
+上述结论只限制“精确 clean visibility/guides”合同，不否定使用近似导引的算法。
+本轮重新逐调用核对 OptiScaler PR #123 后，撤回此前将它扩大成“两 RR 整链
+不能实验”的结论：对方直接将 raw depth/MV 交给 NR(clean)，并不重建 P0 导引。
+这条近似路线可以独立实验；质量是否可接受须由真实场景对照判断，不能由本反例
+预先判失败，也不能把 raw 导引标成已经证明的 clean 导引。
+
+下一最小实验固定 N=R、单层 NR、两份独立 RR 历史，明确记录 raw-guide reuse
+为近似。源/设备/init-domain、曝光、相位、输出采用、opaque 命令状态和精确
+recording/queue/fence 退休门继续保留。实验关闭时不增加产品 GPU 工作；产品
+默认仍为已支持的普通 native RR / RR→NR，尚未加入新的游戏路线。
 
 ## 独立的一次 RR 可行性
 
@@ -55,5 +62,8 @@ extent/subrect/identity 全 known 的 coincident s=0/整数 copy/gather。缺少
 它仍须实测 decoded NR 与最终 editedRaw 保持 raw 的 c=s 相位、曝光往返和一次
 native RR 的采用/退休；NR 输入同源不证明 NR 输出同相位。
 
-当前仅批准独立宿主 CPU 准备；未修改生产 PrepareBeforeSr 的 Feature1-only 门、
-RR Before 拒绝或恢复旧私有 Feature13。没有可交游戏的该路线功能。
+这条独立路线的固定受控功能切片已实际运行，结果见
+[raw NR→一次原生 RR 功能报告](RAW_NR_ONE_NATIVE_RR_FUNCTIONAL_20261008.md)。
+它使用平面 fixture，不是 3D 画质/性能验收，也不替代两 RR 试验。生产
+PrepareBeforeSr 的 Feature1-only 门、RR Before 拒绝和旧私有 Feature13 开关
+均未修改；没有可交游戏的该路线功能。
