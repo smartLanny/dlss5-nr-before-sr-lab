@@ -1,0 +1,56 @@
+{
+  "GPU_runs": 0,
+  "NGX_calls": 0,
+  "frozen_Core_commit": "45df68dc80138e89778e544d49f15109ec437a4f",
+  "frozen_Core_tree": "7fe3819be240c0fad0eb16526e9d4b3ce0a67f87",
+  "actual_private_EXE_sha256": "1158ef0e3adf42e827715b7c909553ca5d7511d40e77edc1ba8b822c160a9716",
+  "private_source_manifest_sha256": "fe0f7f9e86d2d9349bdd162c36c158009c7c0837f05929eac8d52bdd78e58e26",
+  "no_vendor_SDK_binaries_raw_logs_or_real_absolute_paths": true,
+  "files": [
+    {
+      "file": "ratio-before-shift.hlsl",
+      "private_source_sha256": "c85a8157703af72875138d9945a9df434bcaf293cf3906219edee9bbb4f434e4",
+      "sanitized_sha256": "ee26ad02d995d961c510aeaef2d4a762e871c7628908c26bb13d5ad7dc2b742c"
+    },
+    {
+      "file": "approx_resources.inl",
+      "private_source_sha256": "cd09bbf2c8e6024d2fd3788aa2c28bd9325bd73ce5172c11462a9fbb9c043101",
+      "sanitized_sha256": "798c085e32e6e29f30e8cfb9f2dd6d60aa935b08c0b8db4c9cb0f41fdcc8b5b8"
+    },
+    {
+      "file": "approx_child.inl",
+      "private_source_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98",
+      "sanitized_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98"
+    },
+    {
+      "file": "two_rr_host.inl",
+      "private_source_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18",
+      "sanitized_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18"
+    },
+    {
+      "file": "ratio_oracle.py",
+      "private_source_sha256": "c8decfc3a65a9060c58f3a98452e969026059668317ae49315c0cb354e5e7a0a",
+      "sanitized_sha256": "9a43c95602785f59f82b1e28120d3e03526b8fb741da3925f8c14ba80ea03caf"
+    },
+    {
+      "file": "two_rr_receipt.py",
+      "private_source_sha256": "2447dd1b7a05213eaeca54307a328ae98d8ddcc29a5824518aaaa5295513903d",
+      "sanitized_sha256": "c0f49ab2040af73055f28c36bcce15f60c8fc8dfff45c642be0aa74f8c3ffb7b"
+    },
+    {
+      "file": "run_two_rr.py",
+      "private_source_sha256": "34bd3917650083a4e1a1227f8b1230eb89c22afcf58d061e09e43ed4d92d6585",
+      "sanitized_sha256": "a8631ea2e9db2d925c05ef86d373414aa8c3369685331c0072d868203ddee42f"
+    },
+    {
+      "file": "critical.diff",
+      "private_source_sha256": "6be38a15562b89f768ea53e1b14b4065dca0c44dc9fb3319a6427921bd5d0516",
+      "sanitized_sha256": "6be38a15562b89f768ea53e1b14b4065dca0c44dc9fb3319a6427921bd5d0516"
+    },
+    {
+      "file": "README.md",
+      "private_source_sha256": "e24de802083f1b7b8e32e2d5e020bc43cb7fc2a296287413ece61f36b3623efd",
+      "sanitized_sha256": "aa6549d6190b4c551b6b5ba90e3c675bbd098764b0be120dfb53ccdfb7b9fb20"
+    }
+  ]
+}
