@@ -32,4 +32,6 @@ Actual result SHA256, capture off/on then perf off/on:
 
 Current runner/UI packet SHA256: `0dd908ca33711076ff9fa8bf5681fb5aa7853f5f16d70fe03b007e88fd5484f4` (CPU export-only changes; native executable unchanged).
 
-Initial three-frame readback checks and image review passed without black output or an obvious on-only defect; the mature 120-warmup image review is recorded separately. No game or general temporal quality acceptance is claimed.
+Independent four-arm CPU review receipt: `cd697f20111d5b6bcdea04f6e2516927d7b4e803e7a01ca0084bb4b3d08e7688`. It recomputed timing/fence/Reset alignment and memory summaries, checked actual binary/runtime identities and capture counts/sizes, and confirmed no perf image attachments. It did not claim to rehash every captured pixel.
+
+GPT-6.1 Sol reviewed eight mature last-frame/crop images at full resolution. No black frame, obvious corruption or contour displacement was found. NR on is slightly smoother and softer, with slightly reduced checkerboard boundary contrast and no clear overall advantage. Single last frames do not prove flicker, moving-camera or ghosting improvement. Together with the measured cost, this supports retaining the scene as a usable v0 development tool, without promoting the research route over the baseline. No game or general temporal quality acceptance is claimed.

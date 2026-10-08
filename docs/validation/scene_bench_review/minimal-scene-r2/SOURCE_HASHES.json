@@ -7,52 +7,63 @@
     {
       "name": "check_scene_formats.py",
       "bytes": 2561,
-      "sha256": "3ab449cef0131d008d26935205fc628b5af958c6dbd42a828eef14baef51ebad"
+      "sha256": "3ab449cef0131d008d26935205fc628b5af958c6dbd42a828eef14baef51ebad",
+      "git_blob_content_sha256": "3ab449cef0131d008d26935205fc628b5af958c6dbd42a828eef14baef51ebad"
     },
     {
       "name": "one_rr_host.inl",
       "bytes": 24979,
-      "sha256": "99da1609d746b93576937c2931c54faf28d47311f19ee25d6e42188d64a04fd6"
+      "sha256": "99da1609d746b93576937c2931c54faf28d47311f19ee25d6e42188d64a04fd6",
+      "git_blob_content_sha256": "99da1609d746b93576937c2931c54faf28d47311f19ee25d6e42188d64a04fd6"
     },
     {
       "name": "Open-SceneBench.ps1",
       "bytes": 3768,
-      "sha256": "831f5b28d0991162ad9d2475bb7c0e62f18a6de4d2a73986b994dd0cdcc2e239"
+      "sha256": "831f5b28d0991162ad9d2475bb7c0e62f18a6de4d2a73986b994dd0cdcc2e239",
+      "git_blob_content_sha256": "831f5b28d0991162ad9d2475bb7c0e62f18a6de4d2a73986b994dd0cdcc2e239"
     },
     {
       "name": "README.md",
-      "bytes": 4272,
-      "sha256": "2707cb92329316a116775f9bf2987a353c20946a0e30415bcc212cfb634afb25"
+      "bytes": 4941,
+      "sha256": "3bfa62fb124c2bc810ef67cabb5b24f8720c72e5f04420ed11ece165bcb8f302",
+      "git_blob_content_sha256": "3bfa62fb124c2bc810ef67cabb5b24f8720c72e5f04420ed11ece165bcb8f302"
     },
     {
       "name": "scene_frame.inl",
       "bytes": 10089,
-      "sha256": "cc245d39f35b0d6e5c52929687d2ebcaf2df6433f5c5a0862325c519f64028db"
+      "sha256": "cc245d39f35b0d6e5c52929687d2ebcaf2df6433f5c5a0862325c519f64028db",
+      "git_blob_content_sha256": "cc245d39f35b0d6e5c52929687d2ebcaf2df6433f5c5a0862325c519f64028db"
     },
     {
       "name": "scene_main.inl",
       "bytes": 5878,
-      "sha256": "c96dc0ec96d36e39bf31cada74a516c13a67b555bf96d613638628a5269ee74b"
+      "sha256": "c96dc0ec96d36e39bf31cada74a516c13a67b555bf96d613638628a5269ee74b",
+      "git_blob_content_sha256": "c96dc0ec96d36e39bf31cada74a516c13a67b555bf96d613638628a5269ee74b"
     },
     {
       "name": "scene_options.inl",
       "bytes": 759,
-      "sha256": "94133efeccaa8d88a991d07ea2b9d0d5e6b8ff9755d5419a8c6db14029835cd2"
+      "sha256": "94133efeccaa8d88a991d07ea2b9d0d5e6b8ff9755d5419a8c6db14029835cd2",
+      "git_blob_content_sha256": "94133efeccaa8d88a991d07ea2b9d0d5e6b8ff9755d5419a8c6db14029835cd2"
     },
     {
       "name": "scene_suite.py",
       "bytes": 14970,
-      "sha256": "8a3d8a7e2cbcb1a73dac8d59c03d29271032d9af85493cfbd3dd0020096198db"
+      "sha256": "8a3d8a7e2cbcb1a73dac8d59c03d29271032d9af85493cfbd3dd0020096198db",
+      "git_blob_content_sha256": "bbe63ac10ffe683b661d132280db30fe53a4105d75fd4e96102807945e5aa5a7"
     },
     {
       "name": "scene.hlsl",
       "bytes": 4492,
-      "sha256": "0c5b6fbf9360ac0025ed1ba01978efda686bcf425e4ba801fb6508f8474e4d54"
+      "sha256": "0c5b6fbf9360ac0025ed1ba01978efda686bcf425e4ba801fb6508f8474e4d54",
+      "git_blob_content_sha256": "0c5b6fbf9360ac0025ed1ba01978efda686bcf425e4ba801fb6508f8474e4d54"
     },
     {
       "name": "SceneMeasurements.h",
       "bytes": 7435,
-      "sha256": "b29af5faf63475ef405003a6ce6894e5e15dd08ee2d4da88df8aef3a92531f72"
+      "sha256": "b29af5faf63475ef405003a6ce6894e5e15dd08ee2d4da88df8aef3a92531f72",
+      "git_blob_content_sha256": "b29af5faf63475ef405003a6ce6894e5e15dd08ee2d4da88df8aef3a92531f72"
     }
-  ]
+  ],
+  "hash_scope_note": "Private/local byte hashes remain unchanged; git_blob_content_sha256 pins the exact staged review content after Git line-ending normalization."
 }

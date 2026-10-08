@@ -10,68 +10,82 @@
     {
       "file": "ratio-before-shift.hlsl",
       "private_source_sha256": "c85a8157703af72875138d9945a9df434bcaf293cf3906219edee9bbb4f434e4",
-      "sanitized_sha256": "ee26ad02d995d961c510aeaef2d4a762e871c7628908c26bb13d5ad7dc2b742c"
+      "sanitized_sha256": "ee26ad02d995d961c510aeaef2d4a762e871c7628908c26bb13d5ad7dc2b742c",
+      "git_blob_content_sha256": "c85a8157703af72875138d9945a9df434bcaf293cf3906219edee9bbb4f434e4"
     },
     {
       "file": "approx_resources.inl",
       "private_source_sha256": "ae042b29f813e24f46fe6e75c215b76f39200599ce818b0922b706fabe9b3867",
-      "sanitized_sha256": "ed986925932f8c79698a57d15e2f0eeaa0987c8b8d38c2f5d0a34df0385f0ba7"
+      "sanitized_sha256": "ed986925932f8c79698a57d15e2f0eeaa0987c8b8d38c2f5d0a34df0385f0ba7",
+      "git_blob_content_sha256": "ae042b29f813e24f46fe6e75c215b76f39200599ce818b0922b706fabe9b3867"
     },
     {
       "file": "approx_child.inl",
       "private_source_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98",
-      "sanitized_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98"
+      "sanitized_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98",
+      "git_blob_content_sha256": "fd338620171f68ea3583d4d113257131a95b6bce32ca3e5205d0944b7c6d40f2"
     },
     {
       "file": "two_rr_host.inl",
       "private_source_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18",
-      "sanitized_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18"
+      "sanitized_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18",
+      "git_blob_content_sha256": "f235a33b84367ec1f1bf8a5dcb98282d6714f892fe50134441827da10a581dc4"
     },
     {
       "file": "ratio_oracle.py",
       "private_source_sha256": "c8decfc3a65a9060c58f3a98452e969026059668317ae49315c0cb354e5e7a0a",
-      "sanitized_sha256": "9a43c95602785f59f82b1e28120d3e03526b8fb741da3925f8c14ba80ea03caf"
+      "sanitized_sha256": "9a43c95602785f59f82b1e28120d3e03526b8fb741da3925f8c14ba80ea03caf",
+      "git_blob_content_sha256": "c8decfc3a65a9060c58f3a98452e969026059668317ae49315c0cb354e5e7a0a"
     },
     {
       "file": "two_rr_receipt.py",
       "private_source_sha256": "16f4ff94831731a8340419c8e9eea4edb8f3684425f421c97a7a14e235ce568b",
-      "sanitized_sha256": "6f608e72a3a980dadbadcbcf93e05d08e92eccafd853009598927b7551796e3b"
+      "sanitized_sha256": "6f608e72a3a980dadbadcbcf93e05d08e92eccafd853009598927b7551796e3b",
+      "git_blob_content_sha256": "16f4ff94831731a8340419c8e9eea4edb8f3684425f421c97a7a14e235ce568b"
     },
     {
       "file": "run_two_rr.py",
       "private_source_sha256": "c2cef9c03e84b11a8eb3122595b8c980a9332ad63b5305d323523e29db8ae7f9",
-      "sanitized_sha256": "7986965dc26128a463b4b150fc4ad873acdd68b048de40040a0bf9ced2348a4b"
+      "sanitized_sha256": "7986965dc26128a463b4b150fc4ad873acdd68b048de40040a0bf9ced2348a4b",
+      "git_blob_content_sha256": "c2cef9c03e84b11a8eb3122595b8c980a9332ad63b5305d323523e29db8ae7f9"
     },
     {
       "file": "critical.diff",
       "private_source_sha256": "f70017e84d712ae3e560244325c2e1ab76b47699b823494dc322245887972014",
-      "sanitized_sha256": "f70017e84d712ae3e560244325c2e1ab76b47699b823494dc322245887972014"
+      "sanitized_sha256": "f70017e84d712ae3e560244325c2e1ab76b47699b823494dc322245887972014",
+      "git_blob_content_sha256": "b8c7818318cfe1d8e4abd9626342efa64dcbf95c63a009c8287bd0784b0741c9"
     },
     {
       "file": "V1_TO_V2.diff",
       "private_source_sha256": "23b0a40056ae3a1be447db56964f33e443ca4801df8bf971a306b55f00ef1549",
-      "sanitized_sha256": "3f8202fad108c54e2d024f2beeb27a3ff9ab34dd45c31cf6dec89952da4c63f9"
+      "sanitized_sha256": "3f8202fad108c54e2d024f2beeb27a3ff9ab34dd45c31cf6dec89952da4c63f9",
+      "git_blob_content_sha256": "549baf3a293d8f7a6f637b14a45b558fed307181b4704e27a21cb22483d71388"
     },
     {
       "file": "README.md",
       "private_source_sha256": "17529293152e4be73d458e312dad75b34f2a7fd8ae3451efe913a47d84a054b1",
-      "sanitized_sha256": "31547646f704235e74cc6d7471bbed89cdde71a844fb6f21f86531aec02af6a5"
+      "sanitized_sha256": "31547646f704235e74cc6d7471bbed89cdde71a844fb6f21f86531aec02af6a5",
+      "git_blob_content_sha256": "17529293152e4be73d458e312dad75b34f2a7fd8ae3451efe913a47d84a054b1"
     },
     {
       "file": "CPU_RECORDING_CONTRACT.json",
       "private_source_sha256": "a5a2b8b75dcd01078e0e1131c293ebda95a2a0dfbdf0be778ee5889249e81086",
-      "sanitized_sha256": "a5a2b8b75dcd01078e0e1131c293ebda95a2a0dfbdf0be778ee5889249e81086"
+      "sanitized_sha256": "a5a2b8b75dcd01078e0e1131c293ebda95a2a0dfbdf0be778ee5889249e81086",
+      "git_blob_content_sha256": "2eeb891c2b7f98d271a4b3107a4e03b4ec0a3eb415f5badb3471caf77b27044f"
     },
     {
       "file": "recording_contract_cpu.cpp",
       "private_source_sha256": "3f2f7009add517e36871e9b02f1ef58ff3ca1de9e1222b1c4d9d581714bc7405",
-      "sanitized_sha256": "5fb3148c94d569344a197060ebb6986b31ef7dc54b4cb1b1fe6eb1e8a0c660a9"
+      "sanitized_sha256": "5fb3148c94d569344a197060ebb6986b31ef7dc54b4cb1b1fe6eb1e8a0c660a9",
+      "git_blob_content_sha256": "b71e3ad350be158fdaab3a40109f395a5d38fc26f25f8811421f77b3f8982bf6"
     },
     {
       "file": "BRANCH_CHANGE_SCOPE.json",
       "private_source_sha256": "cb3bbe527d5617e9357785c56429f9137774a92d46f853133e90965f390834ea",
-      "sanitized_sha256": "cb3bbe527d5617e9357785c56429f9137774a92d46f853133e90965f390834ea"
+      "sanitized_sha256": "cb3bbe527d5617e9357785c56429f9137774a92d46f853133e90965f390834ea",
+      "git_blob_content_sha256": "1f70de17769ebb79aff9a54332479d8507e306585662833c6b791def35a24de5"
     }
   ],
-  "review_diff_format": "zero-context diff of sanitized review copies; frozen private source unchanged"
+  "review_diff_format": "zero-context diff of sanitized review copies; frozen private source unchanged",
+  "hash_scope_note": "Private/local byte hashes remain unchanged; git_blob_content_sha256 pins the exact staged review content after Git line-ending normalization."
 }
