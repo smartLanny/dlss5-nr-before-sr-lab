@@ -76,6 +76,7 @@ void LayerBegin(Context& c,Flight& f,unsigned layer) {
     if(!p.recorder.Begin(f.list,p.index,active.token)){p.recorder.Discard(p.index);p.index=nr_replay::Recorder::Invalid;Fail("recording-ledger");return;}
     p.identity={active.request,c.generation,model.context.instance_id,active.source,
         layer?c.numerator:1u,layer?c.denominator:1u,static_cast<unsigned>(model.context.codec_color_mode),g_config.generic_residual?1u:0u};
+    p.identity.generic_algorithm=g_config.generic_algorithm;
     std::copy_n(g_config.generic_gains,5,p.identity.gains);
     p.identity.full_passes=FullReference(g_config)?c.passes:0;p.identity.layer=layer+1;
     p.identity.present=true;p.identity.export_status=&status;p.identity.remaining=&remaining_exports;

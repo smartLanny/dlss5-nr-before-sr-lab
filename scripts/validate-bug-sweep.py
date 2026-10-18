@@ -203,6 +203,7 @@ int main() {
 
     def test_lighting_protection_is_only_attenuation(self) -> None:
         block = definition(source, "if (LightingLock > 0.000001")
+        mean = definition(source, "float ModelLightingMeanV2(") if "float ModelLightingMeanV2(" in source else ""
         self.run_cpp("lighting-lock", r'''
 float clamp(double x, double a, double b) { return static_cast<float>(std::clamp(x, a, b)); }
 float max(double a, double b) { return static_cast<float>(std::max(a, b)); }
@@ -226,6 +227,7 @@ float2 ModelLightingTapV2(float2 p, float) {
     const unsigned i=p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3;
     return {taps[i]*weights[i],weights[i]};
 }
+MEAN
 float apply(float logRatio, float rawLog, float LightingLock) {
     const float proxyLuma = 1.f, neuralLuma = std::exp2(rawLog);
     const float2 center(0, 0);
@@ -263,7 +265,7 @@ int main() {
     }
     return finish("actual HLSL lighting block compiled with scalar host intrinsics");
 }
-'''.replace("BLOCK", block))
+'''.replace("BLOCK", block).replace("MEAN", mean))
 
     def test_native_hook_enable_failure_retries_its_own_trampoline(self) -> None:
         functions = "\n".join(definition(source, marker) for marker in (

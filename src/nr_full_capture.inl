@@ -53,6 +53,7 @@ void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     layer.identity={request,primary.instance_id,aux.instance_id,primary.evaluations,
         1u,1u,
         main.dual_model_domain,g_config.generic_residual?1u:0u};
+    layer.identity.generic_algorithm=g_config.generic_algorithm;
     std::copy_n(g_config.generic_gains,5,layer.identity.gains);
     layer.identity.full_passes=total_passes;layer.identity.layer=auxiliary+2;
     nr_dual_capture::status.store(1);

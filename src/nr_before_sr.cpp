@@ -989,7 +989,8 @@ struct ChainConfig {
     nr_layers::Auxiliary nr_layers{};
     bool nr_uniform_migrated=false;
     bool generic_residual=false;
-    float generic_gains[5]={1,1,1,1,1}; // total, bright RGB, dark RGB, HSL S, HSL L
+    unsigned generic_algorithm=0; // 0 legacy HSL; 1 explicit continuous SDR.
+    float generic_gains[5]={1,1,1,1,1}; // Versioned: total, bright, dark, colour/S, light/L.
     bool region_enabled=false;
     float region_gains[11]={1,1,1,1,1,1,1,1,1,1,1};
     unsigned region_preview=0;
@@ -1701,7 +1702,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
            a.nr_passes==b.nr_passes && a.nr_second_numerator==b.nr_second_numerator && a.nr_second_denominator==b.nr_second_denominator &&
-           a.generic_residual==b.generic_residual && std::equal(a.generic_gains,a.generic_gains+5,b.generic_gains) &&
+           a.generic_residual==b.generic_residual && a.generic_algorithm==b.generic_algorithm && std::equal(a.generic_gains,a.generic_gains+5,b.generic_gains) &&
            a.region_version==b.region_version && a.region_enabled==b.region_enabled &&
            a.region_preview==b.region_preview && std::equal(a.region_gains,a.region_gains+11,b.region_gains) &&
            a.face_protection_version==b.face_protection_version && a.face_protection==b.face_protection &&
@@ -1875,6 +1876,7 @@ void ReloadConfig(bool force = false) {
     next.nr_second_numerator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleNumerator",1,g_ini_path);
     next.nr_second_denominator=GetPrivateProfileIntW(L"NRBeforeSR",L"NRSecondScaleDenominator",2,g_ini_path);
     next.generic_residual=GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualExperiment",0,g_ini_path)!=0;
+    next.generic_algorithm=nr_generic::NormalizeAlgorithm(GetPrivateProfileIntW(L"NRBeforeSR",L"GenericResidualAlgorithm",0,g_ini_path));
     for(unsigned i=0;i<5;i++){wchar_t key[48];swprintf_s(key,L"GenericResidualGain%u",i);next.generic_gains[i]=ReadIniFloat(key,1.f);}
     next.region_enabled=GetPrivateProfileIntW(L"NRBeforeSR",L"RegionComposition",0,g_ini_path)!=0;
     for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);next.region_gains[i]=ReadIniFloat(key,1.f);}
@@ -2137,6 +2139,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
     record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
     record_write(WriteIniInt(L"GenericResidualExperiment",config.generic_residual?1:0));
+    record_write(WriteIniInt(L"GenericResidualAlgorithm",static_cast<int>(config.generic_algorithm)));
     for(unsigned i=0;i<5;i++){wchar_t key[48];swprintf_s(key,L"GenericResidualGain%u",i);record_write(WriteIniFloat(key,config.generic_gains[i]));}
     record_write(WriteIniInt(L"RegionComposition",config.region_enabled?1:0));
     for(unsigned i=0;i<11;i++){wchar_t key[48];swprintf_s(key,L"RegionGain%u",i);record_write(WriteIniFloat(key,config.region_gains[i]));}
@@ -3369,6 +3372,108 @@ float4 ApplyGenericStoredV1(float3 original,float4 answer) {
 }
 // GENERIC_RESIDUAL_V1_END
 
+// Independently implemented continuous Generic controls. Oklab matrices are
+// by Bjorn Ottosson (2021-01-25), public domain:
+// https://bottosson.github.io/posts/oklab/
+// No Magpie application code, SDR gamut search or protection thresholds are
+// imported. The existing Core compositor owns final luminance/gamut limits.
+#ifndef NR_GENERIC_CONTROLS_HLSLI
+#define NR_GENERIC_CONTROLS_HLSLI
+// NR_GENERIC_CONTROLS_MATH_BEGIN
+struct GenericControlledV2 {
+    float3 colorLinear;
+    float lumaLinear;
+    bool valid;
+};
+float GenericCubeRootV2(float v) {
+    return v < 0.0f ? -pow(-v, 1.0f / 3.0f) : pow(v, 1.0f / 3.0f);
+}
+float3 GenericLinearToLabV2(float3 c) {
+    float l = GenericCubeRootV2(dot(c, float3(0.4122214708f, 0.5363325363f, 0.0514459929f)));
+    float m = GenericCubeRootV2(dot(c, float3(0.2119034982f, 0.6806995451f, 0.1073969566f)));
+    float s = GenericCubeRootV2(dot(c, float3(0.0883024619f, 0.2817188376f, 0.6299787005f)));
+    return float3(0.2104542553f*l + 0.7936177850f*m - 0.0040720468f*s,
+        1.9779984951f*l - 2.4285922050f*m + 0.4505937099f*s,
+        0.0259040371f*l + 0.7827717662f*m - 0.8086757660f*s);
+}
+float3 GenericLabToLinearV2(float3 c) {
+    float l = c.x + 0.3963377774f*c.y + 0.2158037573f*c.z;
+    float m = c.x - 0.1055613458f*c.y - 0.0638541728f*c.z;
+    float s = c.x - 0.0894841775f*c.y - 1.2914855480f*c.z;
+    l = l*l*l; m = m*m*m; s = s*s*s;
+    return float3(4.0767416621f*l - 3.3077115913f*m + 0.2309699292f*s,
+        -1.2684380046f*l + 2.6097574011f*m - 0.3413193965f*s,
+        -0.0041960863f*l - 0.7034186147f*m + 1.7076147010f*s);
+}
+bool GenericFiniteV2(float3 c) {
+    return all(isfinite(c)) && all(abs(c) <= 65504.0f);
+}
+float GenericControlLumaV2(float originalY, float candidateY,
+    float bright, float dark, float light) {
+    // A colour-only control does not perturb neutral luminance by a redundant
+    // subtract/add round trip. The same scalar runs at the final pixel and
+    // every lighting/detail tap; no Oklab conversion is needed by neighbours.
+    if (bright == 1.0f && dark == 1.0f && light == 1.0f) return candidateY;
+    float deltaY = candidateY - originalY;
+    return originalY +
+        (max(deltaY, 0.0f)*bright + min(deltaY, 0.0f)*dark)*light;
+}
+GenericControlledV2 GenericControlLinearV2(float3 original, float3 answer,
+    float total, float bright, float dark, float colour, float light) {
+    GenericControlledV2 result;
+    result.colorLinear = answer;
+    result.lumaLinear = dot(answer, kLuma);
+    result.valid = GenericFiniteV2(original) && GenericFiniteV2(answer) &&
+        isfinite(total) && isfinite(bright) && isfinite(dark) &&
+        isfinite(colour) && isfinite(light);
+    if (!result.valid) return result;
+    if (total == 1.0f && bright == 1.0f && dark == 1.0f &&
+        colour == 1.0f && light == 1.0f) return result;
+    float3 delta = answer - original;
+    if (total == 0.0f || all(delta == 0.0f)) {
+        result.colorLinear = original;
+        result.lumaLinear = dot(original, kLuma);
+        return result;
+    }
+    float3 candidate = total == 1.0f ? answer : original + delta*total;
+    // Only the scalar crosses the bright/dark branch. The colour vector does
+    // not jump when a nonzero chroma edit has zero linear luminance difference.
+    result.lumaLinear = GenericControlLumaV2(dot(original, kLuma),
+        dot(candidate, kLuma), bright, dark, light);
+    result.colorLinear = candidate;
+    if (colour == 0.0f) result.colorLinear = original;
+    [branch] if (colour != 0.0f && colour != 1.0f) {
+        float3 a = GenericLinearToLabV2(original);
+        float3 b = GenericLinearToLabV2(candidate);
+        float3 mixed = lerp(a, b, colour);
+        // Cartesian interpolation has no undefined hue at the grey axis.
+        // Endpoint correction cancels matrix round-trip error continuously;
+        // it does not clamp signed/over-range FP32 candidates at nonneutral
+        // settings. Core still uses the independent lumaLinear signal below.
+        float3 correction = lerp(original - GenericLabToLinearV2(a),
+            candidate - GenericLabToLinearV2(b), colour);
+        result.colorLinear = GenericLabToLinearV2(mixed) + correction;
+    }
+    result.valid = GenericFiniteV2(result.colorLinear) &&
+        isfinite(result.lumaLinear) && abs(result.lumaLinear) <= 65504.0f;
+    return result;
+}
+// NR_GENERIC_CONTROLS_MATH_END
+#endif
+
+bool GenericContinuousRequestedV2() { return (RegionFlags & 64u) != 0u; }
+
+float GenericNeuralLumaV2(float3 proxy, float3 neural) {
+    // Region flags are uniform. Legacy/all-neutral dispatches retain the raw
+    // dot product and their original two texture loads. Only the independent
+    // luminance signal is needed for protection, never the Oklab candidate.
+    [branch] if (!GenericContinuousRequestedV2()) return dot(neural, kLuma);
+    float3 candidate = RegionWideBrightLuma == 1.0f ? neural :
+        proxy + (neural - proxy)*RegionWideBrightLuma;
+    return GenericControlLumaV2(dot(proxy, kLuma), dot(candidate, kLuma),
+        RegionWideBrightColor, RegionFineBrightLuma, RegionWideDarkLuma);
+}
+
 float3 LoadNeuralLinearV2(int2 p) {
     int2 upper = int2(max(ModelWidth, 1u) - 1u,
                       max(ModelHeight, 1u) - 1u);
@@ -3586,8 +3691,10 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
         float2(max(Width, 1u), max(Height, 1u)) - 0.5;
     int2 pxy = int2(round(mapped));
-    float p = max(dot(LoadProxyLinearV2(pxy), kLuma), 1.0 / 4096.0);
-    float n = max(dot(LoadNeuralLinearV2(pxy), kLuma), 1.0 / 4096.0);
+    float3 proxy = LoadProxyLinearV2(pxy);
+    float3 neural = LoadNeuralLinearV2(pxy);
+    float p = max(dot(proxy, kLuma), 1.0 / 4096.0);
+    float n = max(GenericNeuralLumaV2(proxy, neural), 1.0 / 4096.0);
     return clamp(n / p, 1.0 / 256.0, 256.0);
 }
 
@@ -3599,8 +3706,10 @@ float2 ModelLightingTapV2(float2 fullPixelCenter, float centerProxyLuma) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
         float2(max(Width, 1u), max(Height, 1u)) - 0.5;
     int2 pxy = int2(round(mapped));
-    float p = dot(LoadProxyLinearV2(pxy), kLuma);
-    float n = dot(LoadNeuralLinearV2(pxy), kLuma);
+    float3 proxy = LoadProxyLinearV2(pxy);
+    float3 neural = LoadNeuralLinearV2(pxy);
+    float p = dot(proxy, kLuma);
+    float n = GenericNeuralLumaV2(proxy, neural);
     if (!isfinite(p) || !isfinite(n)) return float2(0.0, 0.0);
     p = max(p, 1.0 / 4096.0);
     n = max(n, 1.0 / 4096.0);
@@ -3608,6 +3717,18 @@ float2 ModelLightingTapV2(float2 fullPixelCenter, float centerProxyLuma) {
         max(max(p, centerProxyLuma), 1.0 / 4096.0);
     float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
     return float2(weight * clamp(n / p, 1.0 / 256.0, 256.0), weight);
+}
+
+float ModelLightingMeanV2(float2 center, float proxyLuma, float neuralLuma) {
+    const float radius = 8.0;
+    // Both final compositors share the exact same controlled centre and tap
+    // semantics. Retain the established weights, guidance and one-log mean.
+    float2 local = float2(0.40 * (neuralLuma / proxyLuma), 0.40);
+    local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), proxyLuma);
+    local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), proxyLuma);
+    local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), proxyLuma);
+    local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), proxyLuma);
+    return clamp(log2(max(local.x / local.y, 1.0 / 256.0)), -8.0, 8.0);
 }
 
 // Only the residual is filtered. Uniform edits and the original image remain intact.
@@ -4419,7 +4540,8 @@ ColourLabRgbResult ColourLabRestoreRgb(
     float rawRelative, float protectedRelative, float colorStrength,
     float confidence, float maxRatio, float regionColor,
     float faceMask, float faceOriginalColor, bool faceExtraCap,
-    bool boundedSdr, bool rawEditReference) {
+    bool boundedSdr, bool rawEditReference,
+    bool separateLuma, float modelLumaDelta) {
     ColourLabRgbResult outValue;
     outValue.rgb = source;
     outValue.valid = false;
@@ -4429,11 +4551,13 @@ ColourLabRgbResult ColourLabRestoreRgb(
         !isfinite(rawRelative) || !isfinite(protectedRelative) ||
         !isfinite(colorStrength) || !isfinite(confidence) ||
         !isfinite(maxRatio) || !isfinite(regionColor) ||
-        !isfinite(faceMask) || !isfinite(faceOriginalColor)) return outValue;
+        !isfinite(faceMask) || !isfinite(faceOriginalColor) ||
+        (separateLuma && !isfinite(modelLumaDelta))) return outValue;
     outValue.valid = true;
     float3 delta = neural - proxy; // Already decoded on the same paired grid.
     float effectiveConfidence = rawEditReference ? 1.0f : saturate(confidence);
-    if (all(delta == 0.0f) || effectiveConfidence <= 0.0f) return outValue;
+    if ((all(delta == 0.0f) && (!separateLuma || modelLumaDelta == 0.0f)) ||
+        effectiveConfidence <= 0.0f) return outValue;
     float sourceLuma = dot(source, kLuma);
     float sourcePeak = ColourLabPeak(source);
     float preparedPeak = ColourLabPeak(prepared);
@@ -4445,7 +4569,10 @@ ColourLabRgbResult ColourLabRestoreRgb(
     // intact when the proxy/model pair is reconstructed from a smaller grid.
     float inverseSourceScale = sourcePeak / preparedPeak;
     float3 sourceDelta = delta * inverseSourceScale;
-    float deltaLuma = dot(sourceDelta, kLuma);
+    // Continuous Generic returns an independent brightness signal. Chroma
+    // interpolation must not feed back into the final target luminance.
+    float deltaLuma = separateLuma ? modelLumaDelta * inverseSourceScale
+                                 : dot(sourceDelta, kLuma);
     // Diagnostic raw reference: answer whether the model already created the
     // missing structure. Aesthetic luminance attenuation is bypassed, while
     // finite/gamut/max-ratio and all GPU/resource safety stay intact.
@@ -4457,7 +4584,8 @@ ColourLabRgbResult ColourLabRestoreRgb(
     if (boundedSdr) targetLuma = min(targetLuma, 1.0f);
     float3 lumaOnly = targetLuma == sourceLuma ? source : source * (targetLuma / sourceLuma);
     float3 result = lumaOnly;
-    float candidateLuma = sourceLuma + deltaLuma;
+    float candidateLuma = separateLuma ? dot(source + sourceDelta, kLuma)
+                                      : sourceLuma + deltaLuma;
     float colour = clamp(colorStrength, 0.0f, 2.0f) * effectiveConfidence;
     if (rawEditReference) {
         // Region and face attenuation are presentation choices, not validity
@@ -4492,6 +4620,18 @@ ColourLabRgbResult ColourLabRestoreRgb(
     if (!all(isfinite(result))) { outValue.valid = false; return outValue; }
     outValue.rgb = result;
     return outValue;
+}
+// Preserve every existing caller and its original arithmetic/guards.
+ColourLabRgbResult ColourLabRestoreRgb(
+    float3 source, float3 prepared, float3 proxy, float3 neural,
+    float rawRelative, float protectedRelative, float colorStrength,
+    float confidence, float maxRatio, float regionColor,
+    float faceMask, float faceOriginalColor, bool faceExtraCap,
+    bool boundedSdr, bool rawEditReference) {
+    return ColourLabRestoreRgb(source, prepared, proxy, neural,
+        rawRelative, protectedRelative, colorStrength, confidence, maxRatio,
+        regionColor, faceMask, faceOriginalColor, faceExtraCap, boundedSdr,
+        rawEditReference, false, 0.0f);
 }
 // NR_COLOUR_RESTORE_MATH_END
 
@@ -4867,9 +5007,25 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         neural = SRGBToLinear(neural);
     }
 
+    const bool continuousGeneric = GenericContinuousRequestedV2();
+    float genericNeuralLuma = 0.0;
+    [branch] if (continuousGeneric) {
+        GenericControlledV2 controlled = GenericControlLinearV2(proxy, neural,
+            RegionWideBrightLuma, RegionWideBrightColor, RegionFineBrightLuma,
+            RegionFineBrightColor, RegionWideDarkLuma);
+        if (!controlled.valid) {
+            WriteCombined(tid.xy, destinationCoord, storedOriginal);
+            RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, true);
+            return;
+        }
+        neural = controlled.colorLinear;
+        genericNeuralLuma = controlled.lumaLinear;
+    }
     float3 modelDelta = neural - proxy;
     if (max(abs(modelDelta.r), max(abs(modelDelta.g), abs(modelDelta.b))) <=
-        0.000001) {
+        0.000001 && (!continuousGeneric ||
+        abs(genericNeuralLuma - dot(proxy, kLuma)) <= 0.000001)) {
         // A no-op neural result must be a strict per-pixel identity. Avoiding
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
@@ -4888,7 +5044,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float3 source = original * normalizer;
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
-    float neuralLuma = dot(neural, kLuma);
+    float neuralLuma = continuousGeneric ? genericNeuralLuma : dot(neural, kLuma);
     float regionReferenceLuma=proxyLuma;
     if((RegionFlags&1u)!=0u){
         // Match this route's original EncodeCS contract at the full-resolution
@@ -4919,15 +5075,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         float safeProxyLuma = max(proxyLuma, 1.0 / 4096.0);
         float safeNeuralLuma = max(neuralLuma, 1.0 / 4096.0);
         float logRatio = clamp(log2(safeNeuralLuma / safeProxyLuma), -8.0, 8.0);
-        const float radius = 8.0;
         float2 center = float2(tid.xy) + 0.5;
-        float2 local = float2(0.40 * (safeNeuralLuma / safeProxyLuma), 0.40);
-        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), safeProxyLuma);
-        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), safeProxyLuma);
-        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), safeProxyLuma);
-        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), safeProxyLuma);
-        float localMean = clamp(log2(max(local.x / local.y, 1.0 / 256.0)),
-                                -8.0, 8.0);
+        float localMean = ModelLightingMeanV2(center, safeProxyLuma, safeNeuralLuma);
         float protectedLog = clamp(logRatio - localMean,
                                    min(logRatio, 0.0), max(logRatio, 0.0));
         logRatio = lerp(logRatio, protectedLog, lightingAmount);
@@ -4970,11 +5119,13 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float3 result = lumaOnly;
     if (ColourLabRgbEnabled()) {
         ColourLabRgbResult restored = ColourLabRestoreRgb(source, ColourLabPreparedReference(storedOriginal.rgb, source),
-            proxy, neural, dot(neural - proxy, kLuma) / proxyReference, lumaRatio - 1.0,
+            proxy, neural, (continuousGeneric ? genericNeuralLuma - proxyLuma :
+                dot(neural - proxy, kLuma)) / proxyReference, lumaRatio - 1.0,
             ColorStrength, transferConfidence * saturate(FrameConfidence), maxRatio, regionGain.y,
             faceMask, FaceOriginalColor, (FaceOptions & 2u) != 0u,
             (Passthrough & (1u | 16u | 32u)) != 0u,
-            ColourLabRawEditRequested());
+            ColourLabRawEditRequested(), continuousGeneric,
+            genericNeuralLuma - dot(proxy, kLuma));
         if (any(storedOriginal.rgb < 0.0)) restored.valid = false;
         if (!restored.valid || (!lightStylePreview && all(restored.rgb == source))) {
             WriteCombined(tid.xy, destinationCoord, storedOriginal);
@@ -5087,7 +5238,7 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result,
         float3 p=SampleProxyLinearV2(center), n=SampleNeuralLinearV2(center);
         float4 decision=float4(1.0,32.0,0.0,0.0);
         if(ModelNeighborhoodFiniteV2(center) && all(p==p) && all(n==n)) {
-            float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(dot(n,kLuma),1.0/4096.0);
+            float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(GenericNeuralLumaV2(p,n),1.0/4096.0);
             float raw=clamp(log2(nl/pl),-8.0,8.0);
             if ((Passthrough & 8192u) != 0u) raw=SampleRestoredEdit(center).x;
             decision=DetailDecisionV2(center,raw,pl);
@@ -5341,6 +5492,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         nStored=ApplyGenericStoredV1(pStored,float4(nStored,1)).rgb;
         neural=(Passthrough&1u)!=0u?nStored:SRGBToLinear(nStored);
     }
+    const bool continuousGeneric = GenericContinuousRequestedV2();
+    float genericNeuralLuma = 0.0;
+    bool genericValid = true;
+    [branch] if (continuousGeneric) {
+        GenericControlledV2 controlled = GenericControlLinearV2(proxy, neural,
+            RegionWideBrightLuma, RegionWideBrightColor, RegionFineBrightLuma,
+            RegionFineBrightColor, RegionWideDarkLuma);
+        neural = controlled.colorLinear;
+        genericNeuralLuma = controlled.lumaLinear;
+        genericValid = controlled.valid;
+    }
     float3 fullProxy = ColourLabRgbEnabled()
         ? ColourLabPreparedReference(storedOriginal.rgb, source)
         : EncodeProxyLinearV2(source);
@@ -5349,7 +5511,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     const bool lightStyleActive = (Passthrough & 262144u) != 0u;
     const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
 
-    bool finiteInputs = edgePairValid && ModelNeighborhoodFiniteV2(center) &&
+    bool finiteInputs = genericValid && edgePairValid && ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(source == source) && all(proxy == proxy) && all(neural == neural) &&
         all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
@@ -5367,6 +5529,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
+    if (continuousGeneric)
+        diagnosticDelta = max(diagnosticDelta, abs(genericNeuralLuma - dot(proxy, kLuma)));
     if ((FaceOptions&4u)!=0u && finiteInputs && !unsupportedSignedSource) {
         float3 preview=lerp(diagnosticOriginal*.3,float3(0,.75,1),faceMask*.85);
         WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(preview),storedOriginal.a), capturedProxy, capturedNeural, NrReconScaled());
@@ -5390,10 +5554,15 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
 
     float sourceLuma = max(dot(source, kLuma), 0.0);
     float proxyLuma = max(dot(proxy, kLuma), 1.0 / 4096.0);
-    float neuralLuma = max(dot(neural, kLuma), 1.0 / 4096.0);
+    float neuralLuma = max(continuousGeneric ? genericNeuralLuma : dot(neural, kLuma), 1.0 / 4096.0);
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
+    // The independent-chroma consumer follows the colour candidate's Y. The
+    // default ratio path keeps its established protected log/colour budgets,
+    // so moving a control off neutral cannot switch that final guard formula.
+    float rawColourLumaLog = continuousGeneric
+        ? log2(max(dot(neural, kLuma), 1.0 / 4096.0) / proxyLuma) : rawModelLumaLog;
     RegionSelectionV1 regions=SelectRegionV1(center,rawModelLumaLog,fullProxyLuma);
     float2 regionGain=RegionGainV1(regions);
     if((RegionFlags&14u)!=0u){WriteCombinedV2(tid.xy,destinationCoord,float4(EncodeCompositionToStoredV2(RegionPreviewV1(regions)),storedOriginal.a), capturedProxy, capturedNeural, NrReconScaled());return;}
@@ -5419,18 +5588,10 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     // different surface cannot leave a rim of uncorrected model darkening.
     // Keep this branch completely free when LightingLock is zero.
     if (LightingLock > 0.000001 || (layeredActive && LayerTone != LayerStructure)) {
-        const float radius = 8.0;
         // The known finite centre anchors the denominator at >= 0.40. Flat
         // regions retain the previous 0.40/0.15 weights and one-log estimator;
         // rejecting every neighbour falls back to this pixel's own ratio.
-        float2 local = float2(0.40 * (neuralLuma / proxyLuma), 0.40);
-        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), proxyLuma);
-        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), proxyLuma);
-        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), proxyLuma);
-        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), proxyLuma);
-        float localRatio = local.x / local.y;
-        float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
-                                -8.0, 8.0);
+        float localMean = ModelLightingMeanV2(center, proxyLuma, neuralLuma);
         layerMean = localMean;
         // Protection may only attenuate this pixel's existing edit. A sparse
         // neighbour mean can exceed (or oppose) its residual at a face/geometry
@@ -5531,7 +5692,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             ColorStrength, confidence, maxRatio, regionGain.y,
             faceMask, FaceOriginalColor, (FaceOptions & 2u) != 0u,
             (Passthrough & (1u | 16u | 32u)) != 0u,
-            ColourLabRawEditRequested());
+            ColourLabRawEditRequested(), continuousGeneric,
+            genericNeuralLuma - dot(proxy, kLuma));
         if (any(storedOriginal.rgb < 0.0)) restored.valid = false;
         if (!restored.valid || (!lightStylePreview && all(restored.rgb == source))) {
             WriteCombinedV2(tid.xy, destinationCoord, storedOriginal, capturedProxy, capturedNeural, NrReconScaled());
@@ -5577,7 +5739,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             // Extract colour before luminance-only detail/lighting protection.
             // TransferStrength remains the master zero gate, but nonzero luma
             // strength/layers do not amplify or rotate this independent edit.
-            float3 independentLog = logRgbRatio - rawModelLumaLog.xxx;
+            float3 independentLog = logRgbRatio - rawColourLumaLog.xxx;
             float peak = max(abs(independentLog.r),
                 max(abs(independentLog.g), abs(independentLog.b)));
             poweredChromaLog = independentLog * IndependentChromaScaleV4(
@@ -6005,6 +6167,7 @@ enum class CodecColorMode : unsigned int {
 };
 
 #include "nr_color_policy.inl"
+#include "nr_generic_runtime.inl"
 
 bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) {
     return requested &&
@@ -10420,10 +10583,15 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         constants.region_flags=1u|(frame_config.region_preview<<1)|((slot.region_constants[6]&16u)?16u:0u);
     }
     if(!primary_heap&&slot.dual_selected){constants.dual_low_width=slot.dual_low_width;constants.dual_low_height=slot.dual_low_height;constants.dual_residual=slot.dual_reduced?1u:0u;constants.dual_model_domain=slot.dual_model_domain;}
+    const auto generic_selection = nr_generic::Select(frame_config, any_combine,
+        color_mode == CodecColorMode::LinearSdr || color_mode == CodecColorMode::SrgbEncodedSdr,
+        frame_config.colour_restore_mode == 2 || frame_config.colour_neutral_probe,
+        v2_combine && (frame_config.low_grid_edit_field || frame_config.low_grid_color_edit_field));
     if(frame_config.generic_residual){
-        // Exclusive parameter bank: generic uses 5 floats, region uses 11.
+        // Exclusive parameter bank: Generic has five gains, region has eleven.
+        // An unsupported continuous request never silently invokes legacy HSL.
         std::copy(frame_config.generic_gains,frame_config.generic_gains+5,constants.region_gains);
-        constants.region_flags=32u;
+        constants.region_flags=generic_selection.flags;
     }
     constants.region_flags |= reconstruction.flags;
     if(any_combine&&!primary_heap)nr_replay::recorder.Composition(slot.replay_capture_index,&constants,
@@ -10441,6 +10609,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         command_list, (width + 7) / 8,
         ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
     if(primary_heap)return; // P1 never updates final-output diagnostics.
+    if (any_combine && frame_config.generic_residual) RecordGenericPolicy(generic_selection, false);
     if (pipeline == g_codec.encode)
         slot.colour_restore_encoding = {nr_colour_restore::Encoding::Post, slot.last_used_serial, prepared_input_curve, 0};
     else if (pipeline == g_codec.encode_v2 || pipeline == g_codec.lanczos_vertical)

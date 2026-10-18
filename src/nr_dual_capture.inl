@@ -9,6 +9,7 @@ struct Identity {
     unsigned numerator=1,denominator=1,domain=0,generic=0;
     float gains[5]{1,1,1,1,1};
     unsigned full_passes=0,layer=0;
+    unsigned generic_algorithm=0;
     bool present=false;
     std::atomic<unsigned>* export_status=nullptr;
     std::atomic<unsigned>* remaining=nullptr;
@@ -50,11 +51,11 @@ DWORD WINAPI Export(void* opaque) {
             "\"roles\":{\"Source\":\"stage reference input\",\"Proxy\":\"current layer model input\",\"Neural\":\"current layer model output\",\"Composite\":\"actual final composition\",\"Depth\":\"bound current-layer depth\",\"Motion\":\"bound current-layer motion\"},\n"
             "\"request\":%llu,\"parent_instance\":%llu,\"auxiliary_instance\":%llu,\"parent_evaluation\":%llu,\n"
             "\"scale\":[%u,%u],\"model_domain\":%u,\"phase\":\"unknown\",\n"
-            "\"generic\":%u,\"generic_gains\":[%.9g,%.9g,%.9g,%.9g,%.9g],\n"
+            "\"generic\":%u,\"generic_algorithm\":%u,\"generic_gains\":[%.9g,%.9g,%.9g,%.9g,%.9g],\n"
             "\"residual\":\"full reference directly selects the final layer; reduced NR2 uses matched residual; capture never reruns inference\",\n"
             "\"parameters\":\"captured-layer bound scalar snapshot in NRF header\",\"timing\":\"capture frame excluded from stable timing\"\n}\n",
             id.present?"present-nr-observed-frame-v1":"dual-nr-observed-frame-v1",
-            id.full_passes,id.layer,id.request,id.parent,id.auxiliary,id.parent_evaluation,id.numerator,id.denominator,id.domain,id.generic,
+            id.full_passes,id.layer,id.request,id.parent,id.auxiliary,id.parent_evaluation,id.numerator,id.denominator,id.domain,id.generic,id.generic_algorithm,
             double(id.gains[0]),double(id.gains[1]),double(id.gains[2]),double(id.gains[3]),double(id.gains[4]));
         ok=length>0&&static_cast<std::size_t>(length)<sizeof(json)&&swprintf_s(path,L"%ls\\metadata.json",directory)>=0;
         file=ok?CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr):INVALID_HANDLE_VALUE;
@@ -106,6 +107,7 @@ void Begin(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,NrCon
     if(!recorder.Begin(list,index,primary.pending_recording_token)){recorder.Discard(index);status.store(3);return;}
     main.dual_capture_index=index;
     identity={request,primary.instance_id,aux.instance_id,primary.evaluations,1u,1u,main.dual_model_domain,g_config.generic_residual?1u:0u};
+    identity.generic_algorithm=g_config.generic_algorithm;
     std::copy_n(g_config.generic_gains,5,identity.gains);
 }
 void Finish(ID3D12GraphicsCommandList* list,NrSlot& main) {

@@ -68,7 +68,8 @@ ColourLabRgbResult ColourLabRestoreRgb(
     float rawRelative, float protectedRelative, float colorStrength,
     float confidence, float maxRatio, float regionColor,
     float faceMask, float faceOriginalColor, bool faceExtraCap,
-    bool boundedSdr, bool rawEditReference) {
+    bool boundedSdr, bool rawEditReference,
+    bool separateLuma, float modelLumaDelta) {
     ColourLabRgbResult outValue;
     outValue.rgb = source;
     outValue.valid = false;
@@ -78,11 +79,13 @@ ColourLabRgbResult ColourLabRestoreRgb(
         !isfinite(rawRelative) || !isfinite(protectedRelative) ||
         !isfinite(colorStrength) || !isfinite(confidence) ||
         !isfinite(maxRatio) || !isfinite(regionColor) ||
-        !isfinite(faceMask) || !isfinite(faceOriginalColor)) return outValue;
+        !isfinite(faceMask) || !isfinite(faceOriginalColor) ||
+        (separateLuma && !isfinite(modelLumaDelta))) return outValue;
     outValue.valid = true;
     float3 delta = neural - proxy; // Already decoded on the same paired grid.
     float effectiveConfidence = rawEditReference ? 1.0f : saturate(confidence);
-    if (all(delta == 0.0f) || effectiveConfidence <= 0.0f) return outValue;
+    if ((all(delta == 0.0f) && (!separateLuma || modelLumaDelta == 0.0f)) ||
+        effectiveConfidence <= 0.0f) return outValue;
     float sourceLuma = dot(source, kLuma);
     float sourcePeak = ColourLabPeak(source);
     float preparedPeak = ColourLabPeak(prepared);
@@ -94,7 +97,10 @@ ColourLabRgbResult ColourLabRestoreRgb(
     // intact when the proxy/model pair is reconstructed from a smaller grid.
     float inverseSourceScale = sourcePeak / preparedPeak;
     float3 sourceDelta = delta * inverseSourceScale;
-    float deltaLuma = dot(sourceDelta, kLuma);
+    // Continuous Generic returns an independent brightness signal. Chroma
+    // interpolation must not feed back into the final target luminance.
+    float deltaLuma = separateLuma ? modelLumaDelta * inverseSourceScale
+                                 : dot(sourceDelta, kLuma);
     // Diagnostic raw reference: answer whether the model already created the
     // missing structure. Aesthetic luminance attenuation is bypassed, while
     // finite/gamut/max-ratio and all GPU/resource safety stay intact.
@@ -106,7 +112,8 @@ ColourLabRgbResult ColourLabRestoreRgb(
     if (boundedSdr) targetLuma = min(targetLuma, 1.0f);
     float3 lumaOnly = targetLuma == sourceLuma ? source : source * (targetLuma / sourceLuma);
     float3 result = lumaOnly;
-    float candidateLuma = sourceLuma + deltaLuma;
+    float candidateLuma = separateLuma ? dot(source + sourceDelta, kLuma)
+                                      : sourceLuma + deltaLuma;
     float colour = clamp(colorStrength, 0.0f, 2.0f) * effectiveConfidence;
     if (rawEditReference) {
         // Region and face attenuation are presentation choices, not validity
@@ -141,6 +148,18 @@ ColourLabRgbResult ColourLabRestoreRgb(
     if (!all(isfinite(result))) { outValue.valid = false; return outValue; }
     outValue.rgb = result;
     return outValue;
+}
+// Preserve every existing caller and its original arithmetic/guards.
+ColourLabRgbResult ColourLabRestoreRgb(
+    float3 source, float3 prepared, float3 proxy, float3 neural,
+    float rawRelative, float protectedRelative, float colorStrength,
+    float confidence, float maxRatio, float regionColor,
+    float faceMask, float faceOriginalColor, bool faceExtraCap,
+    bool boundedSdr, bool rawEditReference) {
+    return ColourLabRestoreRgb(source, prepared, proxy, neural,
+        rawRelative, protectedRelative, colorStrength, confidence, maxRatio,
+        regionColor, faceMask, faceOriginalColor, faceExtraCap, boundedSdr,
+        rawEditReference, false, 0.0f);
 }
 // NR_COLOUR_RESTORE_MATH_END
 

@@ -151,6 +151,8 @@ def main():
     common = re.search(r'// FOUR_REGION_SCALAR_BEGIN\n(.*?)// FOUR_REGION_SCALAR_END',source,re.S).group(1)
     post_helper = re.search(r'// POST_LIGHT_SCALAR_BEGIN\n(.*?)// POST_LIGHT_SCALAR_END',source,re.S).group(1)
     mean = definition(source,'float PostLightEditMeanV1(')
+    if 'float ModelLightingMeanV2(' in source:
+        mean += definition(source,'float ModelLightingMeanV2(')
     combine = definition(source,'void CombineCS(')
     body = combine[combine.index('    const float lightOriginalEdit'):combine.index('    float3 lumaOnly')]
     # Only the coordinate value is a deterministic stub. The original
