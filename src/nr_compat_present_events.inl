@@ -51,10 +51,14 @@ bool Submit(Context& c,unsigned slot,unsigned long long source,bool create,bool 
     else SetStatus(create?Status::Creating:Status::Preparing);
     return true;
 }
-bool CreateLayer(Context& c,Layer& l,ID3D12GraphicsCommandList* list) {
+bool CreateLayer(Context& c,Layer& l,ID3D12GraphicsCommandList* list,
+    bool* admission_refused=nullptr) {
+    if(admission_refused)*admission_refused=false;
     if(!Bind(c,l,l.context.params)){Poison(c,0xBAD00005u,"Create-parameter-contract");return false;}
-    void* handle=nullptr;c.opaque_called=true;
-    const auto result=CreateSignedNrFeature(list,l.context,SyntheticFeature(c),&handle);
+    void* handle=nullptr;bool api_called=false;
+    const auto result=CreateSignedNrFeature(list,l.context,SyntheticFeature(c),&handle,&api_called);
+    c.opaque_called|=api_called;
+    if(!api_called){if(admission_refused)*admission_refused=true;return false;}
     l.context.nr_handle=static_cast<NgxHandle*>(handle);
     if(result!=kNgxSuccess||!handle){Poison(c,result,"CreateFeature");return false;}
     for(const auto& other:c.layers)if(&other!=&l && other.context.nr_handle==l.context.nr_handle){
@@ -76,8 +80,11 @@ bool Bootstrap(Context& c,unsigned slot,unsigned long long source) {
     Transition(list,c.image.proxy,c.image.proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(list,c.image.neural,c.image.neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     Utility(c,list,c.layers[0].init_output,c.init_color,c.work);UavBarrier(list,c.image.neural);
-    if(!CreateLayer(c,c.layers[0],list))return false;
-    return Submit(c,slot,source,true,false); // no Evaluate before real Create completion
+    bool admission_refused=false;
+    if(!CreateLayer(c,c.layers[0],list,&admission_refused)&&!admission_refused)return false;
+    // Even a declined Create must submit the valid initialization packet: its
+    // recorded resource states and lifetime now need a real completion fence.
+    return Submit(c,slot,source,!admission_refused,false); // no Evaluate before real Create completion
 }
 void DrawBackbuffer(Context& c,Flight& f) {
     auto* list=f.list;auto state=D3D12_RESOURCE_STATE_PRESENT;
@@ -127,8 +134,11 @@ bool Frame(Context& c,unsigned slot,ID3D12Resource* backbuffer,unsigned long lon
             if(!nr_dual::dx12::RecordCreationInputs(c.spatial_pipelines,l.spatial,list,state)){
                 Poison(c,0xBAD00005u,"prepare-later-Create");return false;}
             parent.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
-            if(!CreateLayer(c,l,list))return false;
-            return Submit(c,slot,source,true,false);
+            bool admission_refused=false;
+            if(!CreateLayer(c,l,list,&admission_refused)&&!admission_refused)return false;
+            // Prior successful layer evaluations stay valid and pinned. This
+            // source is not adopted when the requested later model was refused.
+            return Submit(c,slot,source,!admission_refused,false);
         }
         if(!Bind(c,l,parameters)){Poison(c,0xBAD00005u,"Evaluate-parameter-contract");return false;}
         ++observation.attempted[i];
@@ -260,6 +270,15 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
         ReleaseCom(device);SetStatus(Status::RetryBackoff);return;
     }
     const auto reject_build=[retry_token](const char* reason){nr_processing_runtime::RejectBeforePresentWork(retry_token,reason);};
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    if (!ValidateNrActiveNetworkRequests()) {
+        const bool retired = !current || RetireCurrent();
+        ReleaseCom(device);
+        reject_build("network-request-unavailable-or-invalid");
+        if (!retired) { if (!current->timeline.Poisoned()) SetStatus(Status::Draining); return; }
+        SetStatus(Status::BuildFailure); return;
+    }
+#endif
     const auto& source_lease=nr_source_runtime::CurrentPresentLease();
     const bool native_guides=NativeGuideAvailable(source_lease);
     if(!native_guides&&!source_lease.color_only){ReleaseCom(device);SetStatus(Status::MissingNativeGuides);return;}
@@ -289,6 +308,18 @@ void OnPresent(reshade::api::command_queue* queue,reshade::api::swapchain* chain
     }
     if(!current){
         if(!EnsureNrApi(device)||!EnsureCodec(device)){ReleaseCom(device);reject_build("runtime-or-codec-not-ready");SetStatus(Status::BuildFailure);return;}
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+        // First initialization publishes the loaded module generation. The
+        // earlier pre-load signature must never become a created context.
+        tuning = CurrentNrTuningSignature(); tuning.input_filter = 0;
+        for (unsigned i = 0; i < passes; ++i) {
+            layer_tuning[i] = CurrentNrTuningSignature(i); layer_tuning[i].input_filter = 0;
+        }
+        if (!ValidateNrActiveNetworkRequests()) {
+            ReleaseCom(device); reject_build("network-request-unavailable-or-invalid");
+            SetStatus(Status::BuildFailure); return;
+        }
+#endif
         auto* c=new(std::nothrow) Context;
         if(!c){ReleaseCom(device);reject_build("present-context-allocation-failed");SetStatus(Status::Budget);return;}
         c->device=device;device=nullptr;c->queue=native_queue;ID3D12CommandQueue_AddRef(native_queue);

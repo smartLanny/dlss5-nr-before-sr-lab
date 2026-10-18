@@ -27,7 +27,7 @@ bool lock_available=true;
 bool TryEnterCriticalSection(int*){return lock_available;}void LeaveCriticalSection(int*){}
 NrContext g_contexts[5]{};NrSlot slots[4]{};NrBindingPacket packets[4]{};
 unsigned checks=0,prepared_calls=0,run_calls=0,captures=0,stop_prepare=99,stop_run=99;
-bool opaque=false,alias=false,poison=false,legacy=false;
+bool opaque=false,alias=false,poison=false,legacy=false,refused=false;
 void Check(bool b,const char* why){++checks;if(!b)throw std::runtime_error(why);}
 void MarkLifecycleUncertain(const char*){poison=true;}
 int StageCaptureStatus(){return 0;}
@@ -45,6 +45,7 @@ struct LayerPrepared {
     NrContext* context=nullptr;NrSlot* slot=nullptr;nr_dual::Plan plan{};NrGuideBinding guides{};
     bool create_completed=false;NrSlot* source=nullptr;NrBindingPacket* binding=nullptr;
     bool evaluated=false,adoptable=false,full=false;
+    bool create_admission_refused=false;
     explicit operator bool()const{return context&&slot&&bool(plan);}
 };
 struct Prepared:LayerPrepared {std::array<LayerPrepared,4> layers{};unsigned requested=0,prepared=0;};
@@ -66,14 +67,14 @@ void SealOne(ID3D12GraphicsCommandList*,NrSlot& main,LayerPrepared& p) {
 NgxResult RunOne(ID3D12GraphicsCommandList*,NrContext&,NrSlot&,LayerPrepared& p,const FeatureRecord&,const ColorContract&) {
     ++run_calls;const auto layer=p.context->layer_index;
     Check(p.binding!=nullptr,"all descriptors sealed before runtime");
-    if(layer==stop_run)return opaque?0xBAD00005u:0;
+    if(layer==stop_run){p.create_admission_refused=refused;return opaque?0xBAD00005u:0;}
     p.slot->value=p.source->value*2+int(layer);p.evaluated=p.adoptable=true;
     return 0;
 }
 }
 #include "../src/nr_full_runtime.inl"
 void Reset(){for(auto& c:g_contexts)c={};for(auto& s:slots)s={};prepared_calls=run_calls=captures=0;
-    stop_prepare=stop_run=99;opaque=alias=poison=legacy=false;g_config={};}
+    stop_prepare=stop_run=99;opaque=alias=poison=legacy=refused=false;g_config={};}
 int main(){try {
     using namespace nr_dual_runtime;ID3D12Device device;ID3D12GraphicsCommandList list;
     FeatureRecord feature;ColorContract color;NgxParams params;ID3D12Resource resource;
@@ -96,6 +97,13 @@ int main(){try {
             Seal(&list,main,q);Check(Run(&list,root,main,q,feature,color)==0xBAD00005u,"opaque failure returned to original caller");
             Check(run_calls==failure&&captures==0&&main.dual_selected==nullptr,"no later work or final adoption after opaque failure");
         }
+        for(unsigned failure=1;failure<n;++failure) {
+            Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=n;stop_run=failure;refused=true;
+            auto q=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
+            Seal(&list,main,q);Check(Run(&list,root,main,q,feature,color)==0&&!poison,"late network admission refusal is not an opaque failure");
+            Check(q.create_admission_refused&&run_calls==failure&&captures==0&&main.dual_selected==nullptr,
+                "full wrapper propagates each refused layer to the native consumer without partial adoption");
+        }
     }
     Reset();g_config.nr_passes=2;g_config.nr_full_reference=true;g_config.nr_full_passes=4;stop_prepare=3;
     NrContext root;root.instance_id=100;NrSlot main;main.value=10;
@@ -107,5 +115,10 @@ int main(){try {
     Check(!bad&&poison&&run_calls==0,"sibling parameter alias rejected before execution");
     Reset();auto old=Prepare(&device,&list,root,main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
     Check(!old.full&&legacy&&prepared_calls==1,"disabled full mode retains original helper");
+    Reset();g_config.nr_passes=2;stop_run=1;refused=true;NrSlot legacy_main;
+    auto declined=Prepare(&device,&list,root,legacy_main,&params,feature,1920,1080,&resource,0,0,CodecColorMode::Automatic);
+    Seal(&list,legacy_main,declined);
+    Check(Run(&list,root,legacy_main,declined,feature,color)==0&&declined.create_admission_refused&&!legacy_main.dual_selected,
+        "legacy two-layer wrapper also retains explicit admission refusal for its native consumer");
     std::cout<<"PASS "<<checks<<" production full-adapter checks; synthetic Core, not GPU/NGX\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

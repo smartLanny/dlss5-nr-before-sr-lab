@@ -1,8 +1,8 @@
 """Compile the retained D13 and new D15 menu adapters with a CPU ImGui recorder.
 
-The fixture checks that the new quick/details split and the single light
-method selector remain ordinary UI code. It does not construct Core, NGX,
-GPU resources, or a game.
+The fixture checks actual layer controls and transactions with a CPU ImGui
+recorder on a C++20 host. It does not construct Core, NGX, GPU resources, or a
+game, and the runtime metadata seam is not evidence of network adoption.
 """
 import os
 from pathlib import Path
@@ -50,12 +50,23 @@ enum { ImGuiCol_Button, ImGuiCol_Header, ImGuiTreeNodeFlags_DefaultOpen, ImGuiHo
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
 
+#define NR_HAS_NETWORK_MODEL_SELECTION 1
+struct NetworkUiSnapshot {
+    unsigned long long module_address=0;
+    nr_network_policy::Version version{};
+    nr_network_policy::Family family=nr_network_policy::Family::Unknown;
+    nr_network_policy::Evidence evidence=nr_network_policy::Evidence::Unknown;
+} network_ui_snapshot;
+NetworkUiSnapshot NrNetworkRuntimeSnapshot(){return network_ui_snapshot;}
+
 bool chinese=false;
 bool UseChineseUi() { return chinese; }
 std::string click;
 bool show_more=false, combo_changed=false;
 bool mouse_down=false;std::string activate,hover,last_button;
 int combo_value=0;
+int combo_layer=-2;
+std::string combo_key;
 namespace nr_dual_status_runtime {
 using UiState=nr_dual_observation::UiState;
 using UiSnapshot=nr_dual_observation::Snapshot;
@@ -95,8 +106,9 @@ void PushID(int i){current_layer=i;}
 void PopID(){current_layer=-1;}
 bool IsAnyItemActive(){return active_item;}
 bool CollapsingHeader(const char*,int=0) { return show_more; }
-bool Combo(const char*, int* value, const char*) {
-    if (!combo_changed) return false;
+bool Combo(const char* id, int* value, const char*) {
+    if(disabled||!combo_changed||(!combo_key.empty()&&combo_key!=id)||
+       (combo_layer!=-2&&combo_layer!=current_layer))return false;
     *value=combo_value; combo_changed=false; return true;
 }
 bool IsItemActivated(){return current_layer==button_layer&&activate==last_button;}
@@ -112,10 +124,11 @@ void SetNextItemWidth(float) {}
 void SettingsSection(const char*) {}
 void SettingsTooltip(const char*) {}
 float SettingsContentWidth(){return 600;}
-void SettingsNote(const char*) {}
+void SettingsNote(const char* message) {ImGui::TextWrapped("%s",message);}
 void SettingsField(const char*) {}
 bool SettingsSliderFloat(const char*, const char* id, float* v, float, float, const char*) {
-    if(disabled||current_layer!=slider_layer||slider_key!=id)return false;*v=slider_value;slider_layer=-1;return true;
+    if(disabled||current_layer!=slider_layer||slider_key!=id)return false;
+    *v=slider_value;slider_layer=-1;return true;
 }
 std::atomic<unsigned> g_config_generation{1};
 std::atomic<unsigned long long> g_dual_allocated_bytes{0};
@@ -145,14 +158,14 @@ std::atomic<double> time_median[7]{},time_p95[7]{};
 '''
 
 
-@unittest.skipUnless(os.name == "nt", "CPU UI adapter compile requires the Windows toolchain")
 class D13UiCompile(unittest.TestCase):
     def test_quick_details_and_method_selector_compile_and_preserve_values(self):
         configured = os.environ.get("NR_LLVM_BIN")
         bins = sorted((ROOT.parent / "dlss5-lab" / "toolchains").glob("llvm-mingw-*/bin"))
-        compiler = (Path(configured) if configured else bins[-1] if bins else Path("missing")) / "clang++.exe"
+        compiler = ((Path(configured) if configured else bins[-1] if bins else Path("missing")) / "clang++.exe"
+                    if os.name == "nt" else Path(os.environ.get("CXX") or shutil.which("clang++") or shutil.which("g++") or "missing"))
         if not compiler.is_file():
-            self.skipTest("Set NR_LLVM_BIN to the pinned LLVM-MinGW bin directory")
+            self.skipTest("Set NR_LLVM_BIN on Windows, or install a C++20 host compiler")
         dual = (ROOT / "src" / "nr_dual_ui.inl").read_text(encoding="utf-8")
         settings = (ROOT / "src" / "nr_settings_ui.inl").read_text(encoding="utf-8")
         selector = definition(settings, "unsigned DrawLightAdjustmentMethodSelector(")
@@ -178,6 +191,50 @@ void ApplyUiEdits(ChainConfig next,bool changed,bool apply_discrete_edit) {
 '''+apply_blocks+'\n}\n'
         main = selector + processing + release_harness + r'''
 int main() {
+    // Exercise the production network selectors, independently targeting all
+    // five layer IDs. Choices are discrete; saved invalid IDs survive repaint.
+    ChainConfig networks;nr_unified_ui::SetLayers(networks,5);
+    networks.nr_primary_network_preset=1;networks.color_strength=.37f;
+    bool network_changed=false,network_discrete=false;
+    combo_changed=true;combo_key="##nr-network-global";combo_layer=-1;combo_value=2;
+    DrawNrNetworkControls(networks,network_changed,network_discrete);
+    if(!network_changed||!network_discrete||networks.nr_network_preset!=2||
+       networks.nr_primary_network_preset!=1||networks.color_strength!=.37f)return 40;
+    for(unsigned layer=0;layer<5;++layer) {
+        combo_changed=true;combo_key="##nr-layer-network";combo_layer=static_cast<int>(layer);
+        combo_value=(layer%2)?2:3;network_changed=network_discrete=false;
+        const auto previous=networks;
+        DrawUniformLayerControls(networks,network_changed,network_discrete);
+        if(!network_changed||!network_discrete||nr_layers::Read(networks,layer).network_preset!=combo_value-1)return 41;
+        for(unsigned other=0;other<5;++other)if(other!=layer&&nr_layers::Read(networks,other)!=nr_layers::Read(previous,other))return 42;
+    }
+    networks.nr_primary_network_preset=99;network_changed=network_discrete=false;
+    combo_changed=false;DrawUniformLayerControls(networks,network_changed,network_discrete);
+    if(networks.nr_primary_network_preset!=99||network_changed||network_discrete)return 43;
+    combo_changed=true;combo_layer=0;combo_value=2;
+    DrawUniformLayerControls(networks,network_changed,network_discrete);
+    if(networks.nr_primary_network_preset!=1||!network_changed||!network_discrete)return 44;
+    combo_key.clear();combo_layer=-2;
+    network_ui_snapshot.module_address=1;
+    network_ui_snapshot.family=nr_network_policy::Family::OriginalOnly;
+    network_ui_snapshot.evidence=nr_network_policy::Evidence::LoadedPathFileHash;
+    ChainConfig unavailable;unavailable.nr_network_preset=2;
+    rendered.clear();DrawNrNetworkRuntimeInfo(unavailable);
+    if(rendered.find("Original only")==std::string::npos||rendered.find("F8")==std::string::npos)return 45;
+    unavailable.nr_primary_network_preset=1;
+    rendered.clear();DrawNrNetworkRuntimeInfo(unavailable);
+    if(rendered.find("Original only")!=std::string::npos)return 46; // Unused global is not an active rejection.
+    network_ui_snapshot.family=nr_network_policy::Family::Unknown;
+    rendered.clear();DrawNrNetworkRuntimeInfo(unavailable);
+    if(rendered.find("unconfirmed")==std::string::npos||rendered.find("F8")==std::string::npos)return 47;
+    network_ui_snapshot={};
+    unavailable.nr_network_preset=-1;unavailable.nr_primary_network_preset=-1;
+    rendered.clear();DrawNrNetworkRuntimeInfo(unavailable);
+    if(rendered.find("unrecognized network ID")==std::string::npos||rendered.find("F8")==std::string::npos)return 48;
+    rendered.clear();network_changed=network_discrete=false;
+    DrawUniformLayerControls(unavailable,network_changed,network_discrete);
+    if(rendered.find("Layer request: Unrecognized saved value")==std::string::npos||
+       unavailable.nr_network_preset!=-1||network_changed||network_discrete)return 49;
     ChainConfig c; c.nr_passes=2; c.nr_second_numerator=2; c.nr_second_denominator=3;
     show_more=true; click.clear();
     bool changed=false, discrete=false;
@@ -291,7 +348,7 @@ int main() {
             cpp = work / "d13.cpp"
             exe = work / "d13.exe"
             cpp.write_text(source, encoding="utf-8")
-            built = subprocess.run([str(compiler), "-std=c++20", "-O0", "-static", "-Wall", "-Wextra", "-Werror",
+            built = subprocess.run([str(compiler), "-std=c++20", "-O0", *(["-static"] if os.name=="nt" else []), "-Wall", "-Wextra", "-Werror",
                                     "-I", str(ROOT / "src"), str(cpp), "-o", str(exe)], capture_output=True, text=True, timeout=45)
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             ran = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)

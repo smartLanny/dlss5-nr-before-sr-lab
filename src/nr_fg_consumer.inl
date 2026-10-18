@@ -262,7 +262,12 @@ bool ConsumeDetailed(ID3D12GraphicsCommandList* commands,const NativeInputs& ori
         Transition(list,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         if(!context->params){ScopedSrwExclusive api(&g_nr_api_lock);if(g_nr_api.allocate(&context->params)!=kNgxSuccess)context->params=nullptr;}
         if(!context->params||!BindNrParameters(*context,*slot,guides,feature,work.width,work.height,color,true))return true;
-        void* handle=nullptr;const auto result=CreateSignedNrFeature(list,*context,feature,&handle);context->nr_handle=static_cast<NgxHandle*>(handle);
+        void* handle=nullptr;bool api_called=false;
+        const auto result=CreateSignedNrFeature(list,*context,feature,&handle,&api_called);
+        // Earlier copies/encode retain normal retirement and guide restoration.
+        // No opaque Create was entered, so native output remains recoverable.
+        if(!api_called)return true;
+        context->nr_handle=static_cast<NgxHandle*>(handle);
         if(result!=kNgxSuccess||!handle){s.failed=true;context->create_dependencies_quarantined=true;
             nr_source_runtime::ReportFgFailure(result?result:0xBAD00005u);restore_guides.enabled=false;state.AbandonAfterOpaqueFailure();return true;}
     }else{

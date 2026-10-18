@@ -21,6 +21,8 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     // A reset disables auxiliary layers without introducing per-layer scaling.
     next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=2;
     next.nr_layers={};next.nr_uniform_migrated=false;
+    next.nr_network_preset=nr_network_policy::RuntimeDefault;
+    next.nr_primary_network_preset=nr_network_policy::Inherit;
     next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
     next.region_version=1;next.region_enabled=false;next.region_preview=0;
     std::fill(next.region_gains,next.region_gains+11,1.f);

@@ -440,8 +440,19 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         static_cast<double>(info.gpu_raw_exposure), static_cast<double>(info.gpu_resolved_exposure),
         static_cast<double>(info.gpu_source_to_canonical), static_cast<double>(info.gpu_pre_exposure),
         id.since_reset);
-    const bool ok = length > 0 && static_cast<std::size_t>(length) < sizeof(text) &&
+    bool ok = length > 0 && static_cast<std::size_t>(length) < sizeof(text) &&
         WriteStageCaptureBytes(file, text, static_cast<DWORD>(length));
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    if (ok) {
+        const int network_length = std::snprintf(text, sizeof(text),
+            "networkRequest=%d\nruntimeGeneration=%llu\nruntimeModule=%llu\nnetworkExecutionVerified=0\n"
+            "networkContract=request sent as UInt DLSSNR.Hint.Render.Preset at this instance's Create; "
+            "successful Create/Evaluate are not an internal network readback\n",
+            id.tuning.network_preset, id.tuning.runtime_generation, id.tuning.runtime_module_address);
+        ok = network_length > 0 && static_cast<std::size_t>(network_length) < sizeof(text) &&
+            WriteStageCaptureBytes(file, text, static_cast<DWORD>(network_length));
+    }
+#endif
     CloseHandle(file);
     return ok;
 }

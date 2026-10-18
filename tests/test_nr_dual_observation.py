@@ -181,7 +181,7 @@ enum class NrJitterMode : int { Legacy = 0, GameInputPixel = 1 };
 TUNING_TYPE
 struct ChainConfig {
     // Mirrors production: layer 0 uses the primary keys, 1-4 use nr_layers.
-    nr_layers::Auxiliary nr_layers{};
+    int nr_network_preset=0,nr_primary_network_preset=-1; nr_layers::Auxiliary nr_layers{};
     float intensity = 1.2f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;

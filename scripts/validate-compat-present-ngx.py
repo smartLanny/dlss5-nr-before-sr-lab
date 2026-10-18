@@ -6,6 +6,7 @@ signed Feature18 and production Present Build/Bootstrap/Frame remain real.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,6 +27,9 @@ def main():
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--case',choices=['single','multi','all','post25'],default='single')
     p.add_argument('--compile-only',action='store_true')
+    network=p.add_mutually_exclusive_group()
+    network.add_argument('--network',type=int,choices=[0,1,2],help='Global production Feature18 network request for every selected host case.')
+    network.add_argument('--networks',help='One fixed 100%% case with one to five independent native network requests, e.g. 2,2,1; each ID is 0, 1 or 2.')
     p.add_argument('--temporal',choices=['adaptive','low-frequency'],help='Actual Present AMDOF consumer, controlled exact artificial color receipts; 32 adopted frames.')
     p.add_argument('--cold-bootstrap',action='store_true',help='Require the production bridge to bootstrap without any host NGX Init or bootstrap DLL.')
     p.add_argument('--consumer',action='store_true',help='Exercise the production FG-input NR consumer; native FG is explicitly a placeholder.')
@@ -37,6 +41,14 @@ def main():
     p.add_argument('--failure-controls',action='store_true',help='Inject one NR opaque API failure and one private allocation refusal, explicitly test-only.')
     p.add_argument('--capture',action='store_true',help='Require actual completed per-layer pre-FG NRF and metadata export.')
     a=p.parse_args();core=a.core.resolve(strict=True);out=a.output.resolve()
+    network_requested=a.network is not None or a.networks is not None
+    layer_networks=None
+    if a.networks is not None:
+        if not re.fullmatch(r'[012](,[012]){0,4}',a.networks):p.error('--networks requires one to five comma-separated IDs 0, 1 or 2')
+        if a.case!='single':p.error('--networks determines its own fixed layer count; keep the default --case single')
+        layer_networks=[int(value) for value in a.networks.split(',')]
+    if network_requested and (a.temporal or a.consumer or a.native_fg):
+        p.error('network selection scenarios currently cover the ordinary Present host; run temporal/FG gates separately')
     if a.temporal and (a.consumer or a.native_fg):p.error('--temporal covers Present only')
     if a.case=='post25' and (a.consumer or a.native_fg):
         p.error('--case post25 covers the Present host; native SR/RR and FG are separate validations')
@@ -91,6 +103,7 @@ def main():
         if a.native_fg:common.append('-DNR_HOST_NATIVE_FG=1')
         if a.cold_bootstrap:common.append('-DNR_HOST_COLD_BOOTSTRAP=1')
         if a.capture:common.append('-DNR_HOST_FG_CAPTURE=1')
+        if network_requested:common.append('-DNR_HOST_REQUIRE_NETWORK_SELECTION=1')
         objs=[core/'build/obj'/x for x in ['buffer.o','hook.o','trampoline.o','hde64.o','nr_dual_spatial_d3d12.o','nr_face_detector.o','nr_face_worker.o','nr_aux_shader_runtime.o']]+objects_for(core/'src/nr_before_sr.cpp')
         code=run([compiler,*common,'-static','-municode','-Wl,--gc-sections',host_source,*objs,
             '-o',binary,'-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-host',240)
@@ -100,8 +113,11 @@ def main():
         if a.native_fg:shutil.copy2(a.fg_runtime.resolve(strict=True),out/'nvngx_dlssg.dll')
         if not a.compile_only:
             cases=[(1,100)] if a.case=='single' else [(2,100)] if a.case=='multi' else [(n,25) for n in range(1,6)] if a.case=='post25' else [(1,100),(2,100),(3,100),(4,100),(5,100),(2,50),(3,50),(4,75),(5,50)]
+            if layer_networks is not None:cases=[(len(layer_networks),100)]
+            network_option=(['--network='+str(a.network)] if a.network is not None else
+                            ['--networks='+a.networks] if a.networks is not None else [])
             for passes,scale in cases:
-                code=run([binary,out,passes,scale,*(['--temporal-'+a.temporal] if a.temporal else [])],f'run-{passes}-{scale}',240)
+                code=run([binary,out,passes,scale,*network_option,*(['--temporal-'+a.temporal] if a.temporal else [])],f'run-{passes}-{scale}',240)
                 if code:break
             if not code and a.native_fg and a.quadrants:
                 for nr,fg in [(0,0),(1,0),(0,1)]:
@@ -121,6 +137,9 @@ def main():
         'scope':('real NVIDIA, official NGX bootstrap, signed Feature18 and production FG input consumer; artificial input, native FG call placeholder, no game/FG output claim' if a.consumer else 'real NVIDIA, official NGX bootstrap, signed Feature18 and production Present internals; artificial color input, no game/FG claim')}
     result['artifacts']={name:sha(out/name) for name in [binary.name,'ngx-bootstrap.dll','nvngx_dlssnr.dll','nrchain_nvngx.dll'] if (out/name).is_file()}
     result['cold_bootstrap']=a.cold_bootstrap
+    result['network_selection']={'global_request':a.network,'layer_requests':layer_networks,
+        'parameter_key':'DLSSNR.Hint.Render.Preset','parameter_type':'UInt at Feature18 Create',
+        'executed_network_verified':False,'quality_verified':False}
     result['temporal_consumer']=a.temporal
     result['temporal_source_evidence']='controlled receipt after exact artificial upload; not game discovery' if a.temporal else None
     result['face_build']={'receipt':str(face_receipt),'sha256':sha(face_receipt),'enabled':bool(face_backend)}

@@ -63,3 +63,7 @@ const RuntimeModuleIdentity &EnsureRuntimeIdentityOnWorker() {
     InitOnceExecuteOnce(&once, InitializeRuntimeIdentity, nullptr, nullptr);
     return RuntimeIdentitySnapshot();
 }
+
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+#include "nr_network_identity_worker.inl"
+#endif

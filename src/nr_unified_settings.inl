@@ -73,6 +73,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             SettingsSection(ui("Processing order","增强位置"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
             SettingsSection(ui("Workload","工作量"));
+            DrawNrNetworkControls(next,changed,apply_discrete_edit);
 #if NR_HAS_DETAIL_STABILITY
     const auto scale_target=nr_precision_ui::SelectedTarget(
         static_cast<unsigned>(next.processing_start),rr_guarded,
@@ -167,8 +168,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.nr_full_reference=false;next.nr_full_passes=3;
                 changed=true;pending_picture_reset=true;pending_model_action=nr_model_controls::Action::None;apply_discrete_edit=true;
             }
-            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, model 1.5, skin 0.4, final enhancement 1, AI colour range 0.5, lighting/edge protection 0 and picture experiments. Keeps NR enabled state, shortcuts and compatibility preferences.",
-                "恢复推荐画质参数与实验默认值；保留总开关、快捷键和兼容设置。"));
+            SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, runtime-default global network, all layers following global, model 1.5, skin 0.4, final enhancement 1, AI colour range 0.5 and picture defaults. Keeps NR enabled state, shortcuts and compatibility preferences.",
+                "恢复推荐画质参数与实验默认值：全局网络交给运行库默认，各层跟随全局。保留总开关、快捷键和兼容设置。"));
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

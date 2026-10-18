@@ -175,7 +175,8 @@ void SnapshotScalars(Header &header,const NgxParams *params) {
         "DLSSNR.DepthSubrectBaseX","DLSSNR.DepthSubrectBaseY","DLSSNR.DepthSubrectWidth","DLSSNR.DepthSubrectHeight",
         "DLSSNR.MVecSubrectBaseX","DLSSNR.MVecSubrectBaseY","DLSSNR.MVecSubrectWidth","DLSSNR.MVecSubrectHeight",
         "DLSSNR.OutputSubrectBaseX","DLSSNR.OutputSubrectBaseY","DLSSNR.OutputSubrectWidth","DLSSNR.OutputSubrectHeight",
-        "DLSSNR.Style","DLSSNR.UICorrection","DLSSNR.Jitter.SourceWidth","DLSSNR.Jitter.SourceHeight",
+        "DLSSNR.Style","DLSSNR.UICorrection","DLSSNR.Hint.Render.Preset",
+        "DLSSNR.Jitter.SourceWidth","DLSSNR.Jitter.SourceHeight",
         "DLSSNR.Jitter.WorkWidth","DLSSNR.Jitter.WorkHeight"};
     static constexpr const char *int_keys[]={"DLSSNR.Enabled","DLSSNR.Reset","DLSSNR.UseAutoMask",
         "DLSSNR.DepthInverted","DLSS.Feature.Create.Flags","PerfQualityValue","DLSSNR.Upscaling",

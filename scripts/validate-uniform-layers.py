@@ -29,6 +29,8 @@ def main():
 #include "nr_layer_config.h"
 enum class NrJitterMode { Legacy,GameInputPixel };
 struct ChainConfig : nr_layers::Model {
+    int nr_network_preset=nr_network_policy::RuntimeDefault;
+    int nr_primary_network_preset=nr_network_policy::Inherit;
     nr_layers::Auxiliary nr_layers{}; bool nr_uniform_migrated=false;
     unsigned nr_passes=1,nr_full_passes=3,nr_second_numerator=1,nr_second_denominator=2;
     bool nr_full_reference=false; NrJitterMode jitter_mode=NrJitterMode::Legacy;

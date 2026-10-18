@@ -31,7 +31,7 @@ class UnifiedUi(unittest.TestCase):
         for text in (self.settings, self.pages, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
-        markers = ['###master-nr', '##final-colour', 'DrawProcessingModeBlocks(', '##nr-processing-precision',
+        markers = ['###master-nr', '##final-colour', 'DrawProcessingModeBlocks(', 'DrawNrNetworkControls(', '##nr-processing-precision',
                    'DrawUniformLayerCount(', '##final-gain',
                    'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
         positions = [self.settings.index(m) for m in markers]

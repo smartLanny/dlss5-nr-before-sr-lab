@@ -245,6 +245,7 @@ bool Build(Context& c) {
             e={surfaces.secondary_extent.width,surfaces.secondary_extent.height};
         }else{l.binding.proxy=c.image.proxy;l.binding.neural=c.image.neural;}
         auto& model=l.context;model.width=e.width;model.height=e.height;model.mode=1;
+        model.layer_index=i;
         model.tuning_signature=c.layer_tuning[i];model.tuning_signature_initialized=true;
         model.bound_create_flags=LayerGuides(c,l).signature.normalized_create_flags;model.bound_perf_quality=5;
         model.codec_color_mode=c.image.codec_color_mode;model.codec_color_mode_initialized=true;

@@ -54,7 +54,7 @@ constexpr bool kPostWorkRaster = POST_WORK_RASTER;
 struct NgxHandle { unsigned id; };
 enum class CodecColorMode : unsigned { Automatic, LinearSdr, ModelEncodedValueDomain };
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
-struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; nr_layers::Auxiliary nr_layers{}; } g_config;
+struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1, nr_input_filter=0; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::GameInputPixel; int nr_network_preset=0,nr_primary_network_preset=-1; nr_layers::Auxiliary nr_layers{}; } g_config;
 TUNING
 CURRENT_TUNING
 SAME_TUNING

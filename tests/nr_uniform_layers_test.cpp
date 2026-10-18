@@ -3,7 +3,11 @@
 #include <iostream>
 #include <stdexcept>
 #include <limits>
-struct Config : nr_layers::Model { nr_layers::Auxiliary nr_layers{}; };
+struct Config : nr_layers::Model {
+    int nr_network_preset=nr_network_policy::RuntimeDefault;
+    int nr_primary_network_preset=nr_network_policy::Inherit;
+    nr_layers::Auxiliary nr_layers{};
+};
 static unsigned checks=0;
 void Check(bool condition,const char* reason){++checks;if(!condition)throw std::runtime_error(reason);}
 int main(){try{
