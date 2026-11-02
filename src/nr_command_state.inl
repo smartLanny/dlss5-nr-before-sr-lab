@@ -179,6 +179,33 @@ bool CopyCommandCpuHeap(ID3D12DescriptorHeap *&destination, ID3D12DescriptorHeap
     ID3D12Device_Release(device);
     return ready;
 }
+void CopyCommandRootArguments(CommandRootArgument (&destination)[2][64],
+                              const CommandRootArgument (&source)[2][64]) {
+    if (&destination == &source) return;
+    // Capture and restore both run under the registry lifetime lock. Scalar
+    // bindings never read the 256-byte constants payload; copying every payload
+    // used to move 35 KiB on each side of an NR call, mostly inactive bytes.
+    // Always replace the tag/mask, including empty slots, so reusing a snapshot
+    // cannot revive an older binding. Constants retain the same mask-gated reads.
+    for (unsigned stage = 0; stage < 2; ++stage) {
+        for (unsigned index = 0; index < 64; ++index) {
+            const auto &from = source[stage][index];
+            auto &to = destination[stage][index];
+            to.kind = from.kind;
+            to.value = from.value;
+            to.constant_mask = from.constant_mask;
+            if (from.kind == CommandRootKind::Constants && from.constant_mask != 0) {
+                // Short low-index constants are common and can also occupy all
+                // 64 root parameters legally. Avoid 64 full payload copies for
+                // that case; fixed-size copies keep this path inlineable.
+                if (from.constant_mask <= 0xFFFFu)
+                    memcpy(to.constants, from.constants, 16 * sizeof(from.constants[0]));
+                else
+                    memcpy(to.constants, from.constants, sizeof(from.constants));
+            }
+        }
+    }
+}
 bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommandState &source) {
     if (&destination == &source) return true;
     // RTV/DSV handles are consumed at recording time. Applications may recycle
@@ -198,7 +225,7 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
         CommandStateAssign(destination.roots[stage], source.roots[stage]);
         CommandStateAssign(destination.heaps[stage], source.heaps[stage]);
     }
-    memcpy(destination.arguments, source.arguments, sizeof(source.arguments));
+    CopyCommandRootArguments(destination.arguments, source.arguments);
     destination.known = source.known;
     destination.first_recording_observed = source.first_recording_observed;
     destination.unknown_reason = source.unknown_reason;

@@ -38,7 +38,8 @@
   full face backend and explicit FFX SDK/cache inputs. Do not bypass failed gates.
 - Windows verification is primary. Hosted checks remain opt-in through the one
   PR entry and `ENABLE_HOSTED_CI=true`; the owner has not enabled paid CI.
-  Do not add automatic push checks or retry a billing-blocked job.
+  Public portable PR checks use ephemeral Linux runners. Do not add automatic
+  push checks or retry a billing-blocked job.
 - The maintainer's runner (`runs-on: [self-hosted, Windows, X64, dlss5-build]`)
   is gated by `ENABLE_SELF_HOSTED_CI`; its canonical build runs only on manual
   dispatch or the `full-build` PR label. See `docs/maintenance/SELF_HOSTED_RUNNER.md`.
@@ -54,7 +55,7 @@
 - Record build SHA, packaging SHA, binary/ZIP hashes, actual commands, receipts,
   failures and remaining tests. A merge tree match does not rename a binary's source.
 - Released names are fixed: UI1/Inbox1, `0.5.2-beta.1` … `0.5.2-beta.14`. The
-  next behavior change is `0.5.2-beta.15`; never relabel an existing binary.
+  source identity follows `scripts/core-source-layout.json`; never relabel an existing binary.
 - Public Core attachments require reviewed payloads, licenses and explicit release
   authorization. An experimental prerelease must not silently replace stable/latest
   or change Manager default component pins. Keep the previous package available.

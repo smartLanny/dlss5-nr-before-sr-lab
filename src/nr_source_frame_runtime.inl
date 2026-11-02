@@ -316,7 +316,8 @@ void RememberCoreRecordingDeviceLocked(const nr_post_boundary::List& core,Id dev
 // Source Evaluate construction is a cold boundary. Resolve the real device
 // cookie here so recording hooks and Execute only read bounded value records.
 void SeedCoreRecordingDevice(ID3D12GraphicsCommandList* list) {
-    if(!list)return;Lock lock;
+    if(!list)return;
+    Lock lock;
     const auto core=SnapshotPostBoundaryList(list);
     if(!core.known||core.reset==UINT64_MAX)return;
     // A device cookie is immutable for this exact Core lifetime. Resolve it at
@@ -338,7 +339,8 @@ Recording RecordingOf(ID3D12GraphicsCommandList* list) {
         // covers ready=false without calling COM from a native command hook.
         if(!device)for(unsigned i=0;i<256;++i)if(observed_lists[i].native==list ||
                 reinterpret_cast<Id>(observed_lists[i].native)==core.address) {
-            if(!device)device=observed_lists[i].device;break;
+            if(!device)device=observed_lists[i].device;
+            break;
         }
         if(!device)device=CoreRecordingDeviceOfLocked(core);
         if(!device)return {};

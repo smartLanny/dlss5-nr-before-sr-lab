@@ -84,7 +84,8 @@ void NrRetirementEvaluationLocked(const NrContext& c,unsigned long long frame) {
 }
 void NrRetirementMarkedLocked(const NrContext& c,unsigned reason) {
     if(auto* e=NrRetirementObservedFor(c)){if(!e->retired_tick)e->retired_tick=GetTickCount64();
-        if(!e->retire_reason)e->retire_reason=reason;g_nr_retirement_dirty=true;}
+        if(!e->retire_reason)e->retire_reason=reason;
+        g_nr_retirement_dirty=true;}
 }
 void NrRetirementBeginDecisionLocked(const NrContext& c) {
     g_nr_retirement_deciding=&c;
@@ -135,14 +136,14 @@ void NrRetirementPublishLocked(bool collector_uncertain) {
     const unsigned releasing=g_nr_context_releases_in_progress.load(std::memory_order_acquire);
     if(tracking!=g_nr_retirement_published.tracking_uncertain||pending_used!=g_nr_retirement_published.pending_used||releasing!=g_nr_retirement_published.releasing)g_nr_retirement_dirty=true;
     // No holder/owner scans at all on the ordinary, non-retired path.
-    if(!has_retired){if(g_nr_retirement_published.contexts||g_nr_retirement_dirty){std::memset(&g_nr_retirement_published,0,sizeof(g_nr_retirement_published));
+    if(!has_retired){if(g_nr_retirement_published.contexts||g_nr_retirement_dirty){ResetSnapshot(g_nr_retirement_published);
             g_nr_retirement_published.sequence=++g_nr_retirement_observations;
             g_nr_retirement_published.pending_capacity=static_cast<unsigned>(std::size(g_pending_destroy_contexts));
             g_nr_retirement_published.pending_used=pending_used;g_nr_retirement_published.releasing=releasing;g_nr_retirement_published.tracking_uncertain=tracking;
             g_nr_retirement_dirty=false;}return;}
     const Id tick=GetTickCount64();++g_nr_retirement_observations;
     if(!g_nr_retirement_dirty&&g_nr_retirement_published.sequence&&tick-g_nr_retirement_published.tick<1000){++g_nr_retirement_suppressed;return;}
-    auto& out=g_nr_retirement_building;std::memset(&out,0,sizeof(out));out.sequence=g_nr_retirement_published.sequence+1;out.tick=tick;
+    auto& out=g_nr_retirement_building;ResetSnapshot(out);out.sequence=g_nr_retirement_published.sequence+1;out.tick=tick;
     out.observations=g_nr_retirement_observations;out.suppressed=g_nr_retirement_suppressed;
     out.tracking_uncertain=tracking;
     out.pending_capacity=static_cast<unsigned>(std::size(g_pending_destroy_contexts));
@@ -227,7 +228,8 @@ void NrRetirementPublishLocked(bool collector_uncertain) {
                     if((row.blocked^before)&(BindingRecording|BindingAwaitSignal|BindingFence))row.blocked|=Bindings;
                 }else if(live&&(owners[c]==primary||owners[c]==secondary)){
                     Context probe{};NrRetirementLeaseMask(probe,lease,BindingRecording,BindingAwaitSignal,BindingFence);
-                    if(probe.blocked)row.blocked|=OtherContextBinding;if(probe.unknown)row.unknown|=OtherContextBinding;
+                    if(probe.blocked)row.blocked|=OtherContextBinding;
+                    if(probe.unknown)row.unknown|=OtherContextBinding;
                 }
             }
             for(unsigned r=0;r<std::size(g_lifecycle_command_lists);++r){const auto& record=g_lifecycle_command_lists[r];if(!record.token)continue;

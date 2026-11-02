@@ -353,7 +353,8 @@ inline bool RetirementMetadataNumber(std::string_view line,std::size_t begin,std
         bool Row(std::initializer_list<Field> fields){
             bool first=true;
             for(const auto& field:fields){
-                if(!first&&!Literal(","))return false;first=false;
+                if(!first&&!Literal(","))return false;
+                first=false;
                 if(*field.name&&(!Literal(field.name)||!Literal(":")))return false;
                 const bool valid=field.type=='U'?Number():field.type=='u'?Number(UINT32_MAX):
                     field.type=='b'?Number(1):field.type=='h'?HexValue():field.type=='i'?SignedMode():

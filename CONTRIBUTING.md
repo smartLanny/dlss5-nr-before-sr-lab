@@ -1,7 +1,13 @@
 # Contributing
 
-This repository is currently a private research staging area. Keep changes small,
-reviewable, and fail-closed.
+This is the public source repository for the DLSS5 enhancement Core. The project's
+original source is MIT-licensed; preserve LICENSE and THIRD_PARTY_NOTICES.txt.
+Keep changes reviewable and preserve safe native fallback.
+
+Before copying or adapting code, record its upstream repository, exact revision,
+license and affected files. Compatible open-source code is welcome; public
+visibility alone does not grant permission to relicense a dependency. Submit
+original contributions under the project license and disclose third-party code.
 
 ## Never commit
 
@@ -13,10 +19,12 @@ reviewable, and fail-closed.
 
 ## Required behavior
 
-- Feature 13/Ray Reconstruction remains strictly unmodified.
+- Preserve native Feature 13/Ray Reconstruction. Private RR experiments remain
+  explicitly opt-in research, separate from the default product path.
 - A live RR feature handle protects companion feature-1 calls from a second NR
   pass; time-window heuristics are not accepted as release behavior.
-- Disabling the master switch removes per-frame Evaluate hooks.
+- Preserve the existing master-off fast path; do not add model evaluation or
+  per-frame allocation when disabled. Shared observers retain their lifetime rules.
 - If another add-on owns NR, this add-on must not submit Feature 18.
 - Failed or ambiguous contracts retain the game's original Color/Output.
 - Original NGX parameters are restored on every path.

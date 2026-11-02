@@ -1,4 +1,4 @@
-"""Contracts across the production settings transaction and Beta 13 pages."""
+"""Contracts across the production settings transaction and current pages."""
 import unittest
 from pathlib import Path
 
@@ -43,13 +43,13 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_picture_page_keeps_single_transaction_and_reset_scope(self):
         picture = self.settings.split('if(ImGui::BeginTabItem(ui("Picture###nr-picture"', 1)[1].split(
-            'if(ImGui::BeginTabItem(ui("Lighting###nr-lighting"', 1)[0]
-        ordered = ('"##final-colour"', 'DrawUnifiedColourState(', 'DrawProcessingModeBlocks(',
-                   '"##nr-processing-precision"', 'DrawUniformLayerCount(', '"##final-gain"',
-                   'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(next)')
+            'if(ImGui::BeginTabItem(ui("Models###nr-models"', 1)[0]
+        ordered = ('"##final-colour"', 'DrawUnifiedColourState(', '"##final-gain"',
+                   'DrawProcessingModeBlocks(', '"##nr-processing-precision"',
+                   'DrawUniformLayerCount(', 'RestoreRecommendedPictureSettings(next)')
         positions = [picture.index(marker) for marker in ordered]
         self.assertEqual(positions, sorted(positions))
-        self.assertEqual(picture.count('DrawUniformLayerControls('), 1)
+        self.assertNotIn('DrawUniformLayerControls(',picture)
         self.assertIn('next.transfer_strength=next.post_transfer_strength=', picture)
         self.assertIn('next.processing_start=nr_processing::Start::Before;', picture)
         self.assertIn('pending_picture_reset=true;', picture)

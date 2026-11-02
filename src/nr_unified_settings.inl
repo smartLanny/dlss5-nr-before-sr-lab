@@ -35,6 +35,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::TextWrapped("DLSS 5  %s",kAddonVersion);
     SettingsTooltip(ui("Full build identity, author and links are on Feedback.","完整构建信息、作者和链接见反馈页。"));
     DrawNrActivityStatus(runtime,current.config,current.generation,nr_ui_activity::Site::Top);
+    char setup_summary[160]{};
+    std::snprintf(setup_summary,sizeof(setup_summary),ui("Current settings: %u layer(s) | AI colour %.2f | final enhancement %.2fx",
+        "当前配置：%u 层 | AI 色彩 %.2f | 最终增强 %.2f 倍"),
+        nr_layers::Active(current.config.nr_layers),current.config.color_strength,
+        ActiveTransferStrength(current.config));
+    SettingsNote(setup_summary);
+    SettingsTooltip(ui("Current configuration requests, not visible-output proof or confirmation that the INI was saved. Capture may temporarily show comparison settings. Networks are on Models; final colour and light are on Picture and Lighting.",
+        "这里显示当前配置请求，不代表实际效果或已经写入配置文件。采集时可能暂时显示对照参数。各层网络在“模型”页，最终色彩和明暗在“画面”和“光影”页。"));
     const char* routes[]={ui("Enhance → upscale","增强→放大"),ui("Upscale → enhance","放大→增强"),ui("Compatibility","自动兼容")};
     const auto actual=nr_processing_runtime::Effective();
     unsigned actual_w=current.work_width,actual_h=current.work_height;
@@ -70,10 +78,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 "0 保留游戏颜色，1 请求完整 NR 色彩，仍受安全限制。不是全图饱和度；调整后采用新版色彩范围，也包括游戏内部 HDR。"));
             if(!next.colour_range_control)SettingsNote(ui("Saved legacy colour behaviour retained; this is its requested amount. Editing this slider adopts the new colour range.","已保留旧颜色规则；当前数值为旧请求量。调整此滑条后改用新的色彩范围。"));
             DrawUnifiedColourState(next,current.generation,has_pending||changed);
+            float strength=ActiveTransferStrength(next);
+            if(SettingsSliderFloat(ui("Final extra enhancement","最终效果强度"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
+            SettingsTooltip(ui("Scales final brightness/detail edits, not model strength. 1 keeps the model result's base amount.","调整最终明暗和细节修改量，不是模型强度；1 保留模型原量。"));
+            SettingsNote(ui("Fine-tune brightening and darkening on Lighting; choose each layer's network and model strength on Models.",
+                "增亮、压暗细调在“光影”页；各层网络和模型强度在“模型”页。"));
             SettingsSection(ui("Processing order","增强位置"));
             if(DrawProcessingModeBlocks(next,rr_guarded,compatibility_post,compatibility_post?1:next.mode)){changed=true;apply_discrete_edit=true;}
-            SettingsSection(ui("Workload","工作量"));
-            DrawNrNetworkControls(next,changed,apply_discrete_edit);
+            SettingsSection(ui("Quality and workload","精度与开销"));
 #if NR_HAS_DETAIL_STABILITY
     const auto scale_target=nr_precision_ui::SelectedTarget(
         static_cast<unsigned>(next.processing_start),rr_guarded,
@@ -151,14 +163,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 #endif
 
             DrawUniformLayerCount(next,changed,apply_discrete_edit);
-            SettingsSection(ui("Final effect","最终效果"));
-            float strength=ActiveTransferStrength(next);
-            if(SettingsSliderFloat(ui("Final extra enhancement","最终效果强度"),"##final-gain",&strength,1.f,4.f,"%.2f")){next.transfer_strength=next.post_transfer_strength=std::clamp(FiniteOr(strength,1.f),1.f,4.f);changed=true;}
-            SettingsTooltip(ui("Scales final brightness/detail edits, not model strength. 1 keeps the model result's base amount.","调整最终明暗和细节修改量，不是模型强度；1 保留模型原量。"));
+            SettingsNote(ui("Start with one layer. More layers add model work and memory use; compare frame time and image quality before increasing them.",
+                "建议先用一层。增加层数会增加模型处理和显存需求，请对比帧时间与画质后再增加。"));
             if(nr_unified_ui::LightMethod(next)==0&&nr_unified_ui::LegacyLightActive(next))SettingsNote(ui("Legacy lighting scope or component gains are active; inspect Lighting.","旧光影组合开启：见光影页。"));
             if(next.low_grid_edit_field||next.low_grid_color_edit_field||next.independent_chroma_composition||next.colour_scaled_proxy_mode||next.colour_edge_recovery||!next.color_protection||!next.high_strength_protection)
                 SettingsNote(ui("Custom composition or safeguard settings are active; inspect Developer.","画质实验开启：见开发者页。"));
-            DrawUniformLayerControls(next,changed,apply_discrete_edit);
             ImGui::Separator();
             if(ImGui::Button(ui("Restore picture###Restore default picture","恢复推荐画质###恢复默认画质"))){
                 RestoreRecommendedPictureSettings(next);
@@ -170,6 +179,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             }
             SettingsTooltip(ui("Restores pre-SR, one layer, 100% work, runtime-default global network, all layers following global, model 1.5, skin 0.4, final enhancement 1, AI colour range 0.5 and picture defaults. Keeps NR enabled state, shortcuts and compatibility preferences.",
                 "恢复推荐画质参数与实验默认值：全局网络交给运行库默认，各层跟随全局。保留总开关、快捷键和兼容设置。"));
+            ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
+        }
+        if(ImGui::BeginTabItem(ui("Models###nr-models","模型###nr-models"))){
+            ImGui::BeginChild("nr-page-models",ImVec2(0,0));
+            ImGui::BeginDisabled(collecting);
+            SettingsNote(ui("These controls change the model's work. Final enhancement and AI colour remain on Picture; brightening and darkening remain on Lighting.",
+                "这里调节模型本身。最终增强和 AI 色彩在“画面”页，增亮和压暗在“光影”页。"));
+            ImGui::TextWrapped(ui("Active layers: %u. Change the count and shared work scale on Picture.",
+                "已启用 %u 层；层数和共用工作比例在“画面”页调整。"),nr_layers::Active(next.nr_layers));
+            SettingsSection(ui("Network selection","网络选择"));
+            DrawNrNetworkControls(next,changed,apply_discrete_edit);
+            DrawNrNetworkInheritanceReset(next,changed,apply_discrete_edit);
+            DrawUniformLayerControls(next,changed,apply_discrete_edit);
             ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();
         }
         if(ImGui::BeginTabItem(ui("Lighting###nr-lighting","光影###nr-lighting"))){

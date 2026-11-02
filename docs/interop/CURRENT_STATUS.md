@@ -1,107 +1,75 @@
-# 当前主线与交付入口
+# 当前源码、交付基线与验证状态
 
-## 当前主线：0.5.2 Beta 14（维护者2026-10-03接受为开发基线）
-| 项目 | 身份 |
+## 当前源码：0.5.2 Beta17 开发候选
+
+`main` 是唯一持续开发分支。版本身份以 `scripts/core-source-layout.json` 为准；
+新源码合并不等于安装包发布，也不将 Beta13/14 的游戏结果转移给新候选。
+
+| 本次集成内容 | 来源与证据 |
 |---|---|
-| 已交付二进制源码 | `3663affdd77309c3eac9a306849415a1ded4f330`（干净CI staged merge） |
-| main基线 | `024f9cc32778c1056db364d76d087ee257da6502`；与二进制源码的Git树均为`5b6f07e34501350b025091ab67d5a313b7739727`，不重命名二进制来源 |
-| 合入方式 | #335菜单过渡诊断、#336部分插件分配账目已经合入main |
-| 中文 Core SHA256 | `a10947a9902ea3870d48945f3d08bcc0c1c5b142a11deb9c9575f9054144ec35` |
-| 英文 Core SHA256 | `a418bddf52a163a413d097f69184584ca4ef802ad0daa412c9557165644696c0` |
-| 交付回执 | [052_BETA14_DELIVERY.json](052_BETA14_DELIVERY.json) |
-| 用户包 | 双语Core-only OTA + RTX20/30、40/50手动完整升级包；按版本保存；未在线发布 |
+| Beta14 交付与 Core-only 打包整理 | #337；原二进制和回执保持身份 |
+| 原生命令列表死亡与 NR recording 退休 | #341；精确 lifetime/fence 合同保留，原分支有 Windows canonical 回执 |
+| 全局与五层独立网络请求 | #346；实际 Create/caller/consumer CPU 负控、运行库身份与重放验证 |
+| Continuous SDR 可选色控 | #345；明确 SDR 合同准入，Legacy 与 Generic 关闭默认保留 |
+| 恢复推荐画质同时恢复 Legacy | #347；普通加载和单层模型操作不重置算法 |
+| 画面/模型分组、当前配置摘要与继承按钮 | [界面验证](../validation/UI_OPEN_SOURCE_REFRESH_20261103.md) |
+| 命令状态快照减少无效常量复制 | [生产函数回归与微基准](../validation/COMMAND_SNAPSHOT_COPY_20261103.md) |
+| 已有 GCC 编译告警修复 | [便携检查](../validation/PORTABLE_PR_REVIEW_20261103.md)，未降低警告或断言 |
 
-Beta14相对Beta13增加F8有界菜单事件和部分资源分配分类账，不改变渲染算法、默认值或公开DLL ABI。
-[完整Windows双语构建](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/36823064779)成功，
-实际330文件直接源码清单核验；原canonical回执的历史`generated_source=true`字段保持原样，
-实际导出schema为`dlss5-direct-source-v1`、`source_transforms=false`。
-本机5090D固定RTX40/50运行库的SR单层、RR单层/三层受控Feature1/13/18另记通过，
-不等于游戏、其他显卡或整帧性能通过。Beta13两组运行库的受控结果保留原身份。
+网络值是请求，不能凭版本字符串、创建成功或菜单选择认定模型已经执行。
+顶部实际运行状态与当前配置摘要分开；F8 按既有格式保留请求、原因和证据。
 
-**维护者游戏验收（2026-09-29）：** 默认设置下 NR 前置、NR 后置、原生 RR→后置
-NR、F6 开关和约 30 分钟稳定性，覆盖两款游戏，结论为没有问题，同意推给玩家。
-这只覆盖默认路线；下表的实验项和已知问题尚未完整验证，不因合入 main 而算通过。
-**Beta14维护者记录：** 异环原生RR下的Esc过渡表现于2026-10-02接受；单层→双层→单层
-已知分配468.38→681.63→468.38 MiB，支持此次已知资源回收，不证明完整显存无泄漏。
-随后61%私有SR已实际执行，但静态碎边/颗粒与维护者报告的闪烁使当前画质未通过。
-据各版交付记录，UI1 起的两项新功能默认关闭（低分辨率细节增强、去除暗噪），
-私有 SR 和两个空间实验同样默认关闭。
+## 已交付基线：Beta14
 
-## 发布给玩家
+| 身份 | 值 |
+|---|---|
+| 原编译源码 | `3663affdd77309c3eac9a306849415a1ded4f330` |
+| 当时 main | `024f9cc32778c1056db364d76d087ee257da6502`，与原编译源码同 Git 树 |
+| 原交付回执 | [052_BETA14_DELIVERY.json](052_BETA14_DELIVERY.json) |
+| 完整构建记录 | [Windows run 36823064779](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/36823064779) |
 
-- Manager 默认版本在 `smartLanny/DLSS5-Manager-ZJZ` 调整，本仓库不改 Manager pin。
-- Beta14 Core-only OTA不带NR；两组NR库独立保留，另提供含NR/人脸资源的手动完整包，当前Manager不能导入。**确认再分发
-  许可之前，公开发布只放 Core、nrchain、人脸资源和许可说明**，玩家继续使用本机运行库。
-- 发布前按 `docs/REPOSITORY_AUDIT.md` 审查载荷，保留上一版可回退。
+Beta13 默认 NR 前置、后置、原生 RR→后置 NR 和 F6 已有维护者的两款游戏记录；
+Beta14 的异环 Esc 表现及单→双→单层已知分配回收另有记录。这些范围保留原身份，
+不是新版、所有显卡或所有实验的验收。私有 SR 的碎边、颗粒与闪烁尚未完整验证。
+UI1 起的两项新功能默认关闭（低分辨率细节增强、去除暗噪），私有 SR、空间实验及
+Continuous SDR 同样保留各自默认与明确的手动启用行为。
 
-## 开放问题
+## 继续保留的研究 PR
 
-| 问题 | 现状 | 入口 |
-|---|---|---|
-| Esc / UI 场景丢 NR | A：异环本轮Esc表现已有维护者通过，根因未证实；B/C：独立UI+3D预览场景继续按实际证据区分，不扩大为全部通过；Beta14已有过渡诊断 | #317 |
-| 显存占用偏大 | Beta14已有部分插件自有分配分类账，包含未知所有者；此次切回单层下界回收，但完整模型内存、驻留量和相对D13优化未证明 | #298 |
-| 长时间内存增长 | 已有驻留回收、退休和严重提交压力旁路，根因未证实 | #298 / #293 |
-| 私有残差 SR | 游戏中已证明部分配置实际执行和局部GPU完成；61%普通恢复77FPS、私有69FPS为维护者观察，碎边/闪烁质量未通过，默认关闭 | #309 |
-| 两个空间降噪实验 | 默认关闭、可手动比较；细线质量门未通过 | #309 |
-| 时域来源与历史 | 游戏中未证实历史采用；局部 GPU 时间不是整帧成本 | #274 / #296 |
-| 整帧新增成本 ≤3% | 未证明 | #277 |
-| RTX20/30 实卡 | 只有 5090D 上的接口验证 | — |
-| 2077 | unified10、0.5-d13、0.4.7 均在首次 NR 创建阶段故障，无混版证据，根因未定 | — |
+| PR | 未合入原因与下一步 |
+|---|---|
+| #340 私有 SR / 可用显存准入 | 包含 #338 的实现，需完整组合 canonical、实际 GPU 分配、NGX 与画质/成本对照 |
+| #342 双 RR / 原生 3D 测试台 | 147 文件为研究、脚本、测试和回执，没有修改产品 `src/`；仍需完整宿主可复现与接入验收 |
+| #343 有界显存明细与趋势 | 与 #341 的 F8 容量组合需实际 writer/collector 验证；337 KiB tail 加退休24 KiB不能漏算 |
 
-普通恢复仍是建议基线。原生RR→后置NR已交付；低分NR→一次原生RR或绕行、第二套私有RR未实现。
+保留分支和研究证据，不把尚未采纳的实验标成产品功能，也不因关闭/合并 PR 自动关闭
+对应的玩家问题。
 
-## 分工（维护者 2026-09-29 决定，见 #311）
+## 尚待验收的问题
 
-- **Claude 维护会话：** main 整合（审查后合并 PR）、发布 tag、PR 与 issue 清理、
-  文档维护和源码 pin 冲突处理。
-- **执行 agent：** Core 功能开发、Windows 完整构建、打包和硬件验证；在任务分支上
-  开 PR，不直接合并 main、不关闭他人 PR、不打发布 tag。
-- **维护者：** 游戏验收、发布与 Manager 默认版本的最终决定。
+| 范围 | 入口 |
+|---|---|
+| 菜单、独立 UI+3D 预览的 NR 中断 | #317 / #339；原生 destruction notice 不足时保留明确旁路 |
+| 冷启动停顿、模型/槽驻留与长期增长 | #293 / #298 / #329 / #330 / #331 |
+| D13/D21 整帧开销、RR+FG 的 GPU 利用率 | #272 / #273 / #277；本次 CPU 微基准不能回答 FPS |
+| 游戏颜色、近黑、人脸、边缘、运动与 HDR | #274 / #309；Continuous SDR 的保护条件不能放宽到未知输入 |
+| 多 API provider、FG owner 与跨模块寿命 | #164 / #167；双 presenter、辅助 swapchain 和设备探测须独立验证 |
 
-## 下一步（按顺序）
-1. **#309：** 按[最新收敛规划](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-5959036328)，开发侧一份16帧内部证据、定位后同任务最小修正；比较匹配空间参考和仅增加私有SR修正的候选，再集中交一个修后包。
-2. **#309 NR→一次原生RR：** 可独立并行做零编辑透传/小修改及真实导引安全检查；首轮N=R，不阻挡SR交付。第二套私有Feature13暂缓。
-3. **#298/#317：** 继续分析已有显存和独立UI预览证据，不重做已合诊断或要求维护者重复已接受测试。跨API transport另线，不混入本批碎边修正。
+普通恢复与一层仍是起点。RTX20/30 实卡、模型网络混用、WARP/NGX、实际界面渲染和
+各游戏帧时间分别验收；缺失、跳过、取消、失败都不能记为通过。当前集成未生成新版
+安装包，没有改变 Manager pin、游戏目录或运行库。
 
-**已完成 #321（#327，2026-09-30 合入 `0e1ba85c`）：** Core 直接编译 `src/`，16 个 `patch-*.py`
-已归档，结构见 [SOURCE_LAYOUT.md](../maintenance/SOURCE_LAYOUT.md)。维护审查在自托管 runner 上用原
-生成器独立重建 `cd8ba700`：manifest SHA256 等于 Beta 13 回执的 `6d15f8ee…`，PR 头 301 个 Core 文件
-300 个逐字节相同，只有 `scripts/build.ps1`（源码身份改为读取导出回执）不同。新编译的 Core DLL 哈希
-与已发布 Beta 13 不同，不声称二进制等价，也不是 NGX 或游戏验收。
+## 开发与发布
 
-**版本号：** main上的`scripts/core-source-layout.json`为`0.5.2-beta.14`。下一行为改动先更新为
-`0.5.2-beta.15`，不能用Beta14名字发布新行为二进制；本轮OTA只复用已核验Beta14原二进制。
-
-**本机维护项已完成（2026-09-30）：** `v0.5.2-beta.13` tag 已推送，已并入的旧分支已删除，
-`codex/317-…`、`codex/293-298-…` 先打 archive tag 后删除。
-
-## 从哪里开始
-- [新电脑接续与依赖](../../START_HERE.md)
-- [Beta14交付与范围](052_BETA14_DELIVERY.json)、[最新#309规划](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-5959036328)
-- [Beta 13 历史已知问题](../handoff/BETA13_KNOWN_ISSUES.zh-CN.md)（优先采用上方最新状态）
-- [Beta 12 手测单](052_BETA12_TEST_CHECKLIST.zh-CN.md)（Beta 13 行为相同）
-- [归档索引](../maintenance/ARCHIVE_INDEX_20260926.json)：177 个旧远端分支、本地工作树和别名的保存位置
-- 已被 #313 包含而关闭的 PR：#308、#316（整条分支在历史中）、#318、#319（修复已移植，`src/` 新增行逐行核对）
-
-## 验证口径
-
-任何系统上都可以先跑 `python3 scripts/run-portable-tests.py`（说明见 `CONTRIBUTING.md`）；
-它不替代 Windows canonical 构建。
-源码审查、编译、CPU、WARP、硬件 shader、NGX 推理、托管 CI 和游戏验收分别记录；
-跳过、失败、取消、未启动都不是通过。托管 CI 仍需 `ENABLE_HOSTED_CI=true`，目前为 `false`。
-维护者电脑上的自托管 runner 受 `ENABLE_SELF_HOSTED_CI` 控制：每个 PR 跑快速测试，
-完整构建需手动触发或给 PR 打 `full-build` 标签，说明见 `docs/maintenance/SELF_HOSTED_RUNNER.md`。
-首次记录（2026-09-30）：main `7ea8ae15` 上快速测试 69 通过 / 0 失败 / 2 跳过；完整构建
-（run 36712552190）exit 0，约 55 分钟，`source-manifest.json` SHA256 `983ae6a4…dc29`，
-`validation.json` SHA256 `4b7e6174…0ee1`。这是本机 CPU/WARP 构建证据，不是 NGX 推理或游戏验收，
-也不重新命名任何已发布二进制。该次运行的 `*-checks` 门禁目录被旧清理逻辑误删（#326 修复），
-主输出目录保留。
-持续旁路必须请求 F8/日志反馈，旁路带来的高帧率不是优化。
+- [开发入口](../../START_HERE.md) · [源码结构](../maintenance/SOURCE_LAYOUT.md) · [贡献指南](../../CONTRIBUTING.md)。
+- 便携入口：`python3 scripts/run-portable-tests.py --verbose`；完整构建仍走 `scripts/build-unified-candidate.ps1`。
+- 公开 PR 的源码/CPU 检查使用临时 Linux runner；原有 Windows 托管门禁和本机 runner 开关继续独立控制。
+- [本机 CI](../maintenance/SELF_HOSTED_RUNNER.md)只自动接收符合身份条件的维护者 PR；外部代码先审查，`full-build` 标签不覆盖来源限制。
+- 持续旁路必须请求 F8/日志反馈；反馈公开前脱敏。旁路引起的帧数变化不是性能优化。
+- 原创源码为 [MIT](../../LICENSE)，第三方声明保留；公开包不附 NVIDIA NR 模型/运行库。
+- 二进制发布、Manager 默认版本和游戏验收仍各自记录。此前协作分工见 #311，本轮维护按用户明确授权整理与合并。
 
 ## 历史
 
-- Beta 1–14 各版验收、交付与回退：`docs/interop/052_BETA*_*.md/json`，保留原身份。
-- 合入前的完整状态页：[CURRENT_STATUS.pre-integration.md](../history/beta13-integration-20260929/CURRENT_STATUS.pre-integration.md)
-- 主线归位前的规则、README 和状态：[pre-mainline-20260926](../history/pre-mainline-20260926/)
-- 0.3/0.4 与早期 0.5 文档、0.4.7beta corefix / dev / dline / D21 逐版记录：见 [docs/history](../history/README.md)
-- 旧发布线脚本：[scripts/archive](../../scripts/archive/README.md)
+[Beta1–14 交付目录](.)、[历史文档](../history/README.md)、
+[分支与归档索引](../maintenance/ARCHIVE_INDEX_20260926.json)保持原版本与来源。

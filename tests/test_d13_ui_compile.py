@@ -78,6 +78,7 @@ std::vector<std::string> buttons,checkboxes;
 int current_layer=-1,slider_layer=-1,button_layer=-1;
 std::string slider_key;float slider_value=0;bool active_item=false;
 unsigned disabled=0;
+std::vector<bool> disabled_stack;
 namespace ImGui {
 void SeparatorText(const char*) {}
 bool BeginTable(const char*,int,int){return true;}
@@ -92,8 +93,8 @@ bool Checkbox(const char* label, bool* value) {
 }
 bool SliderFloat(const char* id, float* value, float, float, const char*) { if(disabled||current_layer!=slider_layer||slider_key!=id)return false;*value=slider_value;slider_layer=-1;return true; }
 bool Button(const char* label,ImVec2 = {}) { last_button=label; buttons.emplace_back(label); return !disabled && (button_layer<0||current_layer==button_layer) && !click.empty() && std::strstr(label, click.c_str()) != nullptr; }
-void BeginDisabled(bool value=true) { if(value)++disabled; }
-void EndDisabled() { if(disabled)--disabled; }
+void BeginDisabled(bool value=true) { disabled_stack.push_back(value);if(value)++disabled; }
+void EndDisabled() { if(disabled_stack.back())--disabled;disabled_stack.pop_back(); }
 struct Style { ImVec2 ItemSpacing{8,4}; } style;
 Style& GetStyle(){return style;}
 float GetFontSize(){return 16;}
@@ -235,6 +236,45 @@ int main() {
     DrawUniformLayerControls(unavailable,network_changed,network_discrete);
     if(rendered.find("Layer request: Unrecognized saved value")==std::string::npos||
        unavailable.nr_network_preset!=-1||network_changed||network_discrete)return 49;
+    // The network-only reset is useful when comparing mixed models. Exercise
+    // the production button for both languages, including disabled/capture
+    // states, inactive layers and transaction publication.
+    for(bool zh:{false,true}) {
+        chinese=zh;
+        ChainConfig follow;nr_unified_ui::SetLayers(follow,3);
+        follow.nr_network_preset=2;follow.nr_primary_network_preset=1;
+        follow.nr_layers[0].network_preset=0;follow.nr_layers[1].network_preset=99;
+        follow.nr_layers[2].network_preset=1;follow.nr_layers[3].network_preset=0;
+        follow.nr_layers[0].intensity=.37f;follow.nr_layers[2].intensity=.81f;
+        follow.color_strength=.23f;follow.transfer_strength=2.1f;
+        const auto before_follow=follow;
+        click="nr-networks-follow-global";network_changed=network_discrete=false;
+        ImGui::BeginDisabled();
+        DrawNrNetworkInheritanceReset(follow,network_changed,network_discrete);
+        ImGui::EndDisabled();
+        if(network_changed||network_discrete||follow.nr_primary_network_preset!=1||
+           follow.nr_layers!=before_follow.nr_layers)return 50;
+        DrawNrNetworkInheritanceReset(follow,network_changed,network_discrete);
+        if(!network_changed||!network_discrete||follow.nr_network_preset!=2||
+           follow.color_strength!=.23f||follow.transfer_strength!=2.1f)return 51;
+        for(unsigned layer=0;layer<3;++layer) {
+            auto expected=nr_layers::Read(before_follow,layer);
+            expected.network_preset=nr_network_policy::Inherit;
+            if(nr_layers::Read(follow,layer)!=expected||nr_layers::RequestedNetwork(follow,layer)!=2)return 52;
+        }
+        if(follow.nr_layers[2]!=before_follow.nr_layers[2]||follow.nr_layers[3]!=before_follow.nr_layers[3])return 53;
+        active_item=true;apply_calls=0;ApplyUiEdits(follow,network_changed,network_discrete);
+        if(apply_calls!=1||has_pending||applied.nr_primary_network_preset!=nr_network_policy::Inherit||
+           applied.nr_layers!=follow.nr_layers)return 54;
+        active_item=false;network_changed=network_discrete=false;
+        DrawNrNetworkInheritanceReset(follow,network_changed,network_discrete);
+        if(network_changed||network_discrete||disabled||!disabled_stack.empty())return 55;
+        // Nested BeginDisabled(false) must retain the outer capture lock.
+        ImGui::BeginDisabled();DrawNrNetworkInheritanceReset(follow,network_changed,network_discrete);
+        if(disabled!=1)return 56;
+        ImGui::EndDisabled();
+    }
+    chinese=false;click.clear();apply_calls=0;
     ChainConfig c; c.nr_passes=2; c.nr_second_numerator=2; c.nr_second_denominator=3;
     show_more=true; click.clear();
     bool changed=false, discrete=false;
@@ -339,6 +379,7 @@ int main() {
     }
     std::puts("D13 UI adapters: quick/details and method selector compiled");
     std::puts("D21 UI adapters: single count 1-5, retained values, local reset and release-to-apply compiled");
+    std::puts("Model page: bilingual active-network reset, inactive settings, capture lock and shared publication passed");
     return 0;
 }
 '''

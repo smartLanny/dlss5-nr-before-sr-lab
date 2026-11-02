@@ -24,20 +24,35 @@ class UnifiedUi(unittest.TestCase):
 
     def test_flat_navigation_and_order(self):
         self.assertEqual(self.settings.count('ImGui::BeginTabBar('), 1)
-        self.assertEqual(self.settings.count('ImGui::BeginTabItem('), 5)
-        self.assertEqual(self.settings.count('ImGui::BeginChild("nr-page-'),5)
-        self.assertEqual(self.settings.count('ImGui::EndChild();ImGui::EndTabItem();'),5)
+        self.assertEqual(self.settings.count('ImGui::BeginTabItem('), 6)
+        self.assertEqual(self.settings.count('ImGui::BeginChild("nr-page-'),6)
+        self.assertEqual(self.settings.count('ImGui::EndChild();ImGui::EndTabItem();'),6)
         self.assertLess(self.settings.index('DrawNrActivityStatus('),self.settings.index('ImGui::BeginTabBar('))
         for text in (self.settings, self.pages, self.layers):
             self.assertFalse('CollapsingHeader(' in text)
         self.assertFalse('BeginTabBar(' in self.pages+self.layers)
-        markers = ['###master-nr', '##final-colour', 'DrawProcessingModeBlocks(', 'DrawNrNetworkControls(', '##nr-processing-precision',
-                   'DrawUniformLayerCount(', '##final-gain',
-                   'DrawUniformLayerControls(', 'RestoreRecommendedPictureSettings(']
+        markers = ['###master-nr', '##final-colour', '##final-gain', 'DrawProcessingModeBlocks(', '##nr-processing-precision',
+                   'DrawUniformLayerCount(', 'RestoreRecommendedPictureSettings(',
+                   'Models###nr-models', 'DrawNrNetworkControls(', 'DrawNrNetworkInheritanceReset(', 'DrawUniformLayerControls(']
         positions = [self.settings.index(m) for m in markers]
         self.assertEqual(positions, sorted(positions))
         self.assertFalse('next.compat_percent=100;' in self.settings)
         self.assertTrue('ApplySettingsOverlay(pending,pending_generation,' in self.settings)
+
+    def test_model_page_is_separate_but_uses_the_shared_transaction_and_capture_lock(self):
+        picture=self.settings.split('Picture###nr-picture',1)[1].split('Models###nr-models',1)[0]
+        models=self.settings.split('Models###nr-models',1)[1].split('Lighting###nr-lighting',1)[0]
+        self.assertNotIn('DrawNrNetworkControls(',picture)
+        self.assertNotIn('DrawUniformLayerControls(',picture)
+        for marker in ('ImGui::BeginDisabled(collecting);',
+                       'DrawNrNetworkControls(next,changed,apply_discrete_edit);',
+                       'DrawNrNetworkInheritanceReset(next,changed,apply_discrete_edit);',
+                       'DrawUniformLayerControls(next,changed,apply_discrete_edit);',
+                       'ImGui::EndDisabled();'):
+            self.assertIn(marker,models)
+        self.assertNotIn('ApplySettingsOverlay(',models)
+        self.assertNotIn('RestoreRecommendedPictureSettings(',models)
+        self.assertIn('nr_layers::Active(current.config.nr_layers)',self.settings)
 
     def test_only_active_layers_without_secondary_enable_controls(self):
         self.assertTrue('const auto count=nr_layers::Active(next.nr_layers);' in self.layers)

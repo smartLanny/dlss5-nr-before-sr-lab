@@ -1,0 +1,40 @@
+{
+  "scope": "remove legacy binary/raw-feedback payloads from current public source tree only",
+  "retained_revision": "6af89478ae0d258f74fcb9583f95c74bd9bda3fb",
+  "history_rewritten": false,
+  "old_history_still_contains_payloads": true,
+  "working_files_matched_git_before_removal": true,
+  "active_source_script_test_workflow_references": false,
+  "files": [
+    {
+      "path": "bug-inbox/issue-121/feedback.zip",
+      "git_blob": "723bf2c4c98341a36fe5b01dc0af880c7c91b117",
+      "bytes": 328682
+    },
+    {
+      "path": "bug-inbox/issue-224/bridge-1.4.11-from-0.4.2.addon64",
+      "git_blob": "d623e9a3567eb575a679e2b007c056f74266f67f",
+      "bytes": 513024
+    },
+    {
+      "path": "bug-inbox/issue-224/bridge-1.4.12-from-0.4.7.addon64",
+      "git_blob": "13b57a676519c5001114bd31657ce5556af2df9f",
+      "bytes": 809984
+    },
+    {
+      "path": "bug-inbox/issue-38/followup-20260906-beta045-owner/mode1-post/feedback.zip",
+      "git_blob": "4bfb314b08ee768f3f076ac30412ab2ae3e15549",
+      "bytes": 303947
+    },
+    {
+      "path": "bug-inbox/issue-38/followup-20260906-beta045-owner/mode2-pre/feedback.zip",
+      "git_blob": "6e6609ce99fcac5e7362782c4e14b977127cdb76",
+      "bytes": 296472
+    },
+    {
+      "path": "bug-inbox/issue-64/followup-20260906-beta045-owner/feedback.zip",
+      "git_blob": "69adc05ed689a20c29549860ae9294e99ac97595",
+      "bytes": 413606
+    }
+  ]
+}

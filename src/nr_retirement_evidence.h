@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <type_traits>
 
 // Diagnostic values only. No value in this snapshot grants a lifetime permit.
@@ -77,6 +78,13 @@ struct Snapshot {
 };
 static_assert(std::is_trivially_copyable_v<Snapshot> && std::is_standard_layout_v<Snapshot>);
 static_assert(sizeof(Snapshot)<128u*1024u);
+inline void ResetSnapshot(Snapshot& snapshot) noexcept {
+    // Value-initialize in place: a Snapshot{} assignment can introduce a large
+    // temporary on the small F8 worker stack, while memset bypasses the type's
+    // default member initialization and triggers GCC's class-memaccess check.
+    std::destroy_at(&snapshot);
+    std::construct_at(&snapshot);
+}
 inline const char* Name(Id bit) {
     switch(bit) {
     case None:return "none";case CreateQuarantine:return "create-quarantine";

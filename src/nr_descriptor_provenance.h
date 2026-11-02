@@ -830,7 +830,8 @@ public:
         return true;
     }
     void ObserveResource(Resource resource) {
-        if(!resource)return;std::lock_guard guard(mutex);
+        if(!resource)return;
+        std::lock_guard guard(mutex);
         SealStartup();
         const auto *old=resources.Find(resource.id);
         if(old) {
