@@ -14,7 +14,11 @@ inline constexpr unsigned int kFinalStatusReserveBytes = 256u;
 // while retaining room for start/timeline records and the start ledger.
 // Add 25 KiB for the maximum end allocation ledger and 24 KiB for Esc text.
 // The start allocation ledger fits before the timeline reserve gate.
-inline constexpr unsigned int kMandatoryTailBytes = 161u * 1024u;
+// The end-only retirement POD formatter has a separate worst-width CPU gate.
+// Keep the physical metadata buffer unchanged. All context masks fit; optional
+// holder detail has explicit omitted counts, while the full POD stays bounded.
+inline constexpr unsigned int kRetirementTextBytes = 24u * 1024u;
+inline constexpr unsigned int kMandatoryTailBytes = 185u * 1024u;
 inline constexpr unsigned int kModuleInventoryBytes = 4u * 1024u;
 // The timeline gate runs before an observation burst, which may also append
 // the bounded NGX/resource summary on observations 1 and 60.

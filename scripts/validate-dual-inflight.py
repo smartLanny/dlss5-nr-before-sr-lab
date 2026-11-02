@@ -10,6 +10,9 @@ never represents NVIDIA inference, a game run, or an image-quality result.
 Production code that is exercised here is the dual spatial allocator and
 recording/binding path; the old slot mutation predicate is extracted verbatim
 from the current Core so its pending-fence behaviour cannot drift in the test.
+Native/Create registry and Execute/Reset publication remain controlled fixture
+services. Notice registration uses the real ID3DDestructionNotifier, while the
+production native-death consumer is validated by the separate whole-Core host.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -83,6 +87,89 @@ def declaration(source: str, marker: str) -> str:
     return source[start:end]
 
 
+def native_notice_fixture_definition() -> str:
+    """Shared controlled notice service for both real-D3D12 ABI fixtures.
+
+    This also reaches the primary-depth host, which reuses lifecycle_definition
+    and the region template. It is not an extraction of Core's state registry.
+    """
+    return r'''
+// Controlled Create registry, real QI/RegisterDestructionCallback. Neither this
+// service nor the fixture's adapted Reset publication validates Core's native
+// death consumer; no callback edits an NR recording counter or ledger.
+std::atomic<unsigned> g_fixture_notice_live{0},g_fixture_notice_registered{0},g_fixture_notice_callbacks{0};
+struct NativeCommandLifetime {
+    std::atomic<unsigned> references{1}; // fixture registry, callback and NR ledger
+    const unsigned long long token;
+    ID3D12GraphicsCommandList* const native; // identity only, no native AddRef
+    std::atomic<bool> native_dead{false};
+    NativeCommandLifetime(unsigned long long value,ID3D12GraphicsCommandList* object):token(value),native(object) {
+        ++g_fixture_notice_live;
+    }
+    ~NativeCommandLifetime(){--g_fixture_notice_live;}
+};
+std::array<NativeCommandLifetime*,kLifecycleCommandListCount> g_fixture_native_notices{};
+void NativeCommandLifetimeDropPod(NativeCommandLifetime* notice) {
+    if(notice && notice->references.fetch_sub(1,std::memory_order_acq_rel)==1)delete notice;
+}
+void STDMETHODCALLTYPE FixtureNativeNoticeDestroyed(void* data) {
+    auto* notice=static_cast<NativeCommandLifetime*>(data);
+    notice->native_dead.store(true,std::memory_order_release);
+    ++g_fixture_notice_callbacks;
+    NativeCommandLifetimeDropPod(notice);
+}
+NativeCommandLifetime* AcquireNativeLifetimeForNr(ID3D12GraphicsCommandList* native,unsigned long long& token) {
+    token=0;
+    for(auto* notice:g_fixture_native_notices) {
+        if(notice && notice->native==native && !notice->native_dead.load(std::memory_order_acquire)) {
+            notice->references.fetch_add(1,std::memory_order_relaxed);token=notice->token;return notice;
+        }
+    }
+    return nullptr;
+}
+void FixtureNativeNoticeCleanup() {
+    // Test-only storage cleanup after all assertions and native releases. The
+    // existing host controls Reset counters; this is not production detachment.
+    for(auto& record:g_lifecycle_command_lists) {
+        NativeCommandLifetimeDropPod(record.native_lifetime);
+        record.native_lifetime=nullptr;record.native_lifetime_token=0;record.native_identity=nullptr;
+    }
+    for(auto*& notice:g_fixture_native_notices){auto* held=notice;notice=nullptr;NativeCommandLifetimeDropPod(held);}
+    const auto registered=g_fixture_notice_registered.load(),callbacks=g_fixture_notice_callbacks.load(),live=g_fixture_notice_live.load();
+    std::printf("NOTICE SERVICE: actual QI/Register registered=%u callbacks=%u live=%u; Create-registry/Reset=controlled; production-death-consumer=not-tested\n",
+                registered,callbacks,live);
+    if(registered!=callbacks||live){std::fprintf(stderr,"FAIL controlled notice storage cleanup\n");std::_Exit(3);}
+}
+bool FixtureRegisterNativeNotice(ID3D12GraphicsCommandList* native) {
+    static const bool cleanup_registered=std::atexit(FixtureNativeNoticeCleanup)==0;
+    if(!native||!cleanup_registered)return false;
+    for(unsigned i=0;i<g_fixture_native_notices.size();++i)if(!g_fixture_native_notices[i]) {
+        auto* notice=new(std::nothrow) NativeCommandLifetime(i+1,native);
+        if(!notice)return false;
+        ID3DDestructionNotifier* notifier=nullptr;
+#if defined(CINTERFACE)
+        const auto queried=native->lpVtbl->QueryInterface(native,IID_ID3DDestructionNotifier,reinterpret_cast<void**>(&notifier));
+#else
+        const auto queried=native->QueryInterface(IID_ID3DDestructionNotifier,reinterpret_cast<void**>(&notifier));
+#endif
+        if(FAILED(queried)||!notifier){NativeCommandLifetimeDropPod(notice);return false;}
+        notice->references.fetch_add(1,std::memory_order_relaxed); // callback pData pre-hold
+        UINT callback_id=0;
+#if defined(CINTERFACE)
+        const auto registered=notifier->lpVtbl->RegisterDestructionCallback(notifier,FixtureNativeNoticeDestroyed,notice,&callback_id);
+        notifier->lpVtbl->Release(notifier);
+#else
+        const auto registered=notifier->RegisterDestructionCallback(FixtureNativeNoticeDestroyed,notice,&callback_id);
+        notifier->Release();
+#endif
+        if(FAILED(registered)){NativeCommandLifetimeDropPod(notice);NativeCommandLifetimeDropPod(notice);return false;}
+        g_fixture_native_notices[i]=notice;++g_fixture_notice_registered;return true;
+    }
+    return false;
+}
+'''
+
+
 def lifecycle_definition(source: str) -> str:
     names = [
         "bool IsSlotFenceCompleteLocked(",
@@ -97,7 +184,20 @@ def lifecycle_definition(source: str) -> str:
         "bool CanBeginContextUseLocked(",
         "bool RecordNrUseLocked(",
     ]
-    return "\n\n".join(extract_function(source, name) for name in names)
+    return native_notice_fixture_definition() + "\n\n".join(extract_function(source, name) for name in names)
+
+
+def native_notice_receipt(text: str) -> dict:
+    match = re.search(r"NOTICE SERVICE: actual QI/Register registered=(\d+) callbacks=(\d+) live=(\d+); "
+                      r"Create-registry/Reset=controlled; production-death-consumer=not-tested", text)
+    if not match:
+        raise RuntimeError("missing controlled native notice service receipt")
+    registered, callbacks, live = map(int, match.groups())
+    if not registered or registered != callbacks or live:
+        raise RuntimeError("controlled native notice service did not balance its storage references")
+    return {"real_notifier_registrations": registered, "real_native_callbacks": callbacks,
+            "remaining_notice_storage": live, "create_registry": "controlled-fixture",
+            "execute_reset_publication": "controlled-fixture", "production_native_death_consumer": False}
 
 
 def run(command: list[str], *, cwd: Path, output: Path, timeout: int) -> None:
@@ -205,6 +305,24 @@ def main() -> int:
     history_template = (ROOT / "tests/d13_inflight_history_host.cpp.in").read_text(
         encoding="utf-8-sig"
     )
+    # Run's observational fields are supplied by this CPU environment. Keep the
+    # actual success block and actual reset counters; do not strip observations
+    # or turn controlled source values into a real frame/NGX identity claim.
+    history_environment = {
+        '#include "nr_dual_pass.hpp"': '#include "nr_dual_pass.hpp"\n#include "nr_reset_observation.h"\n'
+        'namespace nr_source_runtime {\nstruct ControlledSource {std::uint64_t stream=0,epoch=0,sequence=0;};\n'
+        'ControlledSource CurrentSource(){return {};} // Controlled CPU source, not native frame evidence.\n}\n',
+        'std::uint64_t history_generation = 1;': 'unsigned history_generation = 1;',
+        'std::uint64_t width = 640, height = 360;': 'unsigned width = 640, height = 360;',
+        'GuideHistory guide_history{};': 'std::uint64_t feature_generation=1;\n'
+        '    unsigned diagnostic_reset_reasons=0,config_generation=1;\n'
+        '    float last_source_to_canonical=1;bool observed_delayed_exposure_reset=false;\n'
+        '    GuideHistory guide_history{};',
+    }
+    for marker, replacement in history_environment.items():
+        if history_template.count(marker) != 1:
+            raise ValueError(f"history environment seam changed: {marker}")
+        history_template = history_template.replace(marker, replacement)
     history_generated = history_template.replace(
         "// @CORE_AUX_HISTORY_RESET@",
         extract_line_block(
@@ -277,6 +395,7 @@ def main() -> int:
         },
         "limitations": [
             "The host supplies CPU guide/slot/status interfaces and a controlled second-attempt result.",
+            "Source/reset diagnostic inputs are controlled CPU fields; the success block and reset-observation counters are production code.",
             "It does not perform NGX inference, GPU submission, game execution, or image/performance validation.",
         ],
     }
@@ -295,6 +414,7 @@ def main() -> int:
             "inputs": {
                 "src/nr_dual_pass.hpp": sha256(ROOT / "src/nr_dual_pass.hpp"),
                 "src/nr_dual_runtime.inl": sha256(ROOT / "src/nr_dual_runtime.inl"),
+                "src/nr_reset_observation.h": sha256(ROOT / "src/nr_reset_observation.h"),
                 "tests/d13_inflight_history_host.cpp.in": sha256(
                     ROOT / "tests/d13_inflight_history_host.cpp.in"
                 ),
@@ -384,6 +504,8 @@ def main() -> int:
     text = run_log.read_text(encoding="utf-8", errors="replace")
     binding_text = binding_run_log.read_text(encoding="utf-8", errors="replace")
     region_text = region_run_log.read_text(encoding="utf-8", errors="replace")
+    binding_notice = native_notice_receipt(binding_text)
+    region_notice = native_notice_receipt(region_text)
     required = [
         "D13 real ReShade queued WARP host",
         "RESHade identity:",
@@ -452,6 +574,8 @@ def main() -> int:
         "src/nr_region_runtime.inl",
         "src/nr_region_shader.h",
         "src/nr_optional_layer_probe.h",
+        "src/nr_reset_observation.h",
+        "scripts/validate-dual-inflight.py",
     ]
     receipt = {
         "schema": "nr-d13-real-reshade-dual-inflight-v1",
@@ -465,6 +589,7 @@ def main() -> int:
             ).strip()
         ),
         "inputs": {name: sha256(ROOT / name) for name in inputs},
+        "generated_sources_sha256": {path.name: sha256(path) for path in output.glob("d13_inflight*_host.cpp")},
         "compiler": str(compiler),
         "compiler_sha256": sha256(compiler),
         "reshade_dll_sha256": sha256(reshade),
@@ -485,6 +610,9 @@ def main() -> int:
         "core_spatial_recording": True,
         "core_mutation_gate_extracted_verbatim": True,
         "core_lifecycle_admission_extracted_verbatim": True,
+        "native_notice_service": {"binding": binding_notice, "region": region_notice},
+        "native_notice_fixture_definition_sha256": hashlib.sha256(native_notice_fixture_definition().encode()).hexdigest(),
+        "production_native_death_consumer": False,
         "production_binding_functions_exercised": True,
         "production_region_prepare_seal_dispatch_exercised": True,
         "production_aux_history_run_segment_exercised": True,
@@ -516,6 +644,7 @@ def main() -> int:
             "The NGX callback is a stub and does not perform NVIDIA inference.",
             "The host does not start a game or claim game image/performance validation.",
             "The host adapts Execute/Reset publication with a small fixture helper; the extracted admission and RecordNrUse functions remain production code.",
+            "Native/Create registration is a controlled fixture registry backed by real ID3DDestructionNotifier QI/callback registration; this is not the production native-death consumer test.",
         ],
     }
     (output / "validation.json").write_text(

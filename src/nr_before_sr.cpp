@@ -27,6 +27,8 @@
 #include <memory>
 #include <type_traits>
 #include "nr_layer_config.h"
+#include "nr_retirement_evidence.h"
+#define NR_HAS_RETIREMENT_EVIDENCE 1
 #include "nr_colour_lab_policy.h"
 #include "nr_colour_restore_policy.h"
 #include "nr_colour_stage_policy.h"
@@ -6514,6 +6516,9 @@ struct NrContext {
     NrSlot slots[8] = {};
 };
 
+void NrRetirementEvaluationLocked(const NrContext&,unsigned long long);
+void NrRetirementMarkedLocked(const NrContext&,unsigned);
+
 #include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
 
@@ -6549,9 +6554,17 @@ void MenuNoteContext(nr_menu_trace::Kind kind,const NrContext& context,unsigned 
 
 bool g_nr_residency_drain_pending=false; // Existing g_chain_cs; not a completion proof.
 void ReconcileNrResidencyLocked(unsigned previous_active, unsigned requested_active, bool explicit_route_change) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    bool was_retired[std::size(g_contexts)]{};
+    for(unsigned i=0;i<std::size(g_contexts);++i)was_retired[i]=g_contexts[i].retired;
+#endif
     const unsigned marked=nr_residency::RetireForCompaction(
         g_contexts, std::size(g_contexts), previous_active, requested_active, explicit_route_change);
     if (marked) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        for(unsigned i=0;i<std::size(g_contexts);++i)
+            if(!was_retired[i]&&g_contexts[i].retired)NrRetirementMarkedLocked(g_contexts[i],9);
+#endif
         g_nr_residency_drain_pending=true;
         Log("[nr-residency] explicit layers %u->%u routeChanged=%d; retiring %u old NR contexts before rebuilding the selected chain. Drain all owned instances to permit allocator compaction; exact recording/binding/fence proofs and quarantine remain required. Ordinary F6 cache is retained; persistent waiting: collect F8 and upload BUG feedback.",
             previous_active, requested_active, explicit_route_change?1:0, marked);
@@ -6568,6 +6581,9 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     NrDiagnosticIdentity identity = {};
     identity.instance_id = context.instance_id;
     identity.frame_id = ++g_next_nr_frame_id;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementEvaluationLocked(context,identity.frame_id);
+#endif
     RecordSuccessfulJitterBinding(context, identity.frame_id);
     identity.config_generation = context.config_generation;
     identity.evaluation = context.evaluations;
@@ -6628,10 +6644,23 @@ enum class RecordingQueueProof : unsigned char {
     CompletedDependencies,
 };
 
+struct NativeCommandLifetime;
+NativeCommandLifetime *AcquireNativeLifetimeForNr(
+    ID3D12GraphicsCommandList *, unsigned long long &);
+void NativeCommandLifetimeDropPod(NativeCommandLifetime *);
+bool NativeCommandLifetimeDeadMatches(const NativeCommandLifetime *,
+    unsigned long long, ID3D12GraphicsCommandList *);
+void CollectDeadNativeRecordingsLocked();
+
 struct LifecycleCommandList {
     nr_resource_recovery::Token recovery_tokens[16]{};
     unsigned recovery_token_count = 0;
     unsigned long long token = 0;
+    // One pure-storage reference, independent of the private-data marker's
+    // IUnknown lifetime. Neither this identity nor the notice owns the list.
+    NativeCommandLifetime *native_lifetime = nullptr;
+    unsigned long long native_lifetime_token = 0;
+    ID3D12GraphicsCommandList *native_identity = nullptr;
     // Immutable prediction captured before plugin work is recorded. The
     // actual Execute queue is checked against this identity later.
     unsigned long long expected_queue_identity = 0;
@@ -6708,6 +6737,15 @@ struct GraphicsQueueRecord {
 
 LifecycleCommandList g_lifecycle_command_lists[kLifecycleCommandListCount] = {};
 LifecycleQueue g_lifecycle_queues[kLifecycleQueueCount] = {};
+
+void NrRetirementBeginDecisionLocked(const NrContext&);
+void NrRetirementDecisionLocked(const NrContext&,nr_retirement::Id,bool=false,bool=false);
+void NrRetirementEndDecisionLocked();
+void NrRetirementFenceObservedLocked(ID3D12Fence*,unsigned long long);
+void NrRetirementContextFenceObservedLocked(const NrContext&,unsigned long long);
+void NrRetirementPublishLocked(bool=false);
+void NrRetirementRecordListLocked(const LifecycleCommandList&,ID3D12GraphicsCommandList*);
+void NrRetirementSubmittedLocked(const NrContext&,const LifecycleQueue&,unsigned long long);
 GraphicsQueueRecord g_graphics_queues[16] = {};
 std::atomic<unsigned long long> g_lifecycle_token{1};
 std::atomic<unsigned long long> g_graphics_queue_identity{1};
@@ -6915,6 +6953,9 @@ bool IsSlotFenceCompleteLocked(const NrSlot &slot) {
         slot.last_submission_queue->fence == nullptr) return false;
     const unsigned long long completed = ID3D12Fence_GetCompletedValue(
         slot.last_submission_queue->fence);
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementFenceObservedLocked(slot.last_submission_queue->fence,completed);
+#endif
     // D3D12 returns UINT64_MAX when the device was removed.  Treat that as an
     // unknown lifetime rather than permission to release objects.
     return completed != UINT64_MAX && completed >= slot.completion_fence_value;
@@ -6926,6 +6967,10 @@ bool IsContextFenceCompleteLocked(const NrContext &context) {
         context.last_submission_queue->fence == nullptr) return false;
     const unsigned long long completed = ID3D12Fence_GetCompletedValue(
         context.last_submission_queue->fence);
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementFenceObservedLocked(context.last_submission_queue->fence,completed);
+    NrRetirementContextFenceObservedLocked(context,completed);
+#endif
     return completed != UINT64_MAX &&
            completed >= context.completion_fence_value;
 }
@@ -6943,17 +6988,52 @@ void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &featu
 
 bool CanDestroyContextLocked(const NrContext &context) {
     if (context.create_dependencies_quarantined ||
-        context.lifecycle_dependencies_quarantined) return false;
-    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        context.lifecycle_dependencies_quarantined) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementDecisionLocked(context,context.create_dependencies_quarantined?
+            nr_retirement::CreateQuarantine:nr_retirement::LifecycleQuarantine);
+#endif
         return false;
+    }
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementDecisionLocked(context,nr_retirement::TrackingUncertain);
+#endif
+        return false;
+    }
     if (context.recording_command_lists != 0 ||
         context.pending_recording_token != 0 ||
         context.awaiting_fence_signal ||
-        !IsContextFenceCompleteLocked(context)) return false;
-    for (const auto &slot : context.slots) {
-        if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
+        !IsContextFenceCompleteLocked(context)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementDecisionLocked(context,context.recording_command_lists?nr_retirement::ContextRecording:
+            context.pending_recording_token?nr_retirement::ContextPending:
+            context.awaiting_fence_signal?nr_retirement::ContextAwaitSignal:nr_retirement::ContextFence);
+#endif
+        return false;
     }
-    return CanDestroyBindingsLocked(context) && nr_post_product::Ready(context);
+    for (const auto &slot : context.slots) {
+        if (slot.key != nullptr && !CanMutateSlotLocked(slot)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+            NrRetirementDecisionLocked(context,g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)?
+                nr_retirement::TrackingUncertain:slot.recording_command_lists?nr_retirement::SlotRecording:
+                slot.awaiting_fence_signal?nr_retirement::SlotAwaitSignal:nr_retirement::SlotFence);
+#endif
+            return false;
+        }
+    }
+    if(!CanDestroyBindingsLocked(context)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        // The detailed, read-only packet scan identifies every failing lease.
+        NrRetirementDecisionLocked(context,nr_retirement::Bindings);
+#endif
+        return false;
+    }
+    const bool ready=nr_post_product::Ready(context);
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementDecisionLocked(context,ready?nr_retirement::None:nr_retirement::PostReady,true,ready);
+#endif
+    return ready;
 }
 
 namespace nr_acceptance {bool Active(); bool PerformanceActive(); void ObserveNativeEntry(int,unsigned long long); void ObserveNativeSource(int,const nr_source_frame::Source&);}
@@ -7308,8 +7388,12 @@ void DrainNgxFeatureRetirementsLocked() {
         NrRecoveryRetireFeature(request.generation);
         for (auto &context : g_contexts) {
             if (context.sr_handle == request.handle &&
-                context.feature_generation == request.generation)
+                context.feature_generation == request.generation) {
                 context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(context,1);
+#endif
+            }
         }
     }
 }
@@ -7330,6 +7414,9 @@ void RetireAuxiliaryDependenciesLocked() {
                 child.layer_index != 0 && child.parent_instance_id == parent.instance_id &&
                 child.feature_generation == parent.feature_generation && child.mode == parent.mode) {
                 child.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(child,2);
+#endif
                 ++changed;
             }
         }
@@ -7339,19 +7426,47 @@ void RetireAuxiliaryDependenciesLocked() {
 
 namespace nr_temporal { void Maintain(NrContext&); }
 void CollectRetiredContextsLocked() {
-    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementPublishLocked(true);
+#endif
+        return;
+    }
+    CollectDeadNativeRecordingsLocked();
+    // Unsubmitted opaque work and any failed detach retain the original
+    // isolation gate before maintenance or release permission is evaluated.
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementPublishLocked(true);
+#endif
+        return;
+    }
     DrainNgxFeatureRetirementsLocked();
     RetireAuxiliaryDependenciesLocked();
     CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
         nr_temporal::Maintain(context);
         nr_post_product::Maintain(context);
-        if (context.sr_handle != nullptr && context.retired &&
-            CanDestroyContextLocked(context)) {
+        if (context.sr_handle != nullptr && context.retired) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+            NrRetirementBeginDecisionLocked(context);
+#endif
+            const bool can_destroy=CanDestroyContextLocked(context);
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+            NrRetirementEndDecisionLocked();
+#endif
+            if(!can_destroy)continue;
             bool bindings_retired=true;
             for(const auto& slot:context.slots)
                 if(!InvalidateSlotBindingsLocked(slot)){bindings_retired=false;break;}
-            if(!bindings_retired)continue;
+            if(!bindings_retired) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementBeginDecisionLocked(context);
+                NrRetirementDecisionLocked(context,nr_retirement::OtherContextBinding,true,true);
+                NrRetirementEndDecisionLocked();
+#endif
+                continue;
+            }
             NrContext *pending = nullptr;
             for (auto &candidate : g_pending_destroy_contexts) {
                 if (candidate.sr_handle == nullptr) {
@@ -7360,6 +7475,12 @@ void CollectRetiredContextsLocked() {
                 }
             }
             if (pending == nullptr) {
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementBeginDecisionLocked(context);
+                NrRetirementDecisionLocked(context,nr_retirement::PendingCapacity,true,true);
+                NrRetirementEndDecisionLocked();
+                NrRetirementPublishLocked();
+#endif
                 MarkLifecycleUncertain(
                     "deferred context destruction queue exhausted");
                 return;
@@ -7373,6 +7494,9 @@ void CollectRetiredContextsLocked() {
             context = {};
         }
     }
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementPublishLocked();
+#endif
     nr_spatial_experiment::SweepIdle();
 }
 
@@ -7474,6 +7598,9 @@ void RetireContextForHandle(const NgxHandle *sr_handle) {
     for (auto &context : g_contexts) {
         if (context.sr_handle == sr_handle && !context.retired) {
             context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+            NrRetirementMarkedLocked(context,3);
+#endif
             Log("Deferred Feature 18 retirement for SR handle=%p mode=%d "
                 "extent=%ux%u until recorded command lists and GPU fences complete.",
                 static_cast<const void *>(sr_handle), context.mode,
@@ -7696,6 +7823,9 @@ LifecycleCommandList *FindOrCreateLifecycleCommandListLocked(
         g_lifecycle_active_command_lists.fetch_add(1,
                                                    std::memory_order_release);
     }
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+    NrRetirementRecordListLocked(*record,command_list);
+#endif
     return record;
 }
 
@@ -7720,6 +7850,7 @@ void RollBackEmptyLifecycleCommandListLocked(
     }
     g_lifecycle_active_command_lists.fetch_sub(1,
                                                std::memory_order_release);
+    NativeCommandLifetimeDropPod(record->native_lifetime);
     *record = {};
 }
 
@@ -8026,6 +8157,27 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    unsigned long long native_token = 0;
+    auto *native_lifetime = AcquireNativeLifetimeForNr(command_list, native_token);
+    if (!native_lifetime ||
+        (record->native_lifetime &&
+         (record->native_lifetime != native_lifetime ||
+          record->native_lifetime_token != native_token ||
+          record->native_identity != command_list))) {
+        NativeCommandLifetimeDropPod(native_lifetime);
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
+        return false;
+    }
+    if (record->native_lifetime) {
+        NativeCommandLifetimeDropPod(native_lifetime);
+    } else {
+        record->native_lifetime = native_lifetime;
+        record->native_lifetime_token = native_token;
+        record->native_identity = command_list;
+    }
+
     record->queue_proof = proof;
     record->expected_queue_identity = proof == RecordingQueueProof::StableHistory
         ? queue_marker.identity : 0;
@@ -8121,23 +8273,11 @@ bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList *command_list,
     return true;
 }
 
-void DetachLifecycleCommandListTokenLocked(
-    ID3D12GraphicsCommandList *command_list, unsigned long long token,
-    const char *reason) {
-    if (token == 0) return;
-    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
-    if (record == nullptr) {
-        MarkLifecycleUncertain("unknown command-list marker during reset");
-        return;
-    }
-    if (record->detached) {
-        MarkLifecycleUncertain("command-list lifetime record detached twice");
-        return;
-    }
-    if (!ClearLifecycleToken(command_list)) {
-        MarkLifecycleUncertain("could not clear command-list lifetime marker");
-        return;
-    }
+// Consumes only the captured NR recording generation. The native-death path
+// must never read or clear private data on the object that has already died.
+void DetachLifecycleRecordLocked(LifecycleCommandList *record,
+    unsigned long long token, const char *reason) {
+    if (!record || record->token != token || record->detached) return;
     for (unsigned int i = 0; i < record->slot_count; ++i) {
         NrSlot *slot = record->slots[i];
         if (slot == nullptr || slot->recording_command_lists == 0) {
@@ -8176,6 +8316,11 @@ void DetachLifecycleCommandListTokenLocked(
     nr_fg_capture::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     nr_face_runtime::Invalidate(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
+    auto *native_lifetime = record->native_lifetime;
+    record->native_lifetime = nullptr;
+    record->native_lifetime_token = 0;
+    record->native_identity = nullptr;
+    NativeCommandLifetimeDropPod(native_lifetime);
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
     if (active == 0) {
@@ -8191,6 +8336,39 @@ void DetachLifecycleCommandListTokenLocked(
             "submission(s) still fenced; immutable batch retains ownership.",
             reason != nullptr ? reason : "reset",
             record->in_flight_submissions);
+    }
+}
+
+void DetachLifecycleCommandListTokenLocked(
+    ID3D12GraphicsCommandList *command_list, unsigned long long token,
+    const char *reason) {
+    if (token == 0) return;
+    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+    if (record == nullptr) {
+        MarkLifecycleUncertain("unknown command-list marker during reset");
+        return;
+    }
+    if (record->detached) {
+        MarkLifecycleUncertain("command-list lifetime record detached twice");
+        return;
+    }
+    if (!ClearLifecycleToken(command_list)) {
+        MarkLifecycleUncertain("could not clear command-list lifetime marker");
+        return;
+    }
+    DetachLifecycleRecordLocked(record, token, reason);
+}
+
+void CollectDeadNativeRecordingsLocked() {
+    for (auto &record : g_lifecycle_command_lists) {
+        if (!record.token || record.detached ||
+            !NativeCommandLifetimeDeadMatches(record.native_lifetime,
+                record.native_lifetime_token, record.native_identity)) continue;
+        const auto token = record.token;
+        if (QuarantineUnsubmittedLifecycleRecordLocked(token, "native destruction") ||
+            g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+        DetachLifecycleRecordLocked(&record, token, "native destruction");
+        if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     }
 }
 
@@ -8633,6 +8811,9 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         context->awaiting_fence_signal = false;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+        NrRetirementSubmittedLocked(*context,*queue_state,batch.fence_value);
+#endif
         if(context->temporal){
             const auto just_recorded=context->temporal_token;
             for(unsigned r=0;r<batch.record_count;++r)if(batch.records[r] && batch.records[r]->token!=just_recorded){
@@ -8687,8 +8868,10 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             {nr_post_product::Submitted(*record->contexts[c],record->token,queue_state,batch.fence_value);
              nr_spatial_experiment::Submitted(*record->contexts[c],record->token);}
         --record->in_flight_submissions;
-        if (record->detached && record->in_flight_submissions == 0)
+        if (record->detached && record->in_flight_submissions == 0) {
+            NativeCommandLifetimeDropPod(record->native_lifetime);
             *record = {};
+        }
     }
 }
 
@@ -8717,6 +8900,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
             MenuNoteContext(nr_menu_trace::Kind::Retire,context,1);
 #endif
             context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+            NrRetirementMarkedLocked(context,4);
+#endif
             Log("Feature 1 contract changed for handle=%p: generation %llu -> "
                 "%llu. Retiring mode=%d extent=%ux%u after its exact GPU fence.",
                 static_cast<const void *>(sr_handle),
@@ -8734,7 +8920,11 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
 #if defined(NR_MENU_TRACE_ENABLED)
                 MenuNoteContext(nr_menu_trace::Kind::Retire,context,2);
 #endif
-                context.retired=true;continue;
+                context.retired=true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(context,5);
+#endif
+                continue;
             }
             // One temporal history per carrier/generation/mode. Keeping an
             // active context for every DRS extent resurrected stale history
@@ -8753,6 +8943,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 MenuNoteContext(nr_menu_trace::Kind::Retire,context,3);
 #endif
                 context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(context,6);
+#endif
                 const auto& previous=context.guide_storage_signature;
                 Log("NR dimensions/guide storage changed: handle=%p mode=%d "
                     "extent=%ux%u->%ux%u flags=%d->%d "
@@ -8777,6 +8970,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 MenuNoteContext(nr_menu_trace::Kind::Retire,context,4);
 #endif
                 context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(context,7);
+#endif
                 Log("Live Color/NR proxy contract changed for handle=%p mode=%d "
                     "extent=%ux%u: codec mode %u -> %u peakShoulder %d -> %d without a new Feature 1 "
                     "Create. Retiring Feature 18 after its exact GPU fence.",
@@ -8794,6 +8990,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 MenuNoteContext(nr_menu_trace::Kind::Retire,context,5);
 #endif
                 context.retired = true;
+#if defined(NR_HAS_RETIREMENT_EVIDENCE)
+                NrRetirementMarkedLocked(context,8);
+#endif
                 if(context.tuning_signature.input_filter!=requested_tuning.input_filter)
                     Log("NR input filter request changed %u->%u; retiring old input/history after exact fence.",
                         context.tuning_signature.input_filter,requested_tuning.input_filter);
@@ -11872,6 +12071,7 @@ bool RecordNativeTemporalGuideSnapshot(ID3D12GraphicsCommandList* list,NrSlot& s
 
 #include "nr_temporal_runtime.inl"
 #include "nr_private_sr_product.inl"
+#include "nr_retirement_evidence_runtime.inl"
 #include "nr_spatial_experiment_runtime.inl"
 bool CoverPrivateShutdownDomain();
 
@@ -15426,12 +15626,15 @@ void OnDestroyCommandList(reshade::api::command_list *command_list) {
     unsigned long long token = 0;
     ReadLifecycleToken(native_command_list, token);
     EnterCriticalSection(&g_chain_cs);
-    if (token != 0 && QuarantineUnsubmittedLifecycleRecordLocked(
-            token, "destroy")) {
+    const auto *record = FindLifecycleCommandListLocked(token);
+    // A departing wrapper can leave a replayable native list alive, including
+    // after its observation marker was replaced. Only the ledger's notice
+    // pairs that native lifetime with the exact NR recording generation.
+    if (record && !record->detached && !record->native_lifetime) {
+        MarkLifecycleUncertain("wrapper destruction lacks native lifetime proof");
         LeaveCriticalSection(&g_chain_cs);
         return;
     }
-    DetachLifecycleCommandListLocked(native_command_list, "destroy");
     CollectRetiredContextsLocked();
     LeaveCriticalSection(&g_chain_cs);
     DrainPendingContextDestructions();

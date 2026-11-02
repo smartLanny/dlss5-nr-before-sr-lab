@@ -5,7 +5,9 @@
 // supplies the small Windows/D3D12 environment needed to run those functions:
 // real command-list private data, real queue fences, and a real ReShade device
 // proxy.  The provider callback is a deliberately marked stub; no NVIDIA
-// inference is attempted.
+// inference is attempted. Native/Create registry and Reset publication are
+// controlled services; real notifier registration is not a production native
+// death-consumer test (that contract has the separate whole-Core queue host).
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -80,9 +82,13 @@ constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
 constexpr std::size_t kLifecycleCommandListCount = 128;
 constexpr std::size_t kLifecycleUsesPerCommandList = 32;
 // @CORE_QUEUE_PROOF@
+struct NativeCommandLifetime;
 struct LifecycleCommandList {
     RecordingQueueProof queue_proof = RecordingQueueProof::None;
     unsigned long long token = 0;
+    NativeCommandLifetime *native_lifetime = nullptr;
+    unsigned long long native_lifetime_token = 0;
+    ID3D12GraphicsCommandList *native_identity = nullptr;
     unsigned long long expected_queue_identity = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
     unsigned int slot_count = 0;
@@ -158,6 +164,8 @@ Recording MakeRecording(ID3D12Device *device) {
                                  r.allocator, nullptr,
                                  IID_PPV_ARGS(&r.list)),
        "binding command list");
+    Check(FixtureRegisterNativeNotice(r.list),
+          "controlled Create registry has real native notifier registration");
     return r;
 }
 

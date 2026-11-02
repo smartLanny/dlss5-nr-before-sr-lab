@@ -22,6 +22,7 @@
 #include "nr_runtime_timing.h"
 #include "nr_runtime_timing.inl"
 #include "nr_temporal_status.h"
+#include "nr_retirement_evidence.h"
 struct FeedbackSession{std::string text;};
 __attribute__((format(printf,2,3)))
 void FeedbackAppend(FeedbackSession& session,const char* format,...){
@@ -69,6 +70,12 @@ namespace nr_spatial_experiment {
 void Submitted(NrContext&,unsigned long long){++spatial_submitted_calls;}
 }
 #include "production_types.inl"
+// This submission-only CPU fixture never creates a native-lifetime notice.
+// Full-Core native tests cover real acquisition/consumption; reject accidental
+// introduction of such ownership here instead of silently discarding it.
+void NativeCommandLifetimeDropPod(NativeCommandLifetime* lifetime) {
+    Check(lifetime==nullptr,"CPU submit fixture owns no native lifetime notice");
+}
 CRITICAL_SECTION g_chain_cs;
 std::atomic<unsigned> g_live_graphics_queue_count{0};
 std::atomic<unsigned long long> g_queue_affinity_marker_failures{0},g_queue_affinity_actual_mismatches{0};

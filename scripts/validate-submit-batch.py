@@ -28,7 +28,7 @@ def main():
     out = args.output.resolve()
     if out.exists():
         raise SystemExit('Preserve existing evidence; choose a fresh output.')
-    names = ('src/nr_before_sr.cpp', 'src/nr_temporal_status.h', 'src/nr_runtime_timing.h',
+    names = ('src/nr_before_sr.cpp', 'src/nr_temporal_status.h', 'src/nr_retirement_evidence.h', 'src/nr_runtime_timing.h',
              'src/nr_runtime_timing.inl', 'src/nr_timing_feedback.inl',
              'tests/submit_batch_cpu.cpp', 'scripts/validate-submit-batch.py')
     inputs = {name: (ROOT / name).read_bytes() for name in names}
@@ -86,7 +86,7 @@ def main():
             bodies = [extract(text, f) for f in functions[:-1]]
             bodies.extend((training, extract(text, functions[-1])))
             (folder / 'production_submit.inl').write_text('\n\n'.join(bodies), encoding='utf-8')
-            for name in ('src/nr_temporal_status.h', 'src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl',
+            for name in ('src/nr_temporal_status.h', 'src/nr_retirement_evidence.h', 'src/nr_runtime_timing.h', 'src/nr_runtime_timing.inl',
                          'src/nr_timing_feedback.inl', 'tests/submit_batch_cpu.cpp'):
                 (folder / Path(name).name).write_bytes(inputs[name])
             binary = folder / 'submit-batch.exe'

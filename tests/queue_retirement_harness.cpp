@@ -37,18 +37,77 @@ void Wait(ID3D12Fence *fence, UINT64 value) {
     CloseHandle(event);
     Check(ID3D12Fence_GetCompletedValue(fence) != UINT64_MAX, "device not removed");
 }
+enum class NativeNoticeFailure { None, QueryInterface, RegisterCallback };
+ID3D12GraphicsCommandList* notice_failure_native=nullptr;
+ID3DDestructionNotifier* notice_failure_notifier=nullptr;
+unsigned notice_failure_hits=0;
+using NoticeQueryFn=HRESULT (STDMETHODCALLTYPE *)(ID3D12GraphicsCommandList*,REFIID,void**);
+using NoticeRegisterFn=HRESULT (STDMETHODCALLTYPE *)(ID3DDestructionNotifier*,PFN_DESTRUCTION_CALLBACK,void*,UINT*);
+NoticeQueryFn notice_original_query=nullptr;
+NoticeRegisterFn notice_original_register=nullptr;
+HRESULT STDMETHODCALLTYPE UnavailableNoticeQuery(ID3D12GraphicsCommandList* native,REFIID iid,void** output) {
+    if(native==notice_failure_native && IsEqualGUID(iid,IID_ID3DDestructionNotifier)) {
+        ++notice_failure_hits;
+        if(output)*output=nullptr;
+        return E_NOINTERFACE;
+    }
+    return notice_original_query(native,iid,output);
+}
+HRESULT STDMETHODCALLTYPE UnavailableNoticeRegister(ID3DDestructionNotifier* notifier,
+        PFN_DESTRUCTION_CALLBACK callback,void* data,UINT* id) {
+    if(notifier==notice_failure_notifier) {
+        ++notice_failure_hits;
+        if(id)*id=0;
+        return E_FAIL;
+    }
+    return notice_original_register(notifier,callback,data,id);
+}
+bool RegisterTestNativeList(ID3D12GraphicsCommandList* native,const CommandStateMetaContract& meta,
+        const CommandCreationInfo& created,NativeNoticeFailure failure) {
+    if(failure==NativeNoticeFailure::None)return RegisterCreatedCommandStateList(native,meta,created);
+    // Only the real registration boundary is faulted, for this exact native
+    // object/IID or notifier. No death bit, ledger or production branch is set.
+    const auto initialized=MH_Initialize();
+    Check(initialized==MH_OK||initialized==MH_ERROR_ALREADY_INITIALIZED,"notice injection hook initialization");
+    void* target=nullptr;
+    if(failure==NativeNoticeFailure::QueryInterface) {
+        notice_failure_native=native;target=reinterpret_cast<void*>(native->lpVtbl->QueryInterface);
+        Check(MH_CreateHook(target,reinterpret_cast<void*>(&UnavailableNoticeQuery),
+              reinterpret_cast<void**>(&notice_original_query))==MH_OK,"exact notifier QI failure hook created");
+    } else {
+        Hr(ID3D12GraphicsCommandList_QueryInterface(native,IID_ID3DDestructionNotifier,
+            reinterpret_cast<void**>(&notice_failure_notifier)),"actual notifier queried before registration-failure injection");
+        target=reinterpret_cast<void*>(notice_failure_notifier->lpVtbl->RegisterDestructionCallback);
+        Check(MH_CreateHook(target,reinterpret_cast<void*>(&UnavailableNoticeRegister),
+              reinterpret_cast<void**>(&notice_original_register))==MH_OK,"exact notifier callback failure hook created");
+    }
+    Check(MH_EnableHook(target)==MH_OK,"notice registration failure hook enabled");
+    const bool registered=RegisterCreatedCommandStateList(native,meta,created);
+    Check(MH_DisableHook(target)==MH_OK,"notice registration failure hook disabled");
+    Check(MH_RemoveHook(target)==MH_OK,"notice registration failure hook removed");
+    ReleaseCom(notice_failure_notifier);notice_failure_native=nullptr;
+    Check(notice_failure_hits==1,"notice injection faulted exactly one target registration call");
+    std::printf("NOTICE_FAILURE_INJECTION kind=%s targetCalls=%u hookRemoved=1; no native-death or NR-counter injection\n",
+        failure==NativeNoticeFailure::QueryInterface?"exact-native-IID-QI":"exact-notifier-RegisterDestructionCallback",notice_failure_hits);
+    return registered;
+}
 struct Fixture {
     IDXGIFactory4 *factory = nullptr;
     IDXGIAdapter *adapter = nullptr;
     ID3D12Device *device = nullptr;
     ID3D12CommandQueue *a = nullptr;
     ID3D12CommandQueue *b = nullptr;
+    CommandStateMetaContract command_meta{};
+    UINT64 next_creation_serial = 0;
     Fixture() {
         InitializeCriticalSection(&g_chain_cs);
         Hr(CreateDXGIFactory2(0, IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "factory");
         Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");
         Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0,
             IID_ID3D12Device, reinterpret_cast<void **>(&device)), "device");
+        command_meta.device_identity = g_next_command_device_identity.fetch_add(1);
+        Hr(ID3D12Device_SetPrivateData(device, kCommandStateMetaContract,
+            sizeof(command_meta), &command_meta), "controlled device lifetime metadata");
         D3D12_COMMAND_QUEUE_DESC desc = {};
         desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         Hr(ID3D12Device_CreateCommandQueue(device, &desc, IID_ID3D12CommandQueue, reinterpret_cast<void **>(&a)), "queue A");
@@ -89,15 +148,48 @@ struct Fixture {
         DeleteCriticalSection(&g_chain_cs);
     }
 };
+enum class NativeListRegistration { Immediate, Deferred };
 struct List {
     ID3D12CommandAllocator *allocator = nullptr;
     ID3D12CommandAllocator *replacement = nullptr;
     ID3D12GraphicsCommandList *native = nullptr;
-    explicit List(Fixture &f) {
+    explicit List(Fixture &f,NativeNoticeFailure failure=NativeNoticeFailure::None,
+            NativeListRegistration registration=NativeListRegistration::Immediate) {
         Hr(ID3D12Device_CreateCommandAllocator(f.device, D3D12_COMMAND_LIST_TYPE_DIRECT,
             IID_ID3D12CommandAllocator, reinterpret_cast<void **>(&allocator)), "allocator");
         Hr(ID3D12Device_CreateCommandList(f.device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
             allocator, nullptr, IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&native)), "fresh list");
+        if(registration==NativeListRegistration::Immediate)
+            Check(RegisterCreated(f, failure),
+                  "actual native lifetime registration after successful Create");
+        else
+            Check(failure==NativeNoticeFailure::None,
+                  "deferred native registration cannot skip a requested failure injection");
+    }
+    bool RegisterCreated(Fixture &f,NativeNoticeFailure failure=NativeNoticeFailure::None) {
+        CommandCreationInfo created{};UINT created_bytes=sizeof(created);
+        const auto receipt=ID3D12GraphicsCommandList_GetPrivateData(native,kCommandCreationReceipt,
+            &created_bytes,&created);
+        CommandStateMetaContract meta{};UINT meta_bytes=sizeof(meta);
+        Hr(ID3D12Device_GetPrivateData(f.device,kCommandStateMetaContract,&meta_bytes,&meta),
+            "native list reads current device metadata");
+        Check(meta_bytes==sizeof(meta)&&meta.device_identity,"native list has current device identity");
+        if(SUCCEEDED(receipt)) {
+            Check(created_bytes==sizeof(created)&&created.serial&&created.device_identity==meta.device_identity,
+                  "actual Create receipt matches current device identity");
+            Check(failure==NativeNoticeFailure::None||!ReadCommandStateToken(native),
+                  "notice failure injection must precede actual lifetime registration");
+            // A real Create observer may already have registered this list.
+            // Preserve its serial/identity and verify through the actual API.
+        } else {
+            // Only the no-observer path needs the controlled Create receipt.
+            Check(receipt==DXGI_ERROR_NOT_FOUND,"controlled Create fallback requires an absent receipt");
+            created.serial=++f.next_creation_serial;
+            created.device_identity=meta.device_identity;created.method=1;
+            Hr(ID3D12GraphicsCommandList_SetPrivateData(native,kCommandCreationReceipt,
+                sizeof(created),&created),"controlled native creation receipt");
+        }
+        return RegisterTestNativeList(native,meta,created,failure);
     }
     void Close() { Hr(ID3D12GraphicsCommandList_Close(native), "close"); }
     void ResetWithNewAllocator(Fixture &f) {
@@ -457,6 +549,9 @@ void BoundaryCallbacks() {
 #include "post_boundary_native.inl"
 #include "post_boundary_readonly.inl"
 #endif
+#ifndef NR_QUEUE_OLD_POLICY_NEGATIVE
+#include "native_nr_retirement.inl"
+#endif
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string mode = argc == 2 ? argv[1] : "one-shot";
@@ -469,6 +564,16 @@ int main(int argc, char **argv) {
     else if (mode == "guards") queue_test::Guards();
 #ifndef NR_QUEUE_OLD_POLICY_NEGATIVE
     else if (mode == "submitted-retirement") queue_test::SubmittedRetirement();
+    else if (mode == "native-final-destruction") queue_test::NativeNrRetirement(false);
+    else if (mode == "native-marker-replacement") queue_test::NativeNrRetirement(true);
+    else if (mode == "native-wrapper-retention") queue_test::NativeWrapperRetention();
+    else if (mode == "native-marker-wrapper-retention") queue_test::NativeWrapperRetention(true);
+    else if (mode == "native-reset-success") queue_test::NativeResetRetirement(false);
+    else if (mode == "native-reset-failure") queue_test::NativeResetRetirement(true);
+    else if (mode == "native-death-pending-fence") queue_test::NativeDeathPendingFence();
+    else if (mode == "native-unsubmitted-death") queue_test::NativeUnsubmittedDeath();
+    else if (mode == "native-notifier-unavailable") queue_test::NativeNoticeUnavailable(queue_test::NativeNoticeFailure::QueryInterface);
+    else if (mode == "native-notifier-register-failure") queue_test::NativeNoticeUnavailable(queue_test::NativeNoticeFailure::RegisterCallback);
 #if defined(NR_HAS_TIMING)
     else if (mode == "submitted-retirement-polling") {
         NrTimingSetWaitPolicy(1, 2); queue_test::SubmittedRetirement();

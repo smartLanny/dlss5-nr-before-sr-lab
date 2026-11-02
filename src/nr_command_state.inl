@@ -569,6 +569,7 @@ struct CommandCreationInfo {
     UINT node_mask = 0, flags = 0;
     bool initial_pso = false;
 };
+struct NativeCommandLifetime;
 struct CommandStateRecord {
     unsigned long long token = 0;
     ID3D12GraphicsCommandList *native = nullptr;
@@ -583,6 +584,8 @@ struct CommandStateRecord {
     UINT64 registered_tick = 0, reset_notifications = 0, native_resets = 0, reset_successes = 0, captures = 0;
     bool genuine_init_event = false;
     bool native_created = false, lifetime_ready = true;
+    // Borrowed under the registry lock; the marker anchor outlives removal.
+    NativeCommandLifetime *native_lifetime = nullptr;
 };
 bool RegisterCreatedCommandStateList(ID3D12GraphicsCommandList *,
     const CommandStateMetaContract &,const CommandCreationInfo &);
@@ -1321,7 +1324,9 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
         Log("[command-state] device meta-command contract: known=%d initDirty=0x%X executeDirty=0x%X supportedMask=0x%X.",
             meta.known ? 1 : 0, meta.initialization_dirty, meta.execution_dirty, kCommandStateCoveredDomains);
     }
-    EnsureCommandCreationObserver(native); // Evidence only, never an admission prerequisite.
+    // Native SR/RR observation remains independent. NR recording admission
+    // requires the created list's separately registered destruction notice.
+    EnsureCommandCreationObserver(native);
     // Command signatures can be created early and reused much later by
     // ExecuteIndirect on the SR carrier list. Observe their immutable
     // descriptions at device creation regardless of the transient master

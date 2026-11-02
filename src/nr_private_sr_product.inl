@@ -36,6 +36,22 @@ struct Owner {
     unsigned timing_count=0,timing_cursor=0;
     bool poisoned=false,retiring=false,creation_observed=false;
 };
+nr_retirement::OwnerInspection InspectRetirement(const NrContext& context) {
+    nr_retirement::OwnerInspection out{};const auto* o=context.private_sr;if(!o)return out;
+    out.present=true;out.poisoned=o->poisoned;
+    // Opaque backends are reported as unobserved until the original Ready path
+    // runs. This inspector never calls their Collect/Ready or the recording guard.
+    out.opaque_unknown=o->backend||o->normalizer;
+    for(unsigned i=0;i<o->flights.size();++i){const auto& source=o->flights[i];
+        if(!source.recording&&!source.fence)continue;
+        auto& f=out.flights[out.count++];f.index=i;f.token=source.recording.lifetime;
+        f.list=source.recording.list;f.reset=source.recording.reset;f.device=source.recording.device;
+        f.queue=source.recording.queue;f.fence.queue=f.queue;
+        f.fence.object=reinterpret_cast<Id>(source.fence);f.fence.value=source.fence_value;
+        f.submitted=source.submitted;f.poisoned=o->poisoned;
+    }
+    return out;
+}
 // Optional diagnostics use the existing flight retirement proof. They never
 // wait for the GPU or change whether reconstruction is admitted.
 bool PrepareTiming(Owner& o,Flight& f,ID3D12Device* device) {

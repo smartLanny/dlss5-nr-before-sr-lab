@@ -35,7 +35,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit', 'old-text-limit',
                         'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
-                        'omit-end-ui-receipt', 'redact-ui-decimals',
+                        'omit-end-ui-receipt', 'redact-ui-decimals', 'omit-end-retirement',
                         'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
     parser.add_argument('--compile-only', action='store_true')
     parser.add_argument('--descriptor-profile', action='store_true', help='Compile the real descriptor timing formatter used by the measurement variant.')
@@ -79,7 +79,7 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 161u * 1024u',
+        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 185u * 1024u',
                     'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-metadata-limit':
         mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 288u * 1024u',
@@ -106,6 +106,9 @@ def main():
     elif args.negative_control == 'redact-ui-decimals':
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && UiActivityMetadataNumber(line, i, end))',
                     'if (false)', 'FULL_CORE_F8_UI_RECORD')
+    elif args.negative_control == 'omit-end-retirement':
+        mutation = ('src/nr_feedback_capture.inl', 'if(std::strcmp(prefix,"end")==0)FeedbackAppendRetirement(s,prefix);',
+                    '(void)prefix;', 'FULL_CORE_F8_RETIREMENT_END')
     elif args.negative_control == 'redact-boundary-numbers':
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && BoundaryMetadataNumber(line, i, end))',
                     'if (false && BoundaryMetadataNumber(line, i, end))', 'FULL_CORE_F8_READONLY_IDENTITY_PRESERVED')
@@ -276,7 +279,8 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
                'gpu_executed': False, 'ngx_executed': False, 'game_verified': False,
                'worker_equivalent_bytes': 8192, 'timeline_burst_bytes': 4096,
                'private_counter_failure_width_allowance_per_snapshot': 2048,
-               'scope': 'metadata capacity including full route and descriptor/boundary records, real three-carrier recovery proof, actual 8192-slot/six-format descriptor inventory, full timeline burst, 8 KiB worker-equivalent body and 2 KiB private-counter/failure width allowance per snapshot; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
+               'retirement_scope': 'when NR_HAS_RETIREMENT_EVIDENCE: synthetic published POD, 32 full-width legal context masks plus full fixed detail tables; actual Activity writer, 24 KiB retirement text with explicit omissions, final semantic IDs preserved and addresses redacted; CPU only, no native owner, fence wait or real GPU work',
+               'scope': 'metadata capacity including full route and descriptor/boundary records, real three-carrier recovery proof, actual 8192-slot/six-format descriptor inventory, full timeline burst, 8 KiB worker-equivalent body and 2 KiB private-counter/failure width allowance per snapshot; conditional retirement writer adds 32 full-width context rows/full fixed detail tables and a 24 KiB bounded tail with typed ID/address roundtrip; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
     (out / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
     print('receipt:', out / 'validation.json')
     if not args.compile_only and not receipt['passed']:

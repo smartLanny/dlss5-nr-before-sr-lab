@@ -393,6 +393,19 @@ RetirementStats RecordedTemporal::collect_retired() noexcept {
 }
 bool RecordedTemporal::initialized()const noexcept{return p_->ready&&!p_->fault;}
 bool RecordedTemporal::releasable()const noexcept{return p_->destroyable();}
+RetirementInspection RecordedTemporal::inspect_retirement()const noexcept {
+    RetirementInspection out{};out.present=bool(p_);if(!p_)return out;
+    const auto& p=*p_;out.faulted=p.fault;out.unsafe=p.recording_unsafe||p.pending_slot>=0;
+    // AMD internal state is not inferred from this parent. No producer poll.
+    out.opaque_unknown=bool(p.amd);
+    for(unsigned i=0;i<p.slots.size();++i){const auto& s=p.slots[i];
+        if(!s.recording&&!s.fence&&int(i)!=p.pending_slot)continue;
+        auto& f=out.flights[out.count++];f.index=i;f.recording=s.recording;
+        f.fence=reinterpret_cast<Id>(s.fence.Get());f.value=s.value;
+        f.submitted=bool(s.fence);f.unsafe=p.recording_unsafe||int(i)==p.pending_slot;
+    }
+    return out;
+}
 const char* RecordedTemporal::status()const noexcept{return p_->message.c_str();}
 RecordRefusal RecordedTemporal::record_refusal()const noexcept{return p_->record_refusal;}
 TemporalStats RecordedTemporal::stats()const noexcept{p_->poll_stats();return p_->counters;}
