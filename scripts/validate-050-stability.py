@@ -55,6 +55,7 @@ def main():
 #include <cstdint>
 #include <atomic>
 #include <string>
+#define NR_HAS_NETWORK_MODEL_SELECTION 1
 using ULONGLONG = unsigned long long;
 using DWORD = unsigned long;
 constexpr DWORD ERROR_SUCCESS=0, ERROR_GEN_FAILURE=31;
@@ -89,6 +90,9 @@ int main() {
         c.high_strength_protection=guard!=0;c.layered_enhancement=layered!=0;
         c.layer_tone=.5f;c.layer_structure=1.5f;c.layer_bright=.75f;c.layer_shadow=1.25f;
         c.allow_unverified_hdr_color=true;
+        c.nr_network_preset=2;c.nr_primary_network_preset=-1;
+        c.nr_layers[0].network_preset=0;c.nr_layers[1].network_preset=1;
+        c.nr_layers[2].network_preset=2;c.nr_layers[3].network_preset=73;
         FeedbackSession s;
         AppendPictureConfig(s,c,true);
         if (s.report_truncated || !std::strstr(s.report,"requested.layerBright=0.75\n")) {
@@ -100,6 +104,14 @@ int main() {
             !std::strstr(s.report,"requested.unverifiedHdrColor=1\n")) return 3;
         std::string expected="requested.highStrengthProtection="+std::to_string(guard)+"\n";
         if (!std::strstr(s.report,expected.c_str())) return 4;
+        if (!std::strstr(s.report,"requested.network.global=2\n")) return 8;
+        const int raw[]={-1,0,1,2,73};const int resolved[]={2,0,1,2,73};
+        for(unsigned layer=0;layer<5;++layer){
+            const std::string base="requested.layer"+std::to_string(layer+1)+".";
+            const std::string requested_override=base+"networkOverride="+std::to_string(raw[layer])+"\n";
+            const std::string requested_resolved=base+"networkResolved="+std::to_string(resolved[layer])+"\n";
+            if(!std::strstr(s.report,requested_override.c_str())||!std::strstr(s.report,requested_resolved.c_str()))return 9;
+        }
         s={};AppendPictureConfig(s,c,false);
         if (std::strcmp(s.report,"requested.pictureSnapshotValid=0\n")!=0) return 5;
         s={};s.report_used=sizeof(s.report)-256;
@@ -132,8 +144,11 @@ int main() {
                 assert c['highStrengthProtection']==i//2 and c['layeredEnhancement']==i%2
                 assert (c['layerTone'],c['layerStructure'],c['layerBright'],c['layerShadow'])==(.5,1.5,.75,1.25)
                 assert c['unverifiedHdrColourRequested']==1
+                assert c['globalNetworkRequest']==2
+                assert c['layerNetworkOverrides']==[-1,0,1,2,73]
+                assert c['layerNetworkRequests']==[2,0,1,2,73]
             print(result.stderr.strip())
-            print('PASS real JSON round-trip, bounded TXT snapshot, missing-snapshot and unknown-loader-error semantics')
+            print('PASS real JSON round-trip and TXT global/per-layer network requests, bounded/missing snapshots and unknown-loader-error semantics')
 
 if __name__ == '__main__':
     main()

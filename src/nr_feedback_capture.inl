@@ -221,6 +221,12 @@ void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
         prefix, secondary_identity.tuning.ui_correction ? 1 : 0,
         prefix, static_cast<unsigned>(secondary_identity.tuning.jitter_mode),
         prefix, secondary_identity.tuning.input_filter);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    FeedbackAppend(s, "%s.dual.secondaryIdentity.tuning.networkRequest=%d\n"
+        "%s.dual.secondaryIdentity.tuning.runtimeGeneration=%llu\n%s.dual.secondaryIdentity.tuning.runtimeModule=%llu\n",
+        prefix, secondary_identity.tuning.network_preset, prefix, secondary_identity.tuning.runtime_generation,
+        prefix, secondary_identity.tuning.runtime_module_address);
+#endif
     const auto &binding = dual_snapshot.binding;
     FeedbackAppend(s,
         "%s.dual.binding.reason=%s\n"
@@ -336,7 +342,13 @@ void FeedbackAppendEnergyGate(FeedbackSession &s, const char *prefix) {
 }
 #endif
 // END ENERGY GATE FEEDBACK
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+#include "nr_network_feedback.inl"
+#endif
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    FeedbackAppendNrNetwork(s, prefix);
+#endif
     const auto& spatial=nr_spatial_experiment::status;
     const unsigned spatial_config=g_config_generation.load();
     const bool spatial_current=spatial.configuration.load()==spatial_config;
@@ -1255,6 +1267,9 @@ void FeedbackAddLogBeside(nr_bundle::Job &job, const wchar_t *module_path,
 
 DWORD WINAPI FeedbackWorker(void *parameter) {
     const auto &module_identity = EnsureRuntimeIdentityOnWorker();
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    EnsureNrNetworkIdentityOnWorker();
+#endif
     auto *s = static_cast<FeedbackSession *>(parameter);
     NrAppendAllocationLedger(*s,"start");
     bool pending_cancelled = false;

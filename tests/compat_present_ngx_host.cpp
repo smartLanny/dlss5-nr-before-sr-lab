@@ -4,6 +4,9 @@
 #error Supply the absolute frozen nr_before_sr.cpp path through NR_PRESENT_NGX_CORE.
 #endif
 #include NR_PRESENT_NGX_CORE
+#if defined(NR_HOST_REQUIRE_NETWORK_SELECTION) && !defined(NR_HAS_NETWORK_MODEL_SELECTION)
+#error The frozen Core does not expose production network selection. Build the network-enabled Core first.
+#endif
 #include <dxgi1_4.h>
 #include <string>
 #include <vector>
@@ -13,6 +16,28 @@ namespace host_ngx {
 unsigned checks=0;
 void Check(bool ok,const char* label){++checks;if(!ok)throw std::runtime_error(label);}
 void Hr(HRESULT result,const char* label){if(FAILED(result))std::fprintf(stderr,"HRESULT %s=0x%08lX\n",label,static_cast<unsigned long>(result));Check(SUCCEEDED(result),label);}
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+std::vector<int> NetworkRequests(const wchar_t* value) {
+    std::vector<int> result;
+    for (;;) {
+        Check(value[0]>=L'0'&&value[0]<=L'2',"network ID must be exactly 0, 1 or 2");
+        result.push_back(value[0]-L'0');++value;
+        Check(result.size()<=5,"at most five independent networks");
+        if (!*value) return result;
+        Check(*value==L',',"network list must use commas");++value;
+    }
+}
+void CreateNetworkContract(const NgxParams* params,const NrTuningSignature& tuning,unsigned layer) {
+    unsigned requested=99;
+    Check(GetUInt(params,nr_network_policy::CreateParameter,&requested)&&
+        requested==static_cast<unsigned>(tuning.network_preset),"actual production Create block contains the selected network UInt");
+    const auto runtime=CurrentNrNetworkCreationIdentity();
+    Check(tuning.runtime_generation==runtime.generation&&tuning.runtime_module_address==runtime.module_address,
+        "created context belongs to the loaded runtime identity");
+    std::printf("NETWORK_CREATE layer=%u request=%u runtimeGeneration=%llu module=%llu; parameter receipt only, no internal executed-network readback\n",
+        layer+1,requested,tuning.runtime_generation,tuning.runtime_module_address);
+}
+#endif
 void BoundContract(const NgxParams* params,const NrTuningSignature& tuning,unsigned width,unsigned height){
     int reset=0;Check(GetInt(params,"DLSSNR.Reset",&reset)&&reset==1,"color-only model has Reset on every bound frame");
     for(const auto* key:{"DLSSNR.InputWidth","DLSSNR.OutputWidth","DLSSNR.DepthSubrectWidth","DLSSNR.MVecSubrectWidth"}){
@@ -94,15 +119,30 @@ int wmain(int argc,wchar_t** argv){
     using namespace host_ngx;namespace present=nr_compat_present_runtime;
     std::setvbuf(stdout,nullptr,_IONBF,0);
     try {
-        Check(argc==4||argc==5,"usage: host directory passes percent [--preset-zero|--temporal-adaptive|--temporal-low-frequency]");
+        Check(argc==4||argc==5,"usage: host directory passes percent [--network=0|1|2|--networks=2,2,1|--preset-zero|--temporal-adaptive|--temporal-low-frequency]");
         const bool preset_zero=argc==5&&std::wcscmp(argv[4],L"--preset-zero")==0;
         const bool temporal=argc==5&&(std::wcscmp(argv[4],L"--temporal-adaptive")==0||std::wcscmp(argv[4],L"--temporal-low-frequency")==0);
-        Check(argc==4||preset_zero||temporal,"known host option");
+        const bool global_network=argc==5&&std::wcsncmp(argv[4],L"--network=",10)==0;
+        const bool layer_networks=argc==5&&std::wcsncmp(argv[4],L"--networks=",11)==0;
+        Check(argc==4||preset_zero||temporal||global_network||layer_networks,"known host option");
         const bool low_frequency=temporal&&std::wcscmp(argv[4],L"--temporal-low-frequency")==0;
         const unsigned passes=std::wcstoul(argv[2],nullptr,10),scale=std::wcstoul(argv[3],nullptr,10);
         Check(passes>=1&&passes<=5&&(scale==25||scale==100||(passes>1&&(scale==50||scale==75))),"bounded scenario");
         InitializeCriticalSection(&g_chain_cs);g_config=ChainConfig{};g_config.enabled=true;g_enabled_fast.store(true);
         nr_layers::Migrate(g_config.nr_layers,passes,nr_layers::Primary(g_config));
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+        if(global_network||layer_networks){
+            const auto requests=NetworkRequests(argv[4]+(global_network?10:11));
+            Check(requests.size()==(global_network?1u:passes),"network count matches the requested layers");
+            if(global_network)g_config.nr_network_preset=requests[0];
+            else for(unsigned i=0;i<passes;++i){
+                if(i==0)g_config.nr_primary_network_preset=requests[i];
+                else g_config.nr_layers[i-1].network_preset=requests[i];
+            }
+        }
+#else
+        Check(!global_network&&!layer_networks,"network scenarios require a network-enabled frozen Core");
+#endif
         for(unsigned i=1;i<passes;++i){auto& layer=g_config.nr_layers[i-1];
             layer.intensity=1.0f+0.1f*i;layer.local_tone=0.8f+0.05f*i;layer.local_structure=0.7f+0.05f*i;}
         g_config.compat_percent=scale;g_config.warmup_after_create=2;NormalizeConfig(g_config);
@@ -123,6 +163,16 @@ int wmain(int argc,wchar_t** argv){
         const auto initialized=init(device,argv[1]);std::printf("official-init=0x%08X coreLoaded=%d\n",initialized,GetModuleHandleW(L"_nvngx.dll")!=nullptr);Check(initialized==1,"official SDK real initialization");
 #endif
         Check(EnsureNrApi(device),"production EnsureNrApi");Check(EnsureCodec(device),"production EnsureCodec");
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+        // This standalone host has no rendering callback/status worker. Finish
+        // the same worker-only identity step before beginning its GPU scenario.
+        EnsureNrNetworkIdentityOnWorker();
+        Check(ValidateNrActiveNetworkRequests(),"saved network requests are available or explicitly unknown");
+        const auto network_runtime=NrNetworkRuntimeSnapshot();
+        std::printf("NETWORK_RUNTIME generation=%llu fileSha256=%s identityStatus=%s evidence=%s; loaded-path file, execution unverified\n",
+            network_runtime.generation,network_runtime.sha256,network_runtime.identity_status,
+            nr_network_policy::EvidenceName(network_runtime.evidence));
+#endif
 #ifdef NR_HOST_COLD_BOOTSTRAP
         const auto cold=SnapshotRuntimeLoadEvidence();
         Check(cold.bootstrap_attempted&&cold.bootstrap_succeeded&&cold.bootstrap_result==1,"production cold SDK bootstrap receipt");
@@ -136,15 +186,21 @@ int wmain(int argc,wchar_t** argv){
         for(unsigned i=0;i<passes;++i){c->layer_tuning[i]=CurrentNrTuningSignature(i);c->layer_tuning[i].input_filter=0;
             for(unsigned j=0;j<i;++j)Check(!SameNrTuningSignature(c->layer_tuning[i],c->layer_tuning[j]),"distinct independent layer requests");}
         std::printf("scenario passes=%u scale=%u Build\n",passes,scale);Check(present::Build(*c),"production Present Build");present::current=c;present::has_context.store(true);
-        // Test-only comparison with Opti 8802b2b4 Config.h's explicit default 0.
+#if !defined(NR_HAS_NETWORK_MODEL_SELECTION)
+        // Historical frozen Core comparison with Opti 8802b2b4's explicit 0.
         // This runs before actual Feature18 Create, never scans unknown values,
         // and does not add a production config/UI field or change the Core.
         if(preset_zero)for(unsigned i=0;i<passes;++i){
             auto* params=c->layers[i].context.params;SetUInt(params,"DLSSNR.Hint.Render.Preset",0);
-            unsigned adopted_preset=99;
-            Check(GetUInt(params,"DLSSNR.Hint.Render.Preset",&adopted_preset)&&adopted_preset==0,"explicit known preset written before Create");
+            unsigned requested_preset=99;
+            Check(GetUInt(params,"DLSSNR.Hint.Render.Preset",&requested_preset)&&requested_preset==0,"explicit known preset written before Create");
         }
         std::printf("MODEL_PRESET=%s; fixed test-only Create contract\n",preset_zero?"explicit-0":"unspecified");
+#else
+        for(unsigned i=0;i<passes;++i)
+            std::printf("NETWORK_REQUEST layer=%u global=%d override=%d resolved=%d; production config/Create path\n",
+                i+1,g_config.nr_network_preset,nr_layers::Read(g_config,i).network_preset,c->layer_tuning[i].network_preset);
+#endif
         for(unsigned i=0;i<passes;++i){const auto& model=c->layers[i].context;
             Check(model.width==c->work.width&&model.height==c->work.height,"every model uses the common work raster");
             Check(model.tuning_signature_initialized&&SameNrTuningSignature(model.tuning_signature,c->layer_tuning[i]),"production model receives its independent tuning");}
@@ -189,7 +245,12 @@ int wmain(int argc,wchar_t** argv){
             std::printf("frame=%u ok=%d status=%s result=0x%08X adopted=%d fence=%llu\n",attempt,ok,nr_compat_present::Name(present::observation.status),present::observation.result,f.adopted,f.fence);
             Check(ok,"production Bootstrap/Frame result");const bool used=f.adopted;Wait(c->fence,f.fence);present::Collect(*c);
             for(unsigned i=0;i<passes;++i){const auto& layer=c->layers[i];
-                if(!had_handle[i]&&layer.context.nr_handle)BoundContract(layer.context.params,c->layer_tuning[i],c->work.width,c->work.height);
+                if(!had_handle[i]&&layer.context.nr_handle){
+                    BoundContract(layer.context.params,c->layer_tuning[i],c->work.width,c->work.height);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+                    CreateNetworkContract(layer.context.params,c->layer_tuning[i],i);
+#endif
+                }
                 if(layer.context.evaluations>before_evaluations[i])BoundContract(layer.evaluation_params[slot],c->layer_tuning[i],c->work.width,c->work.height);}
             if(capture_requested)std::printf("capture status=%u active=%llu consumed=%llu complete=%d submitted=%d empty=%d worker=%u remaining=%u\n",
                 present::nr_present_capture::status.load(),present::nr_present_capture::active.token,present::nr_present_capture::consumed,

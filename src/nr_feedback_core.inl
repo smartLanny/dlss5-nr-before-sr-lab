@@ -519,6 +519,9 @@ void AppendMenuTrace(FeedbackSession& s,const nr_menu_trace::History& history) {
         FeedbackAppend(s,"%s",marker);
 }
 DWORD WINAPI Worker(void *opaque) {
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    EnsureNrNetworkIdentityOnWorker();
+#endif
     auto *session = static_cast<CoreSession *>(opaque);
     auto &s = session->activity;
     nr_bundle::Result result{};
@@ -676,6 +679,12 @@ void Present(reshade::api::effect_runtime *runtime) {
             applied.tuning.intensity, applied.tuning.local_tone, applied.tuning.local_structure, applied.tuning.skin_structure,
             applied.tuning.auto_mask, applied.tuning.style, applied.tuning.ui_correction,
             static_cast<int>(applied.tuning.jitter_mode), applied.tuning.input_filter);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    if (applied_valid)
+        FeedbackAppend(s, "applied.networkRequest=%d\napplied.runtimeGeneration=%llu\napplied.runtimeModule=%llu\n"
+            "applied.networkExecutionVerified=0\n",
+            applied.tuning.network_preset, applied.tuning.runtime_generation, applied.tuning.runtime_module_address);
+#endif
     const auto &local = session->local_time;
     const auto &utc = session->utc_time;
     FeedbackAppend(s, "capture.delivery=%s\ncapture.localTime=%04u-%02u-%02uT%02u:%02u:%02u.%03u\n"

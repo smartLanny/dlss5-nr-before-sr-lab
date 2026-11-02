@@ -34,6 +34,15 @@ void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
         key,c.enabled,c.mode,c.style,c.auto_mask,c.ui_correction,c.work_mode,static_cast<int>(c.jitter_mode),c.motion_stability,c.identity_use_original,c.proxy_curve,c.allow_unverified_hdr_color);
     b.Append(",\"suppressResetFrame\":%d,\"preserveLighting\":%d,\"experimentalPeakShoulder\":%d,\"warmupAfterCreate\":%u,\"retryOriginalOnSrFailure\":%d,\"depthMode\":%d,\"r8OutputEncoding\":%d,\"perfEpoch\":%d",
         c.suppress_reset_frame,c.preserve_lighting,c.experimental_peak_shoulder,c.warmup_after_create,c.retry_original_on_sr_failure,c.depth_mode,c.r8_output_encoding,c.perf_epoch);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    b.Append(",\"globalNetworkRequest\":%d,\"layerNetworkOverrides\":[",c.nr_network_preset);
+    for (unsigned i=0;i<nr_layers::Count;++i)
+        b.Append("%s%d",i?",":"",nr_layers::Read(c,i).network_preset);
+    b.Append("],\"layerNetworkRequests\":[");
+    for (unsigned i=0;i<nr_layers::Count;++i)
+        b.Append("%s%d",i?",":"",nr_layers::RequestedNetwork(c,i));
+    b.Append("]");
+#endif
     b.Float("transfer",c.transfer_strength);b.Float("postTransfer",c.post_transfer_strength);
     b.Float("colour",c.color_strength);b.Float("modelIntensity",c.intensity);
     b.Float("skin",c.skin_structure);b.Float("localTone",c.local_tone);b.Float("localStructure",c.local_structure);
@@ -82,6 +91,10 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Float("lightBroad",n.light_broad);b.Float("lightDark",n.light_dark);
     b.Float("lightReflection",n.light_reflection);b.Float("lightStructure",n.light_structure);b.Float("lightGlow",n.light_glow);
     b.Append(",\"appliedTuning\":{\"style\":%u,\"autoMask\":%d,\"uiCorrection\":%d",n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    b.Append(",\"networkRequest\":%d,\"runtimeGeneration\":%llu,\"runtimeModule\":%llu,\"networkExecutionVerified\":false",
+        n.identity.tuning.network_preset,n.identity.tuning.runtime_generation,n.identity.tuning.runtime_module_address);
+#endif
     b.Float("intensity",n.identity.tuning.intensity);b.Float("skin",n.identity.tuning.skin_structure);
     b.Float("localTone",n.identity.tuning.local_tone);b.Float("localStructure",n.identity.tuning.local_structure);b.Append("}");
     if(label)b.Append(",\"groupName\":\"%s\"",label);

@@ -1,0 +1,317 @@
+{
+  "schema": "nr-network-reviewed-cpu-summary-v1",
+  "product_identity": "0.5.2-beta.17",
+  "base_commit": "f9ef953faad0a31d280d27adbbe411433a352a47",
+  "source_sha256": "f8ea555c7ac704f3aa4926e4fe001155ca66bafb6b5e4f2f78dd56a8e869f38d",
+  "scope": "CPU production Create body with observation stubs; no Windows, NGX, GPU or game validation",
+  "status": "passed",
+  "reproduction_command": "python3 scripts/validate-nr-network.py --compiler /usr/bin/g++ --output <fresh-output-directory>",
+  "raw_receipt_sha256": "5a0024cb1403ef13e1ff991f0c98e05d91a726ca7ef3771e84585853b00cf8a6",
+  "sources": {
+    "src/nr_before_sr.cpp": "f8ea555c7ac704f3aa4926e4fe001155ca66bafb6b5e4f2f78dd56a8e869f38d",
+    "src/nr_network_policy.h": "3568358971488f0a5eefa12bb620dbcb10352493af8e0648a702151e389bdd6c",
+    "src/nr_network_runtime.inl": "a1a407fbd347e646c727f1bf335285d61423630fbd3fabfe1a4954f4149afa20",
+    "src/nr_network_identity_worker.inl": "a7a366b3e682906255e9a2b63c2dbe29b7e21f48cfdce94c351ef46d852eb7fc",
+    "src/nr_diagnostic_bundle.inl": "042a11157e6c09efdae45641a96e9510e59a4835c0851ff82cdd80e8b4dcdff2",
+    "tests/nr_network_policy_test.cpp": "2a6edb660ffb11cdd6a9b26d926f1c091bd0500132b308b051660cefc6754aeb",
+    "tests/nr_network_create_test.cpp": "2d1a3228124a3143e43da4915334a6ecff0284052b154f1a805c4e07c7a5ff98",
+    "tests/nr_network_runtime_test.cpp": "6eb6f81111daad0c038e8c1391f8a65d1c833f2d8f8818a106042e4255587de5",
+    "tests/aux_history_reuse.cpp": "ef88f4292ca6b8c62c83abc50ac6408b181a9b01f2ff5a50290a52e73fa31848",
+    "src/nr_dual_runtime.inl": "37ed0d09d378dcd927c06dec4ca6bc810adb7a132d702db18cf080107baf40bc",
+    "src/nr_fg_consumer.inl": "a4c5f3e9d8c339dfb75d398841e84b47b24526866e45d8212ef2dc7b9e98694c",
+    "src/nr_compat_present_events.inl": "0c579a86595144dc21c2aa167b6ad3029a02a99930916c9618e47468292a2b81",
+    "src/nr_compat_present_models.inl": "7fa73fdd8b937f063655daf96ad795eabc4d7bd2621a52607955c985426416e9",
+    "src/nr_compat_present_policy.hpp": "9a3e5c8d97e2a490eb379a05365c9fbe243ecd1cbc81cd37b365418b4a118d79",
+    "src/nr_full_runtime.inl": "9efd835b0e14ee8f09056ba4c9dc807a7f028e40a10cde038a79b8a73f8b8291",
+    "src/nr_replay_runtime.inl": "08eff962a6db7f1f8fe439d50bc09d3bb87c67955f2e8b8d7f72c7a391033231",
+    "src/nr_replay_format.h": "b1b4530172168fb34c6dd292044ee22f66275e865ca09840a660c53d4a26555d",
+    "scripts/nr_replay.py": "f1e6499367f0de1dd10cc24986eae523745bf6c0debd3cca0892d64fe3666ad7",
+    "tests/nr_full_runtime_test.cpp": "3d3e227f32eb18c6af205741ed1459d404d9b41aeea0047e8942f76208eedafb",
+    "tests/nr_network_caller_test.cpp": "04d67e69e71ba6851c2d7bffbf2a5c8e3b9bcd23f8838a7d321dfd32e1fc8f50",
+    "scripts/validate-nr-network.py": "38db664bc7b1532fe0ea547a24b205dc31fdf9f1a8122745044761a87d8c1b46"
+  },
+  "layer_configuration": {
+    "path": "src/nr_layer_config.h",
+    "sha256": "23c51c463d1b93eb9ba60c2c88b3b8c0d1290727f4ed276853356f932d0f616b"
+  },
+  "checks": {
+    "policy": 125,
+    "runtime_identity_worker": 33,
+    "production_create": 42,
+    "actual_callers_consumers_replay": 130,
+    "full_adapter": 125,
+    "compiled_negative_controls": 16,
+    "history_epochs": 128,
+    "independent_replay_reader": true
+  },
+  "runs": [
+    {
+      "label": "compiler",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "policy-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "policy",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "runtime-identity-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "runtime-identity",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "candidate-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "candidate",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-missing-create-binding-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-missing-create-binding",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "callers-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "callers",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "replay-scalar-writer",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "replay-scalar-reader",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-before-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-before",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-post-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-post",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-aux-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-aux",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-fg-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-fg",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-present-primary-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-present-primary",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-present-later-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-present-later",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-before-consumer-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-before-consumer",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-admission-post-consumer-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-admission-post-consumer",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-deferred-fence-present-primary-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-deferred-fence-present-primary",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-deferred-fence-present-later-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-deferred-fence-present-later",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-unwritten-replay-before-consumer-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-unwritten-replay-before-consumer",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-unwritten-replay-post-consumer-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-unwritten-replay-post-consumer",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "negative-replay-network-scalar-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-replay-network-scalar",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "full-chain-refusal-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "full-chain-refusal",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-full-chain-refusal-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-full-chain-refusal",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "label": "context-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "context-identity",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "context-history-reset",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-auxiliary-readmission-build",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "label": "negative-auxiliary-readmission",
+      "exit": 1,
+      "expected_exit": 1
+    }
+  ],
+  "supplemental_checks": {
+    "product_identity_tests": 2,
+    "network_settings_tests": 2,
+    "candidate_inspector_tests": 7,
+    "actual_d13_ui_recorder_tests": 1
+  },
+  "supplemental_source_sha256": {
+    "src/nr_layer_config.h": "23c51c463d1b93eb9ba60c2c88b3b8c0d1290727f4ed276853356f932d0f616b",
+    "src/nr_network_settings.h": "db0fe21182c98b2e76560071eaedf2c3f849e03328f220d2530394303ba8dd31",
+    "scripts/core-source-layout.json": "0bbb2975459b8a0eb5ae49bbae6a78869ff4265c3c92bb42e4bd156d12e73532",
+    "src/nr_before_sr.rc": "c8e4ea551e4661c3e5a0fcd2255a59fdbe13403f26d07ebaea818b4a0ebb504b",
+    "scripts/build.ps1": "588426eef51e5b52c9a305f8f95df0dbcec789724fd14a18d16b0306eeeaa054",
+    "scripts/inspect-dlsnr-candidate.py": "af1bcbdf3891eea54a15e8172335cb4e7fb897567309e4293ce2fee2e33c8e31",
+    "tests/test_dlsnr_candidate_inspector.py": "fe00b43ece1627de5eb8972f44768a27d2f5d90c998d555f3a6ec438b6e6a0b9",
+    "tests/test_nr_network_selection.py": "e07d8bfb6d7fb30d732677c063006f0da4b6d41acbcf2f407f6fce88717a51c2",
+    "tests/test_network_settings.py": "53a039f65a572d9caeed0e1815cf6f89e6add12de7b396e6058f1970bfb59eae",
+    "tests/test_d13_ui_compile.py": "558a0402a4b6e9211295ce9dbd9eacbec183c4ec6a1e125f4a3b4080432b3d28"
+  },
+  "not_verified": [
+    "Windows Core and ABI",
+    "Windows D3DCompile SM5",
+    "WARP",
+    "real NGX inference or executed network identity",
+    "real GPU completion",
+    "game quality",
+    "GPU/CPU frame timing",
+    "VRAM changes"
+  ]
+}

@@ -30,6 +30,7 @@ struct LayerPrepared {
     NrBindingPacket* binding=nullptr;
     bool evaluated=false,adoptable=false;
     bool full=false;
+    bool create_admission_refused=false;
     explicit operator bool() const {return context&&slot&&bool(plan);}
 };
 struct Prepared : LayerPrepared {
@@ -264,7 +265,7 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
             if(!prepared.full&&evaluated&&prepared.context)nr_dual_status_runtime::CaptureSecondaryIdentity(*prepared.context);
         }
     } observation{primary,prepared};
-    prepared.evaluated=prepared.adoptable=false;
+    prepared.evaluated=prepared.adoptable=prepared.create_admission_refused=false;
     if(!prepared||!prepared.binding)return 0;
     auto& source=prepared.source?*prepared.source:main;
     auto& aux=*prepared.context;auto& slot=*prepared.slot;
@@ -293,7 +294,15 @@ NgxResult RunOne(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main
         source.neural_state=static_cast<D3D12_RESOURCE_STATES>(state);
         for(unsigned i=0;i<2;++i){auto* resource=i?(g.resample_motion?slot.motion_proxy:prepared.guides.motion):(g.linear_depth?slot.rr_depth:prepared.guides.depth);
             ID3D12Resource_AddRef(resource);aux.dual_create_guides[i]=resource;}
-        void* handle=nullptr;const auto created=CreateSignedNrFeature(list,aux,feature,&handle);
+        void* handle=nullptr;bool api_called=false;
+        const auto created=CreateSignedNrFeature(list,aux,feature,&handle,&api_called);
+        if(!api_called){
+            // The input/guide recording remains pinned to its real completion.
+            // A late capability refusal cannot poison earlier successful NR.
+            prepared.create_admission_refused=true;
+            if(prepared.full)ResolveLayerTiming(list,slot,false);
+            aux.dual_history.Invalidate();SetStatus(Status::Preparing);return 0;
+        }
         aux.nr_handle=static_cast<NgxHandle*>(handle);second_creates.fetch_add(1);
         if(created!=kNgxSuccess||!handle)return Fail(list,primary,aux,created,"Create");
         if(prepared.full)for(auto& other:g_contexts)if(&other!=&aux&&other.nr_handle==aux.nr_handle)

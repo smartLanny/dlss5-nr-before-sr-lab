@@ -49,8 +49,13 @@ void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool val
         config.generic_algorithm,nr_generic::AlgorithmName(config.generic_algorithm));
     FeedbackAppend(s,"requested.uniformChainVersion=1\nrequested.activeLayers=%u\nrequested.uniformMigrationChangedWork=%d\n",
         nr_layers::Active(config.nr_layers),config.nr_uniform_migrated?1:0);
+    FeedbackAppend(s,"requested.network.global=%d\n"
+        "requested.network.contract=0 runtime default; 1 Original; 2 Optimized; layer -1 inherits global; requested values are not proof of executed network\n",
+        config.nr_network_preset);
     for(unsigned i=0;i<nr_layers::Count;++i){
         const auto m=nr_layers::Read(config,i);
+        FeedbackAppend(s,"requested.layer%u.networkOverride=%d\nrequested.layer%u.networkResolved=%d\n",
+            i+1,m.network_preset,i+1,nr_layers::RequestedNetwork(config,i));
         FeedbackAppend(s,"requested.layer%u.enabled=%d\nrequested.layer%u.model=%.9g,%.9g,%.9g,%.9g,%d,%u,%d\n",
             i+1,i==0||config.nr_layers[i-1].enabled,i+1,
             double(m.intensity),double(m.local_structure),double(m.local_tone),double(m.skin_structure),

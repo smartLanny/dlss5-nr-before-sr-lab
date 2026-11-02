@@ -20,7 +20,7 @@ unsigned long long ID3D12Fence_GetCompletedValue(ID3D12Fence* p){return p->compl
 struct LifecycleQueue{ID3D12Fence* fence=nullptr;};
 enum class CodecColorMode:unsigned{Automatic,LinearSdr,ModelEncodedValueDomain};
 enum class NrJitterMode:int{Legacy=0,GameInputPixel=1};
-struct Config{float intensity=1.2f,local_tone=1,local_structure=1,skin_structure=.4f;bool auto_mask=true,ui_correction=true,enabled=true;unsigned style=1,nr_input_filter=0;int depth_mode=-1;NrJitterMode jitter_mode=NrJitterMode::GameInputPixel;nr_layers::Auxiliary nr_layers{};}g_config;
+struct Config{float intensity=1.2f,local_tone=1,local_structure=1,skin_structure=.4f;bool auto_mask=true,ui_correction=true,enabled=true;unsigned style=1,nr_input_filter=0;int depth_mode=-1;NrJitterMode jitter_mode=NrJitterMode::GameInputPixel;int nr_network_preset=0,nr_primary_network_preset=-1; nr_layers::Auxiliary nr_layers{};}g_config;
 #include "tuning.inl"
 struct NrContext;
 struct NrSlot{void* key=nullptr;NrContext* dual_owner=nullptr;unsigned recording_command_lists=0;unsigned long long completion_fence_value=0;bool awaiting_fence_signal=false,bindings_ok=true;LifecycleQueue* last_submission_queue=nullptr;};

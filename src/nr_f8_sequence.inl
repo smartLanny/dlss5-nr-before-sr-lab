@@ -430,11 +430,15 @@ bool FaceScreenshotFits(const wchar_t *path,unsigned width,unsigned height) {
     return ok && std::memcmp(header,signature,sizeof(signature))==0 && be(16)==width && be(20)==height;
 }
 void WriteTimeline(FILE *out,const Session &s) {
-    std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure,groupName,localTone,localStructure,style,autoMask,uiCorrection\n");
+    std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure,groupName,localTone,localStructure,style,autoMask,uiCorrection");
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    std::fprintf(out,",networkRequest,runtimeGeneration,runtimeModule");
+#endif
+    std::fprintf(out,"\n");
     for(unsigned g=0;g<s.group_count;++g) for(unsigned row=0;row<s.groups[g].count+(s.groups[g].overview_reserved?1u:0u);++row) {
         const unsigned i=row<s.groups[g].count?row:kFrames;
         const auto &f=s.groups[g].frames[i];const auto &n=f.info;const auto &p=f.params;
-        std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g,%s,%.9g,%.9g,%u,%d,%d\n",
+        std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g,%s,%.9g,%.9g,%u,%d,%d",
             g,i,i==kFrames,f.valid,n.identity.instance_id,n.identity.frame_id,n.identity.config_generation,n.identity.since_reset,n.mode,
             n.source_width,n.source_height,n.model_width,n.model_height,n.region_x,n.region_y,n.width,n.height,n.stride,
             n.source_base_x,n.source_base_y,n.destination_base_x,n.destination_base_y,n.source_format,n.result_format,
@@ -444,10 +448,18 @@ void WriteTimeline(FILE *out,const Session &s) {
             n.transfer_strength,n.color_strength,n.max_luma_ratio,n.proxy_scale,n.proxy_curve,n.frame_confidence,n.detail_stability,n.lighting_lock,n.motion_requested,
             n.identity.tuning.intensity,n.identity.tuning.skin_structure,GroupLabel(s.options.comparison,g),
             n.identity.tuning.local_tone,n.identity.tuning.local_structure,n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+        std::fprintf(out,",%d,%llu,%llu",n.identity.tuning.network_preset,
+            n.identity.tuning.runtime_generation,n.identity.tuning.runtime_module_address);
+#endif
+        std::fprintf(out,"\n");
     }
 }
 DWORD WINAPI PackageWorker(void *opaque) {
     const auto &module_identity = EnsureRuntimeIdentityOnWorker();
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    EnsureNrNetworkIdentityOnWorker();
+#endif
     auto *s=static_cast<Session *>(opaque);
     FeedbackAppend(s->activity, "capture.kind=image-supplement\ncore.session=%s\ncore.config=%u\ncore.complete=%d\n",
         s->core_pair.session, s->core_pair.config, s->core_pair.complete ? 1 : 0);

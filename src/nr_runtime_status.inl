@@ -49,6 +49,10 @@ DWORD WINAPI RuntimeStatusWorker(void *opaque) {
     auto &escaped = workspace->escaped, &addon_escaped = workspace->addon_escaped;
     auto &json = workspace->json;
     const auto &identity = EnsureRuntimeIdentityOnWorker();
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    EnsureNrNetworkIdentityOnWorker();
+    const auto network_runtime = NrNetworkRuntimeSnapshot();
+#endif
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", root, static_cast<DWORD>(std::size(root)));
     bool success = false;
     if (length != 0 && length + 100 < std::size(root)) {
@@ -78,7 +82,13 @@ DWORD WINAPI RuntimeStatusWorker(void *opaque) {
                 "\"sourceCommit\":\"%s\",\"sourceDirty\":%s,\"artifactId\":\"%s%s\","
                 "\"buildId\":\"%s\",\"state\":\"%s\",\"active\":%s,\"bypassReason\":\"%s\","
                 "\"nativeSrObserved\":%s,\"nrEvaluations\":%llu,\"transferSubmitted\":%llu,"
-                "\"configGeneration\":%u,\"carrierEpoch\":%llu}",
+                "\"configGeneration\":%u,\"carrierEpoch\":%llu"
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+                ",\"nrRuntimeGeneration\":%llu,\"nrRuntimeModule\":%llu,\"nrRuntimeFileSha256\":\"%s\","
+                "\"nrRuntimeIdentityStatus\":\"%s\",\"nrNetworkFamily\":\"%s\",\"nrNetworkEvidence\":\"%s\","
+                "\"nrExecutedNetworkVerified\":false"
+#endif
+                "}",
                 GetCurrentProcessId(), start_text, now_text, escaped,
                 addon_escaped, identity.sha256, identity.status,
                 kSourceCommit, kSourceDirty ? "true" : "false",
@@ -88,7 +98,13 @@ DWORD WINAPI RuntimeStatusWorker(void *opaque) {
                 job->sample.carriers != 0 ? "true" : "false",
                 static_cast<unsigned long long>(job->sample.nr_evaluations),
                 static_cast<unsigned long long>(job->sample.transfers), job->sample.config,
-                static_cast<unsigned long long>(job->sample.epoch));
+                static_cast<unsigned long long>(job->sample.epoch)
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+                , network_runtime.generation, network_runtime.module_address, network_runtime.sha256,
+                network_runtime.identity_status, nr_network_policy::FamilyName(network_runtime.family),
+                nr_network_policy::EvidenceName(network_runtime.evidence)
+#endif
+                );
             HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (file != INVALID_HANDLE_VALUE) {
                 DWORD written = 0;

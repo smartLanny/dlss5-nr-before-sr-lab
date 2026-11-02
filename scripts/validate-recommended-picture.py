@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 FIELDS = {
+ 'nr_network_preset':'NRNetworkPreset', 'nr_primary_network_preset':'Layer1NetworkPreset',
  'nr_uniform_migrated':None,
  'nr_passes':'NRPasses','nr_second_numerator':'NRSecondScaleNumerator','nr_second_denominator':'NRSecondScaleDenominator','generic_residual':'GenericResidualExperiment',
  'mode':'Mode', 'identity_use_original':'IdentityUseOriginalColor',

@@ -15,7 +15,12 @@
 struct NgxHandle {unsigned id;};
 enum class CodecColorMode:unsigned {Automatic,LinearSdr,ModelEncodedValueDomain};
 enum class NrJitterMode:int{Legacy=0,GameInputPixel=1};
-struct Config {float intensity=1,local_tone=1,local_structure=1,skin_structure=-1;bool auto_mask=false;unsigned style=1,nr_input_filter=0;bool ui_correction=false;int depth_mode=-1;NrJitterMode jitter_mode=NrJitterMode::GameInputPixel;nr_layers::Auxiliary nr_layers{};}g_config;
+struct Config {float intensity=1,local_tone=1,local_structure=1,skin_structure=-1;bool auto_mask=false;unsigned style=1,nr_input_filter=0;bool ui_correction=false;int depth_mode=-1,nr_network_preset=0,nr_primary_network_preset=-1;NrJitterMode jitter_mode=NrJitterMode::GameInputPixel;nr_layers::Auxiliary nr_layers{};}g_config;
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+struct NrNetworkCreationIdentity { unsigned long long generation=1,module_address=0x12340000; };
+NrNetworkCreationIdentity runtime_identity{};
+NrNetworkCreationIdentity CurrentNrNetworkCreationIdentity(){return runtime_identity;}
+#endif
 #include "tuning.inl"
 struct NrContext {
  const NgxHandle* sr_handle=nullptr;unsigned long long feature_generation=0,instance_id=0,stage_capture_request_id=0;
@@ -31,9 +36,22 @@ bool DeferNrCreationForReleaseLocked(const NgxHandle* = nullptr){return false;} 
 void Log(const char*,...){}
 void PrepareStageCaptureContextLocked(const NgxHandle*,unsigned long long,int){}
 unsigned long long PreparedStageCaptureRequestId(const NgxHandle*,unsigned long long,int){return 0;}
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+// Admission itself is covered by the production Create fixture. The context
+// fixture retains non-GPU retired objects to observe signature separation.
+bool network_admission = true;
+unsigned network_admission_checks = 0;
+bool ValidateNrActiveNetworkRequests(){++network_admission_checks;return network_admission;}
+void RetireContextForHandle(const NgxHandle* h){for(auto& c:g_contexts)if(c.sr_handle==h)c.retired=true;}
+#endif
 #include "lookup.inl"
 static void check(bool b,const char* m){if(!b){std::fprintf(stderr,"FAIL %s\n",m);std::exit(1);}}
-static void clear(){for(auto& c:g_contexts)c={};g_config={};g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;}
+static void clear(){for(auto& c:g_contexts)c={};g_config={};g_lifecycle_tracking_uncertain=false;g_nr_failed_create_process_latched=false;
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+ runtime_identity={};
+ network_admission=true;network_admission_checks=0;
+#endif
+}
 static NgxHandle carrier{1};static NrGuideSignature guides{};
 static NrContext* lookup(unsigned long long parent=11,unsigned long long epoch=10,unsigned layer=1,unsigned w=1720,unsigned h=720,unsigned long long feature=3,int mode=1){
  return FindOrCreateContext(&carrier,feature,mode,w,h,CodecColorMode::Automatic,guides,false,layer,parent,epoch);
@@ -102,4 +120,58 @@ static void contracts(){
  std::puts("PASS five-layer independent tuning, upstream reuse and downstream Reset");
 #endif
 }
-int main(int argc,char** argv){if(argc>1&&std::string(argv[1])=="--reproduction")return reproduce();contracts();}
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+static void networks(){
+ // A worker receipt becoming available while the primary is being prepared
+ // cannot let a nested auxiliary lookup retire that same primary. The next
+ // primary boundary rejects the whole chain; its existing pins remain owned.
+ clear();auto* primary=lookup(0,0,0);check(primary&&network_admission_checks==1,"primary validates whole requested chain once");
+ network_admission=false;auto* auxiliary=lookup();
+ check(auxiliary&&!primary->retired&&network_admission_checks==1,"late refusal does not retire primary from nested auxiliary lookup");
+ bool refused=false;
+ check(!FindOrCreateContext(&carrier,3,1,1720,720,CodecColorMode::Automatic,guides,false,0,0,0,&refused)&&refused,
+  "next primary reports explicit network refusal independently of context capacity");
+ check(primary->retired&&auxiliary->retired,"refused chain uses normal retirement for all model dependencies");
+ // Each native request is a Create identity, independently of Style/intensity.
+ for(unsigned edited=0;edited<nr_layers::Count;++edited){
+  clear();std::array<NrContext*,nr_layers::Count> before{};
+  for(unsigned i=0;i<nr_layers::Count;++i)before[i]=lookup(11,10,i);
+  if(edited==0)g_config.nr_primary_network_preset=2;
+  else g_config.nr_layers[edited-1].network_preset=2;
+  for(unsigned i=0;i<nr_layers::Count;++i){
+   auto* after=lookup(11,i>edited?11:10,i);
+   check(after&&after->tuning_signature.network_preset==(i==edited?2:0),"each layer receives only its own resolved request");
+   if(i==edited)check(after!=before[i]&&before[i]->retired,"edited network recreates its own model");
+   else check(after==before[i]&&!after->retired,"other networks keep their own allocation");
+  }
+ }
+ clear();g_config.nr_primary_network_preset=1;g_config.nr_layers[1].network_preset=0;
+ std::array<NrContext*,nr_layers::Count> before{};
+ for(unsigned i=0;i<nr_layers::Count;++i)before[i]=lookup(11,10,i);
+ g_config.nr_network_preset=2;
+ for(unsigned i=0;i<nr_layers::Count;++i){
+  auto* after=lookup(11,10,i);
+  check(after,"global inheritance lookup");
+  if(i==0||i==2)check(after==before[i]&&!after->retired,"explicit Original and runtime-default ignore a global change");
+  else check(after!=before[i]&&before[i]->retired&&after->tuning_signature.network_preset==2,"only inherited network follows global change");
+ }
+ clear();g_config.nr_network_preset=1;auto* old=lookup();
+ g_config.nr_layers[0].network_preset=1;auto* same=lookup();
+ check(same==old&&!old->retired,"inherit-to-equivalent-explicit changes persistence, not native model identity");
+ ++runtime_identity.generation;auto* generation=lookup();
+ check(generation&&generation!=old&&old->retired,"new module generation cannot reuse old model");
+ ++runtime_identity.module_address;auto* module=lookup();
+ check(module&&module!=generation&&generation->retired,"different module address cannot reuse old model");
+ clear();auto* automatic=lookup();g_config.nr_layers[0].network_preset=2;auto* optimized=lookup();
+ g_config.nr_layers[0].network_preset=0;auto* automatic_again=lookup();
+ check(automatic_again&&automatic_again!=automatic&&automatic_again!=optimized&&automatic->retired&&optimized->retired,
+  "network A-B-A never resurrects retired temporal allocation");
+ std::puts("PASS production lookup: five independent networks, inherited/explicit-default semantics, runtime generation/module identity and network A-B-A retirement");
+}
+#endif
+
+int main(int argc,char** argv){if(argc>1&&std::string(argv[1])=="--reproduction")return reproduce();contracts();
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+ networks();
+#endif
+}

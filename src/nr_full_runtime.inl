@@ -77,6 +77,7 @@ void Seal(ID3D12GraphicsCommandList* list,NrSlot& main,Prepared& prepared) {
 
 NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     Prepared& prepared,const FeatureRecord& feature,const ColorContract& color) {
+    prepared.create_admission_refused=false;
     if(!prepared.full)return RunOne(list,primary,main,prepared,feature,color);
     full_instance[0].store(primary.instance_id);full_evaluations[0].store(primary.evaluations);
     struct Backend {
@@ -85,6 +86,7 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
         nr_full::Step Layer(unsigned i) {
             auto& stage=prepared.layers[i];
             const auto fatal=RunOne(list,primary,main,stage,feature,color);
+            prepared.create_admission_refused|=stage.create_admission_refused;
             if(stage.context) {
                 full_instance[i+1].store(stage.context->instance_id);
                 full_evaluations[i+1].store(stage.context->evaluations);
@@ -116,7 +118,7 @@ NgxResult Run(ID3D12GraphicsCommandList* list,NrContext& primary,NrSlot& main,
     if(!result.fatal)nr_dual_status_runtime::RecordObservation(primary,
         prepared.prepared?prepared.layers[0].context:nullptr,
         primary.successful_evaluations_since_reset>g_config.warmup_after_create,
-        result.evaluated!=0,result.adopted,result.evaluated!=0&&!result.adopted);
+        result.evaluated!=0,result.adopted,result.evaluated!=0&&!result.adopted&&!prepared.create_admission_refused);
     return result.fatal;
 }
 
@@ -129,7 +131,7 @@ struct FullSnapshot {
 };
 bool TrySnapshotFull(FullSnapshot& out) {
     if(!TryEnterCriticalSection(&g_chain_cs))return false;
-    out={};out.generation=g_config_generation.load(std::memory_order_relaxed);
+    out=FullSnapshot{};out.generation=g_config_generation.load(std::memory_order_relaxed);
     out.enabled=g_config.nr_passes==2&&g_config.nr_full_reference;out.scope_matches=out.enabled&&full_generation==out.generation;
     out.mode=full_mode;out.requested=g_config.nr_full_passes;
     if(out.scope_matches) {

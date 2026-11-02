@@ -27,6 +27,7 @@
 #include <memory>
 #include <type_traits>
 #include "nr_layer_config.h"
+#include "nr_network_policy.h"
 #include "nr_retirement_evidence.h"
 #define NR_HAS_RETIREMENT_EVIDENCE 1
 #include "nr_colour_lab_policy.h"
@@ -127,11 +128,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.5.2 Beta 14";
+constexpr const char *kAddonVersion = "0.5.2 Beta 17";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.5.2-beta.14";
+constexpr const char *kBuildIdentity = "0.5.2-beta.17";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -448,6 +449,8 @@ enum class BypassReason : int {
     ExternalNrOwner,
     ContextReleasePending,
     GuideContractInvalid,
+    NetworkInvalidRequest,
+    NetworkUnavailable,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -563,6 +566,8 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
     case BypassReason::ContextReleasePending: return "context-release-pending";
     case BypassReason::GuideContractInvalid: return "guide-contract-invalid";
+    case BypassReason::NetworkInvalidRequest: return "nr-network-invalid-request";
+    case BypassReason::NetworkUnavailable: return "nr-network-unavailable";
     default: return "unknown";
     }
 }
@@ -984,6 +989,8 @@ struct ChainConfig {
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     unsigned region_version=1;
     unsigned nr_passes=1;
+    int nr_network_preset=nr_network_policy::RuntimeDefault;
+    int nr_primary_network_preset=nr_network_policy::Inherit;
     bool nr_full_reference=false;
     unsigned nr_full_passes=3;
     // Legacy auxiliary scale is retained for migration diagnostics only.
@@ -1686,6 +1693,8 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.feedback_virtual_key==b.feedback_virtual_key &&
            a.colour_range_control==b.colour_range_control &&
            a.colour_priority_strength==b.colour_priority_strength &&
+           a.nr_network_preset==b.nr_network_preset &&
+           a.nr_primary_network_preset==b.nr_primary_network_preset &&
            a.colour_conservative_strength==b.colour_conservative_strength && a.colour_edge_recovery == b.colour_edge_recovery && a.colour_neutral_probe == b.colour_neutral_probe && a.colour_restore_mode == b.colour_restore_mode && a.colour_input_curve == b.colour_input_curve && a.colour_scaled_proxy_mode == b.colour_scaled_proxy_mode && a.colour_lab_mode == b.colour_lab_mode && a.nr_layers == b.nr_layers && a.nr_uniform_migrated==b.nr_uniform_migrated &&
            a.enabled == b.enabled &&
            a.processing_start==b.processing_start && a.processing_selection==b.processing_selection &&
@@ -1982,6 +1991,15 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"PresentMvCompensation", 0, g_ini_path));
     ApplyConfigPolicyMigrations(next, new_work_file);
     ReadUniformLayers(next);
+    // Load networks after legacy uniform-layer migration, which initializes
+    // model records. Missing network keys keep runtime-default/inherit intent.
+    nr_network_settings::Load(next, [](const wchar_t* key,int fallback) {
+        wchar_t value[64]{};
+        const DWORD length=GetPrivateProfileStringW(L"NRBeforeSR",key,L"",value,
+            static_cast<DWORD>(std::size(value)),g_ini_path);
+        return length>=std::size(value)-1?nr_network_settings::InvalidText:
+            nr_network_settings::Parse(value,fallback);
+    });
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -2137,6 +2155,9 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"NRFullReference",config.nr_full_reference));
     record_write(WriteIniInt(L"NRFullPasses",config.nr_full_passes));
     record_write(SaveUniformLayers(config));
+    nr_network_settings::Save(config,[&](const wchar_t* key,int value) {
+        record_write(WriteIniInt(key,value));
+    });
     if(ok)record_write(WriteIniInt(L"NRLayerControlsVersion",2));
     record_write(WriteIniInt(L"NRSecondScaleNumerator",config.nr_second_numerator));
     record_write(WriteIniInt(L"NRSecondScaleDenominator",config.nr_second_denominator));
@@ -2593,10 +2614,14 @@ void AddonDirectory(wchar_t (&directory)[MAX_PATH]) {
 }
 
 #include "nr_runtime_load_evidence.inl"
+#include "nr_network_runtime.inl"
 
 bool EnsureNrApi(ID3D12Device *device) {
     ScopedSrwExclusive api_guard(&g_nr_api_lock);
-    if (g_nr_api.initialized) return true;
+    if (g_nr_api.initialized) {
+        RecordNrNetworkRuntimeLoaded(g_nr_api.signed_module);
+        return true;
+    }
     if (g_nr_api.failed || device == nullptr) { SetBypassReason(BypassReason::RuntimeUnavailable); return false; }
     if (g_nr_api.bootstrap_retry_after && GetTickCount64() < g_nr_api.bootstrap_retry_after) {
         SetBypassReason(BypassReason::RuntimeUnavailable); return false;
@@ -2645,6 +2670,7 @@ bool EnsureNrApi(ID3D12Device *device) {
             evidence.search = "exe-directory";
         }
     }
+    RecordNrNetworkRuntimeLoaded(g_nr_api.signed_module);
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
     g_nr_api.bootstrap_required = g_nr_api.bootstrap_required || core == nullptr;
     if (g_nr_api.bootstrap_required && evidence.loaded[0] && evidence.loaded[1]) {
@@ -6187,6 +6213,9 @@ struct NrTuningSignature {
     bool ui_correction = false;
     NrJitterMode jitter_mode = NrJitterMode::Legacy;
     unsigned int input_filter = 0; // Input/history identity, not an NGX model parameter.
+    int network_preset = 0; // Resolved native UInt request; never the INI inherit sentinel.
+    unsigned long long runtime_generation = 0;
+    unsigned long long runtime_module_address = 0;
 };
 
 struct NrDiagnosticIdentity {
@@ -6559,6 +6588,12 @@ NrTuningSignature CurrentNrTuningSignature(unsigned layer_index=0) {
     signature.ui_correction = model.ui_correction;
     signature.jitter_mode = g_config.jitter_mode;
     signature.input_filter = g_config.nr_input_filter;
+    signature.network_preset = nr_layers::RequestedNetwork(g_config, layer_index);
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    const auto runtime = CurrentNrNetworkCreationIdentity();
+    signature.runtime_generation = runtime.generation;
+    signature.runtime_module_address = runtime.module_address;
+#endif
     return signature;
 }
 
@@ -6571,7 +6606,10 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
-           a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter;
+           a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter &&
+           a.network_preset == b.network_preset &&
+           a.runtime_generation == b.runtime_generation &&
+           a.runtime_module_address == b.runtime_module_address;
 }
 
 #include "nr_reset_observation.h"
@@ -9046,8 +9084,24 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                const NrGuideSignature &requested_guides,
                                bool requested_peak_shoulder = false,
                                unsigned layer_index = 0, unsigned long long parent_instance = 0,
-                               unsigned long long parent_epoch = 0) {
+                               unsigned long long parent_epoch = 0,
+                               bool *network_refused = nullptr) {
+    if (network_refused) *network_refused = false;
     CollectRetiredContextsLocked();
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    // Admit the complete requested chain once at its primary lookup. A worker
+    // may publish stronger DLL evidence during this recording; an auxiliary
+    // lookup must not retire the primary already being used by that recording.
+    // Every actual Create still checks its own request immediately before NGX.
+    if (layer_index == 0 && !ValidateNrActiveNetworkRequests()) {
+        if (network_refused) *network_refused = true;
+        // Invalid/newly identified unavailable requests cannot reuse a model
+        // created under an older selection. Keep the existing exact retirement
+        // owner responsible for every pending GPU reference.
+        RetireContextForHandle(sr_handle);
+        return nullptr;
+    }
+#endif
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
@@ -9159,6 +9213,13 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 if(context.tuning_signature.input_filter!=requested_tuning.input_filter)
                     Log("NR input filter request changed %u->%u; retiring old input/history after exact fence.",
                         context.tuning_signature.input_filter,requested_tuning.input_filter);
+                if (context.tuning_signature.network_preset != requested_tuning.network_preset ||
+                    context.tuning_signature.runtime_generation != requested_tuning.runtime_generation ||
+                    context.tuning_signature.runtime_module_address != requested_tuning.runtime_module_address)
+                    Log("NR create identity changed: layer=%u request=%d->%d runtimeGeneration=%llu->%llu module=%llu->%llu; exact retirement before recreation.",
+                        layer_index + 1, context.tuning_signature.network_preset, requested_tuning.network_preset,
+                        context.tuning_signature.runtime_generation, requested_tuning.runtime_generation,
+                        context.tuning_signature.runtime_module_address, requested_tuning.runtime_module_address);
                 Log("Feature 18 create-time tuning changed for handle=%p "
                     "mode=%d extent=%ux%u: intensity %.3f->%.3f style %u->%u "
                     "autoMask %d->%d skin %.3f->%.3f localTone %.3f->%.3f "
@@ -11983,15 +12044,52 @@ bool DeferNrCreateForCommitPressure(NrContext& context) {
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
-                                void **out_handle) {
+                                void **out_handle,
+                                bool *api_called = nullptr) {
     (void)feature;
+    // A host-side admission refusal is not an opaque NGX error. Callers that
+    // own a recording use this receipt to preserve earlier valid commands and
+    // their exact retirement proof without poisoning the chain.
+    if (api_called) *api_called = false;
+    if (!out_handle) return 0xBAD00005u;
+    *out_handle = nullptr;
+    const NrTuningSignature &tuning = context.tuning_signature;
+#if defined(NR_HAS_NETWORK_MODEL_SELECTION)
+    if (!context.params || !context.tuning_signature_initialized ||
+        !nr_network_policy::IsValidRequest(tuning.network_preset)) {
+        SetBypassReason(BypassReason::NetworkInvalidRequest);
+        return 0xBAD00005u;
+    }
+    const auto runtime_identity = CurrentNrNetworkCreationIdentity();
+    if (!runtime_identity.generation ||
+        tuning.runtime_generation != runtime_identity.generation ||
+        tuning.runtime_module_address != runtime_identity.module_address) {
+        SetBypassReason(BypassReason::RuntimeUnavailable);
+        return 0xBAD00005u;
+    }
+    const auto network = NrNetworkRequestedStatus(tuning.network_preset);
+    if (network.unavailable) {
+        SetBypassReason(BypassReason::NetworkUnavailable);
+        return 0xBAD00005u;
+    }
+    // Feature 18 snapshots the network in Create. Use its native UInt key on
+    // this owned parameter block, independently of Style and native SR/RR.
+    if (!nr_network_policy::WriteCreateParameter(tuning.network_preset,
+            [&](const char* key, unsigned value) { SetUInt(context.params, key, value); })) {
+        SetBypassReason(BypassReason::NetworkInvalidRequest);
+        return 0xBAD00005u;
+    }
+    Log("[nr-network-create] layer=%u request=%d name=%s expectedNetwork=%d evidence=%s possibleFallback=%d "
+        "runtimeGeneration=%llu module=%llu; expected network is inferred, Create success is not model-execution proof.",
+        context.layer_index + 1, tuning.network_preset, nr_network_policy::Name(tuning.network_preset),
+        network.expected, nr_network_policy::EvidenceName(network.evidence), network.possible_fallback ? 1 : 0,
+        tuning.runtime_generation, tuning.runtime_module_address);
+#endif
     nr_source_runtime::MarkPrivateRecorded();
     nr_processing_runtime::MarkRecorded();
-    *out_handle = nullptr;
     SetInt(context.params, "DLSS.Feature.Create.Flags",
            context.bound_create_flags);
     SetInt(context.params, "PerfQualityValue", context.bound_perf_quality);
-    const NrTuningSignature &tuning = context.tuning_signature;
     Log("Feature 18 create-time tuning: mode=%d extent=%ux%u "
         "intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
         "localStructure=%.3f uiCorrection=%d proxyMapping=%s.",
@@ -12011,6 +12109,7 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
         LogNrCreateMemory("begin",context,0);
         NrTimingScope model_create_timing(nr_timing::Stage::ModelCreate);
+        if (api_called) *api_called = true;
         result = g_nr_api.bridge_create(
             g_nr_api.signed_create, command_list, 18,
             context.params, &handle);
@@ -12526,14 +12625,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    bool network_request_refused = false;
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 2, width, height, pre_sr_color_mode,
         guides.signature, UsePeakShoulder(pre_sr_color_mode,
-            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
+            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder),
+        0, 0, 0, &network_request_refused);
     MenuObserveGuide(feature,2,render_width,render_height,width,height,
         work.output_width,work.output_height,guides,color,context);
     if (context == nullptr) {
-        Log("No free NR context for the Before-SR chain; original SR retained.");
+        if (!network_request_refused)
+            Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
         return substitution;
     }
@@ -12715,8 +12817,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (first) {
         if (DeferNrCreateForCommitPressure(*context)) return substitution;
         void *handle = nullptr;
+        bool api_called = false;
         const NgxResult created = CreateSignedNrFeature(
-            command_list, *context, feature, &handle);
+            command_list, *context, feature, &handle, &api_called);
+        // Encode/guide work already recorded retains its existing lifecycle
+        // pins. Keep the admission reason; no NGX call or failure occurred.
+        if (!api_called) return substitution;
         g_last_nr_create_result.store(created, std::memory_order_relaxed);
         context->nr_handle = static_cast<NgxHandle *>(handle);
         Log("signed feature 18 create %ux%u -> %ux%u result=0x%08X(%s) handle=%p",
@@ -12811,6 +12917,14 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,*context,*slot,dual_prepared,feature,color_contract);
     if(substitution.fatal_recording)return substitution;
+    if(dual_prepared.create_admission_refused){
+        // A requested network was refused after primary admission. Preserve the
+        // native image. Replay's immutable composite view already names result;
+        // leave its Attempt incomplete instead of reading an unwritten result.
+        // Its existing destructor stops capture without discarding live pins.
+        nr_dual_runtime::ResolveTiming(command_list,*slot,false);
+        return substitution;
+    }
     nr_dual_runtime::Stamp(command_list,*slot,6);
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -13217,14 +13331,17 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     guides.jitter.scale_x = static_cast<float>(work_width)/width;
     guides.jitter.scale_y = static_cast<float>(work_height)/height;
     guides.jitter_offset_x = guides.jitter_offset_y = 0.0f;
+    bool network_request_refused = false;
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 1, work_width, work_height,
         post_sr_color_mode, guides.signature, UsePeakShoulder(post_sr_color_mode,
-            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
+            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder),
+        0, 0, 0, &network_request_refused);
     MenuObserveGuide(feature,1,guide_width,guide_height,work_width,work_height,
         width,height,guides,output,context);
     if (context == nullptr) {
-        Log("No free NR context for the post-SR chain; original SR retained.");
+        if (!network_request_refused)
+            Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
         return substitution;
     }
@@ -13568,8 +13685,15 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             return false;
         }
         void *handle = nullptr;
+        bool api_called = false;
         const NgxResult created = CreateSignedNrFeature(
-            command_list, context, feature, &handle);
+            command_list, context, feature, &handle, &api_called);
+        if (!api_called) {
+            // Restore the native result normally, including private FG/post
+            // callers. Only an entered opaque API may make that unsafe.
+            PreservePostSrOnFailure(command_list, substitution);
+            return false;
+        }
         g_last_nr_create_result.store(created, std::memory_order_relaxed);
         context.nr_handle = static_cast<NgxHandle *>(handle);
         Log("post-SR signed feature 18 create %ux%u guides=%ux%u "
@@ -13683,6 +13807,12 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     substitution.fatal_recording=nr_dual_runtime::Run(command_list,context,slot,substitution.dual_prepared,feature,color_contract);
     if(substitution.fatal_recording){timing.safe=false;return false;}
+    if(substitution.dual_prepared.create_admission_refused){
+        // The replay Attempt remains incomplete: Begin already bound result,
+        // so a late "native" Finish cannot reinterpret that immutable view.
+        PreservePostSrOnFailure(command_list,substitution);
+        return false;
+    }
     nr_dual_runtime::Stamp(command_list,slot,6);
     // FinishAfterSr is reached for Feature13 only after ProcessRrPost's
     // successful native result, generation and ownership checks.
@@ -17618,13 +17748,13 @@ void Finish(ID3D12GraphicsCommandList*,const nr_source_runtime::NativeInputs&,
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 0.5.2 Beta 14 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 17 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 0.5.2 Beta 14 (English UI) | Bilibili UID 941799";
+    "DLSS 5 0.5.2 Beta 17 (English UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
