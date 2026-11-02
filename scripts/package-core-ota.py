@@ -144,6 +144,10 @@ def package(args):
     manifest_path = args.candidate.parent/'source/source-manifest.json'
     manifest = load(manifest_path)
     require(manifest['source_commit'] == source, 'Source manifest identity mismatch')
+    direct_source = manifest.get('schema') == 'dlss5-direct-source-v1'
+    if direct_source:
+        require(manifest.get('source_dirty') is False and manifest.get('source_transforms') is False,
+                'Direct source export must be clean and untransformed')
     final_identity = next((manifest[k]['version'] for k in ('private_residual_sr','colour_edge','colour_lab','integration') if isinstance(manifest.get(k),dict) and 'version' in manifest[k]), None)
     require(final_identity == version, 'Source overlay version mismatch')
     for name, expected in manifest['files'].items():
@@ -168,6 +172,15 @@ def package(args):
     license_paths.extend(args.notice)
     licenses = b'\n\n'.join(p.read_bytes() for p in license_paths)
     payload = make_payload(row['file'], core, bridge, version, source, args.language, changelog, licenses, numeric_version)
+    # Canonical validation retains its historical generated_source field.
+    # Describe the actual export in the new package without changing that receipt.
+    ota_manifest = json.loads(payload['ota-manifest.json'])
+    ota_manifest.update(generated_source=not direct_source,
+                        source_layout=manifest.get('schema', 'legacy-generated-source'),
+                        source_transforms=manifest.get('source_transforms', True))
+    if direct_source:
+        ota_manifest['sourceDirty_scope'] = 'verified clean direct source export'
+    payload['ota-manifest.json'] = (json.dumps(ota_manifest, ensure_ascii=False, indent=2)+'\n').encode('utf-8')
     require(not args.output.exists(), 'Preserve previous output; choose a fresh directory')
     args.output.mkdir(parents=True)
     archive = args.output/f'DLSS5-{version}-{args.language}-Core-OTA.zip'

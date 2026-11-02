@@ -1,0 +1,140 @@
+{
+  "schema": "dlss5-beta14-baseline-delivery-v1",
+  "date": "2026-10-03",
+  "version": "0.5.2-beta.14",
+  "owner_accepted_as_continuing_baseline": true,
+  "binary_source_commit": "3663affdd77309c3eac9a306849415a1ded4f330",
+  "baseline_main_commit": "024f9cc32778c1056db364d76d087ee257da6502",
+  "equivalent_git_tree": "5b6f07e34501350b025091ab67d5a313b7739727",
+  "binary_source_not_relabeled": true,
+  "source_layout": "dlss5-direct-source-v1",
+  "source_transforms": false,
+  "public_abi_or_render_algorithm_or_saved_settings_changed": false,
+  "canonical": {
+    "url": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/36823064779",
+    "status": "passed",
+    "staged_source_file_count": 330,
+    "source_verified": true,
+    "compile_verified": true,
+    "warp_verified": true,
+    "candidate_sha256": "8fa13c537be185101abaad22a181c1ce8daa0613e1d04fe821b5234bce6a8142",
+    "validation_sha256": "0b785c83d23e1be6fe777511249c3fbe2c2596c452b9fd6ff61cbdb25cb776e5",
+    "source_manifest_sha256": "f70db9ff9e93f5d454fb68ba5c1db3ea5fe723bb99bb8b314f94394d64654433",
+    "legacy_generated_source_boolean_preserved_in_original_receipt": true
+  },
+  "controlled_ngx": {
+    "status": "passed",
+    "adapter_scope": "RTX5090D with fixed RTX40-50 NR runtime",
+    "cases": ["SR one layer", "native RR one layer", "native RR three layers"],
+    "receipt_sha256": "d539378bb5405299a2b630fd90b62ea9fa289f3b1930cd053d33bd88603e040b",
+    "game": false,
+    "other_gpu_validation": false,
+    "whole_frame_cost_passed": false
+  },
+  "owner_game_evidence": {
+    "game": "Neverness To Everness",
+    "esc_transition_owner_accepted": true,
+    "esc_root_cause_proven": false,
+    "all_ui_preview_cases_passed": false,
+    "one_two_one_known_allocation_mib": [468.38, 681.63, 468.38],
+    "complete_vram_or_d13_improvement_proven": false,
+    "private_sr_executed_in_supported_cases": true,
+    "private_sr_quality_passed": false,
+    "private_sr_default_enabled": false,
+    "ordinary_reconstruction_recommended": true,
+    "actual_oct3_abc_carrier": "native Feature1 SR; not RR",
+    "owner_fps_not_gpu_total": {"100_percent_ordinary": 55, "61_percent_ordinary": 77, "61_percent_private_sr": 69}
+  },
+  "ota_assets": [
+    {
+      "language": "zh-CN",
+      "file": "DLSS5-0.5.2-beta.14-zh-CN-Core-OTA.zip",
+      "bytes": 2666098,
+      "sha256": "1f604963132f3760a28445d2e2098aaf47bd3c8bd5186c9234960873ec7c7599",
+      "core_sha256": "a10947a9902ea3870d48945f3d08bcc0c1c5b142a11deb9c9575f9054144ec35"
+    },
+    {
+      "language": "en",
+      "file": "DLSS5-0.5.2-beta.14-en-Core-OTA.zip",
+      "bytes": 2635127,
+      "sha256": "7ed6b0b3734f52c1e7476ee88a0f0bfa50498e62164d36949a10978e92ae182f",
+      "core_sha256": "a418bddf52a163a413d097f69184584ca4ef802ad0daa412c9557165644696c0"
+    }
+  ],
+  "bridge_sha256": "1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2",
+  "package": {
+    "schema": "nr-branch-ota-v1",
+    "components": ["one language-specific Core", "matching nrchain", "instructions", "licenses", "changelog", "manifest"],
+    "nr_runtime_included": false,
+    "face_resources_included": false,
+    "ini_included": false,
+    "settings_preserved": true,
+    "real_manager_parser_verified": true,
+    "tampered_core_rejected": true,
+    "independent_review_receipt_sha256": "fa926d5c56d265b867c41d1a59385fe72a01be1c79c85045bf29bcf336c5679b",
+    "manager_ui_or_installation_tested_this_delivery": false
+  },
+  "manual_full_ota_assets": [
+    {
+      "gpu_family": "RTX20-30",
+      "language": "zh-CN",
+      "file": "DLSS5-0.5.2-beta.14-RTX20-30-OTA.zip",
+      "bytes": 153759398,
+      "sha256": "ac846a0fa3820039258e43fca876706dde499d30a84d1a971f10b10b9b61cea1",
+      "nr_runtime_sha256": "6dac1b40f0c87af84a8177b18c741e84fb0c914f204c9d87d95916b665ba3af8"
+    },
+    {
+      "gpu_family": "RTX40-50",
+      "language": "zh-CN",
+      "file": "DLSS5-0.5.2-beta.14-RTX40-50-OTA.zip",
+      "bytes": 128229933,
+      "sha256": "f87ce150c60e169db2cc5747b5ea36498693602ad19ef2bfe06a1aa232712cff",
+      "nr_runtime_sha256": "a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa"
+    }
+  ],
+  "manual_full_package": {
+    "schema": "dlss5-manual-full-ota-v1",
+    "installation": "manual-overlay-only",
+    "manager_import_supported": false,
+    "components": [
+      "Chinese Core",
+      "common matching nrchain",
+      "GPU-family NR runtime",
+      "seven verified face companion files",
+      "instructions",
+      "licenses",
+      "changelog",
+      "manifest"
+    ],
+    "nr_runtime_included": true,
+    "face_resources_included": true,
+    "ini_included": false,
+    "native_sr_rr_fg_runtimes_included": false,
+    "source_core_ota_sha256": "1f604963132f3760a28445d2e2098aaf47bd3c8bd5186c9234960873ec7c7599",
+    "source_face_manifest_sha256": "392a6d9e601b2cf445027405d1181fb662114e8cc1f4504d0c9b740dda5b90f7",
+    "face_companion_baseline": "Beta13 r2; identical seven-file hashes in both families and current owner installation",
+    "packager_sha256": "9408eb46a95639306ce7d506417e14515342a27201e608f4676b2f4cb1369246",
+    "independent_review_receipt_sha256": "06590466f9385c7fddebc1a48ddd15ee2c27288281fd3228692631855983165d",
+    "tampered_nr_rejected": true,
+    "package_member_hashes_verified": true,
+    "independent_root_readback_verified": true,
+    "manager_limitation": "current parser: 64 MiB per entry / 128 MiB total; installer currently imports Core and bridge only",
+    "publicly_uploaded": false
+  },
+  "delivery_cleanup": {
+    "archive_copies_verified": true,
+    "user_renewed_authorization": true,
+    "source_cleanup": "automatic approval review blocked PowerShell deletion before process start",
+    "reason": "blocked by policy; no specific reason supplied",
+    "source_copies_preserved": true,
+    "bytes_freed": 0
+  },
+  "fixed_owner_layout": {"ota": "OTA/<version>/<language-or-GPU-family>/", "nr_runtimes": "NRdll/<GPU family>/", "receipts": "记录/"},
+  "nr_runtime_baseline": "Beta13 r2 matched runtime pairs; separate fixed files and two owner-requested full overlays; Core-only OTA omits NR",
+  "next_product_behavior_version": "0.5.2-beta.15",
+  "next_plan": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-5959036328",
+  "nr_before_native_rr_implemented": false,
+  "public_ota_published": false,
+  "manager_defaults_changed": false,
+  "new_game_deployment_required": false
+}
