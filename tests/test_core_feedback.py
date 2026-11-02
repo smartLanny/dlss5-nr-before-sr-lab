@@ -69,6 +69,32 @@ class CoreFeedbackTests(unittest.TestCase):
         self.assertTrue(value['manifest_verified'])
         self.assertEqual(value['session'], 'DLSS5_CORE_1_2_3')
 
+    def test_expanded_bounded_metadata_remains_inspectable(self):
+        # Memory plus retirement evidence can exceed the historical 192 KiB
+        # parser gate. Exercise escaped JSON too, rather than a small fixture.
+        path = self.rewrite(self.bundle(), lambda m, i, p: i.update({
+            'fixture.large': '\t' * (600 * 1024)}))
+        with zipfile.ZipFile(path) as archive:
+            self.assertGreater(archive.getinfo('manifest.json').file_size, 512 * 1024)
+            self.assertLessEqual(archive.getinfo('capture-info.txt').file_size,
+                                 parser.CORE_METADATA_LIMIT)
+        self.assertTrue(parser.inspect_core(path)['manifest_verified'])
+
+    def test_metadata_and_manifest_limits_still_reject_overflow(self):
+        path = self.rewrite(self.bundle(), lambda m, i, p: i.update({
+            'fixture.large': 'x' * parser.CORE_METADATA_LIMIT}))
+        with self.assertRaisesRegex(parser.FormatError, 'per-entry byte limit'):
+            parser.inspect_core(path)
+        path = self.bundle()
+        with zipfile.ZipFile(path) as archive:
+            payloads = {name: archive.read(name) for name in archive.namelist()}
+        payloads['manifest.json'] = b' ' * (parser.META_LIMIT + 1)
+        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, data in payloads.items():
+                archive.writestr(name, data)
+        with self.assertRaisesRegex(parser.FormatError, 'per-entry byte limit'):
+            parser.inspect_core(path)
+
     def test_missing_is_explicit_partial(self):
         value = parser.inspect_core(self.bundle(missing=True))
         self.assertFalse(value['required_complete'])

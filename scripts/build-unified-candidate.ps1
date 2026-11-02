@@ -79,6 +79,20 @@ $Cxx=Join-Path $ToolchainRoot 'bin/x86_64-w64-mingw32-clang++.exe'
 $Core=Join-Path $OutputRoot 'source/core'
 $Source=Join-Path $Core 'src/nr_before_sr.cpp'
 $Tests=Join-Path $OutputRoot 'unified8-checks'
+# The memory/retirement fields share the actual full Core F8 writer and collector.
+# The portable extracted fixture is supplementary; run the complete staged TU
+# and every explicit capacity, retention and privacy counterexample on Windows.
+$F8Manifest=Join-Path $OutputRoot 'source/source-manifest.json'
+$F8Gate=Join-Path $Tests 'full-feedback-timing'
+& python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Cxx --reshade $ReShadeSourceRoot --source-root $Core --source-manifest $F8Manifest --output-dir $F8Gate
+if ($LASTEXITCODE) { throw 'Full staged Core F8 timing/memory/retirement writer and collector failed.' }
+$F8NegativeReceipts=@()
+foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','old-text-limit','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption','omit-end-ui-receipt','redact-ui-decimals','omit-end-retirement','redact-boundary-numbers','bypass-boundary-privacy','borrow-historical-boundary')) {
+    $F8NegativeGate=Join-Path $Tests ("full-feedback-" + $Control)
+    & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Cxx --reshade $ReShadeSourceRoot --source-root $Core --source-manifest $F8Manifest --output-dir $F8NegativeGate --negative-control $Control
+    if ($LASTEXITCODE) { throw "Full staged Core F8 negative control failed: $Control" }
+    $F8NegativeReceipts += (Join-Path $F8NegativeGate 'validation.json')
+}
 $TemporalGate=Join-Path $Tests 'temporal-budget-status'
 & python (Join-Path $PSScriptRoot 'validate-temporal-budget.py') --compiler $Cxx --source (Join-Path $Core 'src/temporal') --status-source (Join-Path $Core 'src') --sdk $FfxSdkRoot --output $TemporalGate
 if ($LASTEXITCODE) { throw "Staged temporal budget CPU, WARP allocation queries, or admission log limiter CPU failed; see $TemporalGate/validation.json." }
@@ -118,6 +132,8 @@ if ($LASTEXITCODE) { throw 'Actual native output capture failed.' }
     temporal_budget_status_receipt=(Join-Path $TemporalGate 'validation.json');
     temporal_quality_sequence_receipt=(Join-Path $TemporalQualityGate 'result.json');
     private_sr_quality_warp_receipt=(Join-Path $PrivateQualityGate 'validation.json');
+    full_core_f8_writer=$true;full_core_f8_receipt=(Join-Path $F8Gate 'validation.json');
+    full_core_f8_negative_receipts=$F8NegativeReceipts;
     game=$false;nvidia_inference=$false;hosted_ci=$false
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Tests 'validation.json') -Encoding utf8
 & python (Join-Path $PSScriptRoot '../tests/test_reconstruction_runtime.py') --generated $Core -v

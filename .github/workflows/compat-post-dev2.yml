@@ -1,15 +1,16 @@
-name: Unified candidate - exact staged bilingual Core and full face backend
+name: Public Windows canonical candidate - software/WARP, not game verified
 on:
   workflow_call:
-  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: compat-post-${{ github.ref }}
-  cancel-in-progress: true
+  group: public-windows-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 jobs:
   host:
-    runs-on: ubuntu-latest
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +43,12 @@ jobs:
           done
   windows:
     needs: host
-    runs-on: windows-latest
+    if: github.event.repository.private == false
+    runs-on: windows-2022
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: powershell
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -50,123 +56,100 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Fixed build inputs
-        shell: pwsh
+      - name: Initialize evidence and source identity
+        id: source
         run: |
           $ErrorActionPreference = 'Stop'
-          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
-          if ($LASTEXITCODE) { throw 'Carrier clone failed' }
-          git -C external-carrier checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
-          if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
-          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
-          if ((Get-FileHash -Algorithm SHA256 llvm.zip).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'llvm-mingw digest mismatch' }
-          Expand-Archive llvm.zip -DestinationPath toolchain
-          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
-          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
-          if ($LASTEXITCODE) { throw 'ReShade clone failed' }
-          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
-          if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
-          git -C reshade-source submodule update --init --recursive --depth 1
-          if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
-          git clone --no-checkout https://github.com/microsoft/DirectXMath.git directxmath-source
-          if ($LASTEXITCODE) { throw 'DirectXMath clone failed' }
-          git -C directxmath-source checkout --detach 28929ac6f3c1649a7641741b689ebecccb17aa8d
-          if ($LASTEXITCODE) { throw 'DirectXMath checkout failed' }
-          Invoke-WebRequest 'https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip' -OutFile onnxruntime.zip
-          if ((Get-FileHash onnxruntime.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd') { throw 'Official ORT archive hash mismatch' }
-          Expand-Archive onnxruntime.zip -DestinationPath face-runtime
-          $faceRuntime = (Resolve-Path 'face-runtime/onnxruntime-win-x64-1.23.2').Path
-          New-Item -ItemType Directory -Path face-model | Out-Null
-          Invoke-WebRequest 'https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx' -OutFile face-model/yunet-original.onnx
-          Invoke-WebRequest 'https://raw.githubusercontent.com/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/LICENSE' -OutFile face-model/YUNET-LICENSE
-          if ((Get-FileHash face-model/YUNET-LICENSE -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958') { throw 'YuNet license hash mismatch' }
-          python -m venv face-model/venv
-          if ($LASTEXITCODE) { throw 'Face serializer environment failed' }
-          & face-model/venv/Scripts/python.exe -m pip install onnx==1.19.1
-          if ($LASTEXITCODE) { throw 'Pinned face serializer installation failed' }
-          & face-model/venv/Scripts/python.exe scripts/prepare-face-model.py face-model/yunet-original.onnx face-model/yunet-dynamic.onnx
-          if ($LASTEXITCODE) { throw 'Pinned face model preparation failed' }
-          if ((Get-FileHash face-model/yunet-dynamic.onnx -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Prepared face model hash mismatch' }
-          "FACE_RUNTIME_ROOT=$faceRuntime" | Out-File $env:GITHUB_ENV -Append
-          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
-      - name: Fixed AMD optical-flow build dependency (no GPU inference)
-        shell: pwsh
+          New-Item -ItemType Directory -Path build/cloud-evidence -Force | Out-Null
+          $source = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE) { throw 'Cannot identify checked-out source' }
+          $version = (Get-Content scripts/core-source-layout.json -Raw | ConvertFrom-Json).product.version
+          "sha=$source" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$version" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          [ordered]@{source_commit=$source; candidate=$version; image_os=$env:ImageOS; image_version=$env:ImageVersion; game_verified=$false; nvidia_inference_verified=$false} | ConvertTo-Json | Set-Content build/cloud-evidence/run.json -Encoding utf8
+      - name: Pinned complete build dependencies, face and AMD SDK cache
         run: |
           $ErrorActionPreference = 'Stop'
-          if (Test-Path 'experiments/final_residual/recorded_temporal.cpp') {
-            $ffxSdk = Join-Path $env:RUNNER_TEMP 'fidelityfx-sdk-1.1.4'
-            $ffxCache = Join-Path $env:RUNNER_TEMP 'ffx-opticalflow-build'
-            git init $ffxSdk
-            if ($LASTEXITCODE) { throw 'AMD dependency directory initialization failed' }
-            git -C $ffxSdk remote add origin https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
-            if ($LASTEXITCODE) { throw 'AMD dependency remote setup failed' }
-            git -C $ffxSdk fetch --depth 1 origin c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
-            if ($LASTEXITCODE) { throw 'Pinned AMD dependency fetch failed' }
-            git -C $ffxSdk checkout --detach FETCH_HEAD
-            if ($LASTEXITCODE) { throw 'Pinned AMD dependency checkout failed' }
-            git -C $ffxSdk lfs pull
-            if ($LASTEXITCODE) { throw 'Pinned AMD dependency payloads failed' }
-            $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
-            python experiments/final_residual/build_amd_probe.py --sdk $ffxSdk --compiler $compiler --output $ffxCache --sdk-only
-            if ($LASTEXITCODE) { throw 'Fixed AMD shader/backend compilation failed' }
-            "DLSS5_FFX_SDK_ROOT=$ffxSdk" | Out-File $env:GITHUB_ENV -Append
-            "DLSS5_FFX_CACHE_ROOT=$ffxCache" | Out-File $env:GITHUB_ENV -Append
-          }
-      - name: Actual bilingual packaging and pinned dependency negative controls
-        shell: pwsh
+          Start-Transcript -Path build/cloud-evidence/dependencies.log
+          try {
+            ./scripts/ci/prepare-hosted-windows.ps1 -DependencyRoot (Join-Path $env:RUNNER_TEMP 'dlss5-build-inputs') -ReceiptPath build/cloud-evidence/inputs.json
+          } finally { Stop-Transcript }
+      - name: Actual packaging contracts and dependency negative controls
         run: |
-          $env:DLSS5_FACE_TEST_ASSETS = (Resolve-Path face-model).Path
-          $env:DLSS5_FACE_TEST_RUNTIME = $env:FACE_RUNTIME_ROOT
-          python -m unittest discover -s tests -p test_lockperf2_workflow.py -v
-          if ($LASTEXITCODE) { throw 'Unified workflow routing regression' }
-          python -m unittest discover -s tests/multi_api -p test_candidate_packaging.py -v
-          if ($LASTEXITCODE) { throw 'Actual packaging contract regression' }
-      - name: Canonical source, host regressions, WARP and complete bilingual build
-        shell: pwsh
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/packaging-contracts.log
+          try {
+            python -m unittest discover -s tests -p test_lockperf2_workflow.py -v
+            if ($LASTEXITCODE) { throw 'Unified workflow routing regression' }
+            python -m unittest discover -s tests/multi_api -p test_candidate_packaging.py -v
+            if ($LASTEXITCODE) { throw 'Actual packaging contract regression' }
+          } finally { Stop-Transcript }
+      - name: Full canonical source, CPU, SM5 shaders, WARP and bilingual Core
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-unified-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -OutputRoot build/unified3
-          if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/canonical.log
+          try {
+            & ./scripts/build-unified-candidate.ps1 -UpstreamRoot $env:UPSTREAM_ROOT -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_SOURCE_ROOT -DirectXMathRoot $env:DIRECTXMATH_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FfxSdkRoot $env:DLSS5_FFX_SDK_ROOT -FfxCacheRoot $env:DLSS5_FFX_CACHE_ROOT -OutputRoot build/canonical
+            if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+          } finally { Stop-Transcript }
       - name: Actual face tracker and pinned CPU worker gate
-        shell: pwsh
-        run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/validate-face-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModelPath face-model/yunet-dynamic.onnx -OutputRoot build/unified3.face-checks
-          if ($LASTEXITCODE) { throw 'Full face runtime validation failed' }
-      - name: Temporal CPU contract and actual Core WARP consumer
-        shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (Test-Path 'experiments/final_residual/recorded_temporal.cpp') {
-            $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
-            python experiments/final_residual/validate.py --compiler $compiler --output build/unified3.temporal-cpu
-            if ($LASTEXITCODE) { throw 'Temporal history contract failed' }
-            python scripts/validate-native-color-view.py --compiler $compiler --reshade reshade-source --source build/unified3/source/core/src/nr_before_sr.cpp --output build/unified3.temporal-core --temporal
-            if ($LASTEXITCODE) { throw 'Actual temporal Core WARP consumer failed' }
-            python scripts/validate-native-color-view.py --compiler $compiler --reshade reshade-source --source build/unified3/source/core/src/nr_before_sr.cpp --output build/unified3.temporal-wrong-p1 --temporal --temporal-negative
-            if ($LASTEXITCODE) { throw 'Wrong-P1 negative control was not rejected' }
-          }
-      - name: Package separate languages; preserve user INI, do not publish a Release
-        shell: pwsh
+          Start-Transcript -Path build/cloud-evidence/face.log
+          try {
+            & ./scripts/validate-face-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModelPath (Join-Path $env:FACE_MODEL_ROOT 'yunet-dynamic.onnx') -OutputRoot build/canonical.face-checks
+            if ($LASTEXITCODE) { throw 'Full face runtime validation failed' }
+          } finally { Stop-Transcript }
+      - name: Temporal CPU contract and actual Core WARP consumer
         run: |
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-multi-api-candidate.ps1 -BuildRoot build/unified3 -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModel face-model/yunet-dynamic.onnx -FaceModelLicense face-model/YUNET-LICENSE -OutputRoot build/candidate-unified3
-          if ($LASTEXITCODE) { throw 'Verified candidate packaging failed' }
-      - uses: actions/upload-artifact@v4
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/temporal.log
+          try {
+            $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
+            python experiments/final_residual/validate.py --compiler $compiler --output build/canonical.temporal-cpu
+            if ($LASTEXITCODE) { throw 'Temporal history contract failed' }
+            python scripts/validate-native-color-view.py --compiler $compiler --reshade $env:RESHADE_SOURCE_ROOT --source build/canonical/source/core/src/nr_before_sr.cpp --output build/canonical.temporal-core --temporal
+            if ($LASTEXITCODE) { throw 'Actual temporal Core WARP consumer failed' }
+            python scripts/validate-native-color-view.py --compiler $compiler --reshade $env:RESHADE_SOURCE_ROOT --source build/canonical/source/core/src/nr_before_sr.cpp --output build/canonical.temporal-wrong-p1 --temporal --temporal-negative
+            if ($LASTEXITCODE) { throw 'Wrong-P1 negative control was not rejected' }
+          } finally { Stop-Transcript }
+      - name: Package current Core-only languages with receipts and licenses
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/package.log
+          try {
+            ./scripts/ci/package-hosted-candidate.ps1 -BuildRoot build/canonical -OutputRoot build/cloud-packages
+          } finally { Stop-Transcript }
+      - name: Upload verified Core-only candidates (no NVIDIA runtimes)
+        uses: actions/upload-artifact@v4
         with:
-          name: unified3-full-face-NOT-game-verified
+          name: Core-${{ steps.source.outputs.version }}-${{ steps.source.outputs.sha }}-NOT-game-verified
           path: |
-            build/candidate-unified3/*.zip
-            build/candidate-unified3/packages.json
-            build/unified3/DLSS5-D21-unified3-*-test.zip
-            build/unified3/UNIFIED2-CANDIDATE.json
-            build/unified3.lockperf-checks/validation.json
-            build/unified3.hotpath-checks/validation.json
-            build/unified3.face-checks/validation.json
-            build/unified3/validation.json
-            build/unified3/source/source-manifest.json
-            build/unified3/source/core/build/face-backend.json
-            build/unified3/source/core/build/obj/temporal/module.json
-            build/unified3.temporal-cpu/validation.json
-            build/unified3.temporal-core/result.json
-            build/unified3.temporal-wrong-p1/result.json
+            build/cloud-packages/**/*.zip
+            build/cloud-packages/**/package-receipt.json
+            build/cloud-packages/**/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 7
+      - name: Retain dependency build logs even on failure
+        if: always()
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'dlss5-build-inputs/ffx-opticalflow-build'
+          if (Test-Path -LiteralPath $cache) {
+            New-Item -ItemType Directory -Path build/cloud-evidence/ffx -Force | Out-Null
+            Get-ChildItem -LiteralPath $cache -File | Where-Object { $_.Extension -in @('.json', '.log') } | Copy-Item -Destination build/cloud-evidence/ffx
+          }
+      - name: Upload software/WARP evidence, including failed-step logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-evidence-${{ steps.source.outputs.sha || github.sha }}-${{ github.run_attempt }}
+          path: |
+            build/**/*.json
+            build/**/*.txt
+            build/**/*.log
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 9

@@ -20,6 +20,8 @@ static_assert(offsetof(FgOptionsPrefix,mode)==32 && sizeof(FgOptionsPrefix)==40)
 const GUID fg_options_type={0xfac5f1cb,0x2dfd,0x4f36,{0xa1,0xe6,0x3a,0x9e,0x86,0x52,0x56,0xc5}};
 SetConstantsFn constants=nullptr;SetTagsFn tags=nullptr;EvaluateFn evaluate=nullptr;
 GetFunctionFn get_function=nullptr;MarkerFn marker=nullptr;
+std::atomic<MarkerFn> marker_target{nullptr};
+std::atomic<bool> marker_owner_ambiguous{false};
 std::atomic<bool> enabled{false};
 SRWLOCK install_lock=SRWLOCK_INIT;
 HMODULE provider=nullptr;
@@ -48,14 +50,16 @@ nr_rr_depth::CurrentInput CopyProjection(const void* values) {
 struct View {unsigned view=0,frame=0;Source source{};bool occupied=false;};
 View views[16]{};
 bool FrameValue(const void* pointer,unsigned& value){
-    if(!pointer)return false;const auto& frame=*static_cast<const Frame*>(pointer);
+    if(!pointer)return false;
+    const auto& frame=*static_cast<const Frame*>(pointer);
     if(frame.base.version!=1||!IsEqualGUID(frame.base.type,frame_type)||!frame.vtable||!frame.vtable[0])return false;
     // FrameToken declares exactly one virtual function: its public uint32
     // conversion. The MSVC x64 slot is invoked explicitly like Core's NGX ABI.
     using ValueFn=unsigned(*)(const void*);value=reinterpret_cast<ValueFn>(frame.vtable[0])(pointer);return true;
 }
 bool ViewValue(const void* pointer,unsigned& value){
-    if(!pointer)return false;const auto& view=*static_cast<const Viewport*>(pointer);
+    if(!pointer)return false;
+    const auto& view=*static_cast<const Viewport*>(pointer);
     if(view.base.version!=1||!IsEqualGUID(view.base.type,viewport_type)||view.value==UINT_MAX)return false;
     value=view.value;return true;
 }
@@ -64,7 +68,8 @@ Source Remember(const void* token,const void* viewport){
     auto source=PublishStreamlineSource(reinterpret_cast<Id>(provider),1,view,frame);
     Lock lock;View* free=nullptr;for(auto& v:views){if(v.occupied&&v.view==view){v={view,frame,source,true};return source;}
         if(!v.occupied&&!free)free=&v;}
-    if(free)*free={view,frame,source,true};return source;
+    if(free)*free={view,frame,source,true};
+    return source;
 }
 Source OneView(const void* token){
     unsigned frame=0;if(!FrameValue(token,frame))return {};Lock lock;
@@ -107,9 +112,32 @@ int HookMarker(unsigned value,const void* frame){
     if(result==0&&(value==5||value==11||value==20))sl_present_source={};
     if(result==0&&enabled.load(std::memory_order_relaxed)&&nr_processing_runtime::work_enabled.load(std::memory_order_relaxed)){
         // Public PCL ePresentStart/ePresentEnd; OOB markers are never promoted.
-        if(value==4)sl_present_source=OneView(frame);
+        if(value==4)sl_present_source=marker_owner_ambiguous.load(std::memory_order_acquire)?Source{}:OneView(frame);
     }
     return result;
+}
+void ObserveMarkerFunction(void* function){
+    const auto original=reinterpret_cast<MarkerFn>(function);
+    if(!original||original==&HookMarker)return;
+    if(const auto known=marker_target.load(std::memory_order_acquire)){
+        if(known!=original)marker_owner_ambiguous.store(true,std::memory_order_release);
+        return;
+    }
+    // Factory calls may arrive while a loader callback owns the loader lock.
+    // Never wait for install_lock or freeze threads here: Poll can already own
+    // that lock while resolving/pinning an export. Record a lifetime-protected
+    // target for Poll instead, leaving the native factory result untouched.
+    HMODULE observer_pin=nullptr,owner_pin=nullptr;
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(&HookMarker),&observer_pin)||
+       !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(original),&owner_pin))return;
+    MarkerFn expected=nullptr;
+    if(marker_target.compare_exchange_strong(expected,original,std::memory_order_acq_rel))
+        next_poll.store(0,std::memory_order_relaxed);
+    else if(expected!=original)marker_owner_ambiguous.store(true,std::memory_order_release);
+    // Retain the first pinned callable, just as Install retains its owned
+    // target. A different plugin cannot replace a live trampoline's owner.
 }
 bool Install(void* target,void* detour,void** original){
     if(!target||!detour)return false;
@@ -152,9 +180,7 @@ int HookGetFunction(unsigned feature,const char* name,void*& function){
         // and no stop-the-world hook installation inside this factory callback.
     }
     if(result==0&&function&&name&&std::strcmp(name,"slPCLSetMarker")==0&&enabled.load(std::memory_order_relaxed)){
-        AcquireSRWLockExclusive(&install_lock);
-        (void)Install(function,reinterpret_cast<void*>(&HookMarker),reinterpret_cast<void**>(&marker));
-        ReleaseSRWLockExclusive(&install_lock);
+        ObserveMarkerFunction(function);
     }
     return result;
 }
@@ -163,16 +189,31 @@ void Poll(){
     const auto now=GetTickCount64();if(now<next_poll.load(std::memory_order_relaxed))return;
     if(!TryAcquireSRWLockExclusive(&install_lock))return;
     next_poll.store(now+1000,std::memory_order_relaxed);
-    if(Ready(reinterpret_cast<void**>(&constants))&&Ready(reinterpret_cast<void**>(&evaluate))&&Ready(reinterpret_cast<void**>(&get_function))){ReleaseSRWLockExclusive(&install_lock);return;}
+    if(Ready(reinterpret_cast<void**>(&constants))&&Ready(reinterpret_cast<void**>(&evaluate))&&Ready(reinterpret_cast<void**>(&get_function))&&
+       (!marker_target.load(std::memory_order_acquire)||Ready(reinterpret_cast<void**>(&marker)))){ReleaseSRWLockExclusive(&install_lock);return;}
     HMODULE candidate=nullptr;
-    if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN,L"sl.interposer.dll",&candidate))provider=candidate;
+    // The pinned interposer owns the existing hooks/source epoch. A later
+    // marker retry must not resolve another same-name module as that owner.
+    if(!provider&&GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN,L"sl.interposer.dll",&candidate))provider=candidate;
     if(provider){const auto init=MH_Initialize();if(init==MH_OK||init==MH_ERROR_ALREADY_INITIALIZED){
         (void)Install(reinterpret_cast<void*>(GetProcAddress(provider,"slSetConstants")),reinterpret_cast<void*>(&HookConstants),reinterpret_cast<void**>(&constants));
         (void)Install(reinterpret_cast<void*>(GetProcAddress(provider,"slSetTagForFrame")),reinterpret_cast<void*>(&HookTags),reinterpret_cast<void**>(&tags));
         (void)Install(reinterpret_cast<void*>(GetProcAddress(provider,"slEvaluateFeature")),reinterpret_cast<void*>(&HookEvaluate),reinterpret_cast<void**>(&evaluate));
         (void)Install(reinterpret_cast<void*>(GetProcAddress(provider,"slGetFeatureFunction")),reinterpret_cast<void*>(&HookGetFunction),reinterpret_cast<void**>(&get_function));
+        // Keep a global detour: native pointers cached before the query must
+        // observe the same PresentEnd/OOB boundaries as later factory results.
+        if(const auto target=marker_target.load(std::memory_order_acquire))
+            (void)Install(reinterpret_cast<void*>(target),reinterpret_cast<void*>(&HookMarker),reinterpret_cast<void**>(&marker));
     }}
     ReleaseSRWLockExclusive(&install_lock);
 }
 } // namespace sl_wire
+Source CurrentStreamlinePresentSource(){
+    // A second callable can issue unobserved boundaries on another thread.
+    // Retire PCL-only evidence globally; never lend the old TLS lease to it.
+    // Explicit Evaluate scopes and resource lineage keep their own identities.
+    if(!sl_wire::enabled.load(std::memory_order_acquire)||
+       sl_wire::marker_owner_ambiguous.load(std::memory_order_acquire))return {};
+    return sl_present_source;
+}
 void PollStreamline(){sl_wire::Poll();}

@@ -30,24 +30,28 @@ class Lockperf2Workflow(unittest.TestCase):
         foundation = read('.github/workflows/multi-api-foundation.yml')
         self.assertIn('uses: ./.github/workflows/compat-post-dev2.yml', foundation)
         windows = read('.github/workflows/compat-post-dev2.yml')
-        self.assertIn('-File scripts/build-unified-candidate.ps1', windows)
+        self.assertIn('& ./scripts/build-unified-candidate.ps1', windows)
         self.assertNotIn('-File scripts/build-lockperf2-candidate.ps1', windows)
-        self.assertIn('-FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -OutputRoot build/unified3', windows)
+        self.assertIn('-FaceRuntimeRoot $env:FACE_RUNTIME_ROOT', windows)
+        self.assertIn('-FfxSdkRoot $env:DLSS5_FFX_SDK_ROOT -FfxCacheRoot $env:DLSS5_FFX_CACHE_ROOT -OutputRoot build/canonical', windows)
         self.assertIn('-QualitySuccessor', read('scripts/build-unified-candidate.ps1'))
 
     def test_full_face_assets_and_gate_are_bound_before_packaging(self):
-        text = read('.github/workflows/compat-post-dev2.yml')
+        workflow = read('.github/workflows/compat-post-dev2.yml')
+        text = workflow + read('scripts/ci/prepare-hosted-windows.ps1')
         self.assertIn('https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip', text)
         self.assertIn('0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd', text)
         self.assertIn('47534e27c9851bb1128ccc0102f1145e27f23f98', text)
         self.assertIn('onnx==1.19.1', text)
         self.assertIn('scripts/prepare-face-model.py', text)
         self.assertIn('b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1', text)
-        self.assertIn('-FaceModelPath face-model/yunet-dynamic.onnx', text)
-        self.assertLess(text.index('-File scripts/validate-face-runtime.ps1'), text.index('-File scripts/package-multi-api-candidate.ps1'))
-        self.assertIn('-FaceModel face-model/yunet-dynamic.onnx -FaceModelLicense face-model/YUNET-LICENSE', text)
-        for artifact in ('build/candidate-unified3/*.zip', 'UNIFIED2-CANDIDATE.json', 'unified3.face-checks/validation.json', 'source/core/build/face-backend.json'):
-            self.assertIn(artifact, text)
+        self.assertIn("-FaceModelPath (Join-Path $env:FACE_MODEL_ROOT 'yunet-dynamic.onnx')", workflow)
+        self.assertLess(workflow.index('& ./scripts/validate-face-runtime.ps1'), workflow.index('./scripts/ci/package-hosted-candidate.ps1'))
+        packager = read('scripts/ci/package-hosted-candidate.ps1')
+        self.assertIn('cpu_detector_worker_verified', packager)
+        self.assertIn('scripts/package-core-ota.py', packager)
+        for artifact in ('build/cloud-packages/**/*.zip', 'build/**/*.json', 'build/**/*.log'):
+            self.assertIn(artifact, workflow)
 
     def test_frozen_git_source_is_available_and_head_is_consistent(self):
         for name in ('beta050-validate.yml', 'multi-api-foundation.yml', 'compat-post-dev2.yml'):

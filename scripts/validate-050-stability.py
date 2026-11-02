@@ -54,6 +54,7 @@ def main():
 #include <cmath>
 #include <cstdint>
 #include <atomic>
+#include <memory>
 #include <string>
 #define NR_HAS_NETWORK_MODEL_SELECTION 1
 using ULONGLONG = unsigned long long;
@@ -69,6 +70,7 @@ enum class NrJitterMode {Legacy,GameInputPixel};
     code += '#include "' + (ROOT/'src/nr_layer_config.h').as_posix() + '"\n'
     code += '#include "' + (ROOT/'src/nr_colour_preferences.h').as_posix() + '"\n'
     code += '#include "' + (ROOT/'src/nr_colour_restore_policy.h').as_posix() + '"\n'
+    code += '#include "' + (ROOT/'src/nr_generic_residual.h').as_posix() + '"\n'
     code += 'namespace nr_processing_runtime { std::atomic<unsigned> effective{static_cast<unsigned>(nr_processing::Start::After)}; }\n'
     code += 'std::atomic<int> g_last_carrier_feature{1};\n'
     code += definition(cpp, 'struct ChainConfig {', True) + '\n'
@@ -93,7 +95,10 @@ int main() {
         c.nr_network_preset=2;c.nr_primary_network_preset=-1;
         c.nr_layers[0].network_preset=0;c.nr_layers[1].network_preset=1;
         c.nr_layers[2].network_preset=2;c.nr_layers[3].network_preset=73;
-        FeedbackSession s;
+        // Match the production heap-owned session. Expanded bounded metadata
+        // must not create several O0 aggregate temporaries on the Windows stack.
+        auto storage=std::make_unique<FeedbackSession>();
+        auto& s=*storage;
         AppendPictureConfig(s,c,true);
         if (s.report_truncated || !std::strstr(s.report,"requested.layerBright=0.75\n")) {
             std::fputs("PICTURE_SNAPSHOT_ORACLE\n",stderr);return 1;
@@ -112,11 +117,11 @@ int main() {
             const std::string requested_resolved=base+"networkResolved="+std::to_string(resolved[layer])+"\n";
             if(!std::strstr(s.report,requested_override.c_str())||!std::strstr(s.report,requested_resolved.c_str()))return 9;
         }
-        s={};AppendPictureConfig(s,c,false);
-        if (std::strcmp(s.report,"requested.pictureSnapshotValid=0\n")!=0) return 5;
-        s={};s.report_used=sizeof(s.report)-256;
-        AppendPictureConfig(s,c,true);
-        if (!s.report_truncated || s.report_used!=sizeof(s.report)-256) return 6;
+        auto invalid=std::make_unique<FeedbackSession>();AppendPictureConfig(*invalid,c,false);
+        if (std::strcmp(invalid->report,"requested.pictureSnapshotValid=0\n")!=0) return 5;
+        auto full=std::make_unique<FeedbackSession>();full->report_used=sizeof(full->report)-256;
+        AppendPictureConfig(*full,c,true);
+        if (!full->report_truncated || full->report_used!=sizeof(full->report)-256) return 6;
         JsonBuffer b;b.Append("{\"test\":1");ConfigJson(b,"requested",c);b.Append("}");
         if (!b.ok) return 7;
         std::puts(b.data);checks+=7;

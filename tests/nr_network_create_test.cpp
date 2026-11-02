@@ -11,6 +11,20 @@
 using NgxResult = unsigned;
 constexpr NgxResult kNgxSuccess = 1;
 struct ID3D12GraphicsCommandList {};
+// #330 reads adapter/process observations around admitted Create calls. This
+// network fixture deliberately has no adapter; failed device discovery and
+// missing process samples stay explicit while the actual Create body runs.
+struct ID3D12Device {};
+struct LUID {unsigned LowPart=0;int HighPart=0;};
+constexpr const void* IID_ID3D12Device=nullptr;
+constexpr bool SUCCEEDED(int value){return value>=0;}
+unsigned memory_device_queries=0,memory_samples=0,memory_events=0;
+int ID3D12GraphicsCommandList_GetDevice(ID3D12GraphicsCommandList*,const void*,void** out){
+    ++memory_device_queries;*out=nullptr;return -1;
+}
+LUID ID3D12Device_GetAdapterLuid(ID3D12Device*){return {};}
+void ID3D12Device_Release(ID3D12Device*){}
+namespace nr_process_memory {struct Snapshot {bool attempted=false;};}
 struct NgxHandle { unsigned id = 1; };
 struct NgxParams {
     bool preset_written = false;
@@ -46,6 +60,7 @@ nr_network_policy::Assessment NrNetworkRequestedStatus(int requested) {
 }
 #include "network-tuning.inl"
 struct NrContext {
+    LUID memory_adapter{};bool memory_adapter_known=false;
     NgxParams* params = nullptr;
     int bound_create_flags = 0, bound_perf_quality = 5, mode = 1;
     unsigned width = 640, height = 360, layer_index = 0;
@@ -62,6 +77,12 @@ struct NrContext {
     struct History { unsigned invalidations = 0; void Invalidate() { ++invalidations; } } dual_history;
     void* dual_create_guides[2]{};
 };
+nr_process_memory::Snapshot NrReadModelMemory(const NrContext&){++memory_samples;return {};}
+void NrRememberModelMemory(const NrContext&,const void*,bool,unsigned,
+                          const nr_process_memory::Snapshot& before,const nr_process_memory::Snapshot& after){
+    Check(!before.attempted&&!after.attempted,"missing adapter memory observations remain missing");
+    ++memory_events;
+}
 struct FeatureRecord {};
 enum class BypassReason { None, NetworkInvalidRequest, NetworkUnavailable, RuntimeUnavailable, FailedCreateQuarantine, RuntimeRejected };
 BypassReason bypass = BypassReason::None;
@@ -122,6 +143,7 @@ void Reset() {
     next_result = kNgxSuccess; return_failure_handle = false;
     publish_old_hash_on_create = false;
     generic_context_logs = network_rejection_logs = 0;
+    memory_device_queries=memory_samples=memory_events=0;
     runtime_identity = {}; runtime_family = nr_network_policy::Family::OriginalAndOptimized;
     runtime_evidence = nr_network_policy::Evidence::LoadedPathFileHash;
     g_nr_failed_create_process_latched = false;
@@ -142,12 +164,15 @@ int main() {
         Check(CreateSignedNrFeature(&list, context, feature, &handle, &called) == kNgxSuccess && called, "known request reaches production Create");
         Check(bridge_calls == 1 && mark_recorded == 1 && params.preset == static_cast<unsigned>(request), "one model Create with the requested network");
         Check(handle && context.instance_id && context.create_variant_selected, "success remains a distinct instance receipt");
+        Check(memory_device_queries==1&&memory_samples==2&&memory_events==1,
+            "admitted Create retains bounded before/after memory observations");
     }
     for (int request : {-1, 3, 71}) {
         Reset(); NgxParams params; auto context = Context(params, request); void* handle = nullptr;
         bool called = true;
         Check(CreateSignedNrFeature(&list, context, feature, &handle, &called) != kNgxSuccess && !called, "invalid request refused without an API call");
         Check(!bridge_calls && !mark_recorded && !params.preset_written && !handle, "refusal records no private work and no Create");
+        Check(!memory_device_queries&&!memory_samples&&!memory_events,"refused Create does not query or publish model memory");
     }
     Reset(); NgxParams params; auto context = Context(params, 2); void* handle = nullptr;
     runtime_family = nr_network_policy::Family::OriginalOnly;

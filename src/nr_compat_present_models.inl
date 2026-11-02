@@ -129,7 +129,10 @@ bool Release(Context*& ptr) {
         if(l.context.nr_handle){ScopedPrivateNrCall call(PrivateNrOperation::Release,l.context.nr_handle);
             ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
             const auto identity=FindFeature(l.context.nr_handle);
+            const auto memory_before=NrReadModelMemory(l.context);
             const auto r=g_nr_api.bridge_release(g_nr_api.signed_release,l.context.nr_handle);
+            const auto memory_after=NrReadModelMemory(l.context);
+            NrRememberModelMemory(l.context,l.context.nr_handle,true,r,memory_before,memory_after);
             if(r!=kNgxSuccess){c.timeline.Poison();c.retirement_error=r;return false;}
             ForgetObservedFeature(l.context.nr_handle,identity.generation);l.context.nr_handle=nullptr;}
         for(auto& p:l.evaluation_params)if(p){const auto r=g_nr_api.destroy(p);if(r!=kNgxSuccess){c.timeline.Poison();c.retirement_error=r;return false;}p=nullptr;}

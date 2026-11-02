@@ -64,6 +64,18 @@ std::string FullWidthAllocationLedger(const char* prefix,
     snapshot.compat_retiring_unknown=snapshot.detached_quarantined_unknown=true;
     snapshot.model_destroying_unknown=snapshot.seen_overflow=true;
     snapshot.sample_complete=false;
+    snapshot.context_count=nr_allocation_ledger::kContexts;
+    snapshot.context_details=std::make_shared<nr_allocation_ledger::ContextDetails>();
+    snapshot.context_overflow=std::numeric_limits<unsigned>::max();
+    snapshot.extra_budget_bytes=snapshot.dual_budget_bytes=snapshot.private_budget_bytes=
+        snapshot.temporal_budget_bytes=snapshot.capture_budget_bytes=snapshot.replay_budget_bytes=snapshot.face_budget_bytes=numeric;
+    for(auto& context:snapshot.context_details->contexts){
+        context.instance=context.feature_generation=context.sampled_high_water=numeric;
+        context.layer=context.slots=context.max_slots=std::numeric_limits<unsigned>::max();
+        context.mode=std::numeric_limits<int>::min();context.phase=nr_allocation_ledger::Phase::Pending;context.quarantine=true;
+        context.total={numeric,std::numeric_limits<unsigned>::max(),std::numeric_limits<unsigned>::max(),true};
+        for(auto& slot:context.slot){slot.occupied=true;slot.total=context.total;for(auto& role:slot.roles)role=context.total;}
+    }
     std::string output;
     char ticks[160]{};
     Check(nr_allocation_ledger::FormatSampleTicks(ticks,sizeof(ticks),prefix,
@@ -71,9 +83,22 @@ std::string FullWidthAllocationLedger(const char* prefix,
           "FULL_CORE_F8_LEDGER_FULL_WIDTH_TICKS");
     output+=ticks;
     nr_allocation_ledger::WriteText(snapshot,prefix,[&](const char* line){output+=line;});
+    for(unsigned i=0;i<nr_model_memory_events::kEvents;++i){
+        nr_model_memory_events::Event event{};event.sequence=numeric-i;
+        event.instance=event.feature=numeric;event.layer=std::numeric_limits<unsigned>::max()-1;
+        event.mode=std::numeric_limits<int>::min();event.result=0xffffffff;
+        event.before.tick=event.after.tick=numeric;
+        event.before.attempted=event.after.attempted=true;
+        event.before.local_result=event.after.local_result=S_OK;
+        event.before.luid=event.after.luid={0xffffffff,0x7fffffff};event.before.node=event.after.node=0xffffffff;
+        event.before.local.CurrentUsage=numeric;
+        event.after.local.CurrentUsage=numeric>std::uint64_t(INT64_MAX)?numeric-std::uint64_t(INT64_MAX):0;
+        char row[1024]{};Check(nr_model_memory_events::Format(row,sizeof(row),prefix,event),"FULL_CORE_F8_MODEL_EVENT_FULL_WIDTH");output+=row;
+    }
+    output+=std::string(prefix)+".allocation.modelEventCoverage=count:32,overwritten:"+U(numeric)+"; latest 32 cold events; absent history is missing\n";
     unsigned lines=0;for(char ch:output)if(ch=='\n')++lines;
-    Check(lines==204&&output.size()<=25u*1024u,
-          "FULL_CORE_F8_LEDGER_25K_BOUND");
+    Check(lines==206+nr_allocation_ledger::kContexts*(1+nr_allocation_ledger::kSlots)+nr_model_memory_events::kEvents+1&&output.size()<=176u*1024u,
+          "FULL_CORE_F8_LEDGER_CONTEXT_EVENT_176K_BOUND");
     return output;
 }
 #endif
@@ -757,7 +782,7 @@ void SeedRetirementEvidence() {
     constexpr auto wide=std::numeric_limits<Id>::max();
     constexpr auto word=std::numeric_limits<unsigned>::max();
     EnterCriticalSection(&g_chain_cs);
-    auto& full=g_nr_retirement_published;std::memset(&full,0,sizeof(full));
+    auto& full=g_nr_retirement_published;nr_retirement::ResetSnapshot(full);
     full.sequence=full.tick=full.observations=full.suppressed=wide;
     full.contexts=kContexts;full.slots=kSlots;full.bindings=kBindings;full.recordings=kRecordings;
     full.private_flights=full.temporal_flights=kOwnerFlights;
@@ -793,7 +818,8 @@ void SeedRetirementEvidence() {
     const auto flight=[&](OwnerFlight& value){value.instance=value.token=value.reset=value.queue=wide;
         value.list=value.device=kRetirementPointer;value.fence=fence;value.index=word;
         value.submitted=value.poisoned=value.unsafe=true;};
-    for(auto& value:full.private_flight)flight(value);for(auto& value:full.temporal_flight)flight(value);
+    for(auto& value:full.private_flight)flight(value);
+    for(auto& value:full.temporal_flight)flight(value);
     LeaveCriticalSection(&g_chain_cs);
 }
 void CheckRetirementEvidence(const std::string& text,bool sanitized) {
@@ -1101,6 +1127,11 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     append_end(activity);
     Check(!activity.report_truncated && activity.report_used < sizeof(activity.report) - nr_feedback_limits::kFinalStatusReserveBytes,
           "FULL_CORE_F8_CAPACITY");
+    // A capacity counterexample has already reached its exact oracle. Stop
+    // before fixtures which require fields beyond the now-truncated buffer.
+    if(activity.report_truncated || activity.report_used >= sizeof(activity.report)-nr_feedback_limits::kFinalStatusReserveBytes){
+        DeleteCriticalSection(&g_chain_cs);return 41;
+    }
     CheckTiming(activity.report, "end", *end, missing_clock);
     CheckExpandedEvidence(activity.report, "end");
     CheckUiActivityEvidence(activity.report,"end");

@@ -1,0 +1,268 @@
+// Production writer/collector/formatter/ZIP code is inserted by the runner.
+// Controlled services: Windows/D3D declarations, frozen sampled owners, POSIX
+// lock/file calls, and bounded input summaries. No GPU, NGX or Windows claim.
+#include "f8_memory_host_services.h"
+#include <atomic>
+#include <condition_variable>
+#include <cstdarg>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <memory>
+#include <pthread.h>
+#include <string>
+#include <thread>
+#include "nr_feedback_limits.h"
+#include "nr_feedback_single_text.h"
+#include "nr_feedback_text.h"
+#include "nr_retirement_evidence.h"
+#include "nr_allocation_ledger.h"
+#include "nr_model_memory_events.h"
+namespace reshade::api {struct effect_runtime;}
+#define NR_HAS_RETIREMENT_EVIDENCE 1
+unsigned checks=0;
+void Check(bool good,const char* name){++checks;if(!good){std::fprintf(stderr,"FAIL %s\n",name);std::exit(41);}}
+std::string Read(const std::filesystem::path& path){std::ifstream in(path,std::ios::binary);return {std::istreambuf_iterator<char>(in),{}};}
+void Write(const std::filesystem::path& path,const std::string& text){std::ofstream out(path,std::ios::binary);out.write(text.data(),text.size());Check(out.good(),"HOST_FIXTURE_WRITE");}
+
+PRODUCTION_SESSION
+SRWLOCK g_feedback_lock=SRWLOCK_INIT,g_nr_model_memory_lock=SRWLOCK_INIT;
+CRITICAL_SECTION g_chain_cs;
+nr_retirement::Snapshot g_nr_retirement_published;
+nr_model_memory_events::History g_nr_model_memory_history;
+std::atomic<bool> observer_inside{false},sampling_started{false},append_seen{false},lock_violation{false};
+std::condition_variable notification;std::mutex notification_mutex;
+void NoteAppend(){
+    if(observer_inside.load(std::memory_order_acquire))lock_violation.store(true,std::memory_order_release);
+    append_seen.store(true,std::memory_order_release);notification.notify_all();
+}
+PRODUCTION_APPEND
+PRODUCTION_RETIREMENT_SNAPSHOT
+#include "nr_retirement_feedback.inl"
+namespace nr_allocation_runtime {
+nr_allocation_ledger::Snapshot frozen;
+nr_allocation_ledger::Snapshot Sample(){sampling_started.store(true,std::memory_order_release);notification.notify_all();return frozen;}
+}
+PRODUCTION_ALLOCATION_APPEND
+
+namespace nr_bundle {
+PRODUCTION_BUNDLE_TYPES
+PRODUCTION_BUNDLE_FUNCTIONS
+}
+namespace nr_core_feedback {
+namespace nr_feedback_report {
+PRODUCTION_OUTPUT
+PRODUCTION_SAFE_LINES
+bool WriteAtomic(const wchar_t* directory,const std::string& text,Output& out,const wchar_t* name){
+    const auto path=std::filesystem::path(directory)/name;
+    const auto temporary=path.string()+".partial";
+    Write(temporary,text);std::filesystem::rename(temporary,path);out.path=path.wstring();return true;
+}
+}
+PRODUCTION_CORE_SESSION
+std::atomic<bool> g_cancel{false};
+wchar_t g_log_path[1024]{};
+const char* kBuildIdentity="memory-retirement-cpu-fixture";
+std::map<std::wstring,std::string> summaries;
+std::wstring Beside(const wchar_t* path,const wchar_t* leaf){return (std::filesystem::path(path).parent_path()/leaf).wstring();}
+bool ReadSummary(const wchar_t* path,std::string& text,bool& coverage,ULONGLONG){
+    auto found=summaries.find(path);if(found==summaries.end())return false;
+    text=found->second;coverage=true;return text.size()<=nr_feedback_text::kSummaryLimit;
+}
+void WideToUtf8(const wchar_t* source,char* dest,std::size_t capacity){
+    const std::wstring wide(source);const std::string text(wide.begin(),wide.end());
+    std::snprintf(dest,capacity,"%s",text.c_str());
+}
+PRODUCTION_COLLECT_SINGLE_TEXT
+}
+
+constexpr nr_retirement::Id kRetirementPointer=0x123456789ABCDEF0ull;
+constexpr nr_retirement::Id kRetirementSemanticToken=123456789012345ull;
+RETIREMENT_WIDTH_FIXTURE
+
+void SeedMemory(){
+    using namespace nr_allocation_ledger;
+    auto& snapshot=nr_allocation_runtime::frozen;
+    constexpr auto wide=std::numeric_limits<std::uint64_t>::max();
+    constexpr auto word=std::numeric_limits<unsigned>::max();
+    for(auto& category:snapshot.cells)for(auto& phase:category)for(auto& cell:phase)cell={wide,word,word,true};
+    for(auto& model:snapshot.model_instances)for(auto& count:model)count=word;
+    snapshot.destroying_contexts=snapshot.aliases=word;
+    snapshot.compat_retiring_unknown=snapshot.detached_quarantined_unknown=true;
+    snapshot.model_destroying_unknown=snapshot.seen_overflow=true;snapshot.sample_complete=false;
+    snapshot.context_count=kContexts;snapshot.context_overflow=word;
+    snapshot.context_details=std::make_shared<ContextDetails>();
+    snapshot.extra_budget_bytes=snapshot.dual_budget_bytes=snapshot.private_budget_bytes=
+        snapshot.temporal_budget_bytes=snapshot.capture_budget_bytes=snapshot.replay_budget_bytes=snapshot.face_budget_bytes=wide;
+    for(auto& context:snapshot.context_details->contexts){
+        context.instance=context.feature_generation=context.sampled_high_water=wide;
+        context.sr_handle=context.handle=kRetirementPointer;
+        context.layer=4;context.slots=context.max_slots=8;
+        context.mode=std::numeric_limits<int>::min();context.phase=Phase::Pending;context.quarantine=true;
+        context.total={wide,word,word,true};
+        for(auto& slot:context.slot){slot.occupied=true;slot.total=context.total;for(auto& role:slot.roles)role=context.total;}
+    }
+    g_nr_model_memory_history.count=nr_model_memory_events::kEvents;g_nr_model_memory_history.overwritten=wide;
+    for(unsigned i=0;i<nr_model_memory_events::kEvents;++i){
+        auto& event=g_nr_model_memory_history.events[i];event.sequence=wide-i;
+        event.instance=event.feature=wide;event.handle=kRetirementPointer;event.layer=4;
+        event.mode=std::numeric_limits<int>::min();event.result=word;
+        event.before.tick=event.after.tick=wide;event.before.attempted=event.after.attempted=true;
+        event.before.local_result=event.after.local_result=S_OK;
+        event.before.luid=event.after.luid={word,0x7fffffff};event.before.node=event.after.node=word;
+        event.before.local.CurrentUsage=wide;event.after.local.CurrentUsage=wide-std::uint64_t(INT64_MAX);
+    }
+}
+
+std::string Budget(std::size_t bytes,const std::string& prefix){
+    std::string out;unsigned i=0;
+    while(out.size()<bytes){
+        const auto left=bytes-out.size();auto count=std::min<std::size_t>(left,1024);
+        if(left>count&&left-count<128)count-=128;
+        const auto key=prefix+"."+std::to_string(i++)+"=";
+        Check(count>key.size(),"FIXTURE_BUDGET_LINE");
+        out+=key+std::string(count-key.size()-1,'x')+"\n";
+    }
+    return out;
+}
+void Pad(FeedbackSession& s,std::size_t target,const std::string& prefix){
+    Check(target>=s.report_used+128,"COMBINED_METADATA_CAPACITY");
+    const auto bytes=Budget(target-s.report_used,prefix);FeedbackAppend(s,"%s",bytes.c_str());
+}
+void CheckCombined(const std::string& text){
+    for(const auto prefix:{"start","end"}){
+        const auto root=std::string(prefix)+".allocation.";
+        Check(text.find(root+"schema=owned-d3d12-v2\n")!=std::string::npos,"COMBINED_MEMORY_REQUIRED");
+        Check(text.find(root+"context.31.slot.7=occupied:1,knownBytesLowerBound:18446744073709551615")!=std::string::npos,
+              "COMBINED_LAST_CONTEXT_SLOT_REQUIRED");
+        Check(text.find(root+"modelEventCoverage=count:32,overwritten:18446744073709551615")!=std::string::npos,
+              "COMBINED_MODEL_EVENTS_REQUIRED");
+        Check(text.find(root+"complete=0\n")!=std::string::npos,"COMBINED_UNKNOWN_MEMORY_STAYS_PARTIAL");
+    }
+    Check(text.find("end.retirement.context.31=id:18446744073709551615")!=std::string::npos&&
+          text.find("end.retirement.textOmitted=contexts:0,")!=std::string::npos,"COMBINED_RETIREMENT_REQUIRED");
+    Check(text.find("pendingToken:123456789012345")!=std::string::npos,"COMBINED_RETIREMENT_SEMANTIC_TOKEN");
+}
+void* SmallStackWriter(void* raw){
+    auto& session=*static_cast<FeedbackSession*>(raw);
+    NrAppendAllocationLedger(session,"start");FeedbackAppendRetirement(session,"end");return nullptr;
+}
+void SmallStackAndLock(){
+    auto session=std::make_unique<FeedbackSession>();
+    pthread_attr_t attributes;Check(pthread_attr_init(&attributes)==0,"PTHREAD_ATTRIBUTES");
+    Check(pthread_attr_setstacksize(&attributes,64u*1024u)==0,"PTHREAD_64K_STACK");
+    std::size_t stack=0;pthread_attr_getstacksize(&attributes,&stack);Check(stack==65536,"PTHREAD_EXACT_STACK_SIZE");
+    observer_inside=true;sampling_started=false;append_seen=false;
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    pthread_t worker;Check(pthread_create(&worker,&attributes,SmallStackWriter,session.get())==0,"PTHREAD_CREATE");
+    pthread_attr_destroy(&attributes);
+    bool sampled=false,overlap=false;
+    {std::unique_lock<std::mutex> lock(notification_mutex);
+        sampled=notification.wait_for(lock,std::chrono::seconds(5),[]{return sampling_started.load();});
+        overlap=notification.wait_for(lock,std::chrono::milliseconds(100),[]{return append_seen.load();});}
+    observer_inside=false;ReleaseSRWLockExclusive(&g_feedback_lock);
+    Check(pthread_join(worker,nullptr)==0,"PTHREAD_JOIN");
+    Check(sampled&&!overlap&&!lock_violation,"COMBINED_APPEND_LOCK");
+    Check(!session->report_truncated&&std::strstr(session->report,"end.retirement.context.31="),"COMBINED_RETIREMENT_REQUIRED");
+    std::printf("COMBINED_SMALL_STACK stackBytes=%zu metadataBytes=%zu snapshotBytes=%zu detailsHeapBytes=%zu\n",
+        stack,session->report_used,sizeof(nr_allocation_ledger::Snapshot),sizeof(nr_allocation_ledger::ContextDetails));
+}
+void ZipEntry(nr_bundle::Job& job,const char* name,const std::string& body){
+    const auto offset=job.archive_bytes;
+    const auto crc=nr_bundle::UpdateCrc(job,0xffffffffu,reinterpret_cast<const unsigned char*>(body.data()),body.size())^0xffffffffu;
+    Check(nr_bundle::LocalHeader(job,name)&&nr_bundle::Write(job,body.data(),static_cast<DWORD>(body.size()))&&
+          nr_bundle::EndEntry(job,name,offset,body.size(),crc),"COMBINED_PRODUCTION_ZIP_FRAMING");
+}
+void MakeArchive(const std::filesystem::path& path,const std::string& metadata,const std::string& summary){
+    auto job=std::make_unique<nr_bundle::Job>();job->archive_limit=nr_feedback_text::kCoreZipLimit;
+    Check(nr_bundle::CopyText(job->metadata,sizeof(job->metadata),metadata.c_str()),"COMBINED_PACKAGE_METADATA_CAPACITY");
+    job->count=1;auto& item=job->files[0];item.included=item.required=true;item.bytes=item.source_size=summary.size();
+    nr_bundle::CopyText(item.name,sizeof(item.name),"logs/nr-current-summary.txt");
+    nr_bundle::Sha256 sha;sha.Update(reinterpret_cast<const unsigned char*>(summary.data()),summary.size());sha.Finish(item.sha256);
+    PRODUCTION_CRC_INITIALIZATION
+    item.crc=nr_bundle::UpdateCrc(*job,0xffffffffu,reinterpret_cast<const unsigned char*>(summary.data()),summary.size())^0xffffffffu;
+    Check(nr_bundle::Manifest(*job),"COMBINED_MANIFEST_CAPACITY");
+    auto* file=std::fopen(path.c_str(),"wb");Check(file!=nullptr,"HOST_ARCHIVE_OPEN");job->archive=file;
+    ZipEntry(*job,item.name,summary);ZipEntry(*job,"capture-info.txt",metadata);
+    ZipEntry(*job,"manifest.json",{job->manifest,job->manifest_length});
+    Check(nr_bundle::FinishZip(*job),"COMBINED_PRODUCTION_ZIP_CENTRAL_DIRECTORY");std::fclose(file);
+    Write(path.parent_path()/"manifest.json",{job->manifest,job->manifest_length});
+    std::printf("COMBINED_ZIP bytes=%llu manifestBytes=%zu manifestCapacity=%zu\n",job->archive_bytes,job->manifest_length,sizeof(job->manifest));
+}
+void WorstEscapedManifest(const std::filesystem::path& directory){
+    auto job=std::make_unique<nr_bundle::Job>();
+    std::memset(job->metadata,1,sizeof(job->metadata)-1);job->count=nr_bundle::kMaxFiles;
+    for(auto& item:job->files){
+        std::memset(item.name,1,sizeof(item.name)-1);std::memset(item.reason,1,sizeof(item.reason)-1);
+        std::memset(item.sha256,'f',sizeof(item.sha256)-1);item.error=UINT32_MAX;
+        item.limit=item.source_size=item.source_offset=item.bytes=UINT64_MAX;item.crc=UINT32_MAX;
+    }
+    Check(nr_bundle::Manifest(*job),"COMBINED_WORST_ESCAPED_MANIFEST_CAPACITY");
+    Write(directory/"worst-escaped-manifest.json",{job->manifest,job->manifest_length});
+    std::printf("COMBINED_WORST_MANIFEST bytes=%zu capacity=%zu\n",job->manifest_length,sizeof(job->manifest));
+}
+
+int main(int argc,char** argv){
+    Check(argc==2,"FIXTURE_ARGUMENT");const std::filesystem::path directory(argv[1]);std::filesystem::create_directories(directory);
+    SeedMemory();SeedRetirementEvidence();SmallStackAndLock();
+    auto session=std::make_unique<nr_core_feedback::CoreSession>();
+    auto& activity=session->activity;
+    FeedbackAppend(activity,"format=DLSS5-Core-v1\ncapture.kind=core\nsession=DLSS5_CORE_1_2_3\n"
+        "artifact.sourceCommit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nartifact.addonSha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+        "artifact.sourceDirty=0\nartifact.identityStatus=verified\nsnapshot.valid=1\nrequested.config=42\n"
+        "config.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\ncore.zipLimitBytes=8388608\n"
+        "fixture.language=显存观测与退休证据\nfixture.privatePath=C:\\Users\\PRIVATE-FIXTURE\\Game\\secret.log\n");
+    NrAppendAllocationLedger(activity,"start");
+    Check(!activity.report_truncated,"COMBINED_METADATA_CAPACITY");
+    // Full documented producer envelopes, filled by separate test-only slack
+    // rows after actual maximum-width production output. The full Windows TU
+    // separately executes every existing activity writer in the legacy 161 KiB.
+    Pad(activity,sizeof(activity.report)-nr_feedback_limits::kTimelineReserveBytes-1,"fixture.timeline");
+    const auto burst=Budget(nr_feedback_limits::kTimelineBurstBytes,"fixture.burst");FeedbackAppend(activity,"%s",burst.c_str());
+    const auto tail_begin=activity.report_used;
+    const auto legacy=Budget(161u*1024u-256u,"fixture.legacyTail");FeedbackAppend(activity,"%s",legacy.c_str());
+    const auto ledger_begin=activity.report_used;NrAppendAllocationLedger(activity,"end");
+    const auto ledger_bytes=activity.report_used-ledger_begin;
+    Check(ledger_bytes<176u*1024u,"COMBINED_LEDGER_176K_BOUND");
+    Pad(activity,ledger_begin+176u*1024u,"fixture.memoryAllowance");
+    const auto retirement_begin=activity.report_used;FeedbackAppendRetirement(activity,"end");
+    const auto retirement_bytes=activity.report_used-retirement_begin;
+    Check(retirement_bytes<=nr_feedback_limits::kRetirementTextBytes,"COMBINED_RETIREMENT_24K_BOUND");
+    FeedbackAppend(activity,"collection.cancelled=0\ncollection.metadataTruncated=%d\nfixture.end=complete\n",activity.report_truncated?1:0);
+    Check(!activity.report_truncated,"COMBINED_METADATA_CAPACITY");
+    const auto tail_bytes=activity.report_used-tail_begin;
+    Check(tail_bytes<=nr_feedback_limits::kMandatoryTailBytes,"COMBINED_TAIL_CAPACITY");
+    CheckCombined(activity.report);
+    Write(directory/"metadata-raw.txt",activity.report);
+    const auto safe=nr_core_feedback::nr_feedback_report::SafeLines(activity.report);
+    CheckCombined(safe);
+    Check(safe.find("PRIVATE-FIXTURE")==std::string::npos&&safe.find("0x123456789ABCDEF0")==std::string::npos&&
+          safe.find("srHandle:[address],nrHandle:[address]")!=std::string::npos,"COMBINED_PRIVACY");
+    Write(directory/"metadata-safe.txt",safe);
+    using namespace nr_core_feedback;
+    std::wcsncpy(session->directory,directory.wstring().c_str(),1023);
+    std::wcsncpy(session->exe,(directory/"game"/"fixture.exe").wstring().c_str(),1023);
+    std::wcsncpy(session->reshade_module,(directory/"module"/"ReShade64.dll").wstring().c_str(),1023);
+    std::wcsncpy(g_log_path,(directory/"addon"/"nr-before-sr.log").wstring().c_str(),1023);
+    session->carrier_log=(directory/"carrier"/"carrier.log").wstring();session->serial=1;
+    const std::wstring paths[]={g_log_path,Beside(g_log_path,L"nr-before-sr.previous.log"),Beside(g_log_path,L"ReShade.log"),
+        Beside(session->exe,L"ReShade.log"),Beside(session->reshade_module,L"ReShade.log"),session->carrier_log};
+    nr_feedback_text::Summary source;source.Push("error bounded CPU fixture; no GPU success");
+    const auto selected=source.Text(44,44,true);
+    const auto summary=selected+Budget(nr_feedback_text::kSummaryLimit-selected.size(),"fixture.summary");
+    for(const auto& path:paths)summaries[path]=summary;
+    const auto output=CollectSingleText(*session,true);
+    Check(output.text&&output.complete,"COMBINED_TEXT_CAPACITY");
+    const auto disk=Read(output.path);Check(disk==*output.text,"COMBINED_TEXT_DISK_EQUAL");CheckCombined(disk);
+    Check(disk.find("text.limitBytes="+std::to_string(nr_feedback_single::kTextLimit)+"\n")!=std::string::npos,"COMBINED_TEXT_LIMIT_DECLARATION");
+    for(const auto* name:{"nr-current","nr-previous","reshade-addon","reshade-game","reshade-module","carrier"})
+        Check(disk.find(std::string("===== ")+name+" /")!=std::string::npos,"COMBINED_ALL_SIX_LOGS");
+    Check(disk.ends_with("text.complete=1\nEND DLSS5 FEEDBACK TEXT\n"),"COMBINED_TEXT_COMPLETE");
+    Write(directory/"combined.txt",disk);
+    MakeArchive(directory/"combined.zip",safe,summary);WorstEscapedManifest(directory);
+    std::printf("COMBINED_F8 checks=%u metadataBytes=%zu metadataCapacity=%zu ledgerEndBytes=%zu retirementBytes=%zu tailBytes=%zu tailReserve=%u textBytes=%zu textCapacity=%zu\n",
+        checks,activity.report_used,sizeof(activity.report),ledger_bytes,retirement_bytes,tail_bytes,nr_feedback_limits::kMandatoryTailBytes,disk.size(),nr_feedback_single::kTextLimit);
+}

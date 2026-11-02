@@ -79,14 +79,20 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 185u * 1024u',
-                    'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_limits.h').read_text(encoding='utf-8')
+        before = re.search(r'kMandatoryTailBytes = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_limits.h', before,
+                    'kMandatoryTailBytes = 161u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-metadata-limit':
-        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 288u * 1024u',
-                    'kMetadataBytes = 192u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_limits.h').read_text(encoding='utf-8')
+        before = re.search(r'kMetadataBytes = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_limits.h', before,
+                    'kMetadataBytes = 288u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-text-limit':
-        mutation = ('src/nr_feedback_single_text.h', 'kTextLimit = 480u * 1024u',
-                    'kTextLimit = 384u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_single_text.h').read_text(encoding='utf-8')
+        before = re.search(r'kTextLimit = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_single_text.h', before,
+                    'kTextLimit = 480u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
     elif args.negative_control == 'redact-timing-numbers':
         mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
                     'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
@@ -126,6 +132,13 @@ def main():
         if text.count(mutation[1]) != 1:
             raise SystemExit('Negative-control production anchor changed: ' + args.negative_control)
         text = text.replace(mutation[1], mutation[2], 1)
+        if args.negative_control == 'old-metadata-limit':
+            # Restore the old reserve too so the old physical capacity is a
+            # compiled runtime counterexample, not a static_assert failure.
+            before = re.search(r'kMandatoryTailBytes = \d+u \* 1024u', text).group(0)
+            if text.count(before) != 1:
+                raise SystemExit('Old metadata control reserve anchor changed')
+            text = text.replace(before, 'kMandatoryTailBytes = 161u * 1024u')
         path.write_text(text, encoding='utf-8')
     fixture = ROOT / 'tests/feedback_timing_full.inl'
     shutil.copy2(fixture, out / 'fixture.inl')
