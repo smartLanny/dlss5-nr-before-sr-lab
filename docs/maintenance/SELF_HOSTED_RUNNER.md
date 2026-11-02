@@ -8,10 +8,21 @@ must use exactly `runs-on: [self-hosted, Windows, X64, dlss5-build]`.
 
 | Job | When it runs | What it does |
 |---|---|---|
-| `self-hosted-tests` | Every PR to `main` (open, push, reopen) and every manual dispatch | `python scripts/run-portable-tests.py --verbose` with the mingw `clang++` when `DLSS5_TOOLCHAIN_ROOT` is known |
+| `self-hosted-tests` | Owner-authored, same-repository PRs to `main` triggered by the owner, and manual dispatch | `python scripts/run-portable-tests.py --verbose` with the mingw `clang++` when `DLSS5_TOOLCHAIN_ROOT` is known |
 | `self-hosted-canonical-build` | Manual dispatch with **full_build** ticked, or a PR to `main` labelled **`full-build`** (runs again on each push while the label stays) | `scripts/ci/run-self-hosted-build.ps1` → `scripts/build-unified-candidate.ps1` with every canonical gate |
 
-Both jobs are skipped unless the repository variable `ENABLE_SELF_HOSTED_CI` is
+Public PRs also run the `public-portable` job on an ephemeral `ubuntu-24.04`
+runner, with a read-only token and no persisted checkout credentials. This does
+not enable the fourteen opt-in hosted Windows workflow families.
+
+Fork PRs, deleted/missing head repositories and non-owner PR authors do not enter
+these self-hosted jobs. A `full-build` label does not override that restriction.
+The owner can review an external contribution and bring its reviewed commit to a
+same-repository branch before running the canonical build. Do not approve
+unreviewed workflow changes for the local runner: workflow predicates are a
+routing policy, not a sandbox or a replacement for repository/runner access rules.
+
+Both self-hosted jobs are skipped unless the repository variable `ENABLE_SELF_HOSTED_CI` is
 `true` (Settings → Secrets and variables → Actions → Variables). Turn it off when
 the machine is offline or busy so PRs do not wait for the runner. Hosted jobs stay
 behind `ENABLE_HOSTED_CI` and are unaffected.

@@ -46,7 +46,7 @@ Start Effective(){return FgInlineRedirect()?Start::After:static_cast<Start>(effe
 bool TrySnapshot(nr_processing::Snapshot& out) {
     out={};if(!TryEnterCriticalSection(&g_chain_cs))return false;
     out.requested=session.Requested();out.current=FgRedirectRequested()?Start::After:Effective();out.retained=session.Retained();
-    std::strncpy(out.reason,FgRedirectRequested()?"FG-present-owned; native-SR-After-before-FG":session.Reason(),sizeof(out.reason)-1);
+    std::snprintf(out.reason,sizeof(out.reason),"%s",FgRedirectRequested()?"FG-present-owned; native-SR-After-before-FG":session.Reason());
     LeaveCriticalSection(&g_chain_cs);return true;
 }
 bool PresentSelected(){return Effective()==Start::Present;}
@@ -66,7 +66,7 @@ void Reject(Start route,const char* reason,bool structural=false) {
             reason?reason:"unknown",carrier_serial,fg_after_failure.retry_source);
         return;
     }
-    char prior[128]{};std::strncpy(prior,session.Reason(),sizeof(prior)-1);
+    char prior[128]{};std::snprintf(prior,sizeof(prior),"%s",session.Reason());
     const bool moved=session.Reject(route,carrier_serial,reason,structural);
     if(moved) {
         effective.store(static_cast<unsigned>(session.Current()),std::memory_order_release);

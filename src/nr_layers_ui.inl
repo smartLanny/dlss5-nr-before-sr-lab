@@ -92,6 +92,28 @@ void DrawNrNetworkControls(ChainConfig& next,bool& changed,bool& discrete) {
         "Layers request different networks; mixed networks need game validation. Compare with all layers following global first.");
 }
 
+void DrawNrNetworkInheritanceReset(ChainConfig& next,bool& changed,bool& discrete) {
+    const bool zh=UseChineseUi();
+    const auto count=nr_layers::Active(next.nr_layers);
+    bool has_override=false;
+    for(unsigned i=0;i<count;++i)
+        has_override|=nr_layers::Read(next,i).network_preset!=nr_network_policy::Inherit;
+    ImGui::BeginDisabled(!has_override);
+    if(ImGui::Button(zh?"当前层全部跟随全局###nr-networks-follow-global":
+        "Active layers follow global###nr-networks-follow-global")) {
+        // Reset only active network overrides. Inactive layer requests and all
+        // model/composition values survive this explicit, discrete edit.
+        for(unsigned i=0;i<count;++i) {
+            if(i)next.nr_layers[i-1].network_preset=nr_network_policy::Inherit;
+            else next.nr_primary_network_preset=nr_network_policy::Inherit;
+        }
+        changed=true;discrete=true;
+    }
+    ImGui::EndDisabled();
+    SettingsTooltip(zh?"仅让当前启用的层跟随全局网络。保留未启用层、模型参数、工作比例和最终画质；下次增加层数时，未启用层的独立设置仍在。":
+        "Only active layers follow the global network. Retains inactive layers, model controls, work scale and final picture settings. Re-enabling a layer restores its saved independent choice.");
+}
+
 void DrawUniformLayerCount(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();
     SettingsField(zh?"模型层数":"Model layers");
@@ -115,7 +137,7 @@ void NrLayerField(const char* label,bool table) {
 }
 void DrawUniformLayerControls(ChainConfig& next,bool& changed,bool& discrete) {
     const bool zh=UseChineseUi();
-    SettingsSection(zh?"模型与层数":"Model parameters per layer");
+    SettingsSection(zh?"每层模型参数":"Model parameters per layer");
     SettingsTooltip(zh?"各层共用工作尺寸，可独立选择网络与模型参数；松手或提交输入后应用。减少层数会保留后续层设置。":"Layers share one work size, with independent networks and model controls. Apply on release or input commit. Reducing layers retains their settings.");
     if(next.nr_uniform_migrated)SettingsNote(zh?"当前层数设置为自定义。":"Legacy auxiliary scales are archived. Uniform sizing changes their workload; this is a custom configuration.");
     const auto count=nr_layers::Active(next.nr_layers);

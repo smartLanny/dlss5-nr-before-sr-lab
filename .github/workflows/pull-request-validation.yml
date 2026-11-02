@@ -23,6 +23,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  public-portable:
+    # Public contributions run only on an ephemeral hosted Linux runner. This
+    # does not enable the separately gated Windows/canonical workflow families.
+    if: github.event.repository.private == false && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Portable source and CPU checks
+        env:
+          CXX: g++
+        run: python3 scripts/run-portable-tests.py --verbose
+
   maintenance:
     if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/beta042-validate.yml
@@ -83,7 +100,11 @@ jobs:
     if: >-
       vars.ENABLE_SELF_HOSTED_CI == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
-       (github.base_ref == 'main' && github.event.action != 'labeled'))
+       (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.repo.fork == false &&
+        github.event.pull_request.author_association == 'OWNER' &&
+        github.actor == github.repository_owner && github.event.action != 'labeled'))
     runs-on: [self-hosted, Windows, X64, dlss5-build]
     timeout-minutes: 30
     steps:
@@ -111,6 +132,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: Portable tests
         shell: powershell
         env:
@@ -129,7 +151,11 @@ jobs:
     if: >-
       vars.ENABLE_SELF_HOSTED_CI == 'true' &&
       ((github.event_name == 'workflow_dispatch' && inputs.full_build) ||
-       (github.base_ref == 'main' &&
+       (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.repo.fork == false &&
+        github.event.pull_request.author_association == 'OWNER' &&
+        github.actor == github.repository_owner &&
         contains(github.event.pull_request.labels.*.name, 'full-build') &&
         (github.event.action != 'labeled' || github.event.label.name == 'full-build')))
     runs-on: [self-hosted, Windows, X64, dlss5-build]
@@ -159,6 +185,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
       - name: Canonical build
         shell: powershell
         env:

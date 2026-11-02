@@ -99,12 +99,15 @@ int main(){
     capture=ui.index('ImGui::BeginDisabled(collecting);',start)
     mode=ui.index('"Processing order"',start)
     precision=ui.index('"##nr-processing-precision"',mode)
-    model=ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);',precision)
-    reset=ui.index('RestoreRecommendedPictureSettings(next);',model)
+    reset=ui.index('RestoreRecommendedPictureSettings(next);',precision)
     unlock=ui.index('ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();',reset)
-    assert start<capture<mode<precision<model<reset<unlock
+    model_page=ui.index('ImGui::BeginTabItem(ui("Models###nr-models"',unlock)
+    model_capture=ui.index('ImGui::BeginDisabled(collecting);',model_page)
+    model=ui.index('DrawUniformLayerControls(next,changed,apply_discrete_edit);',model_capture)
+    model_unlock=ui.index('ImGui::EndDisabled();ImGui::EndChild();ImGui::EndTabItem();',model)
+    assert start<capture<mode<precision<reset<unlock<model_page<model_capture<model<model_unlock
     assert ui.count('DrawUniformLayerControls(next,changed,apply_discrete_edit);')==1
     assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
-    print('Real controls grouped under the same capture lock and configuration transaction.')
+    print('Picture and model controls share the capture lock and configuration transaction.')
 
 if __name__=='__main__': main()

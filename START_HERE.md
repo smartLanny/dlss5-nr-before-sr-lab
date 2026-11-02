@@ -1,24 +1,48 @@
-# 新电脑与下一位开发 Agent 从这里开始
+# 开发者从这里开始
 
-当前开发基线为 **0.5.2 Beta 14**，维护者于2026-10-03批准继续使用。已交付二进制编译源码为 **`3663affdd77309c3eac9a306849415a1ded4f330`**，与main基线`024f9cc32778c1056db364d76d087ee257da6502`的Git树相同；后续文档提交不改变二进制身份。[Beta14身份、验证与OTA](docs/interop/052_BETA14_DELIVERY.json) / [中文更新](docs/interop/052_BETA14_CHANGELOG.zh-CN.md) / [后续研究任务](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/309#issuecomment-5959036328)。
+仓库现已公开。当前源码身份为 **0.5.2 Beta17 开发候选**，以
+`scripts/core-source-layout.json` 为准；已交付 Beta14 的源码、二进制哈希和验收范围
+保存在[原交付回执](docs/interop/052_BETA14_DELIVERY.json)，不因源码更新而改名。
 
-- 原开发分支 `feat/309-post-private-sr`（PR #313）已合入 main。新任务从最新 main 开短期分支。
-- [完整新机说明](docs/handoff/BETA13_NEW_PC.zh-CN.md)：依赖、恢复、构建、验证和证据入口。
-- [已知问题与后续优先级](docs/handoff/BETA13_KNOWN_ISSUES.zh-CN.md)：哪些已实现，哪些只是实验，哪些仍失败。
-- [当前包与验证身份](docs/interop/052_BETA14_DELIVERY.json)：双语Core-only OTA、组件哈希及实际检查范围；[Beta13交付](docs/interop/052_BETA13_DELIVERY.json)保留为运行库/依赖和回退来源。
-- [正式源码与构建结构](docs/maintenance/SOURCE_LAYOUT.md)：#321 折回后的源码入口、外部 carrier 集成与 Beta 13 字节对照。继续开发时直接修改正式源码，无需恢复 Python 补丁链。
-- [私有 GitHub 交接草稿](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases)：两个用户包及 `PRIVATE-DLSS5-DevInputs-20260929-r2.zip` 开发输入。开发输入不得混入公开用户包。
+## 获取和检查
 
-```powershell
-gh auth login
-gh repo clone smartLanny/dlss5-nr-before-sr-lab dlss5-core -- --branch main
-cd dlss5-core
-git cat-file -t cd8ba7009d333f7b03c463dc4237a913f9913081
-gh release download dev-handoff-20260929-beta13 --repo smartLanny/dlss5-nr-before-sr-lab --dir ..\dlss5-handoff
+```sh
+git clone https://github.com/smartLanny/dlss5-nr-before-sr-lab.git
+cd dlss5-nr-before-sr-lab
+git rev-parse HEAD
+git rev-parse --is-shallow-repository
+python3 scripts/run-portable-tests.py --verbose
 ```
 
-这是私有仓库，需要维护者账号权限。不要用 Manager 公开页面上的旧 Core 代替本分支。下载后按 `SHA256SUMS.txt` 核对附件，再看完整新机说明；普通 Core 开发可以使用已核验的缓存迁移路径，不依赖旧电脑盘符。原始 F8、截图及游戏转储仍按既有规则留在旧机，没有冒充已完整迁移；详细研究报告、验证回执和最新调试映射已整理成本地 `PRIVATE-Beta13-DebugAndReports-20260929.zip`，其上传仍待维护者明确确认；目前不要假定 GitHub 已有该附件。源码与依赖接续不受影响。
+公开源码无需维护者账号或私有交接包。若已使用浅克隆，先获取完整历史与 tags；
+它们用于回归和分支归属检查。通过 `CXX` 选择主机编译器，Windows-only 与缺失输入
+会明确跳过，不算通过。
 
-给接续 Agent：先读 `AGENTS.md`、本页、`docs/interop/CURRENT_STATUS.md` 和最新#309规划。Beta14增加有界诊断，不是新降噪/显存优化算法；维护者接受的异环Esc表现不能扩大为所有UI预览问题已修复。私有SR及两个空间实验保留手动选择、默认关闭，质量未过门；普通恢复为建议基线。下一产品行为改动用Beta15，先开发侧连续帧证据和有证据的最小修正，再集中给维护者验收，不重复已接受的Esc、旧A/B/C或切层分配测试。
+## 阅读顺序
 
-#313 合入后，#308、#316（整条分支已在历史中）与 #318、#319（修复已由 `5934209a` 移植）已关闭，不要重复 cherry-pick。新改动走可审查的任务分支和 PR；main 整合由 Claude 维护会话负责（见 #311），公开发布和 Manager 默认版本由维护者决定。不启动或控制游戏；实机测试由维护者安排。
+1. [AGENTS.md](AGENTS.md)：协作、资源生命周期和交付规则。
+2. [当前状态](docs/interop/CURRENT_STATUS.md)：源码能力、基线与仍待验收的路线。
+3. [源码结构](docs/maintenance/SOURCE_LAYOUT.md)：直接修改 `src/`，无需恢复旧补丁链。
+4. [贡献指南](CONTRIBUTING.md)和[源码许可](LICENSE)：提交范围与第三方署名。
+5. [网络选择交接](docs/validation/NR_CLOUD_HANDOFF_20261018.zh-CN.md)：DLL 身份检查与实机验证顺序。
+
+## Windows 完整构建
+
+使用 `scripts/build-unified-candidate.ps1`，按
+[新机依赖说明](docs/handoff/BETA13_NEW_PC.zh-CN.md)准备各项固定输入。
+该文档保留历史 Beta13 的来源与验证记录，不代表必须下载其私有附件；公开依赖各自
+从原项目取得，维护者缓存与厂商运行库需另行准备。不要把缓存缺失改成跳过构建门禁。
+
+[自托管构建说明](docs/maintenance/SELF_HOSTED_RUNNER.md)列出输入和完整入口。
+交付应记录精确 commit、dirty 状态、源码清单、编译回执以及二进制/包的 SHA256。
+CPU 测试和受控 WARP 不代表游戏、真实 NGX 网络或性能验收。
+
+## 接续已有工作
+
+先读取最新 main、开放 PR 和对应 Issue，再开短期任务分支。#341 的退休修复、#345/#347
+的 SDR 色控与重置、#346 的网络选择有各自来源和验证范围，不要重复移植。
+私有 SR、双 RR 与显存观察继续沿 #309 / #330 跟进；研究宿主通过不代表产品接入完成。
+
+保留用户配置和历史包身份。主线合并、发包和 Manager 默认版本是独立动作；本轮源码
+开发不自动改变用户游戏目录、运行库或 Manager pin。公开反馈先脱敏，原始采集留在
+维护者受控环境。

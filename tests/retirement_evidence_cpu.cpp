@@ -106,9 +106,12 @@ struct FeedbackSession{std::unique_ptr<nr_retirement::Snapshot> retirement_scrat
 #include "append.inl"
 #include "formatter.inl"
 void Check(bool ok,const char* why){++checks;if(!ok){std::fprintf(stderr,"FAIL %s\n",why);std::exit(3);}}
-void Clear(){for(auto& c:g_contexts)c={};for(auto& c:g_pending_destroy_contexts)c={};
-    for(auto& r:g_lifecycle_command_lists)r={};for(auto& e:g_nr_retirement_observed)e={};
-    for(auto& f:g_nr_retirement_fences)f={};std::memset(&g_nr_retirement_published,0,sizeof(g_nr_retirement_published));g_nr_retirement_dirty=false;
+void Clear(){for(auto& c:g_contexts)c={};
+    for(auto& c:g_pending_destroy_contexts)c={};
+    for(auto& r:g_lifecycle_command_lists)r={};
+    for(auto& e:g_nr_retirement_observed)e={};
+    for(auto& f:g_nr_retirement_fences)f={};
+    nr_retirement::ResetSnapshot(g_nr_retirement_published);g_nr_retirement_dirty=false;
     g_nr_retirement_deciding=nullptr;g_nr_retirement_observations=g_nr_retirement_suppressed=g_nr_retirement_publication=0;
     g_lifecycle_tracking_uncertain=false;g_nr_context_releases_in_progress=0;
     fence_reads=ready_calls=invalidations=drops=releases=logs=0;now+=2000;
@@ -233,7 +236,7 @@ int main(){using namespace nr_retirement;
     Collect();Check(g_lifecycle_tracking_uncertain&&g_nr_retirement_published.pending_used==16&&g_nr_retirement_published.context[0].first_block==PendingCapacity,"original full pending queue records its own branch before uncertainty");
     // Exercise every existing table capacity with full-width values through the
     // actual F8 formatter, independently of the production ownership fixture.
-    auto& full=g_nr_retirement_published;std::memset(&full,0,sizeof(full));full.contexts=kContexts;full.slots=kSlots;full.bindings=kBindings;full.recordings=kRecordings;full.private_flights=full.temporal_flights=kOwnerFlights;
+    auto& full=g_nr_retirement_published;nr_retirement::ResetSnapshot(full);full.contexts=kContexts;full.slots=kSlots;full.bindings=kBindings;full.recordings=kRecordings;full.private_flights=full.temporal_flights=kOwnerFlights;
     const Fence wide{UINT64_MAX,UINT64_MAX,UINT64_MAX,UINT64_MAX,UINT64_MAX,true,true};
     const Lease lease{wide,UINT_MAX,true};
     for(auto& v:full.context){v.instance=v.parent=v.feature=v.global_codec_device=v.handle=v.pending_token=v.last_eval=v.last_eval_frame=UINT64_MAX;v.blocked=v.evaluated=v.unknown=UINT64_MAX;v.first_block=ContextRecording;
@@ -242,7 +245,8 @@ int main(){using namespace nr_retirement;
     for(auto& v:full.binding){v.lease=lease;v.instance=v.feature=v.primary_instance=v.secondary_instance=UINT64_MAX;v.configuration=v.index=v.primary_slot=v.secondary_slot=UINT_MAX;v.primary_known=v.secondary_known=true;}
     for(auto& v:full.recording){v.token=v.address=v.expected_queue=v.submissions=v.contexts=v.direct_contexts=v.indirect_contexts=v.native_lifetime=v.native_reset=v.device=UINT64_MAX;v.in_flight=v.context_count=v.slot_count=UINT_MAX;v.detached=v.unproven_execution=v.native_identity_known=true;}
     const auto wide_flight=[&](OwnerFlight& v){v.instance=v.token=v.list=v.reset=v.device=v.queue=UINT64_MAX;v.fence=wide;v.index=UINT_MAX;v.submitted=v.poisoned=v.unsafe=true;};
-    for(auto& v:full.private_flight)wide_flight(v);for(auto& v:full.temporal_flight)wide_flight(v);
+    for(auto& v:full.private_flight)wide_flight(v);
+    for(auto& v:full.temporal_flight)wide_flight(v);
     auto feedback=std::make_unique<FeedbackSession>();const auto before_reads=fence_reads,before_ready=ready_calls;FeedbackAppendRetirement(*feedback,"end");
     std::printf("retirement worst-width text=%zu reserved=%u truncated=%d POD=%zu\n",feedback->report_used,nr_feedback_limits::kRetirementTextBytes,feedback->report_truncated?1:0,sizeof(Snapshot));
     Check(!feedback->report_truncated&&feedback->report_used<=nr_feedback_limits::kRetirementTextBytes,"full-width retirement text fits separately reserved F8 tail");

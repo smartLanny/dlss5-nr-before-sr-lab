@@ -1,27 +1,17 @@
-# License recommendation
+# Source license and attribution
 
-The staging repository intentionally does not contain a project-wide `LICENSE`.
-A private repository without a license preserves the owner's rights while source
-ownership and contributor consent are confirmed.
+The project's original source is now available under the [MIT License](LICENSE),
+following the repository's original recommendation and the owner's November 2026
+open-source instruction. Existing third-party notices remain in
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
-## Recommended choice
+RenoDX adaptations retain their MIT notice, MinHook retains its BSD-style notices,
+and the optional Oklab controls retain their author's public-domain attribution.
+This source license grants no rights to NVIDIA software, model weights, game
+assets, ReShade binaries, trademarks or separately obtained runtime components.
 
-After every original contributor confirms that their work may be relicensed,
-adopt the MIT License for the project's original source. It is short, familiar to
-graphics/modding contributors, compatible with the RenoDX-derived MIT portions,
-and compatible with the BSD-style MinHook dependency.
-
-Before adding the license:
-
-1. Identify the copyright holder name to place in the notice.
-2. Confirm that every non-trivial copied or adapted portion is listed in
-   `THIRD_PARTY_NOTICES.txt` with its required notice.
-3. Confirm that no NVIDIA SDK source/header, proprietary binary, model payload,
-   or disassembly-derived code is present.
-4. Preserve the MinHook license in `third_party/minhook/LICENSE.txt`.
-5. Decide whether inbound contributions require a Developer Certificate of
-   Origin or an explicit contributor-license statement.
-
-An open-source license would cover only this repository's original source. It
-would not grant rights to NVIDIA software, games, ReShade binaries, trademarks,
-or separately obtained runtime components.
+When borrowing source, record the upstream URL, exact revision, affected files,
+license and modifications. Public visibility does not make an implementation MIT.
+GPL code must not be copied into the MIT Core without a separate compatible
+licensing decision; independently written implementations and separate optional
+components remain available approaches. Preserve every applicable attribution.

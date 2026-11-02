@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include "nr_guide_contract.h"
 
@@ -61,44 +62,44 @@ struct Snapshot {
 };
 struct History { unsigned count=0; Snapshot windows[3]{}; };
 inline std::uint32_t FrameMask(const Frame& a,const Frame& b) {
-    return (a.render_w!=b.render_w||a.render_h!=b.render_h?Render:0) |
-        (a.work_w!=b.work_w||a.work_h!=b.work_h?Work:0) |
-        (a.output_w!=b.output_w||a.output_h!=b.output_h?Output:0) |
-        (a.feature!=b.feature||a.feature_generation!=b.feature_generation?Carrier:0) |
-        (a.instance!=b.instance?Instance:0) |
-        (a.layer!=b.layer||a.route!=b.route?LayerRoute:0) |
-        (a.config!=b.config||a.history!=b.history?Generations:0) |
-        (a.source_stream!=b.source_stream||a.source_epoch!=b.source_epoch?Source:0);
+    return (a.render_w!=b.render_w||a.render_h!=b.render_h?std::uint32_t{Render}:0u) |
+        (a.work_w!=b.work_w||a.work_h!=b.work_h?std::uint32_t{Work}:0u) |
+        (a.output_w!=b.output_w||a.output_h!=b.output_h?std::uint32_t{Output}:0u) |
+        (a.feature!=b.feature||a.feature_generation!=b.feature_generation?std::uint32_t{Carrier}:0u) |
+        (a.instance!=b.instance?std::uint32_t{Instance}:0u) |
+        (a.layer!=b.layer||a.route!=b.route?std::uint32_t{LayerRoute}:0u) |
+        (a.config!=b.config||a.history!=b.history?std::uint32_t{Generations}:0u) |
+        (a.source_stream!=b.source_stream||a.source_epoch!=b.source_epoch?std::uint32_t{Source}:0u);
 }
 inline std::uint32_t StorageMask(const NrGuideSignature& a,const NrGuideSignature& b) {
     const bool color_same=a.color_format==b.color_format ||
         ((a.color_format==10u||a.color_format==26u)&&(b.color_format==10u||b.color_format==26u));
-    return (a.depth_format!=b.depth_format?DepthFormat:0) |
-        (a.motion_format!=b.motion_format?MotionFormat:0) |
-        (!color_same?ColorStorage:0) |
-        (a.motion_bound_width!=b.motion_bound_width||a.motion_bound_height!=b.motion_bound_height?MotionBound:0) |
-        (a.normalized_create_flags!=b.normalized_create_flags?CreateFlags:0) |
-        (a.rr_depth_placeholder!=b.rr_depth_placeholder?DepthPlaceholder:0) |
-        (a.resample_motion!=b.resample_motion?MotionResample:0);
+    return (a.depth_format!=b.depth_format?std::uint32_t{DepthFormat}:0u) |
+        (a.motion_format!=b.motion_format?std::uint32_t{MotionFormat}:0u) |
+        (!color_same?std::uint32_t{ColorStorage}:0u) |
+        (a.motion_bound_width!=b.motion_bound_width||a.motion_bound_height!=b.motion_bound_height?std::uint32_t{MotionBound}:0u) |
+        (a.normalized_create_flags!=b.normalized_create_flags?std::uint32_t{CreateFlags}:0u) |
+        (a.rr_depth_placeholder!=b.rr_depth_placeholder?std::uint32_t{DepthPlaceholder}:0u) |
+        (a.resample_motion!=b.resample_motion?std::uint32_t{MotionResample}:0u);
 }
 inline std::uint32_t MappingMask(const NrGuideSignature& a,const NrGuideSignature& b) {
-    return (a.color_format!=b.color_format?ColorFormat:0) |
-        (a.depth_physical_width!=b.depth_physical_width||a.depth_physical_height!=b.depth_physical_height?DepthPhysical:0) |
-        (a.motion_physical_width!=b.motion_physical_width||a.motion_physical_height!=b.motion_physical_height?MotionPhysical:0) |
-        (a.color_physical_width!=b.color_physical_width||a.color_physical_height!=b.color_physical_height?ColorPhysical:0) |
-        (a.depth_width!=b.depth_width||a.depth_height!=b.depth_height?DepthActive:0) |
-        (a.motion_source_width!=b.motion_source_width||a.motion_source_height!=b.motion_source_height?MotionSource:0) |
-        (a.depth_x!=b.depth_x||a.depth_y!=b.depth_y?DepthOrigin:0) |
-        (a.motion_x!=b.motion_x||a.motion_y!=b.motion_y?MotionOrigin:0) |
-        (a.color_x!=b.color_x||a.color_y!=b.color_y?ColorOrigin:0) |
-        (a.motion_scale_x!=b.motion_scale_x||a.motion_scale_y!=b.motion_scale_y?MotionScale:0) |
-        (a.depth_inverted!=b.depth_inverted||a.linear_depth!=b.linear_depth?DepthDirection:0) |
-        (a.depth_projection_a!=b.depth_projection_a||a.depth_projection_b!=b.depth_projection_b?DepthProjection:0);
+    return (a.color_format!=b.color_format?std::uint32_t{ColorFormat}:0u) |
+        (a.depth_physical_width!=b.depth_physical_width||a.depth_physical_height!=b.depth_physical_height?std::uint32_t{DepthPhysical}:0u) |
+        (a.motion_physical_width!=b.motion_physical_width||a.motion_physical_height!=b.motion_physical_height?std::uint32_t{MotionPhysical}:0u) |
+        (a.color_physical_width!=b.color_physical_width||a.color_physical_height!=b.color_physical_height?std::uint32_t{ColorPhysical}:0u) |
+        (a.depth_width!=b.depth_width||a.depth_height!=b.depth_height?std::uint32_t{DepthActive}:0u) |
+        (a.motion_source_width!=b.motion_source_width||a.motion_source_height!=b.motion_source_height?std::uint32_t{MotionSource}:0u) |
+        (a.depth_x!=b.depth_x||a.depth_y!=b.depth_y?std::uint32_t{DepthOrigin}:0u) |
+        (a.motion_x!=b.motion_x||a.motion_y!=b.motion_y?std::uint32_t{MotionOrigin}:0u) |
+        (a.color_x!=b.color_x||a.color_y!=b.color_y?std::uint32_t{ColorOrigin}:0u) |
+        (a.motion_scale_x!=b.motion_scale_x||a.motion_scale_y!=b.motion_scale_y?std::uint32_t{MotionScale}:0u) |
+        (a.depth_inverted!=b.depth_inverted||a.linear_depth!=b.linear_depth?std::uint32_t{DepthDirection}:0u) |
+        (a.depth_projection_a!=b.depth_projection_a||a.depth_projection_b!=b.depth_projection_b?std::uint32_t{DepthProjection}:0u);
 }
 inline std::uint32_t ResourceMask(Resources a,Resources b) {
-    return (a.depth!=b.depth?DepthResource:0) |
-        (a.motion!=b.motion?MotionResource:0) |
-        (a.color!=b.color?ColorResource:0);
+    return (a.depth!=b.depth?std::uint32_t{DepthResource}:0u) |
+        (a.motion!=b.motion?std::uint32_t{MotionResource}:0u) |
+        (a.color!=b.color?std::uint32_t{ColorResource}:0u);
 }
 class Trace {
     mutable std::mutex mutex_;
@@ -148,7 +149,9 @@ public:
                 previous_[previous_count_-1].expired=true;
                 Order(previous_[previous_count_-1],head_);
             }
-            state_={}; state_.marked=true;state_.started=now;
+            // Keep default member values without a large temporary Snapshot.
+            std::destroy_at(&state_);std::construct_at(&state_);
+            state_.marked=true;state_.started=now;
             state_.deadline=now+kWindowMs;state_.presses=1;
             for(auto& baseline:baselines_){baseline.valid=false;baseline.rotation_logged=false;}
             head_=0;

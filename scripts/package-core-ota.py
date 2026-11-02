@@ -169,6 +169,13 @@ def package(args):
     changelog = args.changelog.read_bytes()
     require(changelog.strip(), 'Empty changelog')
     license_paths = [manifest_path.parent/'core/third_party/minhook/LICENSE.txt', manifest_path.parent/'core/build/NVIDIA-NGX-LICENSE.txt']
+    # New source exports carry the project's and adaptation notices. Historical
+    # exports can omit these files; preserve their original release identities.
+    for name in ('LICENSE', 'THIRD_PARTY_NOTICES.txt'):
+        notice = manifest_path.parent/'core'/name
+        if notice.is_file():
+            require('core/'+name in manifest['files'], 'Untracked source notice: '+name)
+            license_paths.append(notice)
     license_paths.extend(args.notice)
     licenses = b'\n\n'.join(p.read_bytes() for p in license_paths)
     payload = make_payload(row['file'], core, bridge, version, source, args.language, changelog, licenses, numeric_version)

@@ -63,7 +63,8 @@ def stage_inputs(core: Path, revision: str, layout: dict, destination: Path,
                  snapshot: dict[str, bytes] | None = None) -> None:
     if snapshot is None:
         entries = git(core, 'ls-tree', '-r', '-z', revision, '--',
-                      'src', 'config', 'third_party', 'scripts', 'experiments/nr-edit')
+                      'src', 'config', 'third_party', 'scripts', 'experiments/nr-edit',
+                      'LICENSE', 'THIRD_PARTY_NOTICES.txt')
         names = []
         kinds = {}
         blobs = {}
@@ -73,16 +74,18 @@ def stage_inputs(core: Path, revision: str, layout: dict, destination: Path,
             decoded = name.decode()
             kinds[decoded] = (mode, object_type)
             blobs[decoded] = blob
-            if decoded.split('/')[0] in ('src', 'config', 'third_party'):
+            if decoded.split('/')[0] in ('src', 'config', 'third_party') or decoded in ('LICENSE', 'THIRD_PARTY_NOTICES.txt'):
                 names.append(decoded)
     else:
-        names = [n for n in snapshot if n.split('/')[0] in ('src', 'config', 'third_party')]
+        names = [n for n in snapshot if n.split('/')[0] in ('src', 'config', 'third_party')
+                 or n in ('LICENSE', 'THIRD_PARTY_NOTICES.txt')]
     # The vendor diff is an exporter input, not a Core compiler input.
     names = [n for n in names if n != layout['carrier_overlay']['patch_file']]
     names += layout['core_build_inputs'] + layout['experiment_inputs']
     for name in names:
         p = PurePosixPath(name)
-        if p.is_absolute() or '..' in p.parts or p.parts[0] not in ('src', 'config', 'third_party', 'scripts', 'experiments'):
+        if p.is_absolute() or '..' in p.parts or (p.parts[0] not in ('src', 'config', 'third_party', 'scripts', 'experiments')
+                                                   and name not in ('LICENSE', 'THIRD_PARTY_NOTICES.txt')):
             raise ValueError('Unexpected Core input: ' + name)
         if snapshot is None:
             mode, object_type = kinds.get(name, (b'', b''))
