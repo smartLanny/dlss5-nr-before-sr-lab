@@ -146,8 +146,11 @@ function Safe-Child([string]$Parent, [string]$Relative) {
     if ([string]::IsNullOrWhiteSpace($Relative) -or [IO.Path]::IsPathRooted($Relative) -or $Relative -match '(^|[/\\])\.\.([/\\]|$)') {
         throw "Unsafe manifest path: $Relative"
     }
-    $Path = [IO.Path]::GetFullPath((Join-Path $Parent $Relative))
-    if (-not $Path.StartsWith($Parent.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    # Join-Path may preserve forward slashes while GetFullPath uses the native
+    # separator. Compare two canonical paths, with the root separator retained.
+    $Root = [IO.Path]::GetFullPath($Parent).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+    $Path = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
+    if (-not $Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Manifest path escaped its source root: $Relative"
     }
     return $Path

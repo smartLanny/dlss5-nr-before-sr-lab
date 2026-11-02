@@ -110,6 +110,29 @@ class Packaging(unittest.TestCase):
                 self.assertEqual(any(n.endswith('.en.addon64') for n in names), entry['language'] == 'en')
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)
 
+    def test_actual_safe_child_normalizes_root_and_retains_boundaries(self):
+        environment = {key: value for key, value in os.environ.items() if key.upper() != 'PSMODULEPATH'}
+        run = subprocess.run([SHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                              str(ROOT/'tests/package_safe_child.ps1'), '-Packager',
+                              str(self.repo/'scripts/package-multi-api-candidate.ps1')],
+                             capture_output=True, text=True, encoding='utf-8', errors='replace', env=environment)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('PASS production Safe-Child:', run.stdout)
+
+    def test_manifest_traversal_is_rejected_before_any_package_output(self):
+        outside = self.build/'outside-license'
+        outside.write_text('actual outside file with a matching manifest digest')
+        for name in ('../outside-license', '..\\outside-license', 'carrier/../../outside-license',
+                     'carrier/../carrier/LICENSE',
+                     str(outside.resolve()), '.'):
+            with self.subTest(manifest_path=name):
+                self.manifest['files'] = {name: digest(outside)}
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertRegex(run.stdout + run.stderr,
+                                 r'(Unsafe manifest path|Manifest path escaped its source root):')
+                self.assertFalse((self.root/'output').exists())
+
     def test_public_chinese_label_is_carried_by_zip_and_manifest(self):
         self.manifest['integration']['version'] = 'core'
         self.manifest['integration']['display_version'] = '0.4.5-DX11-兼容增强'

@@ -87,7 +87,7 @@ $F8Gate=Join-Path $Tests 'full-feedback-timing'
 & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Cxx --reshade $ReShadeSourceRoot --source-root $Core --source-manifest $F8Manifest --output-dir $F8Gate
 if ($LASTEXITCODE) { throw 'Full staged Core F8 timing/memory/retirement writer and collector failed.' }
 $F8NegativeReceipts=@()
-foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','old-text-limit','redact-timing-numbers','bypass-timing-privacy','untyped-decimal-exemption','omit-end-ui-receipt','redact-ui-decimals','omit-end-retirement','redact-boundary-numbers','bypass-boundary-privacy','borrow-historical-boundary')) {
+foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve','old-metadata-limit','old-text-limit','redact-timing-numbers','redact-aux-numbers','bypass-timing-privacy','untyped-decimal-exemption','omit-end-ui-receipt','redact-ui-decimals','omit-end-retirement','redact-boundary-numbers','bypass-boundary-privacy','borrow-historical-boundary')) {
     $F8NegativeGate=Join-Path $Tests ("full-feedback-" + $Control)
     & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Cxx --reshade $ReShadeSourceRoot --source-root $Core --source-manifest $F8Manifest --output-dir $F8NegativeGate --negative-control $Control
     if ($LASTEXITCODE) { throw "Full staged Core F8 negative control failed: $Control" }

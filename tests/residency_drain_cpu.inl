@@ -32,7 +32,8 @@ int main(int argc,char** argv){
  g_contexts[7].recording_command_lists=0;
  check(DeferNrCreationForReleaseLocked(&carriers[2]),"queued outside-lock Release incorrectly treated as already released");
  check(scheduled(101)==1,"ready old root not queued");
- for(auto& c:g_pending_destroy_contexts)c={};g_nr_context_releases_in_progress=1;
+ for(auto& c:g_pending_destroy_contexts)c={};
+ g_nr_context_releases_in_progress=1;
  check(DeferNrCreationForReleaseLocked(&carriers[2]),"outside-lock Release overlap admitted");
  g_nr_context_releases_in_progress=0;
  check(!DeferNrCreationForReleaseLocked(&carriers[2])&&!g_nr_residency_drain_pending,"completed global drain never resumed");

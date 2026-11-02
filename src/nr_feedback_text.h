@@ -57,6 +57,37 @@ inline bool TimingStageKey(std::string_view key) {
         if (key == stage) return true;
     return false;
 }
+inline bool AuxCreateMetadataNumber(std::string_view line, std::size_t begin, std::size_t end) {
+    if (begin >= end || end > line.size() || !CanonicalUnsigned(line.substr(begin, end - begin))) return false;
+    const auto equal = line.find('=');
+    if (equal == std::string_view::npos || begin <= equal) return false;
+    auto key = line.substr(0, equal);
+    if (key.substr(0, 16) == "start.auxCreate.") key.remove_prefix(16);
+    else if (key.substr(0, 14) == "end.auxCreate.") key.remove_prefix(14);
+    else return false;
+    if (key == "qpcFrequency") return begin == equal + 1 && end == line.size();
+    // Schema 1 has nine shader kinds and exactly these five unsigned counters.
+    // Require the complete production record; unknown/duplicate fields, object
+    // pointers, leading-zero IDs and raw log lookalikes never gain an exemption.
+    const auto dot = key.find('.');
+    std::uint64_t shader = 0;
+    if (dot == std::string_view::npos || !CanonicalUnsigned(key.substr(0, dot), &shader) || shader >= 9 ||
+        (key.substr(dot + 1) != "compile" && key.substr(dot + 1) != "pso")) return false;
+    std::size_t at = equal + 1;
+    bool found = false;
+    for (const std::string_view field : {"calls", "failures", "measured", "totalTicks", "maxTicks"}) {
+        if (line.substr(at, field.size()) != field || at + field.size() >= line.size() ||
+            line[at + field.size()] != ':') return false;
+        at += field.size() + 1;
+        const auto comma = line.find(',', at);
+        const auto finish = comma == std::string_view::npos ? line.size() : comma;
+        if (!CanonicalUnsigned(line.substr(at, finish - at)) ||
+            (field == "maxTicks") != (comma == std::string_view::npos)) return false;
+        found = found || (at == begin && finish == end);
+        at = finish + (comma == std::string_view::npos ? 0 : 1);
+    }
+    return found;
+}
 inline bool BoundaryMetadataNumber(std::string_view line,std::size_t begin,std::size_t end) {
     // These exact scalar fields contain source-written counters or semantic
     // lifetime tokens. Never exempt raw logs, event text or arbitrary suffixes.
@@ -488,6 +519,7 @@ inline std::string RedactSensitiveLine(std::string line, bool typed_metadata = f
             if (typed_metadata && UiActivityMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && BoundaryMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && TimingMetadataNumber(line, i, end)) { i = end; continue; }
+            if (typed_metadata && AuxCreateMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && DiagnosticMetadataNumber(line, i, end)) { i = end; continue; }
             if (typed_metadata && RetirementMetadataNumber(line, i, end)) { i = end; continue; }
             line.replace(i, end - i, "[address]"); i += 9;
