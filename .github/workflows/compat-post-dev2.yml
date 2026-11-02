@@ -87,6 +87,15 @@ jobs:
             python -m unittest discover -s tests/multi_api -p test_candidate_packaging.py -v
             if ($LASTEXITCODE) { throw 'Actual packaging contract regression' }
           } finally { Stop-Transcript }
+      - name: Full post-scaling WARP preflight with native failure evidence
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/post-warp-preflight.log
+          try {
+            & ./tests/post_scaled_work_receipt.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
+            & ./scripts/validate-post-scaled-work-gpu.ps1 -SourceRoot (Get-Location).Path -ToolchainRoot $env:TOOLCHAIN_ROOT -OutputRoot build/post-warp-preflight
+            if ($LASTEXITCODE) { throw 'Post-scaling WARP preflight failed; retain native failure evidence' }
+          } finally { Stop-Transcript }
       - name: Full canonical source, CPU, SM5 shaders, WARP and bilingual Core
         run: |
           $ErrorActionPreference = 'Stop'

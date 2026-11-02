@@ -11,6 +11,7 @@
 #include <d3dcompiler.h>
 #include <dxgi1_4.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -106,6 +107,83 @@ void Check(HRESULT result, const char *message) {
     }
 }
 
+// Fixture diagnostics only: leave every GPU call, pixel oracle and native
+// exception unchanged. The callback can run on a debug-layer worker thread.
+namespace post_gpu_diagnostics {
+std::atomic<unsigned> case_id{0}, submission{0};
+std::atomic<const char *> phase{"startup"};
+std::atomic_flag native_log_active = ATOMIC_FLAG_INIT;
+static_assert(std::atomic<unsigned>::is_always_lock_free);
+static_assert(std::atomic<const char *>::is_always_lock_free);
+
+void Phase(const char *name) {
+    // All names have static lifetime; callbacks never observe a stack string.
+    phase.store(name, std::memory_order_relaxed);
+    std::fprintf(stderr, "GPU_PHASE case=%u submission=%u phase=%s\n",
+        case_id.load(std::memory_order_relaxed),
+        submission.load(std::memory_order_relaxed), name);
+    std::fflush(stderr);
+}
+
+void BeginCase(const char *kind) {
+    const unsigned id = case_id.fetch_add(1, std::memory_order_relaxed) + 1;
+    std::printf("CASE_BEGIN id=%u kind=%s\n", id, kind);
+    std::fflush(stdout);
+    Phase("case-recording");
+}
+
+void AppendText(char *&out, const char *end, const char *text) noexcept {
+    while (out != end && *text != '\0') *out++ = *text++;
+}
+void AppendHex(char *&out, const char *end, unsigned value) noexcept {
+    constexpr char digits[] = "0123456789abcdef";
+    for (unsigned shift = 32; shift != 0 && out != end; shift -= 4)
+        *out++ = digits[(value >> (shift - 4)) & 15u];
+}
+
+LONG CALLBACK ObserveNativeException(EXCEPTION_POINTERS *exception) noexcept {
+    if (exception == nullptr || exception->ExceptionRecord == nullptr ||
+        exception->ExceptionRecord->ExceptionCode != 0x87du ||
+        native_log_active.test_and_set(std::memory_order_relaxed))
+        return EXCEPTION_CONTINUE_SEARCH;
+    // No CRT formatting, allocation, COM or D3D calls in the VEH. This observes
+    // a first-chance exception; the OS and any later handlers still own it.
+    char line[256];
+    char *out = line;
+    const char *end = line + sizeof(line);
+    AppendText(out, end, "NATIVE_EXCEPTION_OBSERVED code=0x0000087d case=0x");
+    AppendHex(out, end, case_id.load(std::memory_order_relaxed));
+    AppendText(out, end, " submission=0x");
+    AppendHex(out, end, submission.load(std::memory_order_relaxed));
+    AppendText(out, end, " phase=");
+    AppendText(out, end, phase.load(std::memory_order_relaxed));
+    AppendText(out, end, " thread=0x");
+    AppendHex(out, end, GetCurrentThreadId());
+    AppendText(out, end, " continue_search=1\n");
+    DWORD written = 0;
+    const HANDLE output = GetStdHandle(STD_ERROR_HANDLE);
+    if (output != nullptr && output != INVALID_HANDLE_VALUE)
+        WriteFile(output, line, static_cast<DWORD>(out - line), &written, nullptr);
+    native_log_active.clear(std::memory_order_relaxed);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+struct ProcessTrace {
+    void *handler = nullptr;
+    ProcessTrace() {
+        handler = AddVectoredExceptionHandler(1, ObserveNativeException);
+        std::fprintf(stderr, "NATIVE_EXCEPTION_TRACE registered=%u code=0x0000087d\n",
+                     unsigned(handler != nullptr));
+        std::fflush(stderr);
+    }
+    ~ProcessTrace() {
+        if (handler != nullptr) RemoveVectoredExceptionHandler(handler);
+    }
+    ProcessTrace(const ProcessTrace &) = delete;
+    ProcessTrace &operator=(const ProcessTrace &) = delete;
+};
+}  // namespace post_gpu_diagnostics
+
 template<class T> struct Com {
     T *p = nullptr;
     Com() = default;
@@ -121,6 +199,54 @@ template<class T> struct Com {
     }
     T *operator->() const { return p; }
     void **address() { return reinterpret_cast<void **>(&p); }
+};
+
+// RAII also unregisters if Gpu construction throws after registration. There is
+// no Gpu/context pointer in the callback, and Unregister waits for callbacks.
+struct DebugMessageTrace {
+#if defined(__ID3D12InfoQueue1_INTERFACE_DEFINED__)
+    Com<ID3D12InfoQueue1> messages;
+    DWORD cookie = 0;
+    bool registered = false;
+    static void CALLBACK Message(D3D12_MESSAGE_CATEGORY,
+                                 D3D12_MESSAGE_SEVERITY severity,
+                                 D3D12_MESSAGE_ID id, LPCSTR description,
+                                 void *) {
+        if (severity > D3D12_MESSAGE_SEVERITY_WARNING) return;
+        // Microsoft forbids any D3D API calls from this callback.
+        std::fprintf(stderr, "D3D12_CALLBACK case=%u phase=%s severity=%u id=%u: %s\n",
+            post_gpu_diagnostics::case_id.load(std::memory_order_relaxed),
+            post_gpu_diagnostics::phase.load(std::memory_order_relaxed),
+            static_cast<unsigned>(severity), static_cast<unsigned>(id),
+            description != nullptr ? description : "(no description)");
+        std::fflush(stderr);
+    }
+    void Start(ID3D12Device *device) {
+        HRESULT result = device->QueryInterface(__uuidof(ID3D12InfoQueue1),
+                                                messages.address());
+        if (SUCCEEDED(result)) {
+            result = messages->RegisterMessageCallback(Message,
+                D3D12_MESSAGE_CALLBACK_IGNORE_FILTERS, nullptr, &cookie);
+            registered = SUCCEEDED(result);
+        }
+        std::fprintf(stderr, "D3D12_CALLBACK registered=%u result=0x%08lx\n",
+            unsigned(registered), static_cast<unsigned long>(result));
+    }
+    void Stop() {
+        if (!registered) return;
+        const HRESULT result = messages->UnregisterMessageCallback(cookie);
+        registered = false;
+        if (FAILED(result))
+            std::fprintf(stderr, "D3D12_CALLBACK unregister=0x%08lx\n",
+                         static_cast<unsigned long>(result));
+    }
+#else
+    void Start(ID3D12Device *) {
+        std::fputs("D3D12_CALLBACK unavailable=toolchain-header\n", stderr);
+    }
+    void Stop() {}
+#endif
+    ~DebugMessageTrace() { Stop(); }
 };
 
 struct Float4 { float x, y, z, w; };
@@ -228,10 +354,12 @@ struct Gpu {
     UINT increment = 0;
     UINT64 submitted = 0;
     HANDLE completion = nullptr;
+    DebugMessageTrace message_trace;
 
     explicit Gpu(bool hardware = false, const char *encode_entry = "EncodeCS",
                  bool include_post = true, const char *verified_artifacts = nullptr,
                  bool include_copy = false) {
+        post_gpu_diagnostics::Phase("device-create");
         Com<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
             debug->EnableDebugLayer();
@@ -274,6 +402,7 @@ struct Gpu {
         Check(D3D12CreateDevice(adapter.p, D3D_FEATURE_LEVEL_11_0,
               IID_ID3D12Device, device.address()), "Create requested D3D12 device");
         device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
+        message_trace.Start(device.p);
         D3D12_COMMAND_QUEUE_DESC queue_desc{};
         queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         Check(device->CreateCommandQueue(&queue_desc, IID_ID3D12CommandQueue,
@@ -350,7 +479,11 @@ struct Gpu {
         if (include_copy) compile("CopyCS", copy);
     }
 
-    ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
+    ~Gpu() {
+        post_gpu_diagnostics::Phase("device-destroy");
+        message_trace.Stop();
+        if (completion != nullptr) CloseHandle(completion);
+    }
 
     D3D12_CPU_DESCRIPTOR_HANDLE Cpu(UINT index) const {
         auto handle = heap->GetCPUDescriptorHandleForHeapStart();
@@ -391,10 +524,10 @@ struct Gpu {
     void FillUpload(Texture &texture, const std::vector<Float4> &pixels) {
         void *mapped = nullptr;
         Check(texture.upload->Map(0, nullptr, &mapped), "Map texture upload");
-        const UINT64 bytes = texture.footprint.Footprint.RowPitch *
-            static_cast<UINT64>(texture.height);
-        std::memset(mapped, 0, static_cast<size_t>(
-            texture.footprint.Offset + bytes));
+        // GetCopyableFootprints need not include padding after the final row.
+        // Clear only the buffer we allocated, not RowPitch * height bytes.
+        const UINT64 bytes = texture.upload->GetDesc().Width;
+        std::memset(mapped, 0, static_cast<size_t>(bytes));
         for (unsigned y = 0; y < texture.height; ++y) {
             auto *row = static_cast<std::uint8_t *>(mapped) +
                 texture.footprint.Offset + y * texture.footprint.Footprint.RowPitch;
@@ -508,13 +641,20 @@ struct Gpu {
     }
 
     void Execute() {
+        post_gpu_diagnostics::submission.fetch_add(1, std::memory_order_relaxed);
+        post_gpu_diagnostics::Phase("list-close");
         Check(list->Close(), "Close command list");
         ID3D12CommandList *lists[] = {list.p};
+        post_gpu_diagnostics::Phase("queue-execute");
         queue->ExecuteCommandLists(1, lists);
+        post_gpu_diagnostics::Phase("queue-signal");
         Check(queue->Signal(fence.p, ++submitted), "Signal queue");
+        post_gpu_diagnostics::Phase("fence-event");
         Check(fence->SetEventOnCompletion(submitted, completion), "Fence wait event");
+        post_gpu_diagnostics::Phase("fence-wait");
         Require(WaitForSingleObject(completion, 30000) == WAIT_OBJECT_0,
                 "GPU completion timed out");
+        post_gpu_diagnostics::Phase("device-status");
         const HRESULT removed = device->GetDeviceRemovedReason();
         if (FAILED(removed)) {
             if (messages.p != nullptr) {
@@ -532,6 +672,7 @@ struct Gpu {
                          static_cast<unsigned long>(removed));
             throw std::runtime_error("D3D12 device removed");
         }
+        post_gpu_diagnostics::Phase("debug-queue");
         if (messages.p != nullptr) {
             const UINT64 count = messages->GetNumStoredMessages();
             for (UINT64 i = 0; i < count; ++i) {
@@ -548,8 +689,11 @@ struct Gpu {
             }
             messages->ClearStoredMessages();
         }
+        post_gpu_diagnostics::Phase("allocator-reset");
         Check(allocator->Reset(), "Reset allocator");
+        post_gpu_diagnostics::Phase("list-reset");
         Check(list->Reset(allocator.p, nullptr), "Reset list");
+        post_gpu_diagnostics::Phase("case-recording");
     }
 };
 
@@ -826,6 +970,10 @@ float RebuildEps(bool result_fp16) {
 
 void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
              NeuralMode neural_mode) {
+    post_gpu_diagnostics::BeginCase("scaled-work");
+    std::printf("CASE_INPUT profile=%s percent=%u neural=%s\n", profile.name,
+        percent, neural_mode == NeuralMode::Identity ? "identity" : "perturb");
+    std::fflush(stdout);
     // At 25%, 128x96 -> 32x24 is exactly aligned. The old 64x48 fixture
     // rounded the requested 16-wide model back to 32 and missed 4:1 filtering.
     const unsigned ow = percent == 25 ? 128u : 64u;
@@ -1071,6 +1219,12 @@ Float4 RunLightingCase(Gpu &gpu, const std::vector<Float4> &proxy_pixels,
                        unsigned sample_x = 15, unsigned sample_y = 16,
                        bool use_v2 = true, unsigned passthrough_flags = 1u,
                        float color_strength = 0.f) {
+    post_gpu_diagnostics::BeginCase("lighting");
+    std::printf("CASE_INPUT model=%ux%u lock=%g detail=%g sample=%u,%u v2=%u "
+                "flags=%u color=%g\n", model_width, model_height, lighting_lock,
+                detail_stability, sample_x, sample_y, unsigned(use_v2),
+                passthrough_flags, color_strength);
+    std::fflush(stdout);
     constexpr unsigned width = 32, height = 32;
     Require(proxy_pixels.size() == model_width * model_height &&
                 neural_pixels.size() == model_width * model_height,
@@ -1339,6 +1493,13 @@ void RunLightingEdgeCases(Gpu &gpu) {
 }
 
 int main(int argc, char **argv) {
+#if !defined(main)
+    // Other validators rename/include this main and already own their streams.
+    // Do not call setvbuf after those callers have written their own output.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
+    post_gpu_diagnostics::ProcessTrace process_trace;
     try {
         Require(kCodecExposureSrvIndex == 4u &&
                     kCodecResultUavIndex == kCodecSrvCount + 1u,
@@ -1346,6 +1507,7 @@ int main(int argc, char **argv) {
         const char *artifacts = nullptr;
         for (int i = 1; i < argc; ++i)
             if (std::strncmp(argv[i], "--artifacts=", 12) == 0) artifacts = argv[i] + 12;
+        {
         Gpu gpu(false, "EncodeCS", true, artifacts);
         Require(NrMotionReadFormat(DXGI_FORMAT_R16G16_TYPELESS) ==
                     DXGI_FORMAT_R16G16_FLOAT,
@@ -1390,6 +1552,11 @@ int main(int argc, char **argv) {
             "(production WriteCodecDescriptorSet, FP16 model planes, "
             "identity + nonzero neural perturbation, area overlap integral)\n",
             scenarios);
+        }
+        // Emitted only after the device and all of its objects were released.
+        post_gpu_diagnostics::Phase("complete");
+        std::puts("COMPLETE post-scaled-work WARP");
+        std::fflush(stdout);
         return 0;
     } catch (const std::exception &ex) {
         std::fprintf(stderr, "FAIL post-scaled-work WARP: %s\n", ex.what());

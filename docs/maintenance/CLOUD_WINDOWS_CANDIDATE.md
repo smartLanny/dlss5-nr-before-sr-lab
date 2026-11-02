@@ -32,6 +32,11 @@ pins; the original canonical builders verify their source/SDK hashes again.
 The official NGX static SDK library builds this project's `nrchain_nvngx.dll`;
 NVIDIA runtime/model directories are not checked out or redistributed.
 
+The complete post-scaling WARP test runs on the committed source before the
+long canonical sequence, so a native failure retains its case/phase and process
+evidence promptly. The canonical builder still repeats the same mandatory gate
+on its verified source export; this preflight does not replace any acceptance.
+
 `scripts/build-unified-candidate.ps1` runs in full, including the actual SM5
 shader compilation, Windows CPU contracts, positive and negative WARP tests,
 exact staged Core and bilingual builds. The complete face backend and the
