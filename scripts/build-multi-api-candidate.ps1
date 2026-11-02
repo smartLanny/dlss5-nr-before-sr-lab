@@ -63,6 +63,12 @@ try {
     & python (Join-Path $Root 'tests/test_projection_memory_runtime.py') -v
     if ($LASTEXITCODE) { throw 'Windows projection, Streamline ABI/module pin or DXGI runtime contract failed.' }
     $Checks.Add('actual Windows projection memory, Streamline ABI/module pin and DXGI runtime contracts; SDK/MinHook calls remain explicit doubles')
+    & python (Join-Path $Root 'tests/test_face_selection_ui.py') --compiler $Cxx
+    if ($LASTEXITCODE) { throw 'Windows face selection lifecycle or viewport geometry contract failed.' }
+    $Checks.Add('production face selection lifecycle and viewport geometry with real Win32 locks and controlled ReShade calls; no rendered UI or clicks')
+    & python (Join-Path $Root 'tests/test_light_style.py') --compiler $Cxx
+    if ($LASTEXITCODE) { throw 'Windows light/model settings, persistence or fallback contract failed.' }
+    $Checks.Add('production light/model helpers and extracted configuration transactions with real Win32 INI persistence, write failures and old-setting fallback; no GPU/game')
     & python -m unittest tests.test_direct_source_export -v
     if ($LASTEXITCODE) { throw 'Committed-source and pinned-carrier export contracts failed.' }
     $Checks.Add('committed-source export and pinned-carrier integration contracts with negative controls')
