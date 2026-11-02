@@ -1,0 +1,81 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "native_cases": [
+    {
+      "case": "no-authorization",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "missing-GO",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "unsupported-SR",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "NR-off",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "capture-rejected",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "perf-rejected",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "warm1-rejected",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "observe2-rejected",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    },
+    {
+      "case": "relative-out-rejected",
+      "exit": 2,
+      "device_bootstrap_reached": false,
+      "GPU": false,
+      "NGX": false,
+      "proof": "reviewed strict CLI returns before RunSceneTwoRrApprox; no native GPU entry or model log"
+    }
+  ],
+  "root_runner_missing_GO_exit": 1,
+  "root_runner_refuses_before_output_or_device": true
+}

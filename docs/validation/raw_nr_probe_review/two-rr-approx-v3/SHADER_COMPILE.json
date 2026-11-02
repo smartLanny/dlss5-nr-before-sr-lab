@@ -1,0 +1,14 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "native_host_recompiled": false,
+  "entry": "main",
+  "target": "cs_5_0",
+  "flags": "D3DCOMPILE_ENABLE_STRICTNESS",
+  "source_sha256": "dcd53778f086b9e79d373be54515cebb49210b479e574878d4eb2eb74a7b8251",
+  "cso_sha256": "11aa1705bd530075e7637acb074e6a00e1360e1007984fd746bdcfaff3e1a4b6",
+  "compiled_disassembly_sha256": "e54e78df536c6f9156b92441c1dd3a6ec4e1208fdfe0337f0a63adbf019195f7",
+  "approved_alpha_literal_in_compiled_bytecode": true,
+  "unchanged_host_EXE_sha256": "52f21828f4eea2ce2496aef71b3321c5fbf72cd7ca43b28f46087f94db5e04ef"
+}

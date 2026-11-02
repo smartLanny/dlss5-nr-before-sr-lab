@@ -1,0 +1,126 @@
+--- a/raw-nr-model-safe-host-v3/control_branch.inl
++++ b/raw-nr-model-safe-host-v4/control_branch.inl
+@@ -1,7 +1,7 @@
+ // Included inside the same live admission continuation, before any model or
+ // production encode/combine. Iterations reuse frame0/the same actual slot.
+   if(opaque_control){
+-   pipeline.Bind(list,heap);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++   pipeline.Bind(list,heap);control_states.Prepare(list.native,flight,iteration);
+    Check(envelope.EnvelopeApi().capture(&envelope,list.native),"controlled backend uses actual NativeCommandStateScope");
+    const bool reject=iteration==1;
+    if(reject){controlled_error_pending=true;control_execute_base=queue_test::native_executes;control_restore_base=envelope.restores;active_envelope=&envelope;}
+@@ -10,8 +10,9 @@
+    Check(!reject,"controlled error must terminate at shared opaque failure sink");
+    ObserveSlot(list.native,*nr,*slot,"controlled-positive");
+    Capture::Copy(list.native,slot->neural,capture.half_readbacks[1],capture.half_footprints[1],slot->neural_state);
++   control_states.ObserveForRetire(list.native,flight);
+    ObserveAfterOpaque(list.native,*owner,frame,"controlled-positive");LeaveCriticalSection(&g_chain_cs);
+-   flight.Finish(f,list,frame);Capture::Save(capture.half_readbacks[1],capture.half_footprints[1],8,0,"clear-positive-rgba16f");
++   flight.Finish(f,list,frame);EnterCriticalSection(&g_chain_cs);control_states.AfterExactRetire(list.native,flight);LeaveCriticalSection(&g_chain_cs);Capture::Save(capture.half_readbacks[1],capture.half_footprints[1],8,0,"clear-positive-rgba16f");
+    const auto cleared=File(L"clear-positive-rgba16f-0.bin");Check(cleared.size()==size_t(rw)*rh*8,"typed clear exact full plane readback size");
+    for(size_t i=0;i<cleared.size();i+=2)Check(cleared[i]==0xd2&&cleared[i+1]==0xe4,"actual clear -1234 exact IEEE binary16 d2e4 bytes");
+    std::printf("CONTROL_POSITIVE sameSlot=%p sameCPUHeap=%p clearReadbackExact=1 scopeRestored=1 exactFenceAndReset=1 NRInit=0 NRCreate=0 NREval=0 combineCalls=%u parentReleaseCalls=%u\n",(void*)slot,(void*)flight.clear.heap,probe_combines,parent_release_calls);
+--- a/raw-nr-model-safe-host-v3/raw_nr_host.inl
++++ b/raw-nr-model-safe-host-v4/raw_nr_host.inl
+@@ -139,6 +139,7 @@
+  int valid=0,upscale=1,quality=0;Check(GetInt(ctx.params,"DLSSNR.Jitter.Valid",&valid)&&valid==1&&GetInt(ctx.params,"DLSSNR.Upscaling",&upscale)&&upscale==0&&GetInt(ctx.params,"PerfQualityValue",&quality)&&quality==5,"actual F18 fixed mode getters");
+ }
+ #include "opaque_control.inl"
++#include "control_slot_states.inl"
+ void RunGpu(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
+  const bool identity=mode=="codec-identity",opaque_control=mode=="opaque-stop-control",no_nr=identity||opaque_control;Check(no_nr||mode=="Z"||mode=="Z2"||mode=="J"||mode=="J2","fixed model cohorts or explicit no-NR controls");VerifyRuntime(pin,!no_nr);
+  // Legacy phase arrays retain exact 32-frame schedule/input bytes; only the
+@@ -165,7 +166,7 @@
+  SceneFactory factory;factory.Resolve(f,parent);factory.Query();factory.eval_params=factory.Allocate("raw-NR-entry-params");
+  // Native and signed NR loader/init domains remain distinct even on one device.
+  if(!no_nr){++nr_init_attempts;if(!EnsureNrApi(f.device))Fail("signed-NR-api");}if(!EnsureCodec(f.device))Fail("codec");Capture capture;capture.Make(f);
+- NrContext* nr=nullptr;NrFlight flight;
++ NrContext* nr=nullptr;NrFlight flight;ControlSlotStates control_states;
+  for(unsigned iteration=0;iteration<(opaque_control?2u:identity?1u:32u);++iteration){const unsigned frame=opaque_control?0u:iteration;bool continue_control=false;auto bytes=ReadPhase(frame,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->SelectFrame(frame);
+   if(frame==0)Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_DEST);
+   owner->colors[frame].FillAndRecord(list.native,bytes);factory.Bind(owner,frame);factory.Guard("raw-NR-input");
+@@ -175,7 +176,9 @@
+   Check(guides.jitter.known&&guides.jitter.x==phase_frames[frame].jx&&guides.jitter.y==phase_frames[frame].jy&&guides.has_motion_scale_x&&guides.has_motion_scale_y&&guides.valid_motion_scale_x&&guides.valid_motion_scale_y&&!guides.signature.resample_motion&&!guides.signature.linear_depth,"strict raw admission before codec or opaque call");
+   nr=FindOrCreateContext(parent,feature.generation,2,rw,rh,CodecColorMode::Automatic,guides.signature,false);Check(nr&&nr->feature_generation==feature.generation&&nr->sr_handle==parent,"real parent generation owns independent F18 context");++nr->frames_seen;
+   Check(PrepareContextUseLocked(list.native,*nr),"actual NR context recording admission");NrColorSemanticContract semantic{};semantic.flags_known=feature.create_flags_known;semantic.exposure=color;
++  if(opaque_control)control_states.BeforeFactory(*nr);
+   auto* slot=FindOrCreateSlot(*nr,f.device,owner->colors[frame].resource,false,nullptr,CodecColorMode::Automatic,feature.create_flags,&semantic);Check(slot&&!nr->failed,"actual typed slot factory");slot->active_render_width=rw;slot->active_render_height=rh;
++  if(opaque_control)control_states.Bind(*nr,*slot);
+   // Region-OFF Seal alone is a no-op: explicitly construct the immutable
+   // production codec plan and retain the two genuine raw guides.
+   nr_binding::Plan bindings{};bindings.primary_owner=slot;WriteCodecDescriptorSet(f.device,*slot,nullptr,&bindings.heaps[nr_binding::Consumer]);bindings.retained[0]=guides.depth;bindings.retained[1]=guides.motion;nr_binding::Refusal refusal{};
+--- /dev/null
++++ b/raw-nr-model-safe-host-v4/control_slot_states.inl
+@@ -0,0 +1,72 @@
++// Control-only state provenance. Never seeds the production observer table.
++struct ControlSlotStates {
++ NrContext* context=nullptr;NrSlot* slot=nullptr;bool fresh_factory=false,observed=false,retired=false;
++ std::array<ID3D12Resource*,2> resources{};
++ std::array<nr_source_runtime::Resource,2> identities{};
++ std::array<D3D12_RESOURCE_STATES,2> proven{};
++ unsigned long long prior_token=0,prior_native=0,prior_reset=0;
++ void BeforeFactory(NrContext& ctx){
++  if(slot){Check(context==&ctx&&retired,"control reuse only after its real exact retirement");return;}
++  Check(!fresh_factory&&ctx.frames_seen==1&&ctx.slot_serial==0,"control first factory in actual fresh context");
++  for(const auto& entry:ctx.slots)Check(!entry.key&&!entry.proxy&&!entry.neural,"actual entire slot pool empty before fresh allocation");
++  context=&ctx;fresh_factory=true;
++ }
++ void Bind(NrContext& ctx,NrSlot& value){
++  Check(context==&ctx,"control actual context identity unchanged");
++  if(slot){Check(slot==&value&&resources[0]==value.proxy&&resources[1]==value.neural,"control exact same live slot and resource owners");return;}
++  Check(fresh_factory&&ctx.slot_serial==1&&value.last_used_serial==1&&value.proxy&&value.neural&&value.proxy!=value.neural,
++   "successful fresh CreateSlot path allocates these exact two resources");
++  // The immutable actual Core path CreateSlot:9498 -> CreateTexture:9122-9124
++  // creates both textures with InitialResourceState COMMON. Empty pool above,
++  // successful factory return and this immediate binding exclude prior use.
++  Check(value.proxy_state==D3D12_RESOURCE_STATE_COMMON&&value.neural_state==D3D12_RESOURCE_STATE_COMMON,
++   "fresh actual factory COMMON contract matches slot scalars before first use");
++  slot=&value;resources={value.proxy,value.neural};
++  nr_source_runtime::Lock lock;
++  for(unsigned i=0;i<2;++i){identities[i]=nr_source_runtime::ResourceOf(resources[i]);Check(bool(identities[i]),"fresh owned resource actual lifetime and device identity");proven[i]=D3D12_RESOURCE_STATE_COMMON;}
++  std::printf("CONTROL_SLOT_FACTORY context=%p slot=%p proxy=%p neural=%p emptyPoolBefore=1 slotSerial=1 successfulActualCreateSlot=1 initialState=0 initialStateSource=actual-CreateTexture-COMMON neverPreviouslyUsed=1\n",(void*)context,(void*)slot,(void*)resources[0],(void*)resources[1]);
++ }
++ void Prepare(ID3D12GraphicsCommandList* list,NrFlight& flight,unsigned iteration){
++  Check(slot&&flight.slot==slot&&flight.owner==context&&iteration<2,"control state owner matches actual pinned flight");
++  if(iteration==0)Check(fresh_factory&&!observed&&!retired&&!prior_token,"first use requires actual fresh factory provenance");
++  else Check(observed&&retired&&flight.token!=prior_token&&flight.native_token==prior_native&&flight.reset==prior_reset+1,
++   "same resources carry actual prior observation only through exact fence and successful Reset");
++  const char* roles[]={"proxy","neural"};D3D12_RESOURCE_STATES* scalars[]={&slot->proxy_state,&slot->neural_state};
++  for(unsigned i=0;i<2;++i){
++   unsigned current=0;bool known=false;
++   {nr_source_runtime::Lock lock;Check(nr_source_runtime::ResourceOf(resources[i])==identities[i],"control resource lifetime/device unchanged");
++    known=nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),identities[i],current);}
++   Check(*scalars[i]==proven[i]&&(!known||current==unsigned(proven[i])),"control before state equals fresh factory or prior actual observed state");
++   const auto wanted=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++   const auto middle=proven[i]==wanted?D3D12_RESOURCE_STATE_COPY_SOURCE:wanted;
++   Transition(list,resources[i],*scalars[i],middle);if(middle!=wanted)Transition(list,resources[i],*scalars[i],wanted);
++   unsigned actual=0;bool actual_known=false;
++   {nr_source_runtime::Lock lock;actual_known=nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),identities[i],actual);}
++   std::printf("CONTROL_SLOT_PREPARE iteration=%u role=%s resource=%p token=%llu before=%u origin=%s middle=%u target=8 known=%u observed=%u priorToken=%llu priorReset=%llu\n",
++    iteration,roles[i],(void*)resources[i],flight.token,unsigned(proven[i]),iteration?"prior-actual-observer-after-exact-retirement":"actual-fresh-factory-COMMON",unsigned(middle),actual_known,actual,prior_token,prior_reset);
++   Check(actual_known&&actual==unsigned(wanted),"control real transition must establish current-recording state for each resource");
++  }
++  retired=false;
++ }
++ void ObserveForRetire(ID3D12GraphicsCommandList* list,NrFlight& flight){
++  Check(slot==flight.slot&&context==flight.owner&&!retired,"control state observation precedes its own retirement");
++  const char* roles[]={"proxy","neural"};const D3D12_RESOURCE_STATES scalars[]={slot->proxy_state,slot->neural_state};
++  nr_source_runtime::Lock lock;
++  for(unsigned i=0;i<2;++i){unsigned actual=0;
++   Check(nr_source_runtime::ResourceOf(resources[i])==identities[i]&&nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),identities[i],actual)&&actual==unsigned(scalars[i]),
++    "control saved state comes from actual observer after readback return transitions");
++   proven[i]=static_cast<D3D12_RESOURCE_STATES>(actual);
++   std::printf("CONTROL_SLOT_OBSERVED role=%s resource=%p token=%llu state=%u afterReadbackReturnTransitions=1\n",roles[i],(void*)resources[i],flight.token,actual);
++  }
++  prior_token=flight.token;prior_native=flight.native_token;prior_reset=flight.reset;observed=true;
++ }
++ void AfterExactRetire(ID3D12GraphicsCommandList* list,NrFlight& flight){
++  const auto native=SnapshotPostBoundaryList(list);
++  Check(observed&&!retired&&prior_token==flight.token&&native.known&&native.token==prior_native&&native.reset==prior_reset+1&&
++   !active_flight&&!flight.clear.pending&&!context->lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain.load(),
++   "control state carry follows completed NrFlight Finish exact fence Reset and clear-owner retirement");
++  Check(slot->recording_command_lists==0&&CanMutateSlotLocked(*slot),"same slot genuinely mutable after real exact retirement");
++  retired=true;
++  std::printf("CONTROL_SLOT_STATE_RETIRED token=%llu nativeToken=%llu observedReset=%llu completedReset=%llu sameResources=1 source=actual-StateOf-then-NrFlightFinish\n",prior_token,prior_native,prior_reset,native.reset);
++ }
++};

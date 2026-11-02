@@ -1,0 +1,19 @@
+# Native Feature1 SR-off — source review subset, hardware result pending
+
+This is project-owned review source, **not a portable host or complete actual-EXE source package**. It adds a genuine native Feature1 research route to a private copy of the previously executed scene fixture. There is no product/Core source change, no relabelled Feature13, no new ABI/ownership ledger/proxy and no addon/game claim. Required external full-Core/object/helper/bootstrap/runtime/SDK dependencies are intentionally not exported.
+
+Only the three-frame functional SR-off entry is implemented: two warm and one observed, R1280×720→O1920×1080, MaxQuality2, Default0, flags75. SR selected capability and real DLSSOptimalSettingsCallback must prove the exact fixed dimensions before Create; unavailable/wrong/unknown ownership refuses without scanning or fallback. The original initialized factory/domain, real command-state envelope, same-frame analytic scene and single pool, actual binding lease, exact queue/fence and successful Reset retirement are reused. NativeSR Create1/Eval3, four recordings/retirements and finite/full-write/nonblack output are **planned acceptance conditions, not executed results**.
+
+NR API/model/GPU is off; CPU command/source observers remain enabled to protect the independent research host, therefore this is not product master-off or a zero-cost-off/performance proof. No RR material/matrix guide contract is bound to SR. Its necessary color/output/depth/physicalMV resources, jitter=-sample displacement, MVScale1, first-frame Reset, zero subrect, source PreExposure.75/ExposureScale2 are explicit; SR optional resources are null. AutoExposure is ON and ExposureTexture absent, so model exposure is not claimed locked. Alpha has no accepted contract; only RGB is gated. Motion/reflection/general quality/game acceptance remain unverified. NR-on/capture/perf are rejected by this slice.
+
+CPU compilation exit0 and five pre-device CLI refusal controls exit2 passed. Frozen native packet SHA256 `0bdbc29d5ebbd0c566df3daf4a569b0e301c09bb7d8c1daf81a6c2639f5cc36b`; EXE SHA256 `154f272aa59ad1005904e55ec815265892c2cadb80a0674eab122ceaeabf053d`. Core commit `45df68dc80138e89778e544d49f15109ec437a4f`, src tree `7fe3819be240c0fad0eb16526e9d4b3ce0a67f87`. GPU has not run for this packet. Existing RR evidence, failed default-entry receipts and all historical frozen sources remain unchanged.
+
+| Review file | Original sealed own-source SHA256 | Public LF SHA256 |
+|---|---|---|
+| `sr_factory.inl` | `ad9096a5c4e27fcf8ec5517e05e5a2d4f8403ee1e45159f52cad3190a6b9efbf` | `ad9096a5c4e27fcf8ec5517e05e5a2d4f8403ee1e45159f52cad3190a6b9efbf` |
+| `sr_host.inl` | `c0d1d6caa9a8acaf1fd14c0e6b5571f961af389bfab1b94f8365ae95773a3df4` | `c0d1d6caa9a8acaf1fd14c0e6b5571f961af389bfab1b94f8365ae95773a3df4` |
+| `sr_main.inl` | `0883f01b930227889e8aa0f60d2b84d1c2f56ad845872197bab8c336afcc8f1b` | `0883f01b930227889e8aa0f60d2b84d1c2f56ad845872197bab8c336afcc8f1b` |
+
+Original sealed context-bearing critical diff SHA256 `d6e6f152d66a683a079f150f9a41a2f8b922628b11b85eadc8996a92a8168404`. Public zero-context diff SHA256 `6cf859db3fb5825c996323e9072031dfdbf5dc435cf517953b516bc37f2d477b` is generated from the same sanitized old/new owned text with relative labels and LF. No hunk-body whitespace stripping; if an absolute Core include appears it is replaced by REVIEW_ONLY_CORE_INCLUDE. This delta's unchanged Core include is outside the zero-context hunks. The original private diff was not altered.
+
+No vendor implementation/SDK header, binary/model, raw log/feedback, credential, machine path or game file is included. Public API key names are schema references. The subset does not independently reconstruct the actual executable. Root owns any later public commit and single GPU execution after independent review.

@@ -1,0 +1,92 @@
+"""Strict actual two-RR process/input/lease/output receipts. No quality verdict."""
+from pathlib import Path
+import re,sys
+import numpy as np
+sys.dont_write_bytecode=True
+ROOT=Path(__file__).resolve().parent;BASE=ROOT.parent
+sys.path.insert(0,str(BASE/'raw-nr-execution-v2-r1'))
+from runner_common import need,sha,RASTER,TUPLE
+from codec_receipt import one
+from ratio_oracle import compose
+NR_SHA='a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa'
+ROLES={'proxy-linear-rgba32f':16,'nr-proxy-linear-rgba32f':16,'proxy-encoded-rgba16f':8,'nr-encoded-rgba16f':8,'edited-stored-rgba16f':8,'clean-rr-rgba16f':8,'clean-edited-rgba16f':8,'raw-composite-rgba16f':8}
+def inspect(process,directory,dataset):
+ need(process['exit']==0,'actual two-RR process exit0')
+ text=(directory/'host.log').read_text(errors='replace')
+ need(not re.search(r'^STOP|^FAIL|^API_FAIL|^NR_RUNTIME_REFUSAL|^FATAL|^TERMINAL_|^INJECTION|^CONTROL_',text,re.M),'stop on any terminal/control/failure')
+ final=one(text,r'^PASS TWO_RR_APPROX_HOST mode=two-rr-approx parentCreate=1 parentEval=32 F18Create=1 F18Eval=32 SceneCreate=1 SceneEval=32 rawGuides=approximate Feature1=0 R=1280x720 O=1920x1080 RGBfiniteFullWrite=32 qualityVerdict=unknown$','complete final cleanup PASS')
+ need(not text[final.end():].strip(),'PASS must be last log line')
+ bootstrap=one(text,r'^BOOTSTRAP result=00000001 count=1$','one original native bootstrap only')
+ support=one(text,r'^PRECREATE_SUPPORTED R=1280x720 O=1920x1080 quality=2 exactOptimal=1 parentCreate=0 noDummyParent=1$','parent official exact optimal before Create')
+ parent=one(text,r'^PARENT_CREATE feature=13 result=00000001 calls=1 quality=2 preset=0 RtoO=1$','one original parent Create')
+ optimal=one(text,r'^OPTIMAL result=00000001 target=1280x720 perf=5$','child official R-to-R DLAA optimal')
+ child=one(text,r'^SCENE_CREATE index=1 feature=13 result=00000001 child=(\S+) parent=(\S+)$','independent child Create')
+ need(child.group(1)!=child.group(2) and bootstrap.start()<support.start()<parent.start()<optimal.start()<child.start(),'actual separate handle and create ordering')
+ factory=list(re.finditer(r'^FACTORY parent=(\S+) generation=(\d+) domain=(\d+) core=(\S+) capabilityOwner=(\S+) private=13 oldFeature1=unchanged$',text,re.M))
+ need(len(factory)==2 and factory[0].groups()==factory[1].groups() and factory[0].group(1)==child.group(2),'two factories retain same real original parent/device/init domain')
+ init=one(text,r'^NR_INIT_RECEIPT device=(\S+) identity=(\S+) attempted=1 actualEnsure=1 evidenceAvailable=1 stage=initialized result=00000001 nativeDomain=(\d+) nativeCore=(\S+) modelCalls=0$','one independent NR initialization')
+ need(init.group(3)==factory[0].group(3) and init.group(4)==factory[0].group(4),'actual same native original domain for NR owner gate')
+ owners=list(re.finditer(r'^NR_EXPORT_OWNER role=(NR|bridge|native-original) symbol=([^ ]+) address=(\S+) owner=(\S+) path=(.+) sha256=([0-9a-f]{64}) retained=1$',text,re.M))
+ modules={Path(row['path']).resolve():row for row in process['modules']}
+ need(len(owners)==10 and len({(m.group(1),m.group(2)) for m in owners})==10,'ten actual unique retained export owners')
+ for row in owners:
+  path=Path(row.group(5)).resolve();need(path in modules and sha(path)==modules[path]['sha256']==row.group(6),'actual retained export address/module/file tuple')
+  if row.group(1) in ('NR','bridge'):
+   name='nvngx_dlssnr.dll' if row.group(1)=='NR' else 'nrchain_nvngx.dll';digest=NR_SHA if name.startswith('nvngx_dlssnr') else TUPLE[name]
+   need(path==(directory/name).resolve() and sha(path)==digest,'exact adjacent NR/bridge tuple')
+  else:need(row.group(4)==factory[0].group(4),'original parameter allocator owner retained')
+ gates=list(re.finditer(r'^NR_RUNTIME_GATE stage=(Create|Evaluate) frame=(\d+) probeDomain=1 nativeDomain=(\d+) initDevice=(\S+) identity=(\S+) nrToken=(\d+) nativeToken=(\d+) nativeReset=(\d+) sourceList=(\d+) sourceLifetime=(\d+) sourceReset=(\d+) sourceDevice=(\d+) resourceLifetime=(\d+) resourceDevice=(\d+) exportOwners=10 pinned=1 unsubmitted=1 sameOwnedDevice=1$',text,re.M))
+ need([(m.group(1),int(m.group(2))) for m in gates]==[('Create',0)]+[('Evaluate',i) for i in range(32)],'one real Create and every Eval identity gate')
+ one(text,r'^F18_CREATE frame=0 result=00000001 handle=(\S+) calls=1$','one F18 Create')
+ child_calls=list(re.finditer(r'^SCENE_EVAL index=(\d+) call=(\d+) feature=13 result=00000001$',text,re.M))
+ nr_calls=list(re.finditer(r'^F18_EVAL frame=(\d+) result=00000001 calls=(\d+)$',text,re.M))
+ rr_calls=list(re.finditer(r'^ONE_RR_EVAL frame=(\d+) feature=13 result=00000001 calls=(\d+) token=(\d+) NRsameFlight=1$',text,re.M))
+ raw_begins=list(re.finditer(r'^ONE_RR_COLOR_BEGIN frame=(\d+) original=(\S+) replacement=(\S+) variant=1 nonColorSHA=([0-9a-f]{64}) token=(\d+) parentGeneration=(\d+) domain=(\d+)$',text,re.M))
+ raw_restores=list(re.finditer(r'^ONE_RR_COLOR_RESTORED frame=(\d+) actualTypedVoid=1 nonColorSHA=([0-9a-f]{64}) nativeEvalCalls=(\d+)$',text,re.M))
+ child_pins=list(re.finditer(r'^LEASE stage=approx-child-eval frame=(\d+) nrToken=(\d+) nativeToken=(\d+) nativeReset=(\d+) device=(\d+) queue=(\d+) resources=10 matrices=owned$',text,re.M))
+ final_pins=list(re.finditer(r'^LEASE stage=two-RR-approx-final frame=(\d+) nrToken=(\d+) nativeToken=(\d+) nativeReset=(\d+) device=(\d+) queue=(\d+) resources=10 matrices=owned$',text,re.M))
+ nr_pins=list(re.finditer(r'^NR_LEASE token=(\d+) nativeToken=(\d+) reset=(\d+) parentGeneration=(\d+) context=(\S+) slot=(\S+) packet=(\S+) capture=(\S+) matricesOwned=1$',text,re.M))
+ retire=r' frame=(\d+) token=(\d+) nativeToken=(\d+) queue=(\d+) fence=(\S+) value=(\d+) completed=(\d+)'
+ nr_retired=list(re.finditer('^NR_RETIRED'+retire+'$',text,re.M));child_retired=list(re.finditer('^APPROX_CHILD_RETIRED'+retire+' sameNRFlight=1$',text,re.M));comp_retired=list(re.finditer('^APPROX_COMPOSITION_RETIRED'+retire+' sameNRFlight=1$',text,re.M));final_retired=list(re.finditer('^ONE_RR_CONSUMER_RETIRED'+retire+' sameNRFlight=1$',text,re.M))
+ groups=[child_calls,nr_calls,rr_calls,raw_begins,raw_restores,child_pins,final_pins,nr_pins,nr_retired,child_retired,comp_retired,final_retired]
+ need(all(len(rows)==32 for rows in groups),'32 full child/NR/final RR/packet retirement pairs')
+ for i in range(32):
+  c,n,r,b,s,cp,fp,npin,nret,cret,cret2,fret=[rows[i] for rows in groups]
+  need([int(row.group(1)) for row in (c,n,r,b,s,cp,fp,nret)]==[i]*8 and int(c.group(2))==int(n.group(2))==int(r.group(2))==i+1,'one sequential child/NR/parent evaluation per frame')
+  need(cp.groups()==fp.groups() and cp.group(2)==npin.group(1)==r.group(3)==b.group(5) and cp.group(3)==npin.group(2) and cp.group(4)==npin.group(3),'all consumers share exact actual recording/native/reset')
+  need(nret.groups()==cret.groups()==cret2.groups()==fret.groups() and nret.group(2)==cp.group(2) and nret.group(3)==cp.group(3) and nret.group(4)==cp.group(6) and 0<int(nret.group(6))<=int(nret.group(7)),'every dependency exact same real queue/fence/value and successful Reset retirement')
+  need(b.group(2)!=b.group(3) and b.group(4)==s.group(2) and int(s.group(3))==i+1 and b.group(6)==factory[0].group(2) and b.group(7)==factory[0].group(3),'actual Color-only swap and all original guide/scalar/matrix aliases restored')
+  need(cp.start()<c.start()<npin.start()<n.start()<fp.start()<b.start()<r.start()<s.start()<nret.start()<cret.start()<cret2.start(),'child then NR then original parent then retirement')
+ for gate in gates:
+  p=nr_pins[int(gate.group(2))];need(gate.group(3)==init.group(3) and gate.group(4)==init.group(1) and gate.group(5)==init.group(2) and gate.group(6)==p.group(1) and gate.group(7)==p.group(2) and gate.group(8)==p.group(3) and gate.group(12)==gate.group(14),'actual NR gate belongs to pinned parent/domain/device/recording')
+ contracts=list(re.finditer(r'^CONTRACT_SHA256 index=(\d+) value=([0-9a-f]{64})$',text,re.M));need(len(contracts)==64 and [(int(contracts[i*2].group(1)),int(contracts[i*2+1].group(1))) for i in range(32)]==[(i,i) for i in range(32)] and all(contracts[i*2].group(2)==contracts[i*2+1].group(2) for i in range(32)),'child and original parent bind identical original raw guides/scalars/jitter/matrices before child Output override')
+ approximate=list(re.finditer(r'^APPROX_NR_GUIDES frame=(\d+) colorPhase=0 jitter=0 rawDepth=1 rawMV=1 rawVisibilityApproximate=1 exactCleanGuideClaim=0 layers=1 N=R=1$',text,re.M));need([int(m.group(1)) for m in approximate]==list(range(32)),'explicit approximate guide contract for every NR call')
+ outputs={}
+ for m in re.finditer(r'^OUTPUT frame=(\d+) role=([^ ]+) file=([^ ]+) sha256=([0-9a-f]{64}) bytes=(\d+)$',text,re.M):
+  frame,role,name,digest,size=m.groups();frame=int(frame);need(role in ROLES and name==role+'-'+str(frame)+'.bin','known output attachment role/frame')
+  path=directory/name;need(path.stat().st_size==int(size)==1280*720*ROLES[role] and sha(path)==digest,'actual complete attachment bytes/hash');need((frame,role) not in outputs,'no duplicate attachment');outputs[frame,role]=path
+ need(set(outputs)=={(i,r) for i in range(32) for r in ROLES},'eight exact intermediate attachments every frame')
+ diagnostics=[];final_outputs=[]
+ for frame in dataset['input_sets']['J']['frames']:
+  i=frame['frame'];p=RASTER/'inputs/J'/('frame-'+str(i))/'radiance-rgba16f.bin';need(sha(p)==frame['sha256']['radiance-rgba16f.bin'],'exact J radiance source')
+  raw=np.fromfile(p,dtype='<f2').reshape(720,1280,4);c=np.fromfile(outputs[i,'clean-rr-rgba16f'],dtype='<f2').reshape(raw.shape);a=np.fromfile(outputs[i,'clean-edited-rgba16f'],dtype='<f2').reshape(raw.shape);actual=np.fromfile(outputs[i,'raw-composite-rgba16f'],dtype='<f2').reshape(raw.shape)
+  need(np.all(np.isfinite(c[:,:,:3])) and np.all(c.view('<u2')[:,:,:3]!=0xe4d2),'private RR finite full RGB write, no poisoned RGB')
+  need(outputs[i,'clean-edited-rgba16f'].read_bytes()==outputs[i,'edited-stored-rgba16f'].read_bytes(),'composition edited source is actual production NR stored result')
+  schedule=frame.get('jitter',None)
+  # Frozen exact quarter/eighth-pixel schedule is parsed from the actual host array.
+  schedule_text=(ROOT/'host/phase_schedule.inl').read_text().split('phase_J[32]={',1)[1].split('};',1)[0]
+  values=re.findall(r'\{([^}]+)\}',schedule_text)[i].split(',');j=[float(v.rstrip('f')) for v in values[6:8]]
+  predicted,counts,accepted=compose(raw,c,a,(-j[0],-j[1]))
+  need(np.array_equal(actual.view('<u2')[~accepted],raw.view('<u2')[~accepted]),'every identity/refused pixel keeps all raw FP16 bits')
+  need(np.array_equal(actual.view('<u2')[:,:,3],raw.view('<u2')[:,:,3]),'actual composite alpha retains raw bits')
+  # Float32 shader FMA/optimizer rounding can move an accepted result one FP16 ULP.
+  delta=np.abs(actual.view('<u2')[:,:,:3].astype(np.int32)-predicted.view('<u2')[:,:,:3].astype(np.int32));delta=np.where(actual[:,:,:3]==predicted[:,:,:3],0,delta) # edited RGB may numerically equal signed zero; identity/refused bits were checked strictly above
+  need(np.all(np.isfinite(actual[:,:,:3])) and (not accepted.any() or int(delta[accepted].max())<=1),'actual accepted GPU values match independent ratio oracle within one FP16 ULP')
+  out=directory/('native-rr-output-rgba16f-'+str(i)+'.bin');need(out.stat().st_size==1920*1080*8,'full O output extent')
+  rgb=np.fromfile(out,dtype='<u2').reshape(1080,1920,4)[:,:,:3];need(np.all((rgb&0x7c00)!=0x7c00) and np.all(rgb!=0xe4d2),'actual original parent finite full RGB write')
+  final_outputs.append({'frame':i,'file':str(out),'sha256':sha(out),'bytes':out.stat().st_size,'observe':i>=16})
+  diagnostics.append({'frame':i,'observe':i>=16,'composition':counts,'max_FP16_ULP':int(delta[accepted].max()) if accepted.any() else 0,'quality_verdict':'unknown'})
+ for name,digest in {**TUPLE,'nvngx_dlssnr.dll':NR_SHA}.items():need(sha(directory/name)==digest,'exact actual runtime tuple')
+ release=one(text,r'^SCENE_RELEASE result=00000001 outsideChain=1$','private child release after exact retirement');owners_release=one(text,r'^NR_RUNTIME_OWNERS_RELEASE domain=1 exportOwners=10 initDevice=(\S+) afterContextDestroy=1 afterParentRelease=1 afterExactFlights=32$','NR export owners released after all retired work')
+ need(comp_retired[-1].start()<release.start()<owners_release.start()<final.start(),'actual final packet retirement precedes child/context/parent/export-owner release')
+ return {'status':'passed-bounded-two-RR-approximate-functional-only','bound_raw_contract_sha256':[contracts[i*2].group(2) for i in range(32)],'nonColor_contract_sha256':[m.group(2) for m in raw_restores],'parent_Create_Eval':[1,32],'private_child_Create_Eval':[1,32],'NR_Init_Create_Eval':[1,1,32],'intermediate_attachments':256,'exact_model_recordings':34,'one_RR_outputs':final_outputs,'composition_diagnostics':diagnostics,'raw_guides':'explicitly-approximate','quality_performance_game':'unknown'}

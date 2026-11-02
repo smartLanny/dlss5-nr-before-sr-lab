@@ -1,0 +1,92 @@
+{
+  "schema": "source-derived-alpha-domain-CPU-3D-v1",
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "old_shader_sha256": "dcd53778f086b9e79d373be54515cebb49210b479e574878d4eb2eb74a7b8251",
+  "new_shader_sha256": "0861c4aafd57f31cd0062a46630e5d4c39cb74208c09d1f4c6faa9482c162be8",
+  "old_oracle_sha256": "8b7cf6d20056dcccaf5cdeace2018bf0432e47242bdcbd90ef4d9e86e05bd53e",
+  "new_oracle_sha256": "e94a1c8ce6f933b50fee336cf133f0d95550186b8553ea452ff9f0a74e3fb312",
+  "actual_shader_single_predicate_change_proven": true,
+  "old_allowed_alpha": 0.75,
+  "new_allowed_alpha": 1.0,
+  "new_allowed_alpha_u16": 15360,
+  "tests": [
+    {
+      "name": "actual-flat-v3-alpha-predicate-rejects-proven-3D-0x3c00",
+      "pass": true,
+      "old_shader_threshold": 0.75,
+      "raw_alpha_u16": 15360
+    },
+    {
+      "name": "actual-new-alpha-predicate-allows-proven-0x3c00",
+      "pass": true,
+      "new_shader_threshold": 1.0,
+      "predicted_RGB": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "alpha_u16": 15360
+    },
+    {
+      "name": "unknown-alpha-flat-point75-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 14848
+    },
+    {
+      "name": "unknown-alpha-unknown-half-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 14336
+    },
+    {
+      "name": "unknown-alpha-positive-zero-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 0
+    },
+    {
+      "name": "unknown-alpha-negative-zero-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 32768
+    },
+    {
+      "name": "unknown-alpha-NaN-payload-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 32375
+    },
+    {
+      "name": "unknown-alpha-signaling-NaN-payload-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 32053
+    },
+    {
+      "name": "unknown-alpha-positive-infinity-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 31744
+    },
+    {
+      "name": "unknown-alpha-negative-infinity-refuses-full-raw-bits",
+      "pass": true,
+      "raw_alpha_u16": 64512
+    },
+    {
+      "name": "identity-does-not-write-arbitrary-raw-bits",
+      "pass": true,
+      "raw_u16": [
+        32309,
+        32768,
+        48128,
+        32375
+      ]
+    },
+    {
+      "name": "known-alpha-rejected-RGB-NaN-preserves-payload-and-zero",
+      "pass": true
+    },
+    {
+      "name": "1-half-float-half-exact",
+      "pass": true
+    }
+  ],
+  "limitation": "predicate extracted from actual HLSL, shader compile plus CPU mathematical oracle; not GPU equivalence or NGX validation"
+}

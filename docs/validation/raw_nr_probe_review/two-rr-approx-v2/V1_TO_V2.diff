@@ -1,0 +1,80 @@
+--- sanitized-v1/approx_resources.inl
++++ sanitized-v2/approx_resources.inl
+@@ -28 +28 @@
+-  Barrier(list,resource,state,wanted);state=wanted;
++  if(state!=wanted)Barrier(list,resource,state,wanted);state=wanted;
+@@ -39,0 +40,5 @@
++  // The retained codec root spans t0..t12 and u0..u7. Allocate and initialize
++  // that full table; the experimental shader uses only t0/t1/t2/u0.
++  static_assert(kCodecDescriptorCount==21);
++  for(unsigned i=0;i<kCodecSrvCount;++i)table.Srv(i,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
++  for(unsigned i=0;i<kCodecUavCount;++i)table.Uav(kCodecSrvCount+i,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+@@ -42 +47,5 @@
+-  nr_binding::Refusal refusal{};auto* packet=AcquireBindingPacket(f.device,list,nr,plan,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),&nr);return packet;
++  Check(table.count==kCodecDescriptorCount,"composition plan spans full declared codec root");
++  nr_binding::Refusal refusal{};auto* packet=AcquireBindingPacket(f.device,list,nr,plan,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),&nr);
++  const auto desc=ID3D12DescriptorHeap_GetDesc(packet->heaps[nr_binding::Codec]);Check(desc.NumDescriptors==kCodecDescriptorCount,"actual immutable composition heap spans full root table");
++  for(unsigned i=0;i<kCodecDescriptorCount;++i)Check(packet->plan.heaps[nr_binding::Codec].views[i].kind==(i<kCodecSrvCount?nr_binding::ViewKind::Srv2D:nr_binding::ViewKind::Uav2D),"actual complete typed composition table, including null views");
++  std::printf("APPROX_LAYOUT frame=%u SRV=13 UAV=8 actualHeap=21 allViewsTyped=1 shaderReads=t0,t1,t2 writes=u0\n",frame);return packet;
+--- sanitized-v1/run_two_rr.py
++++ sanitized-v2/run_two_rr.py
+@@ -1 +1 @@
+-"""Explicit root GO only: three fixed J histories in fresh output, serial and fail-fast."""
++"""Explicit root GO: one new v2 J history with exact pinned v1 controls, fail-fast."""
+@@ -6 +6,4 @@
+-ROOT=Path(__file__).resolve().parent;BASE=ROOT.parent;OUTPUT=BASE/'two-rr-approx-v1-r1'
++ROOT=Path(__file__).resolve().parent;BASE=ROOT.parent;OUTPUT=BASE/'two-rr-approx-v2-r1'
++V1=BASE/'two-rr-approx-v1-r1';V1_REVIEW=BASE/'two-rr-approx-v1-r1-cpu-review'
++V1_SHA='97475bee24b6cf47828b0fc2f88e8074f868b6f6eba9f66c625d1468a5fe492f'
++V1_REVIEW_SHA='32630ebbb699c0ec938144913529095554202c8b910461ac96c0b1483971348e'
+@@ -9 +11,0 @@
+-from one_rr_receipt import inspect as inspect_one
+@@ -23,0 +26,4 @@
++ v1=verify_manifest(V1,V1_SHA);v1_review=verify_manifest(V1_REVIEW,V1_REVIEW_SHA)
++ prior=json.loads((V1/'runs.json').read_text());need(set(prior['histories'])=={'baseline','variant'},'only the two completed exact v1 controls may be inherited')
++ review=json.loads((V1_REVIEW/'SUMMARY.json').read_text());need(review['completed_histories']==['baseline','variant'] and review['exact_retired_recordings_actual']==68 and review['twoRR_frame_recording_submitted']==False,'exact independent v1 review distinguishes failed unsubmitted arm')
++ recomputed=json.loads((V1_REVIEW/'RECOMPUTED_EXISTING_HISTORIES.json').read_text());need(all(prior['histories'][name]['receipt']==recomputed[name] for name in ['baseline','variant']),'inherited original actual receipts equal independently recomputed CPU receipts')
+@@ -25 +31 @@
+- need(shutil.disk_usage(BASE).free>12*1024**3,'bounded evidence and runtime-copy space')
++ need(shutil.disk_usage(BASE).free>8*1024**3,'one bounded new history and runtime-copy space')
+@@ -27,3 +33,3 @@
+- save(OUTPUT/'PREFLIGHT.json',{'own':own,'inherited':inherited,'frozen_functional_oneRR':old,'raster':raster,'NR_signature':source_signature})
+- state={'status':'running','history_order':['baseline','variant','two-rr-approx'],'attempts':0,'retry':False,'GPU_authorization':'explicit-root-two-rr-go','maximum_processes':3,'maximum_frames_per_process':32}
+- runs={'schema':'three-independent-J-twoRR-rawGuide-approximate-v1','source_manifest':own,'input_dataset_sha256':sha(RASTER/'dataset.json'),'histories':{},'quality_performance_game':'unknown'}
++ save(OUTPUT/'PREFLIGHT.json',{'own':own,'inherited':inherited,'frozen_functional_oneRR':old,'raster':raster,'NR_signature':source_signature,'v1_actual':v1,'v1_independent_review':v1_review})
++ state={'status':'running','history_order':['two-rr-approx'],'inherited_control_histories':['baseline','variant'],'attempts':0,'retry':False,'GPU_authorization':'explicit-root-two-rr-go','maximum_processes':1,'maximum_frames_per_process':32}
++ runs={'schema':'one-new-v2-J-twoRR-with-explicit-pinned-v1-controls','source_manifest':own,'input_dataset_sha256':sha(RASTER/'dataset.json'),'histories':{name:prior['histories'][name] for name in ['baseline','variant']},'inherited_controls':{'histories':['baseline','variant'],'actual':v1,'independent_review':v1_review,'actual_EXE_sha256':'1158ef0e3adf42e827715b7c909553ca5d7511d40e77edc1ba8b822c160a9716','binary_identity_differs_from_v2':True,'old_results_unchanged':True},'quality_performance_game':'unknown'}
+@@ -45 +51 @@
+-   receipt=inspect_two(process,directory,dataset) if mode=='two-rr-approx' else inspect_one(process,directory,mode,dataset)
++   receipt=inspect_two(process,directory,dataset)
+@@ -47,2 +53,2 @@
+-  receipts={name:runs['histories'][name]['receipt'] for name in state['history_order']}
+-  need(all(receipts[name]['bound_raw_contract_sha256']==receipts['baseline']['bound_raw_contract_sha256'] for name in state['history_order']),'three actual normalized raw input/guide/jitter/scalar/matrix contracts match')
++  comparison=['baseline','variant','two-rr-approx'];receipts={name:runs['histories'][name]['receipt'] for name in comparison}
++  need(all(receipts[name]['bound_raw_contract_sha256']==receipts['baseline']['bound_raw_contract_sha256'] for name in comparison),'new v2 and explicitly inherited v1 normalized raw input/guide/jitter/scalar/matrix contracts match')
+@@ -54 +60 @@
+-   arrays={name:np.fromfile(receipts[name]['one_RR_outputs'][i]['file'],dtype='<f2').reshape(1080,1920,4)[:,:,:3].astype(np.float64) for name in state['history_order']}
++   arrays={name:np.fromfile(receipts[name]['one_RR_outputs'][i]['file'],dtype='<f2').reshape(1080,1920,4)[:,:,:3].astype(np.float64) for name in comparison}
+@@ -58 +64 @@
+-  state.update({'status':'passed-bounded-three-history-twoRR-approximate-functional-only','histories':3,'native_parent_Creates':3,'native_parent_Evals':96,'private_child_Create_Eval':[1,32],'NR_Init_Create_Eval':[2,2,64],'exact_model_recordings':100,'raw_guides':'explicitly-approximate','game_route_enabled':False,'quality_performance_game':'unknown'})
++  state.update({'status':'passed-bounded-twoRR-v2-with-pinned-v1-controls-functional-only','new_histories':1,'inherited_control_histories':['baseline','variant'],'new_native_parent_Create_Eval':[1,32],'new_private_child_Create_Eval':[1,32],'new_NR_Init_Create_Eval':[1,1,32],'new_exact_model_recordings':34,'inherited_control_exact_model_recordings':66,'comparison_set_exact_model_recordings':100,'raw_guides':'explicitly-approximate','game_route_enabled':False,'quality_performance_game':'unknown'})
+--- sanitized-v1/two_rr_receipt.py
++++ sanitized-v2/two_rr_receipt.py
+@@ -63,0 +64 @@
++ layouts=list(re.finditer(r'^APPROX_LAYOUT frame=(\d+) SRV=13 UAV=8 actualHeap=21 allViewsTyped=1 shaderReads=t0,t1,t2 writes=u0$',text,re.M));need([int(m.group(1)) for m in layouts]==list(range(32)),'actual full typed 21-descriptor composition layout every frame')
+--- sanitized-v1/README.md
++++ sanitized-v2/README.md
+@@ -1 +1,3 @@
+-# 私有 two-RR approximate 实验 v1
++# 私有 two-RR approximate 实验 v2
++
++v1 的实际第0帧 Close 返回80070057，没有该帧Submit/完成/读回。确定缺陷：Move即使实际before==wanted也发transition；clean在NR暖机copy后为64，Compose再次Move(clean,64)发出非法64→64。v2先读取实际observer状态，只有state不同才发transition；显式UAVbarrier保持。另独立修正声明21槽codec root却仅分配14槽的layout，完整初始化13个typed null SRV和8个typed null UAV，再覆盖实际4个绑定。第二项是静态layout合同缺陷，未把v1首个Close错误归因于它。算法、NR、NGX参数、owner/fence/Reset准入保持v1合同。CPU实际Move源码反例见CPU_RECORDING_CONTRACT.json；不是实际D3D12/NGX运行。
+@@ -5 +7 @@
+-固定三条新进程历史 `baseline` / `variant` / `two-rr-approx`；每条 J 32 帧，16 暖机 + 16 观测，R=N=1280×720，O=1920×1080，不改变输入/质量/层数。至多 3 个进程、96 原始 parent RR Eval、32 私有 child RR Eval、64 NR Eval；遇到首个失败停止，无同帧 fallback/retry。
++固定三条对照历史 `baseline` / `variant` / `two-rr-approx`；每条 J 32 帧，16 暖机 + 16 观测，R=N=1280×720，O=1920×1080，不改变输入/质量/层数。v2只新运行two-rr-approx一个进程：32原始parent RR Eval、32私有child RR Eval、32 NR Eval、34个模型/创建recording。两个控制臂严格继承v1已完成的实际64帧，以原actual manifest97475bee…及独立CPU review32630ebb…固定，保留旧EXE1158ef0e…与原文件路径；不把旧结果改名为v2同binary。comparison set的100个recording=继承66+新34，v1失败臂的2个Create退休另留在原失败证据中，不算入comparison set。遇到首个失败停止，无同帧fallback/retry。
+@@ -7 +9 @@
+-`baseline` 和 `variant` 复用已实际通过的 oneRR 主循环。新路线：raw R → 独立 DLAA RR R→R → clean R → 单层 NR N=R → edited R → 逐 tap ratio 后正权双线性以 `-j` 搬移 → 乘 raw 成 composite R → 原始 parent RR R→O。三张 clean/edited/composite 资源分别独立。原始 parent 的 depth/MV/normal/roughness/albedo/matrices/exposure/jitter/subrect 等参数完全沿用 frozen 实际 oneRR getter 合同，只替换 Color。
++`baseline` 和 `variant` 显式继承已实际通过的v1 oneRR控制结果；共享主循环源码与v1逐文件相同。新路线：raw R → 独立 DLAA RR R→R → clean R → 单层 NR N=R → edited R → 逐 tap ratio 后正权双线性以 `-j` 搬移 → 乘 raw 成 composite R → 原始 parent RR R→O。三张 clean/edited/composite 资源分别独立。原始 parent 的 depth/MV/normal/roughness/albedo/matrices/exposure/jitter/subrect 等参数完全沿用 frozen 实际 oneRR getter 合同，只替换 Color。
+@@ -17 +19 @@
+-后续由 root 在 Astra high 审查后串行执行 `python run_two_rr.py --root-two-rr-go`。固定新输出目录 `../two-rr-approx-v1-r1`，存在即拒绝。当前本包尚未 GPU 运行，质量/性能/游戏验收均 unknown；原候选不包含新 two-RR 功能。参考截图不能作为本实验验收。
++后续由 root 在 Astra high 审查后串行执行 `python run_two_rr.py --root-two-rr-go`。固定新输出目录 `../two-rr-approx-v2-r1`，存在即拒绝。v1及其失败actual封存不动。当前v2尚未 GPU 运行，质量/性能/游戏验收均 unknown；原候选不包含新 two-RR 功能。参考截图不能作为本实验验收。

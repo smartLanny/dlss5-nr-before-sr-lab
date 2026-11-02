@@ -1,0 +1,24 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "actual_processes_created": 0,
+  "fake_child_still_live_after_actual_timeout_branch": true,
+  "termination_calls": 0,
+  "timeout_process_receipt_saved": true,
+  "actual_launch_support_has_no_kill_terminate_send_signal_wait_calls": true,
+  "old_unsafe_launch_and_guard_not_imported": true,
+  "known_process_regex_actual_source_cases": [
+    "scene-two-rr.exe",
+    "scene-bench.exe",
+    "x86_64-w64-mingw32-clang++.exe",
+    "clang.exe",
+    "clang-cl.exe",
+    "HTGame.exe",
+    "raw-nr-phase.exe",
+    "ffmpeg.exe"
+  ],
+  "all_known_cases_detected": true,
+  "timeout_outer_runner_policy": "STOP retained PID; do not seal mutable output while child can still write",
+  "scope": "actual support function with fake process; not GPU runtime/timeout acceptance"
+}

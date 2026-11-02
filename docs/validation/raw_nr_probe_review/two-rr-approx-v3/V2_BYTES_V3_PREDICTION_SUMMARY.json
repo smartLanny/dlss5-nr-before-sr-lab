@@ -1,0 +1,20 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "new_actual_run": false,
+  "scope": "v3 mathematical prediction over immutable v2 child/NR outputs, not v3 actual evidence or RR determinism claim",
+  "preserved_v2_actual_manifest_sha256": "978c8e81f713d3bb17b2f7e7dce4ead483a703b392af1148c387d9ff9b029a4e",
+  "approved_alpha_u16": 14848,
+  "every_old_byte_observed_frame_predicts_nonzero_RGB_edits": true,
+  "warmup_totals": {
+    "accepted": 12848838,
+    "identity": 1880046,
+    "refused": 16716
+  },
+  "observed_totals": {
+    "accepted": 14681202,
+    "identity": 47682,
+    "refused": 16716
+  },
+  "observed_predicted_RGB_changed": 14530859
+}

@@ -1,0 +1,295 @@
+// Included after the complete assembled Core and existing real WARP helpers.
+// Uses actual command-state observation, NrSlot binding and queue/fence ledger.
+// Color/parameters/source/module facts are controlled fixture inputs; no NGX/RR model.
+#include "nr_rr_identity_dx12.hpp"
+#include <map>
+#include <vector>
+namespace rr_identity_core_test {
+using namespace nr_rr_identity;
+using queue_test::Check;
+using queue_test::Hr;
+constexpr unsigned read_state=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+NrContext context; // Production objects remain off the caller's small stack.
+bool RetireCandidate(Context*& candidate){
+    // Evaluate holds the original chain scope below. Cold Collect/Retire must
+    // also hold it while consulting and releasing the production binding lease.
+    EnterCriticalSection(&g_chain_cs);const bool retired=nr_rr_identity::Retire(candidate);
+    LeaveCriticalSection(&g_chain_cs);return retired;
+}
+void Barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after){
+    D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};
+    ID3D12GraphicsCommandList_ResourceBarrier(list,1,&barrier);
+}
+
+struct Params {
+    NgxParams base{};void* table[17]{};
+    ID3D12Resource *color=nullptr,*output=nullptr;
+    float pre_exposure=.75f,exposure_scale=2.f;
+    static NgxResult GetTyped(const NgxParams* p,const char* key,ID3D12Resource** out){
+        auto& self=*reinterpret_cast<const Params*>(p);
+        *out=std::strcmp(key,"Color")==0?self.color:std::strcmp(key,"Output")==0?self.output:nullptr;
+        return kNgxSuccess; // Explicitly absent other resources in this controlled scene.
+    }
+    static NgxResult GetVoid(const NgxParams* p,const char* key,void** out){
+        ID3D12Resource* value=nullptr;auto r=GetTyped(p,key,&value);*out=value;return r;
+    }
+    static void SetTyped(NgxParams* p,const char* key,ID3D12Resource* value){
+        if(std::strcmp(key,"Color")==0)reinterpret_cast<Params*>(p)->color=value;
+    }
+    static void SetVoid(NgxParams* p,const char* key,void* value){SetTyped(p,key,static_cast<ID3D12Resource*>(value));}
+    static NgxResult Float(const NgxParams* p,const char* key,float* value){
+        auto& self=*reinterpret_cast<const Params*>(p);
+        if(std::strcmp(key,"DLSS.Pre.Exposure")==0)*value=self.pre_exposure;
+        else if(std::strcmp(key,"DLSS.Exposure.Scale")==0)*value=self.exposure_scale;
+        else return 0xBAD00004u;return kNgxSuccess;
+    }
+    Params(){base.vtable=table;table[0]=(void*)SetVoid;table[1]=(void*)SetTyped;
+        table[8]=(void*)GetVoid;table[9]=(void*)GetTyped;table[14]=(void*)Float;}
+    Parameters Api(){return {&base,
+        [](void* p,const char* k,bool typed,void** v)->Result{
+            auto* raw=static_cast<NgxParams*>(p);
+            if(typed){ID3D12Resource* r=nullptr;auto get=reinterpret_cast<GetD3D12Fn>(raw->vtable[9]);
+                const auto result=get(raw,k,&r);*v=r;return result;}
+            return reinterpret_cast<GetVoidFn>(raw->vtable[8])(raw,k,v);},
+        [](void* p,const char* k,bool typed,void* v){
+            if(typed)SetTyped(static_cast<NgxParams*>(p),k,static_cast<ID3D12Resource*>(v));
+            else SetVoid(static_cast<NgxParams*>(p),k,v);}};}
+};
+
+struct Adapter {
+    queue_test::Fixture& fixture;
+    ID3D12GraphicsCommandList* list=nullptr;
+    NrBindingPacket* packet=nullptr;
+    unsigned long long lifecycle_token=0;
+    std::unique_ptr<NativeCommandStateScope> state;
+    ID3D12PipelineState* alternate_pipeline=nullptr;
+    ID3D12DescriptorHeap* alternate_heap=nullptr;
+    unsigned captures=0,restores=0,records=0,releases=0,consumers=0;
+    explicit Adapter(queue_test::Fixture& value):fixture(value){}
+    bool Current(const Frame& f){
+        const auto identity=SnapshotPostBoundaryList(list);
+        auto* queue=FindGraphicsQueueRecordLocked(fixture.a);
+        return identity.known&&queue&&f.recording.device==identity.device&&
+            f.recording.list==identity.address&&f.recording.lifetime==identity.token&&
+            f.recording.reset==identity.reset+1&&f.recording.queue==queue->identity&&
+            !context.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain.load();
+    }
+    LeaseAdapter Leases(){return {this,
+        [](void* p,const Frame& f){return static_cast<Adapter*>(p)->Current(f);},
+        [](void* p,const Frame& f,ID3D12Resource* original,ID3D12Resource* copy)->void*{
+            auto& a=*static_cast<Adapter*>(p);if(!a.Current(f)||a.packet)return nullptr;
+            nr_binding::Plan plan;plan.primary_owner=&context.slots[0];
+            plan.heaps[nr_binding::Codec].Srv(0,original,static_cast<DXGI_FORMAT>(f.color.format));
+            plan.heaps[nr_binding::Codec].Srv(1,copy,static_cast<DXGI_FORMAT>(f.color.format));
+            a.packet=AcquireBindingPacket(a.fixture.device,a.list,context,plan);
+            if(!a.packet)return nullptr;
+            Check(ReadLifecycleToken(a.list,a.lifecycle_token)&&a.lifecycle_token!=0,
+                "LEASE_PINNED_BEFORE_FIRST_COPY");
+            auto* record=FindLifecycleCommandListLocked(a.lifecycle_token);bool owns=false;
+            if(record)for(unsigned i=0;i<record->slot_count;++i)owns|=record->slots[i]==&a.packet->lease;
+            Check(owns&&a.packet->lease.recording_command_lists==1&&context.recording_command_lists==1,
+                "LEASE_PINNED_BEFORE_FIRST_COPY");
+            Check(!CanMutateSlotLocked(a.packet->lease),"recording alone forbids private copy mutation");
+            ++a.records;return a.packet;},
+        [](void* p,void* lease){auto& a=*static_cast<Adapter*>(p);auto* record=FindLifecycleCommandListLocked(a.lifecycle_token);
+            if(lease!=a.packet||!record||record->detached)return false;
+            Check(record->submission_count==0&&a.packet->lease.recording_command_lists==1,
+                "native consumer enters while actual recording lease is pinned");++a.consumers;return true;},
+        [](void* p,void* lease,unsigned* observed){auto& a=*static_cast<Adapter*>(p);
+            if(lease!=a.packet)return false;
+            nr_source_runtime::Lock source_lock;
+            const auto recording=nr_source_runtime::RecordingOf(a.list);
+            return nr_source_runtime::StateOf(recording,nr_source_runtime::ResourceOf(a.packet->plan.heaps[nr_binding::Codec].views[1].resource),*observed);},
+        [](void* p,void* lease){auto& a=*static_cast<Adapter*>(p);return lease==a.packet&&
+            !context.lifecycle_dependencies_quarantined&&!g_lifecycle_tracking_uncertain.load()&&
+            SUCCEEDED(ID3D12Device_GetDeviceRemovedReason(a.fixture.device));},
+        [](void* p,void* lease){auto& a=*static_cast<Adapter*>(p);return lease==a.packet&&
+            !context.lifecycle_dependencies_quarantined&&CanMutateSlotLocked(a.packet->lease);},
+        [](void* p,void* lease){auto& a=*static_cast<Adapter*>(p);
+            Check(lease==a.packet&&CanMutateSlotLocked(a.packet->lease),"only production recording plus fence proof releases packet");
+            DropBindingPacket(*a.packet);a.packet=nullptr;++a.releases;},
+        [](void*,void*){context.lifecycle_dependencies_quarantined=true;
+            MarkLifecycleUncertain("controlled RR identity opaque transaction failed");}};}
+    Envelope EnvelopeApi(){return {this,
+        [](void* p,ID3D12GraphicsCommandList* list){auto& a=*static_cast<Adapter*>(p);++a.captures;
+            a.state=std::make_unique<NativeCommandStateScope>(list);
+            if(!a.state->active){a.state.reset();return false;}
+            Check(a.state->command_list==list,"production envelope uses exact native list");
+            // Real observed mutations make omitted restoration observable.
+            ID3D12GraphicsCommandList_SetPipelineState(list,a.alternate_pipeline);
+            ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,&a.alternate_heap);return true;},
+        [](void* p){auto& a=*static_cast<Adapter*>(p);++a.restores;if(!a.state||!a.state->active)return false;
+#if !defined(NR_RR_IDENTITY_NEGATIVE_RESTORE_SKIP)
+            a.state->Restore();
+#endif
+            auto observed=std::make_unique<NativeCommandState>();
+            const bool ready=CaptureNativeCommandState(a.list,*observed);
+            bool same=ready&&observed->pipeline==a.state->saved->pipeline;
+            for(unsigned i=0;i<2;++i)same&=observed->roots[i]==a.state->saved->roots[i]&&observed->heaps[i]==a.state->saved->heaps[i];
+            ReleaseNativeCommandState(*observed);Check(same,"PRODUCTION_ENVELOPE_RESTORED");
+            a.state.reset();return same;}};}
+};
+
+ID3D12Resource* Texture(queue_test::Fixture& f,D3D12_RESOURCE_STATES state){
+    D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=17;d.Height=11;
+    d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;ID3D12Resource* r=nullptr;
+    Hr(ID3D12Device_CreateCommittedResource(f.device,&heap,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_ID3D12Resource,(void**)&r),"identity texture");return r;
+}
+ID3D12Resource* Buffer(queue_test::Fixture& f,UINT64 size,D3D12_HEAP_TYPE type){
+    D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=size;
+    d.Height=d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=type;ID3D12Resource* r=nullptr;
+    Hr(ID3D12Device_CreateCommittedResource(f.device,&heap,D3D12_HEAP_FLAG_NONE,&d,
+        type==D3D12_HEAP_TYPE_UPLOAD?D3D12_RESOURCE_STATE_GENERIC_READ:D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,IID_ID3D12Resource,(void**)&r),"identity buffer");return r;
+}
+struct Consumer {
+    ID3D12Resource *original=nullptr,*output=nullptr,*readback=nullptr;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    bool consume=true;Result result=kNgxSuccess;unsigned calls=0;
+    static Result Call(void* p,ID3D12GraphicsCommandList* list,Parameters parameters){
+        auto& c=*static_cast<Consumer*>(p);++c.calls;void* value=nullptr;
+        Check(parameters.read(parameters.object,"Color",true,&value)==kNgxSuccess&&value,"native typed parameter ABI Color");
+        float pre=0,scale=0;Check(GetFloat(static_cast<NgxParams*>(parameters.object),"DLSS.Pre.Exposure",&pre)&&
+            GetFloat(static_cast<NgxParams*>(parameters.object),"DLSS.Exposure.Scale",&scale)&&pre==.75f&&scale==2.f,
+            "non-unit scene exposure parameters remain unchanged");
+        if(!c.consume){Check(value==c.original,"decline preserves original Color");return c.result;}
+        Check(value!=c.original,"native receives isolated Color copy");
+        auto* color=static_cast<ID3D12Resource*>(value);
+        Barrier(list,color,static_cast<D3D12_RESOURCE_STATES>(read_state),D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_CopyResource(list,c.output,color);
+        Barrier(list,color,D3D12_RESOURCE_STATE_COPY_SOURCE,static_cast<D3D12_RESOURCE_STATES>(read_state));
+        Barrier(list,c.output,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=c.output;from.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        to.pResource=c.readback;to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=c.footprint;
+        ID3D12GraphicsCommandList_CopyTextureRegion(list,&to,0,0,0,&from,nullptr);
+        Barrier(list,c.output,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COPY_DEST);return c.result;
+    }
+};
+HRESULT STDMETHODCALLTYPE FailedReset(ID3D12GraphicsCommandList*,ID3D12CommandAllocator*,ID3D12PipelineState*){return E_FAIL;}
+
+void Run(const std::string& mode){
+    Check(mode=="lifetime"||mode=="failed-reset"||mode=="unsubmitted"||mode=="state-refusal"||mode=="opaque-failure"||mode=="off"||mode=="replay","known identity Core mode");
+    queue_test::Fixture f;g_config_generation.store(9);g_config.enabled=true;
+    ID3D12CommandSignature* unobserved_signature=nullptr;
+    if(mode=="state-refusal"){
+        D3D12_INDIRECT_ARGUMENT_DESC argument{};argument.Type=D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+        D3D12_COMMAND_SIGNATURE_DESC signature{};signature.ByteStride=sizeof(D3D12_DISPATCH_ARGUMENTS);
+        signature.NumArgumentDescs=1;signature.pArgumentDescs=&argument;
+        Hr(ID3D12Device_CreateCommandSignature(f.device,&signature,nullptr,IID_ID3D12CommandSignature,
+            (void**)&unobserved_signature),"real signature predates observer");
+    }
+    Check(NrDescriptorConfigureStartup(false),"full observer fixture configuration");
+    descriptor_warp_test::InstallCommandObservation(f);
+    g_codec.device=f.device;TrackGraphicsQueueLocked(f.a);
+    queue_test::List list(f);descriptor_warp_test::Pipeline pipeline(f),alternate(f);
+    auto* heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
+    auto* alternate_heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
+    if(mode!="state-refusal")pipeline.Bind(list,heap);
+    Adapter adapter(f);adapter.list=list.native;adapter.alternate_pipeline=alternate.state;adapter.alternate_heap=alternate_heap;
+    auto* original=Texture(f,D3D12_RESOURCE_STATE_COPY_DEST);auto* output=Texture(f,D3D12_RESOURCE_STATE_COPY_DEST);
+    const auto desc=ID3D12Resource_GetDesc(original);D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;
+    ID3D12Device_GetCopyableFootprints(f.device,&desc,0,1,0,&footprint,nullptr,nullptr,&size);
+    auto* upload=Buffer(f,size,D3D12_HEAP_TYPE_UPLOAD);auto* readback=Buffer(f,size,D3D12_HEAP_TYPE_READBACK);
+    std::vector<unsigned short> expected(17*11*4);char* mapped=nullptr;
+    Hr(ID3D12Resource_Map(upload,0,nullptr,(void**)&mapped),"identity upload map");
+    for(unsigned y=0;y<11;++y)for(unsigned x=0;x<17;++x){
+        unsigned short pixel[]={static_cast<unsigned short>(0x3400+x),static_cast<unsigned short>(0x3800+y),
+            static_cast<unsigned short>(0x3c00+x+y),static_cast<unsigned short>((x+y)%2?0:0x3c00)};
+        std::memcpy(mapped+footprint.Offset+y*footprint.Footprint.RowPitch+x*8,pixel,8);
+        std::memcpy(expected.data()+(y*17+x)*4,pixel,8);
+    }
+    ID3D12Resource_Unmap(upload,0,nullptr);
+    D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=upload;from.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;from.PlacedFootprint=footprint;
+    to.pResource=original;to.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    ID3D12GraphicsCommandList_CopyTextureRegion(list.native,&to,0,0,0,&from,nullptr);
+    Barrier(list.native,original,D3D12_RESOURCE_STATE_COPY_DEST,static_cast<D3D12_RESOURCE_STATES>(read_state));
+    // Upload is a separate completed recording. The identity recording starts
+    // and ends with matching resource states, so its replay control is legal
+    // D3D12 work even though the existing opaque-NGX ledger refuses its reuse.
+    list.Close();list.Submit(f.a);f.Drain(f.a);list.ResetWithNewAllocator(f);
+    if(mode!="state-refusal")pipeline.Bind(list,heap);
+    else {
+        // A legal zero-count native ExecuteIndirect with a signature whose
+        // creation was genuinely unobserved leaves the production state unknown.
+        ID3D12GraphicsCommandList_ExecuteIndirect(list.native,unobserved_signature,0,upload,0,nullptr,0);
+        auto unknown=std::make_unique<NativeCommandState>();
+        Check(!CaptureNativeCommandState(list.native,*unknown),"actual unobserved indirect signature refuses command-state capture");
+        ReleaseNativeCommandState(*unknown);
+    }
+    const auto identity=SnapshotPostBoundaryList(list.native);auto* queue=FindGraphicsQueueRecordLocked(f.a);
+    Check(identity.known&&identity.device&&identity.token&&queue,"real observed Create identity, not pointer-only receipt");
+    Frame frame;frame.recording={identity.device,queue->identity,identity.address,identity.token,identity.reset+1};
+    frame.source={71,83,1};frame.view=101;frame.module_generation=107;frame.feature_generation=109;
+    frame.color={original,static_cast<unsigned>(desc.Format),0,read_state,true};
+    frame.render_width=9;frame.render_height=5;frame.output_width=18;frame.output_height=10;frame.base_x=2;frame.base_y=3;
+    frame.native_contract_known=frame.transparency_absent_known=frame.all_color_aliases_known=true;
+    frame.single_layer=frame.fg_off_known=true;frame.pre_exposure=.75f;frame.exposure_scale=2.f;
+    Params params;params.color=original;params.output=output;
+    Consumer consumer{original,output,readback,footprint};consumer.consume=mode!="state-refusal"&&mode!="off";
+    if(mode=="opaque-failure")consumer.result=0xBAD00006u;
+    auto* candidate=Create(f.device,adapter.Leases());Check(candidate!=nullptr,"identity cold context");
+    EnterCriticalSection(&g_chain_cs);
+    const auto result=Evaluate(candidate,mode!="off",list.native,frame,params.Api(),adapter.EnvelopeApi(),64ull<<20,Consumer::Call,&consumer);
+    LeaveCriticalSection(&g_chain_cs);
+    Check(result.native_calls==1&&consumer.calls==1,"native original exactly once without retry");
+    Check(params.color==original&&params.output==output,"typed native Color and Output restored");
+    if(mode=="state-refusal"||mode=="off"){
+        Check(!result.copied&&!result.substituted&&adapter.records==0&&adapter.restores==0,
+            "decline records no private lease or copy");
+        Check(result.reason==(mode=="off"?Reason::Disabled:Reason::State),"real unknown state/off refuses before private work");
+        Check(RetireCandidate(candidate),"unused context safely retired");list.Close();list.Submit(f.a);f.Drain(f.a);
+    }else{
+        Check(result.copied&&result.substituted&&result.restored&&adapter.captures==1&&adapter.restores==1&&adapter.consumers==1,
+            "actual production envelope and lease surround private copy");
+        Check(!RetireCandidate(candidate),"recorded copy cannot retire before submission");
+        if(mode=="opaque-failure"){
+            Check(result.result==consumer.result&&result.reason==Reason::OpaqueFailure&&context.lifecycle_dependencies_quarantined,
+                "opaque failure retains original result and quarantines without retry");
+            Check(!RetireCandidate(candidate)&&adapter.releases==0,"opaque failure never releases leased storage");
+            std::printf("PASS identity Core %s: %u checks; quarantined resources retained to process exit\n",mode.c_str(),queue_test::checks);return;
+        }
+        list.Close();
+        if(mode=="unsubmitted"){
+            list.ResetWithNewAllocator(f);
+            Check(context.lifecycle_dependencies_quarantined&&g_lifecycle_tracking_uncertain.load(),"actual Reset quarantines native-consumed unsubmitted recording");
+            Check(!RetireCandidate(candidate)&&adapter.releases==0,"unsubmitted opaque Reset never uses copy-only discard release");
+            std::printf("PASS identity Core unsubmitted: %u checks; quarantine preserved\n",queue_test::checks);return;
+        }
+        auto* gate=f.Fence();Hr(ID3D12CommandQueue_Wait(f.a,gate,1),"exact queue gate");list.Submit(f.a);
+        Check(adapter.packet->lease.awaiting_fence_signal==false&&adapter.packet->lease.completion_fence_value!=0,
+            "actual Core Submit/Signal publishes exact slot fence");
+        Check(!IsSlotFenceCompleteLocked(adapter.packet->lease)&&!RetireCandidate(candidate),"incomplete exact fence blocks copy reuse");
+        if(mode=="failed-reset"){
+            const auto reset_original=g_original_command_list_reset[0];g_original_command_list_reset[0]=FailedReset;
+            const auto reset=ProcessCommandListReset(0,list.native,list.allocator,nullptr);g_original_command_list_reset[0]=reset_original;
+            unsigned long long token=0;Check(FAILED(reset)&&ReadLifecycleToken(list.native,token)&&token==adapter.lifecycle_token&&
+                adapter.packet->lease.recording_command_lists==1,"failed native Reset preserves exact old token and lease");
+        }
+        Hr(ID3D12Fence_Signal(gate,1),"release exact queue gate");
+        queue_test::Wait(adapter.packet->lease.last_submission_queue->fence,adapter.packet->lease.completion_fence_value);
+        Check(!RetireCandidate(candidate),"completed GPU fence alone cannot release executable recording");
+        Hr(ID3D12Resource_Map(readback,0,nullptr,(void**)&mapped),"identity readback map");
+        for(unsigned y=0;y<11;++y)Check(std::memcmp(mapped+footprint.Offset+y*footprint.Footprint.RowPitch,expected.data()+y*17*4,17*8)==0,
+            "exact physical Color bits include alpha and outside nonzero active subrect");
+        ID3D12Resource_Unmap(readback,0,nullptr);
+        if(mode=="replay"){
+            list.Submit(f.a);f.Drain(f.a);
+            Check(g_command_list_replay_detections.load()==1&&g_lifecycle_tracking_uncertain.load(),
+                "legal D3D12 replay preserves existing opaque-NGX failclosed boundary");
+            Check(!RetireCandidate(candidate)&&adapter.releases==0,"replayed opaque recording remains quarantined and pinned");
+            std::printf("PASS identity Core replay: %u checks; existing opaque replay refusal retained\n",queue_test::checks);return;
+        }
+        list.ResetWithNewAllocator(f);
+        Check(adapter.packet->lease.recording_command_lists==0&&CanMutateSlotLocked(adapter.packet->lease),
+            "successful real Reset plus exact fence closes production lease");
+        Check(RetireCandidate(candidate)&&candidate==nullptr&&adapter.releases==1,"safe retirement releases one production binding packet");
+        ReleaseCom(gate);
+    }
+    Check(CanDestroyBindingsLocked(context),"all production binding leases retired");DestroyBindings(context);
+    ReleaseCom(upload);ReleaseCom(readback);ReleaseCom(original);ReleaseCom(output);ReleaseCom(heap);ReleaseCom(alternate_heap);ReleaseCom(unobserved_signature);g_codec.device=nullptr;
+    std::printf("PASS identity Core %s: %u checks; actual production state/slot/recording/exact-fence, controlled source and native consumer; no NGX/game\n",mode.c_str(),queue_test::checks);
+}
+}

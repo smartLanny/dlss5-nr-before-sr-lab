@@ -1,0 +1,150 @@
+--- a/raw-nr-model-safe-host-v4/raw-nr-phase.cpp
++++ b/raw-nr-model-execution-v1/host/raw-nr-phase.cpp
+@@ -14,6 +14,6 @@
+  if(argc==2&&std::wstring(argv[1])==L"cpu-admission"){raw_nr_probe::CpuAdmissionControls();return 0;}
+  if(argc==3&&std::wstring(argv[1])==L"cpu-terminal")probe_terminal_cpu::Run(argv[2]);
+  if(argc!=5)return 2;
+- const bool control=std::wstring(argv[1])==L"opaque-stop-control";
+- if(std::wstring(argv[4])!=(control?L"--root-opaque-stop-go":L"--root-model-go"))return 2;
++ const std::wstring selected=argv[1];if(selected!=L"Z"&&selected!=L"Z2"&&selected!=L"J"&&selected!=L"J2")return 2;
++ if(std::wstring(argv[4])!=L"--root-model-go")return 2;
+  std::wstring cohort=argv[1];raw_nr_probe::Run(std::string(cohort.begin(),cohort.end()),argv[2],argv[3]);return 0;}
+--- a/raw-nr-model-safe-host-v4/raw_nr_host.inl
++++ b/raw-nr-model-execution-v1/host/raw_nr_host.inl
+@@ -7,12 +7,13 @@
+ unsigned control_execute_base=0,control_restore_base=0;bool controlled_error_pending=false;
+ struct NrFlight;NrFlight* active_flight=nullptr;Adapter* active_envelope=nullptr;
+ void PrintPinnedClosure();
++void PrintNrRuntimeClosure();
+ [[noreturn]] void OpaqueFailure(Adapter&,NrContext&,const char*,NgxResult);
+ [[noreturn]] void Fail(const char* stage,NrContext* owner=nullptr,NgxResult result=0){
+  if(owner)owner->lifecycle_dependencies_quarantined=true;
+  MarkLifecycleUncertain("isolated raw NR failed; no fallback, release or retry");
+  std::printf("STOP_RAW_NR stage=%s result=%08x parentCreate=%u parentEval=0 NRCreate=%u NREval=%u SceneCreate=0 SceneEval=0 Feature1=0 quarantine=1 retry=0\n",stage,result,parent_create_attempts,nr_creates,nr_evals);
+- PrintPinnedClosure();probe_terminal::Exit(42,"Fail");
++ PrintPinnedClosure();PrintNrRuntimeClosure();probe_terminal::Exit(42,"Fail");
+ }
+ std::vector<unsigned char> File(const std::wstring& path){std::ifstream f{std::filesystem::path(path),std::ios::binary};Check(bool(f),"pinned file exists");return {std::istreambuf_iterator<char>(f),{}};}
+ void VerifyRuntime(const wchar_t* pin,bool include_nr){
+@@ -136,10 +137,13 @@
+   const unsigned expected=std::strstr(key,"Width")?rw:rh;std::printf("F18_GET frame=%u type=ui key=%s present=%u value=%u\n",frame,key,ok,value);Check(ok&&value==expected,"actual N=R input output getters");}
+  for(auto kv:{std::pair{"Jitter.Offset.X",guides.jitter.x},{"Jitter.Offset.Y",guides.jitter.y},{"DLSSNR.Jitter.Offset.X",guides.jitter.x},{"DLSSNR.Jitter.Offset.Y",guides.jitter.y},{"DLSSNR.MVecScaleX",1.f},{"DLSSNR.MVecScaleY",1.f},{"DLSSNR.ScalingRatio",1.f}}){float value=0;const bool ok=GetFloat(ctx.params,kv.first,&value);
+   std::printf("F18_GET frame=%u type=f key=%s present=%u value=%.9g\n",frame,kv.first,ok,value);Check(ok&&value==kv.second,"actual F18 jitter units and raw MV scale getters");}
++ int actual_reset=-1;float actual_intensity=0;Check(GetInt(ctx.params,"DLSSNR.Reset",&actual_reset)&&actual_reset==(frame==0?1:0)&&GetFloat(ctx.params,"DLSSNR.Intensity",&actual_intensity)&&actual_intensity==1.5f,"actual F18 fixed Reset schedule and intensity getters");
++ std::printf("F18_FIXED_GET frame=%u Reset=%d Intensity=%.9g N=R=1 strength=1\n",frame,actual_reset,actual_intensity);
+  int valid=0,upscale=1,quality=0;Check(GetInt(ctx.params,"DLSSNR.Jitter.Valid",&valid)&&valid==1&&GetInt(ctx.params,"DLSSNR.Upscaling",&upscale)&&upscale==0&&GetInt(ctx.params,"PerfQualityValue",&quality)&&quality==5,"actual F18 fixed mode getters");
+ }
+ #include "opaque_control.inl"
+ #include "control_slot_states.inl"
++#include "nr_runtime_gate.inl"
+ void RunGpu(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
+  const bool identity=mode=="codec-identity",opaque_control=mode=="opaque-stop-control",no_nr=identity||opaque_control;Check(no_nr||mode=="Z"||mode=="Z2"||mode=="J"||mode=="J2","fixed model cohorts or explicit no-NR controls");VerifyRuntime(pin,!no_nr);
+  // Legacy phase arrays retain exact 32-frame schedule/input bytes; only the
+@@ -165,7 +169,7 @@
+  ++parent_create_attempts;const auto made=HookCoreCreate(list.native,13,parent_params,&parent);std::printf("PARENT_CREATE feature=13 result=%08x calls=1 quality=5 RtoR=1\n",made);OpaqueResult(made,envelope,"parent-create");ObserveAfterOpaque(list.native,*owner,0,"parent-create");Check(parent,"real parent handle");LeaveCriticalSection(&g_chain_cs);parent_flight.Finish(f,list,"parent-create");
+  SceneFactory factory;factory.Resolve(f,parent);factory.Query();factory.eval_params=factory.Allocate("raw-NR-entry-params");
+  // Native and signed NR loader/init domains remain distinct even on one device.
+- if(!no_nr){++nr_init_attempts;if(!EnsureNrApi(f.device))Fail("signed-NR-api");}if(!EnsureCodec(f.device))Fail("codec");Capture capture;capture.Make(f);
++ NrRuntimeGate runtime_gate;if(!no_nr)runtime_gate.Initialize(f.device,factory);if(!EnsureCodec(f.device))Fail("codec");Capture capture;capture.Make(f);
+  NrContext* nr=nullptr;NrFlight flight;ControlSlotStates control_states;
+  for(unsigned iteration=0;iteration<(opaque_control?2u:identity?1u:32u);++iteration){const unsigned frame=opaque_control?0u:iteration;bool continue_control=false;auto bytes=ReadPhase(frame,"radiance-rgba16f.bin",size_t(rw)*rh*8);owner->SelectFrame(frame);
+   if(frame==0)Barrier(list.native,owner->colors[frame].resource,static_cast<D3D12_RESOURCE_STATES>(owner->completed_states.at(owner->colors[frame].resource)),D3D12_RESOURCE_STATE_COPY_DEST);
+@@ -228,12 +232,13 @@
+   if(!nr->params){ScopedSrwExclusive lock(&g_nr_api_lock);Check(g_nr_api.allocate(&nr->params)==kNgxSuccess&&nr->params,"actual F18 parameter allocation");}
+   const bool first_nr=!nr->nr_handle;Check(BindNrParameters(*nr,*slot,guides,feature,rw,rh,color,first_nr),"actual production F18 binder");VerifyBinder(*nr,*slot,guides,frame);
+   // Every opaque Create and Eval has its own captured current command state.
+-  if(first_nr){Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Create envelope and prior lease");void* handle=nullptr;++nr_creates;
++  if(first_nr){runtime_gate.Before("Create",frame,list.native,flight,factory,*nr);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Create envelope and prior lease");void* handle=nullptr;++nr_creates;
+    const auto created=CreateSignedNrFeature(list.native,*nr,feature,&handle);std::printf("F18_CREATE frame=%u result=%08x handle=%p calls=%u\n",frame,created,handle,nr_creates);
+    if(created!=kNgxSuccess||!handle)OpaqueFailure(envelope,*nr,"F18-Create-partial-or-error",created);nr->nr_handle=static_cast<NgxHandle*>(handle);Opaque(created,envelope,*nr,"F18-Create");ObserveSlot(list.native,*nr,*slot,"Create");}
+   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+   flight.clear.Record(f,list.native,*diagnostic,*slot);
+   std::printf("NR_OUTPUT_SENTINEL frame=%u negative=-1234 wholePlane=1 encodedCaptureBeforeSaturate=1 nonvisibleCPUDescriptor=1\n",frame);
++  runtime_gate.Before("Evaluate",frame,list.native,flight,factory,*nr);
+   Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Eval envelope and prior lease");NgxResult evaluated=0;{ScopedSrwExclusive lock(&g_nr_api_lock);ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,nr->nr_handle);++nr_evals;evaluated=g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list.native,nr->nr_handle,nr->params,nullptr);}
+   std::printf("F18_EVAL frame=%u result=%08x calls=%u\n",frame,evaluated,nr_evals);Opaque(evaluated,envelope,*nr,"F18-Eval");ObserveAfterOpaque(list.native,*owner,frame,"F18-evaluate");ObserveSlot(list.native,*nr,*slot,"Evaluate");
+   nr->guide_history.CommitOnEvaluate(guides.signature,true);++nr->evaluations;CompleteNrDiagnosticEvaluation(*nr,*slot);g_nr_successful_evaluations.fetch_add(1);
+@@ -255,7 +260,7 @@
+  {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;factory.Guard("parent-release");for(auto** p:{&factory.eval_params,&factory.capability})if(*p){Check(factory.exports.destroy(*p)==kNgxSuccess,"actual owner parameter destruction");*p=nullptr;}}
+  ++parent_release_calls;Check(release(parent)==kNgxSuccess,"original parent Release after NR retirement and while native exports retained");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Check(destroy(parent_params)==kNgxSuccess,"parent params destroyed under retained original owner");
+  FreeLibrary(factory.callback_owner);FreeLibrary(factory.capability_owner);nr_private_sr_core::ReleaseExports(factory.exports);
+- DestroyBindings(context);capture.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);std::printf("PASS RAW_NR_HOST mode=%s parentCreate=1 parentEval=0 F18Create=%u F18Eval=%u Scene=0 Feature1=0 phaseVerdict=external-unknown HDRgain=record-only\n",mode.c_str(),nr_creates,nr_evals);
++ DestroyBindings(context);capture.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);if(!no_nr)runtime_gate.Drop();std::printf("PASS RAW_NR_HOST mode=%s parentCreate=1 parentEval=0 F18Create=%u F18Eval=%u Scene=0 Feature1=0 phaseVerdict=external-unknown HDRgain=record-only\n",mode.c_str(),nr_creates,nr_evals);
+ }
+ void Run(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
+  // Cold input facts are this sealed fixture's CPU-owned explicit schedule.
+--- /dev/null
++++ b/raw-nr-model-execution-v1/host/nr_runtime_gate.inl
+@@ -0,0 +1,72 @@
++// Probe-local receipt/owner ledger around the unmodified production NR API.
++struct NrRuntimeGate;
++NrRuntimeGate* active_nr_runtime_gate=nullptr;
++struct NrRuntimeGate {
++ struct ExportOwner {const char* role=nullptr;const char* symbol=nullptr;void* address=nullptr;HMODULE owner=nullptr;std::string sha;};
++ std::array<ExportOwner,10> exports{};ID3D12Device* device=nullptr;IUnknown* identity=nullptr;
++ HMODULE nr_module=nullptr,bridge_module=nullptr,original_module=nullptr;
++ NrContext* context=nullptr;unsigned long long domain=0;bool ready=false;unsigned init_result=0;
++ [[noreturn]] void Reject(const char* reason){std::printf("NR_RUNTIME_REFUSAL reason=%s initResult=%08x domain=%llu ready=%u\n",reason,init_result,domain,ready);Fail("NR-runtime-identity",context,init_result);}
++ void Need(bool value,const char* reason){if(!value)Reject(reason);}
++ static std::wstring PathOf(HMODULE owner){wchar_t path[32768]{};const auto n=GetModuleFileNameW(owner,path,32768);return n&&n<32768?std::wstring(path,n):std::wstring{};}
++ void Pin(unsigned i,const char* role,const char* symbol,void* address,HMODULE expected,const char* digest){
++  auto& out=exports[i];out.role=role;out.symbol=symbol;out.address=address;
++  Need(address&&expected&&GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(address),&out.owner)&&out.owner==expected,"actual-export-address-owner");
++  const auto path=PathOf(out.owner);Need(!path.empty(),"actual-export-owner-path");
++  if(digest){const auto adjacent=std::filesystem::current_path()/(std::strcmp(role,"NR")==0?L"nvngx_dlssnr.dll":L"nrchain_nvngx.dll");
++   Need(std::filesystem::equivalent(path,adjacent),"export-owner-must-be-exact-adjacent-copy");}
++  const auto bytes=File(path);out.sha=Digest(bytes.data(),bytes.size());Need(!digest||out.sha==digest,"actual-export-owner-file-hash");
++  const auto utf8=std::filesystem::path(path).u8string();const std::string printable(utf8.begin(),utf8.end());
++  std::printf("NR_EXPORT_OWNER role=%s symbol=%s address=%p owner=%p path=%s sha256=%s retained=1\n",role,symbol,address,(void*)out.owner,printable.c_str(),out.sha.c_str());
++ }
++ void Initialize(ID3D12Device* actual,SceneFactory& parent){
++  Need(!active_nr_runtime_gate&&!device&&!identity&&!ready&&actual,"one-owned-NR-init-device");active_nr_runtime_gate=this;
++  device=actual;ID3D12Device_AddRef(device);Need(SUCCEEDED(ID3D12Device_QueryInterface(device,IID_IUnknown,reinterpret_cast<void**>(&identity)))&&identity,"actual-NR-init-IUnknown-owner");
++  {ScopedSrwExclusive lock(&g_nr_api_lock);Need(!g_nr_api.initialized&&!g_nr_api.failed&&!g_nr_api.signed_module&&!g_nr_api.signed_init,"fresh-NR-init-domain-before-real-EnsureNrApi");}
++  Need(!GetModuleHandleW(L"nvngx_dlssnr.dll")&&nr_init_attempts==0&&nr_creates==0&&nr_evals==0&&GetModuleHandleW(L"_nvngx.dll")==parent.exports.domain_core,
++   "actual-NR-module-cold-no-prior-NR-calls-native-original-already-loaded");
++  std::printf("NR_INIT_COLD initialized=0 failed=0 actualNRModuleLoaded=0 NRInitCalls=0 NRCreate=0 NREval=0 nativeOriginalAlreadyLoaded=1 bridgeMayAlreadyBeLoaded=1\n");
++  Need(IsSameRrDepthDevice(device,parent.exports.domain_device),"actual-native-parent-device-equals-owned-NR-call-argument");
++  ++nr_init_attempts;const bool ensured=EnsureNrApi(device);const auto evidence=SnapshotRuntimeLoadEvidence();init_result=evidence.init_result;
++  std::printf("NR_INIT_RECEIPT device=%p identity=%p attempted=1 actualEnsure=%u evidenceAvailable=%u stage=%s result=%08x nativeDomain=%llu nativeCore=%p modelCalls=0\n",(void*)device,(void*)identity,ensured,evidence.available,evidence.stage,init_result,parent.exports.domain_epoch,(void*)parent.exports.domain_core);
++  Need(ensured&&evidence.available&&std::strcmp(evidence.stage,"initialized")==0&&init_result==kNgxSuccess&&evidence.missing_exports==0&&!evidence.bootstrap_attempted,
++   "real-cold-NR-Init-success-required-BAD00003-FeatureAlreadyExists-refused-no-second-native-bootstrap");
++  nr_module=g_nr_api.signed_module;bridge_module=g_nr_api.bridge_module;original_module=parent.exports.domain_core;
++  Need(nr_module&&bridge_module&&original_module&&nr_module!=bridge_module&&nr_module!=original_module&&bridge_module!=original_module,"NR-bridge-and-native-original-owner-domains-distinct");
++  constexpr const char* nr_sha="a2d16f9fba2b619559427821169918df56fc8e410a6ac87569953598a00b66fa";
++  constexpr const char* bridge_sha="1acf3cbe509a031be1763a8231cd81e6019aa3532368cd0b08a6c17bc94b70a2";
++  Pin(0,"NR","NVSDK_NGX_D3D12_Init_Ext",g_nr_api.signed_init,nr_module,nr_sha);
++  Pin(1,"NR","NVSDK_NGX_D3D12_CreateFeature",g_nr_api.signed_create,nr_module,nr_sha);
++  Pin(2,"NR","NVSDK_NGX_D3D12_EvaluateFeature",g_nr_api.signed_evaluate,nr_module,nr_sha);
++  Pin(3,"NR","NVSDK_NGX_D3D12_ReleaseFeature",g_nr_api.signed_release,nr_module,nr_sha);
++  Pin(4,"bridge","NRChain_Init",reinterpret_cast<void*>(g_nr_api.bridge_init),bridge_module,bridge_sha);
++  Pin(5,"bridge","NRChain_Create",reinterpret_cast<void*>(g_nr_api.bridge_create),bridge_module,bridge_sha);
++  Pin(6,"bridge","NRChain_Evaluate",reinterpret_cast<void*>(g_nr_api.bridge_evaluate),bridge_module,bridge_sha);
++  Pin(7,"bridge","NRChain_Release",reinterpret_cast<void*>(g_nr_api.bridge_release),bridge_module,bridge_sha);
++  Pin(8,"native-original","NVSDK_NGX_D3D12_AllocateParameters",reinterpret_cast<void*>(g_nr_api.allocate),original_module,nullptr);
++  Pin(9,"native-original","NVSDK_NGX_D3D12_DestroyParameters",reinterpret_cast<void*>(g_nr_api.destroy),original_module,nullptr);
++  domain=1;ready=true;
++  std::printf("NR_DOMAIN_READY probeDomain=%llu nativeDomain=%llu NRmodule=%p nativeCore=%p bridge=%p initDevice=%p identity=%p exportOwners=10 coldEnsureCalls=1 modelSuccessClaim=0\n",domain,parent.exports.domain_epoch,(void*)nr_module,(void*)original_module,(void*)bridge_module,(void*)device,(void*)identity);
++ }
++ void Before(const char* stage,unsigned frame,ID3D12GraphicsCommandList* list,NrFlight& flight,SceneFactory& parent,NrContext& ctx){
++  context=&ctx;Need(ready&&domain==1&&g_nr_api.initialized&&!g_nr_api.failed&&device&&identity&&flight.owner==&ctx,"ready-owned-NR-domain-before-model");
++  Need(g_nr_api.signed_module==nr_module&&g_nr_api.bridge_module==bridge_module&&parent.exports.domain_core==original_module&&nr_private_sr_core::DomainAlive(parent.exports)&&IsSameRrDepthDevice(device,parent.exports.domain_device),"independent-live-native-and-NR-domains-on-same-owned-device");
++  const std::array<void*,10> current={g_nr_api.signed_init,g_nr_api.signed_create,g_nr_api.signed_evaluate,g_nr_api.signed_release,reinterpret_cast<void*>(g_nr_api.bridge_init),reinterpret_cast<void*>(g_nr_api.bridge_create),reinterpret_cast<void*>(g_nr_api.bridge_evaluate),reinterpret_cast<void*>(g_nr_api.bridge_release),reinterpret_cast<void*>(g_nr_api.allocate),reinterpret_cast<void*>(g_nr_api.destroy)};
++  for(unsigned i=0;i<exports.size();++i){HMODULE owner=nullptr;Need(current[i]==exports[i].address&&exports[i].owner&&GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(current[i]),&owner)&&owner==exports[i].owner,"every-actual-export-address-and-retained-owner-still-match");}
++  ID3D12Device *list_device=nullptr,*slot_device=nullptr;Need(SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(list,IID_ID3D12Device,reinterpret_cast<void**>(&list_device)))&&list_device,"actual-recording-list-device");
++  Need(SUCCEEDED(ID3D12Resource_GetDevice(flight.slot->neural,IID_ID3D12Device,reinterpret_cast<void**>(&slot_device)))&&slot_device,"actual-slot-resource-device");
++  Need(IsSameRrDepthDevice(device,list_device)&&IsSameRrDepthDevice(device,slot_device)&&IsSameRrDepthDevice(device,g_codec.device),"owned-init-list-slot-codec-device-match");ReleaseCom(list_device);ReleaseCom(slot_device);
++  const auto native=SnapshotPostBoundaryList(list);unsigned long long token=0;Need(ReadLifecycleToken(list,token)&&token==flight.token&&native.known&&native.token==flight.native_token&&native.reset==flight.reset,"actual-model-recording-native-token-reset-match");
++  auto* record=FindLifecycleCommandListLocked(token);Need(record&&!record->detached&&record->submission_count==0&&ctx.feature_generation==parent.parent_generation&&nr_private_sr_core::ParentInDomain(parent.parent,parent.parent_generation,parent.exports.domain_epoch,reinterpret_cast<void*>(parent.exports.create)),"actual-unsubmitted-recording-and-parent-generation-domain");
++  nr_source_runtime::Lock lock;const auto source=nr_source_runtime::RecordingOf(list);const auto resource=nr_source_runtime::ResourceOf(flight.slot->neural);
++  Need(bool(source)&&bool(resource)&&source.device==resource.device,"actual-recording-and-resource-lifetime-device-identity");
++  std::printf("NR_RUNTIME_GATE stage=%s frame=%u probeDomain=%llu nativeDomain=%llu initDevice=%p identity=%p nrToken=%llu nativeToken=%llu nativeReset=%llu sourceList=%llu sourceLifetime=%llu sourceReset=%llu sourceDevice=%llu resourceLifetime=%llu resourceDevice=%llu exportOwners=10 pinned=1 unsubmitted=1 sameOwnedDevice=1\n",stage,frame,domain,parent.exports.domain_epoch,(void*)device,(void*)identity,token,native.token,native.reset,source.list,source.lifetime,source.reset,source.device,resource.lifetime,resource.device);
++ }
++ void Drop(){
++  Need(ready&&!active_flight&&nr_creates==1&&nr_evals==32&&context_destroy_calls==1&&parent_release_calls==1&&!g_lifecycle_tracking_uncertain.load(),"runtime-owners-released-only-after-all-real-evaluations-retire-and-context-parent-cleanup");
++  std::printf("NR_RUNTIME_OWNERS_RELEASE domain=%llu exportOwners=10 initDevice=%p afterContextDestroy=1 afterParentRelease=1 afterExactFlights=32\n",domain,(void*)device);
++  for(auto& entry:exports){FreeLibrary(entry.owner);entry.owner=nullptr;}ReleaseCom(identity);ReleaseCom(device);ready=false;active_nr_runtime_gate=nullptr;
++ }
++ void PrintClosure(){unsigned pins=0;for(const auto& item:exports)pins+=item.owner!=nullptr;std::printf("NR_RUNTIME_CLOSURE domain=%llu ready=%u actualInitResult=%08x retainedExportOwners=%u ownedDevice=%p ownedIdentity=%p context=%p noCleanupOnStop=1\n",domain,ready,init_result,pins,(void*)device,(void*)identity,(void*)context);}
++};
++void PrintNrRuntimeClosure(){if(active_nr_runtime_gate)active_nr_runtime_gate->PrintClosure();}

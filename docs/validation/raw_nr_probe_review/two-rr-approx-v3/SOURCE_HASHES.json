@@ -1,0 +1,86 @@
+{
+  "GPU_runs": 0,
+  "NGX_calls": 0,
+  "frozen_Core_commit": "45df68dc80138e89778e544d49f15109ec437a4f",
+  "actual_private_EXE_sha256": "52f21828f4eea2ce2496aef71b3321c5fbf72cd7ca43b28f46087f94db5e04ef",
+  "native_host_recompiled": false,
+  "new_CSO_sha256": "11aa1705bd530075e7637acb074e6a00e1360e1007984fd746bdcfaff3e1a4b6",
+  "preserved_v2_packet_manifest_sha256": "43ab6b6627fb8ab98d97787004e7b969b6d8ba4e74d1d725241abe5ba3fdc376",
+  "private_canonical_Core_source_manifest_sha256": "fe0f7f9e86d2d9349bdd162c36c158009c7c0837f05929eac8d52bdd78e58e26",
+  "no_vendor_SDK_binaries_raw_logs_or_real_absolute_paths": true,
+  "files": [
+    {
+      "file": "ratio-before-shift.hlsl",
+      "private_source_sha256": "dcd53778f086b9e79d373be54515cebb49210b479e574878d4eb2eb74a7b8251",
+      "sanitized_sha256": "dcd53778f086b9e79d373be54515cebb49210b479e574878d4eb2eb74a7b8251",
+      "git_blob_content_sha256": "db34a236196708048e65e3e88da43420f9842f602f39d7e2315f2d95bebf52ca"
+    },
+    {
+      "file": "ratio_oracle.py",
+      "private_source_sha256": "8b7cf6d20056dcccaf5cdeace2018bf0432e47242bdcbd90ef4d9e86e05bd53e",
+      "sanitized_sha256": "8b7cf6d20056dcccaf5cdeace2018bf0432e47242bdcbd90ef4d9e86e05bd53e",
+      "git_blob_content_sha256": "e29d82c03665f40ceabe2f4284bf6dbbd2fac24133958a68f7d2039b2cae3a88"
+    },
+    {
+      "file": "cpu_alpha_contract.py",
+      "private_source_sha256": "96b927bd92e391e07901927964df87b4ae8d25b60d69c9e06d328ae3b8ab4320",
+      "sanitized_sha256": "e04dae6288080ad0d39bcfacc0f06794362490fcd5ae83b12f94282d8d4851b6",
+      "git_blob_content_sha256": "96b927bd92e391e07901927964df87b4ae8d25b60d69c9e06d328ae3b8ab4320"
+    },
+    {
+      "file": "CPU_ALPHA_CONTRACT.json",
+      "private_source_sha256": "c0fa56835d1daafaface013057fa7bde87d2b83dba3d70aafe8d6edda28dedd7",
+      "sanitized_sha256": "c0fa56835d1daafaface013057fa7bde87d2b83dba3d70aafe8d6edda28dedd7",
+      "git_blob_content_sha256": "b664ae897df1a0a777add121ef9ebff38d0b88fdcf25db0522ffeeb77d42e1ec"
+    },
+    {
+      "file": "CPU_RATIO_CASES.json",
+      "private_source_sha256": "11fdbeeb0041355c3b95ebba47a0ced36097accd516fa06839497c66580a395f",
+      "sanitized_sha256": "11fdbeeb0041355c3b95ebba47a0ced36097accd516fa06839497c66580a395f",
+      "git_blob_content_sha256": "d4738f6b787a3bae58c62a0d248df2d0f03ce0a3492e54a57bf8f2f411921d7c"
+    },
+    {
+      "file": "two_rr_receipt.py",
+      "private_source_sha256": "47caf34225741b28029719eb7db5ddb234b9837073a121937087fbc3b13a4855",
+      "sanitized_sha256": "315993d3c9b0c86accb3593477cff4dd92526f2af5915e3473f4943741a433f5",
+      "git_blob_content_sha256": "47caf34225741b28029719eb7db5ddb234b9837073a121937087fbc3b13a4855"
+    },
+    {
+      "file": "run_two_rr.py",
+      "private_source_sha256": "c42ab8b0b2d11a080c974902ecbebc0f09b293c5149d805988990046b609c45d",
+      "sanitized_sha256": "d5f9ff2be384b2085bcba97ed08f418033f2bdec12f3ba43a3d4f2336a2d2527",
+      "git_blob_content_sha256": "b5d4c5ab70af4a0a793f84f5aa45213c350f53e88124ff93c8ac683e0ffe33f6"
+    },
+    {
+      "file": "V2_TO_V3.diff",
+      "private_source_sha256": "9a01d6450e60ff31f5f869c089c982ef9c586ec64c7b48da34fd08e95ed0209d",
+      "sanitized_sha256": "9a01d6450e60ff31f5f869c089c982ef9c586ec64c7b48da34fd08e95ed0209d",
+      "git_blob_content_sha256": "5ff7c5dd3d10c13f728912c77770a26daa524696b208b80e687fed8b79fb066a"
+    },
+    {
+      "file": "README.md",
+      "private_source_sha256": "1b33f8d526bd439f492492499bec86d51d7b6b2ee55ec2a11c49ca8ce0e5a5bd",
+      "sanitized_sha256": "b0e412690d072dab0d575ecb91e1d91a0d5063a459e787b71f4888e8234a2e99",
+      "git_blob_content_sha256": "1b33f8d526bd439f492492499bec86d51d7b6b2ee55ec2a11c49ca8ce0e5a5bd"
+    },
+    {
+      "file": "SHADER_COMPILE.json",
+      "private_source_sha256": "1ec777c59c2f5a8a13dc526f5e54d3dcc2b822f177490473254489ce5cde63d0",
+      "sanitized_sha256": "1ec777c59c2f5a8a13dc526f5e54d3dcc2b822f177490473254489ce5cde63d0",
+      "git_blob_content_sha256": "084d98e570c156428b4c0050ff5a73d6165e63d85465f1c2caa29d2ecefb06ed"
+    },
+    {
+      "file": "CHANGE_SCOPE.json",
+      "private_source_sha256": "f0f3b4b3a5c76ba4ed8206f6b42d427d0c1b8887a2c7ebab3b0ea56834a5bf98",
+      "sanitized_sha256": "f0f3b4b3a5c76ba4ed8206f6b42d427d0c1b8887a2c7ebab3b0ea56834a5bf98",
+      "git_blob_content_sha256": "429b3c8495a4808c0de90d98b0eb4a335a1da1c7e24b6e86e359b19a332b0872"
+    },
+    {
+      "file": "CPU_NO_GO_GUARD.json",
+      "private_source_sha256": "f4deaa8b4ddd2fe77733842cd992375563b9ea9aa4a555da618c05e026c966a6",
+      "sanitized_sha256": "f4deaa8b4ddd2fe77733842cd992375563b9ea9aa4a555da618c05e026c966a6",
+      "git_blob_content_sha256": "a3080a58d892136da4253b486857262672526cb1d7c9b28de1f3e25cb6d5eb2f"
+    }
+  ],
+  "hash_scope_note": "Private/local byte hashes remain unchanged; git_blob_content_sha256 pins the exact staged review content after Git line-ending normalization."
+}

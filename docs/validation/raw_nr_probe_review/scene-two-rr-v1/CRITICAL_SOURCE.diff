@@ -1,0 +1,408 @@
+--- /dev/null
++++ scene-twoRR/approx_child.inl
+@@ -0,0 +1,46 @@
++namespace raw_nr_probe {
++    void ApproxChild::Prepare(){
++        create_params=Allocate("scene-create-params");eval_params=Allocate("scene-eval-params");
++        ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;Guard("scene-create-config");
++        for(auto kv:{std::pair{"Width",scene_width},{"Height",scene_height},{"OutWidth",scene_width},{"OutHeight",scene_height},
++            {"CreationNodeMask",1u},{"VisibilityNodeMask",1u},{"DLSS.Roughness.Mode",0u},{"DLSS.Use.HW.Depth",1u}})SetUInt(create_params,kv.first,kv.second);
++        for(auto kv:{std::pair{"PerfQualityValue",5},{"DLSS.Feature.Create.Flags",75},{"DLSS.Denoise.Mode",1},
++            {"DLSS.Enable.Output.Subrects",0},{"RayReconstruction.Hint.Render.Preset.DLAA",0}})SetInt(create_params,kv.first,kv.second);
++        for(const char* key:{"Width","Height","OutWidth","OutHeight","CreationNodeMask","VisibilityNodeMask","DLSS.Roughness.Mode","DLSS.Use.HW.Depth"}){
++            unsigned value=0;if(UI(create_params,key,value)!=kNgxSuccess)Stop("create-bind",key,"getter-not-proven");
++            const unsigned expected=std::strcmp(key,"DLSS.Roughness.Mode")==0?0:std::strstr(key,"Mask")||std::strcmp(key,"DLSS.Use.HW.Depth")==0?1:
++                std::strstr(key,"Width")?scene_width:scene_height;
++            Check(value==expected,"actual Scene geometry/roughness/depth create getters");
++        }
++        for(auto kv:{std::pair{"PerfQualityValue",5},{"DLSS.Feature.Create.Flags",75},{"DLSS.Denoise.Mode",1},
++            {"DLSS.Enable.Output.Subrects",0},{"RayReconstruction.Hint.Render.Preset.DLAA",0}}){int value=0;
++            Check(I(create_params,kv.first,value)==kNgxSuccess&&value==kv.second,"actual fixed Scene create mode getters");}
++    }
++    NgxResult ApproxChild::Create(ID3D12GraphicsCommandList* list){
++        ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;Guard("scene-create");
++        NrPostBoundaryAliasScope alias(list);auto* call_list=NrPrivateOriginalCallList(list);
++        if(call_list!=list)Stop("create","original-call-list","no-current-original-alias");
++        ++child_creates;++scene_create_attempts;std::printf("SCENE_CALL_BEGIN kind=Create feature=13 count=%u\n",scene_create_attempts);
++        const auto r=exports.create(call_list,13,create_params,&child);
++        std::printf("SCENE_CREATE index=%u feature=13 result=%08x child=%p parent=%p\n",child_creates,r,(void*)child,(void*)parent);
++        return r;
++    }
++    NgxResult ApproxChild::Evaluate(ID3D12GraphicsCommandList* list,unsigned frame){
++        ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;Guard("scene-evaluate");
++        NrPostBoundaryAliasScope alias(list);auto* call_list=NrPrivateOriginalCallList(list);
++        if(call_list!=list)Stop("evaluate","original-call-list","no-current-original-alias");
++        Check(child&&child!=parent&&FindFeature(child).generation==0,"private Scene child is separate from native game registry");
++        ++child_evaluates;++scene_eval_attempts;std::printf("SCENE_CALL_BEGIN kind=Eval feature=13 count=%u\n",scene_eval_attempts);
++        const auto r=exports.evaluate(call_list,child,eval_params,nullptr);
++        std::printf("SCENE_EVAL index=%u call=%u feature=13 result=%08x\n",frame,child_evaluates,r);return r;
++    }
++    void ApproxChild::ReleaseChild(){
++        // Caller has no chain lock and already proved every lease retired.
++        ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;Guard("scene-release");
++        const auto r=exports.release(child);std::printf("SCENE_RELEASE result=%08x outsideChain=1\n",r);
++        if(r!=kNgxSuccess)Stop("release","Feature13","release-error",r);child=nullptr;
++        for(auto** p:{&eval_params,&create_params,&capability})if(*p){const auto d=exports.destroy(*p);
++            std::printf("DESTROY_PARAMS result=%08x\n",d);if(d!=kNgxSuccess)Stop("destroy","parameters","destroy-error",d);*p=nullptr;}
++        FreeLibrary(callback_owner);callback_owner=nullptr;FreeLibrary(capability_owner);capability_owner=nullptr;nr_private_sr_core::ReleaseExports(exports);
++    }
++}
+--- /dev/null
++++ scene-twoRR/approx_resources.inl
+@@ -0,0 +1,72 @@
++namespace raw_nr_probe {
++struct ApproxChild:SceneFactory {
++ void Prepare();NgxResult Create(ID3D12GraphicsCommandList*);
++ NgxResult Evaluate(ID3D12GraphicsCommandList*,unsigned);void ReleaseChild();
++ void BindClean(const std::shared_ptr<Inputs>& owner,unsigned frame,ID3D12Resource* clean){
++  Bind(owner,frame);SetResource(eval_params,"Output",clean);
++  ID3D12Resource* typed=nullptr;void* untyped=nullptr;
++  Check(GetResource(eval_params,"Output",&typed)&&typed==clean,"private child actual clean Output override");
++  Check(ParamSlot<GetVoidFn>(eval_params,8)(eval_params,"Output",&untyped)!=kNgxSuccess||untyped==clean,"private child typed/untyped Output aliases");
++ }
++};
++struct ApproxResources {
++ Plane clean,composite;ID3D12PipelineState* pipeline=nullptr;
++ std::array<ID3D12Resource*,3> readbacks{};std::array<D3D12_PLACED_SUBRESOURCE_FOOTPRINT,3> footprints{};
++ D3D12_RESOURCE_STATES clean_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS,composite_state=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++ void Make(queue_test::Fixture& f,ID3D12GraphicsCommandList* list){
++  clean.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT,true);composite.Make(f,rw,rh,DXGI_FORMAT_R16G16B16A16_FLOAT,true);
++  clean.upload=Buffer(f,clean.bytes,D3D12_HEAP_TYPE_UPLOAD);
++  auto code=File(L"ratio-before-shift.cso");D3D12_COMPUTE_PIPELINE_STATE_DESC d{};d.pRootSignature=g_codec.root;d.CS={code.data(),code.size()};
++  Hr(ID3D12Device_CreateComputePipelineState(f.device,&d,IID_ID3D12PipelineState,(void**)&pipeline),"private independently authored ratio PSO");
++  auto desc=ID3D12Resource_GetDesc(clean.resource);for(unsigned i=0;i<3;++i){UINT64 bytes=0;ID3D12Device_GetCopyableFootprints(f.device,&desc,0,1,0,&footprints[i],nullptr,nullptr,&bytes);readbacks[i]=Buffer(f,bytes,D3D12_HEAP_TYPE_READBACK);}
++  // Establish observed creation states before the first opaque call.
++  Move(list,clean.resource,clean_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  Move(list,composite.resource,composite_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++ }
++ static void Move(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES& state,D3D12_RESOURCE_STATES wanted){
++  {nr_source_runtime::Lock lock;unsigned actual=0;if(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(resource),actual))state=static_cast<D3D12_RESOURCE_STATES>(actual);}
++  if(state!=wanted)Barrier(list,resource,state,wanted);state=wanted;
++ }
++ void PoisonClean(ID3D12GraphicsCommandList* list){
++  Move(list,clean.resource,clean_state,D3D12_RESOURCE_STATE_COPY_DEST);
++  const unsigned short pixel[4]={0xe4d2,0xe4d2,0xe4d2,0xe4d2};clean.FillAndRecord(list,Constant(8,pixel));
++  clean_state=static_cast<D3D12_RESOURCE_STATES>(read_state);Move(list,clean.resource,clean_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++ }
++ void ObserveClean(ID3D12GraphicsCommandList* list){
++  nr_source_runtime::Lock lock;unsigned actual=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list),nr_source_runtime::ResourceOf(clean.resource),actual),"private child actual clean state observer");clean_state=static_cast<D3D12_RESOURCE_STATES>(actual);
++ }
++ NrBindingPacket* PinComposition(queue_test::Fixture& f,ID3D12GraphicsCommandList* list,NrContext& nr,NrSlot& slot,const std::shared_ptr<Inputs>& owner,unsigned frame){
++  nr_binding::Plan plan{};plan.primary_owner=&slot;plan.secondary_owner=this;auto& table=plan.heaps[nr_binding::Codec];
++  // The retained codec root spans t0..t12 and u0..u7. Allocate and initialize
++  // that full table; the experimental shader uses only t0/t1/t2/u0.
++  static_assert(kCodecDescriptorCount==21);
++  for(unsigned i=0;i<kCodecSrvCount;++i)table.Srv(i,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
++  for(unsigned i=0;i<kCodecUavCount;++i)table.Uav(kCodecSrvCount+i,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
++  table.Srv(0,owner->colors[0].resource,DXGI_FORMAT_R16G16B16A16_FLOAT);table.Srv(1,clean.resource,DXGI_FORMAT_R16G16B16A16_FLOAT);table.Srv(2,slot.result,DXGI_FORMAT_R16G16B16A16_FLOAT);table.Uav(kCodecSrvCount,composite.resource,DXGI_FORMAT_R16G16B16A16_FLOAT);
++  static_assert(std::size(plan.retained)==2);plan.retained[0]=readbacks[0];plan.retained[1]=readbacks[1]; // third readback is retained by the same-recording child packet
++  Check(table.count==kCodecDescriptorCount,"composition plan spans full declared codec root");
++  nr_binding::Refusal refusal{};auto* packet=AcquireBindingPacket(f.device,list,nr,plan,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),&nr);
++  const auto desc=ID3D12DescriptorHeap_GetDesc(packet->heaps[nr_binding::Codec]);Check(desc.NumDescriptors==kCodecDescriptorCount,"actual immutable composition heap spans full root table");
++  for(unsigned i=0;i<kCodecDescriptorCount;++i)Check(packet->plan.heaps[nr_binding::Codec].views[i].kind==(i<kCodecSrvCount?nr_binding::ViewKind::Srv2D:nr_binding::ViewKind::Uav2D),"actual complete typed composition table, including null views");
++  std::printf("APPROX_LAYOUT frame=%u SRV=13 UAV=8 actualHeap=21 allViewsTyped=1 shaderReads=t0,t1,t2 writes=u0\n",frame);return packet;
++ }
++ void Compose(ID3D12GraphicsCommandList* list,NrBindingPacket& packet,Inputs& owner,unsigned frame,NrSlot& slot){
++  Check(clean.resource!=composite.resource&&clean.resource!=slot.result&&composite.resource!=slot.result,"three distinct clean edited composite resources");
++  auto* raw=owner.colors[0].resource;auto state=static_cast<D3D12_RESOURCE_STATES>(owner.completed_states.at(raw));
++  Move(list,raw,state,D3D12_RESOURCE_STATE_COPY_SOURCE);Move(list,composite.resource,composite_state,D3D12_RESOURCE_STATE_COPY_DEST);
++  ID3D12GraphicsCommandList_CopyResource(list,composite.resource,raw);Move(list,raw,state,static_cast<D3D12_RESOURCE_STATES>(read_state));owner.completed_states[raw]=state;
++  Move(list,clean.resource,clean_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  Move(list,composite.resource,composite_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  struct Args{unsigned w,h;float x,y;} args{rw,rh,-phase_frames[frame].jx,-phase_frames[frame].jy};
++  unsigned constants[60]{};std::memcpy(constants,&args,sizeof(args));auto* heap=packet.heaps[nr_binding::Codec];
++  ID3D12GraphicsCommandList_SetDescriptorHeaps(list,1,&heap);ID3D12GraphicsCommandList_SetComputeRootSignature(list,g_codec.root);ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(list,0,ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(heap));ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(list,1,60,constants,0);ID3D12GraphicsCommandList_SetPipelineState(list,pipeline);ID3D12GraphicsCommandList_Dispatch(list,(rw+7)/8,(rh+7)/8,1);
++  UavBarrier(list,composite.resource);Move(list,composite.resource,composite_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  Capture::Copy(list,clean.resource,readbacks[0],footprints[0],clean_state);Capture::Copy(list,slot.result,readbacks[1],footprints[1],slot.result_state);Capture::Copy(list,composite.resource,readbacks[2],footprints[2],composite_state);
++  std::printf("APPROX_COMPOSE frame=%u shift=%.9g,%.9g filter=positive-bilinear ratioBeforeShift=1 exactCopyFallback=1 rawGuides=approximate cleanVisibilityExact=0\n",frame,args.x,args.y);
++ }
++ void Save(unsigned frame){const char* roles[]={"clean-rr-rgba16f","clean-edited-rgba16f","raw-composite-rgba16f"};for(unsigned i=0;i<3;++i)Capture::Save(readbacks[i],footprints[i],8,frame,roles[i]);}
++ void Drop(){clean.Drop();composite.Drop();for(auto*& p:readbacks)ReleaseCom(p);ReleaseCom(pipeline);}
++};
++Flight* active_child_consumer=nullptr;NrBindingPacket* active_composition_packet=nullptr;
++void PrintApproxClosure(){PrintOneRrClosure();if(active_child_consumer||active_composition_packet){context.lifecycle_dependencies_quarantined=true;MarkLifecycleUncertain("two-RR failure retains child/composition closure");std::printf("APPROX_FATAL childPacket=%p compositionPacket=%p noCleanup=1\n",active_child_consumer?(void*)active_child_consumer->packet:nullptr,(void*)active_composition_packet);}}
++}
+--- measure-r2/parent_fixture.inl
++++ scene-twoRR/parent_fixture.inl
+@@ -62 +62 @@
+-    void Pin(queue_test::Fixture& f,queue_test::List& list,const std::shared_ptr<Inputs>& owner,unsigned frame,const char* stage,ID3D12Resource* edited=nullptr,const void* edited_owner=nullptr){
++    void Pin(queue_test::Fixture& f,queue_test::List& list,const std::shared_ptr<Inputs>& owner,unsigned frame,const char* stage,ID3D12Resource* edited=nullptr,const void* edited_owner=nullptr,ID3D12Resource* retained=nullptr,ID3D12Resource* retained_aux=nullptr){
+@@ -66 +66 @@
+-        nr_binding::Plan plan;plan.primary_owner=&context.slots[0];plan.secondary_owner=edited_owner;
++        nr_binding::Plan plan;plan.primary_owner=&context.slots[0];plan.secondary_owner=edited_owner;plan.retained[0]=retained;plan.retained[1]=retained_aux;
+--- /dev/null
++++ scene-twoRR/ratio-before-shift.hlsl
+@@ -0,0 +1,39 @@
++// Independently authored experimental composition. No guide reconstruction.
++// CopyResource(raw, composite) precedes this dispatch. Every refused/identity
++// pixel receives no UAV write, preserving original FP16 bits and alpha.
++Texture2D<float4> Raw : register(t0);
++Texture2D<float4> Clean : register(t1);
++Texture2D<float4> Edited : register(t2);
++RWTexture2D<float4> Composite : register(u0);
++cbuffer Args : register(b0) { uint Width; uint Height; float ShiftX; float ShiftY; };
++[numthreads(8,8,1)]
++void main(uint3 tid : SV_DispatchThreadID) {
++ if(tid.x>=Width || tid.y>=Height) return;
++ if(!all(isfinite(float2(ShiftX,ShiftY)))) return;
++ float2 p=float2(tid.xy)+float2(ShiftX,ShiftY);
++ int2 b=int2(floor(p)); float2 f=frac(p);
++ float3 ratio=0; bool identity=true;
++ [unroll] for(int y=0;y<2;++y) [unroll] for(int x=0;x<2;++x) {
++  float w=(x?f.x:1-f.x)*(y?f.y:1-f.y);
++  if(w==0) continue; // zero-weight out-of-range/nonfinite taps are irrelevant
++  int2 q=b+int2(x,y);
++  if(any(q<0)||q.x>=int(Width)||q.y>=int(Height)) return;
++  float3 c=Clean.Load(int3(q,0)).rgb,a=Edited.Load(int3(q,0)).rgb;
++  if(!all(isfinite(c))||!all(isfinite(a))) return;
++  bool same=all(c==a); identity=identity&&same;
++  float3 r=1;
++  if(!same) {
++   if(any(c<=0)||any(a<0)) return;
++   r=a/c;
++   if(!all(isfinite(r))) return;
++  }
++  ratio+=w*r; // ratio first, then positive bilinear transport
++ }
++ if(identity) return;
++ float4 raw=Raw.Load(int3(tid.xy,0));
++ if(raw.a!=1) return; // actual unchanged SceneFrame alpha 0x3c00; unknown alpha falls back
++ if(!all(isfinite(raw.rgb))||any(raw.rgb<0)) return;
++ float3 value=raw.rgb*ratio;
++ if(!all(isfinite(value))||any(value<0)||any(value>65504)) return;
++ Composite[tid.xy]=float4(value,raw.a);
++}
+--- measure-r2/raw-nr-phase.cpp
++++ scene-twoRR/raw-nr-phase.cpp
+@@ -16 +16,4 @@
+-#include "scene_main.inl"
++#include "approx_resources.inl"
++#include "approx_child.inl"
++#include "two_rr_scene_host.inl"
++#include "scene_two_rr_main.inl"
+--- measure-r2/raw_nr_host.inl
++++ scene-twoRR/raw_nr_host.inl
+@@ -111 +111 @@
+- void Finish(queue_test::Fixture& f,queue_test::List& list,unsigned frame,Flight* rr_consumer=nullptr){list.Close();list.Submit(f.a);ID3D12Fence* fence=nullptr;unsigned long long value=0,queue=0;
++ void Finish(queue_test::Fixture& f,queue_test::List& list,unsigned frame,Flight* rr_consumer=nullptr,Flight* child_consumer=nullptr,NrBindingPacket* composition=nullptr){list.Close();list.Submit(f.a);ID3D12Fence* fence=nullptr;unsigned long long value=0,queue=0;
+@@ -115,0 +116,2 @@
++  if(child_consumer)Check(child_consumer->packet&&child_consumer->nr_recording_token==token&&child_consumer->native_lifetime_token==native_token&&child_consumer->native_reset==reset&&child_consumer->cpu_owner==cpu_owner&&child_consumer->packet->lease.last_submission_queue==slot->last_submission_queue&&child_consumer->packet->lease.completion_fence_value==value&&!child_consumer->packet->lease.awaiting_fence_signal,"child same real recording and exact NR/final-RR fence");
++  if(composition)Check(composition->lease.last_submission_queue==slot->last_submission_queue&&composition->lease.completion_fence_value==value&&!composition->lease.awaiting_fence_signal,"composition same exact queue fence");
+@@ -122,0 +125,2 @@
++  if(child_consumer){Check(child_consumer->packet->lease.recording_command_lists==0&&CanMutateSlotLocked(child_consumer->packet->lease),"child fence plus real Reset retirement");std::printf("APPROX_CHILD_RETIRED frame=%u token=%llu nativeToken=%llu queue=%llu fence=%p value=%llu completed=%llu sameNRFlight=1\n",frame,token,native_token,queue,(void*)fence,value,ID3D12Fence_GetCompletedValue(fence));DropBindingPacket(*child_consumer->packet);child_consumer->packet=nullptr;child_consumer->cpu_owner.reset();}
++  if(composition){Check(composition->lease.recording_command_lists==0&&CanMutateSlotLocked(composition->lease),"composition fence plus real Reset retirement");std::printf("APPROX_COMPOSITION_RETIRED frame=%u token=%llu nativeToken=%llu queue=%llu fence=%p value=%llu completed=%llu sameNRFlight=1\n",frame,token,native_token,queue,(void*)fence,value,ID3D12Fence_GetCompletedValue(fence));DropBindingPacket(*composition);}
+--- /dev/null
++++ scene-twoRR/scene_two_rr_main.inl
+@@ -0,0 +1,49 @@
++int wmain(int argc,wchar_t** argv){std::setvbuf(stdout,nullptr,_IONBF,0);
++ std::map<std::wstring,std::wstring> options;bool go=false;
++ for(int i=1;i<argc;++i){std::wstring key=argv[i];if(key==L"--root-exclusive-gpu-go"){if(go)return 2;go=true;continue;}
++  if(key!=L"--mode"&&key!=L"--route"&&key!=L"--nr"&&key!=L"--frames"&&key!=L"--warm"&&key!=L"--out")return 2;
++  if(++i>=argc||!options.emplace(key,argv[i]).second)return 2;}
++ if(!go||options.size()!=6||options[L"--route"]!=L"RR"||options[L"--nr"]!=L"on")return 2;
++ const auto selected=options[L"--mode"];
++ if(selected==L"functional")scene_bench::mode=scene_bench::Mode::Functional;
++ else return 2;
++ auto count=[](const std::wstring& text,unsigned& value){if(text.empty()||text.size()>3)return false;value=0;for(auto c:text){if(c<L'0'||c>L'9')return false;value=value*10+unsigned(c-L'0');}return true;};
++ if(!count(options[L"--warm"],scene_bench::warm)||!count(options[L"--frames"],scene_bench::observed)||scene_bench::warm<2||scene_bench::warm>120||!scene_bench::observed||scene_bench::observed>120)return 2;
++ if(scene_bench::Functional()&&(scene_bench::warm!=2||scene_bench::observed!=1))return 2;
++ const auto out=std::filesystem::path(options[L"--out"]);if(!out.is_absolute()||!std::filesystem::equivalent(out,std::filesystem::current_path()))return 2;
++ const bool nr_on=options[L"--nr"]==L"on";
++ raw_nr_probe::RunSceneTwoRrApprox(L"nrchain_nvngx.dll",L"runtime.sha256");
++ if(scene_bench::Functional())std::filesystem::copy_file("native-rr-output-rgba16f-2.bin","frame-0000.rgba16f",std::filesystem::copy_options::none);
++ queue_test::Check(!scene_bench::active_measurement,"no pending timestamp flight after all real retirement");
++ if(!scene_bench::Functional())queue_test::Check(scene_bench::measurements.Complete(scene_bench::Total()),"one exact completed timestamp pair for every actual frame");
++ queue_test::Check(scene_bench::capture_files.size()==(scene_bench::Capture()?scene_bench::observed:0u),"all and only observed capture frames; no perf capture");
++ std::ostringstream runtime_identity;runtime_identity<<'{';bool first_runtime=true;
++ for(const wchar_t* name:{L"nrchain_nvngx.dll",L"nvngx_dlss.dll",L"nvngx_dlssd.dll",L"nvngx_dlssnr.dll"}){
++  if(!nr_on&&std::wstring(name)==L"nvngx_dlssnr.dll")continue;
++  const auto bytes=raw_nr_probe::File(name);const std::wstring wide=name;const std::string short_name(wide.begin(),wide.end());
++  if(!first_runtime)runtime_identity<<',';first_runtime=false;runtime_identity<<'"'<<short_name<<"\":\""<<rr_identity_native_test::Digest(bytes.data(),bytes.size())<<'"';
++ }runtime_identity<<'}';
++ std::ostringstream files;files<<'[';for(size_t i=0;i<scene_bench::capture_files.size();++i){if(i)files<<',';files<<'"'<<scene_bench::capture_files[i]<<'"';}files<<']';
++ const char* mode=scene_bench::Functional()?"functional":scene_bench::Capture()?"capture":"perf";
++ std::ostringstream result;result<<"{\n"
++  "  \"schema\":\"dlss5-scene-twoRR-functional-v1\",\n"
++  "  \"status\":\"passed-"<<mode<<"\",\n"
++  "  \"route\":\"research-clean-RR-NR-composite-native-RR\",\n"
++  "  \"coreSource\":\"45df68dc80138e89778e544d49f15109ec437a4f\",\n"
++  "  \"coreSrcTree\":\"7fe3819be240c0fad0eb16526e9d4b3ce0a67f87\",\n"
++  "  \"coreLoad\":\"compiled-full-Core-host;not-addon-load\",\n"
++  "  \"R\":[1280,720],\"N\":[1280,720],\"O\":[1920,1080],\n"
++  "  \"layers\":1,\"warm\":"<<scene_bench::warm<<",\"frames\":"<<scene_bench::observed<<",\"totalFrames\":"<<scene_bench::Total()<<",\n"
++  "  \"nrEnabled\":"<<(nr_on?"true":"false")<<",\n"
++  "  \"rawGuideContract\":\"approximate-after-child-clean\",\"rawProducerAlphaU16\":15360,\"compositionEditAlpha\":1,\n"
++  "  \"runtimes\":"<<runtime_identity.str()<<",\n"
++  "  \"counts\":{\"nativeCreate\":"<<scene_rr_probe_test::parent_create_attempts<<",\"nativeEval\":"<<raw_nr_probe::native_rr_evals<<",\"nrCreate\":"<<raw_nr_probe::nr_creates<<",\"nrEval\":"<<raw_nr_probe::nr_evals<<",\"actualCombines\":"<<raw_nr_probe::probe_combines<<",\"childCreate\":"<<scene_rr_probe_test::scene_create_attempts<<",\"childEval\":"<<scene_rr_probe_test::scene_eval_attempts<<",\"sceneProducerDispatches\":"<<raw_nr_probe::scene_two_rr_producer_dispatches<<"},\n"
++  "  \"retirement\":{\"exactFenceAndSuccessfulReset\":true,\"nativeReleased\":"<<(raw_nr_probe::parent_release_calls==1?"true":"false")<<",\"nrContextDestroyed\":"<<(raw_nr_probe::context_destroy_calls==1?"true":"false")<<",\"childReleased\":"<<(raw_nr_probe::scene_two_rr_child_releases==1?"true":"false")<<",\"recordings\":5},\n"
++  "  \"output\":{\"file\":"<<(scene_bench::Perf()?"null":"\"frame-0000.rgba16f\"")<<",\"format\":\"R16G16B16A16_FLOAT\",\"width\":1920,\"height\":1080,\"stride\":15360,\"bytes\":16588800,\"colorSpace\":\"stored-scene-linear-HDR;preExposure.75/exposureScale2\",\"stage\":\"native-RR-output-before-NIS-tonemap\",\"alphaContract\":\"unknown\"},\n"
++  "  \"capture\":{\"enabled\":"<<(scene_bench::Capture()?"true":"false")<<",\"width\":1920,\"height\":1080,\"stride\":15360,\"format\":\"R16G16B16A16_FLOAT\",\"files\":"<<files.str()<<",\"pre_exposure\":0.75,\"exposure_scale\":2,\"simulation_fps\":60},\n"
++  "  \"measurement\":{\"performance\":"<<(scene_bench::Perf()?"true":"false")<<",\"gpuTimestamps\":"<<(scene_bench::Functional()?"null":"true")<<",\"processMemory\":"<<(scene_bench::Functional()?"null":"true")<<",\"serial_wall_scope\":\"CPU recording, host validation/logging, actual submission and exact completion/Reset; capture mode includes queued image copy; not Present FPS\"},\n"
++  "  \"qualityVerdict\":\"not-evaluated\",\"gameAcceptance\":false";
++ FILE* file=std::fopen("result.json","wb");queue_test::Check(file!=nullptr,"result output opened");const auto text=result.str();queue_test::Check(std::fwrite(text.data(),1,text.size(),file)==text.size(),"complete identity and adoption fields");
++ if(!scene_bench::Functional()){queue_test::Check(std::fputs(",\n",file)>=0&&scene_bench::measurements.WriteFields(file,scene_bench::Total()),"complete actual timing and process memory fields");}
++ queue_test::Check(std::fputs("\n}\n",file)>=0&&std::fclose(file)==0,"result closed");scene_bench::measurements.Drop();return 0;
++}
+--- /dev/null
++++ scene-twoRR/two_rr_scene_host.inl
+@@ -0,0 +1,160 @@
++namespace raw_nr_probe {
++unsigned scene_two_rr_producer_dispatches=0,scene_two_rr_child_releases=0;
++void RunSceneTwoRrApproxGpu(const std::string& mode,const wchar_t* bridge,const wchar_t* pin){
++ const bool baseline=false,identity=false,opaque_control=false,no_nr=false;
++ Check(mode=="two-rr-approx"&&scene_bench::Functional()&&scene_bench::warm==2&&scene_bench::observed==1,"only bounded 3D two-RR functional short gate");VerifyRuntime(pin,!baseline);
++ one_rr_variant=!baseline;terminal_observer=PrintApproxClosure;
++ control="probe";std::vector<PhaseFrame> phases(scene_bench::Total());for(unsigned i=0;i<phases.size();++i){phases[i]=phase_J[i%32];phases[i].reset=i==0;}phase_frames=phases.data();phase_input_root.clear();
++ std::printf("SCENE_TWO_RR_COHORT name=%s R=1280x720 O=1920x1080 RRquality=2 RRpreset=0 flags=75 NRquality=5 intensity=1.5 strength=1 Jschedule=1 warm=%u observe=%u scene=analytic-diffuse-room\n",mode.c_str(),scene_bench::warm,scene_bench::observed);
++ Check(std::filesystem::equivalent(std::filesystem::path(bridge),std::filesystem::current_path()/"nrchain_nvngx.dll"),"native and NR bridge is exact pinned adjacent file");
++ ++device_entries;queue_test::Fixture f;Configure();Check(scene_bench::measurements.Initialize(f.device,f.a,f.adapter,!scene_bench::Functional()),"same existing queue/process adapter instrumentation");Check(scene_bench::measurements.Snapshot("before_model_create"),"process memory before actual models");GetCurrentDirectoryW(MAX_PATH,g_log_path);wcscat_s(g_log_path,L"\\raw-nr-core.log");
++ auto library=LoadLibraryW(bridge);Check(library,"pinned native bootstrap bridge");auto bootstrap=reinterpret_cast<unsigned(*)(ID3D12Device*)>(GetProcAddress(library,"NRChain_Bootstrap"));Check(bootstrap,"actual bootstrap export");
++ const auto initialized=bootstrap(f.device);std::printf("BOOTSTRAP result=%08x count=1\n",initialized);if(initialized!=kNgxSuccess)Fail("native-init",nullptr,initialized);
++ auto* ngx=GetModuleHandleW(L"_nvngx.dll");Check(ngx,"actual original Core module");auto allocate=reinterpret_cast<nr_private_sr_core::Allocate>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_AllocateParameters"));
++ auto create=reinterpret_cast<nr_private_sr_core::Create>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_CreateFeature"));auto release=reinterpret_cast<nr_private_sr_core::Release>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_ReleaseFeature"));auto destroy=reinterpret_cast<nr_private_sr_core::Destroy>(GetProcAddress(ngx,"NVSDK_NGX_D3D12_DestroyParameters"));Check(allocate&&create&&release&&destroy,"actual original exports");
++ PreCreateCapability precreate;precreate.Query(ngx,f.device);
++ const auto hooks=MH_Initialize();Check(hooks==MH_OK||hooks==MH_ERROR_ALREADY_INITIALIZED,"real native hooks");Check(NrDescriptorConfigureStartup(false),"descriptor observer startup");descriptor_warp_test::InstallCommandObservation(f);TrackGraphicsQueueLocked(f.a);queue_test::List list(f);
++ const auto coverage=EnsurePostBoundaryNativeHooks(list.native);Check((coverage&(nr_post_boundary::Legacy|nr_post_boundary::Operations))==(nr_post_boundary::Legacy|nr_post_boundary::Operations),"actual source operation observation");nr_source_runtime::SeedCoreRecordingDevice(list.native);list.Close();list.ResetWithNewAllocator(f);
++ Check(EnsureCodec(f.device),"actual production codec initialization after native observation installation");
++ descriptor_warp_test::Pipeline pipeline(f),alternate(f);auto* heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);auto* alternate_heap=descriptor_warp_test::Heap(f,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,true);
++ Adapter envelope(f);envelope.list=list.native;envelope.alternate_pipeline=alternate.state;envelope.alternate_heap=alternate_heap;
++ auto owner=std::make_shared<Inputs>();owner->Make(f,ow,oh);SceneFrame scene;scene.Make(f,*owner);scene.Record(list.native,*owner,0);
++ NgxParams* parent_params=nullptr;Check(allocate(&parent_params)==kNgxSuccess&&parent_params,"true native parent params");for(auto kv:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh},{"CreationNodeMask",1u},{"VisibilityNodeMask",1u}})SetUInt(parent_params,kv.first,kv.second);
++ SetInt(parent_params,"PerfQualityValue",2);SetInt(parent_params,"RayReconstruction.Hint.Render.Preset.Quality",0);SetInt(parent_params,"DLSS.Feature.Create.Flags",75);SetInt(parent_params,"DLSS.Denoise.Mode",1);SetUInt(parent_params,"DLSS.Roughness.Mode",0);SetUInt(parent_params,"DLSS.Use.HW.Depth",1);SetInt(parent_params,"DLSS.Enable.Output.Subrects",0);
++ for(auto kv:{std::pair{"Width",rw},{"Height",rh},{"OutWidth",ow},{"OutHeight",oh}}){unsigned v=0;Check(GetUInt(parent_params,kv.first,&v)&&v==kv.second,"actual parent R-to-O create extent getters");}
++ for(auto kv:{std::pair{"PerfQualityValue",2},{"RayReconstruction.Hint.Render.Preset.Quality",0},{"DLSS.Feature.Create.Flags",75},{"DLSS.Denoise.Mode",1}}){int v=-1;Check(GetInt(parent_params,kv.first,&v)&&v==kv.second,"actual fixed native RR quality/preset/flags getters");std::printf("ONE_RR_CREATE_GET key=%s value=%d\n",kv.first,v);}
++ Check(precreate.proven&&parent_create_attempts==0,"sole parent Create after exact original capability/optimal support");
++ ScopedNgxLayer layer(NgxLayer::Core);g_original_core_create=create;NgxHandle* parent=nullptr;Flight parent_flight;
++ EnterCriticalSection(&g_chain_cs);pipeline.Bind(list,heap);parent_flight.Pin(f,list,owner,0,"parent-create");active_rr_consumer=&parent_flight;GuideState(list.native,*owner);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"actual parent Create state envelope");
++ ++parent_create_attempts;const auto made=HookCoreCreate(list.native,13,parent_params,&parent);std::printf("PARENT_CREATE feature=13 result=%08x calls=1 quality=2 preset=0 RtoO=1\n",made);OpaqueResult(made,envelope,"parent-create");ObserveAfterOpaque(list.native,*owner,0,"parent-create");Check(parent,"real parent handle");LeaveCriticalSection(&g_chain_cs);parent_flight.Finish(f,list,"parent-create");active_rr_consumer=nullptr;
++ SceneFactory factory;factory.Resolve(f,parent);factory.eval_params=factory.Allocate("one-RR-eval-params");
++ ApproxResources approx;approx.Make(f,list.native);
++ ApproxChild child;child.Resolve(f,parent);child.Query();child.Prepare();Flight child_consumer;
++ EnterCriticalSection(&g_chain_cs);child_consumer.Pin(f,list,owner,0,"approx-child-create",approx.clean.resource,&approx,approx.composite.resource,approx.readbacks[2]);active_child_consumer=&child_consumer;
++ GuideState(list.native,*owner);ApproxResources::Move(list.native,approx.clean.resource,approx.clean_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++ Check(envelope.EnvelopeApi().capture(&envelope,list.native),"private child Create current envelope and actual lease");OpaqueResult(child.Create(list.native),envelope,"approx-child-create");approx.ObserveClean(list.native);ObserveAfterOpaque(list.native,*owner,0,"approx-child-create");LeaveCriticalSection(&g_chain_cs);child_consumer.Finish(f,list,"approx-child-create");active_child_consumer=nullptr;
++
++ // Native and signed NR loader/init domains remain distinct even on one device.
++ NrRuntimeGate runtime_gate;runtime_gate.expected_evals=scene_bench::Total();if(!no_nr)runtime_gate.Initialize(f.device,factory);if(!EnsureCodec(f.device))Fail("codec");Capture capture;if(!baseline&&scene_bench::Functional())capture.Make(f);RrOutput rr_output;if(!scene_bench::Perf())rr_output.Make(f,*owner);Flight rr_consumer;
++ NrContext* nr=nullptr;NrFlight flight;ControlSlotStates control_states;
++ for(unsigned frame=0;frame<scene_bench::Total();++frame){const unsigned iteration=frame;bool continue_control=false;
++  if(!scene_bench::Functional()){Check(scene_bench::measurements.Begin(list.native,frame),"same queue timestamp before actual scene producer");scene_bench::active_measurement=&scene_bench::measurements;}
++  scene.Record(list.native,*owner,frame);factory.Bind(owner,frame);factory.Guard("raw-NR-input");
++  Check(scene.Matches(list.native,*owner,frame),"both native histories use the actual same-frame producer recording");
++  EnterCriticalSection(&g_chain_cs);if(baseline)pipeline.Bind(list,heap);GuideState(list.native,*owner,frame);const auto feature=FindFeature(parent);Check(feature.feature_id==13&&feature.generation==factory.parent_generation,"no forged Feature1 carrier");
++  if(baseline){rr_consumer.Pin(f,list,owner,frame,"one-RR-baseline");active_rr_consumer=&rr_consumer;if(scene_bench::Functional())rr_output.Poison(list.native,*owner,frame);
++   OneRrEvaluate(list,envelope,factory,owner,frame,rr_consumer,nullptr,nullptr);
++   Check(scene_bench::measurements.End(list.native),"render timestamp ends after actual native RR before any image copy");if(scene_bench::Functional()||(scene_bench::Capture()&&frame>=scene_bench::warm))rr_output.Record(list.native,*owner,frame);
++   LeaveCriticalSection(&g_chain_cs);rr_consumer.Finish(f,list,"one-RR-baseline");active_rr_consumer=nullptr;SaveSceneFrame(rr_output,scene,frame);continue;}
++
++  child.BindClean(owner,frame,approx.clean.resource);child_consumer.Pin(f,list,owner,frame,"approx-child-eval",approx.clean.resource,&approx,approx.composite.resource,approx.readbacks[2]);active_child_consumer=&child_consumer;
++  approx.PoisonClean(list.native);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"private child Eval current envelope and actual lease");OpaqueResult(child.Evaluate(list.native,frame),envelope,"approx-child-evaluate");approx.ObserveClean(list.native);ObserveAfterOpaque(list.native,*owner,frame,"approx-child-evaluate");
++  ApproxResources::Move(list.native,approx.clean.resource,approx.clean_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  const auto color=ReadColorContract(factory.eval_params);Check(color.has_pre_exposure&&color.has_exposure_scale&&!color.exposure_texture&&color.pre_exposure==.75f&&color.exposure_scale==2,"explicit fixed stored HDR exposure");NrGuideBinding guides{};
++  Check(ResolveNrGuideBinding(factory.eval_params,feature,2,rw,rh,rw,rh,owner->colors[0].resource,0,0,CodecColorMode::Automatic,guides),"actual production raw guide resolver");
++  Check(guides.jitter.known&&guides.jitter.x==phase_frames[frame].jx&&guides.jitter.y==phase_frames[frame].jy&&guides.has_motion_scale_x&&guides.has_motion_scale_y&&guides.valid_motion_scale_x&&guides.valid_motion_scale_y&&!guides.signature.resample_motion&&!guides.signature.linear_depth,"strict raw admission before codec or opaque call");
++  // Clean phase zero, original same-frame 3D raw guides remain explicitly approximate.
++  guides.jitter.x=guides.jitter.y=guides.jitter.source_x=guides.jitter.source_y=0;guides.jitter_offset_x=guides.jitter_offset_y=0;
++  Check(guides.jitter.known&&guides.depth==owner->depth.resource&&guides.motion==owner->motions[0].resource&&child.child_evaluates==frame+1,"approximate clean NR contract and real child producer count");
++  std::printf("APPROX_NR_GUIDES frame=%u colorPhase=0 jitter=0 rawDepth=1 rawMV=1 rawVisibilityApproximate=1 exactCleanGuideClaim=0 layers=1 N=R=1\n",frame);
++  nr=FindOrCreateContext(parent,feature.generation,2,rw,rh,CodecColorMode::Automatic,guides.signature,false);Check(nr&&nr->feature_generation==feature.generation&&nr->sr_handle==parent,"real parent generation owns independent F18 context");++nr->frames_seen;
++  Check(PrepareContextUseLocked(list.native,*nr),"actual NR context recording admission");NrColorSemanticContract semantic{};semantic.flags_known=feature.create_flags_known;semantic.exposure=color;
++  if(opaque_control)control_states.BeforeFactory(*nr);
++  auto* slot=FindOrCreateSlot(*nr,f.device,approx.clean.resource,false,nullptr,CodecColorMode::Automatic,feature.create_flags,&semantic);Check(slot&&!nr->failed,"actual typed slot factory");slot->active_render_width=rw;slot->active_render_height=rh;
++  if(opaque_control)control_states.Bind(*nr,*slot);
++  // Region-OFF Seal alone is a no-op: explicitly construct the immutable
++  // production codec plan and retain the two genuine raw guides.
++  nr_binding::Plan bindings{};bindings.primary_owner=slot;WriteCodecDescriptorSet(f.device,*slot,nullptr,&bindings.heaps[nr_binding::Consumer]);bindings.retained[0]=guides.depth;bindings.retained[1]=guides.motion;nr_binding::Refusal refusal{};
++  auto* packet=AcquireBindingPacket(f.device,list.native,*nr,bindings,&refusal);if(!packet)Fail(nr_binding::RefusalName(refusal),nr);slot->compose_binding=packet;
++  Check(RecordNrUseLocked(list.native,*nr,*slot),"actual main slot recording pin");auto* diagnostic=capture.Pin(f,list.native,*nr,*slot,guides);if(!identity&&scene_bench::Functional())flight.clear.Prepare(f,*slot,*diagnostic);flight.Pin(list.native,*nr,*slot,*packet,*diagnostic,owner);
++  auto admission=raw_nr_admission::Inputs(phase_frames[frame].sx,phase_frames[frame].sy,phase_frames[frame].jx,phase_frames[frame].jy);
++  admission.has_mv_x=guides.has_motion_scale_x;admission.has_mv_y=guides.has_motion_scale_y;admission.has_j_x=guides.jitter.valid_x;admission.has_j_y=guides.jitter.valid_y;
++  admission.mv_x=guides.signature.motion_scale_x;admission.mv_y=guides.signature.motion_scale_y;admission.hardware_depth=!guides.signature.linear_depth;
++  // Replace cold planned dimensions with actual getters/GetDesc/real context.
++  const auto actual_color_desc=ID3D12Resource_GetDesc(owner->colors[0].resource);
++  Check(GetUInt(factory.eval_params,"DLSS.Render.Subrect.Dimensions.Width",&admission.raw_w)&&GetUInt(factory.eval_params,"DLSS.Render.Subrect.Dimensions.Height",&admission.raw_h),"actual raw render extent getter");
++  admission.work_w=nr->width;admission.work_h=nr->height;admission.physical_w=static_cast<unsigned>(actual_color_desc.Width);admission.physical_h=actual_color_desc.Height;admission.samples=actual_color_desc.SampleDesc.Count;
++  Check(GetUInt(factory.eval_params,"DLSS.Input.Color.Subrect.Base.X",&admission.base_x)&&GetUInt(factory.eval_params,"DLSS.Input.Color.Subrect.Base.Y",&admission.base_y),"actual source subrect getters");
++  ID3D12Resource *actual_color=nullptr,*actual_depth=nullptr,*actual_motion=nullptr;
++  admission.same_producer=GetResource(factory.eval_params,"Color",&actual_color)&&GetResource(factory.eval_params,"Depth",&actual_depth)&&GetResource(factory.eval_params,"MotionVectors",&actual_motion)&&actual_color==owner->colors[0].resource&&actual_depth==owner->depth.resource&&actual_motion==owner->motions[0].resource&&guides.depth==actual_depth&&guides.motion==actual_motion;
++  // Actual seven-UAV producer was recorded for this frame, list lifetime,
++  // Reset generation and exact bound resources before any opaque consumer.
++  // The later existing exact-fence retirement permits readback validation.
++  admission.same_frame=admission.same_producer&&scene.Matches(list.native,*owner,frame);
++  Check(admission.same_frame,"same-frame scene producer witness before F18");
++  unsigned actual_hardware_depth=0;admission.hardware_depth=admission.hardware_depth&&GetUInt(parent_params,"DLSS.Use.HW.Depth",&actual_hardware_depth)&&actual_hardware_depth==1;
++  Check(actual_color_desc.Format==DXGI_FORMAT_R16G16B16A16_FLOAT&&actual_color_desc.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D&&actual_color_desc.DepthOrArraySize==1&&actual_color_desc.MipLevels==1,"actual raw color resource format/shape");
++  admission.pre_exposure=color.pre_exposure;admission.exposure_scale=color.exposure_scale;admission.stage=raw_nr_admission::Stage::Live;
++  admission.feature_id=feature.feature_id;admission.expected_generation=factory.parent_generation;admission.actual_generation=feature.generation;
++  admission.expected_domain=factory.exports.domain_epoch;admission.actual_domain=nr_private_sr_core::ParentInDomain(parent,feature.generation,factory.exports.domain_epoch,reinterpret_cast<void*>(factory.exports.create))?factory.exports.domain_epoch:0;
++  admission.domain_alive=nr_private_sr_core::DomainAlive(factory.exports);admission.device_same=IsSameRrDepthDevice(factory.exports.domain_device,f.device);
++  const auto admitted_native=SnapshotPostBoundaryList(list.native);admission.native_known=admitted_native.known;admission.expected_native=flight.native_token;admission.actual_native=admitted_native.token;
++  admission.expected_reset=flight.reset;admission.actual_reset=admitted_native.reset;admission.expected_recording=flight.token;ReadLifecycleToken(list.native,admission.actual_recording);
++  auto* admitted_record=FindLifecycleCommandListLocked(admission.actual_recording);admission.recording_fresh=admitted_record&&!admitted_record->detached&&admitted_record->submission_count==0;
++  admission.lifecycle_certain=!g_lifecycle_tracking_uncertain.load();
++  NrSlot* edited_slot=slot;const auto refusal_at_entry=raw_nr_admission::Enter(admission,[&]{
++#include "control_branch.inl"
++  Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.encode_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,1);auto roots=scene_bench::Functional()?Capture::Roots(list.native,frame,"encode-v2"):CodecConstants{};
++  UavBarrier(list.native,slot->proxy);Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if(identity){
++   // Explicit no-model control: a real GPU copy gives NeuralColor the exact
++   // encoded proxy bytes. Actual production shader decode/combine still run.
++   Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
++   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_COPY_DEST);
++   ID3D12GraphicsCommandList_CopyResource(list.native,slot->neural,slot->proxy);
++   Transition(list.native,slot->proxy,slot->proxy_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++   Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++   std::printf("CODEC_IDENTITY frame=0 F18Init=0 F18Create=0 F18Eval=0 neuralBytes=proxyBytes originalDecodeAndCombine=1\n");
++  }else{
++  if(!nr->params){ScopedSrwExclusive lock(&g_nr_api_lock);Check(g_nr_api.allocate(&nr->params)==kNgxSuccess&&nr->params,"actual F18 parameter allocation");}
++  const bool first_nr=!nr->nr_handle;Check(BindNrParameters(*nr,*slot,guides,feature,rw,rh,color,first_nr),"actual production F18 binder");VerifyBinder(*nr,*slot,guides,frame);
++  // Every opaque Create and Eval has its own captured current command state.
++  if(first_nr){runtime_gate.Before("Create",frame,list.native,flight,factory,*nr);Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Create envelope and prior lease");void* handle=nullptr;++nr_creates;
++   const auto created=CreateSignedNrFeature(list.native,*nr,feature,&handle);std::printf("F18_CREATE frame=%u result=%08x handle=%p calls=%u\n",frame,created,handle,nr_creates);
++   if(created!=kNgxSuccess||!handle)OpaqueFailure(envelope,*nr,"F18-Create-partial-or-error",created);nr->nr_handle=static_cast<NgxHandle*>(handle);Opaque(created,envelope,*nr,"F18-Create");ObserveSlot(list.native,*nr,*slot,"Create");}
++  Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++  if(scene_bench::Functional())flight.clear.Record(f,list.native,*diagnostic,*slot);
++  if(scene_bench::Functional())std::printf("NR_OUTPUT_SENTINEL frame=%u negative=-1234 wholePlane=1 encodedCaptureBeforeSaturate=1 nonvisibleCPUDescriptor=1\n",frame);
++  runtime_gate.Before("Evaluate",frame,list.native,flight,factory,*nr);
++  Check(envelope.EnvelopeApi().capture(&envelope,list.native),"before F18 Eval envelope and prior lease");NgxResult evaluated=0;{ScopedSrwExclusive lock(&g_nr_api_lock);ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate,nr->nr_handle);++nr_evals;evaluated=g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate,list.native,nr->nr_handle,nr->params,nullptr);}
++  std::printf("F18_EVAL frame=%u result=%08x calls=%u\n",frame,evaluated,nr_evals);Opaque(evaluated,envelope,*nr,"F18-Eval");ObserveAfterOpaque(list.native,*owner,frame,"F18-evaluate");ObserveSlot(list.native,*nr,*slot,"Evaluate");
++  nr->guide_history.CommitOnEvaluate(guides.signature,true);++nr->evaluations;CompleteNrDiagnosticEvaluation(*nr,*slot);g_nr_successful_evaluations.fetch_add(1);
++  UavBarrier(list.native,slot->neural);Transition(list.native,slot->neural,slot->neural_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++  }
++  // Save original function outputs even during the two production warm-up
++  // frames. A warm-up edited result is explicit raw identity, never model proof.
++  const bool combine=identity||(nr->successful_evaluations_since_reset>g_config.warmup_after_create&&!g_config.identity_use_original);
++  if(frame>=scene_bench::warm)Check(combine&&!slot->suppress_transfer_this_frame,"observation consumes actual NR transfer after exactly two production warmups");
++  if(combine){++probe_combines;Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);DispatchCodec(list.native,*slot,g_codec.combine_v2,rw,rh,color,true,0,0,0,0,CodecColorMode::Automatic,rw,rh,rw,rh,slot->suppress_transfer_this_frame?0.f:1.f);roots=scene_bench::Functional()?Capture::Roots(list.native,frame,"combine-v2"):CodecConstants{};UavBarrier(list.native,slot->result);}
++  else {Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_COPY_DEST);ApproxResources::Move(list.native,approx.clean.resource,approx.clean_state,D3D12_RESOURCE_STATE_COPY_SOURCE);
++   ID3D12GraphicsCommandList_CopyResource(list.native,slot->result,approx.clean.resource);ApproxResources::Move(list.native,approx.clean.resource,approx.clean_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);}
++  Transition(list.native,slot->result,slot->result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);if(scene_bench::Functional())capture.Record(list.native,*diagnostic,roots,*slot);
++  std::printf("APPROX_CLEAN_NR_FRAME frame=%u observe=%u combined=%u suppress=%u warmupCount=%u expected_colorPhase=0 rawGuides=approximate parentEval=one-per-frame childEval=one-per-frame sceneProducer=actual strength=1\n",frame,frame>=scene_bench::warm,combine,slot->suppress_transfer_this_frame,nr->successful_evaluations_since_reset);
++  });if(refusal_at_entry)Fail(refusal_at_entry,nr);if(continue_control)continue;
++  ObserveAfterOpaque(list.native,*owner,frame,"diagnostic-recorded");
++  auto* composition=approx.PinComposition(f,list.native,*nr,*edited_slot,owner,frame);active_composition_packet=composition;approx.Compose(list.native,*composition,*owner,frame,*edited_slot);
++  rr_consumer.Pin(f,list,owner,frame,"two-RR-approx-final",approx.composite.resource,&approx);active_rr_consumer=&rr_consumer;
++  Check(rr_consumer.nr_recording_token==flight.token,"NR producer and RR consumer use identical real recording");
++  GuideState(list.native,*owner,frame); // actual-current raw guide states after opaque NR; never guessed
++  if(scene_bench::Functional())rr_output.Poison(list.native,*owner,frame);OneRrEvaluate(list,envelope,factory,owner,frame,rr_consumer,approx.composite.resource,nr);
++  {nr_source_runtime::Lock lock;unsigned state=0;Check(nr_source_runtime::StateOf(nr_source_runtime::RecordingOf(list.native),nr_source_runtime::ResourceOf(approx.composite.resource),state),"actual composite Color state after native RR");approx.composite_state=static_cast<D3D12_RESOURCE_STATES>(state);std::printf("ONE_RR_EDITED_STATE frame=%u state=%u actualObserver=1\n",frame,state);}
++  Check(scene_bench::measurements.End(list.native),"render timestamp ends after actual native RR before any image copy");if(scene_bench::Functional()||(scene_bench::Capture()&&frame>=scene_bench::warm))rr_output.Record(list.native,*owner,frame);LeaveCriticalSection(&g_chain_cs);flight.Finish(f,list,frame,&rr_consumer,&child_consumer,composition);active_rr_consumer=nullptr;active_child_consumer=nullptr;active_composition_packet=nullptr;capture.Save(frame);approx.Save(frame);SaveSceneFrame(rr_output,scene,frame);
++ }
++ Check(child.child_creates==1&&child.child_evaluates==scene_bench::Total()&&!active_child_consumer&&!active_composition_packet,"separate child history complete and retired");
++ Check(native_rr_evals==scene_bench::Total()&&parent_create_attempts==1&&nr_creates==(baseline?0u:1u)&&nr_evals==(baseline?0u:scene_bench::Total())&&!active_rr_consumer,"complete one-RR history and exact call counts");scene_two_rr_producer_dispatches=scene.dispatches;Check(scene.dispatches==scene_bench::Total()+1&&scene.saves==(scene_bench::Functional()?scene_bench::Total():0u),"single pool exactly bounded producer; no guide readbacks outside functional");if(!baseline)Check(probe_combines==scene_bench::Total()-2,"actual production combine after exactly two model warmup frames");Check(scene_bench::measurements.Snapshot("after_retire",scene_bench::Total()),"process memory all real flights retired before model release");if(!baseline)Check(nr&&CanDestroyContextLocked(*nr)&&CanDestroyBindingsLocked(*nr),"F18 dependencies retire only after real RR consumption");Check(SUCCEEDED(ID3D12Device_GetDeviceRemovedReason(f.device)),"device healthy");
++ child.ReleaseChild();++scene_two_rr_child_releases;approx.Drop();
++ if(!baseline){flight.clear.Drop();++context_destroy_calls;DestroyContext(*nr);if(nr->lifecycle_dependencies_quarantined)Fail("F18-release-unproven",nr);}
++ {ScopedSrwExclusive lock(&g_nr_api_lock);nr_private_sr_core::Scope tls;factory.Guard("parent-release");for(auto** p:{&factory.eval_params,&factory.capability})if(*p){Check(factory.exports.destroy(*p)==kNgxSuccess,"actual owner parameter destruction");*p=nullptr;}}
++ ++parent_release_calls;Check(release(parent)==kNgxSuccess,"original parent Release after NR retirement and while native exports retained");nr_private_sr_core::ForgetParent(parent);ForgetFeature(parent);Check(destroy(parent_params)==kNgxSuccess,"parent params destroyed under retained original owner");
++ precreate.Drop(destroy);FreeLibrary(factory.callback_owner);FreeLibrary(factory.capability_owner);nr_private_sr_core::ReleaseExports(factory.exports);
++ Check(scene_bench::measurements.Snapshot("after_model_release",scene_bench::Total()),"process memory after real model handles released");
++ DestroyBindings(context);if(!baseline&&scene_bench::Functional())capture.Drop();rr_output.Drop();scene.Drop();owner->Drop();ReleaseCom(heap);ReleaseCom(alternate_heap);if(!no_nr)runtime_gate.Drop();
++ Check(scene_bench::measurements.Snapshot("after_pool_release",scene_bench::Total()),"process memory after single scene/output pool released; driver cache may remain");
++ std::printf("PASS SCENE_TWO_RR_HOST mode=%s parentCreate=1 parentEval=%u F18Create=%u F18Eval=%u SceneCreate=1 SceneEval=3 rawGuides=approximate rawAlpha=1 Feature1=0 R=1280x720 O=1920x1080 captureFiles=%zu qualityVerdict=unknown\n",mode.c_str(),native_rr_evals,nr_creates,nr_evals,scene_bench::capture_files.size());
++}
++void RunSceneTwoRrApprox(const wchar_t* bridge,const wchar_t* pin){
++ Check(scene_bench::Functional()&&scene_bench::warm==2&&scene_bench::observed==1,"fixed three-frame 3D two-RR gate before device");
++ for(unsigned i=0;i<scene_bench::Total();++i){const auto& p=phase_J[i%32];auto facts=raw_nr_admission::Inputs(p.sx,p.sy,p.jx,p.jy);const auto rejected=raw_nr_admission::Enter(facts,[]{});if(rejected){std::printf("COLD_REFUSAL frame=%u reason=%s device=0 opaque=0\n",i,rejected);probe_terminal::Exit(42,"scene-two-RR-cold-refusal");}}
++ RunSceneTwoRrApproxGpu("two-rr-approx",bridge,pin);
++}
++}

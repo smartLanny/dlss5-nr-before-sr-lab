@@ -1,0 +1,80 @@
+{
+  "CPU": true,
+  "GPU": false,
+  "NGX": false,
+  "tests": [
+    {
+      "name": "identity-copy-preserves-NaN-payload-negative-signedzero-alpha",
+      "pass": true,
+      "counts": {
+        "accepted": 0,
+        "identity": 4,
+        "refused": 0
+      }
+    },
+    {
+      "name": "ratio-before-shift-does-not-commute",
+      "pass": true,
+      "ratio_before": 1.5,
+      "ratio_after": 1.25
+    },
+    {
+      "name": "positive-weight-outside-grid-refuses-exact-copy",
+      "pass": true,
+      "counts": {
+        "accepted": 1,
+        "identity": 0,
+        "refused": 1
+      }
+    },
+    {
+      "name": "zero-weight-outside-tap-ignored",
+      "pass": true
+    },
+    {
+      "name": "nonidentity-zero-denominator-refuses",
+      "pass": true
+    },
+    {
+      "name": "negative-denominator-refuses",
+      "pass": true
+    },
+    {
+      "name": "negative-edit-refuses",
+      "pass": true
+    },
+    {
+      "name": "nonfinite-edit-refuses",
+      "pass": true
+    },
+    {
+      "name": "FP16-overflow-refuses",
+      "pass": true
+    },
+    {
+      "name": "nonfinite-phase-refuses-whole-plane",
+      "pass": true
+    },
+    {
+      "name": "nonidentity-unknown-alpha-refuses-all-raw-bits",
+      "pass": true
+    },
+    {
+      "name": "nonidentity-raw-NaN-refuses-payload-exactly",
+      "pass": true
+    },
+    {
+      "name": "nonidentity-negative-raw-refuses",
+      "pass": true
+    },
+    {
+      "name": "raster-s=-j-pullback-uses-minus-j",
+      "pass": true,
+      "s": 0.25,
+      "j": -0.25,
+      "right": 1.3125,
+      "wrong": 1.1875
+    }
+  ],
+  "scope": "algorithmic counterexamples and FP16 copy oracle; no GPU shader equivalence or RR output acceptance"
+}

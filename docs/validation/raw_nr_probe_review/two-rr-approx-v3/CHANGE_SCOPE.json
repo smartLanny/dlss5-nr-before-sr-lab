@@ -1,0 +1,132 @@
+{
+  "schema": "single-alpha-predicate-shader-only-v3",
+  "native_host_recompiled": false,
+  "only_changed_host_files": [
+    {
+      "file": "host/ratio-before-shift.cso",
+      "v2_sha256": "899214af3dcc33c158dc4e608800e8b850b9bc4c87ce4523b807e8ef70f5fffd",
+      "v3_sha256": "11aa1705bd530075e7637acb074e6a00e1360e1007984fd746bdcfaff3e1a4b6"
+    },
+    {
+      "file": "host/ratio-before-shift.hlsl",
+      "v2_sha256": "c85a8157703af72875138d9945a9df434bcaf293cf3906219edee9bbb4f434e4",
+      "v3_sha256": "dcd53778f086b9e79d373be54515cebb49210b479e574878d4eb2eb74a7b8251"
+    }
+  ],
+  "unchanged_compiled_host_sources_objects_and_other_shaders": [
+    {
+      "file": "host/admission_entry.inl",
+      "same_v2_v3_sha256": "fc0fa43950bec66490f5f1e66d6fed8732538dd0e34bd0caaae48a7ed34b2b29"
+    },
+    {
+      "file": "host/approx_child.inl",
+      "same_v2_v3_sha256": "b813339ab86d46e6484e828afd117f28103120c5a23b4df01b9d5f7e91807e98"
+    },
+    {
+      "file": "host/approx_resources.inl",
+      "same_v2_v3_sha256": "ae042b29f813e24f46fe6e75c215b76f39200599ce818b0922b706fabe9b3867"
+    },
+    {
+      "file": "host/capture-decode.cso",
+      "same_v2_v3_sha256": "6ccce583405830118fef9e8f49c93cb461c61ab7b5ea278ec40310e25d3bd3fe"
+    },
+    {
+      "file": "host/clear_cpu_owner.inl",
+      "same_v2_v3_sha256": "1c0e1a4ebe1f12fb3e8d2973a8b76f955bb0baa91987e3cd67bc29df83ecadf9"
+    },
+    {
+      "file": "host/control_branch.inl",
+      "same_v2_v3_sha256": "2e1f9198b6a05ebe00a5ce880e39274a3b472902a9780d9c81702035210cb337"
+    },
+    {
+      "file": "host/control_slot_states.inl",
+      "same_v2_v3_sha256": "22935ae73433976d8736abf13f4ee68ec196a5057c1d0b9242ee3bf3d12573c0"
+    },
+    {
+      "file": "host/cpu_std_exit_reference.cpp",
+      "same_v2_v3_sha256": "a8e74af099eae757bd1a235df943a12bfe77ca7eb8b9f5de7549ddbaa23e1f5b"
+    },
+    {
+      "file": "host/cpu_terminal.inl",
+      "same_v2_v3_sha256": "8d49147e7f75e978179d85a4798be4693a462e70da3f6b118bd01a1ec48fea9d"
+    },
+    {
+      "file": "host/helpers.inl",
+      "same_v2_v3_sha256": "2651db08da8a54253c84bd83d2aab093443644e1849afc72b4c9833afde4f7f0"
+    },
+    {
+      "file": "host/nr_rr_identity_dx12.hpp",
+      "same_v2_v3_sha256": "a8a0d80347584ccd8b85018129b6e6974e7a2a65ba0c608b1f65f265430ab19d"
+    },
+    {
+      "file": "host/nr_rr_identity_dx12.o",
+      "same_v2_v3_sha256": "91ccbb7096af706f4ca2623b4cdc7052cadd6530817d43b7aa6e78354d4ba06b"
+    },
+    {
+      "file": "host/nr_runtime_gate.inl",
+      "same_v2_v3_sha256": "01bb12d9ccf53706d6e33d489e2cb23c27674499bd69bbeaaf5abf178b043968"
+    },
+    {
+      "file": "host/one_rr_contract.inl",
+      "same_v2_v3_sha256": "f71162b05440f83cad75d8e1be62cd4d3eb71fc5edcfb1fa484a88bcaf4ad2eb"
+    },
+    {
+      "file": "host/one_rr_host.inl",
+      "same_v2_v3_sha256": "bf969afb6924006a67128a147804949c7fba61c02786d951329f80832d84c5ec"
+    },
+    {
+      "file": "host/opaque_control.inl",
+      "same_v2_v3_sha256": "1f6b4a5db34a2b10f00bf53c7af52c32f4de15a9b0e21ea875c43b9afa71887c"
+    },
+    {
+      "file": "host/parent_fixture.inl",
+      "same_v2_v3_sha256": "c2f8b616bbe9cffadbe906622f96e8153517604fbfd6abdb7c71722f6fa3dbda"
+    },
+    {
+      "file": "host/phase_schedule.inl",
+      "same_v2_v3_sha256": "4c558525c3886738ba9bdabd6a63c1a65fe91854bea31503c65be5225e01fc15"
+    },
+    {
+      "file": "host/probe_admission.inl",
+      "same_v2_v3_sha256": "9fcb3b2773637541147db112d77433ddd8e670152212d64933b0dc7aeaeea54d"
+    },
+    {
+      "file": "host/raw-nr-phase.cpp",
+      "same_v2_v3_sha256": "6de8a404ea69d8d86c8480a87476c241cedb4316d09ae58e422dde66353f7276"
+    },
+    {
+      "file": "host/raw-nr-phase.exe",
+      "same_v2_v3_sha256": "52f21828f4eea2ce2496aef71b3321c5fbf72cd7ca43b28f46087f94db5e04ef"
+    },
+    {
+      "file": "host/raw_nr_host.inl",
+      "same_v2_v3_sha256": "a5cbb919d6e69100d8e2e9edb60a5030bc5734d267fb2487acaeece598e9c14a"
+    },
+    {
+      "file": "host/rr-native-keys.inl",
+      "same_v2_v3_sha256": "46ffddd22f31f3c112caeb9ca82cc9af69a4101b21a7d9dc18e8298c3fbcb369"
+    },
+    {
+      "file": "host/rr_identity_core_host.cpp.in",
+      "same_v2_v3_sha256": "cc1995b5fa391f43b9ef6097439345fc74b9d00d5f6a468be4a1abf747e3dc39"
+    },
+    {
+      "file": "host/rr_identity_native_host.cpp.in",
+      "same_v2_v3_sha256": "5dacd67b39c62c84a6ed77d594e9e3eb391036a34e93b851f72b145688013256"
+    },
+    {
+      "file": "host/terminal_policy.hpp",
+      "same_v2_v3_sha256": "5b6dfbdf344bdb548023f2e4c9ac8f905a2d4d2ba13470b090a4d0856d42f3f7"
+    },
+    {
+      "file": "host/two_rr_host.inl",
+      "same_v2_v3_sha256": "4f426cf69d27f2cfff79ab82c2a42562af8973b1b9686f907b78576fe90d5b18"
+    }
+  ],
+  "same_v2_EXE_sha256": "52f21828f4eea2ce2496aef71b3321c5fbf72cd7ca43b28f46087f94db5e04ef",
+  "sourceguard_unchanged": true,
+  "canonical_Core_identity_inherited_from_sealed_v2": "45df68dc80138e89778e544d49f15109ec437a4f",
+  "native_recording_leases_parameter_contracts_and_math_unchanged_except_alpha_eligibility": true,
+  "new_measurement_checks": "per-observed-frame nonzero predicted/actual edit coverage; domain exclusions/values; all alpha and non-edit bits",
+  "unknown_alpha_fallback": true
+}
