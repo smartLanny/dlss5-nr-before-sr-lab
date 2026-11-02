@@ -88,6 +88,7 @@ jobs:
             if ($LASTEXITCODE) { throw 'Actual packaging contract regression' }
           } finally { Stop-Transcript }
       - name: Full post-scaling WARP preflight with native failure evidence
+        id: post_warp
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/post-warp-preflight.log
@@ -95,6 +96,16 @@ jobs:
             & ./tests/post_scaled_work_receipt.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
             & ./scripts/validate-post-scaled-work-gpu.ps1 -SourceRoot (Get-Location).Path -ToolchainRoot $env:TOOLCHAIN_ROOT -OutputRoot build/post-warp-preflight
             if ($LASTEXITCODE) { throw 'Post-scaling WARP preflight failed; retain native failure evidence' }
+          } finally { Stop-Transcript }
+      - name: Compare the same failed test executable with pinned Microsoft WARP
+        if: failure() && steps.post_warp.outcome == 'failure'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/warp-runtime-comparison.log
+          try {
+            & ./tests/warp_runtime_comparison.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
+            & ./tests/warp_runtime_timeout.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1
+            & ./scripts/ci/compare-warp-runtime.ps1 -ExistingExe build/post-warp-preflight/post_scaled_work_gpu.exe -BaselineReceipt build/post-warp-preflight/post-scaled-work-result.json -OutputRoot build/warp-runtime-comparison
           } finally { Stop-Transcript }
       - name: Full canonical source, CPU, SM5 shaders, WARP and bilingual Core
         run: |

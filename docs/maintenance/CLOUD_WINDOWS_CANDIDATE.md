@@ -37,6 +37,15 @@ long canonical sequence, so a native failure retains its case/phase and process
 evidence promptly. The canonical builder still repeats the same mandatory gate
 on its verified source export; this preflight does not replace any acceptance.
 
+If that preflight fails after producing an executable and a process receipt,
+an isolated diagnostic compares those exact executable bytes with Microsoft's
+fixed WARP 1.0.22 test runtime on the same runner. Package/DLL hashes and the
+actual loaded module identities are checked. The original failure remains the
+workflow result; a successful comparison cannot resume canonical packaging.
+The [Microsoft test package](https://www.nuget.org/packages/Microsoft.Direct3D.WARP/1.0.22)
+stays in `RUNNER_TEMP`, outside artifact paths. Only comparison logs, hashes and
+JSON receipts are retained; no WARP package, DLL or PDB is redistributed.
+
 `scripts/build-unified-candidate.ps1` runs in full, including the actual SM5
 shader compilation, Windows CPU contracts, positive and negative WARP tests,
 exact staged Core and bilingual builds. The complete face backend and the

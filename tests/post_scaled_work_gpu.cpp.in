@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -130,6 +131,60 @@ void BeginCase(const char *kind) {
     std::printf("CASE_BEGIN id=%u kind=%s\n", id, kind);
     std::fflush(stdout);
     Phase("case-recording");
+}
+
+void LoadedModules() {
+    // Observe loaded modules without loading or replacing any runtime. The
+    // parent can hash these exact paths after an unsuccessful baseline exits.
+    for (const char *name : {"d3d10warp.dll", "d3d12.dll", "d3d12core.dll",
+                             "d3d12sdklayers.dll", "dxgi.dll", "d3dcompiler_47.dll"}) {
+        const HMODULE module = GetModuleHandleA(name);
+        if (module == nullptr) continue;
+        char path[4096]{};
+        const DWORD length = GetModuleFileNameA(module, path, sizeof(path));
+        if (length != 0 && length < sizeof(path))
+            std::fprintf(stderr, "LOADED_MODULE name=%s path=%s\n", name, path);
+        else
+            std::fprintf(stderr, "LOADED_MODULE_UNAVAILABLE name=%s error=%lu\n",
+                         name, static_cast<unsigned long>(GetLastError()));
+    }
+    std::fflush(stderr);
+}
+
+[[noreturn]] void InFlightFailure(const char *operation, HRESULT result,
+                                 UINT64 target, UINT64 completed,
+                                 DWORD wait_result = 0, DWORD win32_error = 0,
+                                 bool wait_observed = false) noexcept {
+    // This test process cannot unwind stack-owned textures until completion is
+    // proved. Preserve the original failure before terminating without C++/COM
+    // destructors; otherwise final-release can replace it with D3D12 SEH 0x87d.
+    std::fprintf(stderr,
+        "INFLIGHT_FAILURE operation=%s case=%u submission=%u "
+        "hresult=0x%08lx wait_observed=%u wait_result=0x%08lx "
+        "win32_error=%lu target=%llu completed=%llu "
+        "fail_stop_no_unwind=1 exit_code=1\n",
+        operation, case_id.load(std::memory_order_relaxed),
+        submission.load(std::memory_order_relaxed),
+        static_cast<unsigned long>(static_cast<std::uint32_t>(result)),
+        unsigned(wait_observed),
+        static_cast<unsigned long>(wait_result),
+        static_cast<unsigned long>(win32_error),
+        static_cast<unsigned long long>(target),
+        static_cast<unsigned long long>(completed));
+    std::fflush(stdout);
+    std::fflush(stderr);
+#if defined(_WIN32)
+    // The desktop UCRT _Exit path can call ExitProcess and run DLL detach code.
+    // Terminating this owned test process avoids that potentially blocked path;
+    // a successful self-termination does not return. Keep the CRT fallback only
+    // for a failed native termination request.
+    TerminateProcess(GetCurrentProcess(), 1);
+    const DWORD terminate_error = GetLastError();
+    std::fprintf(stderr, "FAIL_STOP_TERMINATE_FAILED win32_error=%lu fallback_crt_exit=1\n",
+                 static_cast<unsigned long>(terminate_error));
+    std::fflush(stderr);
+#endif
+    std::_Exit(1);
 }
 
 void AppendText(char *&out, const char *end, const char *text) noexcept {
@@ -403,6 +458,7 @@ struct Gpu {
               IID_ID3D12Device, device.address()), "Create requested D3D12 device");
         device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
         message_trace.Start(device.p);
+        post_gpu_diagnostics::LoadedModules();
         D3D12_COMMAND_QUEUE_DESC queue_desc{};
         queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         Check(device->CreateCommandQueue(&queue_desc, IID_ID3D12CommandQueue,
@@ -648,12 +704,25 @@ struct Gpu {
         post_gpu_diagnostics::Phase("queue-execute");
         queue->ExecuteCommandLists(1, lists);
         post_gpu_diagnostics::Phase("queue-signal");
-        Check(queue->Signal(fence.p, ++submitted), "Signal queue");
+        const HRESULT signal_result = queue->Signal(fence.p, ++submitted);
+        if (FAILED(signal_result))
+            post_gpu_diagnostics::InFlightFailure("Signal", signal_result,
+                submitted, fence->GetCompletedValue());
         post_gpu_diagnostics::Phase("fence-event");
-        Check(fence->SetEventOnCompletion(submitted, completion), "Fence wait event");
+        const HRESULT event_result = fence->SetEventOnCompletion(submitted, completion);
+        if (FAILED(event_result))
+            post_gpu_diagnostics::InFlightFailure("SetEventOnCompletion", event_result,
+                submitted, fence->GetCompletedValue());
         post_gpu_diagnostics::Phase("fence-wait");
-        Require(WaitForSingleObject(completion, 30000) == WAIT_OBJECT_0,
-                "GPU completion timed out");
+        const DWORD wait_result = WaitForSingleObject(completion, 30000);
+        const DWORD wait_error = wait_result == WAIT_FAILED ? GetLastError() : 0;
+        const UINT64 completed = fence->GetCompletedValue();
+        if (wait_result != WAIT_OBJECT_0)
+            post_gpu_diagnostics::InFlightFailure("WaitForSingleObject", S_OK,
+                submitted, completed, wait_result, wait_error, true);
+        if (completed < submitted || completed == std::numeric_limits<UINT64>::max())
+            post_gpu_diagnostics::InFlightFailure("fence-completion", S_OK,
+                submitted, completed, wait_result, wait_error, true);
         post_gpu_diagnostics::Phase("device-status");
         const HRESULT removed = device->GetDeviceRemovedReason();
         if (FAILED(removed)) {
