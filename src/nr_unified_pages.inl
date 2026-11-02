@@ -89,11 +89,34 @@ void DrawUnifiedLight(ChainConfig& next,bool before_sr,unsigned generation,
         if(colour_disabled)SettingsNote(NrUi("AI colour is zero or disallowed; regional colour controls are inactive.","区域颜色未生效：AI 色彩受限。"));
         SettingsHelp(NrUi("These are regions of NR changes, not independent game lighting layers.","这里只区分 NR 改动区域，不是游戏的独立光照层。"));
     }else{
-        const char* names[]={NrUi("Total edit gain","总改动倍率"),NrUi("Brightening edits","增亮修改"),NrUi("Darkening edits","压暗修改"),NrUi("Saturation edits","饱和度修改"),NrUi("Lightness edits","明度修改")};
+        // NR_GENERIC_CONTROLS_UI_BEGIN
+        int generic_algorithm=static_cast<int>(next.generic_algorithm);
+        if(NrCombo(NrUi("Colour adjustment","颜色调节方式"),"##generic-algorithm",generic_algorithm,
+            NrUi("Legacy HSL\0Continuous SDR (experimental)\0","旧版 HSL\0SDR 连续调节（实验）\0"))){
+            next.generic_algorithm=nr_generic::NormalizeAlgorithm(static_cast<unsigned>(generic_algorithm));
+            changed=discrete=true;
+        }
+        SettingsTooltip(NrUi("Legacy keeps the saved interpretation. Continuous SDR separates bright/dark edits from colour and avoids an undefined grey hue. It requires an existing verified sRGB or linear SDR input; it does not reinterpret HDR or unknown model values.",
+            "旧版保留原有数值含义。连续调节将明暗与颜色分开，避免灰色附近跳色；仅用于已经明确为 sRGB 或线性 SDR 的输入，不重新解释 HDR 或编码未知的画面。"));
+        const bool continuous=next.generic_algorithm==1u;
+        const char* names[]={NrUi("Total edit gain","总改动倍率"),NrUi("Brightening edits","增亮修改"),NrUi("Darkening edits","压暗修改"),
+            continuous?NrUi("Colour edits","颜色修改"):NrUi("Saturation edits","饱和度修改"),
+            continuous?NrUi("Light/dark edits","明暗修改"):NrUi("Lightness edits","明度修改")};
         for(unsigned i=0;i<5;++i){ImGui::PushID(static_cast<int>(i));changed|=SettingsSliderFloat(names[i],"##edit-gain",&next.generic_gains[i],i?0.f:1.f,2.f,"%.2fx");ImGui::PopID();}
-        SettingsNote(NrUi("Only NR-added colour changes.","只调整 NR 新增颜色。"));
+        if(continuous){
+            const auto receipt=SnapshotGenericPolicy();
+            if(has_pending||changed||!receipt.current||receipt.config_generation!=generation)SettingsNote(NrUi("Waiting for a final-composition receipt with these settings; the continuous controls are not yet confirmed active.","正在等待采用当前设置的合成记录；暂未确认连续调节已生效。"));
+            else if(receipt.selection.reason==nr_generic::Reason::UnsupportedDomain)SettingsNote(NrUi("Not applied: this input has no verified sRGB/linear SDR contract. Keep the current encoding; select Legacy HSL to use the old controls.","未采用：当前输入没有明确的 sRGB / 线性 SDR 合同。请保留原有编码；选择旧版 HSL 可恢复原调节方式。"));
+            else if(receipt.selection.reason==nr_generic::Reason::LowGridConsumer)SettingsNote(NrUi("Not applied with low-grid edit fields. Their saved settings are retained; use Legacy HSL for that combination.","未采用：连续调节暂不支持低网格编辑场。相关设置已保留；该组合可使用旧版 HSL。"));
+            else if(receipt.selection.reason==nr_generic::Reason::RawReference)SettingsNote(NrUi("Not applied: the raw/identity reference intentionally bypasses output controls.","未采用：原始结果／恒等参考会跳过输出调节。"));
+            else if(receipt.selection.reason==nr_generic::Reason::Neutral)SettingsNote(NrUi("All gains are 1x: exact bypass, with no extra colour conversions.","全部倍率为 1 倍：直接保留当前结果，不增加颜色转换。"));
+            else if(receipt.selection.reason==nr_generic::Reason::ContinuousSdr)SettingsNote(NrUi("Continuous SDR controls were recorded for the current settings. Check the picture to assess the result.","已记录连续 SDR 调节；实际效果请以画面对照为准。"));
+            else SettingsNote(NrUi("Continuous controls are not active in the latest recorded composition.","最近的合成记录未采用连续调节。"));
+        }
+        SettingsNote(NrUi("Only NR-added colour and light/dark changes.","只调整 NR 新增的颜色与明暗变化。"));
         SettingsHelp(NrUi("This scales NR's added colour, not whole-image saturation. All 1x preserves the current edit.",
             "仅缩放 NR 新增的颜色变化，不改变全画面饱和度；全部设为 1 倍会保留当前修改。"));
+        // NR_GENERIC_CONTROLS_UI_END
     }
     // Legacy algorithms remain visible only while requested, in the same page
     // as the controls with which they can combine. No hidden cross-page gain.

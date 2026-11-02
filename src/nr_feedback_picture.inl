@@ -39,9 +39,14 @@ void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool val
         static_cast<double>(config.region_gains[8]),static_cast<double>(config.region_gains[9]),static_cast<double>(config.region_gains[10]));
     FeedbackAppend(s,"requested.nrPasses=%u\narchived.nrSecondScale=%u/%u\n"
         "requested.genericResidual=%d\nrequested.genericGains=%.9g,%.9g,%.9g,%.9g,%.9g\n"
-        "requested.genericContract=normalized model-domain directional RGB and relative HSL; D final protection retained; not material masks\n",
+        "requested.genericContract=%s\n",
         config.nr_passes,config.nr_second_numerator,config.nr_second_denominator,config.generic_residual?1:0,
-        static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]));
+        static_cast<double>(config.generic_gains[0]),static_cast<double>(config.generic_gains[1]),static_cast<double>(config.generic_gains[2]),static_cast<double>(config.generic_gains[3]),static_cast<double>(config.generic_gains[4]),
+        config.generic_algorithm==1u?
+            "verified-sRGB-or-linear-709 final composition; Cartesian colour candidate and independent linear-luma signal; final Core Y/gamut/colour-budget retained; raw and low-grid field consumers excluded; unknown/HDR retained without new controls; no extra NR inference":
+            "normalized model-domain directional RGB and relative HSL; D final protection retained; not material masks");
+    FeedbackAppend(s,"requested.genericAlgorithm=%u\nrequested.genericAlgorithmName=%s\n",
+        config.generic_algorithm,nr_generic::AlgorithmName(config.generic_algorithm));
     FeedbackAppend(s,"requested.uniformChainVersion=1\nrequested.activeLayers=%u\nrequested.uniformMigrationChangedWork=%d\n",
         nr_layers::Active(config.nr_layers),config.nr_uniform_migrated?1:0);
     for(unsigned i=0;i<nr_layers::Count;++i){

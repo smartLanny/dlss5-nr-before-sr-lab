@@ -22,6 +22,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.nr_passes=1;next.nr_second_numerator=1;next.nr_second_denominator=2;
     next.nr_layers={};next.nr_uniform_migrated=false;
     next.generic_residual=false;std::fill(next.generic_gains,next.generic_gains+5,1.f);
+    next.generic_algorithm=0; // Explicit picture reset restores Legacy, like a fresh config.
     next.region_version=1;next.region_enabled=false;next.region_preview=0;
     std::fill(next.region_gains,next.region_gains+11,1.f);
     next.face_protection_version=1;next.face_protection=false;next.face_extra_cap=true;

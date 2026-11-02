@@ -333,8 +333,8 @@ unsigned DrawLightAdjustmentMethodSelector(ChainConfig &next, bool &changed,
         }
     }
     SettingsTooltip(ui(
-        "Choose one light adjustment method. Normal light/dark keeps the two legacy controls; Engine regions uses current engine guidance; Generic layers groups normalized RGB/HSL residuals. Saved values in the other methods remain available when you switch back.",
-        "选择一种光影调节方式。普通亮暗保留原有两套控制；引擎分区使用当前引擎导引；通用分层按归一化 RGB/HSL 改动分组。切换回来时，其他方式的已保存数值仍保留。"));
+        "Choose one light adjustment method. Normal light/dark keeps the two legacy controls; Engine regions uses current engine guidance; Generic layers offers legacy HSL or an explicit continuous SDR experiment. Saved values in the other methods remain available when you switch back.",
+        "选择一种光影调节方式。普通亮暗保留原有两套控制；引擎分区使用当前引擎导引；通用分层可选择旧版 HSL 或连续 SDR 实验。切换回来时，其他方式的已保存数值仍保留。"));
     return method;
 }
 

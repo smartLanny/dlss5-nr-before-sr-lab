@@ -56,7 +56,7 @@ class ReconstructionTests(unittest.TestCase):
         self.assertLess(dispatch.index('constants.region_flags |= reconstruction.flags;'),
                         dispatch.index('nr_replay::recorder.Composition('))
         self.assertGreater(dispatch.index('constants.region_flags |= reconstruction.flags;'),
-                           dispatch.index('constants.region_flags=32u;'))
+                           dispatch.index('constants.region_flags=generic_selection.flags;'))
 
     def test_capture_keeps_real_neural_and_same_sampler(self):
         writer = self.body('void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result,')

@@ -179,7 +179,14 @@ void CheckRestorePreservesContracts() {
     c.custom_work_scale = .75f;
     c.intensity = .5f;
     c.color_protection = false;
+    c.generic_residual = true;
+    c.generic_algorithm = 1;
+    std::fill(c.generic_gains, c.generic_gains + 5, 1.5f);
     RestoreRecommendedPictureSettings(c);
+    Check(!c.generic_residual && c.generic_algorithm == ChainConfig{}.generic_algorithm,
+          "default reset retained continuous Generic algorithm");
+    Check(std::all_of(c.generic_gains, c.generic_gains + 5,
+          [](float gain) { return gain == 1.f; }), "default reset retained Generic gains");
     Check(!c.enabled, "default reset re-enabled F6");
     Check(c.mode == 2, "default reset did not select NR before SR");
     Check(c.work_mode == 0 && c.custom_work_scale == 1.f,

@@ -1,0 +1,120 @@
+// Actual Generic UI branch and receipt adapter, with CPU-only widget/clock
+// seams. This verifies bindings and reported state, not a rendered ImGui UI.
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
+#include "nr_generic_residual.h"
+
+struct ChainConfig {
+    bool enabled=true, generic_residual=true;
+    unsigned generic_algorithm=0;
+    float generic_gains[5]{1,1,1,1,1};
+};
+ChainConfig g_config{};
+std::atomic<unsigned> g_config_generation{7};
+int g_chain_cs=0, lock_depth=0;
+unsigned long long test_tick=100;
+void EnterCriticalSection(int*){++lock_depth;}
+void LeaveCriticalSection(int*){--lock_depth;}
+unsigned long long GetTickCount64(){return test_tick;}
+#include "nr_generic_runtime.inl"
+
+bool chinese=false, combo_edit=false;
+int combo_value=0, widget_id=-1, slider_edit=-1;
+float slider_value=1;
+std::vector<std::string> notes;
+bool UseChineseUi(){return chinese;}
+void SettingsField(const char*){}
+void SettingsNote(const char* s){notes.emplace_back(s);}
+void SettingsTooltip(const char*){}
+void SettingsHelp(const char*){}
+namespace ImGui {
+void PushID(int id){widget_id=id;}
+void PopID(){widget_id=-1;}
+bool Combo(const char*,int* value,const char*){
+    if(!combo_edit)return false;
+    *value=combo_value;combo_edit=false;return true;
+}
+}
+bool SettingsSliderFloat(const char*,const char*,float* value,float lo,float hi,const char*){
+    if(slider_edit!=widget_id)return false;
+    *value=std::clamp(slider_value,lo,hi);slider_edit=-1;return true;
+}
+NR_UI_HELPERS
+void DrawGeneric(ChainConfig& next,unsigned generation,bool has_pending,bool& changed,bool& discrete){
+NR_GENERIC_UI
+}
+
+unsigned checks=0;
+void require(bool condition,const char* why){
+    ++checks;if(!condition){std::fprintf(stderr,"FAIL UI %s\n",why);std::exit(42);}
+}
+bool noteHas(const char* en,const char* zh){
+    const char* needle=chinese?zh:en;
+    return std::any_of(notes.begin(),notes.end(),[&](const auto& note){return note.find(needle)!=std::string::npos;});
+}
+void draw(ChainConfig& next,unsigned generation,bool pending=false){
+    bool changed=false,discrete=false;notes.clear();
+    DrawGeneric(next,generation,pending,changed,discrete);
+    require(!changed&&!discrete,"viewing preserves config transaction");
+}
+
+int main(){
+    for(bool lang:{false,true}){
+        chinese=lang;g_config={};g_config_generation.store(7);test_tick=100;
+        g_recorded_generic_policy={};
+        auto next=g_config;
+        const float saved[5]{1.6f,.6f,1.7f,.25f,1.3f};
+        std::copy(saved,saved+5,next.generic_gains);
+        draw(next,7);
+        require(next.generic_algorithm==0&&std::equal(saved,saved+5,next.generic_gains),"legacy saved values retained on view");
+        combo_value=1;combo_edit=true;bool changed=false,discrete=false;notes.clear();
+        DrawGeneric(next,7,false,changed,discrete);
+        require(changed&&discrete&&next.generic_algorithm==1,"algorithm edit uses existing discrete transaction");
+        require(next.generic_residual&&std::equal(saved,saved+5,next.generic_gains),"algorithm edit preserves enable and gains");
+        require(noteHas("Waiting for","正在等待"),"new request is not reported active");
+        g_config=next;
+
+        for(unsigned reason=0;reason<4;++reason){
+            const auto selection=nr_generic::Select(g_config,true,reason!=1,reason==2,reason==3);
+            RecordGenericPolicy(selection,false);draw(next,7);
+            if(reason==0)require(noteHas("were recorded","已记录"),"current supported dispatch reported as recorded");
+            else require(noteHas("Not applied","未采用"),"unsupported contract has visible reason");
+            require(lock_depth==0,"receipt lock remains balanced");
+        }
+        RecordGenericPolicy(nr_generic::Select(g_config,true,true,false,false),true);
+        require(SnapshotGenericPolicy().present,"Present producer is represented");
+        draw(next,7,true);
+        require(noteHas("Waiting for","正在等待"),"pending edit hides prior receipt");
+        draw(next,6);
+        require(noteHas("Waiting for","正在等待"),"older UI config cannot claim newer receipt");
+        g_config_generation.store(8);draw(next,8);
+        require(noteHas("Waiting for","正在等待"),"config generation invalidates prior receipt");
+        RecordGenericPolicy(nr_generic::Select(g_config,true,true,false,false),false);
+        test_tick+=2001;draw(next,8);
+        require(noteHas("Waiting for","正在等待"),"expired receipt cannot claim active controls");
+        RecordGenericPolicy(nr_generic::Select(g_config,true,true,false,false),false);
+        g_config.enabled=false;require(!SnapshotGenericPolicy().current,"master off invalidates receipt");
+        g_config.enabled=true;g_config.generic_residual=false;
+        require(!SnapshotGenericPolicy().current,"generic off invalidates receipt");
+        g_config.generic_residual=true;
+
+        std::fill(next.generic_gains,next.generic_gains+5,1.f);g_config=next;
+        RecordGenericPolicy(nr_generic::Select(g_config,true,true,false,false),false);
+        draw(next,8);
+        require(noteHas("exact bypass","直接保留"),"all-one path is shown as bypass");
+        slider_edit=0;slider_value=0;changed=discrete=false;
+        DrawGeneric(next,8,false,changed,discrete);
+        require(changed&&!discrete&&next.generic_gains[0]==1,"total range retains historical minimum and release transaction");
+        slider_edit=3;slider_value=0;changed=discrete=false;
+        DrawGeneric(next,8,false,changed,discrete);
+        require(changed&&!discrete&&next.generic_gains[3]==0,"colour zero binds only its saved coefficient");
+        combo_value=0;combo_edit=true;changed=discrete=false;
+        DrawGeneric(next,8,false,changed,discrete);
+        require(changed&&discrete&&next.generic_algorithm==0&&next.generic_gains[3]==0,"return to legacy retains edited coefficients");
+    }
+    std::printf("generic UI/receipt: %u checks passed; actual branch/runtime adapter; no Win32, rendered UI or GPU execution\n",checks);
+}

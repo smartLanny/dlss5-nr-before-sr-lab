@@ -27,7 +27,8 @@ void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {
     k.layer_bright=g_config.layer_bright;k.layer_shadow=g_config.layer_shadow;
     if(light){k.light_broad=g_config.light_broad;k.light_dark=g_config.light_dark;k.light_reflection=g_config.light_reflection;
         k.light_structure=g_config.light_structure;k.light_glow=g_config.light_glow;k.light_preview=g_config.light_preview;}
-    if(combine&&g_config.generic_residual){std::copy(g_config.generic_gains,g_config.generic_gains+5,k.region_gains);k.region_flags=32u;}
+    const auto generic_selection=nr_generic::Select(g_config,combine,!hdr,false,false);
+    if(combine&&g_config.generic_residual){std::copy(g_config.generic_gains,g_config.generic_gains+5,k.region_gains);k.region_flags=generic_selection.flags;}
     // Engine segmentation and independent face masks are unavailable on this
     // color-only source. Do not reinterpret those controls as zero-valued guides.
     if(combine&&slot.dual_reduced){k.dual_low_width=slot.dual_low_width;k.dual_low_height=slot.dual_low_height;
@@ -40,6 +41,7 @@ void Codec(Context& c,ID3D12GraphicsCommandList* list,bool combine) {
     if(combine&&slot.dual_reduced)shader=nr_dual_runtime::CodecPipeline(shader,false,slot.dual_model_domain);
     ID3D12GraphicsCommandList_SetPipelineState(list,shader);
     ID3D12GraphicsCommandList_Dispatch(list,(k.width+7)/8,(k.height+7)/8,1);
+    if(combine&&g_config.generic_residual)RecordGenericPolicy(generic_selection,true);
 }
 FeatureRecord SyntheticFeature(const Context& c){FeatureRecord f{};f.feature_id=18;f.generation=c.generation;f.create_flags=c.encoding==Encoding::Srgb?0:1;return f;}
 bool NativeGuideAvailable(const nr_source_runtime::PresentLease& lease) {

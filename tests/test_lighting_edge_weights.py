@@ -26,9 +26,17 @@ def definition(source: str, marker: str) -> str:
 class LightingEdgeWeights(unittest.TestCase):
     def test_production_lighting_estimator(self):
         source = (ROOT / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
-        model = definition(source, "float ModelLumaRatioV2(")
+        model = ""
+        if "float GenericNeuralLumaV2(" in source:
+            model += definition(source, "float GenericControlLumaV2(")
+            model += definition(source, "bool GenericContinuousRequestedV2(")
+            model += definition(source, "float GenericNeuralLumaV2(")
+        model += definition(source, "float ModelLumaRatioV2(")
         if "float2 ModelLightingTapV2(" in source:
             model += definition(source, "float2 ModelLightingTapV2(")
+        if "float ModelLightingMeanV2(" in source:
+            model += definition(source, "float ModelLightingMeanV2(")
+        model = model.replace("[branch]", "")
         combine = definition(source, "void CombineV2CS(")
         lighting = definition(
             combine,
@@ -62,6 +70,9 @@ float lerp(float a,float b,float w){return a+(b-a)*w;}
 float smoothstep(float lo,float hi,float a){float w=saturate((a-lo)/(hi-lo));return w*w*(3-2*w);}
 using std::abs; using std::isfinite; using std::log2;
 unsigned Width=128,Height=128,ModelWidth=128,ModelHeight=128;
+using float3=float; // same analytic grey texture contract as before
+unsigned RegionFlags=0; // this regression exercises the unchanged legacy path
+float RegionWideBrightLuma=1,RegionWideBrightColor=1,RegionFineBrightLuma=1,RegionWideDarkLuma=1;
 constexpr float kLuma=1; // analytic gray taps; dot returns their exact luminance
 float dot(float a,float b){return a*b;}
 float tapP[4],tapN[4]; unsigned proxyLoads=0,neuralLoads=0;

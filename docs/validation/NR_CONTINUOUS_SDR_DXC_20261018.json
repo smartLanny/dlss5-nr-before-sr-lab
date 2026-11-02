@@ -1,0 +1,249 @@
+{
+  "schema": "nr-codec-dxc-cpu-v1",
+  "target": "cs_6_0",
+  "hlsl_version": "2018",
+  "source_sha256": "1fe3b389a77ca3d87dc65dda8687e20243227e26b78b5c58f26cf3526db138fb",
+  "shader_sha256": "fdd05dd3de3e4059368181845437457d9643fe831ab4f26f88fdf30bf14a7b96",
+  "compiler_sha256": "3dfc856b76291ffc7e45e21fd37ab80e85b34101de76a03253df6608785c92a0",
+  "compiler_version": "libdxcompiler.so: 1.9(5512-01b62ad4)(1.9.2609.5)",
+  "cases": [
+    {
+      "entry": "BuildEditFieldCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 9304,
+      "sha256": "641eb4aebdaadb3f3c11a533956b74dcdac857d1ae419b2ba06192301a50c11e"
+    },
+    {
+      "entry": "BuildColorEditFieldCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 9588,
+      "sha256": "62233f9ba3412f5f5991532ff2c9e7b9aef77fbe8128cb9c4c5399a82d5bbbd9"
+    },
+    {
+      "entry": "RestoreEditHorizontalCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 6880,
+      "sha256": "9a172a94c253714d1026b37de51a9c75d6286fd90b826ef00a3717239a03b584"
+    },
+    {
+      "entry": "EncodeV2CS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 12368,
+      "sha256": "f08e686ba5a639a3e22fb4d1257819cbf615c05fe225cdbbff0d0be803f4ac4a"
+    },
+    {
+      "entry": "LanczosHorizontalCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 10252,
+      "sha256": "d3273c5f75ad383b621e63e0fc8f34ad23d358934f8c07ebb54392e170c3e0ef"
+    },
+    {
+      "entry": "LanczosVerticalCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 10640,
+      "sha256": "776cf2e59cfdc5ab3d2ffed3dbb6075e4924928c9820170691e41732cf687da1"
+    },
+    {
+      "entry": "EncodeCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 11212,
+      "sha256": "67477cffb05b314f7f1fd927cbc8a3cc295e03ef6366c942b73dcd13443b5c6d"
+    },
+    {
+      "entry": "ProbePostStoreCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 8840,
+      "sha256": "13504b62c6e0173d7a92aae7f4ce7c8458ea49b8886df7c3f9bb952b03228c1f"
+    },
+    {
+      "entry": "CombineCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 186108,
+      "sha256": "30ef521648917c91f394ea1af82ed29ababde430344b14a734a6beea94733195"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 445588,
+      "sha256": "a4adf18a63a57be566b8d165f41cc8c3cda6b3d8f089e9a5e24c6f675bce89d5"
+    },
+    {
+      "entry": "CopyCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 5684,
+      "sha256": "1c07ce7657b8023ccc5c87a53df136526d76367e0aa7fd048a83dc9968681eeb"
+    },
+    {
+      "entry": "ResampleMotionCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 5936,
+      "sha256": "a6d5cfe113cd10aaca305e965891333789cb6e601fbd2e1c9adcc5f4cd60582e"
+    },
+    {
+      "entry": "SpatialAreaCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 6996,
+      "sha256": "cac0a914b5c966269d4f28f88fee054e83eef4034d988d31e3c2fb485cdb986d"
+    },
+    {
+      "entry": "SpatialGuidedCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 9084,
+      "sha256": "d66c6e54d111a78da89623be60d6dde6782dd3cf6a3635d0439b5f9bcb4406c4"
+    },
+    {
+      "entry": "SpatialLocalCS",
+      "face": false,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 10204,
+      "sha256": "f39a4b0c4c5b3e3df4f4c39b96c469b4714658161e7958f98491a029912bebfb"
+    },
+    {
+      "entry": "CombineCS",
+      "face": true,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 211332,
+      "sha256": "aaf910973d5364232d61e714ed600876b2fa01ef94df10d3b7398cf8bae0762e"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": true,
+      "domain": -1,
+      "exit_code": 0,
+      "bytes": 540020,
+      "sha256": "6ce6b4022c9d856c1a25b5420f7ed52642e2371d3be54ce1d79f0055f4cfff2c"
+    },
+    {
+      "entry": "CombineCS",
+      "face": false,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 302028,
+      "sha256": "b4044c7799fe33bc9b0874ea9599446ae230b8738eda78c8d76b4307908992f9"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": false,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 814512,
+      "sha256": "912e1d65bd207dd562563ac676dc75aed6e51f84f2cfa2155f52c572a8a8620b"
+    },
+    {
+      "entry": "BuildEditFieldCS",
+      "face": false,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 10524,
+      "sha256": "0b805dba334df84c73eb172ebd4c3cf270860ddd5ed27655245b4dbc4dae1cca"
+    },
+    {
+      "entry": "BuildColorEditFieldCS",
+      "face": false,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 10812,
+      "sha256": "6d127ca2a1929f59903c7c81471cf18d67b9c7493580a02d5d38d509c8f66738"
+    },
+    {
+      "entry": "CombineCS",
+      "face": false,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 343636,
+      "sha256": "daff1e48ac6e26b1bc31db0497de2206bb3e19fc209359db998583cc0592894a"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": false,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 933636,
+      "sha256": "439e99c57dc1aec133e42d01c2f6ea603e65ae8d4130236c14948dcc1cebe295"
+    },
+    {
+      "entry": "BuildEditFieldCS",
+      "face": false,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 10860,
+      "sha256": "69368d549396cb5ae42796fc6ec2f0fda3bcb7888b5e4f4597a277af42017da1"
+    },
+    {
+      "entry": "BuildColorEditFieldCS",
+      "face": false,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 11148,
+      "sha256": "c2840eafe3c46c6c8c2dbc7b1e3defd46c34737747cc5ba777c79d2ba2558f64"
+    },
+    {
+      "entry": "CombineCS",
+      "face": true,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 342992,
+      "sha256": "325b60feb4238550abc0f7187b07fdaf7ddc85741d373f82e2c856ae51f86d34"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": true,
+      "domain": 0,
+      "exit_code": 0,
+      "bytes": 980976,
+      "sha256": "7504f267214e92699b3bd353a8d82ecf4bc044956cdbc3b94092960f2a41b7d5"
+    },
+    {
+      "entry": "CombineCS",
+      "face": true,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 389572,
+      "sha256": "5ec22d4037f9ee10e98b44ae7d5bb1884371d9db288d2a42497690f924c71e63"
+    },
+    {
+      "entry": "CombineV2CS",
+      "face": true,
+      "domain": 1,
+      "exit_code": 0,
+      "bytes": 1123696,
+      "sha256": "3525e5d1f8f62661136ea2729eef39ae0402ab6dd4d670f8d867de3a0f539f09"
+    }
+  ],
+  "passed": 29,
+  "failed": 0,
+  "canonical_windows_sm5_verified": false,
+  "gpu_verified": false,
+  "ngx_verified": false,
+  "game_verified": false
+}

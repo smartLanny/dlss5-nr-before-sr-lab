@@ -1,6 +1,18 @@
 Third-Party Notices
 ===================
 
+Oklab matrices
+--------------
+
+Author: Bjorn Ottosson
+Source: https://bottosson.github.io/posts/oklab/
+Matrix revision: 2021-01-25
+
+The linear-sRGB/Oklab conversion matrices used by the optional continuous SDR
+controls are provided by their author in the public domain. The Core's control
+policy, separate luminance signal and integration are independently implemented.
+No Magpie application code is included by this addition.
+
 RenoDX
 ------
 
