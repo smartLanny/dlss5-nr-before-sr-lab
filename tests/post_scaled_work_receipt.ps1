@@ -33,8 +33,9 @@ try {
         Harness=(Join-Path $sandbox 'harness.cpp'); Template=(Join-Path $sandbox 'template.cpp.in')
         Executable=(Join-Path $sandbox 'fixture.exe'); Stdout=(Join-Path $sandbox 'stdout.txt')
         Stderr=(Join-Path $sandbox 'stderr.txt'); DurationMs=12.5
+        WarpRuntimeHelper=(Join-Path $sandbox 'ci_warp_runtime.h')
     }
-    foreach ($key in @('Source', 'Harness', 'Template', 'Executable')) {
+    foreach ($key in @('Source', 'Harness', 'Template', 'Executable', 'WarpRuntimeHelper')) {
         [IO.File]::WriteAllText($arguments[$key], "fixture $key")
     }
     $summary = 'PASS post-scaled-work WARP: 60 scenarios (production WriteCodecDescriptorSet, FP16 model planes, identity + nonzero neural perturbation, area overlap integral)'
@@ -82,7 +83,8 @@ try {
         foreach ($pair in @(
             @('staged_core_sha256','Source'), @('generated_harness_sha256','Harness'),
             @('template_sha256','Template'), @('executable_sha256','Executable'),
-            @('stdout_sha256','Stdout'), @('stderr_sha256','Stderr'))) {
+            @('stdout_sha256','Stdout'), @('stderr_sha256','Stderr'),
+            @('ci_warp_runtime_helper_sha256','WarpRuntimeHelper'))) {
             $expectedHash = (Get-FileHash -LiteralPath $arguments[$pair[1]] -Algorithm SHA256).Hash.ToLowerInvariant()
             Assert-Receipt ($receipt.($pair[0]) -ceq $expectedHash) "$($case.Name): $($pair[0]) changed"
         }
@@ -92,6 +94,17 @@ try {
             Assert-Receipt ([object]::ReferenceEquals($caught.Exception, $failure.Exception)) 'launch-error: original exception was replaced'
         }
     }
+    # A successful process cannot qualify when its compiled helper input is absent.
+    Remove-Item -LiteralPath $arguments.WarpRuntimeHelper
+    [IO.File]::WriteAllText($arguments.Stdout, $finished)
+    $caught = $null
+    try { Complete-PostScaledWorkRun @arguments -ExitCode 0 -HasExited $true }
+    catch { $caught = $_ }
+    $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+    Assert-Receipt ($null -ne $caught) 'missing runtime helper must throw'
+    Assert-Receipt ($caught.Exception.Message.StartsWith('Post-scaled-work WARP evidence failed:')) 'missing helper lost evidence failure'
+    Assert-Receipt (-not $receipt.warp_verified) 'missing helper incorrectly qualified'
+    Assert-Receipt ($receipt.evidence_errors -contains 'Missing evidence file: ci_warp_runtime_helper_sha256') 'missing helper not recorded'
     Write-Host "PASS production post-scaled-work receipt: $script:checks checks across $($cases.Count) process outcomes; CPU/PowerShell only"
 } finally {
     Remove-Item -LiteralPath $sandbox -Recurse -Force

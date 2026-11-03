@@ -79,12 +79,27 @@ jobs:
             & ./tests/warp_runtime_comparison.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
             & ./tests/warp_runtime_timeout.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1
           } finally { Stop-Transcript }
+      - name: Pin the test-only Microsoft WARP runtime and check evidence contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/warp-runtime-evidence-contracts.log
+          try {
+            & ./scripts/ci/prepare-warp-runtime.ps1 -ReceiptPath build/cloud-evidence/warp-runtime.json
+            & ./tests/ci_warp_runtime_evidence.ps1 -Verifier ./scripts/ci/verify-warp-runtime.ps1 -RuntimeReceipt build/cloud-evidence/warp-runtime.json
+          } finally { Stop-Transcript }
       - name: Pinned complete build dependencies, face and AMD SDK cache
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/dependencies.log
           try {
             ./scripts/ci/prepare-hosted-windows.ps1 -DependencyRoot (Join-Path $env:RUNNER_TEMP 'dlss5-build-inputs') -ReceiptPath build/cloud-evidence/inputs.json
+          } finally { Stop-Transcript }
+      - name: Actual native WARP loader and Python child process contracts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/warp-runtime-contracts.log
+          try {
+            & ./scripts/ci/validate-warp-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -Receipt build/cloud-evidence/warp-runtime.json -OutputRoot build/warp-runtime-contracts
           } finally { Stop-Transcript }
       - name: Actual packaging contracts and dependency negative controls
         run: |
@@ -102,8 +117,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/post-warp-preflight.log
           try {
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/preflight -Phase Begin
             & ./scripts/validate-post-scaled-work-gpu.ps1 -SourceRoot (Get-Location).Path -ToolchainRoot $env:TOOLCHAIN_ROOT -OutputRoot build/post-warp-preflight
             if ($LASTEXITCODE) { throw 'Post-scaling WARP preflight failed; retain native failure evidence' }
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/preflight -Phase End -RequiredSites 'post-scaled-work'
           } finally { Stop-Transcript }
       - name: Compare the same failed test executable with pinned Microsoft WARP
         if: failure() && steps.post_warp.outcome == 'failure'
@@ -118,22 +135,28 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/canonical.log
           try {
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/canonical -Phase Begin
             & ./scripts/build-unified-candidate.ps1 -UpstreamRoot $env:UPSTREAM_ROOT -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_SOURCE_ROOT -DirectXMathRoot $env:DIRECTXMATH_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FfxSdkRoot $env:DLSS5_FFX_SDK_ROOT -FfxCacheRoot $env:DLSS5_FFX_CACHE_ROOT -OutputRoot build/canonical
             if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+            $sites = @('post-scaled-work','queue-retirement','codec-gpu','command-state-gpu','command-state-native','command-state-native-default','command-state-native-record','command-state-pristine-null','command-state-vrs-null','pipeline-cache','allocation-ledger','allocation-ledger-spatial','temporal-budget','source-transport','post-sr-snapshot','format-view','native-baseline','aux-shader','private-sr-quality','temporal-quality')
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/canonical -Phase End -RequiredSites $sites
           } finally { Stop-Transcript }
       - name: Actual face tracker and pinned CPU worker gate
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/face.log
           try {
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/face -Phase Begin
             & ./scripts/validate-face-runtime.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -FaceRuntimeRoot $env:FACE_RUNTIME_ROOT -FaceModelPath (Join-Path $env:FACE_MODEL_ROOT 'yunet-dynamic.onnx') -OutputRoot build/canonical.face-checks
             if ($LASTEXITCODE) { throw 'Full face runtime validation failed' }
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/face -Phase End -RequiredSites 'replay-gpu'
           } finally { Stop-Transcript }
       - name: Temporal CPU contract and actual Core WARP consumer
         run: |
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/temporal.log
           try {
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/temporal -Phase Begin
             $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
             python experiments/final_residual/validate.py --compiler $compiler --output build/canonical.temporal-cpu
             if ($LASTEXITCODE) { throw 'Temporal history contract failed' }
@@ -141,6 +164,7 @@ jobs:
             if ($LASTEXITCODE) { throw 'Actual temporal Core WARP consumer failed' }
             python scripts/validate-native-color-view.py --compiler $compiler --reshade $env:RESHADE_SOURCE_ROOT --source build/canonical/source/core/src/nr_before_sr.cpp --output build/canonical.temporal-wrong-p1 --temporal --temporal-negative
             if ($LASTEXITCODE) { throw 'Wrong-P1 negative control was not rejected' }
+            & ./scripts/ci/verify-warp-runtime.ps1 -Receipt build/cloud-evidence/warp-runtime.json -EvidenceDirectory build/cloud-evidence/warp/temporal -Phase End -RequiredSites 'queue-retirement'
           } finally { Stop-Transcript }
       - name: Package current Core-only languages with receipts and licenses
         run: |

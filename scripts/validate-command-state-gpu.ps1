@@ -69,6 +69,10 @@ New-Item -ItemType Directory -Path $build -Force | Out-Null
 $stem = if ($TargetsNegativeControl) { 'command_state_gpu_targets_negative' } elseif ($BlendStateNegativeControl) { 'command_state_gpu_blend_negative' } elseif ($NegativeControl) { 'command_state_gpu_negative_control' } elseif ($CpuDescriptorNegativeControl) { 'command_state_gpu_cpu_descriptor_negative' } elseif ($DynamicStateNegativeControl) { 'command_state_gpu_dynamic_negative' } else { 'command_state_gpu_validation' }
 $generated = Join-Path $build ($stem + '.cpp')
 $binary = Join-Path $build ($stem + '.exe')
+$warpHelper = Join-Path $build 'ci_warp_runtime.h'
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\ci_warp_runtime.h') -Destination $warpHelper -Force
+[ordered]@{ schema=1; warp_runtime_helper_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $warpHelper).Hash.ToLowerInvariant() } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $build ($stem + '.warp-helper.json')) -Encoding utf8
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `

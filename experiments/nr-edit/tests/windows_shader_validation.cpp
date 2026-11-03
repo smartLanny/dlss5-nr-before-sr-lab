@@ -19,6 +19,7 @@
 #include "nr_edit_dx12.hpp"
 #include "nr_rr_dx12.hpp"
 #include "nr_deferred_dx12.hpp"
+#include "../../../tests/ci_warp_runtime.h"
 namespace {
 void Check(HRESULT r,const char* where){if(FAILED(r)){std::cerr<<where<<" HRESULT="<<std::hex<<unsigned(r)<<std::dec<<'\n';throw std::runtime_error(where);}}
 template<class T>struct Com{T* p=nullptr;Com()=default;Com(const Com&)=delete;~Com(){if(p)p->Release();}
@@ -43,6 +44,8 @@ struct Harness{
  Com<ID3D12CommandAllocator>allocator;Com<ID3D12GraphicsCommandList>list;Com<ID3D12Fence>fence;
  HANDLE event=nullptr;std::uint64_t epoch=1;bool released=false;nr_edit_dx12::Kernels*kernels=nullptr;
  explicit Harness(const std::filesystem::path& directory,bool hardware=false){
+  if(hardware&&nr_test_warp::Configured())throw std::runtime_error("Pinned CI WARP forbids hardware selection");
+  if(!hardware)Check(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
   Check(CreateDXGIFactory1(IID_PPV_ARGS(factory.out())),"factory");
   if(hardware){
    for(unsigned i=0;!warp.p;++i){Com<IDXGIAdapter1> candidate;
@@ -53,6 +56,7 @@ struct Harness{
    if(!warp.p)throw std::runtime_error("No NVIDIA hardware adapter");
   }else Check(factory->EnumWarpAdapter(IID_PPV_ARGS(warp.out())),"WARP adapter");
   Check(D3D12CreateDevice(warp,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(device.out())),"WARP device");
+  if(!hardware)Check(nr_test_warp::Verify("private-sr-quality"),"Verify actual CI WARP");
   D3D12_COMMAND_QUEUE_DESC q{};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;Check(device->CreateCommandQueue(&q,IID_PPV_ARGS(queue.out())),"queue");
   Check(device->CreateCommandAllocator(q.Type,IID_PPV_ARGS(allocator.out())),"allocator");
   Check(device->CreateCommandList(0,q.Type,allocator,nullptr,IID_PPV_ARGS(list.out())),"list");

@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 #include "nr_allocation_ledger.h"
+#include "ci_warp_runtime.h"
 
 using namespace nr_allocation_ledger;
 void Check(bool value,const char* message){if(!value){std::fprintf(stderr,"FAIL %s\n",message);std::exit(1);}}
@@ -139,11 +140,13 @@ void Cpu() {
     std::puts("CPU ownership, borrowed references, alias, move, failure, overflow, F8 row PASS");
 }
 void Warp() {
+    Check(SUCCEEDED(nr_test_warp::Prepare()),"Prepare pinned CI WARP");
     IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;ID3D12Device* device=nullptr;
     Check(SUCCEEDED(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory))),"DXGI factory");
     Check(SUCCEEDED(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&adapter))),"WARP adapter");
     Check(SUCCEEDED(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void**>(&device))),"WARP device");
+    Check(SUCCEEDED(nr_test_warp::Verify("allocation-ledger")),"Verify actual CI WARP");
     D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;
     desc.Width=100000;desc.Height=desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
     desc.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
@@ -178,11 +181,13 @@ void Warp() {
     std::puts("WARP owned D3D12 allocation-info, F8 text and release PASS");
 }
 void SpatialWarp() {
+    Check(SUCCEEDED(nr_test_warp::Prepare()),"Prepare pinned CI WARP");
     IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;ID3D12Device* device=nullptr;
     Check(SUCCEEDED(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory))),"spatial DXGI factory");
     Check(SUCCEEDED(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&adapter))),"spatial WARP adapter");
     Check(SUCCEEDED(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void**>(&device))),"spatial WARP device");
+    Check(SUCCEEDED(nr_test_warp::Verify("allocation-ledger-spatial")),"Verify actual CI WARP");
     D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
     heap.CreationNodeMask=heap.VisibleNodeMask=1;
     D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;

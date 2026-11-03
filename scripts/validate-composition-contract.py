@@ -95,7 +95,7 @@ def main():
     report['fixture_dirty']=bool(subprocess.check_output(['git','-C',str(fixture_root),'status','--porcelain','--untracked-files=no'],text=True).strip())
     report['fixture_files']={name:hashlib.sha256((fixture_root/name).read_bytes()).hexdigest() for name in (
         'scripts/validate-codec-gpu.ps1','scripts/validate-composition-contract.py',
-        'tests/codec_gpu_harness.cpp.in','tests/composition_contract_gpu.inl')}
+        'tests/codec_gpu_harness.cpp.in','tests/composition_contract_gpu.inl','tests/ci_warp_runtime.h')}
     (a.capture/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print('PASS 72 production pre/post pairs: actual N planes, alpha, dimensions, independent metrics, source manifest and SHA256.')
 

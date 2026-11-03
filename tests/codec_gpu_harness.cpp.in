@@ -17,6 +17,7 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+#include "ci_warp_runtime.h"
 
 // @PRODUCTION_DESCRIPTOR_CONSTANTS@
 // @PRODUCTION_SHADER@
@@ -85,6 +86,7 @@ struct Gpu {
     HANDLE completion = nullptr;
 
     Gpu(const char *shader_source = kCodecShader) {
+        Check(nr_test_warp::Prepare(), "Prepare pinned test WARP");
         shader_text = shader_source;
         Com<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
@@ -97,13 +99,14 @@ struct Gpu {
             result = D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
                                       IID_ID3D12Device, device.address());
         if (SUCCEEDED(result)) {
+            Check(nr_test_warp::Verify("codec-gpu"), "Verify actual test WARP module");
             std::puts("GPU codec validation adapter: D3D12 WARP");
         } else {
             char warp_only[2]{};
             const bool require_warp = GetEnvironmentVariableA(
                 "NR_VALIDATION_WARP_ONLY", warp_only, sizeof(warp_only)) == 1 &&
                 warp_only[0] == '1';
-            Require(!require_warp,
+            Require(!require_warp && !nr_test_warp::Configured(),
                     "WARP-only validation requested but WARP creation failed; hardware fallback disabled");
             for (UINT index = 0; device.p == nullptr; ++index) {
                 Com<IDXGIAdapter1> adapter;

@@ -14,6 +14,7 @@
 #include <new>
 #include <initializer_list>
 #include "MinHook.h"
+#include "ci_warp_runtime.h"
 namespace reshade::api {
 enum class device_api { d3d12 };
 struct device {
@@ -141,10 +142,12 @@ void STDMETHODCALLTYPE ProbeCut(ID3D12GraphicsCommandList *list, D3D12_INDEX_BUF
 int RunDefaultEnabledStartupGate() {
     g_enabled_fast.store(true, std::memory_order_release);
     IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;
+    Hr(nr_test_warp::Prepare(), "Prepare pinned CI WARP");
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "default-enabled factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "default-enabled WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device, reinterpret_cast<void **>(&device)), "default-enabled device");
+    Hr(nr_test_warp::Verify("command-state-native-default"), "Verify actual CI WARP");
     reshade::api::device owner_device{device};
     OnCommandStateInitDevice(&owner_device);
     Check(g_state_CreateCommandSignature.count == 1 && g_state_CreateCommandSignature.enabled[0],
@@ -239,9 +242,11 @@ int main(int argc, char **argv) {
     if (argc > 1 && strcmp(argv[1], "--default-enabled") == 0)
         return RunDefaultEnabledStartupGate();
     IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;
+    Hr(nr_test_warp::Prepare(), "Prepare pinned CI WARP");
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0, IID_ID3D12Device, reinterpret_cast<void **>(&device)), "device");
+    Hr(nr_test_warp::Verify("command-state-native"), "Verify actual CI WARP");
     reshade::api::device owner_device{device}; OnCommandStateInitDevice(&owner_device);
     Check(g_state_CreateCommandSignature.count == 1 &&
         g_state_CreateCommandSignature.enabled[0],

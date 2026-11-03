@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include "nr_pipeline_cache.h"
+#include "ci_warp_runtime.h"
 using namespace nr_pipeline_cache;
 unsigned checks=0;
 void Check(bool value,const char* text){++checks;if(!value)throw std::runtime_error(text);}
@@ -60,12 +61,15 @@ struct Gpu {
     ID3D12GraphicsCommandList* list=nullptr;ID3D12Fence* fence=nullptr;HANDLE event=nullptr;unsigned long long serial=0;
     ID3D12Resource* output=nullptr;ID3D12Resource* readback=nullptr;
     void Initialize(bool hardware){
+        Check(!hardware||!nr_test_warp::Configured(),"Pinned CI WARP forbids hardware selection");
+        if(!hardware)Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
         IDXGIFactory4* factory=nullptr;IDXGIAdapter1* adapter=nullptr;
         Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
         if(hardware){for(unsigned i=0;IDXGIFactory4_EnumAdapters1(factory,i,&adapter)!=DXGI_ERROR_NOT_FOUND;++i){DXGI_ADAPTER_DESC1 d{};IDXGIAdapter1_GetDesc1(adapter,&d);if(d.VendorId==0x10de&&!(d.Flags&DXGI_ADAPTER_FLAG_SOFTWARE))break;Drop(adapter);}}
         else Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter1,reinterpret_cast<void**>(&adapter)),"WARP");
         Check(adapter!=nullptr,"requested adapter available");
         Hr(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void**>(&device)),"device");Drop(adapter);Drop(factory);
+        if(!hardware)Hr(nr_test_warp::Verify("pipeline-cache"),"Verify actual CI WARP");
         D3D12_COMMAND_QUEUE_DESC q{};Hr(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue)),"queue");
         Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void**>(&allocator)),"allocator");
         Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,IID_ID3D12GraphicsCommandList,reinterpret_cast<void**>(&list)),"list");

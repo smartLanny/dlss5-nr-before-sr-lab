@@ -226,6 +226,11 @@ New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'codec_gpu_validation.cpp'
 $binary = Join-Path $build 'codec_gpu_validation.exe'
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
+$warpHelper = Join-Path $build 'ci_warp_runtime.h'
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests/ci_warp_runtime.h') -Destination $warpHelper
+[ordered]@{schema=1;helper_sha256=(Get-FileHash -LiteralPath $warpHelper).Hash.ToLowerInvariant();
+    generated_harness_sha256=(Get-FileHash -LiteralPath $generated).Hash.ToLowerInvariant()} |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $build 'ci-warp-runtime-input.json') -Encoding UTF8
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-I' (Join-Path $SourceRoot 'src') $generated (Join-Path $SourceRoot 'src/nr_dual_spatial_d3d12.cpp') `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'

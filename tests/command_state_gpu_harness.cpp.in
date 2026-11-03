@@ -6,6 +6,7 @@
 #include <d3d12sdklayers.h>
 #include <d3dcompiler.h>
 #include <dxgi1_4.h>
+#include "ci_warp_runtime.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -228,11 +229,13 @@ struct Gpu {
             std::puts("D3D12 debug layer unavailable; GPU output checks remain mandatory");
         }
         Com<IDXGIFactory4> factory;
+        Check(nr_test_warp::Prepare(), "Prepare pinned CI WARP");
         Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "Create DXGI factory");
         Com<IDXGIAdapter1> warp;
         Check(factory->EnumWarpAdapter(IID_IDXGIAdapter1, warp.address()), "Find WARP");
         Check(D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
             IID_ID3D12Device, device.address()), "Create WARP device");
+        Check(nr_test_warp::Verify("command-state-gpu"), "Verify actual CI WARP");
         std::puts("Command-state GPU adapter: D3D12 WARP (hardware fallback disabled)");
         device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
         D3D12_COMMAND_QUEUE_DESC q{};
@@ -642,6 +645,7 @@ void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
 // @TARGETS_ONLY_TEST@
 
 void ProbeHardwareMetaCommands() {
+    Require(!nr_test_warp::Configured(), "Pinned CI WARP forbids the hardware meta-command probe");
     Com<IDXGIFactory4> factory;
     Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "Create probe factory");
     bool found = false;

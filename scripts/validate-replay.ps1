@@ -26,7 +26,7 @@ $lab=Join-Path $output 'nr-model-lab.exe'
 & $compiler -std=c++20 -O2 -Wall -Wextra -Werror -static -municode (Join-Path $projectRoot 'tools/nr_model_lab.cpp') -o $lab -ld3d12 -ldxgi -ldxguid -luuid
 if($LASTEXITCODE){throw 'Standalone model lab compile failed.'}
 $files=@('src/nr_replay_format.h','src/nr_replay_shader.h','src/nr_replay_gpu.inl','src/nr_replay_runtime.inl',
-    'tests/replay_gpu.cpp','tests/test_replay_reader.py','scripts/nr_replay.py','tools/nr_model_lab.cpp')
+    'tests/replay_gpu.cpp','tests/ci_warp_runtime.h','tests/test_replay_reader.py','scripts/nr_replay.py','tools/nr_model_lab.cpp')
 $source=@{}
 foreach($file in $files){$source[$file]=(Get-FileHash -LiteralPath (Join-Path $projectRoot $file) -Algorithm SHA256).Hash.ToLowerInvariant()}
 [ordered]@{schema='nr-replay-validation-v1';success=$true;source=$source;

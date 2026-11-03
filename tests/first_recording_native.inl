@@ -3,10 +3,12 @@
 int RunFirstRecordingGate() {
     g_enabled_fast=true;g_allow_experimental=false;
     IDXGIFactory4 *factory=nullptr;IDXGIAdapter *adapter=nullptr;ID3D12Device *device=nullptr;
+    Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"first factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"first WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"first device");
+    Hr(nr_test_warp::Verify("command-state-first-recording"),"Verify actual CI WARP");
     reshade::api::device od{device};OnCommandStateInitDevice(&od);
     auto *root=MakeRoot(device,1);auto *pso=MakePipeline(device,root);
     ID3D12DescriptorHeap *heap=nullptr,*other_heap=nullptr;

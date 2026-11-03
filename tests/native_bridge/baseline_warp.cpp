@@ -4,14 +4,17 @@
 #include <dxgi1_4.h>
 #include <cstdio>
 #include "src/interop/nr_bridge_baseline.h"
+#include "../ci_warp_runtime.h"
 #pragma comment(lib,"dxgi.lib")
 int main() {
     IDXGIFactory4* factory=nullptr; IDXGIAdapter* adapter=nullptr;
     ID3D12Device* device=nullptr; ID3D12CommandAllocator* allocator=nullptr;
     ID3D12GraphicsCommandList* list=nullptr;
-    if(FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
+    if(FAILED(nr_test_warp::Prepare()) ||
+       FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
        FAILED(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter))) ||
        FAILED(D3D12CreateDevice(adapter,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device))) ||
+       FAILED(nr_test_warp::Verify("native-baseline")) ||
        FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator))) ||
        FAILED(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,IID_PPV_ARGS(&list)))) return 1;
     if(nr_bridge_baseline::Bind(nullptr) || !nr_bridge_baseline::Bind(list) || !nr_bridge_baseline::Bind(list)) return 2;

@@ -346,13 +346,8 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     ImGui::EndDisabled();
     if(nr_f8::IsActive()){SettingsNote(NrUi("Capture in progress; keep the camera still.","正在采集，请保持镜头不动。"));if(ImGui::Button(NrUi("Cancel and restore","取消并恢复")))nr_f8::Cancel();}
     else if(nr_f8::g_status.load()==nr_f8::Status::Packaging)SettingsNote(NrUi("Packaging images…","正在整理图像……"));
-    else if(nr_f8::g_status.load()==nr_f8::Status::Complete)SettingsNote(NrUi("Image capture completed.","图像采集完成。"));
-    else if(nr_f8::g_status.load()==nr_f8::Status::Partial||nr_f8::g_status.load()==nr_f8::Status::Failed)SettingsNote(NrUi("Capture incomplete; missing evidence is recorded.","采集未完整完成，缺失证据已记录。"));
-    const auto text_status=g_feedback_status.load();
-    if(text_status==1||text_status==2)SettingsNote(NrUi("Preparing text report…","正在生成文字报告……"));
-    else if(text_status>=3)SettingsNote(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Copied?
-        NrUi("Report saved; path copied.","报告已保存，路径已复制。"):
-        NrUi("Check report status in the detailed information below; clipboard delivery is not confirmed.","报告或剪贴板状态尚未确认，详见下方运行信息。"));
+    nr_f8::DrawCoreStatus();
+    nr_f8::DrawImageStatus(UseChineseUi());
     SettingsSection(NrUi("Performance comparison","性能对照"));
     ImGui::BeginDisabled(nr_f8::IsActive());
     int probe=static_cast<int>(NrProbePolicySnapshot().mode);
@@ -364,7 +359,8 @@ void DrawUnifiedFeedback(reshade::api::effect_runtime* runtime,const ChainConfig
     SettingsNote(NrUi("Session-only; NR continues. Close the menu, hold the same scene for 30 seconds, then F8. Captures affect timing.","仅本次运行生效，NR 继续处理。关闭菜单后固定场景30秒，再按F8；图像采集会影响计时。"));
     SettingsSection(NrUi("Detailed captures","深度采集"));
     ImGui::BeginDisabled(busy||StageCaptureStatus()==1u||StageCaptureStatus()==2u);
-    if(ImGui::Button(NrUi("Capture centre model stages","采集中央区域模型阶段")))nr_f8::RequestWithOptions({});ImGui::EndDisabled();
+    if(ImGui::Button(NrUi("Capture centre model stages","采集中央区域模型阶段")))nr_f8::RequestWithOptions({});
+    ImGui::EndDisabled();
     SettingsNote(NrUi("Captures centre model stages; affects history and timing.","采集中央模型阶段；会影响历史和计时。"));
     SettingsHelp(NrUi("Captures S/P/real N/E with a report and resets/warms history. Pre-SR E is not native SR output; compatibility captures available current-path layers.",
         "采集中央原图、P、真实 N、E 和报告，并重置／预热历史。前置 E 不是原生 SR 输出；兼容入口采集当前路径可用层。"));

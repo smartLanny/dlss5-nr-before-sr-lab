@@ -199,6 +199,12 @@ if ($PostResult.exit_code -ne 0 -or $PostResult.warp_verified -ne $true -or
 Assert-Hash (Join-Path $Stage 'core/src/nr_before_sr.cpp') ([string]$PostResult.staged_core_sha256)
 Assert-Hash (Join-Path $Build 'tests/post-scaled-work/post_scaled_work_gpu.cpp') ([string]$PostResult.generated_harness_sha256)
 Assert-Hash (Join-Path $Repo 'tests/post_scaled_work_gpu.cpp.in') ([string]$PostResult.template_sha256)
+if (-not $PostResult.PSObject.Properties['ci_warp_runtime_helper_sha256'] -or
+    [string]$PostResult.ci_warp_runtime_helper_sha256 -notmatch '^[0-9a-f]{64}$') {
+    throw 'Post WARP runtime helper identity is missing; rebuild required.'
+}
+Assert-Hash (Join-Path $Repo 'tests/ci_warp_runtime.h') ([string]$PostResult.ci_warp_runtime_helper_sha256)
+Assert-Hash (Join-Path $Build 'tests/post-scaled-work/ci_warp_runtime.h') ([string]$PostResult.ci_warp_runtime_helper_sha256)
 Assert-Hash $PostLog ([string]$PostResult.stdout_sha256)
 $ChineseAddons = @($Addons | Where-Object { -not $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
 $EnglishAddons = @($Addons | Where-Object { $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })

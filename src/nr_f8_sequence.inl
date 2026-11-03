@@ -802,19 +802,9 @@ void DrawCoreStatus() {
     }
     DrawCoreTextStatus(UseChineseUi());
 }
-void DrawCompatibilityCapture(bool zh,bool report_busy) {
+void DrawCompatibilityCaptureStatus(bool zh) {
     const unsigned present=nr_compat_present_runtime::CaptureStatus(false),fg=nr_compat_present_runtime::CaptureStatus(true);
     const unsigned present_workers=nr_compat_present_runtime::CaptureWorkers(false),fg_workers=nr_compat_present_runtime::CaptureWorkers(true);
-    ImGui::TextWrapped("%s",zh?"F7：捕获当前兼容路径的各层数据，不切换画面设置；原生七组矩阵不适用于此路径。":"F7 captures each layer of the current compatibility path without changing picture settings. The native seven-group matrix does not apply here.");
-    ImGui::TextWrapped("%s",nr_compat_present_runtime::CaptureUsesFg()
-        ?(zh?"下次请求：帧生成前的当前来源。":"Next request: the current source before frame generation.")
-        :(zh?"下次请求：当前 Present 兼容处理。":"Next request: current Present compatibility processing."));
-    const bool pending=present==1||fg==1||present_workers||fg_workers;
-    ImGui::BeginDisabled(report_busy||pending);
-    static bool declined=false;
-    if(ImGui::Button(zh?"采集当前兼容路径各层（F7）":"Capture current compatibility layers (F7)"))declined=!RequestFullscreen();
-    ImGui::EndDisabled();
-    if(declined)ImGui::TextWrapped("%s",zh?"本次请求未被接受，请等待当前工作完成后再试。":"This request was not accepted; retry after the current work finishes.");
     const auto state=[&](bool is_fg,unsigned value,unsigned workers) {
         if(value==0)return;
         const char* route=is_fg?"FG":"Present";
@@ -828,6 +818,33 @@ void DrawCompatibilityCapture(bool zh,bool report_busy) {
     };
     state(false,present,present_workers);state(true,fg,fg_workers);
     ImGui::TextWrapped("%s",zh?"这些文件是当前处理层的数据，不是游戏原生阶段截图，也不代表最终屏幕输出。":"These files describe current processing layers, not native game-stage screenshots or final screen output.");
+}
+
+void DrawImageStatus(bool zh) {
+    if(nr_processing_runtime::PresentSelected()){DrawCompatibilityCaptureStatus(zh);return;}
+    char path[4096]={};
+    AcquireSRWLockShared(&g_lock);
+    const auto state=g_status.load();
+    WideToUtf8(g_last_zip,path,sizeof(path));
+    ReleaseSRWLockShared(&g_lock);
+    if(state!=Status::Complete && state!=Status::Partial && state!=Status::Failed)return;
+    ImGui::TextWrapped("%s",state==Status::Complete?(zh?"图像补充包已生成，请与新核心包一起提交。":"Image supplement saved; submit its paired core package too."):state==Status::Partial?(zh?"图像补充包部分完成，缺失原因已记录。":"Image supplement partially complete; missing-data reasons included."):(zh?"图像采集失败或已取消，请检查核心包及磁盘空间。":"Image capture failed or was cancelled; inspect the core package and disk space."));
+    if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}
+}
+
+void DrawCompatibilityCapture(bool zh,bool report_busy) {
+    const bool pending=nr_compat_present_runtime::CaptureStatus(false)==1||nr_compat_present_runtime::CaptureStatus(true)==1||
+        nr_compat_present_runtime::CaptureWorkers(false)||nr_compat_present_runtime::CaptureWorkers(true);
+    ImGui::TextWrapped("%s",zh?"F7：捕获当前兼容路径的各层数据，不切换画面设置；原生七组矩阵不适用于此路径。":"F7 captures each layer of the current compatibility path without changing picture settings. The native seven-group matrix does not apply here.");
+    ImGui::TextWrapped("%s",nr_compat_present_runtime::CaptureUsesFg()
+        ?(zh?"下次请求：帧生成前的当前来源。":"Next request: the current source before frame generation.")
+        :(zh?"下次请求：当前 Present 兼容处理。":"Next request: current Present compatibility processing."));
+    ImGui::BeginDisabled(report_busy||pending);
+    static bool declined=false;
+    if(ImGui::Button(zh?"采集当前兼容路径各层（F7）":"Capture current compatibility layers (F7)"))declined=!RequestFullscreen();
+    ImGui::EndDisabled();
+    if(declined)ImGui::TextWrapped("%s",zh?"本次请求未被接受，请等待当前工作完成后再试。":"This request was not accepted; retry after the current work finishes.");
+    DrawCompatibilityCaptureStatus(zh);
 }
 
 void DrawControls() {
@@ -859,10 +876,6 @@ void DrawControls() {
         ReleaseSRWLockShared(&g_lock);
         if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
-    if(!compatibility && (state==Status::Complete || state==Status::Partial || state==Status::Failed)) {
-        ImGui::TextWrapped("%s",state==Status::Complete?(use_chinese_ui?"图像补充包已生成，请与新核心包一起提交。":"Image supplement saved; submit its paired core package too."):state==Status::Partial?(use_chinese_ui?"图像补充包部分完成，缺失原因已记录。":"Image supplement partially complete; missing-data reasons included."):(use_chinese_ui?"图像采集失败或已取消，请检查核心包及磁盘空间。":"Image capture failed or was cancelled; inspect the core package and disk space."));
-        char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
-        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}
-    }
+    if(!compatibility)DrawImageStatus(use_chinese_ui);
 }
 } // namespace nr_f8

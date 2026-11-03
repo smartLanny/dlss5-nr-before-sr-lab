@@ -7,6 +7,7 @@ writer remain verbatim production code.  This deliberately does not exercise
 the older nr_f8_runtime.inl model.
 """
 import argparse
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -97,6 +98,13 @@ out = root / ("test-output/f8-gpu-v4" if args.gpu else "test-output/f8-controlle
 out.mkdir(parents=True, exist_ok=True)
 cpp, exe = out / "controller.cpp", out / "controller.exe"
 cpp.write_text(harness, encoding="utf-8")
+if args.gpu:
+    helper = (root / "tests/ci_warp_runtime.h").read_bytes()
+    (out / "ci_warp_runtime.h").write_bytes(helper)
+    (out / "ci-warp-runtime-input.json").write_text(json.dumps({
+        "schema": 1, "helper_sha256": hashlib.sha256(helper).hexdigest(),
+        "generated_harness_sha256": hashlib.sha256(cpp.read_bytes()).hexdigest(),
+    }, indent=2) + "\n", encoding="utf-8")
 # A complete 4K PNG supplied at the runtime screenshot boundary. The archive
 # must retain these exact bytes; this does not emulate a real game renderer.
 def png_chunk(tag, data):

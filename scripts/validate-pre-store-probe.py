@@ -24,6 +24,8 @@ def main():
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     hashes={str(f.relative_to(snapshot)):sha(f) for f in sorted(snapshot.rglob('*')) if f.is_file()}
     queue=ROOT/'tests/queue_retirement_harness.cpp'
+    warp_helper=out/'ci_warp_runtime.h'
+    warp_helper.write_bytes((ROOT/'tests/ci_warp_runtime.h').read_bytes())
     post=ROOT/'tests/post_output_harness.inl'
     native=ROOT/'tests/native_color_view_harness.inl'
     fixture=ROOT/'tests/pre_store_probe_harness.inl'
@@ -59,7 +61,7 @@ def main():
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'fixture_sha256':sha(fixture),'binary_sha256':sha(exe),
-            'borrowed_helpers_sha256':{f.name:sha(f) for f in (queue,post,native)},
+            'borrowed_helpers_sha256':{f.name:sha(f) for f in (queue,post,native,warp_helper)},
             'production_translation_unit':True,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None}
     if not a.compile_only:
         r=run([str(exe)],'run',120);record['run_exit']=r.returncode;print(r.stdout)

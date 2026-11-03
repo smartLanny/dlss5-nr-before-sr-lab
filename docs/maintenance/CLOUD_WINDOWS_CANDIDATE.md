@@ -32,6 +32,15 @@ pins; the original canonical builders verify their source/SDK hashes again.
 The official NGX static SDK library builds this project's `nrchain_nvngx.dll`;
 NVIDIA runtime/model directories are not checked out or redistributed.
 
+The software device uses pinned Microsoft WARP 1.0.22. In the observed
+[same-EXE comparison](../validation/WARP_RUNTIME_20261103.md), the system WARP
+timed out on the first CombineV2 lighting dispatch while the fixed test runtime
+completed every original case and normal device destruction. Each native host
+now verifies the unique module it actually loaded, and each GPU step checks its
+required host families and rehashes the DLL. Preparation, loader and process
+contracts fail before the full shader workload. All vendor files remain in a
+unique temporary directory; the candidate does not install a WARP runtime.
+
 The complete post-scaling WARP test runs on the committed source before the
 long canonical sequence, so a native failure retains its case/phase and process
 evidence promptly. The canonical builder still repeats the same mandatory gate
@@ -84,6 +93,6 @@ tested package for rollback. Windows/WARP evidence cannot replace that later
 game check.
 
 Initial dependency preparation and the complete canonical gate can take well
-over an hour. Each Windows job is capped at 180 minutes. The first actual hosted
-run, rather than a source-only workflow test, establishes whether the selected
-runner image satisfies every required runtime capability.
+over an hour. Each Windows job is capped at 180 minutes. A complete successful
+run on the exact candidate source is required; earlier partial successes and
+the isolated runtime comparison do not establish full-canonical acceptance.

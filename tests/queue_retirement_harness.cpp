@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <string>
 #include <memory>
+#include "ci_warp_runtime.h"
 
 namespace queue_test {
 unsigned checks = 0;
@@ -100,11 +101,13 @@ struct Fixture {
     CommandStateMetaContract command_meta{};
     UINT64 next_creation_serial = 0;
     Fixture() {
+        Hr(nr_test_warp::Prepare(), "Prepare pinned test WARP");
         InitializeCriticalSection(&g_chain_cs);
         Hr(CreateDXGIFactory2(0, IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "factory");
         Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");
         Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0,
             IID_ID3D12Device, reinterpret_cast<void **>(&device)), "device");
+        Hr(nr_test_warp::Verify("queue-retirement"), "Verify actual test WARP module");
         command_meta.device_identity = g_next_command_device_identity.fetch_add(1);
         Hr(ID3D12Device_SetPrivateData(device, kCommandStateMetaContract,
             sizeof(command_meta), &command_meta), "controlled device lifetime metadata");

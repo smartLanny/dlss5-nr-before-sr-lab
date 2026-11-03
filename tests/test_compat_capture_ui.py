@@ -95,7 +95,9 @@ class CompatibilityCaptureUi(unittest.TestCase):
         if not compiler:
             self.skipTest('C++ compiler unavailable')
         source = (ROOT / 'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig')
-        harness = HARNESS.replace('// @HELPER@', definition(source, 'void DrawCompatibilityCapture('))
+        helpers = '\n'.join(definition(source, marker) for marker in (
+            'void DrawCompatibilityCaptureStatus(', 'void DrawImageStatus(', 'void DrawCompatibilityCapture('))
+        harness = HARNESS.replace('// @HELPER@', helpers)
         harness = harness.replace('// @CONTROLS@', definition(source, 'void DrawControls('))
         with tempfile.TemporaryDirectory(prefix='nr-compat-capture-ui-') as temp:
             cpp=Path(temp)/'ui.cpp';exe=Path(temp)/'ui.exe';cpp.write_text(harness,encoding='utf-8')

@@ -10,13 +10,15 @@ function Complete-PostScaledWorkRun {
         [string]$Build, [string]$Source, [string]$Harness, [string]$Template,
         [string]$Executable, [string]$Stdout, [string]$Stderr,
         [AllowNull()][object]$ExitCode, [bool]$HasExited, [double]$DurationMs,
-        [AllowNull()][object]$ProcessFailure = $null
+        [AllowNull()][object]$ProcessFailure = $null,
+        [string]$WarpRuntimeHelper = ""
     )
     $files = [ordered]@{
         staged_core_sha256=$Source; generated_harness_sha256=$Harness
         template_sha256=$Template; executable_sha256=$Executable
         stdout_sha256=$Stdout; stderr_sha256=$Stderr
     }
+    if ($WarpRuntimeHelper) { $files['ci_warp_runtime_helper_sha256'] = $WarpRuntimeHelper }
     $evidence = [ordered]@{ schema=2 }
     $evidenceErrors = @()
     foreach ($key in $files.Keys) {
@@ -105,7 +107,8 @@ try {
 }
 Complete-PostScaledWorkRun -Build $build -Source $source -Harness $outSource -Template $template `
     -Executable $exe -Stdout $stdout -Stderr $stderr -ExitCode $exitCode -HasExited $hasExited `
-    -DurationMs $watch.Elapsed.TotalMilliseconds -ProcessFailure $processFailure
+    -DurationMs $watch.Elapsed.TotalMilliseconds -ProcessFailure $processFailure `
+    -WarpRuntimeHelper (Join-Path $build 'ci_warp_runtime.h')
 $hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
 Write-Host "PASS actual staged post-scaling HLSL and descriptors; core SHA256=$hash"
 Write-Host 'Test-only neural identity/perturbation; NOT NVIDIA NR or game runtime verification.'

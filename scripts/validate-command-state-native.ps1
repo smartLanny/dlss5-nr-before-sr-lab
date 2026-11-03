@@ -69,6 +69,10 @@ $build = Join-Path $projectRoot 'build\command-state-native-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'command_state_native.cpp'
 $binary = Join-Path $build 'command_state_native.exe'
+$warpHelper = Join-Path $build 'ci_warp_runtime.h'
+Copy-Item -LiteralPath (Join-Path $projectRoot 'tests\ci_warp_runtime.h') -Destination $warpHelper -Force
+[ordered]@{ schema=1; warp_runtime_helper_sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $warpHelper).Hash.ToLowerInvariant() } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $build ('command_state_native.warp-helper.json')) -Encoding utf8
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 $cCompiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang.exe'

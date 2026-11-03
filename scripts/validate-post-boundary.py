@@ -85,7 +85,7 @@ int main(){}
         run([str(binary), case], case, 30)
     sha=lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     evidence={'source':str(source), 'source_sha256':sha(source),
-              'fixture_sha256':sha(fixture), 'native_fixture_sha256':sha(ROOT/'tests/post_boundary_native.inl'),
+              'fixture_sha256':sha(fixture), 'ci_warp_runtime_helper_sha256':sha(ROOT/'tests/ci_warp_runtime.h'), 'native_fixture_sha256':sha(ROOT/'tests/post_boundary_native.inl'),
               'readonly_fixture_sha256':sha(ROOT/'tests/post_boundary_readonly.inl'),
               'compiler_sha256':sha(compiler), 'cases':['boundary-callbacks','boundary-native','boundary-readonly'],
               'full_production_translation_unit':True, 'native_minhook':True,

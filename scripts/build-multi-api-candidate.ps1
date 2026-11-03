@@ -72,9 +72,9 @@ try {
     & python -m unittest tests.test_direct_source_export -v
     if ($LASTEXITCODE) { throw 'Committed-source and pinned-carrier export contracts failed.' }
     $Checks.Add('committed-source export and pinned-carrier integration contracts with negative controls')
-    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
+    & python -m unittest tests.test_ui_refresh tests.test_feedback_output_ui tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
     if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
-    $Checks.Add('settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
+    $Checks.Add('settings UI, actual feedback page/publication with UI recorders and missing-route negative controls (no rendered UI), clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
