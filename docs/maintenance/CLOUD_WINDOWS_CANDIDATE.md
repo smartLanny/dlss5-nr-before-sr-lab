@@ -32,6 +32,13 @@ pins; the original canonical builders verify their source/SDK hashes again.
 The official NGX static SDK library builds this project's `nrchain_nvngx.dll`;
 NVIDIA runtime/model directories are not checked out or redistributed.
 
+Visual C++ discovery finishes its native query and records its output and exit
+status before the large dependency downloads. An unavailable selector, failed
+query, empty or ambiguous result, or missing environment script stops the build
+with a retained discovery receipt. The
+[observed selection failure](../validation/VISUAL_STUDIO_DISCOVERY_20261103.md)
+does not by itself prove that the runner lacked a compiler.
+
 The software device uses pinned Microsoft WARP 1.0.22. In the observed
 [same-EXE comparison](../validation/WARP_RUNTIME_20261103.md), the system WARP
 timed out on the first CombineV2 lighting dispatch while the fixed test runtime

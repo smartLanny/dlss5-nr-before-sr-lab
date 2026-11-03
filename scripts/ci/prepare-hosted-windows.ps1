@@ -46,6 +46,82 @@ function Download-Pinned([string]$Url, [string]$Path, [string]$Sha256) {
     $Receipt.archives[[IO.Path]::GetFileName($Path)] = [ordered]@{url=$Url; sha256=$Actual}
 }
 
+function Find-HostedVisualCpp([string]$VsWhere, [string]$EvidencePath) {
+    $Query = @('-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath')
+    $Discovery = [ordered]@{
+        schema='hosted-visual-cpp-discovery-v1'; verified=$false
+        selector=$VsWhere; arguments=$Query; image_os=$env:ImageOS; image_version=$env:ImageVersion
+        exit_code=$null; stdout=@(); stderr=@(); query_error=$null; result_count=0
+        visual_studio=$null; vcvars=$null; failure=$null
+    }
+    $Failure = $null
+    if (-not (Test-Path -LiteralPath $VsWhere -PathType Leaf)) {
+        $Discovery.failure = 'selector-missing'
+        $Failure = "Visual C++ discovery executable is missing: $VsWhere"
+    } else {
+        $RawOutput = @()
+        $OldErrorAction = $ErrorActionPreference
+        try {
+            # Complete the native process before selecting output. Select-Object
+            # -First can stop an upstream native command before its final exit.
+            # Preserve stderr as evidence without PS5 NativeCommandError stopping
+            # collection, and never reuse a previous command's native exit code.
+            $ErrorActionPreference = 'Continue'
+            $global:LASTEXITCODE = $null
+            $RawOutput = @(& $VsWhere @Query 2>&1)
+            $Discovery.exit_code = $global:LASTEXITCODE
+        } catch {
+            $Discovery.query_error = $_.Exception.Message
+        } finally {
+            $ErrorActionPreference = $OldErrorAction
+        }
+        $Discovery.stdout = @($RawOutput | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+        $Discovery.stderr = @($RawOutput | Where-Object { $_ -is [Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+        $Paths = @($Discovery.stdout | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $Discovery.result_count = $Paths.Count
+        if ($Discovery.query_error) {
+            $Discovery.failure = 'query-error'
+            $Failure = "Visual C++ discovery invocation failed: $($Discovery.query_error)"
+        } elseif ($null -eq $Discovery.exit_code) {
+            $Discovery.failure = 'exit-code-unavailable'
+            $Failure = 'Visual C++ discovery did not report a native exit code.'
+        } elseif ($Discovery.exit_code -ne 0) {
+            $Discovery.failure = 'native-failure'
+            $Failure = "Visual C++ discovery failed: vswhere exit code $($Discovery.exit_code)."
+        } elseif ($Paths.Count -eq 0) {
+            $Discovery.failure = 'no-matching-installation'
+            $Failure = 'Visual C++ discovery returned no installation with the required VC.Tools.x86.x64 component.'
+        } elseif ($Paths.Count -ne 1) {
+            $Discovery.failure = 'ambiguous-installations'
+            $Failure = "Visual C++ discovery returned $($Paths.Count) installation paths; expected one."
+        } else {
+            $Discovery.visual_studio = $Paths[0]
+            $Discovery.vcvars = Join-Path $Paths[0] 'VC/Auxiliary/Build/vcvarsall.bat'
+            if (-not (Test-Path -LiteralPath $Discovery.vcvars -PathType Leaf)) {
+                $Discovery.failure = 'vcvars-missing'
+                $Failure = "Selected Visual Studio installation lacks its C++ environment script: $($Discovery.vcvars)"
+            }
+        }
+    }
+    $Discovery.verified = $null -eq $Failure
+    $EvidencePath = [IO.Path]::GetFullPath($EvidencePath)
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $EvidencePath)) | Out-Null
+    [IO.File]::WriteAllText($EvidencePath, ($Discovery | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
+    Write-Host "VS_DISCOVERY exit_code=$($Discovery.exit_code) result_count=$($Discovery.result_count) receipt=$EvidencePath"
+    foreach ($Line in $Discovery.stdout) { Write-Host "VS_DISCOVERY stdout: $Line" }
+    foreach ($Line in $Discovery.stderr) { Write-Host "VS_DISCOVERY stderr: $Line" }
+    if ($Failure) { throw "$Failure See $EvidencePath" }
+    return [pscustomobject]@{ VisualStudio=$Discovery.visual_studio; VcVars=$Discovery.vcvars }
+}
+
+# Check the existing image before any dependency download. This is still the
+# component-qualified vswhere query; no hard-coded installation path fallback.
+$VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+$VsEvidence = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($ReceiptPath))) 'visual-studio-discovery.json'
+$VisualCpp = Find-HostedVisualCpp -VsWhere $VsWhere -EvidencePath $VsEvidence
+$VisualStudio = $VisualCpp.VisualStudio
+$VcVars = $VisualCpp.VcVars
+
 $Carrier = Checkout-Pinned 'carrier' 'https://github.com/NIGos/dlss5-bridge.git' '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 $ReShade = Checkout-Pinned 'reshade' 'https://github.com/crosire/reshade.git' '4a50d1eddace85734871d91792ff214f13f66c01'
 & git -C $ReShade -c core.autocrlf=false submodule update --init --recursive --depth 1
@@ -86,11 +162,6 @@ if ($LASTEXITCODE) { throw 'Pinned face serializer installation failed' }
 if ($LASTEXITCODE) { throw 'Pinned face model preparation failed' }
 if ((Get-FileHash -LiteralPath (Join-Path $Models 'yunet-dynamic.onnx') -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b1b3061b1ae7a43bcc1497284ade754f701db774ef3a19481edcaf27fbc425b1') { throw 'Prepared face model hash mismatch' }
 
-$VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$VisualStudio = (& $VsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
-if ($LASTEXITCODE -or -not $VisualStudio) { throw 'The standard Windows image lacks the required Visual C++ tools' }
-$VcVars = Join-Path $VisualStudio 'VC/Auxiliary/Build/vcvarsall.bat'
-if (-not (Test-Path -LiteralPath $VcVars -PathType Leaf)) { throw 'Visual C++ environment script missing' }
 $FfxCache = Join-Path $Dependencies 'ffx-opticalflow-build'
 & python (Join-Path $Repo 'experiments/final_residual/build_amd_probe.py') --sdk $Ffx --compiler $Compiler --output $FfxCache --sdk-only
 if ($LASTEXITCODE) { throw 'Pinned AMD shader/backend compilation failed' }

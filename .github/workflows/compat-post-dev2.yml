@@ -78,6 +78,7 @@ jobs:
             & ./tests/post_scaled_work_receipt.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
             & ./tests/warp_runtime_comparison.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
             & ./tests/warp_runtime_timeout.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1
+            & ./tests/hosted_visual_cpp_discovery.ps1 -Bootstrap ./scripts/ci/prepare-hosted-windows.ps1
           } finally { Stop-Transcript }
       - name: Pin the test-only Microsoft WARP runtime and check evidence contracts
         run: |
