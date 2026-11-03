@@ -70,6 +70,15 @@ jobs:
           "sha=$source" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           "version=$version" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           [ordered]@{source_commit=$source; candidate=$version; image_os=$env:ImageOS; image_version=$env:ImageVersion; game_verified=$false; nvidia_inference_verified=$false} | ConvertTo-Json | Set-Content build/cloud-evidence/run.json -Encoding utf8
+      - name: Windows process receipt contracts before dependency setup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path build/cloud-evidence/process-contracts.log
+          try {
+            & ./tests/post_scaled_work_receipt.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
+            & ./tests/warp_runtime_comparison.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
+            & ./tests/warp_runtime_timeout.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1
+          } finally { Stop-Transcript }
       - name: Pinned complete build dependencies, face and AMD SDK cache
         run: |
           $ErrorActionPreference = 'Stop'
@@ -93,7 +102,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/post-warp-preflight.log
           try {
-            & ./tests/post_scaled_work_receipt.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
             & ./scripts/validate-post-scaled-work-gpu.ps1 -SourceRoot (Get-Location).Path -ToolchainRoot $env:TOOLCHAIN_ROOT -OutputRoot build/post-warp-preflight
             if ($LASTEXITCODE) { throw 'Post-scaling WARP preflight failed; retain native failure evidence' }
           } finally { Stop-Transcript }
@@ -103,8 +111,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Start-Transcript -Path build/cloud-evidence/warp-runtime-comparison.log
           try {
-            & ./tests/warp_runtime_comparison.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1 -Validator ./scripts/validate-post-scaled-work-gpu.ps1
-            & ./tests/warp_runtime_timeout.ps1 -Comparison ./scripts/ci/compare-warp-runtime.ps1
             & ./scripts/ci/compare-warp-runtime.ps1 -ExistingExe build/post-warp-preflight/post_scaled_work_gpu.exe -BaselineReceipt build/post-warp-preflight/post-scaled-work-result.json -OutputRoot build/warp-runtime-comparison
           } finally { Stop-Transcript }
       - name: Full canonical source, CPU, SM5 shaders, WARP and bilingual Core

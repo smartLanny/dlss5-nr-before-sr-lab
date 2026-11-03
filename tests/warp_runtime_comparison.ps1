@@ -29,7 +29,9 @@ try {
     # Read real PE version metadata from a copied PowerShell assembly, without
     # loading it as WARP. Runtime execution/module observations remain synthetic.
     $moduleFile=Join-Path $sandbox 'baseline-module.dll'
-    Copy-Item -LiteralPath (Join-Path $PSHOME 'System.Management.Automation.dll') -Destination $moduleFile
+    # Windows PowerShell 5 loads this assembly from the GAC, whereas pwsh keeps
+    # it beside its executable. Follow the assembly that is actually loaded.
+    Copy-Item -LiteralPath ([Management.Automation.PSObject].Assembly.Location) -Destination $moduleFile
     $moduleLog=Join-Path $sandbox 'baseline-modules.txt'
     [IO.File]::WriteAllText($moduleLog,"LOADED_MODULE name=d3d10warp.dll path=$moduleFile`n")
     $logHash=Get-ComparisonHash $moduleLog
