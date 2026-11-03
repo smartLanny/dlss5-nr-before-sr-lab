@@ -140,6 +140,11 @@ try {
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)
     }
+    foreach ($Negative in @('--negative-control', '--generic-algorithm-negative-control')) {
+        & python (Join-Path $PSScriptRoot 'validate-recommended-picture.py') --compiler $Cxx $Negative
+        if ($LASTEXITCODE) { throw "Recommended picture reset negative control failed: $Negative" }
+    }
+    $Checks.Add('actual recommended picture reset rejects wrong color and non-Legacy algorithm defaults')
     & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --gpu --compiler $Cxx
     if ($LASTEXITCODE) { throw '512 ROI production F7 GPU/stream validation failed.' }
     $Checks.Add('F7 512 ROI production shader/ring/fence/stream/ZIP WARP: 3 ROI frames plus overview')
