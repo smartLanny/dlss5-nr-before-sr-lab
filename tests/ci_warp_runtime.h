@@ -106,6 +106,7 @@ struct State {
     HRESULT result = S_OK;
     std::wstring expected, evidence;
     std::string sha256;
+    ULONGLONG process_created = 0;
     // Deliberately retained until process exit: do not unload under a device.
     HMODULE module = nullptr;
     volatile LONG ordinal = 0;
@@ -145,6 +146,14 @@ struct State {
         if (directory_attributes == INVALID_FILE_ATTRIBUTES ||
             (directory_attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
             return Failure("evidence-directory-missing");
+        // Windows may reuse a PID after the old process object is released.
+        // Keep the exact creation FILETIME, as in RM_UNIQUE_PROCESS identity.
+        FILETIME created{}, exited{}, kernel{}, user{};
+        if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
+            return Failure("process-creation-time", GetLastError());
+        process_created = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32) |
+            static_cast<ULONGLONG>(created.dwLowDateTime);
+        if (process_created == 0) return Failure("process-creation-time");
         std::wstring actual;
         const HRESULT before = InspectModules(expected, false, actual);
         if (FAILED(before)) return before;
@@ -188,9 +197,10 @@ inline HRESULT Evidence(State& state, const char* site, const std::wstring& actu
     const LONG ordinal = InterlockedIncrement(&state.ordinal);
     if (ordinal <= 0) return Failure("evidence-ordinal");
     const std::wstring path = state.evidence + L"\\warp-" + std::to_wstring(pid) +
-        L"-" + std::to_wstring(ordinal) + L".txt";
-    const std::string body = "schema=1\nhost_exe=" + host_utf8 + "\npid=" +
-        std::to_string(pid) + "\nsite=" + site + "\nexpected_sha256=" + state.sha256 +
+        L"-" + std::to_wstring(state.process_created) + L"-" + std::to_wstring(ordinal) + L".txt";
+    const std::string body = "schema=2\nhost_exe=" + host_utf8 + "\npid=" +
+        std::to_string(pid) + "\nprocess_created=" + std::to_string(state.process_created) +
+        "\nsite=" + site + "\nexpected_sha256=" + state.sha256 +
         "\nactual_module=" + actual_utf8 + "\nwarp_instances=1\nverified=true\n";
     HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                               CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);

@@ -147,30 +147,44 @@ try {
     # this validates parsing/acceptance, never WARP loading or device creation.
     $hostDirectory=Join-Path $sandbox 'host-records'
     New-Item -ItemType Directory -Path $hostDirectory | Out-Null
-    $hostFile=Join-Path $hostDirectory ("warp-$PID-1.txt")
+    $creation='134000000000000000'; $otherCreation='134000000000000001'
+    $hostFile=Join-Path $hostDirectory ("warp-$PID-$creation-1.txt")
     $hostExe=(Get-Process -Id $PID).Path
     if ([string]::IsNullOrWhiteSpace($hostExe) -and -not $windows) { $hostExe=Join-Path $PSHOME 'pwsh' }
     Check (-not [string]::IsNullOrWhiteSpace($hostExe) -and (Test-Path -LiteralPath $hostExe)) 'synthetic record names a real host executable file'
-    $record="schema=1`nhost_exe=$hostExe`npid=$PID`nsite=fixture-parser`nexpected_sha256=$pinned`nactual_module=$dll`nwarp_instances=1`nverified=true`n"
+    $record="schema=2`nhost_exe=$hostExe`npid=$PID`nprocess_created=$creation`nsite=fixture-parser`nexpected_sha256=$pinned`nactual_module=$dll`nwarp_instances=1`nverified=true`n"
     Write-Utf8 $hostFile $record
     $observed=Read-WarpHostEvidence $hostFile $dll $pinned
     Check ($observed.actual_module -ceq $dll -and $observed.site -ceq 'fixture-parser') 'valid host record preserves identity and equals-sign path'
     Check ($observed.sha256 -ceq (Get-FileHash -LiteralPath $hostFile -Algorithm SHA256).Hash.ToLowerInvariant()) 'host record is hashed from its actual bytes'
+    Check ($observed.process_created -ceq $creation) 'process creation identity survives parsing'
+    $reusedFile=Join-Path $hostDirectory ("warp-$PID-$otherCreation-1.txt")
+    $reusedRecord=$record.Replace("process_created=$creation","process_created=$otherCreation")
+    Write-Utf8 $reusedFile $reusedRecord
+    $reused=Read-WarpHostEvidence $reusedFile $dll $pinned
+    Check ($reused.pid -ceq $observed.pid -and $reused.process_created -ceq $otherCreation -and $reused.file -cne $observed.file) 'PID reuse retains distinct process records'
     $hostCases=@(
         @{Name='missing-record-field'; Text=$record.Replace("verified=true`n",''); Error='does not prove'},
-        @{Name='wrong-host-schema'; Text=$record.Replace('schema=1','schema=2'); Error='does not prove'},
+        @{Name='old-host-schema'; Text=$record.Replace('schema=2','schema=1'); Error='does not prove'},
         @{Name='not-verified'; Text=$record.Replace('verified=true','verified=false'); Error='does not prove'},
         @{Name='no-warp-module'; Text=$record.Replace('warp_instances=1','warp_instances=0'); Error='does not prove'},
         @{Name='multiple-warp-modules'; Text=$record.Replace('warp_instances=1','warp_instances=2'); Error='does not prove'},
         @{Name='wrong-host-sha'; Text=$record.Replace($pinned,('0'*64)); Error='does not prove'},
         @{Name='invalid-pid'; Text=$record.Replace("pid=$PID",'pid=0'); Error='does not prove'},
+        @{Name='pid-overflow'; Text=$record.Replace("pid=$PID",'pid=4294967296'); Error='does not prove'},
+        @{Name='missing-creation'; Text=$record.Replace("process_created=$creation`n",''); Error='does not prove'},
+        @{Name='zero-creation'; Text=$record.Replace("process_created=$creation",'process_created=0'); Error='does not prove'},
+        @{Name='negative-creation'; Text=$record.Replace("process_created=$creation",'process_created=-1'); Error='does not prove'},
+        @{Name='leading-zero-creation'; Text=$record.Replace("process_created=$creation",'process_created=0123'); Error='does not prove'},
+        @{Name='creation-overflow'; Text=$record.Replace("process_created=$creation",'process_created=18446744073709551616'); Error='does not prove'},
+        @{Name='creation-filename-mismatch'; Text=$reusedRecord; Error='filename does not match'},
         @{Name='invalid-site'; Text=$record.Replace('site=fixture-parser','site=bad/name'); Error='does not prove'},
         @{Name='relative-host'; Text=$record.Replace($hostExe,'relative.exe'); Error='does not prove'},
         @{Name='relative-module'; Text=$record.Replace($dll,'d3d10warp.dll'); Error='does not prove'},
         @{Name='wrong-module-path'; Text=$record.Replace($dll,(Join-Path $sandbox 'd3d10warp.dll')); Error='does not prove'},
         @{Name='duplicate-host-field'; Text=($record+"verified=true`n"); Error='Malformed or duplicate'},
         @{Name='unknown-host-field'; Text=($record+"extra=1`n"); Error='Malformed or duplicate'},
-        @{Name='field-case'; Text=$record.Replace('schema=1','Schema=1'); Error='Malformed or duplicate'},
+        @{Name='field-case'; Text=$record.Replace('schema=2','Schema=2'); Error='Malformed or duplicate'},
         @{Name='embedded-nul'; Text=$record.Replace('verified=true',("verified=true"+[char]0)); Error='Malformed or duplicate'},
         @{Name='malformed-line'; Text=($record+"broken`n"); Error='Malformed or duplicate'},
         @{Name='oversized-record'; Text=($record+('x'*32768)); Error='Oversized WARP host evidence'}
@@ -190,7 +204,7 @@ try {
     [IO.File]::WriteAllBytes($hostFile,[byte[]]@(0xff))
     Reject { Read-WarpHostEvidence $hostFile $dll $pinned } 'invalid-UTF8' '(?i)translat|decod|fallback|invalid'
     Write-Utf8 $hostFile $record
-    foreach ($name in @('warp-0-1.txt',"warp-$PID-0.txt",'other.txt')) {
+    foreach ($name in @("warp-0-$creation-1.txt","warp-$PID-$creation-0.txt","warp-$PID-1.txt",'other.txt')) {
         $wrong=Join-Path $hostDirectory $name; Write-Utf8 $wrong $record
         Reject { Read-WarpHostEvidence $wrong $dll $pinned } 'wrong-record-filename' 'filename does not match'
     }
@@ -199,11 +213,13 @@ try {
         $lifecycle=Join-Path $sandbox 'lifecycle'
         & $verifierPath -Receipt $receipt -EvidenceDirectory $lifecycle -Phase Begin
         Reject { & $verifierPath -Receipt $receipt -EvidenceDirectory $lifecycle -Phase End -RequiredSites 'fixture-parser' } 'no-host-records' 'Missing or excessive WARP host evidence'
-        Write-Utf8 (Join-Path $lifecycle ("warp-$PID-1.txt")) $record
+        Write-Utf8 (Join-Path $lifecycle ("warp-$PID-$creation-1.txt")) $record
+        Write-Utf8 (Join-Path $lifecycle ("warp-$PID-$otherCreation-1.txt")) $reusedRecord
         Reject { & $verifierPath -Receipt $receipt -EvidenceDirectory $lifecycle -Phase End -RequiredSites 'absent-site' } 'missing-required-site' 'Missing actual WARP host family'
         & $verifierPath -Receipt $receipt -EvidenceDirectory $lifecycle -Phase End -RequiredSites 'fixture-parser'
         $step=Get-Content -LiteralPath (Join-Path $lifecycle 'step-runtime.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-        Check ($step.actual_host_records -eq 1 -and $step.dll_rehashed_after_tests -and $step.required_sites[0] -ceq 'fixture-parser') 'actual entry-point receipt binds its required record'
+        Check ($step.actual_host_records -eq 2 -and $step.dll_rehashed_after_tests -and $step.required_sites[0] -ceq 'fixture-parser') 'actual entry-point receipt retains both reused-PID records'
+        Check (@($step.hosts.pid | Select-Object -Unique).Count -eq 1 -and @($step.hosts.process_created | Select-Object -Unique).Count -eq 2) 'step host JSON preserves distinct creation identities'
     }
 } finally {
     foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name,$saved[$name],'Process') }

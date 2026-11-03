@@ -69,8 +69,11 @@ WARP module, incomplete configuration, or unwritable evidence record fails the
 test. Success is silent on stdout/stderr so existing JSON and PowerShell 5
 consumers keep their original output contracts.
 
-Native evidence contains the EXE, process ID, host family, actual DLL path, and
-the expected hash checked by the parent. It does not pretend the native helper
+Native evidence contains the EXE, process ID and creation FILETIME, host family,
+actual DLL path, and the expected hash checked by the parent. The PID and exact
+64-bit creation time distinguish legitimate PID reuse; an ordinal distinguishes
+multiple devices in one process. Existing records are never overwritten.
+It does not pretend the native helper
 calculated a file hash. Each step checks all records and its required host
 families. CPU-only helpers do not need to load WARP. Explicit hardware/fallback
 paths are rejected while the CI runtime context is configured; unconfigured
@@ -89,6 +92,14 @@ resume packaging after a failed preflight. No production loader, shader,
 default feature setting, package payload or NVIDIA runtime is changed by this
 test dependency. The new source's Windows result is pending its own run.
 
+The preceding fixed-runtime source `2d3f073047f4e183b59d9871cc4b096b0fed08a8`
+in [run 41575689326](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/41575689326)
+actually passed Windows PowerShell 5 receipt contracts, pinned dependencies,
+the direct/Python-child native loader contracts, all packaging contracts and
+the full post-scaling WARP preflight. Its canonical step then started. The
+creation-time identity correction is a subsequent source change: these partial
+results do not validate that correction or constitute full-canonical success.
+
 ## Primary references
 
 - [Microsoft WARP 1.0.22 package and changelog](https://www.nuget.org/packages/Microsoft.Direct3D.WARP/1.0.22)
@@ -96,6 +107,8 @@ test dependency. The new source's Windows result is pending its own run.
 - [LoadLibraryExW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw)
 - [GetModuleHandleW: same-name module ambiguity](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandlew)
 - [SetDllDirectoryW and child processes](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setdlldirectoryw)
+- [PROCESS_INFORMATION: process identifiers can be reused](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-process_information)
+- [RM_UNIQUE_PROCESS: PID plus creation time](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/ns-restartmanager-rm_unique_process)
 
 The package is used for internal Windows testing/development. Its DLL and NuGet
 archive are not redistributed in the Core-only candidate.

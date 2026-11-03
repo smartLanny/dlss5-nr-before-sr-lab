@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+CREATED = str((1 << 60) + 12345)  # Adjacent values must survive beyond double precision.
 WIN32 = r'''
 #pragma once
 #include <algorithm>
@@ -26,7 +27,9 @@ WIN32 = r'''
 #include <string>
 #include <vector>
 using DWORD = std::uint32_t; using LONG = std::int32_t; using HRESULT = std::int32_t;
+using ULONGLONG = std::uint64_t;
 using BOOL = int; using HANDLE = void*; using HMODULE = void*;
+struct FILETIME { DWORD dwLowDateTime, dwHighDateTime; };
 #define TRUE 1
 #define FALSE 0
 #define S_OK 0
@@ -66,6 +69,8 @@ inline const std::wstring system = L"C:\\Windows\\System32\\d3d10warp.dll";
 inline std::vector<std::wstring> modules;
 inline std::string scenario, output;
 inline unsigned index = 0, loads = 0;
+inline unsigned process_times_calls = 0;
+inline ULONGLONG created = (1ull << 60) + 12345;
 inline bool snapshot_fail = false, path_fail = false;
 inline HANDLE snapshot = reinterpret_cast<HANDLE>(std::intptr_t(-2));
 inline std::string utf8(const std::wstring& text) {
@@ -109,6 +114,19 @@ inline DWORD GetFileAttributesW(const wchar_t* name) {
     return INVALID_FILE_ATTRIBUTES;
 }
 inline DWORD GetCurrentProcessId() { return 1234; }
+inline HANDLE GetCurrentProcess() { return reinterpret_cast<HANDLE>(std::intptr_t(-1)); }
+inline BOOL GetProcessTimes(HANDLE process, FILETIME* created, FILETIME* exited,
+                           FILETIME* kernel, FILETIME* user) {
+    if (process != GetCurrentProcess()) std::exit(97);
+    ++fake::process_times_calls;
+    if (fake::scenario == "process-times-failure") {
+        SetLastError(ERROR_ACCESS_DENIED); return FALSE;
+    }
+    const ULONGLONG value = fake::scenario == "zero-created" ? 0 : fake::created;
+    *created = {static_cast<DWORD>(value), static_cast<DWORD>(value >> 32)};
+    *exited = {}; *kernel = {}; *user = {};
+    return TRUE;
+}
 inline HANDLE CreateToolhelp32Snapshot(DWORD flags, DWORD pid) {
     if (flags != (TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32) || pid != 1234) std::exit(90);
     if (fake::snapshot_fail) { SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE; }
@@ -170,8 +188,9 @@ inline BOOL DeleteFileW(const wchar_t* path) { return std::filesystem::remove(Ev
 HOST = r'''
 #include "ci_warp_runtime.h"
 int main(int argc, char** argv) {
-    if (argc != 3) return 99;
+    if (argc != 4) return 99;
     fake::scenario = argv[1]; fake::output = argv[2];
+    fake::created = std::strtoull(argv[3], nullptr, 10);
     fake::env = {{L"DLSS5_TEST_WARP_DLL", fake::expected},
                  {L"DLSS5_TEST_WARP_SHA256", std::wstring(64, L'A')},
                  {L"DLSS5_TEST_WARP_EVIDENCE_DIR", fake::evidence}};
@@ -201,8 +220,8 @@ int main(int argc, char** argv) {
     const char* site = s == "site-injection" ? "site\nverified=true" : "actual-header";
     const HRESULT verified = nr_test_warp::Verify(site);
     if (FAILED(verified)) return 20;
-    if (s == "no-env") return fake::loads == 0 && !nr_test_warp::Configured() ? 0 : 95;
-    if (fake::loads != 1 || !nr_test_warp::Configured() || FAILED(nr_test_warp::Prepare())) return 96;
+    if (s == "no-env") return fake::loads == 0 && fake::process_times_calls == 0 && !nr_test_warp::Configured() ? 0 : 95;
+    if (fake::loads != 1 || fake::process_times_calls != 1 || !nr_test_warp::Configured() || FAILED(nr_test_warp::Prepare())) return 96;
     if (s == "good" || s == "pre-same") {
         if (FAILED(nr_test_warp::Verify("second-device"))) return 21;
     }
@@ -242,11 +261,11 @@ class WarpRuntimeHeaderTests(unittest.TestCase):
             raise AssertionError(compiled.stdout + compiled.stderr)
         return exe
 
-    def run_case(self, scenario, exe=None, collision=False):
-        out = Path(tempfile.mkdtemp(dir=self.work, prefix=scenario + '-'))
+    def run_case(self, scenario, exe=None, collision=False, created=CREATED, out=None):
+        out = out or Path(tempfile.mkdtemp(dir=self.work, prefix=scenario + '-'))
         if collision:
-            (out / 'warp-1234-1.txt').write_text('existing evidence', encoding='utf-8')
-        run = subprocess.run([str(exe or self.exe), scenario, str(out)], capture_output=True, text=True)
+            (out / f'warp-1234-{created}-1.txt').write_text('existing evidence', encoding='utf-8')
+        run = subprocess.run([str(exe or self.exe), scenario, str(out), created], capture_output=True, text=True)
         return run, out
 
     def test_no_configuration_preserves_local_behavior(self):
@@ -261,10 +280,10 @@ class WarpRuntimeHeaderTests(unittest.TestCase):
                 run, out = self.run_case(scenario)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stdout + run.stderr, '')
-                self.assertEqual(sorted(p.name for p in out.iterdir()), ['warp-1234-1.txt', 'warp-1234-2.txt'])
+                self.assertEqual(sorted(p.name for p in out.iterdir()), [f'warp-1234-{CREATED}-1.txt', f'warp-1234-{CREATED}-2.txt'])
                 for ordinal, site in ((1, 'actual-header'), (2, 'second-device')):
-                    fields = dict(line.split('=', 1) for line in (out / f'warp-1234-{ordinal}.txt').read_text(encoding='utf-8').splitlines())
-                    self.assertEqual(fields, {'schema': '1', 'host_exe': r'C:\host\probe.exe', 'pid': '1234',
+                    fields = dict(line.split('=', 1) for line in (out / f'warp-1234-{CREATED}-{ordinal}.txt').read_text(encoding='utf-8').splitlines())
+                    self.assertEqual(fields, {'schema': '2', 'host_exe': r'C:\host\probe.exe', 'pid': '1234', 'process_created': CREATED,
                         'site': site, 'expected_sha256': 'a' * 64,
                         'actual_module': 'C:\\pinned\\模型\\d3d10warp.dll', 'warp_instances': '1', 'verified': 'true'})
 
@@ -279,6 +298,7 @@ class WarpRuntimeHeaderTests(unittest.TestCase):
             'pre-duplicate': 'warp-module-count', 'load-failure': 'absolute-load',
             'load-wrong': 'loaded-module-path', 'snapshot-failure': 'module-snapshot',
             'enumeration-failure': 'module-enumeration',
+            'process-times-failure': 'process-creation-time', 'zero-created': 'process-creation-time',
         }
         for scenario, reason in cases.items():
             with self.subTest(scenario=scenario):
@@ -301,7 +321,37 @@ class WarpRuntimeHeaderTests(unittest.TestCase):
                 self.assertEqual(list(out.iterdir()), [])
         run, out = self.run_case('good', collision=True)
         self.assertEqual(run.returncode, 20, run.stderr)
-        self.assertEqual((out / 'warp-1234-1.txt').read_text(), 'existing evidence')
+        self.assertEqual((out / f'warp-1234-{CREATED}-1.txt').read_text(), 'existing evidence')
+
+    def test_reused_pid_preserves_distinct_processes_and_rejects_same_identity(self):
+        first, out = self.run_case('good')
+        self.assertEqual(first.returncode, 0, first.stderr)
+        earlier = {path.name: path.read_bytes() for path in out.iterdir()}
+        following = str(int(CREATED) + 1)
+        second, _ = self.run_case('good', created=following, out=out)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(len(list(out.iterdir())), 4)
+        for name, data in earlier.items():
+            self.assertEqual((out / name).read_bytes(), data)
+        for ordinal in (1, 2):
+            record = (out / f'warp-1234-{following}-{ordinal}.txt').read_text()
+            self.assertIn(f'\nprocess_created={following}\n', record)
+        preserved = {path.name: path.read_bytes() for path in out.iterdir()}
+        duplicate, _ = self.run_case('good', out=out)
+        self.assertEqual(duplicate.returncode, 20, duplicate.stderr)
+        self.assertIn('reason=evidence-create', duplicate.stderr)
+        self.assertEqual({path.name: path.read_bytes() for path in out.iterdir()}, preserved)
+
+    def test_old_pid_only_filename_precisely_recreates_collision(self):
+        old = 'L"-" + std::to_wstring(state.process_created) + L"-" + std::to_wstring(ordinal) + L".txt";'
+        self.assertEqual(self.header.count(old), 1)
+        exe = self.build('pid-only-name', self.header.replace(old, 'L"-" + std::to_wstring(ordinal) + L".txt";'))
+        first, out = self.run_case('good', exe)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second, _ = self.run_case('good', exe, created=str(int(CREATED) + 1), out=out)
+        self.assertEqual(second.returncode, 20, second.stderr)
+        self.assertIn('reason=evidence-create', second.stderr)
+        self.assertEqual(len(list(out.iterdir())), 2)
 
     def test_precise_regressions_are_detected(self):
         mutations = {

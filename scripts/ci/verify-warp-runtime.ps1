@@ -61,7 +61,7 @@ function Read-PinnedWarpReceipt([string]$Path) {
 function Read-WarpHostEvidence([string]$Path, [string]$ExpectedDll, [string]$ExpectedHash) {
     if ((Get-Item -LiteralPath $Path).Length -gt 32768) { throw 'Oversized WARP host evidence.' }
     $rows = @{}
-    $keys = @('schema','host_exe','pid','site','expected_sha256','actual_module','warp_instances','verified')
+    $keys = @('schema','host_exe','pid','process_created','site','expected_sha256','actual_module','warp_instances','verified')
     $utf8 = New-Object Text.UTF8Encoding($false, $true)
     foreach ($line in [IO.File]::ReadAllLines($Path, $utf8)) {
         if ($line.Length -eq 0) { continue }
@@ -70,9 +70,14 @@ function Read-WarpHostEvidence([string]$Path, [string]$ExpectedDll, [string]$Exp
             $line.IndexOf([char]0) -ge 0) { throw 'Malformed or duplicate WARP host evidence field.' }
         $rows[$parts[0]] = $parts[1]
     }
-    if ($rows.Count -ne $keys.Count -or $rows.schema -cne '1' -or $rows.verified -cne 'true' -or
+    $processNumber = [UInt32]0
+    $creationIdentity = [UInt64]0
+    if ($rows.Count -ne $keys.Count -or $rows.schema -cne '2' -or $rows.verified -cne 'true' -or
         $rows.warp_instances -cne '1' -or $rows.expected_sha256 -cne $ExpectedHash -or
-        $rows.pid -cnotmatch '^[1-9][0-9]*$' -or $rows.site -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
+        $rows.pid -cnotmatch '^[1-9][0-9]*$' -or -not [UInt32]::TryParse($rows.pid, [ref]$processNumber) -or
+        $rows.process_created -cnotmatch '^[1-9][0-9]*$' -or
+        -not [UInt64]::TryParse($rows.process_created, [ref]$creationIdentity) -or
+        $rows.site -cnotmatch '^[A-Za-z0-9_-]{1,96}$' -or
         -not [IO.Path]::IsPathRooted($rows.host_exe) -or
         -not [IO.Path]::IsPathRooted($rows.actual_module) -or
         -not [string]::Equals([IO.Path]::GetFullPath($rows.actual_module),
@@ -86,11 +91,11 @@ function Read-WarpHostEvidence([string]$Path, [string]$ExpectedDll, [string]$Exp
             }
         }
     }
-    if ([IO.Path]::GetFileName($Path) -cnotmatch ('^warp-' + $rows.pid + '-[1-9][0-9]*\.txt$')) {
+    if ([IO.Path]::GetFileName($Path) -cnotmatch ('^warp-' + $rows.pid + '-' + $rows.process_created + '-[1-9][0-9]*\.txt$')) {
         throw 'WARP host evidence filename does not match its process.'
     }
     [ordered]@{file=[IO.Path]::GetFileName($Path); sha256=(Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-        host_exe=$rows.host_exe; pid=$rows.pid; site=$rows.site; actual_module=$rows.actual_module}
+        host_exe=$rows.host_exe; pid=$rows.pid; process_created=$rows.process_created; site=$rows.site; actual_module=$rows.actual_module}
 }
 
 if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) { throw 'RUNNER_TEMP is required.' }

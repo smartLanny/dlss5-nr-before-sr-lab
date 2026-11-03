@@ -62,7 +62,8 @@ try {
     $results += Run-RuntimeProbe 'python-child' $python ('"' + $driver + '" "' + $exe + '"') $true 'PASS CI_WARP_PROBE configured=1'
     & $verify -Receipt $Receipt -EvidenceDirectory $evidence -Phase End -RequiredSites 'runtime-probe'
     $positive = Get-Content -LiteralPath (Join-Path $evidence 'step-runtime.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($positive.actual_host_records -ne 2 -or @($positive.hosts.pid | Select-Object -Unique).Count -ne 2) {
+    $processIdentities = @($positive.hosts | ForEach-Object { $_.pid + ':' + $_.process_created } | Select-Object -Unique)
+    if ($positive.actual_host_records -ne 2 -or $processIdentities.Count -ne 2) {
         throw 'Direct and Python-child probes did not both produce distinct actual device records.'
     }
     $results += Run-RuntimeProbe 'system-preloaded' $exe '--system-first' $false 'reason=unexpected-warp-module'
