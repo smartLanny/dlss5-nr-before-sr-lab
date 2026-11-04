@@ -16,6 +16,7 @@ import zlib
 import zipfile
 import json
 import importlib.util
+from f8_process_evidence import run_logged
 
 
 def definition(source: str, marker: str, trailing_semicolon: bool = False) -> str:
@@ -132,8 +133,12 @@ def png_chunk(tag, data):
 row = b'\0' + bytes((x * 17) % 256 for x in range(3840 * 3))
 native_png = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB',3840,2160,8,2,0,0,0)) + png_chunk(b'IDAT',zlib.compress(row * 2160)) + png_chunk(b'IEND',b'')
 (out/'native-display.png').write_bytes(native_png)
-subprocess.run([args.compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)]+(["-ld3d12","-ldxgi","-ld3dcompiler","-ldxguid"] if args.gpu else []), check=True)
-subprocess.run([str(exe), str(out)], check=True)
+run_logged([args.compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)]+(["-ld3d12","-ldxgi","-ld3dcompiler","-ldxguid"] if args.gpu else []), out, "compile", check=True, inputs={"generated_harness": cpp})
+run_logged([str(exe), str(out)], out, "execute", check=True, inputs={
+    "generated_harness": cpp, "driver": Path(__file__),
+    "core": args.source or root / "src/nr_before_sr.cpp",
+    "sequence": root / "src/nr_f8_sequence.inl",
+})
 latest = single_fixture_run(out)
 for groups in (1,7):
     for skin in (0,2):
@@ -184,13 +189,13 @@ if args.negative_control:
         assert harness.count(old)==1,(name,harness.count(old))
         bad_cpp,bad_exe=out/f'negative-{name}.cpp',out/f'negative-{name}.exe'
         bad_cpp.write_text(harness.replace(old,new),encoding='utf-8')
-        subprocess.run([args.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(bad_cpp),'-o',str(bad_exe)],check=True)
+        run_logged([args.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(bad_cpp),'-o',str(bad_exe)],out,f'negative-{name}-compile',check=True,inputs={'generated_harness':bad_cpp})
         # A mutation must not reuse the positive fixture or another mutation's
         # run-PID directory. Otherwise PID reuse can fail at CREATE_NEW before
         # the intended behavioral assertion, and look like a valid rejection.
         negative_out = Path(tempfile.mkdtemp(prefix="negative-", dir=out))
         (negative_out / 'native-display.png').write_bytes(native_png)
-        run=subprocess.run([str(bad_exe),str(negative_out)],capture_output=True,text=True)
+        run=run_logged([str(bad_exe),str(negative_out)],negative_out,'execute',capture_output=True,text=True,inputs={'generated_harness':bad_cpp})
         assert run.returncode==1 and 'FAIL:' in run.stderr,(name,run.returncode,run.stderr)
         results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip(),
                         'output_directory':negative_out.name})

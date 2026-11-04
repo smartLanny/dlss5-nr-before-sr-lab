@@ -89,7 +89,10 @@ class F8AttemptIsolation(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
             return subprocess.CompletedProcess(command, exit_code, "", "FAIL: controlled assertion\n")
 
+        # This suite verifies driver orchestration. Real process/log behavior is
+        # independently exercised by test_f8_process_evidence.py.
         namespace["subprocess"] = SimpleNamespace(run=child)
+        namespace["run_logged"] = lambda command, directory, label, inputs=None, **kw: child(command, **kw)
         execute([LOOP], namespace)
         return [(cmd, kw) for cmd, kw in calls
                 if cmd[0] != namespace["args"].compiler]
