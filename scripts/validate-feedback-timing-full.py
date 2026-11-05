@@ -34,7 +34,7 @@ def main():
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit', 'old-text-limit',
-                        'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
+                        'redact-timing-numbers', 'redact-aux-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
                         'omit-end-ui-receipt', 'redact-ui-decimals', 'omit-end-retirement',
                         'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
     parser.add_argument('--compile-only', action='store_true')
@@ -79,14 +79,20 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 185u * 1024u',
-                    'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_limits.h').read_text(encoding='utf-8')
+        before = re.search(r'kMandatoryTailBytes = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_limits.h', before,
+                    'kMandatoryTailBytes = 161u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-metadata-limit':
-        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 288u * 1024u',
-                    'kMetadataBytes = 192u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_limits.h').read_text(encoding='utf-8')
+        before = re.search(r'kMetadataBytes = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_limits.h', before,
+                    'kMetadataBytes = 288u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-text-limit':
-        mutation = ('src/nr_feedback_single_text.h', 'kTextLimit = 480u * 1024u',
-                    'kTextLimit = 384u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
+        actual = (snapshot / 'src/nr_feedback_single_text.h').read_text(encoding='utf-8')
+        before = re.search(r'kTextLimit = \d+u \* 1024u', actual).group(0)
+        mutation = ('src/nr_feedback_single_text.h', before,
+                    'kTextLimit = 480u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
     elif args.negative_control == 'redact-timing-numbers':
         mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
                     'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
@@ -95,6 +101,9 @@ def main():
         mutation = ('src/nr_feedback_text.h', anchor, anchor +
                     '\n    if (typed_metadata && (line.find("start.timing.") == 0 || line.find("end.timing.") == 0)) return line;',
                     'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
+    elif args.negative_control == 'redact-aux-numbers':
+        mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && AuxCreateMetadataNumber(line, i, end))',
+                    'if (false && AuxCreateMetadataNumber(line, i, end))', 'FULL_CORE_F8_AUX_METADATA_PRIVACY')
     elif args.negative_control == 'untyped-decimal-exemption':
         mutation = ('src/nr_feedback_text.h', 'if (typed_metadata && TimingMetadataNumber(line, i, end))',
                     "if (std::all_of(line.begin() + i, line.begin() + end, [](char c) { return c >= '0' && c <= '9'; }))",
@@ -126,6 +135,13 @@ def main():
         if text.count(mutation[1]) != 1:
             raise SystemExit('Negative-control production anchor changed: ' + args.negative_control)
         text = text.replace(mutation[1], mutation[2], 1)
+        if args.negative_control == 'old-metadata-limit':
+            # Restore the old reserve too so the old physical capacity is a
+            # compiled runtime counterexample, not a static_assert failure.
+            before = re.search(r'kMandatoryTailBytes = \d+u \* 1024u', text).group(0)
+            if text.count(before) != 1:
+                raise SystemExit('Old metadata control reserve anchor changed')
+            text = text.replace(before, 'kMandatoryTailBytes = 161u * 1024u')
         path.write_text(text, encoding='utf-8')
     fixture = ROOT / 'tests/feedback_timing_full.inl'
     shutil.copy2(fixture, out / 'fixture.inl')
@@ -159,7 +175,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
     compiler = args.compiler.resolve(strict=True)
     c_compiler = compiler.with_name(compiler.name.replace('clang++', 'clang'))
     reshade = args.reshade.resolve(strict=True)
-    common = ['-O1', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
+    common = ['-O1', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64', '-DNR_AUX_TIMING=1',
               '-DNR_DESCRIPTOR_PROFILE=' + str(int(args.descriptor_profile)),
               '-DNR_SOURCE_COMMIT="' + source_commit + '"',
               '-ffunction-sections', '-fdata-sections',
@@ -180,6 +196,13 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
         return result
 
     objects = list(map(str,objects_for(source/'src/nr_before_sr.cpp')))
+    # Production enables these counters. Compile the real separate runtime,
+    # otherwise the full TU silently omits every auxCreate metadata field.
+    aux_source = snapshot / 'src/nr_aux_shader_runtime.cpp'
+    aux_object = out / 'nr_aux_shader_runtime.o'
+    run([str(compiler), *common, '-std=c++20', '-c', str(aux_source), '-o', str(aux_object)],
+        'compile-nr-aux-shader-runtime')
+    objects.append(str(aux_object))
     # The complete Core references the dual spatial API from nr_before_sr.cpp,
     # while its D3D12 implementation is deliberately a separate production
     # translation unit.  Link that captured implementation when present so
@@ -265,6 +288,9 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
                  if path.is_file() and path.suffix in ('.txt', '.json')]
     receipt = {'gate': 'assembled Core F8 timing/probe serialization CPU',
                'descriptor_profile': int(args.descriptor_profile),
+               'aux_timing': True, 'aux_runtime_source_sha256': sha(aux_source),
+               'aux_scope': 'actual Observe/Snapshot runtime; all nine shaders and both operations; saturating UINT64_MAX ticks and 12-16 digit ticks; start/end raw, final text and disk equality; aux runtime uses the real Win32 QPF, outside the Core clock seam',
+               'compile_configuration_scope': 'NR_AUX_TIMING=1; dynamic shader branches and no face backend for this CPU serializer fixture; canonical DLL and face gates compile and execute separately',
                'passed': not args.compile_only and len(cases) == len(case_names) and all(case['expected_result'] for case in cases),
                'production_translation_unit': True, 'source_function_extraction': False,
                'source_root': str(source), 'original_source_sha256': inputs, 'compiled_source_sha256': final_inputs,
@@ -279,6 +305,7 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
                'gpu_executed': False, 'ngx_executed': False, 'game_verified': False,
                'worker_equivalent_bytes': 8192, 'timeline_burst_bytes': 4096,
                'private_counter_failure_width_allowance_per_snapshot': 2048,
+               'aux_counter_frequency_width_allowance_per_snapshot': 1046,
                'retirement_scope': 'when NR_HAS_RETIREMENT_EVIDENCE: synthetic published POD, 32 full-width legal context masks plus full fixed detail tables; actual Activity writer, 24 KiB retirement text with explicit omissions, final semantic IDs preserved and addresses redacted; CPU only, no native owner, fence wait or real GPU work',
                'scope': 'metadata capacity including full route and descriptor/boundary records, real three-carrier recovery proof, actual 8192-slot/six-format descriptor inventory, full timeline burst, 8 KiB worker-equivalent body and 2 KiB private-counter/failure width allowance per snapshot; conditional retirement writer adds 32 full-width context rows/full fixed detail tables and a 24 KiB bounded tail with typed ID/address roundtrip; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
     (out / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')

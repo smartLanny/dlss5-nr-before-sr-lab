@@ -7,9 +7,12 @@
 #include <cstdio>
 #include <cstring>
 #include "nr_allocation_ledger.h"
+#include "nr_model_memory_events.h"
 
 struct FeedbackSession {char report[65536]{};std::size_t used=0;};
 SRWLOCK g_feedback_lock=SRWLOCK_INIT;
+SRWLOCK g_nr_model_memory_lock=SRWLOCK_INIT;
+nr_model_memory_events::History g_nr_model_memory_history;
 HANDLE sampled=nullptr,first_append=nullptr;
 std::atomic<bool> observer_inside{false},violation{false};
 
@@ -38,6 +41,8 @@ DWORD WINAPI Writer(void* opaque) {
     return 0;
 }
 int main() {
+    g_nr_model_memory_history.count=nr_model_memory_events::kEvents;
+    for(unsigned i=0;i<nr_model_memory_events::kEvents;++i)g_nr_model_memory_history.events[i].sequence=i+1;
     sampled=CreateEventW(nullptr,TRUE,FALSE,nullptr);
     first_append=CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if(!sampled||!first_append)return 2;
@@ -45,7 +50,7 @@ int main() {
     AcquireSRWLockExclusive(&g_feedback_lock);
     observer_inside.store(true,std::memory_order_release);
     std::memcpy(session.report,"observer=held\n",14);session.used=14;
-    HANDLE writer=CreateThread(nullptr,0,Writer,&session,0,nullptr);
+    HANDLE writer=CreateThread(nullptr,64u*1024u,Writer,&session,STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
     if(!writer)return 2;
     const bool sampled_first=WaitForSingleObject(sampled,5000)==WAIT_OBJECT_0;
     const bool appended_while_observed=WaitForSingleObject(first_append,100)==WAIT_OBJECT_0;
@@ -55,9 +60,9 @@ int main() {
     CloseHandle(writer);CloseHandle(sampled);CloseHandle(first_append);
     if(!sampled_first||!writer_done||appended_while_observed||violation.load()||
        !std::strstr(session.report,"start.allocation.sampleStartedTickMs=")||
-       !std::strstr(session.report,"start.allocation.schema=owned-d3d12-v1")) {
+       !std::strstr(session.report,"start.allocation.schema=owned-d3d12-v2")) {
         std::fprintf(stderr,"FAIL production append overlapped published observer or omitted F8 text\n");
         return 1;
     }
-    std::puts("production append lock serializes published observer; sampler ran first PASS");
+    std::puts("production append lock serializes published observer; sampler ran first; 64 KiB worker reserve with all 32 model events PASS");
 }

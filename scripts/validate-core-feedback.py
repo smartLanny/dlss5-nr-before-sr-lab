@@ -50,6 +50,7 @@ HARNESS = r'''
 #include "nr_layer_config.h"
 #include "nr_colour_restore_policy.h"
 #include "nr_colour_preferences.h"
+#include "nr_generic_residual.h"
 #include "nr_spatial_experiment_policy.h"
 #include "nr_private_sr_status.h"
 #include "nr_reset_observation.h"
@@ -98,6 +99,9 @@ CRITICAL_SECTION g_chain_cs;
 SRWLOCK g_feedback_lock=SRWLOCK_INIT;
 std::atomic<bool> g_feedback_requested{false};
 std::atomic<unsigned> g_feedback_status{0},g_config_generation{7},g_feedback_swap_format{10},g_feedback_swap_color_space{1};
+// Keep the actual locked recording/snapshot adapter used by the activity
+// writer. A requested algorithm alone must not invent a recorded result.
+#include "nr_generic_runtime.inl"
 SPATIAL_STATUS
 TEMPORAL_MEMORY
 POST_SEAMS
@@ -377,6 +381,43 @@ int main(int argc,char **argv) {
     for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress after diagnostic\n";
     put(carrier_log,bridge_content);
     reshade::api::effect_runtime runtime;
+    {
+        const auto saved_config=g_config;
+        const auto saved_generation=g_config_generation.load();
+        g_config.enabled=true;g_config.generic_residual=true;g_config.generic_algorithm=1;
+        g_config.generic_gains[0]=1.25f;
+        const auto pending=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*pending,"sample");
+        nr_core_feedback::AppendPictureConfig(*pending,g_config,true);
+        check(std::strstr(pending->report,"sample.genericResidual.recordedAlgorithm=unknown\n") &&
+              !std::strstr(pending->report,"sample.genericResidual.recordedFlags="),
+              "requested generic algorithm without a production receipt stays unknown");
+        check(std::strstr(pending->report,"requested.genericAlgorithm=1\nrequested.genericAlgorithmName=continuous-sdr-v1\n"),
+              "picture writer preserves requested generic algorithm independently of recording");
+        for(bool present:{false,true}) {
+            // Exercise real Select -> Record -> Snapshot -> writer; this is
+            // synthetic constant recording, not GPU completion or pixel proof.
+            RecordGenericPolicy(nr_generic::Select(g_config,true,true,false,false),present);
+            const auto recorded=std::make_unique<FeedbackSession>();
+            FeedbackAppendActivity(*recorded,"sample");
+            for(const char* line:{"sample.genericResidual.recordedAlgorithm=1\n",
+                "sample.genericResidual.recordedFlags=64\n",
+                "sample.genericResidual.reason=verified-sdr-final-composition\n",
+                "sample.genericResidual.receipt=native-or-Present final constants; not GPU completion or pixel proof\n"})
+                check(std::strstr(recorded->report,line),"real generic receipt fields survive activity serialization");
+            check(std::strstr(recorded->report,present?"sample.genericResidual.present=1\n":"sample.genericResidual.present=0\n"),
+                  "generic receipt identifies native versus Present recording");
+        }
+        g_config_generation.fetch_add(1);
+        const auto stale=std::make_unique<FeedbackSession>();
+        FeedbackAppendActivity(*stale,"sample");
+        check(std::strstr(stale->report,"sample.genericResidual.recordedAlgorithm=unknown\n") &&
+              !std::strstr(stale->report,"sample.genericResidual.recordedFlags=") &&
+              !std::strstr(stale->report,"sample.genericResidual.present="),
+              "changed configuration never reuses the earlier generic receipt");
+        g_config=saved_config;g_config_generation.store(saved_generation);
+        g_recorded_generic_policy={};
+    }
     {
         // Synthetic snapshot values test the real serialization body only.
         // They are never interpreted as GPU/NGX evidence from this harness.

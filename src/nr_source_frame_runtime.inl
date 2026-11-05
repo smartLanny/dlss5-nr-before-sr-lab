@@ -564,6 +564,7 @@ void RetireExternalProvider(Id provider) {
 // Streamline adapter publishes the API's public frame token value, not its
 // pointer and not a newly fabricated slGetNewFrameToken call.
 thread_local Source sl_source{},sl_present_source{};
+Source CurrentStreamlinePresentSource();
 Source PublishStreamlineSource(Id provider,Id epoch,unsigned viewport,unsigned frame) {
     Lock lock;
     const Id view=(Id(viewport)<<32)^provider;
@@ -765,7 +766,7 @@ struct EvaluateScope {
             const auto inherited=lineage.Lookup(ResourceOf(output),recording);
             inputs.encoding=inherited.encoding;
             if(inherited.KnownApplication())source=inherited.source;
-            else if(sl_source)source=sl_source;else if(sl_present_source)source=sl_present_source;
+            else if(sl_source)source=sl_source;else if(const auto present=CurrentStreamlinePresentSource())source=present;
             else if(inputs.fg_frame)source=ProducerSource(reinterpret_cast<Id>(handle),generation,inputs.fg_frame);
             inputs.source=source;consume=fg_consumer;
         }else{

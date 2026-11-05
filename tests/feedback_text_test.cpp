@@ -88,8 +88,56 @@ void timing_metadata_privacy() {
             "[sensitive log line omitted]", "credential omission still takes priority over typed metadata");
     }
 }
+void aux_metadata_privacy() {
+    const auto record = [](const std::string &key, const std::string &value) {
+        return key + "=calls:" + value + ",failures:" + value + ",measured:" + value +
+            ",totalTicks:" + value + ",maxTicks:" + value;
+    };
+    for (unsigned digits = 11; digits <= 20; ++digits) {
+        const std::string value = digits == 20 ? "18446744073709551615" : "1" + std::string(digits - 1, '2');
+        for (const auto prefix : {"start.auxCreate.", "end.auxCreate."}) {
+            const auto frequency = std::string(prefix) + "qpcFrequency=" + value;
+            check(SanitizeMetadata(frequency) == frequency, "aux QPC frequency preserves unsigned decimal widths");
+            for (unsigned shader = 0; shader < 9; ++shader)
+                for (const auto operation : {"compile", "pso"}) {
+                    const auto line = record(std::string(prefix) + std::to_string(shader) + "." + operation, value);
+                    check(SanitizeMetadata(line) == line, "every production aux record preserves all five numeric fields");
+                    if (digits >= 12 && digits <= 16)
+                        check(Sanitize(line).find(value) == std::string::npos, "raw aux log lookalikes still redact decimal addresses");
+                }
+        }
+    }
+    const std::string ticks = "123456789012345";
+    for (const auto key : {"fake.end.auxCreate.8.pso", "gpu=end.auxCreate.8.pso", "end.auxCreate.9.pso",
+            "end.auxCreate.00.pso", "end.auxCreate.8.unknown", "end.auxCreate.8.pso.fake", "end.auxCreate.note"})
+        check(SanitizeMetadata(record(key, ticks)).find(ticks) == std::string::npos,
+            "unknown aux keys cannot grant numeric exemptions");
+    const auto valid = record("end.auxCreate.8.pso", ticks);
+    for (const auto suffix : {",fakeTicks:", ",totalTicks:", ",ptr:"})
+        check(SanitizeMetadata(valid + suffix + ticks).find(ticks) == std::string::npos,
+            "extra or duplicate aux fields fail closed for the whole malformed record");
+    for (const auto pointer : {"0x123456789ABCDEF0", "0000123412341234"})
+        check(SanitizeMetadata(record("end.auxCreate.8.pso", pointer)).find(pointer) == std::string::npos,
+            "typed aux fields never exempt hexadecimal or zero-padded pointers");
+    check(SanitizeMetadata("end.auxCreate.8.pso=totalTicks:" + ticks) ==
+        "end.auxCreate.8.pso=totalTicks:[address]", "partial aux records cannot acquire a typed exemption");
+    check(SanitizeMetadata(valid + ",").find(ticks) == std::string::npos,
+        "aux numeric schema rejects a trailing comma");
+    check(SanitizeMetadata("end.auxCreate.qpcFrequency=" + ticks + ",extra:" + ticks).find(ticks) == std::string::npos,
+        "aux frequency exception requires the whole scalar value");
+    for (const auto invalid : {"", "00", "-123456789012345", "+123456789012345", "18446744073709551616"}) {
+        const auto line = record("end.auxCreate.8.pso", invalid);
+        const auto begin = line.find(':') + 1;
+        check(!AuxCreateMetadataNumber(line, begin, line.find(',', begin)), "noncanonical aux values cannot acquire an exemption");
+    }
+    check(SanitizeMetadata(valid + " | password=fixture") == "[sensitive log line omitted]",
+        "secret omission retains priority over typed aux metadata");
+    check(SanitizeMetadata("end.auxCreate.note=C:\\fixture-private\\file | ptr=0x123456789ABCDEF0") ==
+        "end.auxCreate.note=[local-path] | ptr=[address]", "aux metadata retains independent path and pointer privacy");
+}
 int main() {
     timing_metadata_privacy();
+    aux_metadata_privacy();
     check(CoreHotkey(117) == 119, "F6 cannot trigger both master and capture");
     check(CoreHotkey(118) == 119, "F7 belongs to image supplement");
     for (unsigned k = 0; k < 256; ++k) {

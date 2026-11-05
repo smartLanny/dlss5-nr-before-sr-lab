@@ -110,7 +110,8 @@ def main():
         if not a.nr_runtime or not a.sr_runtime:p.error('real NGX requires explicit signed NR and SR DLL paths')
         old='Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");'
         if q.count(old)!=1:raise ValueError('GPU fixture anchor changed')
-        q=q.replace(old,'''for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
+        q=q.replace(old,'''Check(!nr_test_warp::Configured(),"Pinned test WARP excludes real NVIDIA");
+        for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
             if(IDXGIFactory4_EnumAdapters1(factory,i,&candidate)==DXGI_ERROR_NOT_FOUND)break;
             DXGI_ADAPTER_DESC1 description{};IDXGIAdapter1_GetDesc1(candidate,&description);
             if(description.VendorId==0x10de&&!(description.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)){adapter=(IDXGIAdapter*)candidate;break;}
@@ -156,7 +157,7 @@ def main():
         aux_flags=['-DNR_AUX_PRECOMPILED=1','-DNR_AUX_TIMING=1']
     elif a.run and (a.source.parent/'nr_aux_shader_runtime.cpp').is_file():
         raise ValueError('Final Core requires precompiled auxiliary path; no runtime-compile fallback in GPU acceptance')
-    fixture_inputs=[queue,post,descriptor,ROOT/'tests/native_observer_device.inl',ROOT/'tests/model_boundary_ngx.inl',Path(__file__)]
+    fixture_inputs=[queue,post,descriptor,ROOT/'tests/ci_warp_runtime.h',ROOT/'tests/native_observer_device.inl',ROOT/'tests/model_boundary_ngx.inl',Path(__file__)]
     frozen_inputs={str(f.resolve()):sha(f) for f in fixture_inputs+objects+[build/'nr_codec_precompiled.h']}
     frozen_inputs.update(aux_evidence.get('files_sha256',{}))
     command=[str(a.compiler),'-std=c++20','-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-DNR_FACE_BACKEND=1','-DNR_CODEC_PRECOMPILED=1',*aux_flags,

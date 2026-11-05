@@ -12,6 +12,7 @@
 #include <cmath>
 #include <initializer_list>
 #include "src/interop/nr_format_access.h"
+#include "../ci_warp_runtime.h"
 #define ID3D12Device_CheckFeatureSupport(device, feature, data, size) \
     (device)->CheckFeatureSupport(feature, data, size)
 #include "src/interop/nr_format_access_d3d12.inl"
@@ -140,9 +141,11 @@ static void Run(ID3D12Device* device, ID3D12CommandQueue* queue, ID3D12RootSigna
     std::printf("storage=%u srv=%u: 140 canonical pixel checks; original source UAV not required\n",storage,view);
 }
 int main() {
+    Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     ComPtr<IDXGIFactory4> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)),"Factory");
     ComPtr<IDXGIAdapter> adapter;Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)),"WARP");
     ComPtr<ID3D12Device> device;Hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)),"Device");
+    Hr(nr_test_warp::Verify("format-view"),"Verify actual CI WARP");
     D3D12_COMMAND_QUEUE_DESC qd{};qd.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
     ComPtr<ID3D12CommandQueue> queue;Hr(device->CreateCommandQueue(&qd,IID_PPV_ARGS(&queue)),"Queue");
     D3D12_DESCRIPTOR_RANGE ranges[2]{};

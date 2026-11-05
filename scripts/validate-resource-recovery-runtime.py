@@ -77,7 +77,7 @@ def main() -> None:
     fixture = (ROOT / 'tests' / fixture_name).read_bytes()
     helper_names = () if args.snapshot_cpu else ('queue_retirement_harness.cpp', 'post_output_harness.inl',
                     'native_color_view_harness.inl', 'pre_store_probe_harness.inl', 'store_quantization_harness.inl',
-                    'store_interval_shader.h')
+                    'store_interval_shader.h', 'ci_warp_runtime.h')
     helpers = {name: (helpers_root / 'tests' / name).read_bytes() for name in helper_names}
     minhook = stable_tree(helpers_root / 'third_party/minhook')
     if any((helpers_root / 'tests' / name).read_bytes() != data for name, data in helpers.items()):

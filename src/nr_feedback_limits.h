@@ -5,7 +5,11 @@
 namespace nr_feedback_limits {
 // Bounded F8-only CPU storage: legacy metadata plus two allocation snapshots
 // and the separately capped Esc trace. This does not allocate GPU resources.
-inline constexpr unsigned int kMetadataBytes = 288u * 1024u;
+inline constexpr unsigned int kMetadataBytes = 640u * 1024u;
+// JSON can encode each metadata control byte as six ASCII bytes. The separate
+// 256 KiB envelope covers all 64 bounded manifest records and fixed framing.
+// F8 single-TXT capture does not allocate the ZIP Job that owns this buffer.
+inline constexpr unsigned int kManifestBytes = 6u * kMetadataBytes + 256u * 1024u;
 inline constexpr unsigned int kFinalStatusReserveBytes = 256u;
 // The complete-TU capacity fixture covers full-width timing, route and
 // descriptor/boundary records, an 8 KiB worker envelope and 2 KiB for private
@@ -15,10 +19,15 @@ inline constexpr unsigned int kFinalStatusReserveBytes = 256u;
 // Add 25 KiB for the maximum end allocation ledger and 24 KiB for Esc text.
 // The start allocation ledger fits before the timeline reserve gate.
 // The end-only retirement POD formatter has a separate worst-width CPU gate.
-// Keep the physical metadata buffer unchanged. All context masks fit; optional
-// holder detail has explicit omitted counts, while the full POD stays bounded.
+// All context masks fit; optional holder detail has explicit omitted counts,
+// while the full POD stays bounded.
 inline constexpr unsigned int kRetirementTextBytes = 24u * 1024u;
-inline constexpr unsigned int kMandatoryTailBytes = 185u * 1024u;
+// #330: each of 32 contexts has at most 8 detail rows, plus 32 cold model
+// events. Reserve 176 KiB per snapshot; two snapshots remain CPU-only/bounded.
+// The combined tail is the 337 KiB memory/evidence reserve plus the separately
+// bounded 24 KiB retirement projection. Neither owner may consume the other's
+// reserved end-of-capture evidence.
+inline constexpr unsigned int kMandatoryTailBytes = 361u * 1024u;
 inline constexpr unsigned int kModuleInventoryBytes = 4u * 1024u;
 // The timeline gate runs before an observation burst, which may also append
 // the bounded NGX/resource summary on observations 1 and 60.

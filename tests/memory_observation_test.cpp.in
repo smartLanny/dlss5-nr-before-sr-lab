@@ -1,0 +1,181 @@
+#define CINTERFACE
+#define COBJMACROS
+#define WIDL_C_INLINE_WRAPPERS
+#include <windows.h>
+#include <string>
+#include <cstring>
+#include <cstdlib>
+#include "nr_allocation_ledger.h"
+#include "nr_memory_observation.h"
+#include "nr_model_memory_events.h"
+#include "nr_feedback_limits.h"
+#include "nr_feedback_text.h"
+using namespace nr_allocation_ledger;
+static_assert(sizeof(Snapshot)<=4096,"F8 snapshot must keep large detail storage on heap");
+static_assert(sizeof(ContextDetails)<=65536,"F8 context detail heap bound");
+static_assert(sizeof(nr_model_memory_events::History)<=12288,"bounded cold event copy");
+void Check(bool value,const char* name){if(!value){std::fprintf(stderr,"FAIL %s\n",name);std::exit(41);}}
+struct NrSlot {
+    ID3D12Resource *key=nullptr,*source=nullptr,*result=nullptr,*exposure_source=nullptr,*motion_source=nullptr,
+        *proxy=nullptr,*neural=nullptr,*motion_proxy=nullptr,*delta_stats=nullptr,*delta_stats_readback=nullptr,
+        *acceptance_time_readback=nullptr,*dual_time_readback=nullptr,*edit_field=nullptr,*edit_horizontal=nullptr,
+        *lanczos_intermediate=nullptr,*region_guide=nullptr,*region_field=nullptr,*temporal_depth=nullptr,
+        *temporal_motion=nullptr,*rr_depth=nullptr,*spatial_scratch=nullptr,*spatial_low_b=nullptr,*spatial_low_delta=nullptr;
+    struct {ID3D12Resource *buffer=nullptr,*readback=nullptr;} stage_capture;
+    bool owns_source=false,owns_result=false;
+    nr_dual::dx12::SpatialSlot* dual_spatial=nullptr;
+};
+struct NrContext {
+    void *sr_handle=nullptr,*nr_handle=nullptr,*quarantined_create_handle=nullptr,*private_sr=nullptr,*temporal=nullptr,*binding_pool=nullptr;
+    std::uint64_t instance_id=0,feature_generation=0,memory_sampled_high_water=0;
+    unsigned layer_index=0,memory_max_slots=0;int mode=0;
+    bool create_dependencies_quarantined=false,lifecycle_dependencies_quarantined=false;
+    NrSlot slots[8]{};
+};
+// CPU COM services implement only the allocation-info methods used by Measure.
+// Width is the synthetic driver-returned allocation size, not a real GPU object.
+ID3D12DeviceVtbl device_table{};ID3D12Device device{&device_table};
+ID3D12ResourceVtbl resource_table{};
+struct Resource {ID3D12Resource api{&resource_table};std::uint64_t bytes=0;bool unknown=false;};
+void Services(){
+    device_table.Release=[](ID3D12Device*)->ULONG{return 1;};
+    device_table.GetResourceAllocationInfo=[](ID3D12Device*,D3D12_RESOURCE_ALLOCATION_INFO* out,UINT node,UINT count,const D3D12_RESOURCE_DESC* desc){
+        Check(node==1&&count==1,"EXACT_CREATION_NODE_ALLOCATION_INFO");out->SizeInBytes=desc->Width;out->Alignment=65536;return out;
+    };
+    resource_table.GetDevice=[](ID3D12Resource* resource,REFIID,void** out)->HRESULT{
+        if(reinterpret_cast<Resource*>(resource)->unknown)return E_FAIL;
+        *out=&device;return S_OK;
+    };
+    resource_table.GetHeapProperties=[](ID3D12Resource*,D3D12_HEAP_PROPERTIES* p,D3D12_HEAP_FLAGS* f)->HRESULT{
+        p->Type=D3D12_HEAP_TYPE_DEFAULT;p->CreationNodeMask=1;*f=D3D12_HEAP_FLAG_NONE;return S_OK;
+    };
+    resource_table.GetDesc=[](ID3D12Resource* resource,D3D12_RESOURCE_DESC* d){
+        *d={};d->Width=reinterpret_cast<Resource*>(resource)->bytes;return d;
+    };
+}
+PRODUCTION_CORE_CONTEXT_FUNCTIONS
+
+void Contexts(){
+    Services();Resource proxy{{&resource_table},65536},neural{{&resource_table},131072},result{{&resource_table},262144},
+        intermediate{{&resource_table},524288},motion{{&resource_table},65536},depth{{&resource_table},131072},unknown{{&resource_table},0,true};
+    NrContext context{};context.sr_handle=reinterpret_cast<void*>(0x100);context.nr_handle=reinterpret_cast<void*>(0x200);
+    context.instance_id=17;context.feature_generation=23;context.mode=2;
+    auto& slot=context.slots[3];slot.key=&proxy.api;slot.proxy=&proxy.api;slot.neural=&neural.api;
+    slot.result=&result.api;slot.owns_result=true;slot.lanczos_intermediate=&intermediate.api;
+    slot.motion_proxy=&motion.api;slot.rr_depth=&depth.api;
+    // An alias in another role and a borrowed game input must not inflate either subtotal.
+    slot.edit_field=&proxy.api;slot.source=&result.api;slot.exposure_source=&result.api;
+    nr_memory_observation::NoteSlots(context.memory_max_slots,context.slots);
+    context.slots[6].key=&proxy.api;
+    nr_memory_observation::NoteSlots(context.memory_max_slots,context.slots);
+    context.slots[6]={};context.lifecycle_dependencies_quarantined=true;
+    Builder ledger;CoreContext(ledger,context,Phase::Pending);
+    const auto sum=65536ull+131072+262144+524288+65536+131072;
+    Check(ledger.Get().context_count==1,"PER_CONTEXT_OBSERVATION_REQUIRED");
+    const auto& detail=ledger.Get().context_details->contexts[0];
+    Check(detail.instance==17&&detail.feature_generation==23&&detail.mode==2&&detail.phase==Phase::Pending&&
+        detail.quarantine&&detail.slots==1&&detail.max_slots==2,"CONTEXT_IDENTITY_STATE_SLOT_HIGH_WATER");
+    Check(detail.total.bytes==sum&&detail.slot[3].total.bytes==sum&&context.memory_sampled_high_water==sum,
+        "PER_SLOT_ALLOCATION_INFO_SUM_AND_SAMPLED_HIGH_WATER");
+    const std::uint64_t expected[]={0,65536,131072,262144,524288,65536,131072,0};
+    for(unsigned i=0;i<kRoles;++i)Check(detail.slot[3].roles[i].bytes==expected[i],"PRIMARY_RESOURCE_ROLE_ATTRIBUTION");
+    slot.rr_depth=&unknown.api;
+    Builder decreased;CoreContext(decreased,context,Phase::Retired);
+    Check(decreased.Get().context_details->contexts[0].total.bytes==sum-131072&&decreased.Get().context_details->contexts[0].total.unknown==1&&
+        decreased.Get().context_details->contexts[0].sampled_high_water==sum,"UNKNOWN_IS_NOT_ZERO_AND_HIGH_WATER_SURVIVES_MOVE");
+    std::string text;WriteText(decreased.Get(),"end",[&](const char* row){text+=row;});
+    Check(text.find("instance:17,feature:23")!=std::string::npos&&text.find("state:retired,quarantine:1,slots:1,maxSlots:2")!=std::string::npos&&
+        text.find("Proxy:65536,NeuralOutput:131072,Result:262144,SRIntermediate:524288,MotionProxy:65536,RRdepth:0")!=std::string::npos&&
+        text.find("modelGpuBytes:unknown")!=std::string::npos,"ACTUAL_CONTEXT_F8_TEXT");
+    Builder detached;for(unsigned i=0;i<kContexts+1;++i)CoreContext(detached,context,Phase::Pending);
+    Check(detached.Get().context_count==kContexts&&detached.Get().context_overflow==1&&!detached.Get().sample_complete,
+        "BOUNDED_CONTEXT_OVERFLOW_PARTIAL");
+}
+void QuarantineOverflow(){
+    const auto add=[](Builder& ledger,std::uintptr_t identity,std::uint64_t bytes){
+        ledger.Known(Category::CoreSlot,Phase::Pending,Heap::Default,reinterpret_cast<void*>(identity),bytes);
+    };
+    Builder saturated;
+    auto* detail=saturated.BeginContext(1,1,nullptr,nullptr,0,2,Phase::Pending,true,1);
+    saturated.BeginSlot(0,true);add(saturated,1,UINT64_MAX-1);add(saturated,2,2);
+    Check(detail&&detail->total.bytes==UINT64_MAX&&detail->total.overflow,
+        "ACTUAL_CONTEXT_BYTES_SATURATE_BEFORE_QUARANTINE_SUM");
+    std::string text;WriteContextText(saturated.Get(),"end",[&](const char* row){text+=row;});
+    Check(text.find("quarantineKnownBytesLowerBound:18446744073709551615,")!=std::string::npos&&
+        text.find("quarantineOverflow:1;")!=std::string::npos,"QUARANTINE_SATURATED_CONTEXT_FLAG");
+
+    Builder mixed;
+    mixed.BeginContext(2,1,nullptr,nullptr,0,2,Phase::Pending,false,1);
+    mixed.BeginSlot(0,true);add(mixed,3,UINT64_MAX-1);add(mixed,4,2);
+    mixed.BeginContext(3,1,nullptr,nullptr,0,2,Phase::Pending,true,1);
+    mixed.BeginSlot(0,true);add(mixed,5,128);
+    text.clear();WriteContextText(mixed.Get(),"end",[&](const char* row){text+=row;});
+    Check(text.find("quarantineKnownBytesLowerBound:128,")!=std::string::npos&&
+        text.find("quarantineOverflow:0;")!=std::string::npos,"NON_QUARANTINE_OVERFLOW_CANNOT_TAINT_QUARANTINE_SUM");
+}
+void CheckTrend(){
+    using namespace nr_memory_observation;
+    TimingWindow window;TimingKey key{9,11,3,5,0,1920,1080};
+    for(unsigned i=1;i<=200;++i)window.Observe(key,double(i));
+    auto sample=window.Read(3,5);
+    Check(sample.count==120&&sample.p50==140.5&&sample.p99==199,"BOUNDED_SAME_IDENTITY_P50_P99");
+    Check(window.Read(4,5).count==0&&window.Read(3,6).count==0,"STALE_CONFIG_OR_HISTORY_MISSING");
+    key.instance=10;window.Observe(key,7);
+    Check(window.Read(3,5).count==1&&window.Read(3,5).p50==7,"NEW_INSTANCE_MUST_NOT_MIX_OLD_TIMING");
+    key.queue=12;window.Observe(key,9);
+    Check(window.Read(3,5).count==1&&window.Read(3,5).p99==9,"NEW_QUEUE_MUST_NOT_MIX_OLD_TIMING");
+    window.Observe(key,NAN);window.Observe(key,0);window.Observe(key,-1);
+    Check(window.Read(3,5).count==1,"INVALID_TIMING_CANNOT_BECOME_VALID_ZERO");
+    window.Clear();Check(!window.Read(3,5).count,"PREVIOUS_TREND_INTERVAL_MUST_BE_MISSING");
+    Cadence cadence;
+    for(unsigned i=0;i<599;++i)Check(!cadence.Due(true,10000),"NO_QUERY_BEFORE_600_PRESENTS");
+    Check(cadence.Due(true,10000)&&!cadence.Due(true,10000),"CADENCE_NO_CATCH_UP_BURST");
+    for(unsigned i=0;i<700;++i)Check(!cadence.Due(false,20000),"DISABLED_NO_TREND_QUERY");
+    for(unsigned i=0;i<599;++i)Check(!cadence.Due(true,20000),"DISABLED_RESETS_FRAME_CADENCE");
+    Check(cadence.Due(true,20000),"RE_ENABLED_CADENCE");
+    Trend t{};t.config=3;t.history=5;char text[1024]{};
+    Check(FormatTrend(text,sizeof(text),t)&&std::strstr(text,"nrGpu=samples:0,p50Ms:missing,p99Ms:missing"),"MISSING_TREND_F8_FORMAT");
+    t.timing={2,1.25,2.5};t.timing_key=key;
+    Check(FormatTrend(text,sizeof(text),t)&&std::strstr(text,"nrGpu=samples:2,p50Ms:1.25,p99Ms:2.5"),"REAL_TREND_PERCENTILE_FORMAT");
+}
+void Events(){
+    nr_model_memory_events::Event event{};event.sequence=2;event.release=true;
+    event.before.attempted=event.after.attempted=true;
+    event.before.local_result=event.after.local_result=S_OK;
+    event.before.luid=event.after.luid={3,4};event.before.node=event.after.node=1;
+    event.before.local.CurrentUsage=800;event.after.local.CurrentUsage=300;
+    char text[1024]{};
+    Check(nr_model_memory_events::Format(text,sizeof(text),"end",event)&&std::strstr(text,"localDeltaBytes:-500;")&&
+        std::strstr(text,"operation:Release")&&std::strstr(text,"node:1"),"EXACT_ADAPTER_NODE_SIGNED_RELEASE_DELTA");
+    ++event.after.node;nr_model_memory_events::Format(text,sizeof(text),"end",event);
+    Check(std::strstr(text,"localDeltaBytes:unknown;"),"CROSS_NODE_DELTA_MUST_BE_UNKNOWN");
+    event.after.node=event.before.node;++event.after.luid.LowPart;nr_model_memory_events::Format(text,sizeof(text),"end",event);
+    Check(std::strstr(text,"localDeltaBytes:unknown;"),"CROSS_ADAPTER_DELTA_MUST_BE_UNKNOWN");
+    event.after.luid=event.before.luid;event.after.local_result=E_FAIL;nr_model_memory_events::Format(text,sizeof(text),"end",event);
+    Check(std::strstr(text,"localDeltaBytes:unknown;")&&std::strstr(text,"beforeValid:1,afterValid:0,beforeUsage:800,afterUsage:unknown"),
+        "FAILED_EVENT_USAGE_MUST_BE_UNKNOWN");
+    Check(nr_feedback_text::SanitizeMetadata(text).find("afterUsage:unknown,localDeltaBytes:unknown;")!=std::string::npos,
+        "FAILED_EVENT_USAGE_TYPED_F8_FORMAT");
+    event.before.attempted=false;event.after.local_result=S_OK;event.after.local.CurrentUsage=0;
+    nr_model_memory_events::Format(text,sizeof(text),"end",event);
+    Check(std::strstr(text,"beforeValid:0,afterValid:1,beforeUsage:unknown,afterUsage:0,localDeltaBytes:unknown;"),
+        "UNATTEMPTED_EVENT_USAGE_UNKNOWN_VALID_ZERO_PRESERVED");
+    std::int64_t delta=0;Check(!nr_memory_observation::LocalDelta(0,UINT64_MAX,delta),"DELTA_OVERFLOW_IS_UNKNOWN");
+}
+void Privacy(){
+    Builder b;auto* c=b.BeginContext(123456789012345ull,123456789012345ull,reinterpret_cast<void*>(0x1234567890123456ull),
+        reinterpret_cast<void*>(0x2234567890123456ull),0,2,Phase::Live,false,1);
+    b.BeginSlot(0,true);b.ResourceRole(Role::Proxy);
+    b.Known(Category::CoreSlot,Phase::Live,Heap::Default,reinterpret_cast<void*>(1),123456789012345ull);
+    c->sampled_high_water=c->total.bytes;
+    std::string raw;WriteContextText(b.Get(),"start",[&](const char* row){raw+=row;});
+    std::string safe;std::size_t at=0;
+    while(at<raw.size()){auto end=raw.find('\n',at);safe+=nr_feedback_text::SanitizeMetadata(raw.substr(at,end-at))+"\n";at=end+1;}
+    Check(safe.find("knownBytesLowerBound:123456789012345")!=std::string::npos&&safe.find("sampledBytesHighWater:123456789012345")!=std::string::npos,
+        "TYPED_F8_BYTES_MUST_SURVIVE_ADDRESS_PRIVACY");
+    Check(safe.find("srHandle:[address],nrHandle:[address]")!=std::string::npos&&safe.find("0x1234567890123456")==std::string::npos,
+        "CONTEXT_HANDLE_MUST_REMAIN_PRIVATE");
+    auto forged=raw.substr(0,raw.find('\n'))+",password=fixture-secret";
+    Check(nr_feedback_text::SanitizeMetadata(forged)=="[sensitive log line omitted]","OBSERVATION_CANNOT_BYPASS_SECRET_REDACTION");
+}
+int main(){Contexts();QuarantineOverflow();CheckTrend();Events();Privacy();std::printf("CPU storage bytes: Snapshot=%zu ContextDetails(heap)=%zu ModelHistory=%zu\n",sizeof(Snapshot),sizeof(ContextDetails),sizeof(nr_model_memory_events::History));std::puts("PASS CPU actual CoreSlot/CoreContext + allocation-info COM services, F8 roles/unknown/high-water, bounded trend and exact adapter/node model deltas; no D3D device, GPU or NGX");}

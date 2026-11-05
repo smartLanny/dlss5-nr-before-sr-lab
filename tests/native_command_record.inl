@@ -3,10 +3,12 @@
 int RunNativeCommandRecordGate() {
     g_enabled_fast=true;
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr; ID3D12Device *device=nullptr;
+    Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"record factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"record WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"record device");
+    Hr(nr_test_warp::Verify("command-state-native-record"),"Verify actual CI WARP");
     reshade::api::device od{device};
     auto *root=MakeRoot(device,1); auto *pipeline=MakePipeline(device,root);
     ID3D12CommandAllocator *allocator=nullptr;

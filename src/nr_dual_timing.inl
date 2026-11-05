@@ -44,6 +44,12 @@ void CollectTiming(NrSlot& slot) {
         const unsigned first=slot.dual_full_timing_layer==1?0u:4u;
         const unsigned pair=3u<<first;
         if((slot.dual_time_mask&pair)!=pair||ticks[first+1]<ticks[first])return;
+#if defined(NR_HAS_MEMORY_OBSERVATION)
+        if(slot.dual_full_timing_layer==1){
+            auto key=slot.memory_timing_key;key.queue=queue->identity;
+            g_nr_memory_gpu_window.Observe(key,double(ticks[first+1]-ticks[first])*1000.0/double(frequency));
+        }
+#endif
         RecordFullTiming(slot.dual_full_timing_layer-1,slot.dual_time_generation,
             double(ticks[first+1]-ticks[first])*1000.0/double(frequency));
         return;
@@ -60,6 +66,10 @@ void CollectTiming(NrSlot& slot) {
         if(!std::isfinite(ms[i])||ms[i]>10000)return;
     }
     if(time_generation!=slot.dual_time_generation){time_generation=slot.dual_time_generation;time_count=time_cursor=0;}
+#if defined(NR_HAS_MEMORY_OBSERVATION)
+    auto key=slot.memory_timing_key;key.queue=queue->identity;
+    g_nr_memory_gpu_window.Observe(key,ms[0]);
+#endif
     for(unsigned i=0;i<kTimeStages;++i)time_values[i][time_cursor]=ms[i];
     time_cursor=(time_cursor+1)%kTimeWindow;time_count=std::min(time_count+1,kTimeWindow);
     for(unsigned i=0;i<kTimeStages;++i) {

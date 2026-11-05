@@ -1,7 +1,19 @@
+// The production table has grown beyond the original F8 fixture. Null views
+// are still real initialized descriptors; unused slots may not be left empty.
+void InitializeF8InactiveCodecDescriptors(Gpu &gpu) {
+    static_assert(kCodecSrvCount == 13 && kCodecUavCount == 8,
+                  "Review F8 descriptor coverage when the production table changes");
+    gpu.Srv(10, nullptr); // DualLowInput, Texture2D<float4>
+    gpu.Srv(11, nullptr); // DualLowOutput, Texture2D<float4>
+    gpu.Srv(12, nullptr); // DualLowValidity, Texture2D<float4>
+    gpu.UavTexture(kCodecLanczosUavIndex, nullptr, DXGI_FORMAT_R16G16B16A16_FLOAT);
+}
+
 void TestGpuGroupBoundary() {
     constexpr unsigned side=8;Gpu gpu;nr_f8_gpu::CaptureRing ring;
     gpu.heap=Com<ID3D12DescriptorHeap>();D3D12_DESCRIPTOR_HEAP_DESC hd={};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=kCodecDescriptorCount;
     Check(gpu.device->CreateDescriptorHeap(&hd,IID_ID3D12DescriptorHeap,gpu.heap.address()),"boundary CPU descriptor mirror");
+    InitializeF8InactiveCodecDescriptors(gpu);
     auto source=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.2f,.3f,.4f,.7f}));
     auto proxy=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.4f,.5f,.6f,1}));
     auto neural=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.5f,.6f,.7f,1}));
@@ -55,6 +67,7 @@ void TestGpuPipeline() {
     gpu.heap=Com<ID3D12DescriptorHeap>();
     D3D12_DESCRIPTOR_HEAP_DESC hd={};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.NumDescriptors=kCodecDescriptorCount;
     Check(gpu.device->CreateDescriptorHeap(&hd,IID_ID3D12DescriptorHeap,gpu.heap.address()),"CPU descriptor mirror");
+    InitializeF8InactiveCodecDescriptors(gpu);
     const auto fence=[](void *key,unsigned long long value){auto *f=static_cast<ID3D12Fence *>(key);return f->GetCompletedValue()!=UINT64_MAX && f->GetCompletedValue()>=value;};
     const auto deliver=[](void *,nr_f8_gpu::ReadbackJob *job){nr_f8::RawReady(job->ticket,job->info,job->readback,job->bytes,job->valid);job->readback=nullptr;delete job;};
     for(unsigned i=0;i<kCurrentRoiFrames+1;++i) {

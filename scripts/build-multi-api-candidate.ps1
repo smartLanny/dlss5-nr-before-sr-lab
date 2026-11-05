@@ -57,18 +57,33 @@ try {
     & python -m unittest discover -s tests/multi_api -v
     if ($LASTEXITCODE) { throw 'Multi-API host/source tests failed.' }
     $Checks.Add('multi_api Python source + actual Windows source-identity compile/run')
+    & python (Join-Path $Root 'tests/test_streamline_factory_lock.py') -v
+    if ($LASTEXITCODE) { throw 'Windows Streamline adapter/source contract failed.' }
+    $Checks.Add('actual Streamline adapter/FG selection with controlled Win32/MinHook services, loader/reentrancy and exact negative controls on Windows; no NGX/game')
+    & python (Join-Path $Root 'tests/test_projection_memory_runtime.py') -v
+    if ($LASTEXITCODE) { throw 'Windows projection, Streamline ABI/module pin or DXGI runtime contract failed.' }
+    $Checks.Add('actual Windows projection memory, Streamline ABI/module pin and DXGI runtime contracts; SDK/MinHook calls remain explicit doubles')
+    & python (Join-Path $Root 'tests/test_face_selection_ui.py') --compiler $Cxx
+    if ($LASTEXITCODE) { throw 'Windows face selection lifecycle or viewport geometry contract failed.' }
+    $Checks.Add('production face selection lifecycle and viewport geometry with real Win32 locks and controlled ReShade calls; no rendered UI or clicks')
+    & python (Join-Path $Root 'tests/test_light_style.py') --compiler $Cxx
+    if ($LASTEXITCODE) { throw 'Windows light/model settings, persistence or fallback contract failed.' }
+    $Checks.Add('production light/model helpers and extracted configuration transactions with real Win32 INI persistence, write failures and old-setting fallback; no GPU/game')
     & python -m unittest tests.test_direct_source_export -v
     if ($LASTEXITCODE) { throw 'Committed-source and pinned-carrier export contracts failed.' }
     $Checks.Add('committed-source export and pinned-carrier integration contracts with negative controls')
-    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
+    & python -m unittest tests.test_ui_refresh tests.test_feedback_output_ui tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
     if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
-    $Checks.Add('settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
+    $Checks.Add('settings UI, actual feedback page/publication with UI recorders and missing-route negative controls (no rendered UI), clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
     & python (Join-Path $PSScriptRoot 'validate-allocation-ledger.py') --compiler $Cxx --output (Join-Path $TestBuild 'allocation-ledger')
     if ($LASTEXITCODE) { throw 'F8 owned D3D12 allocation ledger CPU/WARP or negative controls failed.' }
     $Checks.Add('F8 worker-only allocation helper: ownership/alias/lifecycle/overflow/heap CPU, WARP allocation-info, serialized observer append negative control and ten mutation controls')
+    & python (Join-Path $PSScriptRoot 'validate-memory-observation.py') --compiler $Cxx --output (Join-Path $TestBuild 'memory-observation')
+    if ($LASTEXITCODE) { throw 'Bounded context/slot/model-event/trend CPU contracts or exact mutation controls failed.' }
+    $Checks.Add('F8 actual Core context/slot resource walk, bounded metadata, typed privacy, same-identity timing and same-adapter/node deltas: CPU with compiled exact mutation controls')
     & (Join-Path $PSScriptRoot 'validate-runtime-load-windows.ps1') -ToolchainRoot $Toolchain `
         -SourceRoot (Join-Path $Stage 'core') -FixtureRoot $Root `
         -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')
@@ -125,6 +140,11 @@ try {
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)
     }
+    foreach ($Negative in @('--negative-control', '--generic-algorithm-negative-control')) {
+        & python (Join-Path $PSScriptRoot 'validate-recommended-picture.py') --compiler $Cxx $Negative
+        if ($LASTEXITCODE) { throw "Recommended picture reset negative control failed: $Negative" }
+    }
+    $Checks.Add('actual recommended picture reset rejects wrong color and non-Legacy algorithm defaults')
     & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --gpu --compiler $Cxx
     if ($LASTEXITCODE) { throw '512 ROI production F7 GPU/stream validation failed.' }
     $Checks.Add('F7 512 ROI production shader/ring/fence/stream/ZIP WARP: 3 ROI frames plus overview')

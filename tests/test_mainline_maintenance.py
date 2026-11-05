@@ -19,13 +19,18 @@ class MainlineMaintenance(unittest.TestCase):
   s=read('.github/workflows/pull-request-validation.yml')
   self.assertIn('branches: [main]',s)
   jobs=dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:|\Z)',s[s.index('jobs:'):],re.M|re.S))
-  hosted={n:j for n,j in jobs.items() if not n.startswith('self-hosted-') and n != 'public-portable'}
+  hosted={n:j for n,j in jobs.items() if not n.startswith(('self-hosted-', 'public-'))}
   self.assertEqual(len(hosted),14)
   for job in hosted.values():self.assertIn("vars.ENABLE_HOSTED_CI == 'true'",job)
   public=jobs['public-portable']
   self.assertIn('runs-on: ubuntu-24.04',public)
   self.assertIn('github.event.repository.private == false',public)
   self.assertIn('persist-credentials: false',public)
+  cloud=jobs['public-windows-candidate']
+  self.assertIn('github.event.repository.private == false',cloud)
+  self.assertIn('inputs.cloud_windows_build',cloud)
+  self.assertIn("'cloud-windows-build'",cloud)
+  self.assertIn('uses: ./.github/workflows/compat-post-dev2.yml',cloud)
   # The maintainer's runner is a separate opt-in and never runs hosted work.
   self_hosted={n:j for n,j in jobs.items() if n.startswith('self-hosted-')}
   self.assertEqual(set(self_hosted),{'self-hosted-tests','self-hosted-canonical-build'})

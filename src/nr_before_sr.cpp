@@ -70,6 +70,8 @@ nr_menu_trace::Trace g_menu_trace;
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
 #include "nr_process_memory.h"
+#include "nr_model_memory_events.h"
+#define NR_HAS_MEMORY_OBSERVATION 1
 #include "nr_shortcut_edge.h"
 #include "nr_hotkeys.h"
 #include "nr_colour_preferences.h"
@@ -6361,6 +6363,7 @@ struct NrSlot {
     unsigned long long dual_time_token=0,dual_time_fence=0;
     unsigned dual_time_mask=0,dual_time_generation=0;
     unsigned dual_full_timing_layer=0;
+    nr_memory_observation::TimingKey memory_timing_key{};
     bool dual_time_active=false,dual_time_pending=false,dual_time_stable=false,dual_time_reduced=false;
     NrContext* dual_owner=nullptr;
     ID3D12Resource* dual_guides[2]={};
@@ -6615,6 +6618,9 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 #include "nr_reset_observation.h"
 namespace nr_post_product { struct Owner; }
 struct NrContext {
+    unsigned memory_max_slots=0;
+    unsigned long long memory_sampled_high_water=0;
+    LUID memory_adapter{};bool memory_adapter_known=false;
     nr_post_product::Owner* private_sr=nullptr;
     nr_private_sr_status::BudgetRetry private_sr_budget_retry{};
     nr::final_residual::RecordedTemporal* temporal=nullptr;
@@ -6722,6 +6728,30 @@ void NrRetirementMarkedLocked(const NrContext&,unsigned);
 
 #include "nr_binding_types.inl"
 NrContext g_contexts[16] = {};
+nr_memory_observation::TimingWindow g_nr_memory_gpu_window;
+SRWLOCK g_nr_model_memory_lock=SRWLOCK_INIT;
+nr_model_memory_events::History g_nr_model_memory_history;
+unsigned long long g_nr_model_memory_sequence=0;
+
+nr_process_memory::Snapshot NrReadModelMemory(const NrContext& context) {
+    // Every Feature18 is explicitly created with CreationNodeMask=1: node 0.
+    return nr_process_memory::Read(context.memory_adapter,context.memory_adapter_known,0,false);
+}
+void NrRememberModelMemory(const NrContext& context,const void* handle,bool release,unsigned result,
+                           const nr_process_memory::Snapshot& before,const nr_process_memory::Snapshot& after) {
+    AcquireSRWLockExclusive(&g_nr_model_memory_lock);
+    auto& history=g_nr_model_memory_history;
+    nr_model_memory_events::Event event{};
+    event.sequence=++g_nr_model_memory_sequence;event.instance=context.instance_id;
+    event.feature=context.feature_generation;event.handle=reinterpret_cast<std::uintptr_t>(handle);
+    event.layer=context.layer_index;event.mode=context.mode;event.release=release;
+    event.result=result;event.before=before;event.after=after;
+    if(history.count==nr_model_memory_events::kEvents){
+        std::move(history.events+1,history.events+history.count,history.events);++history.overwritten;
+    }else ++history.count;
+    history.events[history.count-1]=event;
+    ReleaseSRWLockExclusive(&g_nr_model_memory_lock);
+}
 
 ULONGLONG MenuTraceNow() {
     if(!g_menu_trace.Armed())return 0;
@@ -7106,8 +7136,11 @@ void DestroyContext(NrContext &context) {
             ScopedPrivateNrCall private_call(PrivateNrOperation::Release, context.nr_handle);
             ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
             const auto private_record = FindFeature(static_cast<const NgxHandle *>(context.nr_handle));
+            const auto memory_before=NrReadModelMemory(context);
             const NgxResult result = g_nr_api.bridge_release(
                 g_nr_api.signed_release, context.nr_handle);
+            const auto memory_after=NrReadModelMemory(context);
+            NrRememberModelMemory(context,context.nr_handle,true,result,memory_before,memory_after);
             if (result == kNgxSuccess)
                 ForgetObservedFeature(static_cast<const NgxHandle *>(context.nr_handle), private_record.generation);
             Log("NR ReleaseFeature handle=%p result=0x%08X",
@@ -10325,6 +10358,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
             return nullptr;
         }
         empty->last_used_serial = serial;
+        nr_memory_observation::NoteSlots(context.memory_max_slots,context.slots);
         NrRecoveryAdoptSlot(*empty, recovery_token, post_sr);
         return empty;
     }
@@ -12103,11 +12137,20 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         context.codec_peak_shoulder ? "rational-peak" : "existing");
     void *handle = nullptr;
     NgxResult result = 0xBAD00005u;
+    ID3D12Device* memory_device=nullptr;
+    context.memory_adapter_known=false;
+    if(command_list&&SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(command_list,IID_ID3D12Device,
+            reinterpret_cast<void**>(&memory_device)))&&memory_device){
+        context.memory_adapter=ID3D12Device_GetAdapterLuid(memory_device);
+        context.memory_adapter_known=true;ID3D12Device_Release(memory_device);
+    }
+    nr_process_memory::Snapshot memory_before{},memory_after{};
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
         ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
         ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
         LogNrCreateMemory("begin",context,0);
+        memory_before=NrReadModelMemory(context);
         NrTimingScope model_create_timing(nr_timing::Stage::ModelCreate);
         if (api_called) *api_called = true;
         result = g_nr_api.bridge_create(
@@ -12116,6 +12159,7 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         model_create_timing.record.detail.flags |= nr_timing::ApiReturned | nr_timing::ApiResultKnown;
         model_create_timing.record.detail.api_result = static_cast<std::int32_t>(result);
         model_create_timing.Stop();
+        memory_after=NrReadModelMemory(context);
         LogNrCreateMemory("end",context,result);
         observed.Finish(result, static_cast<const NgxHandle *>(handle), context.params);
     }
@@ -12158,6 +12202,7 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         MenuNoteContext(nr_menu_trace::Kind::CreateFailed,context,static_cast<unsigned>(result));
 #endif
     }
+    NrRememberModelMemory(context,handle,false,result,memory_before,memory_after);
     return result;
 }
 
@@ -16750,6 +16795,7 @@ DWORD WINAPI HookWorker(void *) {
 namespace nr_acceptance { void Screenshot(reshade::api::effect_runtime*,const char*); }
 struct FeedbackSession;
 void NrAppendAllocationLedger(FeedbackSession&,const char*);
+void NrObserveMemoryTrend(reshade::api::effect_runtime*);
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_feedback_core.inl"
@@ -16891,6 +16937,7 @@ void ObserveMenuTransition(reshade::api::effect_runtime* runtime, ULONGLONG now_
 
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
+    NrObserveMemoryTrend(runtime);
     ServiceFaceDiagnosticSelection(runtime);
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;

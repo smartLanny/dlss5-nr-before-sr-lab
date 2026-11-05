@@ -12,6 +12,8 @@ def main():
     p.add_argument('--nr-runtime',type=Path);p.add_argument('--sr-runtime',type=Path)
     a=p.parse_args();out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl';descriptor=ROOT/'tests/descriptor_provenance_warp.inl'
+    warp_helper=out/'ci_warp_runtime.h'
+    warp_helper.write_bytes((ROOT/'tests/ci_warp_runtime.h').read_bytes())
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n}\n'
     q=q.replace('Check(WaitForSingleObject(event, 5000) == WAIT_OBJECT_0, "exact fence completed");', '''const DWORD waited=WaitForSingleObject(event,30000);
     if(waited!=WAIT_OBJECT_0){ID3D12Device* owner=nullptr;ID3D12Fence_GetDevice(fence,IID_ID3D12Device,(void**)&owner);
@@ -24,7 +26,8 @@ def main():
         if not a.nr_runtime or not a.sr_runtime:p.error('real NGX requires explicit signed NR and SR DLL paths')
         old='Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");'
         if q.count(old)!=1:raise ValueError('GPU fixture anchor changed')
-        q=q.replace(old,'''for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
+        q=q.replace(old,'''Check(!nr_test_warp::Configured(),"Pinned test WARP excludes real NVIDIA");
+        for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
             if(IDXGIFactory4_EnumAdapters1(factory,i,&candidate)==DXGI_ERROR_NOT_FOUND)break;
             DXGI_ADAPTER_DESC1 description{};IDXGIAdapter1_GetDesc1(candidate,&description);
             if(description.VendorId==0x10de&&!(description.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)){adapter=(IDXGIAdapter*)candidate;break;}
@@ -81,6 +84,7 @@ def main():
              'fixture_sha256':sha(ROOT/('tests/native_output_capture_ngx.inl' if a.real_ngx else 'tests/native_output_capture_harness.inl')),
              'game_verified':False,'static_artificial_guides':a.real_ngx}
     receipt['runtime_artifacts']={name:sha(out/name) for name in ('nvngx_dlssnr.dll','nvngx_dlss.dll','nrchain_nvngx.dll') if (out/name).is_file()}
+    receipt['ci_warp_runtime_helper_sha256']=sha(warp_helper)
     receipt['binary_sha256']=sha(out/'capture.exe') if (out/'capture.exe').is_file() else None
     receipt['core_modules_sha256']={f.name:sha(f) for f in a.source.parent.glob('nr_native_output_capture*') if f.is_file()}
     receipt['stage_source_sha256']=sha(a.source.parent/'nr_stage_capture.inl')

@@ -10,6 +10,7 @@
 #include <array>
 #include <atomic>
 #include "interop/nr_external_provider_feedback.h"
+#include "ci_warp_runtime.h"
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -104,9 +105,11 @@ struct Harness {
     ID3D12Device* device=nullptr;ID3D12CommandQueue* queue=nullptr;ID3D12CommandAllocator* allocator=nullptr;
     ID3D12GraphicsCommandList* list=nullptr;ID3D12Fence* fence=nullptr;HANDLE event=nullptr;UINT64 value=0;
     Harness(){IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;
+        Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
         Hr(CreateDXGIFactory2(0,IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
         Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&adapter)),"WARP");
         Hr(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void**>(&device)),"device");
+        Hr(nr_test_warp::Verify("source-transport"),"Verify actual CI WARP");
         ReleaseCom(adapter);ReleaseCom(factory);D3D12_COMMAND_QUEUE_DESC desc{};
         Hr(ID3D12Device_CreateCommandQueue(device,&desc,IID_ID3D12CommandQueue,reinterpret_cast<void**>(&queue)),"queue");
         Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void**>(&allocator)),"allocator");

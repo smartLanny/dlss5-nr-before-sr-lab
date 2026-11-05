@@ -35,6 +35,7 @@ def main():
  except (OSError,ValueError) as exc:
   report['error']=str(exc);save();print(report['error'],file=sys.stderr);return 1
  report.update(source_sha256=sha(header),status_sha256=sha(status_header),fixture_sha256=sha(fixture),status_fixture_sha256=sha(status_fixture),sdk_sources={str(sdkfile):sha(sdkfile),str(backend):sha(backend)},
+  warp_runtime_helper_sha256=sha(ROOT/'tests/ci_warp_runtime.h'),
   aliasing='All 31 pinned SDK textures are non-aliasable. Count every allocation; no reuse discount. Runtime actual FFX totalUsageInBytes check remains.')
  for mode in ('cpu','warp','status'):
   exe=out/(mode+'.exe')
@@ -42,7 +43,7 @@ def main():
    cmd=[str(a.compiler),'-std=c++17','-UNDEBUG','-static',f'-DNR_TEMPORAL_STATUS_HEADER="{status_header.as_posix()}"',str(status_fixture),'-o',str(exe)]
   else:
    cmd=[str(a.compiler),'-std=c++17','-UNDEBUG',f'-DNR_AMD_BUDGET_HEADER="{header.as_posix()}"',str(fixture),'-o',str(exe)]
-  if mode=='warp':cmd+=['-DNR_BUDGET_WARP=1','-ld3d12','-ldxgi','-ldxguid']
+  if mode=='warp':cmd+=['-DNR_BUDGET_WARP=1','-static','-ld3d12','-ldxgi','-ldxguid']
   for step,args in [('compile',cmd),('run',[str(exe)])]:
    r=subprocess.run(args,capture_output=True);(out/(mode+'-'+step+'.log')).write_bytes(r.stdout+r.stderr)
    report['checks'].append({'name':mode+'-'+step,'command':args,'exit_code':r.returncode,'log':str(out/(mode+'-'+step+'.log'))})

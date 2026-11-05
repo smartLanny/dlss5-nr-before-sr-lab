@@ -40,6 +40,9 @@
   PR entry and `ENABLE_HOSTED_CI=true`; the owner has not enabled paid CI.
   Public portable PR checks use ephemeral Linux runners. Do not add automatic
   push checks or retry a billing-blocked job.
+- Public standard Windows canonical is separately opt-in via the owner's
+  `cloud-windows-build` PR label or `cloud_windows_build` manual input; all gates
+  remain. See `docs/maintenance/CLOUD_WINDOWS_CANDIDATE.md`; paid runners stay off.
 - The maintainer's runner (`runs-on: [self-hosted, Windows, X64, dlss5-build]`)
   is gated by `ENABLE_SELF_HOSTED_CI`; its canonical build runs only on manual
   dispatch or the `full-build` PR label. See `docs/maintenance/SELF_HOSTED_RUNNER.md`.

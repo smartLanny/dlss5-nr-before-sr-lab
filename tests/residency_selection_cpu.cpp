@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <iterator>
 #include "nr_motion_slot_selection.h"
+#include "nr_memory_observation.h"
 #include "nr_residency_policy.h"
 using DXGI_FORMAT=unsigned;
 enum class CodecColorMode { Automatic, ModelEncodedValueDomain };
@@ -37,7 +38,7 @@ struct NrContext {
     bool retired=false;
     int mode=2;
     unsigned long long feature_generation=1,slot_serial=0;
-    unsigned slot_recycles=0;
+    unsigned slot_recycles=0,memory_max_slots=0;
     NrSlot slots[8]{};
 };
 std::atomic<bool> g_lifecycle_tracking_uncertain{false};

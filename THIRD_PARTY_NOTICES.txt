@@ -56,11 +56,103 @@ A minimal x64 source subset is vendored under `third_party/minhook`. MinHook and
 its Hacker Disassembler Engine portions retain their BSD-style terms. The full
 required notice is preserved at `third_party/minhook/LICENSE.txt`.
 
-ReShade
--------
+ReShade SDK headers
+-------------------
 
-ReShade headers and binaries are not vendored. A source checkout is supplied by
-the builder and remains governed by its own license.
+Project: ReShade by Patrick Mours
+Pinned upstream commit: 4a50d1eddace85734871d91792ff214f13f66c01
+Source: https://github.com/crosire/reshade
+License source: https://github.com/crosire/reshade/blob/4a50d1eddace85734871d91792ff214f13f66c01/LICENSE.md
+
+The Core compiles ReShade's header-only add-on API helpers. The API headers
+carry Copyright (C) 2021 Patrick Mours and SPDX-License-Identifier:
+BSD-3-Clause OR MIT. The following is the pinned project's full BSD license.
+A ReShade runtime binary is not part of the Core-only package.
+
+License text from pinned source:
+
+Copyright 2014 Patrick Mours. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+  * Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Dear ImGui
+----------
+
+Project: Dear ImGui by Omar Cornut
+Pinned submodule commit: 3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c
+Source: https://github.com/ocornut/imgui
+License source: https://github.com/ocornut/imgui/blob/3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c/LICENSE.txt
+
+The Core uses the ImGui headers supplied by the pinned ReShade checkout,
+including inline value/container helpers. The rendering host supplies the
+ImGui runtime API.
+
+License text from pinned source:
+
+The MIT License (MIT)
+
+Copyright (c) 2014-2025 Omar Cornut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+AMD FidelityFX and Microsoft DirectX 12 helpers
+----------------------------------------------
+
+Project: AMD FidelityFX SDK
+Pinned upstream commit: c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
+Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+
+The Core statically links the optical-flow/DX12 SDK backend. The hosted
+Core-only packager appends its exact AMD root LICENSE.txt, copied and hashed
+by scripts/build-temporal-module.py, to LICENSES.txt. This SDK's DX12 backend
+also compiles Microsoft's d3dx12.h. Its separate MIT notice follows.
+License source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/host/backends/dx12/license.txt
+
+License text from pinned source:
+
+The MIT License (MIT)
+
+Copyright (c) 2024 Microsoft
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 NVIDIA and games
 ----------------

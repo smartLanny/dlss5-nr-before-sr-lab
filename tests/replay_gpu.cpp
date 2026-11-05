@@ -14,6 +14,7 @@
 #include <cstring>
 #include <new>
 #include <vector>
+#include "ci_warp_runtime.h"
 template<class T>void ReleaseCom(T *&p){if(p)p->lpVtbl->Release(p);p=nullptr;}
 #define NR_F8_GPU_LIFECYCLE_ONLY 1
 #include "../src/nr_f8_gpu.inl"
@@ -28,10 +29,12 @@ struct Gpu {
     ID3D12CommandAllocator *allocator=nullptr;ID3D12GraphicsCommandList *list=nullptr;
     ID3D12Fence *fence=nullptr;HANDLE event=nullptr;std::uint64_t next=1;
     Gpu() {
+        CheckHr(nr_test_warp::Prepare(), "Prepare pinned test WARP");
         IDXGIFactory4 *factory=nullptr;IDXGIAdapter *adapter=nullptr;
         CheckHr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"factory");
         CheckHr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"WARP adapter");
         CheckHr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void **>(&device)),"device");
+        CheckHr(nr_test_warp::Verify("replay-gpu"), "Verify actual test WARP module");
         ReleaseCom(adapter);ReleaseCom(factory);
         D3D12_COMMAND_QUEUE_DESC q{};CheckHr(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void **>(&queue)),"queue");
         CheckHr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"allocator");

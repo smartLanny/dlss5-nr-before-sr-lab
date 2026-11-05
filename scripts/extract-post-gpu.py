@@ -2,6 +2,8 @@
 """Extract the actual staged post codec for WARP. Never substitute test shader math."""
 from __future__ import annotations
 import argparse
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -86,11 +88,22 @@ def main() -> None:
               root / 'interop/nr_motion_access_d3d12.inl', args.template.resolve()]
     exposure_path = root / 'interop/nr_exposure_access_d3d12.inl'
     output = args.output.resolve()
-    if output in [p.resolve() for p in inputs + [exposure_path]]:
+    helper = Path(__file__).resolve().parents[1] / 'tests/ci_warp_runtime.h'
+    helper_bytes = helper.read_bytes()
+    if output.name in (helper.name, 'ci-warp-runtime-input.json'):
+        raise ValueError('Generated harness must not replace its frozen helper or input receipt')
+    if output in [p.resolve() for p in inputs + [exposure_path, helper]]:
         raise ValueError('Output must not replace a production input or the harness template')
     exposure = exposure_path.read_text(encoding='utf-8-sig') if exposure_path.is_file() else None
     result = extract(*(p.read_text(encoding='utf-8-sig') for p in inputs), exposure=exposure)
     output.parent.mkdir(parents=True, exist_ok=True)
+    frozen_helper = output.parent / helper.name
+    if frozen_helper != helper:
+        frozen_helper.write_bytes(helper_bytes)
+    (output.parent / 'ci-warp-runtime-input.json').write_text(json.dumps({
+        'schema': 1, 'helper_sha256': hashlib.sha256(helper_bytes).hexdigest(),
+        'generated_harness_sha256': hashlib.sha256(result.encode('utf-8')).hexdigest(),
+    }, indent=2) + '\n', encoding='utf-8')
     output.write_text(result, encoding='utf-8', newline='\n')
 
 

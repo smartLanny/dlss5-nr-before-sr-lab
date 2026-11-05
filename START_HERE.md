@@ -37,6 +37,24 @@ python3 scripts/run-portable-tests.py --verbose
 交付应记录精确 commit、dirty 状态、源码清单、编译回执以及二进制/包的 SHA256。
 CPU 测试和受控 WARP 不代表游戏、真实 NGX 网络或性能验收。
 
+## 用 F8 文件整理反馈
+
+游戏里的 F8 会保存一个 TXT。退出游戏后，也可以在任意装有 Python 的电脑上生成
+便于提交的报告；原始文件保留，不需要重新压成 ZIP：
+
+```sh
+python scripts/feedback-report.py feedback.txt --output report.md
+```
+
+工具会检查原始 TXT 的结构和摘要哈希，区分完整与部分采集，再整理构建身份、请求
+配置、旁路原因和调用增量。它不会上传文件或覆盖已有报告。用游戏保存的原始 TXT，
+不要从聊天中复制后重存；改过换行的文本无法通过原始摘要检查。
+
+画面异常可以加 `--symptom visual` 整理描述。如果补拍 F7，使用它新生成的一对
+核心 ZIP 和图像 ZIP：`python scripts/feedback-report.py core.zip --image images.zip
+--output image-report.md`。旧 F8 TXT 不能替代这对文件中的核心 ZIP。
+详见 [F8 TXT 验证说明](docs/validation/F8_TEXT_REPORT_20261103.md)。
+
 ## 接续已有工作
 
 先读取最新 main、开放 PR 和对应 Issue，再开短期任务分支。#341 的退休修复、#345/#347

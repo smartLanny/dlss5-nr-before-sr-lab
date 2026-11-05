@@ -54,6 +54,7 @@ def main():
               PACKAGE/"tests/post_residual_gpu.cpp",
               PACKAGE/"tests/post_private_sr_gpu.cpp",
               PACKAGE/"tests/windows_shader_validation.cpp",
+              ROOT/"tests/ci_warp_runtime.h",
               PACKAGE/"tools/analyze_private_sr_quality.py",
               *(PACKAGE/"src"/name for name in SCAFFOLD_HEADERS),
               (core if core else ROOT)/"src/interop/nr_ngx_parameter_abi.h"]
@@ -65,7 +66,8 @@ def main():
               "zero_preserve": True,
               "scene": "dark_text_hair_v2" if args.quality_dark else "legacy_v1",
               "source_hashes": {str(path): sha(path) for path in files}, "commands": [],
-              "source_origin": {str(path): ("generated-core-product" if core and path in product_files else
+              "source_origin": {str(path): ("repository-test-runtime" if path == ROOT/"tests/ci_warp_runtime.h" else
+                                           "generated-core-product" if core and path in product_files else
                                            "generated-core-build-tool" if core and path.is_relative_to(package/"tools") else
                                            "repository-test-scaffold" if core and path.is_relative_to(PACKAGE) else
                                            "generated-core-abi" if core else "repository-experiment")

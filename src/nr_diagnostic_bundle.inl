@@ -66,7 +66,7 @@ struct Job {
     std::uint32_t crc_table[256] = {};
     CentralEntry central[kMaxFiles + 2] = {};
     unsigned int central_count = 0;
-    char manifest[384 * 1024] = {};
+    char manifest[nr_feedback_limits::kManifestBytes] = {};
     std::size_t manifest_length = 0;
     HANDLE archive = INVALID_HANDLE_VALUE;
     unsigned long long archive_limit = kArchiveLimit; // May lower, never raise, the global ceiling.

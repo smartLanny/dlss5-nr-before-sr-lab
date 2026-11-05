@@ -31,7 +31,7 @@ if($FaceRuntimeRoot) {
 }
 $files=@('src/nr_face_detector.h','src/nr_face_detector.cpp','src/nr_face_worker.h','src/nr_face_worker.cpp',
     'src/nr_region_inputs.h','src/nr_face_tracker_gpu.inl','src/nr_face_tracker_shader.h','src/nr_face_runtime.inl',
-    'tests/face_worker.cpp','tests/face_tracker_gpu.cpp')
+    'tests/face_worker.cpp','tests/face_tracker_gpu.cpp','tests/replay_gpu.cpp','tests/ci_warp_runtime.h')
 $hashes=@{}
 foreach($file in $files){$hashes[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file)).Hash.ToLowerInvariant()}
 [ordered]@{schema='nr-face-runtime-validation-v1';success=$true;warp_tracker_verified=$true;

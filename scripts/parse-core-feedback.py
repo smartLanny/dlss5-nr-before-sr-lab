@@ -20,8 +20,11 @@ import zipfile
 import zlib
 
 LIMIT = 8 * 1024 * 1024
-META_LIMIT = 512 * 1024
-CORE_METADATA_LIMIT = 192 * 1024
+# Match the bounded production writer, including the NUL allowance. Older
+# smaller captures remain valid. JSON escaping can use six bytes per metadata
+# byte; the manifest also carries at most 64 bounded artifact records.
+CORE_METADATA_LIMIT = 640 * 1024
+META_LIMIT = 6 * CORE_METADATA_LIMIT + 256 * 1024
 ENTRY = re.compile(r"^logs/(nr-current|nr-previous|reshade-addon|reshade-game|reshade-module|carrier)-summary\.txt$")
 SESSION = re.compile(r"^DLSS5_CORE_[0-9]+_[0-9]+_[0-9]+$")
 CURRENT_LOG = 'logs/nr-current-summary.txt'

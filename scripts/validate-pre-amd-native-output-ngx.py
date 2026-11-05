@@ -96,7 +96,8 @@ def main():
         if not a.nr_runtime or not a.sr_runtime:p.error('real NGX requires explicit signed NR and SR DLL paths')
         old='Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");'
         if q.count(old)!=1:raise ValueError('GPU fixture anchor changed')
-        q=q.replace(old,'''for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
+        q=q.replace(old,'''Check(!nr_test_warp::Configured(),"Pinned test WARP excludes real NVIDIA");
+        for(unsigned i=0;;++i){IDXGIAdapter1* candidate=nullptr;
             if(IDXGIFactory4_EnumAdapters1(factory,i,&candidate)==DXGI_ERROR_NOT_FOUND)break;
             DXGI_ADAPTER_DESC1 description{};IDXGIAdapter1_GetDesc1(candidate,&description);
             if(description.VendorId==0x10de&&!(description.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)){adapter=(IDXGIAdapter*)candidate;break;}
@@ -157,6 +158,7 @@ def main():
     receipt['actual_gpu_executed']=a.run and any(x['command'][0].endswith('capture.exe') for x in records)
     receipt['scenario']='one AMD pre-SR whole-chain, fixed 310.8, static artificial scene; no DLL A/B'
     receipt['runtime_artifacts']={name:sha(out/name) for name in ('nvngx_dlssnr.dll','nvngx_dlss.dll','nrchain_nvngx.dll') if (out/name).is_file()}
+    receipt['ci_warp_runtime_helper_sha256']=sha(ROOT/'tests/ci_warp_runtime.h')
     receipt['binary_sha256']=sha(out/'capture.exe') if (out/'capture.exe').is_file() else None
     receipt['core_modules_sha256']={f.name:sha(f) for f in a.source.parent.glob('nr_native_output_capture*') if f.is_file()}
     receipt['stage_source_sha256']=sha(a.source.parent/'nr_stage_capture.inl')

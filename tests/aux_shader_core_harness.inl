@@ -1,6 +1,7 @@
 // Included after the actual generated Core; only pipeline creation is invoked.
 // No NGX, borrowed command recording, queue submission, or game execution.
 #include <cstdlib>
+#include "ci_warp_runtime.h"
 namespace aux_shader_test {
 void Check(bool value,const char* name){if(!value){std::printf("FAIL %s\n",name);std::exit(41);}}
 void Hr(HRESULT value,const char* name){Check(SUCCEEDED(value),name);}
@@ -13,10 +14,12 @@ template<class Blob> void Same(const char* body,SIZE_T size,const char* label,co
     ReleaseCom(code);ReleaseCom(error);
 }
 void Run(){
+    Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;ID3D12Device* device=nullptr;
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void**>(&factory)),"factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void**>(&adapter)),"WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown*>(adapter),D3D_FEATURE_LEVEL_11_0,IID_ID3D12Device,reinterpret_cast<void**>(&device)),"device");
+    Hr(nr_test_warp::Verify("aux-shader"),"Verify actual CI WARP");
     g_codec.device=device;ID3D12Device_AddRef(device);
     auto present=std::make_unique<nr_compat_present_runtime::Context>();present->device=device;
     present->format=DXGI_FORMAT_R8G8B8A8_UNORM;present->uses_native_guides=false;
