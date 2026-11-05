@@ -27,6 +27,8 @@ def main():
     if output.exists():
         raise SystemExit("Preserve evidence; choose a new output directory")
     output.mkdir(parents=True)
+    warp_helper = output / "ci_warp_runtime.h"
+    shutil.copyfile(ROOT / "tests/ci_warp_runtime.h", warp_helper)
     core = args.core.resolve()
     source = output / "core/src"
     shutil.copytree(core / "src", source)
@@ -61,6 +63,7 @@ def main():
               "base_core": str(core), "base_translation_unit_sha256": sha(core / "src/nr_before_sr.cpp"),
               "overlay_sha256": {name: sha(source / name) for name in OVERLAYS},
               "artifact_receipt_sha256": sha(artifacts / "aux-artifacts.json"), "fixture_sha256": sha(output / "fixture.inl"),
+              "warp_runtime_helper_sha256": sha(warp_helper),
               "runtime_negative": args.runtime_negative, "warp_requested": args.run_warp,
               "gpu_dispatch": False, "ngx_verified": False, "game_verified": False, "cases": []}
     def save():

@@ -80,7 +80,7 @@ class UnifiedUi(unittest.TestCase):
         self.assertFalse('RequestStageCapture(' in picture)
         for field in ('face_protection','pause_nr_on_fullscreen_ui','guess_pause_nr'):
             self.assertFalse('next.'+field+'=' in self.settings)
-        self.assertEqual(self.pages.count('DrawTemporalOptions(next,changed,discrete);'),1)
+        self.assertEqual(self.pages.count('DrawTemporalOptions(next,changed,discrete,pending||changed);'),1)
 
     def test_face_disabled_preview_cannot_request_work(self):
         face = (self.root/'src/nr_face_runtime.inl').read_text(encoding='utf-8')

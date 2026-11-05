@@ -6,6 +6,7 @@ GPU readback. Hardware AMD optical flow is opt-in and never part of the WARP gat
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -140,6 +141,9 @@ def main():
         raise
 
 def quality_run(a,out,receipt):
+    if a.hardware and any(name in os.environ for name in
+            ('DLSS5_TEST_WARP_DLL','DLSS5_TEST_WARP_SHA256','DLSS5_TEST_WARP_EVIDENCE_DIR')):
+        raise ValueError('Pinned CI WARP forbids --hardware')
     frozen=out/'source';frozen.mkdir()
     src=ROOT/'experiments/final_residual'
     production=(a.core.resolve()/'src/temporal') if a.core else src
@@ -177,12 +181,23 @@ def quality_run(a,out,receipt):
     fixture=ROOT/'tests/temporal_quality_sequence.inl';shutil.copyfile(fixture,frozen/fixture.name)
     source_hash={n:digest(path) for n,path in paths.items()};source_hash[fixture.name]=digest(fixture)
     host=frozen/'amd_of_gpu_probe.cpp';text=host.read_text(encoding='utf-8')
+    warp_helper=ROOT/'tests/ci_warp_runtime.h'
     if not a.hardware:
+        shutil.copyfile(warp_helper,frozen/warp_helper.name)
+        source_hash[warp_helper.name]=digest(frozen/warp_helper.name)
+        receipt['source_origin'][warp_helper.name]='repository-test-runtime'
+        include='#include <vector>'
+        if text.count(include)!=1:raise ValueError('Temporal WARP include anchor changed')
+        text=text.replace(include,include+'\n#include "ci_warp_runtime.h"',1)
+        factory='        ComPtr<IDXGIFactory6> factory;'
+        if text.count(factory)!=1:raise ValueError('Temporal WARP factory anchor changed')
+        text=text.replace(factory,'        hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");\n'+factory,1)
         begin=text.index('        for(UINT i=0;;++i){ComPtr<IDXGIAdapter1> adapter;')
         end=text.index('        if(enabled)device.As(&debug);',begin)
         warp='''        ComPtr<IDXGIAdapter> software;
             hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&software)),"WARP adapter");
             hr(D3D12CreateDevice(software.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&device)),"WARP device");
+            hr(nr_test_warp::Verify("temporal-quality"),"Verify actual CI WARP");
             std::printf("adapter=WARP software-only\\n");
     '''
         host.write_text(text[:begin]+warp+text[end:],encoding='utf-8')
@@ -215,6 +230,7 @@ int main(){try{
              'production_temporal':True,'hardware_gpu':a.hardware,
              'off_baseline':'saved same-frame Z before temporal processing','game':False,'ngx_inference':False,
              'source_sha256':source_hash,'sdk_cache_sha256':digest(a.sdk_cache/'build.json'),
+             'warp_runtime_helper_sha256':source_hash.get(warp_helper.name),
              'sdk_object_sha256':{str(x):digest(x) for x in objects}})
     (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
     exe=out/'quality.exe'
@@ -234,7 +250,7 @@ int main(){try{
         receipt['raw_frame_sha256']={p.name:digest(p) for p in out.glob('*.f16')}
         receipt['metrics']=rows
         analyze(out,receipt)
-    receipt['source_unchanged']=all(digest(path)==source_hash[n] for n,path in paths.items()) and digest(fixture)==source_hash[fixture.name]
+    receipt['source_unchanged']=all(digest(path)==source_hash[n] for n,path in paths.items()) and digest(fixture)==source_hash[fixture.name] and (a.hardware or digest(warp_helper)==source_hash[warp_helper.name])
     receipt['passed']=receipt['source_unchanged']
     receipt['phase']='complete' if receipt['passed'] else 'failed'
     (out/'result.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')

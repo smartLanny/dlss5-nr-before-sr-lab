@@ -12,6 +12,7 @@ def main():
     a=p.parse_args();out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
     report={'schema':'pipeline-cache-validation-v1','status':'running','header_sha256':sha(ROOT/'src/nr_pipeline_cache.h'),
+            'warp_runtime_helper_sha256':sha(ROOT/'tests/ci_warp_runtime.h'),
             'fixture_sha256':sha(ROOT/'tests/pipeline_cache_windows.cpp'),'game':False,'ngx':False,'runs':[]}
     def run(name,command,expected=0):
         try:

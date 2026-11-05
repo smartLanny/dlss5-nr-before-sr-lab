@@ -1,10 +1,11 @@
 // Included after the complete, canonically assembled production Core TU.
 // Only fixture values and the Win32 clock fault are synthetic. Every snapshot,
 // activity writer, sanitizer and final text writer below is production code.
-#if !NR_HAS_TIMING || !NR_HAS_PROBE_POLICY || !NR_HAS_RUNTIME_LOAD_EVIDENCE || !NR_HAS_UI_ACTIVITY_RECEIPTS
-#error This fixture requires the assembled Core timing/probe/runtime/UI writers.
+#if !NR_HAS_TIMING || !NR_HAS_PROBE_POLICY || !NR_HAS_RUNTIME_LOAD_EVIDENCE || !NR_HAS_UI_ACTIVITY_RECEIPTS || !NR_AUX_TIMING
+#error This fixture requires the assembled Core timing/probe/runtime/UI/aux writers.
 #endif
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -44,6 +45,36 @@ bool Field(const std::string &line, const std::string &key, const std::string &v
 }
 std::string U(std::uint64_t value) { return std::to_string(value); }
 
+using AuxSnapshot = std::array<unsigned long long, nr_aux_shader::kSnapshotWords>;
+AuxSnapshot SeedAuxTiming(unsigned long long ticks, unsigned count) {
+    for (unsigned shader = 0; shader < unsigned(nr_aux_shader::Shader::Count); ++shader)
+        for (unsigned op = 0; op < unsigned(nr_aux_shader::Operation::Count); ++op)
+            nr_aux_shader::NrAuxShaderObserve(shader, op, ticks, true, count == 1);
+    AuxSnapshot snapshot{};
+    Check(nr_aux_shader::Snapshot(snapshot.data(), unsigned(snapshot.size())) == snapshot.size(),
+          "FULL_CORE_F8_AUX_REAL_SNAPSHOT");
+    const auto total = ticks > UINT64_MAX / count ? UINT64_MAX : ticks * count;
+    for (std::size_t at = 0; at < snapshot.size(); at += nr_aux_shader::kMetrics)
+        Check(snapshot[at] == count && snapshot[at + 1] == count - 1 && snapshot[at + 2] == count &&
+              snapshot[at + 3] == total && snapshot[at + 4] == ticks, "FULL_CORE_F8_AUX_REAL_OBSERVE");
+    return snapshot;
+}
+void CheckAuxTiming(const std::string &text, const char *prefix, const AuxSnapshot &expected,
+                    unsigned long long frequency) {
+    const auto key = std::string(prefix) + ".auxCreate.";
+    Check(Value(text, key + "schema") == "1" && Value(text, key + "qpcFrequency") == U(frequency) &&
+          Value(text, key + "note").find("not GPU time") != std::string::npos, "FULL_CORE_F8_AUX_FIELDS");
+    for (unsigned shader = 0; shader < unsigned(nr_aux_shader::Shader::Count); ++shader)
+        for (unsigned op = 0; op < unsigned(nr_aux_shader::Operation::Count); ++op) {
+            const auto at = (shader * unsigned(nr_aux_shader::Operation::Count) + op) * nr_aux_shader::kMetrics;
+            const auto row = "calls:" + U(expected[at]) + ",failures:" + U(expected[at + 1]) +
+                ",measured:" + U(expected[at + 2]) + ",totalTicks:" + U(expected[at + 3]) +
+                ",maxTicks:" + U(expected[at + 4]);
+            Check(Value(text, key + U(shader) + (op ? ".pso" : ".compile")) == row,
+                  "FULL_CORE_F8_AUX_NUMBERS");
+        }
+}
+
 #if defined(NR_ALLOCATION_LEDGER_ENABLED)
 std::string FullWidthAllocationLedger(const char* prefix,
     std::uint64_t numeric=std::numeric_limits<std::uint64_t>::max()) {
@@ -64,6 +95,18 @@ std::string FullWidthAllocationLedger(const char* prefix,
     snapshot.compat_retiring_unknown=snapshot.detached_quarantined_unknown=true;
     snapshot.model_destroying_unknown=snapshot.seen_overflow=true;
     snapshot.sample_complete=false;
+    snapshot.context_count=nr_allocation_ledger::kContexts;
+    snapshot.context_details=std::make_shared<nr_allocation_ledger::ContextDetails>();
+    snapshot.context_overflow=std::numeric_limits<unsigned>::max();
+    snapshot.extra_budget_bytes=snapshot.dual_budget_bytes=snapshot.private_budget_bytes=
+        snapshot.temporal_budget_bytes=snapshot.capture_budget_bytes=snapshot.replay_budget_bytes=snapshot.face_budget_bytes=numeric;
+    for(auto& context:snapshot.context_details->contexts){
+        context.instance=context.feature_generation=context.sampled_high_water=numeric;
+        context.layer=context.slots=context.max_slots=std::numeric_limits<unsigned>::max();
+        context.mode=std::numeric_limits<int>::min();context.phase=nr_allocation_ledger::Phase::Pending;context.quarantine=true;
+        context.total={numeric,std::numeric_limits<unsigned>::max(),std::numeric_limits<unsigned>::max(),true};
+        for(auto& slot:context.slot){slot.occupied=true;slot.total=context.total;for(auto& role:slot.roles)role=context.total;}
+    }
     std::string output;
     char ticks[160]{};
     Check(nr_allocation_ledger::FormatSampleTicks(ticks,sizeof(ticks),prefix,
@@ -71,9 +114,22 @@ std::string FullWidthAllocationLedger(const char* prefix,
           "FULL_CORE_F8_LEDGER_FULL_WIDTH_TICKS");
     output+=ticks;
     nr_allocation_ledger::WriteText(snapshot,prefix,[&](const char* line){output+=line;});
+    for(unsigned i=0;i<nr_model_memory_events::kEvents;++i){
+        nr_model_memory_events::Event event{};event.sequence=numeric-i;
+        event.instance=event.feature=numeric;event.layer=std::numeric_limits<unsigned>::max()-1;
+        event.mode=std::numeric_limits<int>::min();event.result=0xffffffff;
+        event.before.tick=event.after.tick=numeric;
+        event.before.attempted=event.after.attempted=true;
+        event.before.local_result=event.after.local_result=S_OK;
+        event.before.luid=event.after.luid={0xffffffff,0x7fffffff};event.before.node=event.after.node=0xffffffff;
+        event.before.local.CurrentUsage=numeric;
+        event.after.local.CurrentUsage=numeric>std::uint64_t(INT64_MAX)?numeric-std::uint64_t(INT64_MAX):0;
+        char row[1024]{};Check(nr_model_memory_events::Format(row,sizeof(row),prefix,event),"FULL_CORE_F8_MODEL_EVENT_FULL_WIDTH");output+=row;
+    }
+    output+=std::string(prefix)+".allocation.modelEventCoverage=count:32,overwritten:"+U(numeric)+"; latest 32 cold events; absent history is missing\n";
     unsigned lines=0;for(char ch:output)if(ch=='\n')++lines;
-    Check(lines==204&&output.size()<=25u*1024u,
-          "FULL_CORE_F8_LEDGER_25K_BOUND");
+    Check(lines==206+nr_allocation_ledger::kContexts*(1+nr_allocation_ledger::kSlots)+nr_model_memory_events::kEvents+1&&output.size()<=176u*1024u,
+          "FULL_CORE_F8_LEDGER_CONTEXT_EVENT_176K_BOUND");
     return output;
 }
 #endif
@@ -484,6 +540,15 @@ void CheckSerializedTiming(const std::string &serialized, const std::string &raw
 void CheckPrivacyThroughCollector(const std::filesystem::path &directory) {
     const std::string ticks = "123456789012345";
     std::vector<std::pair<std::string, std::string>> cases{
+        {"end.auxCreate.8.pso=calls:1,failures:0,measured:1,totalTicks:" + ticks + ",maxTicks:" + ticks,
+            "end.auxCreate.8.pso=calls:1,failures:0,measured:1,totalTicks:" + ticks + ",maxTicks:" + ticks},
+        {"start.auxCreate.qpcFrequency=" + ticks, "start.auxCreate.qpcFrequency=" + ticks},
+        {"end.auxCreate.8.pso=calls:1,failures:0,measured:1,totalTicks:0x123456789ABCDEF0,maxTicks:0000123412341234",
+            "end.auxCreate.8.pso=calls:1,failures:0,measured:1,totalTicks:[address],maxTicks:[address]"},
+        {"end.auxCreate.9.pso=calls:1,failures:0,measured:1,totalTicks:" + ticks + ",maxTicks:" + ticks,
+            "end.auxCreate.9.pso=calls:1,failures:0,measured:1,totalTicks:[address],maxTicks:[address]"},
+        {"end.auxCreate.note=C:\\fixture-private\\file | ptr=0x123456789ABCDEF0",
+            "end.auxCreate.note=[local-path] | ptr=[address]"},
         {"fixture.pointer=0x123456789ABCDEF0", "fixture.pointer=[address]"},
         {"fixture.decimalPointer=123456789012345", "fixture.decimalPointer=[address]"},
         {"fixture.zeroPaddedPointer=0000123412341234", "fixture.zeroPaddedPointer=[address]"},
@@ -537,7 +602,8 @@ void CheckPrivacyThroughCollector(const std::filesystem::path &directory) {
     for (unsigned i = 0; i < cases.size(); ++i) {
         const auto expected = "fixture.privacy." + U(i) + "=begin\n" + cases[i].second + "\n";
         Check(result.text->find(expected) != std::string::npos && disk.find(expected) != std::string::npos,
-              "FULL_CORE_F8_TYPED_METADATA_PRIVACY");
+              cases[i].first.find(".auxCreate.") != std::string::npos ?
+                  "FULL_CORE_F8_AUX_METADATA_PRIVACY" : "FULL_CORE_F8_TYPED_METADATA_PRIVACY");
     }
     const auto logs = disk.find("===== nr-current");
     Check(logs != std::string::npos, "FULL_CORE_F8_PRIVATE_LOG_SECTION");
@@ -757,7 +823,7 @@ void SeedRetirementEvidence() {
     constexpr auto wide=std::numeric_limits<Id>::max();
     constexpr auto word=std::numeric_limits<unsigned>::max();
     EnterCriticalSection(&g_chain_cs);
-    auto& full=g_nr_retirement_published;std::memset(&full,0,sizeof(full));
+    auto& full=g_nr_retirement_published;nr_retirement::ResetSnapshot(full);
     full.sequence=full.tick=full.observations=full.suppressed=wide;
     full.contexts=kContexts;full.slots=kSlots;full.bindings=kBindings;full.recordings=kRecordings;
     full.private_flights=full.temporal_flights=kOwnerFlights;
@@ -793,7 +859,8 @@ void SeedRetirementEvidence() {
     const auto flight=[&](OwnerFlight& value){value.instance=value.token=value.reset=value.queue=wide;
         value.list=value.device=kRetirementPointer;value.fence=fence;value.index=word;
         value.submitted=value.poisoned=value.unsafe=true;};
-    for(auto& value:full.private_flight)flight(value);for(auto& value:full.temporal_flight)flight(value);
+    for(auto& value:full.private_flight)flight(value);
+    for(auto& value:full.temporal_flight)flight(value);
     LeaveCriticalSection(&g_chain_cs);
 }
 void CheckRetirementEvidence(const std::string& text,bool sanitized) {
@@ -997,6 +1064,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Write(g_ini_path, "[NRBeforeSR]\nJitterMode=0\nJitterPolicyVersion=1\n");
     Write(g_log_path, "00:00:00.000 CPU serialization fixture; no NGX, device creation or game execution.\n"
         "end.timing.capturedTicks=123456789012345\nfixture.raw.pointer=0000123412341234\n"
+        "end.auxCreate.8.pso=calls:1,failures:0,measured:1,totalTicks:123456789012345,maxTicks:123456789012345\n"
         "fixture.raw.path=C:\\fixture-private\\data | status=okay\npassword=fixture-secret\n");
     const auto ini_before = Read(g_ini_path);
     auto session = std::make_unique<nr_core_feedback::CoreSession>();
@@ -1016,14 +1084,25 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     origin.frame = 991; origin.feature = 992; origin.config = 993; origin.mode = 1;
     SeedTiming(origin, missing_clock);
     auto start = std::make_unique<nr_timing::Snapshot>(); SnapshotNrTiming(*start);
+    const auto aux_ticks = g_feedback_fixture_digits ? g_feedback_fixture_clock_ticks : UINT64_MAX;
+    const auto aux_frequency = nr_aux_shader::Frequency();
+    const auto aux_start = SeedAuxTiming(aux_ticks, 1);
     // Private registry counters, recovery ordinals and failure-only identities
     // cannot be set to UINT64_MAX through public APIs in a bounded CPU test.
     // Their remaining decimal widths plus the alternate failure fields are
     // conservatively covered by a separate 2 KiB allowance per snapshot.
     const auto numeric_width_allowance = BudgetLines("fixture.privateNumericWidthAllowance=2048\n", 2048,
                                                      "fixture.privateNumericWidth");
+    // Aux ticks use the actual runtime at full width. Reaching maximum call
+    // counts would require UINT64_MAX observations; reserve their remaining
+    // decimal width separately, plus the complete frequency width.
+    constexpr std::size_t aux_counter_width = unsigned(nr_aux_shader::Shader::Count) *
+        unsigned(nr_aux_shader::Operation::Count) * 3 * 19 + 20;
+    const auto aux_width_allowance = BudgetLines("fixture.auxCounterWidthAllowance=" + U(aux_counter_width) + "\n",
+                                                 aux_counter_width, "fixture.auxCounterWidth");
     FeedbackAppend(activity, "format=full-core-f8-timing-test\nfixture.language=时序诊断，暂停不改写历史。\n");
     FeedbackAppend(activity, "%s", numeric_width_allowance.c_str());
+    FeedbackAppend(activity, "%s", aux_width_allowance.c_str());
     FeedbackAppendActivity(activity, "start");
 #if defined(NR_ALLOCATION_LEDGER_ENABLED)
     const auto ledger_start=FullWidthAllocationLedger("start");
@@ -1037,6 +1116,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(start_bytes < sizeof(activity.report)-nr_feedback_limits::kTimelineReserveBytes,
           "FULL_CORE_F8_START_WITH_LEDGER_RESERVE");
     CheckTiming(activity.report, "start", *start, missing_clock);
+    CheckAuxTiming(activity.report, "start", aux_start, aux_frequency);
     CheckExpandedEvidence(activity.report, "start");
     CheckUiActivityEvidence(activity.report,"start");
     Check(Value(activity.report, "start.store.pre.probePhaseCurrent") == "1" &&
@@ -1061,6 +1141,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     Check(g_config_generation == config && g_history_generation == history && Read(g_ini_path) == ini_before,
           "FULL_CORE_F8_DIAGNOSTIC_SWITCH_NO_CONFIG_CHANGE");
     SeedTiming(origin, missing_clock);
+    const auto aux_end = SeedAuxTiming(aux_ticks, 2);
     if (g_feedback_fixture_digits) g_feedback_fixture_clock_ticks += 31 * NrTimingFrequency();
     auto end = std::make_unique<nr_timing::Snapshot>(); SnapshotNrTiming(*end);
     const auto worker_equivalent = WorkerEquivalent();
@@ -1077,6 +1158,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
         SeedRetirementEvidence();
 #endif
         FeedbackAppend(target, "%s", numeric_width_allowance.c_str());
+        FeedbackAppend(target, "%s", aux_width_allowance.c_str());
         FeedbackAppendActivity(target, "end");
 #if defined(NR_ALLOCATION_LEDGER_ENABLED)
         FeedbackAppend(target,"%s",ledger_end.c_str());
@@ -1101,7 +1183,13 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     append_end(activity);
     Check(!activity.report_truncated && activity.report_used < sizeof(activity.report) - nr_feedback_limits::kFinalStatusReserveBytes,
           "FULL_CORE_F8_CAPACITY");
+    // A capacity counterexample has already reached its exact oracle. Stop
+    // before fixtures which require fields beyond the now-truncated buffer.
+    if(activity.report_truncated || activity.report_used >= sizeof(activity.report)-nr_feedback_limits::kFinalStatusReserveBytes){
+        DeleteCriticalSection(&g_chain_cs);return 41;
+    }
     CheckTiming(activity.report, "end", *end, missing_clock);
+    CheckAuxTiming(activity.report, "end", aux_end, aux_frequency);
     CheckExpandedEvidence(activity.report, "end");
     CheckUiActivityEvidence(activity.report,"end");
 #if defined(NR_HAS_RETIREMENT_EVIDENCE)
@@ -1174,6 +1262,10 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
         Check(Read(text.path) == *text.text, "FULL_CORE_F8_ATOMIC_TEXT_BYTES");
         CheckSerializedTiming(*text.text, activity.report);
         CheckSerializedTiming(Read(text.path), activity.report);
+        CheckAuxTiming(*text.text, "start", aux_start, aux_frequency);
+        CheckAuxTiming(*text.text, "end", aux_end, aux_frequency);
+        CheckAuxTiming(Read(text.path), "start", aux_start, aux_frequency);
+        CheckAuxTiming(Read(text.path), "end", aux_end, aux_frequency);
         const std::string raw_ui(activity.report,activity.report_used);
         CheckUiActivityEvidence(*text.text,"start",&raw_ui);
         CheckUiActivityEvidence(*text.text,"end",&raw_ui);

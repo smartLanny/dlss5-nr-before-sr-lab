@@ -16,6 +16,8 @@ def main():
     out=a.output.resolve();out.mkdir(parents=True,exist_ok=False)
     snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl';fixture=ROOT/'tests/temporal_routes_gpu.inl'
+    warp_helper=out/'ci_warp_runtime.h'
+    warp_helper.write_bytes((ROOT/'tests/ci_warp_runtime.h').read_bytes())
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n}\n'
     old='    Check(WaitForSingleObject(event, 5000) == WAIT_OBJECT_0, "exact fence completed");'
     if q.count(old)!=1:raise ValueError('Shared bounded completion diagnostic anchor changed')
@@ -31,6 +33,7 @@ def main():
     cxx=a.compiler.resolve();cc=cxx.with_name(cxx.name.replace('clang++','clang'))
     flags=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections','-I'+str(ROOT/'third_party/minhook/include'),'-I'+str(a.reshade/'include'),'-I'+str(a.reshade/'deps/imgui')]
     record={'passed':False,'synthetic_model':True,'synthetic_native_frame':True,'actual_core_entry':True,'warp_only':True,'nvidia_feature18':False,'game_verified':False,'source_sha256':{str(f.relative_to(snapshot)):sha(f) for f in snapshot.rglob('*') if f.is_file()},'fixture_sha256':sha(fixture),'commands':[],'cases':[]}
+    record['ci_warp_runtime_helper_sha256']=sha(warp_helper)
     if a.codec_cache:
         cache=a.codec_cache.resolve();receipt=cache/'codec-artifacts.json';data=json.loads(receipt.read_text(encoding='utf-8'))
         body=source.read_text(encoding='utf-8').split('const char kCodecShader[] = R"HLSL(')[1].split(')HLSL";',1)[0]

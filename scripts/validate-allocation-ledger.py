@@ -1,5 +1,7 @@
 """Exercise the production F8 allocation helper on CPU and a real WARP resource."""
 import argparse
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -58,7 +60,7 @@ def check_append_lock(compiler, out):
     marker = "void NrAppendAllocationLedger(FeedbackSession& session,const char* prefix) {"
     if runtime.count(marker) != 1:
         raise RuntimeError("production append function not uniquely found")
-    function = runtime[runtime.index(marker):]
+    function = runtime[runtime.index(marker):runtime.index("\nvoid NrObserveMemoryTrend(")]
     acquire = "AcquireSRWLockExclusive(&g_feedback_lock);"
     release = "ReleaseSRWLockExclusive(&g_feedback_lock);"
     if (function.count(acquire) != 1 or function.count(release) != 1 or
@@ -88,6 +90,9 @@ def main():
     check_spatial_routing()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
+    warp_helper = ROOT / "tests/ci_warp_runtime.h"
+    (out / "warp-helper.json").write_text(json.dumps({"schema": 1,
+        "warp_runtime_helper_sha256": hashlib.sha256(warp_helper.read_bytes()).hexdigest()}, indent=2)+"\n", encoding="utf-8")
     exe = out / "allocation-ledger.exe"
     build(args.compiler, HEADER.parent, exe)
     success = run([str(exe), "--warp"])

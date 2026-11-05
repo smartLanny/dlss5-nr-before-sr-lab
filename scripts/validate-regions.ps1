@@ -12,5 +12,5 @@ if($LASTEXITCODE){throw 'Region adapter fixture failed to compile.'}
 & $binary
 if($LASTEXITCODE){throw 'Actual production region adapter WARP failed.'}
 $hashes=@{}
-foreach($name in @('src/nr_region_shader.h','src/nr_region_runtime.inl','src/nr_descriptor_plan.h','src/nr_binding_types.inl','src/nr_binding_runtime.inl','src/nr_optional_layer_probe.h','tests/region_gpu.cpp')){$hashes[$name]=(Get-FileHash -LiteralPath (Join-Path $root $name)).Hash.ToLowerInvariant()}
+foreach($name in @('src/nr_region_shader.h','src/nr_region_runtime.inl','src/nr_descriptor_plan.h','src/nr_binding_types.inl','src/nr_binding_runtime.inl','src/nr_optional_layer_probe.h','tests/region_gpu.cpp','tests/replay_gpu.cpp','tests/ci_warp_runtime.h')){$hashes[$name]=(Get-FileHash -LiteralPath (Join-Path $root $name)).Hash.ToLowerInvariant()}
 [ordered]@{schema='nr-region-warp-v2';success=$true;source=$hashes;prepare_seal_dispatch=$true;production_binding_runtime=$true;game_verified=$false;gpu_budget='unmeasured'} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutputRoot 'validation.json') -Encoding utf8

@@ -7,6 +7,7 @@ writer remain verbatim production code.  This deliberately does not exercise
 the older nr_f8_runtime.inl model.
 """
 import argparse
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ import zlib
 import zipfile
 import json
 import importlib.util
+from f8_process_evidence import run_logged
 
 
 def definition(source: str, marker: str, trailing_semicolon: bool = False) -> str:
@@ -30,6 +32,21 @@ def definition(source: str, marker: str, trailing_semicolon: bool = False) -> st
 
 def enum_or_struct(source: str, marker: str) -> str:
     return definition(source, marker, True)
+
+
+def single_fixture_run(output: Path) -> Path:
+    """Accept only the one child produced in this invocation's fresh directory.
+
+    Choosing by mtime can silently inspect another process's or an older run's
+    archive. Missing, ambiguous and linked output are failures, never fallback.
+    """
+    runs = list(output.glob("run-*"))
+    if len(runs) != 1 or runs[0].is_symlink() or not runs[0].is_dir():
+        raise RuntimeError(
+            "Expected exactly one real run-* directory from this invocation; "
+            f"found {len(runs)} entries in {output}"
+        )
+    return runs[0]
 
 
 parser = argparse.ArgumentParser()
@@ -93,10 +110,22 @@ if args.gpu:
     start=harness.index("int main(")
     harness=harness[:start]+(root/"tests/f8_gpu_integration.inl").read_text(encoding="utf-8")+"\n"+harness[start:]
     harness=harness.replace("TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();","TestGpuPipeline();")
-out = root / ("test-output/f8-gpu-v4" if args.gpu else "test-output/f8-controller-v4")
-out.mkdir(parents=True, exist_ok=True)
+# Preserve the established artifact roots, but never share mutable generated
+# source, executable, screenshots or child output between separate invocations.
+# Keep attempts on failure too: they are evidence, not disposable temp files.
+base = root / ("test-output/f8-gpu-v4" if args.gpu else "test-output/f8-controller-v4")
+base.mkdir(parents=True, exist_ok=True)
+out = Path(tempfile.mkdtemp(prefix="attempt-", dir=base))
+print(f"F8 validation attempt: {out}", flush=True)
 cpp, exe = out / "controller.cpp", out / "controller.exe"
 cpp.write_text(harness, encoding="utf-8")
+if args.gpu:
+    helper = (root / "tests/ci_warp_runtime.h").read_bytes()
+    (out / "ci_warp_runtime.h").write_bytes(helper)
+    (out / "ci-warp-runtime-input.json").write_text(json.dumps({
+        "schema": 1, "helper_sha256": hashlib.sha256(helper).hexdigest(),
+        "generated_harness_sha256": hashlib.sha256(cpp.read_bytes()).hexdigest(),
+    }, indent=2) + "\n", encoding="utf-8")
 # A complete 4K PNG supplied at the runtime screenshot boundary. The archive
 # must retain these exact bytes; this does not emulate a real game renderer.
 def png_chunk(tag, data):
@@ -104,9 +133,13 @@ def png_chunk(tag, data):
 row = b'\0' + bytes((x * 17) % 256 for x in range(3840 * 3))
 native_png = b'\x89PNG\r\n\x1a\n' + png_chunk(b'IHDR', struct.pack('>IIBBBBB',3840,2160,8,2,0,0,0)) + png_chunk(b'IDAT',zlib.compress(row * 2160)) + png_chunk(b'IEND',b'')
 (out/'native-display.png').write_bytes(native_png)
-subprocess.run([args.compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)]+(["-ld3d12","-ldxgi","-ld3dcompiler","-ldxguid"] if args.gpu else []), check=True)
-subprocess.run([str(exe), str(out)], check=True)
-latest = max(out.glob('run-*'), key=lambda p:p.stat().st_mtime_ns)
+run_logged([args.compiler, "-std=c++20", "-O0", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-static", "-I", str(root / "src"), str(cpp), "-o", str(exe)]+(["-ld3d12","-ldxgi","-ld3dcompiler","-ldxguid"] if args.gpu else []), out, "compile", check=True, inputs={"generated_harness": cpp})
+run_logged([str(exe), str(out)], out, "execute", check=True, inputs={
+    "generated_harness": cpp, "driver": Path(__file__),
+    "core": args.source or root / "src/nr_before_sr.cpp",
+    "sequence": root / "src/nr_f8_sequence.inl",
+})
+latest = single_fixture_run(out)
 for groups in (1,7):
     for skin in (0,2):
         with zipfile.ZipFile(latest/f'fullscreen-{groups}-{skin}.zip') as archive:
@@ -156,10 +189,16 @@ if args.negative_control:
         assert harness.count(old)==1,(name,harness.count(old))
         bad_cpp,bad_exe=out/f'negative-{name}.cpp',out/f'negative-{name}.exe'
         bad_cpp.write_text(harness.replace(old,new),encoding='utf-8')
-        subprocess.run([args.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(bad_cpp),'-o',str(bad_exe)],check=True)
-        run=subprocess.run([str(bad_exe),str(out)],capture_output=True,text=True)
+        run_logged([args.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(bad_cpp),'-o',str(bad_exe)],out,f'negative-{name}-compile',check=True,inputs={'generated_harness':bad_cpp})
+        # A mutation must not reuse the positive fixture or another mutation's
+        # run-PID directory. Otherwise PID reuse can fail at CREATE_NEW before
+        # the intended behavioral assertion, and look like a valid rejection.
+        negative_out = Path(tempfile.mkdtemp(prefix="negative-", dir=out))
+        (negative_out / 'native-display.png').write_bytes(native_png)
+        run=run_logged([str(bad_exe),str(negative_out)],negative_out,'execute',capture_output=True,text=True,inputs={'generated_harness':bad_cpp})
         assert run.returncode==1 and 'FAIL:' in run.stderr,(name,run.returncode,run.stderr)
-        results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip()})
+        results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip(),
+                        'output_directory':negative_out.name})
     (latest/'face-negative-controls.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
     print(f'F8 controller: {len(mutations)} compiled face/matrix behavioral negative controls rejected PASS')
 print("F8 controller: production Present/callback/readback/stream/restore/ZIP PASS; " + ("real WARP shader/ring/fence, synthetic NR input" if args.gpu else "GPU/NGX are seams"))

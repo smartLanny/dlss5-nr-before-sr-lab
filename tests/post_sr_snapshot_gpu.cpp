@@ -7,6 +7,7 @@
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
 #include <dxgi1_4.h>
+#include "ci_warp_runtime.h"
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -126,10 +127,12 @@ int main(int argc,char **argv) {
     if(debug_enabled){ID3D12Debug_EnableDebugLayer(debug);ID3D12Debug_Release(debug);}
     std::printf("snapshot_debug_layer=%u; GPU readback/negative checks still required\n",unsigned(debug_enabled));
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr;
+    HR(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     HR(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"DXGI factory");
     HR(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"WARP only");
     HR(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"WARP device");
+    HR(nr_test_warp::Verify("post-sr-snapshot"),"Verify actual CI WARP");
     ID3D12InfoQueue *info=nullptr;
     if(debug_enabled)HR(ID3D12Device_QueryInterface(device,IID_ID3D12InfoQueue,reinterpret_cast<void **>(&info)),"debug info queue");
     // Negative resource-creation fixture: DENY_SHADER_RESOURCE requires a

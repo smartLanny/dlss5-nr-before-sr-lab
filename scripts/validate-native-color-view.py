@@ -80,6 +80,8 @@ def main():
     # Borrow only the unchanged real-WARP fixture helpers, not its queue tests
     # or main. The shared files are never edited and their inputs are hashed.
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl'
+    warp_helper=out/'ci_warp_runtime.h'
+    warp_helper.write_bytes((ROOT/'tests/ci_warp_runtime.h').read_bytes())
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n} // namespace queue_test\n'
     post_text=post.read_text(encoding='utf-8')
     post_boundary='std::vector<unsigned char> Case(queue_test::Fixture'
@@ -135,7 +137,7 @@ def main():
            '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32','-lbcrypt'],'compile-core')
     if r.returncode:raise SystemExit(r.returncode)
     record={'schema':1,'source_inputs_sha256':hashes,'original_runtime_sha256':original_runtime,
-            'codec_cache':cache_receipt,
+            'codec_cache':cache_receipt,'ci_warp_runtime_helper_sha256':sha(warp_helper),
             'explicit_runtime_overlay':bool(a.runtime),'fixture_sha256':sha(fixture),
             'queue_helpers_sha256':sha(queue),'post_helpers_sha256':sha(post),'binary_sha256':sha(exe),
             'production_translation_unit':True,'acceptance_controller':a.acceptance,'temporal_seam':a.temporal,'wrong_p1_negative_control':a.temporal_negative,'wrong_restoration_negative_control':a.acceptance_negative,'rr_timestamp_negative_control':a.acceptance_timing_negative,'commit_pressure_negative_control':a.acceptance_commit_pressure,'warp_only':True,'nvidia_nr':False,'game_verified':False,'run_exit':None,

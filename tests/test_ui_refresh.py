@@ -87,7 +87,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('if(ImGui::Button(image_label))nr_f8::RequestFullscreen();', self.pages)
         self.assertIn('nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix)', self.pages)
         self.assertIn('if(ImGui::Button(NrUi("Capture centre model stages"', self.pages)
-        self.assertIn('nr_core_feedback::GetReportClipboardStatus()', self.pages)
+        self.assertIn('nr_f8::DrawCoreStatus();', self.pages)
+        self.assertIn('nr_f8::DrawImageStatus(UseChineseUi());', self.pages)
         self.assertIn('PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);', self.core)
         self.assertNotIn('SetClipboardText', self.pages)
 

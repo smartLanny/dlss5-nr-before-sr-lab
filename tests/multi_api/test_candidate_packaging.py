@@ -33,7 +33,7 @@ class Packaging(unittest.TestCase):
         # this test to run before the implementation is committed.
         self.repo = self.root/'repo'
         for relative in ('scripts/package-multi-api-candidate.ps1', 'third_party/minhook/LICENSE.txt',
-                         'THIRD_PARTY_NOTICES.txt', 'tests/post_scaled_work_gpu.cpp.in'):
+                         'THIRD_PARTY_NOTICES.txt', 'tests/post_scaled_work_gpu.cpp.in', 'tests/ci_warp_runtime.h'):
             target = self.repo/relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT/relative, target)
@@ -67,11 +67,13 @@ class Packaging(unittest.TestCase):
         (self.post/'stdout.txt').write_text('PASS post-scaled-work WARP: 48 scenarios\n')
         (self.post/'stderr.txt').write_text('')
         (self.post/'post_scaled_work_gpu.cpp').write_text('synthetic generated harness')
+        shutil.copyfile(self.repo/'tests/ci_warp_runtime.h', self.post/'ci_warp_runtime.h')
         result = {'exit_code': 0, 'warp_verified': True, 'nvidia_feature18_verified': False, 'game_runtime_verified': False,
                   'staged_core_sha256': digest(self.stage/'core/src/nr_before_sr.cpp'),
                   'generated_harness_sha256': digest(self.post/'post_scaled_work_gpu.cpp'),
                   'stdout_sha256': digest(self.post/'stdout.txt'),
-                  'template_sha256': digest(ROOT/'tests/post_scaled_work_gpu.cpp.in')}
+                  'template_sha256': digest(ROOT/'tests/post_scaled_work_gpu.cpp.in'),
+                  'ci_warp_runtime_helper_sha256': digest(self.post/'ci_warp_runtime.h')}
         (self.post/'post-scaled-work-result.json').write_text(json.dumps(result))
 
     def git(self, *args):
@@ -109,6 +111,54 @@ class Packaging(unittest.TestCase):
                 self.assertFalse(any(n.startswith('validation/') for n in names))
                 self.assertEqual(any(n.endswith('.en.addon64') for n in names), entry['language'] == 'en')
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)
+
+    def test_old_post_receipt_without_runtime_helper_is_rejected(self):
+        path = self.post/'post-scaled-work-result.json'
+        result = json.loads(path.read_text())
+        del result['ci_warp_runtime_helper_sha256']
+        path.write_text(json.dumps(result))
+        run = self.run_package()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Post WARP runtime helper identity is missing', run.stdout + run.stderr)
+        self.assertFalse((self.root/'output').exists())
+
+    def test_changed_frozen_runtime_helper_is_rejected_even_with_rehashed_receipt(self):
+        helper = self.post/'ci_warp_runtime.h'
+        helper.write_bytes(helper.read_bytes() + b'\n// changed after compilation\n')
+        path = self.post/'post-scaled-work-result.json'
+        result = json.loads(path.read_text())
+        for rehash in (False, True):
+            with self.subTest(rehashed_receipt=rehash):
+                if rehash:
+                    result['ci_warp_runtime_helper_sha256'] = digest(helper)
+                    path.write_text(json.dumps(result))
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn('SHA256 mismatch', run.stdout + run.stderr)
+                self.assertFalse((self.root/'output').exists())
+
+    def test_actual_safe_child_normalizes_root_and_retains_boundaries(self):
+        environment = {key: value for key, value in os.environ.items() if key.upper() != 'PSMODULEPATH'}
+        run = subprocess.run([SHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+                              str(ROOT/'tests/package_safe_child.ps1'), '-Packager',
+                              str(self.repo/'scripts/package-multi-api-candidate.ps1')],
+                             capture_output=True, text=True, encoding='utf-8', errors='replace', env=environment)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('PASS production Safe-Child:', run.stdout)
+
+    def test_manifest_traversal_is_rejected_before_any_package_output(self):
+        outside = self.build/'outside-license'
+        outside.write_text('actual outside file with a matching manifest digest')
+        for name in ('../outside-license', '..\\outside-license', 'carrier/../../outside-license',
+                     'carrier/../carrier/LICENSE',
+                     str(outside.resolve()), '.'):
+            with self.subTest(manifest_path=name):
+                self.manifest['files'] = {name: digest(outside)}
+                run = self.run_package()
+                self.assertNotEqual(run.returncode, 0)
+                self.assertRegex(run.stdout + run.stderr,
+                                 r'(Unsafe manifest path|Manifest path escaped its source root):')
+                self.assertFalse((self.root/'output').exists())
 
     def test_public_chinese_label_is_carried_by_zip_and_manifest(self):
         self.manifest['integration']['version'] = 'core'

@@ -62,6 +62,7 @@ def main():
     try:
         harness=out/'post_scaled_work_gpu.cpp'
         run('extract',[sys.executable,R/'scripts/extract-post-gpu.py','--source-root',src,'--template',R/'tests/post_scaled_work_gpu.cpp.in','--output',harness])
+        receipt['ci_warp_runtime_helper_sha256']=sha(out/'ci_warp_runtime.h')
         exe=out/'reconstruction_gpu.exe'
         run('compile',[a.compiler,'-std=c++17','-O2','-static','-Wall','-Wextra','-Werror',R/'tests/reconstruction_gpu.cpp','-I'+str(out),'-I'+str(src/'src/interop'),'-ld3d12','-ldxgi','-ld3dcompiler','-ldxguid','-lole32','-o',exe])
         args=artifact_args+(['--hardware'] if a.hardware else [])

@@ -15,6 +15,7 @@ FIELDS = {
  'nr_network_preset':'NRNetworkPreset', 'nr_primary_network_preset':'Layer1NetworkPreset',
  'nr_uniform_migrated':None,
  'nr_passes':'NRPasses','nr_second_numerator':'NRSecondScaleNumerator','nr_second_denominator':'NRSecondScaleDenominator','generic_residual':'GenericResidualExperiment',
+ 'generic_algorithm':'GenericResidualAlgorithm',
  'mode':'Mode', 'identity_use_original':'IdentityUseOriginalColor',
  'transfer_strength':'TransferStrength', 'post_transfer_strength':'PostTransferStrength',
  'work_mode':'WorkMode', 'custom_work_scale':'CustomWorkScale',
@@ -67,6 +68,8 @@ RECOMMENDED_OVERRIDES={
  # The lighting preset records the reset AI colour amount, not the old INI
  # snapshot's historical 1.0 value.
  'colour_range_control':'1', 'light_preset_color':'0.5',
+ # The explicit picture reset restores Legacy independently of a saved mode.
+ 'generic_algorithm':'0',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
@@ -111,7 +114,10 @@ def main():
  p.add_argument('--compiler',default=os.environ.get('CXX','g++'))
  p.add_argument('--build-dir',type=Path,
                 help='Use an existing private build directory instead of system temp')
- p.add_argument('--negative-control',action='store_true');a=p.parse_args();root=a.root
+ controls=p.add_mutually_exclusive_group()
+ controls.add_argument('--negative-control',action='store_true')
+ controls.add_argument('--generic-algorithm-negative-control',action='store_true')
+ a=p.parse_args();root=a.root
  cpp=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
  ui=(root/'src/nr_unified_settings.inl').read_text(encoding='utf-8-sig')
  settings_ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
@@ -127,6 +133,9 @@ def main():
  if a.negative_control:
   marker='nr_colour_preferences::Reset(next);';assert helper.count(marker)==1
   helper=helper.replace(marker,marker+' next.color_strength = 0.25f;',1)
+ if a.generic_algorithm_negative_control:
+  marker='next.generic_algorithm=0;';assert helper.count(marker)==1
+  helper=helper.replace(marker,'next.generic_algorithm=1;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
   number=values[key] if key else '0';recommended=RECOMMENDED_OVERRIDES.get(field,number)
@@ -179,6 +188,9 @@ void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAI
   if a.negative_control:
    if result.returncode!=1 or 'FAIL INI default ColorStrength' not in result.stdout:raise SystemExit('Wrong-default negative oracle was not rejected')
    print('PASS wrong AI colour reset amount rejected by independent INI oracle')
+  elif a.generic_algorithm_negative_control:
+   if result.returncode!=1 or 'FAIL INI default GenericResidualAlgorithm' not in result.stdout:raise SystemExit('Non-Legacy reset negative oracle was not rejected')
+   print('PASS non-Legacy reset assignment rejected by independent recommendation oracle')
   elif result.returncode:raise SystemExit(result.returncode)
  print('PASS reset wiring: capture hold, stale-edit generation and normal persistence/history path')
 

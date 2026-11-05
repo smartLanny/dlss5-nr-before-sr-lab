@@ -113,6 +113,7 @@ def main() -> None:
                    template_sha256=digest(repo / 'tests/post_scaled_work_gpu.cpp.in'),
                    test_sha256=digest(repo / 'tests/colour_nonzero_gpu.cpp'),
                    generated_harness_sha256=digest(generated),
+                   ci_warp_runtime_helper_sha256=digest(output / 'ci_warp_runtime.h'),
                    executable_sha256=digest(exe),
                    adapter='NVIDIA hardware' if args.hardware else 'WARP',
                    adapter_identity=adapter_lines[0],

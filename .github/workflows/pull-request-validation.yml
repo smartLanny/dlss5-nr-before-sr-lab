@@ -10,11 +10,17 @@ on:
         description: Run the canonical build on the self-hosted runner
         type: boolean
         default: false
+      cloud_windows_build:
+        description: Full canonical Windows build on a standard public hosted runner
+        type: boolean
+        default: false
 
 # ENABLE_HOSTED_CI is intentionally unset/false while billing is unavailable.
 # ENABLE_SELF_HOSTED_CI enables the maintainer's runner (labels below); its
 # canonical build runs only on manual dispatch or a PR labelled full-build.
-# Skipped jobs are not verification. Full Windows validation is recorded per SHA.
+# Public standard Windows has its own explicit opt-in, without enabling the old
+# hosted families or paid larger runners. Skipped jobs are not verification.
+# Full Windows validation is recorded per SHA.
 permissions:
   contents: read
 
@@ -39,6 +45,22 @@ jobs:
         env:
           CXX: g++
         run: python3 scripts/run-portable-tests.py --verbose
+
+  public-windows-candidate:
+    # Full canonical gates, only for an owner-requested public same-repo source.
+    # Forks retain the ephemeral portable job; no secrets or runner variables
+    # are inherited by this independently bootstrapped Windows build.
+    if: >-
+      github.event.repository.private == false &&
+      github.actor == github.repository_owner &&
+      ((github.event_name == 'workflow_dispatch' && inputs.cloud_windows_build) ||
+       (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.repo.fork == false &&
+        github.event.pull_request.author_association == 'OWNER' &&
+        contains(github.event.pull_request.labels.*.name, 'cloud-windows-build') &&
+        (github.event.action != 'labeled' || github.event.label.name == 'cloud-windows-build')))
+    uses: ./.github/workflows/compat-post-dev2.yml
 
   maintenance:
     if: vars.ENABLE_HOSTED_CI == 'true' && (github.base_ref == 'main' || github.event_name == 'workflow_dispatch')

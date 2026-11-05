@@ -20,6 +20,17 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Full license bytes read from the exact public dependencies used by the cloud
+# build. These are documentation integrity checks, not redistribution approval.
+PINNED_NOTICE_TEXTS = (
+    ('ReShade SDK headers', 'Dear ImGui',
+     '237ded5b8344f820113efab1e65e91e1f159d9202c5b4856606a0590d3ffdab0'),
+    ('Dear ImGui', 'AMD FidelityFX and Microsoft DirectX 12 helpers',
+     'c80c5789748d955c4a650562baa0d750494e2c7128c2ca66aaebe2e3c4e198bf'),
+    ('AMD FidelityFX and Microsoft DirectX 12 helpers', 'NVIDIA and games',
+     '19eadab1b941e9b7d0e72c83f47e747ffb6f1097b9b91320156300e024181ef7'),
+)
+
 
 def module(name, filename):
     spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / filename)
@@ -165,6 +176,69 @@ class SourceNotices(unittest.TestCase):
             self.assertEqual(row['bytes'], len(expected))
             self.assertFalse(any(name.lower().startswith('nvngx_') for name in archive.namelist()))
         self.assertEqual(result['license_sha256'], self.ota.digest(expected))
+
+    def test_actual_pinned_notices_reach_zip_and_stripping_is_rejected(self):
+        self.actual_notices_zip_check(force_crlf=False)
+
+    def test_crlf_pinned_notices_reach_zip_and_stripping_is_rejected(self):
+        self.actual_notices_zip_check(force_crlf=True)
+
+    def actual_notices_zip_check(self, *, force_crlf):
+        # Stage the real project/notices bytes through a committed fixture, then
+        # feed that export to the real OTA packager. Only executable bytes and
+        # platform/source identity calls use the existing explicit doubles.
+        self.notices = {name: (ROOT / name).read_bytes()
+                        for name in ('LICENSE', 'THIRD_PARTY_NOTICES.txt')}
+        if force_crlf:
+            self.notices = {name: data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+                            for name, data in self.notices.items()}
+        text = self.notices['THIRD_PARTY_NOTICES.txt'].decode('utf-8')
+        newline = '\r\n' if '\r\n' in text else '\n'
+        license_texts = []
+        for title, next_title, expected_sha in PINNED_NOTICE_TEXTS:
+            section = text.split(newline * 2 + title + newline, 1)[1]
+            section = section.split(newline * 2 + next_title + newline, 1)[0]
+            body = section.split('License text from pinned source:' + newline * 2, 1)[1] + newline
+            data = body.encode('utf-8')
+            self.assertEqual(self.ota.digest(data.replace(b'\r\n', b'\n')), expected_sha, title)
+            license_texts.append(data)
+        core, revision = self.repository()
+        exported = self.base / 'actual-notice-export'
+        self.exporter.stage_inputs(core, revision, self.layout, exported)
+        self.notices = {name: (exported / name).read_bytes() for name in self.notices}
+        args, manifest_path, notices = self.package_fixture()
+        # Exercise the same additional-notice path used for the external AMD
+        # root license. No SDK object or runtime is part of this inert fixture.
+        amd = b'AMD root license fixture\r\nverbatim additional notice\r\n'
+        args.notice = [put(self.base, 'AMD-FidelityFX-LICENSE.txt', amd)]
+        result = self.package(args)
+        expected = b'\n\n'.join([*notices, amd])
+        with zipfile.ZipFile(result['file']) as archive:
+            actual = archive.read('LICENSES.txt')
+            self.assertEqual(actual, expected)
+            for data in license_texts:
+                self.assertIn(data, actual)
+            manifest = json.loads(archive.read('ota-manifest.json'))
+            row, = [item for item in manifest['files'] if item['name'] == 'LICENSES.txt']
+            self.assertEqual(row['sha256'], self.ota.digest(actual))
+            self.assertEqual(row['bytes'], len(actual))
+        self.assertEqual(result['license_sha256'], self.ota.digest(expected))
+        source_manifest = json.loads(manifest_path.read_text())
+        self.assertEqual(source_manifest['files']['core/THIRD_PARTY_NOTICES.txt'],
+                         self.ota.digest(self.notices['THIRD_PARTY_NOTICES.txt']))
+        staged = manifest_path.parent / 'core/THIRD_PARTY_NOTICES.txt'
+        args.output = self.base / 'must-not-package-stripped-notices'
+        for data in license_texts:
+            with self.subTest(stripped_license_sha256=self.ota.digest(data)):
+                staged.write_bytes(self.notices['THIRD_PARTY_NOTICES.txt'].replace(data, b'', 1))
+                with self.assertRaisesRegex(ValueError, 'Exported source changed: core/THIRD_PARTY_NOTICES.txt'):
+                    self.package(args)
+                self.assertFalse(args.output.exists())
+        staged.write_bytes(self.notices['THIRD_PARTY_NOTICES.txt'])
+        args.notice[0].unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.package(args)
+        self.assertFalse(args.output.exists())
 
     def test_historical_package_without_root_notices_keeps_original_identity(self):
         args, _, notices = self.package_fixture(notices=False)

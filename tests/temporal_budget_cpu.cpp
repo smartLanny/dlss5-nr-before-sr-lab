@@ -5,6 +5,7 @@
 #ifdef NR_BUDGET_WARP
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include "ci_warp_runtime.h"
 #include <initializer_list>
 #endif
 #include <cassert>
@@ -32,10 +33,12 @@ int main(){
  const auto odd=nr::final_residual::AmdBorrowedCreationAllowance(3839,2159,allocation);assert(odd&&odd<=estimate);
  std::printf("PASS pinned FFX layout budget CPU; 4K allowance=%llu own=%llu total=%llu; no GPU allocation\n",(unsigned long long)estimate,(unsigned long long)own,(unsigned long long)(own+estimate));
 #ifdef NR_BUDGET_WARP
+ if(FAILED(nr_test_warp::Prepare()))return 1;
  IDXGIFactory4* factory=nullptr;IDXGIAdapter* adapter=nullptr;ID3D12Device* device=nullptr;
  assert(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))));
  assert(SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter))));
  assert(SUCCEEDED(D3D12CreateDevice(adapter,D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device))));
+ if(FAILED(nr_test_warp::Verify("temporal-budget")))return 1;
  const auto actual=[&](unsigned w,unsigned h,unsigned format){D3D12_RESOURCE_DESC d{};
   d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
   d.Format=DXGI_FORMAT(format);d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;

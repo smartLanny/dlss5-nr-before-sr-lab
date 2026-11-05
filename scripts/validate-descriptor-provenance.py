@@ -131,6 +131,8 @@ def main():
         save();return
 
     queue = ROOT/'tests/queue_retirement_harness.cpp'
+    warp_helper=out/'ci_warp_runtime.h'
+    warp_helper.write_bytes((ROOT/'tests/ci_warp_runtime.h').read_bytes())
     queue_text = queue.read_text(encoding='utf-8')
     anchor = 'void OneShot() {'
     if queue_text.count(anchor) != 1:
@@ -143,6 +145,7 @@ def main():
     (out/'fixture.inl').write_text(helpers+fixture.read_text(encoding='utf-8'), encoding='utf-8')
     record['warp_fixture_sha256'] = sha(fixture)
     record['queue_helpers_sha256'] = sha(queue)
+    record['ci_warp_runtime_helper_sha256'] = sha(warp_helper)
     wrapper = out/'descriptor-warp.cpp'
     wrapper.write_text(f'#include "{(snapshot/"nr_before_sr.cpp").as_posix()}"\n#include "fixture.inl"\n'
         'int main(){std::setvbuf(stdout,nullptr,_IONBF,0);descriptor_warp_test::Run();return 0;}\n', encoding='utf-8')

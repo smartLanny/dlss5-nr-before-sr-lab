@@ -45,10 +45,12 @@ int RunVrsNullGate() {
         requests,count,extra,1,"CL5") && count==0,"CL5 tear-off cannot license slot77");
 
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr; ID3D12Device *device=nullptr;
+    Hr(nr_test_warp::Prepare(),"Prepare pinned CI WARP");
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4,reinterpret_cast<void **>(&factory)),"VRS factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"VRS WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"VRS device");
+    Hr(nr_test_warp::Verify("command-state-vrs-null"),"Verify actual CI WARP");
     ID3D12CommandAllocator *allocator=nullptr; ID3D12GraphicsCommandList *list=nullptr;
     Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"VRS allocator");

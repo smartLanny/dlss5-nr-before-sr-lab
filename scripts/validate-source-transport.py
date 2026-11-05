@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -15,6 +16,8 @@ def main():
     root=Path(__file__).resolve().parents[1]
     output=Path(args.output).resolve()
     output.mkdir(parents=True,exist_ok=True)
+    warp_helper=output/'ci_warp_runtime.h'
+    shutil.copyfile(root/'tests/ci_warp_runtime.h',warp_helper)
     core=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     start=core.index('struct NrJitterBinding {')
     end=core.index('// Jitter is expressed in source pixels',start)
@@ -53,6 +56,7 @@ def main():
     receipt={'success':passed,'scope':'Actual native-success receipt gating, padded depth-stencil/full-subresource guide copies, native-seam HLSL snapshots, blocked cross-queue GPU wait/readback, and resource/fence reuse on D3D12 WARP',
               'warp_verified':run.returncode==0,'ngx_verified':False,'fg_verified':False,'game_verified':False,'stdout':run.stdout,
               'source_sha256':hashlib.sha256((root/'src/nr_source_transport.inl').read_bytes()).hexdigest(),
+              'warp_runtime_helper_sha256':hashlib.sha256(warp_helper.read_bytes()).hexdigest(),
               'fg_presentation_sha256':hashlib.sha256((root/'src/nr_fg_presentation.h').read_bytes()).hexdigest(),
               'native_guide_snapshot_sha256':hashlib.sha256((root/'src/nr_native_guide_snapshot.inl').read_bytes()).hexdigest(),
               'runtime_sha256':hashlib.sha256((root/'src/nr_source_frame_runtime.inl').read_bytes()).hexdigest(),
