@@ -21,6 +21,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Freeze committed sources for offline failure review
+        if: matrix.compiler == 'g++'
+        run: python3 scripts/ci/export-reviewed-source.py --output "$RUNNER_TEMP/source-review"
+      - name: Preserve committed source review snapshot (not a candidate)
+        if: matrix.compiler == 'g++'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Source-review-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-review/
+          if-no-files-found: error
+          retention-days: 7
       - name: Actual policies, RR execution, settings and source composition
         env:
           CXX: ${{ matrix.compiler }}
@@ -192,6 +203,11 @@ jobs:
             New-Item -ItemType Directory -Path build/cloud-evidence/ffx -Force | Out-Null
             Get-ChildItem -LiteralPath $cache -File | Where-Object { $_.Extension -in @('.json', '.log') } | Copy-Item -Destination build/cloud-evidence/ffx
           }
+      - name: Retain F8 attempt evidence even on failure
+        if: always()
+        run: |
+          python scripts/ci/collect-f8-evidence.py --output build/cloud-evidence/f8
+          if ($LASTEXITCODE) { throw 'F8 evidence collection failed; do not infer missing results' }
       - name: Upload software/WARP evidence, including failed-step logs
         if: always()
         uses: actions/upload-artifact@v4

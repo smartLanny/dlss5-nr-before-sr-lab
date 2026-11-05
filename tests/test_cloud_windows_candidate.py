@@ -107,7 +107,16 @@ class CloudWindowsCandidate(unittest.TestCase):
             self.assertIn(pattern, evidence)
         for suffix in ('.dll', '.exe', '.addon64', '.onnx', '.bin', '.zip'):
             self.assertNotIn('build/**/*' + suffix, evidence)
-        self.assertEqual(self.workflow.count('retention-days: 7'), 2)
+        self.assertEqual(self.workflow.count('retention-days: 7'), 3)
+
+    def test_source_review_is_distinct_from_candidate_and_dependencies(self):
+        host = jobs(self.workflow)['host']
+        self.assertIn('export-reviewed-source.py', host)
+        self.assertIn("if: matrix.compiler == 'g++'", host)
+        self.assertIn('Source-review-${{ github.event.pull_request.head.sha || github.sha }}', host)
+        self.assertIn('path: ${{ runner.temp }}/source-review/', host)
+        self.assertNotIn('cloud-packages', host)
+        self.assertLess(host.index('export-reviewed-source.py'), host.index('Actual policies,'))
 
 
 if __name__ == '__main__':
