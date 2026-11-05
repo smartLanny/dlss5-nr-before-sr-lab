@@ -50,6 +50,16 @@ python scripts/feedback-report.py feedback.txt --output report.md
 配置、旁路原因和调用增量。它不会上传文件或覆盖已有报告。用游戏保存的原始 TXT，
 不要从聊天中复制后重存；改过换行的文本无法通过原始摘要检查。
 
+卡顿、低帧率或首次开启停顿可以加 `--symptom performance`：
+
+```sh
+python scripts/feedback-report.py feedback.txt --symptom performance --output performance-report.md
+```
+
+性能报告只显示配置身份匹配的部分 GPU 阶段计时；缺测明确显示“未取得”，不按 0 ms
+处理。各阶段的滚动统计不能相加或换算游戏 FPS，也不能单独证明性能改善。持续旁路
+请保留保护并提交原始 F8 与复现步骤，不要把旁路后的高帧率当作优化收益。
+
 画面异常可以加 `--symptom visual` 整理描述。如果补拍 F7，使用它新生成的一对
 核心 ZIP 和图像 ZIP：`python scripts/feedback-report.py core.zip --image images.zip
 --output image-report.md`。旧 F8 TXT 不能替代这对文件中的核心 ZIP。

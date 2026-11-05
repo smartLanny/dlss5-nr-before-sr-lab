@@ -226,7 +226,7 @@ void DrawUnifiedExperiments(ChainConfig& next,unsigned generation,bool pending,b
     }
     nr_face_runtime::DrawUi(next,changed);
 #if defined(NR_HAS_TEMPORAL_RUNTIME)
-    DrawTemporalOptions(next,changed,discrete);
+    DrawTemporalOptions(next,changed,discrete,pending||changed);
 #endif
 #if defined(NR_HAS_PRIVATE_RESIDUAL_SR)
     DrawPrivateResidualSr(next,changed,discrete);

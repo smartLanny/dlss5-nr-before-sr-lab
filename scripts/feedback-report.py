@@ -22,6 +22,9 @@ spec.loader.exec_module(core_parser)
 spec = importlib.util.spec_from_file_location('report_text_parser', ROOT / 'parse-core-text.py')
 text_parser = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(text_parser)
+spec = importlib.util.spec_from_file_location('report_performance', ROOT / 'feedback_performance.py')
+performance = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(performance)
 
 FIELDS = (
     ('采集编号', 'session'), ('构建标识', 'build'), ('源码提交', 'artifact.sourceCommit'),
@@ -81,11 +84,13 @@ def prepare(core: Path, image: Path | None = None, symptom: str = 'compatibility
         core_parser.require(image is None, 'F8 TXT cannot verify an F7 image pair; use the new F7 core ZIP')
         fields = [key for _, key in FIELDS] + ['start.nrSuccess', 'end.nrSuccess',
                   'start.transferSubmitted', 'end.transferSubmitted']
+        if symptom == 'performance':
+            fields += list(performance.FIELDS)
         result = text_parser.inspect_text(core, fields)
     else:
         result = core_parser.inspect_pair(core, image)['core']
     info = result['metadata']
-    title = {'compatibility': '不生效 / 旁路 / 兼容性', 'visual': '颜色 / 闪烁 / 画面异常', 'crash': '崩溃 / 卡住'}[symptom]
+    title = {'compatibility': '不生效 / 旁路 / 兼容性', 'visual': '颜色 / 闪烁 / 画面异常', 'crash': '崩溃 / 卡住', 'performance': '卡顿 / 低帧率 / 首次开启停顿'}[symptom]
     rows = ['# DLSS5 问题报告', '', '## 请补充', f'问题类型：{title}',
             '游戏名称与版本：', '问题现象：', '复现步骤：', '其他插件与 HDR / FG 状态：', '',
             '## 已检查的 F8 文本记录' if is_text else '## 已验证的包内记录',
@@ -135,6 +140,8 @@ def prepare(core: Path, image: Path | None = None, symptom: str = 'compatibility
         rows.append('游戏已退出时使用离线崩溃收集器。F8 不是 dump/异常栈的替代品，不要公开上传未经检查的 dump。')
     if symptom == 'visual':
         rows.append('F7 会生成新核心包与图像包；请提交新的一对，不能用旧 F8 包与新 F7 图像混配。')
+    if symptom == 'performance':
+        rows += ['', *performance.render(info)]
     rows += ['', '## 附件',
              '请手动附上本报告对应的原始 F8 TXT；不需要另做 ZIP。' if is_text else
              '请手动附上本报告对应的核心 ZIP；有配对图像时同时附上图像 ZIP。',
@@ -146,7 +153,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('core', type=Path, help='Original F8 TXT or completed F7 core ZIP (partial evidence is supported)')
     p.add_argument('--image', type=Path, help='F7 image ZIP; requires its new core ZIP, never an older F8 TXT')
-    p.add_argument('--symptom', choices=('compatibility', 'visual', 'crash'), default='compatibility')
+    p.add_argument('--symptom', choices=('compatibility', 'visual', 'crash', 'performance'), default='compatibility')
     p.add_argument('--output', type=Path, help='Create a new UTF-8 Markdown file; never overwrite an existing file')
     args = p.parse_args(argv)
     try:
