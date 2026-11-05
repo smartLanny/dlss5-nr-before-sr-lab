@@ -56,6 +56,36 @@ class SourceEvidence(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             exporter.export(repo, self.root/'snapshot')
 
+    def test_git_symlink_records_do_not_copy_targets(self):
+        if not shutil.which('git'):
+            self.skipTest('Git unavailable')
+        repo = self.root/'links'
+        repo.mkdir()
+        def git(*args, **kwargs):
+            return subprocess.run(['git', '-C', str(repo), *args], check=True,
+                                  capture_output=True, **kwargs)
+        git('init')
+        git('config', 'user.name', 'fixture')
+        git('config', 'user.email', 'fixture@example.invalid')
+        (repo/'source.cpp').write_bytes(b'// committed source\n')
+        git('add', 'source.cpp')
+        # Index-only links also exercise this contract on Windows without
+        # requiring developer-mode symlink privileges or following any target.
+        for name, target in (('alias', b'source.cpp'),
+                             ('missing', b'not-present'),
+                             ('outside', b'/private/user-data')):
+            oid = git('hash-object', '-w', '--stdin', input=target).stdout.decode().strip()
+            git('update-index', '--add', '--cacheinfo', '120000', oid, name)
+        git('commit', '-m', 'link fixture')
+        receipt = exporter.export(repo, self.root/'snapshot')
+        with zipfile.ZipFile(self.root/'snapshot/committed-source.zip') as zipped:
+            self.assertEqual(zipped.namelist(), ['source.cpp'])
+        self.assertEqual(len(receipt['unmaterialized_symlinks']), 3)
+        for item in receipt['unmaterialized_symlinks']:
+            self.assertEqual(item['status'], 'not-materialized')
+            self.assertEqual(item['git_blob'], git('rev-parse', 'HEAD:'+item['path']).stdout.decode().strip())
+            self.assertNotIn('target', item)
+
     def test_nested_f8_logs_and_generated_source_survive_without_payloads(self):
         original = b'error\r\n\xff\x00'
         for name in collector.ROOTS:

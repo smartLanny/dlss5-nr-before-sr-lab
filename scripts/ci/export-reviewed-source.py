@@ -19,7 +19,7 @@ def git(root, *args, **kwargs):
 def export(root: Path, output: Path):
     commit = git(root, 'rev-parse', 'HEAD').decode().strip()
     tree = git(root, 'rev-parse', 'HEAD^{tree}').decode().strip()
-    entries, gitlinks = [], []
+    entries, gitlinks, links = [], [], []
     for line in git(root, 'ls-tree', '-r', '-z', '-l', commit).split(b'\0'):
         if not line:
             continue
@@ -31,6 +31,12 @@ def export(root: Path, output: Path):
             raise ValueError('Unsafe committed path: '+name)
         if mode == b'160000' and kind == b'commit':
             gitlinks.append({'path': name, 'commit': oid.decode()})
+            continue
+        if mode == b'120000' and kind == b'blob':
+            # Record Git identity, never follow or materialize a link. Historical
+            # inbox aliases are not regular compiler inputs or review payloads.
+            links.append({'path': name, 'git_blob': oid.decode(), 'bytes': int(size),
+                          'status': 'not-materialized'})
             continue
         if kind != b'blob' or mode not in (b'100644', b'100755'):
             raise ValueError('Non-regular source entry: '+name)
@@ -62,7 +68,7 @@ def export(root: Path, output: Path):
         raise ValueError('Trailing Git blob data')
     receipt = {'schema': 'dlss5-committed-source-review-v1', 'source_commit': commit,
                'source_tree': tree, 'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
-               'files': files, 'external_gitlinks': gitlinks,
+               'files': files, 'external_gitlinks': gitlinks, 'unmaterialized_symlinks': links,
                'scope': 'Committed project source only; no build, dependency, GPU or game validation.'}
     (output/'source-review.json').write_text(json.dumps(receipt, indent=2)+'\n', encoding='utf-8')
     return receipt
